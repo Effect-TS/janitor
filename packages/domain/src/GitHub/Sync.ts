@@ -15,6 +15,7 @@ const EntityNumber = Schema.Int.check(Schema.isGreaterThan(0))
 
 /** One synchronization scope. Each scope has exactly one target row. */
 export const SyncScope = Schema.Union([
+  Schema.TaggedStruct("AppInventory", {}),
   Schema.TaggedStruct("InstallationInventory", { installationId: GitHubInstallationId }),
   Schema.TaggedStruct("RepositoryTrack", {
     repositoryId: GitHubRepositoryDatabaseId,
@@ -26,6 +27,8 @@ export type SyncScope = typeof SyncScope.Type
 
 export const syncScopeKey = (scope: SyncScope): string => {
   switch (scope._tag) {
+    case "AppInventory":
+      return "app:installations"
     case "InstallationInventory":
       return `installation:${scope.installationId}`
     case "RepositoryTrack":
@@ -91,18 +94,19 @@ export const SyncTargetRecord = Schema.Struct({
 export type SyncTargetRecord = typeof SyncTargetRecord.Type
 
 /** Whole-system view of synchronization, as shown to people. */
-export const SyncState = Schema.Literals(["idle", "syncing", "blocked"]).annotate({
+export const SyncState = Schema.Literals(["idle", "syncing", "blocked", "failed"]).annotate({
   identifier: "SyncState",
 })
 export type SyncState = typeof SyncState.Type
 
 export const SyncSummary = Schema.Struct({
   state: SyncState,
-  /** Newest verification across every scope, or null before the first one. */
+  /** Oldest verification across tracked scopes; null if any scope has never verified. */
   lastVerifiedAt: Schema.NullOr(Schema.DateTimeUtc),
   /** Scopes with a run requested and not yet completed. */
   pendingTargets: Schema.Int,
   /** Scopes GitHub will not let Janitor read. */
   blockedTargets: Schema.Int,
+  failedTargets: Schema.Int,
 }).annotate({ identifier: "SyncSummary" })
 export type SyncSummary = typeof SyncSummary.Type

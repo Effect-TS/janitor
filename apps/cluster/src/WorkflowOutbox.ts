@@ -18,6 +18,7 @@ export interface OutboxRequest {
   readonly workflowTag: string
   readonly executionKey: string
   readonly payload: unknown
+  readonly dueAt?: Date | undefined
 }
 
 export const OutboxRow = Schema.Struct({
@@ -86,8 +87,11 @@ export class WorkflowOutbox extends Context.Service<
           workflow_tag: request.workflowTag,
           execution_key: request.executionKey,
           payload,
+          ...(request.dueAt === undefined ? {} : { due_at: request.dueAt }),
         })}
-        ON CONFLICT (workflow_tag, execution_key) DO NOTHING
+        ON CONFLICT (workflow_tag, execution_key) DO UPDATE
+        SET due_at = LEAST(workflow_outbox.due_at, EXCLUDED.due_at)
+        WHERE workflow_outbox.accepted_at IS NULL AND workflow_outbox.attempts = 0
       `.pipe(wrap("enqueue"))
     })
 

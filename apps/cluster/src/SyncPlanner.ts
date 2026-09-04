@@ -13,7 +13,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "./SqlErrors.ts"
-import { SYNC_IN_FLIGHT_TIMEOUT, SyncTargets } from "./SyncTargets.ts"
+import { SyncTargets } from "./SyncTargets.ts"
 
 export class SyncPlannerError extends Schema.TaggedError<SyncPlannerError>()(
   "@janitor/cluster/SyncPlanner/SyncPlannerError",
@@ -125,7 +125,6 @@ export class SyncPlanner extends Context.Service<
           (error) => new SyncPlannerError({ operation, message: describeError(error) }),
         )
 
-    const inFlightTimeout = `${Duration.toSeconds(SYNC_IN_FLIGHT_TIMEOUT)} seconds`
     const invalidate = (scope: SyncScope, full: boolean) =>
       targets.invalidate({ scope, sequence: Option.none(), full }).pipe(wrap("plan"))
 
@@ -141,13 +140,27 @@ export class SyncPlanner extends Context.Service<
         return { planned: false, created: 0 }
       }
 
-      let created = 0
+      let created = yield* targets.retryDue.pipe(wrap("retryDue"))
+      const discovery = yield* targets.get({ _tag: "AppInventory" }).pipe(wrap("discovery"))
+      if (
+        Option.isNone(discovery) ||
+        (discovery.value.requestedGeneration === discovery.value.completedGeneration &&
+          isDue(
+            discovery.value.verifiedAt,
+            RepairPolicy.installationInventory,
+            Duration.millis(0),
+            now,
+          ))
+      ) {
+        const requested = yield* invalidate({ _tag: "AppInventory" }, false)
+        if (requested.dispatched) created++
+      }
 
       const installations = yield* sql`
         SELECT i.installation_id, t.verified_at
         FROM github_installation i
         LEFT JOIN sync_target t ON t.scope_key = 'installation:' || i.installation_id
-        WHERE i.status = 'active'
+        WHERE i.status <> 'deleted' AND COALESCE(t.requested_generation, 0) = COALESCE(t.completed_generation, 0) AND t.retry_at IS NULL
       `.pipe(Effect.flatMap(decodeInstallations), wrap("plan"))
       for (const row of installations) {
         const offset = staggerOffset(row.installation_id, RepairPolicy.stagger)
@@ -163,17 +176,16 @@ export class SyncPlanner extends Context.Service<
       const tracks = yield* sql`
         SELECT r.repository_id, r.installation_id, track.name AS track,
                t.verified_at,
-               t.scan_watermark AS last_full_at,
+               t.last_full_at,
                COALESCE(
-                 t.requested_generation > t.completed_generation
-                   AND t.updated_at > CLOCK_TIMESTAMP() - ${inFlightTimeout}::interval,
+                 t.requested_generation > t.completed_generation,
                  FALSE
                ) AS pending
         FROM github_repository r
         CROSS JOIN (VALUES ('labels'), ('entities'), ('pull_requests')) AS track(name)
         LEFT JOIN sync_target t
           ON t.scope_key = 'repository:' || r.repository_id || ':' || track.name
-        WHERE r.enabled AND r.access = 'accessible'
+        WHERE r.enabled AND r.access = 'accessible' AND t.retry_at IS NULL
       `.pipe(Effect.flatMap(decodeTracks), wrap("plan"))
       for (const row of tracks) {
         if (row.pending) continue

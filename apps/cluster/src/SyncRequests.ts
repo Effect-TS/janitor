@@ -2,12 +2,16 @@ import type { SyncGeneration, SyncScope } from "@janitor/domain/GitHub/Sync"
 import { syncScopeKey } from "@janitor/domain/GitHub/Sync"
 import type { OutboxRequest } from "./WorkflowOutbox.ts"
 
+export const DISCOVER_INSTALLATIONS_TAG = "Janitor/DiscoverInstallationsV1"
+
 export const SYNC_INSTALLATION_INVENTORY_TAG = "Janitor/SyncInstallationInventoryV1"
 export const SYNC_REPOSITORY_TRACK_TAG = "Janitor/SyncRepositoryTrackV1"
 export const REFRESH_ENTITY_TAG = "Janitor/RefreshEntityV1"
 
 export const workflowTagForScope = (scope: SyncScope): string => {
   switch (scope._tag) {
+    case "AppInventory":
+      return DISCOVER_INSTALLATIONS_TAG
     case "InstallationInventory":
       return SYNC_INSTALLATION_INVENTORY_TAG
     case "RepositoryTrack":

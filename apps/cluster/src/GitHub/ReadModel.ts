@@ -40,12 +40,14 @@ export class GitHubReadModelError extends Schema.TaggedError<GitHubReadModelErro
 ) {}
 
 export interface InstallationObservation {
+  readonly authoritative?: boolean | undefined
   readonly installation: GitHubInstallationSummary
   readonly status: "active" | "suspended" | "deleted"
   readonly sequence: GitHubWebhookJournalSequence
 }
 
 export interface RepositoriesObservation {
+  readonly authoritative?: boolean | undefined
   readonly installationId: GitHubInstallationId
   readonly repositories: ReadonlyArray<GitHubInstallationRepository>
   readonly sequence: GitHubWebhookJournalSequence
@@ -112,7 +114,8 @@ export type PullRequestProjection =
 export type PullRequestDetailsProjection =
   | { readonly _tag: "Applied" }
   /** No entity row exists yet; the entity scan has not seen this number. */
-  | { readonly _tag: "Unknown" }
+  | { readonly _tag: "Missing" }
+  | { readonly _tag: "Stale" }
 
 const rowsToRecords = <S extends Schema.Top>(schema: S) =>
   Schema.decodeUnknownEffect(Schema.Array(schema))
@@ -250,6 +253,10 @@ export class GitHubReadModel extends Context.Service<
       repositoryId: GitHubRepositoryDatabaseId,
     ) => Effect.Effect<ReadonlyArray<GitHubLabelRecord>, GitHubReadModelError>
     /** Replaces the collection facts of one pull request wholesale. */
+    readonly listOpenEntityNumbersBefore: (
+      repositoryId: GitHubRepositoryDatabaseId,
+      before: DateTime.Utc,
+    ) => Effect.Effect<ReadonlyArray<number>, GitHubReadModelError>
     readonly applyPullRequestCollections: (
       observation: PullRequestCollectionsObservation,
     ) => Effect.Effect<void, GitHubReadModelError>
@@ -273,6 +280,7 @@ export class GitHubReadModel extends Context.Service<
 
     const applyInstallation = Effect.fn("GitHubReadModel.applyInstallation")(function* ({
       installation,
+      authoritative = false,
       status,
       sequence,
     }: InstallationObservation) {
@@ -299,11 +307,13 @@ export class GitHubReadModel extends Context.Service<
           projected_sequence = EXCLUDED.projected_sequence,
           observed_at = CLOCK_TIMESTAMP()
         WHERE github_installation.projected_sequence < EXCLUDED.projected_sequence
+           OR (${authoritative} AND github_installation.projected_sequence = EXCLUDED.projected_sequence)
       `.pipe(wrap("applyInstallation"))
     })
 
     const applyRepositories = Effect.fn("GitHubReadModel.applyRepositories")(function* ({
       installationId,
+      authoritative = false,
       repositories,
       sequence,
     }: RepositoriesObservation) {
@@ -329,6 +339,7 @@ export class GitHubReadModel extends Context.Service<
             projected_sequence = EXCLUDED.projected_sequence,
             observed_at = CLOCK_TIMESTAMP()
           WHERE github_repository.projected_sequence < EXCLUDED.projected_sequence
+             OR (${authoritative} AND github_repository.projected_sequence = EXCLUDED.projected_sequence)
         `.pipe(wrap("applyRepositories"))
       }
     })
@@ -434,6 +445,8 @@ export class GitHubReadModel extends Context.Service<
           draft: pullRequest.draft,
           head_sha: pullRequest.head.sha,
           merged: pullRequest.merged,
+          github_updated_at: DateTime.toDateUtc(pullRequest.updatedAt),
+          projected_sequence: sequence,
         })}
         ON CONFLICT (repository_id, number) DO UPDATE SET
           pull_request_id = EXCLUDED.pull_request_id,
@@ -441,7 +454,9 @@ export class GitHubReadModel extends Context.Service<
           base_ref = EXCLUDED.base_ref,
           draft = EXCLUDED.draft,
           head_sha = EXCLUDED.head_sha,
-          merged = EXCLUDED.merged
+          merged = EXCLUDED.merged,
+          github_updated_at = EXCLUDED.github_updated_at,
+          projected_sequence = EXCLUDED.projected_sequence
       `.pipe(wrap("applyPullRequest"))
 
       for (const label of pullRequest.labels) {
@@ -619,9 +634,9 @@ export class GitHubReadModel extends Context.Service<
         // not seen yet are skipped rather than violating the foreign key.
         const rows = yield* sql`
         INSERT INTO github_pull_request
-          (repository_id, number, pull_request_id, pull_request_node_id, base_ref, draft, head_sha, merged)
+          (repository_id, number, pull_request_id, pull_request_node_id, base_ref, draft, head_sha, merged, github_updated_at, projected_sequence)
         SELECT ${repositoryId}, ${pullRequest.number}, ${pullRequest.id}, ${pullRequest.nodeId},
-               ${pullRequest.base.ref}, ${pullRequest.draft}, ${pullRequest.head.sha}, ${merged}
+               ${pullRequest.base.ref}, ${pullRequest.draft}, ${pullRequest.head.sha}, ${merged}, ${DateTime.toDateUtc(pullRequest.updatedAt)}, ${sequence}
         WHERE EXISTS (
           SELECT 1 FROM github_entity e
           WHERE e.repository_id = ${repositoryId} AND e.number = ${pullRequest.number}
@@ -632,16 +647,25 @@ export class GitHubReadModel extends Context.Service<
           base_ref = EXCLUDED.base_ref,
           draft = EXCLUDED.draft,
           head_sha = EXCLUDED.head_sha,
-          merged = EXCLUDED.merged
-        WHERE EXISTS (
+          merged = EXCLUDED.merged,
+          github_updated_at = EXCLUDED.github_updated_at,
+          projected_sequence = EXCLUDED.projected_sequence
+        WHERE (github_pull_request.github_updated_at IS NULL OR github_pull_request.github_updated_at < EXCLUDED.github_updated_at
+          OR (github_pull_request.github_updated_at = EXCLUDED.github_updated_at AND github_pull_request.projected_sequence <= EXCLUDED.projected_sequence))
+        AND EXISTS (
           SELECT 1 FROM github_entity e
           WHERE e.repository_id = EXCLUDED.repository_id AND e.number = EXCLUDED.number
-            AND e.github_updated_at <= ${DateTime.toDateUtc(pullRequest.updatedAt)}
+            AND (e.github_updated_at < ${DateTime.toDateUtc(pullRequest.updatedAt)}
+              OR (e.github_updated_at = ${DateTime.toDateUtc(pullRequest.updatedAt)} AND e.projected_sequence <= ${sequence}))
         )
         RETURNING number
       `.pipe(wrap("applyPullRequestDetails"))
-        void sequence
-        return rows.length === 0 ? ({ _tag: "Unknown" } as const) : ({ _tag: "Applied" } as const)
+        if (rows.length > 0) return { _tag: "Applied" } as const
+        const existing =
+          yield* sql`SELECT 1 FROM github_entity WHERE repository_id = ${repositoryId} AND number = ${pullRequest.number}`.pipe(
+            wrap("applyPullRequestDetails"),
+          )
+        return existing.length === 0 ? ({ _tag: "Missing" } as const) : ({ _tag: "Stale" } as const)
       },
     )
 
@@ -877,7 +901,18 @@ export class GitHubReadModel extends Context.Service<
         ),
       )
 
+    const listOpenEntityNumbersBefore = (
+      repositoryId: GitHubRepositoryDatabaseId,
+      before: DateTime.Utc,
+    ) =>
+      sql<{ number: number }>`SELECT number FROM github_entity WHERE repository_id = ${repositoryId}
+        AND state = 'open' AND observed_at < ${DateTime.toDateUtc(before)}`.pipe(
+        Effect.map((rows) => rows.map((row) => row.number)),
+        wrap("listOpenEntityNumbersBefore"),
+      )
+
     return {
+      listOpenEntityNumbersBefore,
       withTransaction,
       applyInstallation,
       applyRepositories,

@@ -17,7 +17,7 @@ layer(BudgetLayer, { timeout: "2 minutes" })("GitHubBudget against Postgres", (i
 
       const decision = yield* budget.acquire({
         ...key("s1"),
-        priority: "incremental",
+        priority: "background",
         leaseToken: "l1",
       })
       assert.deepStrictEqual(decision, { _tag: "Granted", leaseToken: "l1" })
@@ -44,12 +44,12 @@ layer(BudgetLayer, { timeout: "2 minutes" })("GitHubBudget against Postgres", (i
 
       const background = yield* budget.acquire({
         ...key("s2"),
-        priority: "incremental",
+        priority: "background",
         leaseToken: "l2",
       })
       const foreground = yield* budget.acquire({
         ...key("s2"),
-        priority: "mutation",
+        priority: "foreground",
         leaseToken: "l3",
       })
 
@@ -74,7 +74,7 @@ layer(BudgetLayer, { timeout: "2 minutes" })("GitHubBudget against Postgres", (i
 
       const decision = yield* budget.acquire({
         ...key("s3"),
-        priority: "mutation",
+        priority: "foreground",
         leaseToken: "l4",
       })
 
@@ -89,7 +89,7 @@ layer(BudgetLayer, { timeout: "2 minutes" })("GitHubBudget against Postgres", (i
       for (let index = 0; index < MAX_CONCURRENT_LEASES; index++) {
         const decision = yield* budget.acquire({
           ...key("s4"),
-          priority: "mutation",
+          priority: "foreground",
           leaseToken: `c${index}`,
         })
         assert.strictEqual(decision._tag, "Granted")
@@ -97,7 +97,7 @@ layer(BudgetLayer, { timeout: "2 minutes" })("GitHubBudget against Postgres", (i
 
       const overflow = yield* budget.acquire({
         ...key("s4"),
-        priority: "mutation",
+        priority: "foreground",
         leaseToken: "c-over",
       })
       assert.strictEqual(overflow._tag, "Wait")
@@ -106,7 +106,7 @@ layer(BudgetLayer, { timeout: "2 minutes" })("GitHubBudget against Postgres", (i
       yield* budget.release("c0")
       const after = yield* budget.acquire({
         ...key("s4"),
-        priority: "mutation",
+        priority: "foreground",
         leaseToken: "c-after",
       })
       assert.strictEqual(after._tag, "Granted")
@@ -130,11 +130,87 @@ layer(BudgetLayer, { timeout: "2 minutes" })("GitHubBudget against Postgres", (i
 
       const decision = yield* budget.acquire({
         ...key("s5"),
-        priority: "mutation",
+        priority: "foreground",
         leaseToken: "l5",
       })
       assert.strictEqual(decision._tag, "Wait")
       if (decision._tag === "Wait") assert.strictEqual(decision.reason, "cooldown")
+    }),
+  )
+  it.effect("bounds concurrent first requests before any response exists", () =>
+    Effect.gen(function* () {
+      const budget = yield* GitHubBudget
+      const decisions = yield* Effect.all(
+        Array.from({ length: 24 }, (_, index) =>
+          budget.acquire({
+            ...key("first-race"),
+            priority: "foreground",
+            leaseToken: `race-${index}`,
+          }),
+        ),
+        { concurrency: "unbounded" },
+      )
+      assert.strictEqual(
+        decisions.filter((decision) => decision._tag === "Granted").length,
+        MAX_CONCURRENT_LEASES,
+      )
+    }),
+  )
+
+  it.effect("does not increase remaining allowance when responses arrive out of order", () =>
+    Effect.gen(function* () {
+      const budget = yield* GitHubBudget
+      const now = yield* DateTime.now
+      const reset = Math.floor(
+        DateTime.toEpochMillis(DateTime.addDuration(now, Duration.hours(1))) / 1000,
+      )
+      yield* budget.record({
+        ...key("ordering"),
+        observedAt: now,
+        headers: { "x-ratelimit-remaining": 1, "x-ratelimit-reset": reset },
+      })
+      yield* budget.record({
+        ...key("ordering"),
+        observedAt: DateTime.addDuration(now, Duration.seconds(1)),
+        headers: { "x-ratelimit-remaining": 100, "x-ratelimit-reset": reset },
+      })
+      yield* budget.acquire({
+        ...key("ordering"),
+        priority: "foreground",
+        leaseToken: "ordering-1",
+      })
+      const second = yield* budget.acquire({
+        ...key("ordering"),
+        priority: "foreground",
+        leaseToken: "ordering-2",
+      })
+      assert.strictEqual(second._tag, "Wait")
+    }),
+  )
+
+  it.effect("records a shared secondary cooldown before releasing its reservation", () =>
+    Effect.gen(function* () {
+      const budget = yield* GitHubBudget
+      const now = yield* DateTime.now
+      yield* budget.acquire({
+        ...key("secondary-record"),
+        priority: "foreground",
+        leaseToken: "secondary-1",
+      })
+      yield* budget.record({
+        ...key("secondary-record"),
+        observedAt: now,
+        leaseToken: "secondary-1",
+        headers: {},
+        cooldown: { until: DateTime.addDuration(now, Duration.minutes(1)), kind: "secondary" },
+      })
+      const next = yield* budget.acquire({
+        ...key("secondary-record"),
+        priority: "foreground",
+        leaseToken: "secondary-2",
+      })
+      assert.strictEqual(next._tag, "Wait")
+      if (next._tag === "Wait") assert.strictEqual(next.reason, "cooldown")
     }),
   )
 })

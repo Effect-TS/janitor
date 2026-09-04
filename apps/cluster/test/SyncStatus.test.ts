@@ -68,6 +68,7 @@ layer(StatusLayer, { timeout: "2 minutes" })("SyncStatus against Postgres", (it)
         lastVerifiedAt: null,
         pendingTargets: 0,
         blockedTargets: 0,
+        failedTargets: 0,
       })
     }),
   )
@@ -80,12 +81,13 @@ layer(StatusLayer, { timeout: "2 minutes" })("SyncStatus against Postgres", (it)
 
       const result = yield* status.requestAll
       // Inventory plus three tracks for the enabled repository; the paused one is skipped.
-      assert.strictEqual(result.requested, 4)
+      assert.strictEqual(result.requested, 5)
       assert.strictEqual(result.summary.state, "syncing")
-      assert.strictEqual(result.summary.pendingTargets, 4)
+      assert.strictEqual(result.summary.pendingTargets, 5)
       assert.deepStrictEqual(
         (yield* targetRows).map((row) => [row.scope_key, row.requested_generation]),
         [
+          ["app:installations", "1"],
           ["installation:77", "1"],
           ["repository:701:entities", "2"],
           ["repository:701:labels", "2"],
@@ -96,7 +98,7 @@ layer(StatusLayer, { timeout: "2 minutes" })("SyncStatus against Postgres", (it)
       // Verifying every scope returns the system to idle with a last-verified time.
       for (const row of yield* targetRows) {
         const record = Option.getOrThrow(yield* targets.get(scopeOf(row.scope_key)))
-        yield* targets.begin(record.scope, record.requestedGeneration)
+        yield* targets.begin(record.scope, record.dispatchedGeneration)
         yield* targets.complete({
           scope: record.scope,
           generation: record.requestedGeneration,
@@ -126,9 +128,33 @@ layer(StatusLayer, { timeout: "2 minutes" })("SyncStatus against Postgres", (it)
       assert.strictEqual(summary.blockedTargets, 1)
     }),
   )
+  it.effect("reports failed runs instead of claiming success and retains old pending runs", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const status = yield* SyncStatus
+      const sql = yield* SqlClient.SqlClient
+      const scope = { _tag: "InstallationInventory" as const, installationId }
+      const requested = yield* targets.invalidate({ scope, sequence: Option.none() })
+      yield* targets.begin(scope, requested.generation)
+      yield* targets.complete({
+        scope,
+        generation: requested.generation,
+        outcome: { _tag: "Failed", error: "network down" },
+      })
+      const failed = yield* status.summary
+      assert.strictEqual(failed.state, "failed")
+      assert.strictEqual(failed.failedTargets, 1)
+      yield* targets.invalidate({ scope, sequence: Option.none() })
+      yield* sql`UPDATE sync_target SET updated_at = CLOCK_TIMESTAMP() - INTERVAL '2 hours' WHERE scope_key = 'installation:77'`
+      const pending = yield* status.summary
+      assert.strictEqual(pending.state, "syncing")
+      assert.strictEqual(pending.pendingTargets, 1)
+    }),
+  )
 })
 
 const scopeOf = (key: string) => {
+  if (key === "app:installations") return { _tag: "AppInventory" } as const
   const parts = key.split(":")
   if (parts[0] === "installation") {
     return {

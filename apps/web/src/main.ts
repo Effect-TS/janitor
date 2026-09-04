@@ -110,19 +110,30 @@ export const toastFor = Match.type<SyncButton.OutMessage>().pipe(
         description: `Refreshing ${pendingTargets} GitHub scopes.`,
       },
     }),
-    SyncFinished: ({ state, blockedTargets }) =>
-      state === "blocked"
+    SyncFinished: ({ state, blockedTargets, failedTargets }) =>
+      state === "failed"
         ? {
-            variant: "Warning",
+            variant: "Error",
             payload: {
-              title: "Sync finished with blocked scopes",
-              description: `${blockedTargets} scopes could not be read from GitHub.`,
+              title: "Sync finished with failures",
+              description: `${failedTargets} scopes failed. You can retry synchronization.`,
             },
           }
-        : {
-            variant: "Success",
-            payload: { title: "Sync complete", description: "GitHub data is up to date." },
-          },
+        : state === "blocked"
+          ? {
+              variant: "Warning",
+              payload: {
+                title: "Sync finished with blocked scopes",
+                description: `${blockedTargets} scopes could not be read from GitHub.`,
+              },
+            }
+          : {
+              variant: "Success",
+              payload: {
+                title: "Sync complete",
+                description: "Requested synchronization finished. Local data refreshed.",
+              },
+            },
     SyncFailed: ({ reason }) => ({
       variant: "Error",
       payload: { title: "Sync request failed", description: reason },
@@ -134,11 +145,18 @@ const foldSyncOutMessage =
   (outMessage: SyncButton.OutMessage): Update.Step<Model, Message, AppServices> =>
   (model) => {
     const shown = AppToast.show(model.toast, toastFor(outMessage))
+    const refreshed =
+      outMessage._tag === "SyncFinished"
+        ? Repositories.refreshAfterSync(model.repositories)
+        : { model: model.repositories, commands: [] }
     return {
-      model: evo(model, { toast: () => shown.model }),
-      commands: Command.mapMessages(shown.commands, (message) =>
-        Message.GotToastMessage({ message }),
-      ),
+      model: evo(model, { toast: () => shown.model, repositories: () => refreshed.model }),
+      commands: [
+        ...Command.mapMessages(shown.commands, (message) => Message.GotToastMessage({ message })),
+        ...Command.mapMessages(refreshed.commands, (message) =>
+          Message.GotRepositoriesMessage({ message }),
+        ),
+      ],
     }
   }
 

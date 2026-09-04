@@ -8,7 +8,7 @@ import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
-import { GitHubAppAuth } from "../../src/GitHub/AppAuth.ts"
+import { GitHubAppAuth, GitHubAppAuthError } from "../../src/GitHub/AppAuth.ts"
 import {
   type AcquireDecision,
   type CooldownRequest,
@@ -45,6 +45,7 @@ const run = <A, E>(
     _tag: "Granted",
     leaseToken: token,
   }),
+  failCredentials = false,
 ) => {
   let tokenIssue = 0
   const client = HttpClient.make((request) =>
@@ -60,7 +61,15 @@ const run = <A, E>(
         Layer.provide(
           Layer.succeed(GitHubAppAuth, {
             appJwt: Effect.succeed(Redacted.make("app-jwt")),
-            installationToken: () => Effect.sync(() => Redacted.make(`ghs_${++tokenIssue}`)),
+            installationToken: () =>
+              failCredentials
+                ? Effect.fail(
+                    new GitHubAppAuthError({
+                      operation: "installationToken",
+                      message: "token unavailable",
+                    }),
+                  )
+                : Effect.sync(() => Redacted.make(`ghs_${++tokenIssue}`)),
             invalidateInstallationToken: (id) =>
               Effect.sync(() => void recorder.invalidated.push(id)),
           }),
@@ -73,7 +82,12 @@ const run = <A, E>(
                 return typeof decision === "function" ? decision(request.leaseToken) : decision
               }),
             release: (token) => Effect.sync(() => void recorder.released.push(token)),
-            record: (observation) => Effect.sync(() => void recorder.recorded.push(observation)),
+            record: (observation) =>
+              Effect.sync(() => {
+                recorder.recorded.push(observation)
+                if (observation.cooldown !== undefined)
+                  recorder.cooldowns.push({ ...observation, ...observation.cooldown })
+              }),
             cooldown: (request) => Effect.sync(() => void recorder.cooldowns.push(request)),
           }),
         ),
@@ -115,7 +129,7 @@ describe("GitHubTransport", () => {
         Effect.flatMap(GitHubTransport, (transport) =>
           transport.request({
             scope: { _tag: "Installation", installationId: installation },
-            priority: "incremental",
+            priority: "background",
             method: "GET",
             url: "/installation/repositories?per_page=100",
             etag: 'W/"old"',
@@ -153,7 +167,7 @@ describe("GitHubTransport", () => {
         Effect.flatMap(GitHubTransport, (transport) =>
           transport.request({
             scope: { _tag: "App" },
-            priority: "bootstrap",
+            priority: "background",
             method: "GET",
             url: "/app/installations",
           }),
@@ -176,7 +190,7 @@ describe("GitHubTransport", () => {
         Effect.flatMap(GitHubTransport, (transport) =>
           transport.request({
             scope: { _tag: "Installation", installationId: installation },
-            priority: "mutation",
+            priority: "foreground",
             method: "GET",
             url: "/repos/effect/janitor",
           }),
@@ -204,7 +218,7 @@ describe("GitHubTransport", () => {
         Effect.flatMap(GitHubTransport, (transport) =>
           transport.request({
             scope: { _tag: "App" },
-            priority: "incremental",
+            priority: "background",
             method: "GET",
             url: "/x",
           }),
@@ -213,7 +227,7 @@ describe("GitHubTransport", () => {
 
       assert.isTrue(Exit.isFailure(exit))
       if (Exit.isFailure(exit)) assert.include(String(exit.cause), "GitHubRateLimited")
-      assert.strictEqual(recorder.cooldowns[0]?.kind, "retry-after")
+      assert.strictEqual(recorder.cooldowns[0]?.kind, "secondary")
       assert.strictEqual(recorder.cooldowns[0]?.scopeKey, "app")
       assert.strictEqual(recorder.released.length, 1)
     }),
@@ -230,7 +244,7 @@ describe("GitHubTransport", () => {
         Effect.flatMap(GitHubTransport, (transport) =>
           transport.request({
             scope: { _tag: "App" },
-            priority: "full-repair",
+            priority: "background",
             method: "GET",
             url: "/x",
           }),
@@ -253,7 +267,7 @@ describe("GitHubTransport", () => {
         Effect.flatMap(GitHubTransport, (transport) =>
           transport.request({
             scope: { _tag: "App" },
-            priority: "incremental",
+            priority: "background",
             method: "GET",
             url: "/missing",
           }),
@@ -266,6 +280,49 @@ describe("GitHubTransport", () => {
         body: { message: "Not Found" },
         requestId: Option.none(),
       })
+    }),
+  )
+  it.effect("recognizes a secondary limit without rate-limit headers", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+      const exit = yield* run(
+        recorder,
+        () => json({ message: "You have exceeded a secondary rate limit" }, { status: 403 }),
+        Effect.flatMap(GitHubTransport, (transport) =>
+          transport.request({
+            scope: { _tag: "App" },
+            priority: "background",
+            method: "GET",
+            url: "/items",
+          }),
+        ),
+      ).pipe(Effect.exit)
+      assert.isTrue(Exit.isFailure(exit))
+      assert.strictEqual(recorder.cooldowns[0]?.kind, "secondary")
+      assert.strictEqual(recorder.released.length, 1)
+    }),
+  )
+
+  it.effect("releases the reservation when acquiring credentials fails", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+      const exit = yield* run(
+        recorder,
+        () => json({}),
+        Effect.flatMap(GitHubTransport, (transport) =>
+          transport.request({
+            scope: { _tag: "Installation", installationId: installation },
+            priority: "foreground",
+            method: "GET",
+            url: "/items",
+          }),
+        ),
+        (leaseToken) => ({ _tag: "Granted", leaseToken }),
+        true,
+      ).pipe(Effect.exit)
+      assert.isTrue(Exit.isFailure(exit))
+      assert.deepStrictEqual(recorder.released, recorder.leases)
+      assert.strictEqual(recorder.requests.length, 0)
     }),
   )
 })

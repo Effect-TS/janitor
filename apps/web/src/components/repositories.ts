@@ -1203,3 +1203,16 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
     ],
   ),
 )
+
+/** Refresh server data after sync without replacing an open editor or its draft. */
+export const refreshAfterSync = (model: Model): UpdateReturn => ({
+  model,
+  commands: [
+    FetchRepositories(),
+    FetchCatalog(),
+    ...Option.match(model.selected, {
+      onNone: () => [],
+      onSome: (repositoryId) => [FetchDetail({ repositoryId }), FetchConsent({ repositoryId })],
+    }),
+  ],
+})

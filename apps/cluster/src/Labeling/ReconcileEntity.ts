@@ -372,10 +372,10 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
       const response = yield* transport
         .request(
           action.action === "add"
-            ? { scope, priority: "mutation", method: "POST", url: base, body: { labels: [name] } }
+            ? { scope, priority: "foreground", method: "POST", url: base, body: { labels: [name] } }
             : {
                 scope,
-                priority: "mutation",
+                priority: "foreground",
                 method: "DELETE",
                 url: `${base}/${encodeURIComponent(name)}`,
               },

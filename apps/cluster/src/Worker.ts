@@ -1,3 +1,8 @@
+import {
+  DiscoverInstallationsLayer,
+  DiscoverInstallationsRegistration,
+} from "./GitHub/DiscoverInstallations.ts"
+import { LabelingSyncIntegrationLayer } from "./Labeling/SyncIntegration.ts"
 import * as AlchemyCloudflareCluster from "@effect/platform-cloudflare/AlchemyCloudflareCluster"
 import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -173,6 +178,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     const ClusterLayer = Layer.mergeAll(
+      DiscoverInstallationsLayer,
       ProjectGitHubWebhookLayer,
       SyncInstallationInventoryLayer,
       SyncRepositoryTrackLayer,
@@ -181,6 +187,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
     ).pipe(
+      Layer.provideMerge(LabelingSyncIntegrationLayer),
       Layer.provideMerge(
         Layer.mergeAll(
           SyncPlanner.layer,
@@ -196,6 +203,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(ProviderLayer),
       Layer.provideMerge(
         WorkflowDispatcher.layer([
+          DiscoverInstallationsRegistration,
           ProjectGitHubWebhookRegistration,
           SyncInstallationInventoryRegistration,
           SyncRepositoryTrackRegistration,

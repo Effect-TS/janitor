@@ -30,15 +30,9 @@ export const gitHubApiScopeKey = (scope: GitHubApiScope): string =>
  * Highest first. Mutation verification and webhook refresh keep a reserve
  * that background work may not consume.
  */
-export const GitHubRequestPriority = Schema.Literals([
-  "mutation",
-  "webhook-refresh",
-  "access-repair",
-  "label-validation",
-  "incremental",
-  "bootstrap",
-  "full-repair",
-]).annotate({ identifier: "GitHubRequestPriority" })
+export const GitHubRequestPriority = Schema.Literals(["foreground", "background"]).annotate({
+  identifier: "GitHubRequestPriority",
+})
 export type GitHubRequestPriority = typeof GitHubRequestPriority.Type
 
 export const GitHubInstallationAccessToken = Schema.Struct({

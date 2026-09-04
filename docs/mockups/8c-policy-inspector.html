@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inspector · Policy editor · Janitor</title>
+    <link rel="stylesheet" href="mockup.css" />
+    <link rel="stylesheet" href="policy-editor-studies.css" />
+    <script src="policy-editor-studies.js" defer></script>
+  </head>
+  <body class="variant-c">
+    <div class="study-strip">
+      <a href="README.md" class="study-label">Policy editor studies</a>
+      <nav aria-label="Design variants">
+        <a href="8a-policy-document.html">A<span> Document</span></a
+        ><a href="8b-policy-compact.html">B<span> Compact</span></a
+        ><a href="8c-policy-inspector.html" aria-current="page">C<span> Inspector</span></a>
+      </nav>
+      <span class="prototype-label">Interactive mockup</span
+      ><button class="theme-button" data-theme-toggle aria-label="Switch to dark mode">
+        <svg
+          class="icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M20 15A9 9 0 0 1 9 3a9 9 0 1 0 11 12" />
+        </svg>
+      </button>
+    </div>
+    <div class="workbench">
+      <aside class="app-sidebar">
+        <div class="wordmark"><span class="brand-mark">j</span>janitor</div>
+        <div class="repository">
+          <span class="repo-avatar">EF</span
+          ><span class="repo-identity"><small>Effectful-Tech</small><strong>effect</strong></span
+          ><span class="active-state">Active</span>
+        </div>
+        <nav aria-label="Repository navigation">
+          <a class="nav-item" href="6e-home.html"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 10l9-7 9 7 M5 9v12h14V9 M10 21v-7h4v7" /></svg
+            ><span>Overview</span></a
+          ><a class="nav-item selected" href="8c-policy-inspector.html" aria-current="page"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M5 3h9l5 5v13H5z M14 3v6h5 M8 13h8 M8 17h5" /></svg
+            ><span>Policies</span><small>6</small></a
+          ><a class="nav-item" href="6c-rules.html"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6" /></svg
+            ><span>Rules</span></a
+          ><a class="nav-item" href="6d-activity.html"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 12h4l3-8 4 16 3-8h4" /></svg
+            ><span>Activity</span></a
+          >
+        </nav>
+        <div class="sidebar-bottom">
+          <a class="nav-item" href="7a-repository-switcher-compact.html"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 7h16 M4 17h16 M8 4v6 M16 14v6" /></svg
+            ><span>Repository switcher study</span></a
+          >
+          <div class="account"><span class="user-avatar">MB</span><span>maxwellbrown</span></div>
+        </div>
+      </aside>
+      <main class="workspace">
+        <header class="workspace-header">
+          <div>
+            <h2>Policies</h2>
+            <span class="muted">effect</span>
+          </div>
+          <div class="actions">
+            <span id="save-state" role="status">Draft saved</span
+            ><button class="btn" id="save">Save draft</button
+            ><button class="btn primary" id="publish">Publish</button>
+          </div>
+        </header>
+        <div class="panes">
+          <aside class="policy-list" aria-label="Policies">
+            <div class="list-heading">
+              <h2>All policies <span id="policy-count">6</span></h2>
+              <button class="icon-button" id="new-policy" aria-label="Create policy">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 5v14 M5 12h14" />
+                </svg>
+              </button>
+            </div>
+            <label class="policy-search"
+              ><svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0" /></svg
+              ><input
+                type="search"
+                id="policy-search"
+                placeholder="Find a policy…"
+                aria-label="Find a policy"
+              /><kbd>/</kbd></label
+            >
+            <div id="policy-rows"></div>
+            <p id="empty-policies" hidden>No matching policies.</p>
+            <div class="list-footer">
+              <span class="status-dot"></span>Policies run through rules
+            </div>
+          </aside>
+          <section class="editor-pane" aria-label="Policy editor">
+            <header class="file-heading">
+              <div>
+                <span class="muted">Policies / </span>
+                <h1 data-policy-title>needs-rebase</h1>
+              </div>
+              <span class="draft-state">Draft changes</span>
+            </header>
+            <div class="program-frame">
+              <div class="program-toolbar">
+                <span
+                  ><svg
+                    class="icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m8 7-5 5 5 5 m8-10 5 5-5 5 m-3-14-2 18" />
+                  </svg>
+                  Program <small>JSON</small></span
+                ><button class="text-button" id="format">Format</button>
+              </div>
+              <div class="source-area">
+                <pre id="line-numbers" aria-hidden="true"></pre>
+                <div class="source-stack">
+                  <pre id="highlight" aria-hidden="true"></pre>
+                  <textarea
+                    id="source"
+                    aria-label="Policy program JSON"
+                    spellcheck="false"
+                    wrap="off"
+                  ></textarea>
+                </div>
+              </div>
+              <footer class="editor-status">
+                <span id="validation" role="status">✓ Valid JSON</span
+                ><span>UTF-8 <span class="status-separator">·</span> 2 spaces</span>
+              </footer>
+            </div>
+            <details class="reference">
+              <summary>Condition reference</summary>
+              <p>
+                Combine conditions with <code>all</code>, <code>any</code>, or <code>not</code>.
+                Compare a <code>fact</code> using an <code>operator</code> and <code>value</code>.
+              </p>
+            </details>
+          </section>
+          <aside class="inspector" aria-label="Policy details and test bench">
+            <section class="inspector-details">
+              <h2>Policy details</h2>
+              <label class="sr-only" for="policy-name">Policy name</label
+              ><input
+                id="policy-name"
+                class="name-input"
+                value="needs-rebase"
+                spellcheck="false"
+              /><label class="sr-only" for="policy-description">Description</label
+              ><textarea
+                id="policy-description"
+                class="description-input"
+                rows="2"
+                placeholder="Describe what this policy decides"
+              >
+Find open pull requests with merge conflicts.</textarea>
+              <div class="detail-pair"><span>Target</span><span>Pull requests</span></div>
+              <div class="detail-pair"><span>Published</span><span>v2</span></div>
+            </section>
+            <section class="bench">
+              <div class="section-heading">
+                <h2>Test bench</h2>
+                <span class="muted">Preview</span>
+              </div>
+              <p class="section-description">Try this draft on a pull request.</p>
+              <label for="sample">Pull request</label
+              ><select id="sample">
+                <option value="match">#1842 · Fix stream interruption</option>
+                <option value="miss">#1839 · Update dependencies</option>
+                <option value="unknown">#1831 · Add schema helpers</option></select
+              ><button class="btn run-test" id="run-test">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m8 5 11 7-11 7z" /></svg
+                >Test draft
+              </button>
+              <div id="test-results" aria-live="polite">
+                <div class="result-heading">
+                  <span class="result-tag">Match</span><span class="muted">Sample result</span>
+                </div>
+                <p class="result-copy">This pull request meets every condition.</p>
+                <div class="trace">
+                  <div><span>State is open</span><b>✓</b></div>
+                  <div><span>Merge conflicts found</span><b>✓</b></div>
+                </div>
+                <div class="test-effect">
+                  <span class="muted">Through rule <b>needs-rebase</b></span
+                  ><span class="label-preview"><i></i>needs-rebase</span>
+                </div>
+              </div>
+            </section>
+            <details class="inspector-section">
+              <summary>Used by <span>1 rule</span></summary>
+              <p>The <b>needs-rebase</b> rule adds its label when this policy matches.</p>
+              <a href="6c-rules.html" class="text-link">View rules →</a>
+            </details>
+            <details class="inspector-section">
+              <summary>Data &amp; dependencies</summary>
+              <div class="detail-pair">
+                <span>Pull requests</span><span class="ready">Ready</span>
+              </div>
+              <p>Reads state and mergeability. No referenced policies.</p>
+            </details>
+            <div class="bench-footnote">
+              Sample data. Tests and publishing are simulated; edits last until reload.
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+    <footer class="design-note">
+      <b>C / Inspector</b
+      ><span
+        >The center belongs to the program. Name and description live together in the right sidebar,
+        above the test bench.</span
+      >
+    </footer>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </body>
+</html>

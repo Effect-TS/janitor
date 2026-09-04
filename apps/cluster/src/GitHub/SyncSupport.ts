@@ -19,8 +19,7 @@ import {
   type GitHubResponse,
   type GitHubTransportFailure,
 } from "./Transport.ts"
-import { RulesetActivation } from "../Labeling/Activation.ts"
-import { backfillAfterActivation } from "../Labeling/SnapshotHandoff.ts"
+import { SyncIntegration } from "../SyncIntegration.ts"
 
 export const SyncRunOutcome = Schema.Literals(["verified", "blocked", "failed", "superseded"])
 export type SyncRunOutcome = typeof SyncRunOutcome.Type
@@ -170,16 +169,11 @@ export const PAGE_SIZE = 100
 
 export const MAX_PAGES = 200
 
-export interface PageResult<A> {
-  readonly items: ReadonlyArray<A>
-  readonly next: string | null
-}
-
 /**
  * Follows `Link: rel="next"` from `firstUrl`, running one uniquely named
  * activity per page. Returns every item, or a failure describing the page.
  */
-export const paginate = <A, S extends Schema.Top>(options: {
+export const paginate = <A, S extends Schema.Top, E = never, R = never>(options: {
   readonly name: string
   readonly firstUrl: string
   readonly request: Omit<GitHubRequest, "url" | "method">
@@ -188,15 +182,22 @@ export const paginate = <A, S extends Schema.Top>(options: {
   readonly itemSchema: Schema.Codec<A, unknown>
   readonly onFailed?: ((status: number) => SyncRunOutcome | undefined) | undefined
   readonly cache?: CacheOptions | undefined
+  /** Stop only after inspecting the unfiltered page. */
+  readonly stopAfter?: (body: S["Type"]) => boolean
+  readonly onPage?: (items: ReadonlyArray<A>, ordinal: number) => Effect.Effect<void, E, R>
+  readonly collect?: boolean
+  readonly allowTruncate?: boolean
+  readonly maxPages?: number
 }) =>
   Effect.gen(function* () {
     const collected: Array<A> = []
+    let count = 0
     let next: string | null = options.firstUrl
     const pageSchema = Schema.Struct({
       items: Schema.Array(options.itemSchema),
       next: Schema.NullOr(Schema.String),
     })
-    for (let ordinal = 0; next !== null && ordinal < MAX_PAGES; ordinal++) {
+    for (let ordinal = 0; next !== null && ordinal < (options.maxPages ?? MAX_PAGES); ordinal++) {
       const url: string = next
       const result = yield* withRateLimitWaits(`${options.name}/${ordinal}`, (attempt) =>
         Activity.make({
@@ -222,7 +223,11 @@ export const paginate = <A, S extends Schema.Top>(options: {
               response.fromCache && Option.isNone(response.next) && items.length >= PAGE_SIZE
                 ? Option.some(probeUrl(url))
                 : response.next
-            return { _tag: "Page" as const, items, next: Option.getOrNull(next) }
+            return {
+              _tag: "Page" as const,
+              items,
+              next: options.stopAfter?.(response.body) ? null : Option.getOrNull(next),
+            }
           }),
         }),
       ).pipe(Effect.result)
@@ -235,13 +240,20 @@ export const paginate = <A, S extends Schema.Top>(options: {
           ? { _tag: "Blocked" as const, reason: `http-${result.success.status}` }
           : { _tag: "Failed" as const, message: result.success.message }
       }
-      collected.push(...result.success.items)
+      if (options.onPage) yield* options.onPage(result.success.items, ordinal)
+      count += result.success.items.length
+      if (options.collect !== false) collected.push(...result.success.items)
       next = result.success.next
     }
-    if (next !== null) {
+    if (next !== null && !options.allowTruncate) {
       return { _tag: "Failed" as const, message: `${options.name} exceeded ${MAX_PAGES} pages` }
     }
-    return { _tag: "Complete" as const, items: collected as ReadonlyArray<A> }
+    return {
+      _tag: "Complete" as const,
+      items: collected as ReadonlyArray<A>,
+      count,
+      complete: next === null,
+    }
   })
 
 /** Records the run outcome on the target inside its own activity. */
@@ -259,22 +271,11 @@ export const completeRun = (
       const accepted = yield* targets
         .complete({ scope, generation, outcome })
         .pipe(Effect.mapError((error) => failure(error.message)))
-      // A verified repository track may be the last one a saved ruleset
-      // revision was waiting on. Optional so tests without labeling still run.
-      if (outcome._tag === "Verified" && scope._tag === "RepositoryTrack") {
-        const activation = yield* Effect.serviceOption(RulesetActivation)
-        if (Option.isSome(activation)) {
-          const promoted = yield* activation.value
-            .promote(scope.repositoryId)
-            .pipe(
-              Effect.catchCause((cause) =>
-                Effect.logError("Ruleset promotion after track verification failed", cause).pipe(
-                  Effect.as(Option.none()),
-                ),
-              ),
-            )
-          if (Option.isSome(promoted)) yield* backfillAfterActivation(scope.repositoryId)
-        }
+      if (accepted && outcome._tag === "Verified" && scope._tag === "RepositoryTrack") {
+        const integration = yield* SyncIntegration
+        yield* integration
+          .trackVerified(scope.repositoryId)
+          .pipe(Effect.mapError((error) => failure(error.message)))
       }
       const detail =
         outcome._tag === "Failed"
@@ -294,23 +295,6 @@ export const completeRun = (
           ...(detail === undefined ? {} : { detail }),
         }),
       )
-    }),
-  })
-
-/**
- * Asks for another generation of the same scope. The run in flight blocks
- * dispatch, so completion enqueues the follow-up once this run's generation
- * is recorded.
- */
-export const requestFollowUp = (name: string, scope: SyncScope) =>
-  Activity.make({
-    name: `${name}/FollowUp`,
-    error: SyncActivityError,
-    execute: Effect.gen(function* () {
-      const targets = yield* SyncTargets
-      yield* targets
-        .invalidate({ scope, sequence: Option.none() })
-        .pipe(Effect.mapError((error) => failure(error.message)))
     }),
   })
 
@@ -339,8 +323,32 @@ export const resolveRepository = (repositoryId: GitHubRepositoryDatabaseId) =>
     if (Option.isNone(repository)) {
       return { _tag: "Blocked" as const, reason: "repository-unknown" }
     }
+    if (!repository.value.enabled)
+      return { _tag: "Blocked" as const, reason: "repository-disabled" }
     if (repository.value.access !== "accessible") {
       return { _tag: "Blocked" as const, reason: `repository-access-${repository.value.access}` }
     }
     return { _tag: "Found" as const, repository: repository.value }
   })
+
+/** Each HTTP request has its own durable result; later rate limits do not repeat it. */
+export const fetchInActivity = <S extends Schema.Top>(
+  name: string,
+  request: GitHubRequest,
+  schema: S,
+) =>
+  withRateLimitWaits(name, (attempt) =>
+    Activity.make({
+      name: `${name}/${attempt}`,
+      success: Schema.Union([
+        Schema.TaggedStruct("Ok", { body: schema }),
+        Schema.TaggedStruct("Failed", { status: Schema.Int, message: Schema.String }),
+      ]),
+      error: SyncActivityFailure,
+      execute: fetchJson(request, schema).pipe(
+        Effect.map((response) =>
+          response._tag === "Failed" ? response : { _tag: "Ok" as const, body: response.body },
+        ),
+      ),
+    }),
+  )

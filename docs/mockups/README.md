@@ -115,3 +115,36 @@ Porting notes:
   seams. Each is one Foldkit view function.
 - Label colours come from GitHub, so they stay inline styles rather than
   classes.
+
+## Policy editor studies
+
+Three compact variations on `5a-workbench-sidebar.html`, using the repository
+switcher studies' neutral palette, small typography, and quiet selection states.
+Open any file directly in a browser. The links across the top switch designs.
+
+| File                                                 | Direction                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [8a-policy-document.html](8a-policy-document.html)   | Recommended. Editable name and description form a document heading above the program. |
+| [8b-policy-compact.html](8b-policy-compact.html)     | A compact title bar with expandable policy details and an edge-to-edge editor.        |
+| [8c-policy-inspector.html](8c-policy-inspector.html) | Name and description move into the right sidebar, leaving more room for the program.  |
+
+Each keeps application navigation, searchable policies, a central editor, and a
+right-hand test bench. Secondary dependency information is collapsed. Search,
+selection, new drafts, name and description edits, JSON editing and formatting,
+and light/dark mode work locally. Press `/` outside a field to search policies.
+
+The needs-rebase policy has three sample test outcomes. Changing its program
+clears the result; the prototype does not evaluate edited policies. Saving and
+publishing only simulate state changes in memory. Reloading resets the mockup.
+JSON syntax validation is real; domain validation is not implemented here.
+Other navigation links lead to earlier mockups. Shared styles and interactions
+live in `policy-editor-studies.css` and `policy-editor-studies.js`.
+
+### Tighter document variant
+
+[8d-policy-document-tight.html](8d-policy-document-tight.html) revises the document
+layout with a shorter header. Name and description remain above the program;
+target, published revision, and draft status move below the test bench in the
+right sidebar. Rule usage stays in its existing sidebar disclosure. The
+description uses one line initially and can be resized for longer notes.
+The top navigation links back to the original document study for comparison.

@@ -276,7 +276,7 @@ layer(ReadModelLayer, { timeout: "2 minutes" })("GitHubReadModel against Postgre
           base: { ref: "main" },
         },
       })
-      assert.deepStrictEqual(unknown, { _tag: "Unknown" })
+      assert.deepStrictEqual(unknown, { _tag: "Missing" })
 
       const detailsApplied = yield* readModel.applyPullRequestDetails({
         repositoryId: scanRepo,
@@ -307,6 +307,39 @@ layer(ReadModelLayer, { timeout: "2 minutes" })("GitHubReadModel against Postgre
       assert.strictEqual(details.baseRef, "develop")
       assert.isTrue(details.draft)
       assert.isFalse(details.merged)
+    }),
+  )
+  it.effect("inventory repairs a rename and suspect access without a new webhook", () =>
+    Effect.gen(function* () {
+      const readModel = yield* GitHubReadModel
+      const id = GitHubRepositoryDatabaseId.make("901")
+      yield* readModel.applyRepositories({
+        installationId,
+        repositories: [{ id, fullName: { owner: "old", repo: "name" }, isPrivate: true }],
+        sequence: seq(100),
+      })
+      yield* readModel.markRepositoriesSuspect({ installationId, present: [], sequence: seq(100) })
+      yield* readModel.applyRepositories({
+        installationId,
+        repositories: [{ id, fullName: { owner: "new", repo: "renamed" }, isPrivate: true }],
+        sequence: seq(100),
+        authoritative: true,
+      })
+      const recovered = Option.getOrThrow(yield* readModel.getRepository(id))
+      assert.strictEqual(recovered.access, "accessible")
+      assert.strictEqual(recovered.owner, "new")
+      yield* readModel.markRepositoriesLost({
+        installationId,
+        repositories: [{ id, fullName: { owner: "new", repo: "renamed" }, isPrivate: true }],
+        sequence: seq(101),
+      })
+      yield* readModel.applyRepositories({
+        installationId,
+        repositories: [{ id, fullName: { owner: "old", repo: "name" }, isPrivate: true }],
+        sequence: seq(100),
+        authoritative: true,
+      })
+      assert.strictEqual(Option.getOrThrow(yield* readModel.getRepository(id)).access, "lost")
     }),
   )
 })

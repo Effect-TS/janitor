@@ -36,7 +36,7 @@ const runPaginate = (
         paginate({
           name: "Test/Pages",
           firstUrl: "/items?per_page=100",
-          request: { scope: { _tag: "App" }, priority: "incremental" },
+          request: { scope: { _tag: "App" }, priority: "background" },
           page: Schema.Array(Item),
           items: (items) => items,
           itemSchema: Item,

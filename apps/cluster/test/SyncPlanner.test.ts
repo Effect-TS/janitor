@@ -62,10 +62,10 @@ layer(PlannerLayer, { timeout: "2 minutes" })("SyncPlanner against Postgres", (i
       })
 
       const first = yield* planner.plan(now)
-      assert.deepStrictEqual(first, { planned: true, created: 1 })
+      assert.deepStrictEqual(first, { planned: true, created: 2 })
       assert.deepStrictEqual(
         (yield* pendingScopes).map((row) => row.scope_key),
-        ["installation:321"],
+        ["app:installations", "installation:321"],
       )
 
       // Not yet due for another pass.
@@ -76,6 +76,7 @@ layer(PlannerLayer, { timeout: "2 minutes" })("SyncPlanner against Postgres", (i
       assert.deepStrictEqual(
         (yield* pendingScopes).map((row) => [row.scope_key, row.full_requested]),
         [
+          ["app:installations", false],
           ["installation:321", false],
           ["repository:654:entities", true],
           ["repository:654:labels", true],
@@ -117,7 +118,7 @@ layer(PlannerLayer, { timeout: "2 minutes" })("SyncPlanner against Postgres", (i
         },
       })
       const sql = yield* SqlClient.SqlClient
-      yield* sql`UPDATE sync_target SET verified_at = CLOCK_TIMESTAMP() WHERE scope_key = ${"repository:654:entities"}`
+      yield* sql`UPDATE sync_target SET verified_at = CLOCK_TIMESTAMP(), last_full_at = ${DateTime.toDateUtc(DateTime.subtractDuration(now, Duration.days(8)))}, scan_watermark = ${DateTime.toDateUtc(now)} WHERE scope_key = ${"repository:654:entities"}`
 
       const summary = yield* planner.plan(DateTime.addDuration(now, Duration.hours(2)))
       assert.isTrue(summary.planned)

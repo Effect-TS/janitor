@@ -24,7 +24,6 @@ import {
   failure,
   logWorkflowFailure,
   paginate,
-  requestFollowUp,
   resolveRepository,
 } from "./SyncSupport.ts"
 
@@ -62,7 +61,7 @@ const BeginActivityResult = Schema.Union([
     owner: Schema.String,
     repo: Schema.String,
   }),
-  Schema.TaggedStruct("Blocked", { reason: Schema.String }),
+  Schema.TaggedStruct("Blocked", { reason: Schema.String, generation: SyncGeneration }),
   Schema.TaggedStruct("Superseded", {}),
 ])
 
@@ -88,7 +87,7 @@ const begin = (scope: SyncScope & { _tag: "RepositoryTrack" }, generation: SyncG
       }
       const repository = yield* resolveRepository(scope.repositoryId)
       if (repository._tag === "Blocked") {
-        return { _tag: "Blocked" as const, reason: repository.reason }
+        return { _tag: "Blocked" as const, reason: repository.reason, generation: run.generation }
       }
       return {
         _tag: "Run" as const,
@@ -122,7 +121,7 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
     if (begun._tag === "Superseded") {
       return result(payload.generation, "superseded", 0)
     }
-    const generation = begun._tag === "Run" ? begun.generation : payload.generation
+    const generation = begun.generation
     if (begun._tag === "Blocked") {
       yield* completeRun("SyncRepositoryTrack", scope, generation, {
         _tag: "Blocked",
@@ -177,14 +176,22 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
       })
 
     const readModel = yield* GitHubReadModel
+    const targets = yield* SyncTargets
     const request = {
       scope: { _tag: "Installation" as const, installationId: begun.installationId },
-      priority: begun.full
-        ? ("full-repair" as const)
-        : Option.isSome(since)
-          ? ("incremental" as const)
-          : ("bootstrap" as const),
+      priority: "background" as const,
     }
+    const applyPage = (name: string, ordinal: number, execute: Effect.Effect<unknown, Error>) =>
+      Activity.make({
+        name: `SyncRepositoryTrack/${name}/${ordinal}`,
+        error: SyncActivityError,
+        execute: targets.withRun(scope, generation, execute).pipe(
+          Effect.flatMap((applied) =>
+            Option.isSome(applied) ? Effect.void : Effect.fail(failure("Run superseded")),
+          ),
+          Effect.mapError((error) => failure(error.message)),
+        ),
+      })
 
     switch (track) {
       case "labels": {
@@ -206,7 +213,11 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
           error: SyncActivityError,
           execute: readModel
             .withTransaction(
-              readModel.applyLabelCatalog({ repositoryId, labels: pages.items, sequence }),
+              targets.withRun(
+                scope,
+                generation,
+                readModel.applyLabelCatalog({ repositoryId, labels: pages.items, sequence }),
+              ),
             )
             .pipe(Effect.mapError((error) => failure(error.message))),
         })
@@ -216,39 +227,56 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
         const state = Option.isSome(since) ? "all" : "open"
         const pages = yield* paginate({
           name: "SyncRepositoryTrack/Issues",
-          firstUrl: `${path}/issues?state=${state}&sort=updated&direction=desc&per_page=100${sinceQuery}`,
+          firstUrl: `${path}/issues?state=${state}&sort=${Option.isSome(since) ? "updated" : "created"}&direction=${Option.isSome(since) ? "desc" : "asc"}&per_page=100${sinceQuery}`,
           request,
           page: Schema.Array(GitHubIssueApi),
           items: (issues) => issues,
           itemSchema: GitHubIssueApi,
           onFailed: blockedOn404,
-          cache: { repositoryId: Option.some(repositoryId) },
-        })
-        if (pages._tag !== "Complete") {
-          return yield* finish(pages)
-        }
-        yield* Activity.make({
-          name: "SyncRepositoryTrack/ApplyIssues",
-          error: SyncActivityError,
-          execute: readModel
-            .withTransaction(
+          // A changing since parameter is not a reusable representation.
+          collect: false,
+          onPage: (issues, ordinal) =>
+            applyPage(
+              "ApplyIssues",
+              ordinal,
               Effect.forEach(
-                pages.items,
+                issues,
                 (issue) => readModel.applyIssue({ repositoryId, issue, sequence }),
-                {
-                  discard: true,
-                },
+                { discard: true },
               ),
-            )
-            .pipe(Effect.mapError((error) => failure(error.message))),
+            ),
         })
-        return yield* finish({ _tag: "Complete", count: pages.items.length })
+        if (pages._tag !== "Complete") return yield* finish(pages)
+        if (Option.isNone(since)) {
+          yield* Activity.make({
+            name: "SyncRepositoryTrack/VerifyAbsentOpen",
+            error: SyncActivityError,
+            execute: targets
+              .withRun(
+                scope,
+                generation,
+                Effect.gen(function* () {
+                  const missing = yield* readModel.listOpenEntityNumbersBefore(repositoryId, cutoff)
+                  for (const entity of missing)
+                    yield* targets.invalidate({
+                      scope: { _tag: "Entity", repositoryId, number: entity },
+                      sequence: Option.some(sequence),
+                    })
+                }),
+              )
+              .pipe(
+                Effect.asVoid,
+                Effect.mapError((error) => failure(error.message)),
+              ),
+          })
+        }
+        return yield* finish({ _tag: "Complete", count: pages.count })
       }
       case "pull_requests": {
         const state = Option.isSome(since) ? "all" : "open"
         const pages = yield* paginate({
           name: "SyncRepositoryTrack/PullRequests",
-          firstUrl: `${path}/pulls?state=${state}&sort=updated&direction=desc&per_page=100`,
+          firstUrl: `${path}/pulls?state=${state}&sort=${Option.isSome(since) ? "updated" : "created"}&direction=${Option.isSome(since) ? "desc" : "asc"}&per_page=100`,
           request,
           page: Schema.Array(GitHubPullRequestApi),
           items: (pulls) =>
@@ -259,33 +287,38 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
                 pulls.filter((pull) => !DateTime.isLessThan(pull.updatedAt, floor)),
             }),
           itemSchema: GitHubPullRequestApi,
+          stopAfter: (pulls) =>
+            Option.isSome(since) &&
+            pulls.some((pull) => DateTime.isLessThan(pull.updatedAt, since.value)),
+          collect: false,
+          onPage: (pulls, ordinal) =>
+            applyPage(
+              "ApplyPullRequests",
+              ordinal,
+              Effect.gen(function* () {
+                for (const pullRequest of pulls) {
+                  const applied = yield* readModel.applyPullRequestDetails({
+                    repositoryId,
+                    pullRequest,
+                    sequence,
+                  })
+                  if (applied._tag === "Missing") {
+                    // A targeted refresh creates canonical identity and details together.
+                    yield* targets.invalidate({
+                      scope: { _tag: "Entity", repositoryId, number: pullRequest.number },
+                      sequence: Option.some(sequence),
+                    })
+                  }
+                }
+              }),
+            ),
           onFailed: blockedOn404,
           cache: { repositoryId: Option.some(repositoryId) },
         })
         if (pages._tag !== "Complete") {
           return yield* finish(pages)
         }
-        const unknown = yield* Activity.make({
-          name: "SyncRepositoryTrack/ApplyPullRequests",
-          success: Schema.Int,
-          error: SyncActivityError,
-          execute: readModel
-            .withTransaction(
-              Effect.forEach(pages.items, (pullRequest) =>
-                readModel.applyPullRequestDetails({ repositoryId, pullRequest, sequence }),
-              ),
-            )
-            .pipe(
-              Effect.map((results) => results.filter((result) => result._tag === "Unknown").length),
-              Effect.mapError((error) => failure(error.message)),
-            ),
-        })
-        // The entity scan may still be bootstrapping alongside this run; ask
-        // for another pass so the skipped details attach once it lands.
-        if (unknown > 0) {
-          yield* requestFollowUp("SyncRepositoryTrack", scope)
-        }
-        return yield* finish({ _tag: "Complete", count: pages.items.length - unknown })
+        return yield* finish({ _tag: "Complete", count: pages.count })
       }
     }
   }, logWorkflowFailure("SyncRepositoryTrack")),

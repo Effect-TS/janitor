@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
+import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { SyncGeneration, type SyncScope } from "@janitor/domain/GitHub/Sync"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { SyncTargets } from "../src/SyncTargets.ts"
@@ -76,7 +76,7 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
         generation: gen(2),
         outcome: { _tag: "Verified", watermark: Option.none() },
       })
-      assert.isFalse(followUp)
+      assert.isTrue(followUp)
 
       const target = Option.getOrThrow(yield* targets.get(s))
       assert.strictEqual(target.completedGeneration, "2")
@@ -119,7 +119,7 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
     }),
   )
 
-  it.effect("a run past the in-flight timeout no longer blocks dispatch", () =>
+  it.effect("a long-running or suspended workflow is not replaced by elapsed time", () =>
     Effect.gen(function* () {
       const targets = yield* SyncTargets
       const sql = yield* SqlClient.SqlClient
@@ -135,10 +135,10 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
         WHERE scope_key = 'installation:9'
       `
       const expired = yield* targets.invalidate({ scope: s, sequence: seq(3) })
-      assert.deepStrictEqual(expired, { generation: gen(3), dispatched: true })
+      assert.deepStrictEqual(expired, { generation: gen(3), dispatched: false })
       assert.deepStrictEqual(
         (yield* outboxRows("installation:9")).map((row) => row.execution_key),
-        ["installation:9:1", "installation:9:3"],
+        ["installation:9:1"],
       )
     }),
   )
@@ -149,6 +149,7 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
       const s = scope("4")
       yield* targets.invalidate({ scope: s, sequence: Option.none() })
 
+      yield* targets.begin(s, gen(1))
       yield* targets.complete({
         scope: s,
         generation: gen(1),
@@ -160,6 +161,7 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
       assert.strictEqual(target.verifiedGeneration, "0")
 
       yield* targets.invalidate({ scope: s, sequence: Option.none() })
+      yield* targets.begin(s, gen(2))
       yield* targets.complete({
         scope: s,
         generation: gen(2),
@@ -169,6 +171,120 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
       assert.strictEqual(target.health, "ok")
       assert.strictEqual(target.lastError, "boom")
       assert.strictEqual(target.completedGeneration, "2")
+    }),
+  )
+  it.effect("serializes simultaneous first invalidations into one dispatch", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const s = scope("501")
+      const results = yield* Effect.all(
+        Array.from({ length: 20 }, () => targets.invalidate({ scope: s, sequence: Option.none() })),
+        { concurrency: "unbounded" },
+      )
+      assert.strictEqual(results.filter((result) => result.dispatched).length, 1)
+      assert.strictEqual((yield* outboxRows("installation:501")).length, 1)
+      assert.strictEqual(Option.getOrThrow(yield* targets.get(s)).requestedGeneration, "20")
+    }),
+  )
+
+  it.effect("captures coverage and preserves a full repair requested after begin", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const s = scope("502")
+      yield* targets.invalidate({ scope: s, sequence: seq(10) })
+      const original = yield* targets.begin(s, gen(1))
+      yield* targets.invalidate({ scope: s, sequence: seq(20), full: true })
+      assert.deepStrictEqual(yield* targets.begin(s, gen(1)), original)
+      yield* targets.complete({
+        scope: s,
+        generation: gen(1),
+        outcome: { _tag: "Verified", watermark: Option.none() },
+      })
+      assert.strictEqual(Option.getOrThrow(yield* targets.get(s)).verifiedSequence, "10")
+      const follow = yield* targets.begin(s, gen(2))
+      assert.strictEqual(follow._tag, "Run")
+      if (follow._tag === "Run") assert.isTrue(follow.full)
+      assert.isFalse(
+        yield* targets.complete({
+          scope: s,
+          generation: gen(1),
+          outcome: { _tag: "Blocked", reason: "old" },
+        }),
+      )
+      const target = Option.getOrThrow(yield* targets.get(s))
+      assert.strictEqual(target.health, "ok")
+      assert.strictEqual(target.completedGeneration, "1")
+      assert.isTrue(
+        Option.isNone(yield* targets.withRun(s, gen(1), Effect.die("stale write must not run"))),
+      )
+    }),
+  )
+
+  it.effect("rolls back target completion when enqueueing the follow-up fails", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const sql = yield* SqlClient.SqlClient
+      const s = scope("503")
+      yield* targets.invalidate({ scope: s, sequence: Option.none() })
+      yield* targets.begin(s, gen(1))
+      yield* targets.invalidate({ scope: s, sequence: Option.none() })
+      yield* sql.unsafe(
+        "CREATE FUNCTION reject_sync_followup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.execution_key = 'installation:503:2' THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END $$",
+      )
+      yield* sql.unsafe(
+        "CREATE TRIGGER reject_sync_followup BEFORE INSERT ON workflow_outbox FOR EACH ROW EXECUTE FUNCTION reject_sync_followup()",
+      )
+      const failed = yield* targets
+        .complete({
+          scope: s,
+          generation: gen(1),
+          outcome: { _tag: "Verified", watermark: Option.none() },
+        })
+        .pipe(Effect.result)
+      yield* sql.unsafe("DROP TRIGGER reject_sync_followup ON workflow_outbox")
+      assert.strictEqual(failed._tag, "Failure")
+      assert.strictEqual(Option.getOrThrow(yield* targets.get(s)).completedGeneration, "0")
+    }),
+  )
+
+  it.effect("recovers a terminal execution and retries a failed entity target", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const sql = yield* SqlClient.SqlClient
+      const s: SyncScope = {
+        _tag: "Entity",
+        repositoryId: GitHubRepositoryDatabaseId.make("77"),
+        number: 9,
+      }
+      yield* targets.invalidate({ scope: s, sequence: seq(1), full: true })
+      yield* targets.begin(s, gen(1))
+      yield* targets.recoverTerminal(s, gen(1))
+      yield* sql`UPDATE sync_target SET retry_at = CLOCK_TIMESTAMP() - INTERVAL '1 second' WHERE scope_key = 'entity:77:9'`
+      yield* targets.retryDue
+      const next = yield* targets.begin(s, gen(2))
+      assert.strictEqual(next._tag, "Run")
+      if (next._tag === "Run") assert.isTrue(next.full)
+      yield* targets.recoverTerminal(s, gen(1))
+      assert.strictEqual(Option.getOrThrow(yield* targets.get(s)).completedGeneration, "1")
+    }),
+  )
+  it.effect("manual requests accelerate the original debounced payload", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const sql = yield* SqlClient.SqlClient
+      const s = scope("504")
+      yield* targets.invalidate({ scope: s, sequence: Option.none() })
+      const before = yield* sql<{
+        due_at: Date
+      }>`SELECT due_at FROM workflow_outbox WHERE execution_key = 'installation:504:1'`
+      yield* targets.invalidate({ scope: s, sequence: Option.none(), immediate: true })
+      const after = yield* sql<{
+        due_at: Date
+        payload: { generation: string }
+      }>`SELECT due_at, payload FROM workflow_outbox WHERE execution_key = 'installation:504:1'`
+      assert.strictEqual(before[0]!.due_at.getTime() - after[0]!.due_at.getTime(), 5000)
+      assert.strictEqual(after[0]!.payload.generation, "1")
+      assert.strictEqual((yield* outboxRows("installation:504")).length, 1)
     }),
   )
 })

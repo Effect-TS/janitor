@@ -1,3 +1,4 @@
+import { WorkflowDispatcher } from "../../src/WorkflowDispatcher.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -12,6 +13,7 @@ const summary: SyncSummary = {
   lastVerifiedAt: DateTime.makeUnsafe("2026-09-03T12:00:00.000Z"),
   pendingTargets: 0,
   blockedTargets: 0,
+  failedTargets: 0,
 }
 
 const withHandler = <A, E, R>(
@@ -20,7 +22,17 @@ const withHandler = <A, E, R>(
 ) =>
   Effect.acquireUseRelease(
     Effect.sync(() => HttpRouter.toWebHandler(SyncRoutesLayer, { disableLogger: true })),
-    ({ handler }) => use((request) => handler(request, Context.make(SyncStatus, status))),
+    ({ handler }) =>
+      use((request) =>
+        handler(
+          request,
+          Context.make(SyncStatus, status).pipe(
+            Context.add(WorkflowDispatcher, {
+              dispatchDue: () => Effect.succeed({ claimed: 0, accepted: 0, released: 0 }),
+            }),
+          ),
+        ),
+      ),
     ({ dispose }) => Effect.promise(dispose),
   )
 
@@ -48,6 +60,7 @@ describe("SyncRoutes", () => {
           lastVerifiedAt: "2026-09-03T12:00:00.000Z",
           pendingTargets: 0,
           blockedTargets: 0,
+          failedTargets: 0,
         })
       }),
     ),

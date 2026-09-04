@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite-plus"
 
 export default defineConfig({
+  root: new URL(".", import.meta.url).pathname,
   plugins: [tailwindcss(), foldkit({ devToolsMcpPort: 9988 })],
   resolve: {
     alias: {
@@ -33,6 +34,7 @@ export default defineConfig({
     },
   },
   test: {
+    name: "web",
     environment: "happy-dom",
     setupFiles: ["./vitest-setup.ts"],
   },

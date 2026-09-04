@@ -80,6 +80,7 @@ const runWorkflow = (
         ),
         Layer.provide(
           Layer.succeed(GitHubReadModel, {
+            listOpenEntityNumbersBefore: () => Effect.succeed([]),
             withTransaction: (effect) => effect,
             applyInstallation: () => Effect.void,
             applyRepositories: () => Effect.void,
@@ -99,6 +100,9 @@ const runWorkflow = (
         ),
         Layer.provide(
           Layer.succeed(SyncTargets, {
+            withRun: (_scope, _generation, effect) => Effect.map(effect, Option.some),
+            retryDue: Effect.succeed(0),
+            recoverTerminal: () => Effect.void,
             invalidate: () =>
               Effect.succeed({ generation: SyncGeneration.make("1"), dispatched: true }),
             begin: () => Effect.succeed({ _tag: "Superseded" as const }),

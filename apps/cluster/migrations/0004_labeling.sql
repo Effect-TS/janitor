@@ -1,13 +1,26 @@
--- Policies and rules (plan: "Persistence"). Policies are named programs
--- with immutable, content-addressed published versions and one draft.
--- Rules bind a label to a policy. Every publish or rule change advances
--- the repository revision and snapshots the enabled rules with the
--- versions they bind, so a reconciliation reloads exactly what was live.
--- The sandbox holds nothing worth migrating, so the ruleset blob goes.
+-- Policies have immutable published versions and one draft. Repository
+-- configurations snapshot the enabled rules and the versions they bind.
 
-DROP TABLE labeling_repository_rules;
-DROP TABLE labeling_ruleset_revision;
-DELETE FROM labeling_reconciliation;
+-- Qualified snapshot handoff. One row per
+-- reconciliation identity; the outbox row for the reconcile workflow is
+-- written in the same transaction. Outcomes land on the same row.
+CREATE TABLE labeling_reconciliation (
+  repository_id TEXT NOT NULL,
+  number INTEGER NOT NULL CHECK (number > 0),
+  snapshot_generation BIGINT NOT NULL,
+  rules_revision BIGINT NOT NULL,
+  covered_sequence BIGINT NOT NULL,
+  fingerprint TEXT NOT NULL CHECK (fingerprint ~ '^[0-9a-f]{64}$'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CLOCK_TIMESTAMP(),
+  outcome TEXT CHECK (outcome IN ('evaluated', 'superseded', 'not-qualified', 'failed')),
+  detail TEXT,
+  completed_at TIMESTAMPTZ,
+  plan JSONB,
+  PRIMARY KEY (repository_id, number, snapshot_generation, rules_revision)
+);
+
+CREATE INDEX labeling_reconciliation_recent_idx
+  ON labeling_reconciliation (repository_id, created_at DESC);
 
 CREATE TABLE labeling_policy (
   policy_id TEXT PRIMARY KEY,
@@ -147,4 +160,43 @@ CREATE TABLE labeling_label_action (
   FOREIGN KEY (repository_id, number, snapshot_generation, rules_revision)
     REFERENCES labeling_reconciliation (repository_id, number, snapshot_generation, rules_revision)
     ON DELETE CASCADE
+);
+
+-- Classifier evaluation. Consent is per
+-- repository and names the provider and model it covers. Leases bound
+-- in-flight provider calls so revocation can drain them. Decisions are
+-- cached by policy version and evidence so a repeated snapshot does not
+-- repeat the call.
+CREATE TABLE labeling_ai_consent (
+  repository_id TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('enabled', 'draining', 'disabled')),
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  actor_issuer TEXT NOT NULL,
+  actor_subject TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CLOCK_TIMESTAMP()
+);
+
+CREATE TABLE labeling_ai_lease (
+  lease_id TEXT PRIMARY KEY,
+  repository_id TEXT NOT NULL,
+  acquired_at TIMESTAMPTZ NOT NULL DEFAULT CLOCK_TIMESTAMP(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  released_at TIMESTAMPTZ
+);
+CREATE INDEX labeling_ai_lease_active_idx ON labeling_ai_lease (repository_id, released_at, expires_at);
+
+CREATE TABLE labeling_ai_decision (
+  repository_id TEXT NOT NULL,
+  policy_version_id TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  evidence_hash TEXT NOT NULL CHECK (evidence_hash ~ '^[0-9a-f]{64}$'),
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('match', 'no-match', 'unknown')),
+  confidence REAL NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+  reason TEXT NOT NULL,
+  latency_ms INTEGER NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CLOCK_TIMESTAMP(),
+  PRIMARY KEY (repository_id, policy_version_id, number, evidence_hash)
 );

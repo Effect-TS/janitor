@@ -32,7 +32,7 @@ export const SYNC_ENDPOINT = "/api/v1/sync"
 // links a local checkout, so a schema imported from the domain package is a
 // different `effect` here. Keep the two in step until the pins converge.
 
-export const SyncState = Schema.Literals(["idle", "syncing", "blocked"])
+export const SyncState = Schema.Literals(["idle", "syncing", "blocked", "failed"])
 export type SyncState = typeof SyncState.Type
 
 export const SyncSummary = Schema.Struct({
@@ -40,6 +40,7 @@ export const SyncSummary = Schema.Struct({
   lastVerifiedAt: Schema.NullOr(Schema.DateTimeUtc),
   pendingTargets: Schema.Int,
   blockedTargets: Schema.Int,
+  failedTargets: Schema.Int,
 })
 export type SyncSummary = typeof SyncSummary.Type
 
@@ -55,6 +56,7 @@ export const Model = Schema.Struct({
   observedAt: Schema.Option(Schema.DateTimeUtc),
   /** Set from the button press until the request answers. */
   isRequesting: Schema.Boolean,
+  isPolling: Schema.Boolean,
   lastError: Schema.Option(Schema.String),
 })
 export type Model = typeof Model.Type
@@ -79,7 +81,11 @@ export type Message = typeof Message.Type
 /** What the parent needs to know to show toasts. */
 export const OutMessage = defineMessageUnion({
   SyncStarted: { pendingTargets: Schema.Int },
-  SyncFinished: { state: Schema.Literals(["idle", "blocked"]), blockedTargets: Schema.Int },
+  SyncFinished: {
+    state: Schema.Literals(["idle", "blocked", "failed"]),
+    blockedTargets: Schema.Int,
+    failedTargets: Schema.Int,
+  },
   SyncFailed: { reason: Schema.String },
 })
 export type OutMessage = typeof OutMessage.Type
@@ -133,6 +139,7 @@ export const init = (): UpdateReturn => ({
       summary: Option.none(),
       observedAt: Option.none(),
       isRequesting: false,
+      isPolling: true,
       lastError: Option.none(),
     },
     { disableChecks: true },
@@ -172,7 +179,7 @@ const absorbSummary = (
   const next = evo(model, {
     summary: () => Option.some(summary),
     observedAt: () => Option.some(receivedAt),
-    isRequesting: () => false,
+    isPolling: () => false,
     lastError: () => Option.none<string>(),
   })
   return wasSyncing && summary.state !== "syncing"
@@ -181,6 +188,7 @@ const absorbSummary = (
         outMessage: OutMessage.SyncFinished({
           state: summary.state,
           blockedTargets: summary.blockedTargets,
+          failedTargets: summary.failedTargets,
         }),
       }
     : { model: next }
@@ -191,19 +199,25 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotTooltipMessage: ({ message }) => foldTooltip(model, message),
 
     PressedSync: () =>
-      isSyncing(model)
+      isSyncing(model) || model.isPolling
         ? { model }
         : {
             model: evo(model, { isRequesting: () => true, lastError: () => Option.none<string>() }),
             commands: [RequestSync()],
           },
 
-    Polled: () => ({ model, commands: [FetchSyncSummary()] }),
+    Polled: () =>
+      model.isRequesting || model.isPolling
+        ? { model }
+        : {
+            model: evo(model, { isPolling: () => true }),
+            commands: [FetchSyncSummary()],
+          },
 
     GotSummary: ({ summary, receivedAt }) => absorbSummary(model, summary, receivedAt),
 
     FailedSummary: ({ reason }) => ({
-      model: evo(model, { lastError: () => Option.some(reason) }),
+      model: evo(model, { isPolling: () => false, lastError: () => Option.some(reason) }),
     }),
 
     GotRequestResult: ({ summary, receivedAt }) => ({
@@ -229,7 +243,9 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   poll: entry(
     { isSyncing: Schema.Boolean },
     {
-      modelToDependencies: (model) => ({ isSyncing: isSyncing(model) }),
+      modelToDependencies: (model) => ({
+        isSyncing: !model.isRequesting && !model.isPolling && stateOf(model) === "syncing",
+      }),
       dependenciesToStream: ({ isSyncing }) =>
         isSyncing ? Stream.map(Stream.tick(POLL_INTERVAL), () => Message.Polled()) : Stream.empty,
     },
@@ -264,12 +280,14 @@ export const tooltipText = (model: Model): string =>
       switch (summary.state) {
         case "syncing":
           return `Syncing ${summary.pendingTargets} scopes`
+        case "failed":
+          return `${summary.failedTargets} scopes failed; retry available`
         case "blocked":
           return `${summary.blockedTargets} scopes blocked`
         case "idle":
           return summary.lastVerifiedAt === null || Option.isNone(model.observedAt)
-            ? "Never synced"
-            : `Last synced ${describeLastSync(summary.lastVerifiedAt, model.observedAt.value)}`
+            ? "Some scopes have never synced"
+            : `Oldest verification ${describeLastSync(summary.lastVerifiedAt, model.observedAt.value)}`
       }
     },
   })
@@ -293,7 +311,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                 ...render.trigger,
                 h.Type("button"),
                 h.AriaLabel("Re-sync GitHub"),
-                h.Disabled(syncing),
+                h.Disabled(syncing || model.isPolling),
                 h.DataAttribute("state", syncing ? "syncing" : "idle"),
                 h.OnClick(Message.PressedSync()),
                 h.Class(

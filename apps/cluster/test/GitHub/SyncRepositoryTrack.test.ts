@@ -1,3 +1,4 @@
+import { SyncIntegration, type CollectionTrack } from "../../src/SyncIntegration.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -50,7 +51,13 @@ interface Recorder {
   readonly labels: Array<LabelCatalogObservation>
   readonly issues: Array<IssueObservation>
   readonly pulls: Array<PullRequestDetailsObservation>
+  readonly invalidated: Array<import("../../src/SyncTargets.ts").InvalidateRequest>
+  readonly missingOpen: Array<number>
+  readonly missingDetails: Set<number>
   readonly completed: Array<CompleteRequest>
+  readonly collections: Array<
+    import("../../src/GitHub/ReadModel.ts").PullRequestCollectionsObservation
+  >
 }
 const makeRecorder = (): Recorder => ({
   requests: [],
@@ -58,6 +65,10 @@ const makeRecorder = (): Recorder => ({
   issues: [],
   pulls: [],
   completed: [],
+  invalidated: [],
+  missingOpen: [],
+  missingDetails: new Set(),
+  collections: [],
 })
 
 const ok = (body: unknown, link?: string): GitHubResponse => ({
@@ -80,8 +91,14 @@ const services = (
   respond: (request: GitHubRequest) => GitHubResponse,
   begin: BeginResult,
   stored: Option.Option<GitHubRepositoryRecord> = Option.some(repository),
+  required: ReadonlyArray<CollectionTrack> = [],
 ) =>
   Layer.mergeAll(
+    Layer.succeed(SyncIntegration, {
+      requiredCollections: () => Effect.succeed(required),
+      trackVerified: () => Effect.void,
+      entityVerified: () => Effect.void,
+    }),
     Layer.succeed(GitHubHttpCache, {
       get: () => Effect.succeedNone,
       put: () => Effect.void,
@@ -96,16 +113,24 @@ const services = (
         }),
     }),
     Layer.succeed(SyncTargets, {
-      invalidate: () => Effect.die("unused"),
+      withRun: (_scope, _generation, effect) => Effect.map(effect, Option.some),
+      retryDue: Effect.succeed(0),
+      recoverTerminal: () => Effect.void,
+      invalidate: (request) =>
+        Effect.sync(() => {
+          recorder.invalidated.push(request)
+          return { generation, dispatched: true }
+        }),
       begin: () => Effect.succeed(begin),
       complete: (request) =>
         Effect.sync(() => {
           recorder.completed.push(request)
-          return false
+          return true
         }),
       get: () => Effect.succeedNone,
     }),
     Layer.succeed(GitHubReadModel, {
+      listOpenEntityNumbersBefore: () => Effect.succeed(recorder.missingOpen),
       withTransaction: (effect) => effect,
       applyInstallation: () => Effect.void,
       applyRepositories: () => Effect.void,
@@ -121,14 +146,17 @@ const services = (
       applyPullRequestDetails: (observation) =>
         Effect.sync(() => {
           recorder.pulls.push(observation)
-          return { _tag: "Applied" as const }
+          return recorder.missingDetails.has(observation.pullRequest.number)
+            ? { _tag: "Missing" as const }
+            : { _tag: "Applied" as const }
         }),
       getInstallation: () => Effect.succeedNone,
       getRepository: () => Effect.succeed(stored),
       getEntity: () => Effect.succeedNone,
       listLabels: () => Effect.succeed([]),
       listOpenEntities: () => Effect.succeed([]),
-      applyPullRequestCollections: () => Effect.void,
+      applyPullRequestCollections: (observation) =>
+        Effect.sync(() => void recorder.collections.push(observation)),
     }),
   )
 
@@ -200,7 +228,7 @@ describe("SyncRepositoryTrack", () => {
       assert.strictEqual(result.outcome, "verified")
       assert.strictEqual(result.itemCount, 2)
       assert.strictEqual(recorder.requests[0]?.url, "/repos/effect/janitor/labels?per_page=100")
-      assert.strictEqual(recorder.requests[0]?.priority, "bootstrap")
+      assert.strictEqual(recorder.requests[0]?.priority, "background")
       assert.deepStrictEqual(
         recorder.labels[0]?.labels.map((entry) => entry.name),
         ["bug", "docs"],
@@ -233,7 +261,7 @@ describe("SyncRepositoryTrack", () => {
         const url = recorder.requests[1]?.url ?? ""
         assert.include(url, "state=all")
         assert.include(url, `since=${encodeURIComponent("2026-09-02T11:50:00.000Z")}`)
-        assert.strictEqual(recorder.requests[1]?.priority, "incremental")
+        assert.strictEqual(recorder.requests[1]?.priority, "background")
       }),
   )
 
@@ -303,21 +331,97 @@ describe("SyncRepositoryTrack", () => {
       )
     }),
   )
+  it.effect("stops incremental PR traversal after the raw page crosses the overlap", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+      const result = yield* runTrack(
+        "pull_requests",
+        recorder,
+        () =>
+          ok(
+            [pull(7, "2026-09-02T12:30:00.000Z"), pull(8, "2026-09-02T11:00:00.000Z")],
+            '<https://api.github.com/repos/effect/janitor/pulls?page=2>; rel="next"',
+          ),
+        Option.some(DateTime.makeUnsafe("2026-09-02T12:00:00.000Z")),
+      )
+      assert.strictEqual(result.outcome, "verified")
+      assert.strictEqual(recorder.requests.length, 1)
+      assert.deepStrictEqual(
+        recorder.pulls.map((row) => row.pullRequest.number),
+        [7],
+      )
+    }),
+  )
+
+  it.effect(
+    "commits an entity page before fetching the next and never verifies partial scans",
+    () =>
+      Effect.gen(function* () {
+        const recorder = makeRecorder()
+        const result = yield* runTrack("entities", recorder, (request) => {
+          if (!request.url.includes("page=2"))
+            return ok(
+              [issue(1, "2026-09-02T12:00:00.000Z")],
+              '<https://api.github.com/repos/effect/janitor/issues?page=2>; rel="next"',
+            )
+          assert.strictEqual(recorder.issues.length, 1)
+          return failed(500)
+        })
+        assert.strictEqual(result.outcome, "failed")
+        assert.strictEqual(recorder.completed[0]?.outcome._tag, "Failed")
+        assert.strictEqual(recorder.issues.length, 1)
+      }),
+  )
+  it.effect("a complete open scan requests targeted verification of missing local entities", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+      recorder.missingOpen.push(99)
+      yield* runTrack("entities", recorder, () => ok([]))
+      assert.deepStrictEqual(
+        recorder.invalidated.map((request) => request.scope),
+        [{ _tag: "Entity", repositoryId, number: 99 }],
+      )
+      assert.strictEqual(recorder.issues.length, 0)
+    }),
+  )
+
+  it.effect("a missing canonical identity refreshes only that entity", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+      recorder.missingDetails.add(7)
+      yield* runTrack("pull_requests", recorder, () => ok([pull(7, "2026-09-02T12:00:00.000Z")]))
+      assert.deepStrictEqual(
+        recorder.invalidated.map((request) => request.scope),
+        [{ _tag: "Entity", repositoryId, number: 7 }],
+      )
+      assert.strictEqual(recorder.requests.length, 1)
+    }),
+  )
 })
 
 describe("RefreshEntity", () => {
-  const runRefresh = (recorder: Recorder, respond: (request: GitHubRequest) => GitHubResponse) =>
+  const runRefresh = (
+    recorder: Recorder,
+    respond: (request: GitHubRequest) => GitHubResponse,
+    required: ReadonlyArray<CollectionTrack> = [],
+  ) =>
     RefreshEntity.execute({ scope: { _tag: "Entity", repositoryId, number: 42 }, generation }).pipe(
       Effect.provide(
         RefreshEntityLayer.pipe(
           Layer.provide(
-            services(recorder, respond, {
-              _tag: "Run",
-              generation,
-              sequence: Option.some(sequence),
-              watermark: Option.none(),
-              full: false,
-            }),
+            services(
+              recorder,
+              respond,
+              {
+                _tag: "Run",
+                generation,
+                sequence: Option.some(sequence),
+                watermark: Option.none(),
+                full: false,
+              },
+              Option.some(repository),
+              required,
+            ),
           ),
           Layer.provideMerge(WorkflowEngine.layerMemory),
         ),
@@ -338,8 +442,8 @@ describe("RefreshEntity", () => {
       assert.deepStrictEqual(
         recorder.requests.map((request) => [request.url, request.priority]),
         [
-          ["/repos/effect/janitor/issues/42", "webhook-refresh"],
-          ["/repos/effect/janitor/pulls/42", "webhook-refresh"],
+          ["/repos/effect/janitor/issues/42", "foreground"],
+          ["/repos/effect/janitor/pulls/42", "foreground"],
         ],
       )
       assert.strictEqual(recorder.issues.length, 1)
@@ -363,6 +467,40 @@ describe("RefreshEntity", () => {
         _tag: "Blocked",
         reason: "entity-http-404",
       })
+    }),
+  )
+  it.effect("fetches only required reviews and follows all review pages", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+      const review = (id: number, state: string) => ({
+        id,
+        user: { id: 5, login: "octocat" },
+        state,
+      })
+      const result = yield* runRefresh(
+        recorder,
+        (request) => {
+          if (request.url.endsWith("/issues/42"))
+            return ok(issue(42, "2026-09-02T10:00:00.000Z", true))
+          if (request.url.endsWith("/pulls/42")) return ok(pull(42, "2026-09-02T10:00:00.000Z"))
+          if (request.url.includes("page=2")) return ok([review(2, "CHANGES_REQUESTED")])
+          return ok(
+            [review(1, "APPROVED")],
+            '<https://api.github.com/repos/effect/janitor/pulls/42/reviews?per_page=100&page=2>; rel="next"',
+          )
+        },
+        ["reviews"],
+      )
+      assert.strictEqual(result.outcome, "verified")
+      assert.strictEqual(recorder.requests.length, 4)
+      assert.isFalse(
+        recorder.requests.some(
+          (request) => request.url.includes("/files") || request.url.includes("/check-runs"),
+        ),
+      )
+      assert.deepStrictEqual(recorder.collections[0]?.collections.reviews, [
+        { reviewer: "octocat", state: "CHANGES_REQUESTED" },
+      ])
     }),
   )
 })

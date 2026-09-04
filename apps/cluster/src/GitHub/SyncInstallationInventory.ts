@@ -118,7 +118,7 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
           const response = yield* fetchJson(
             {
               scope: { _tag: "App" },
-              priority: "access-repair",
+              priority: "foreground",
               method: "GET",
               url: `/app/installations/${installationId}`,
             },
@@ -156,8 +156,18 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
         error: SyncActivityError,
         execute: Effect.gen(function* () {
           const readModel = yield* GitHubReadModel
-          yield* readModel
-            .applyInstallation({ installation, status: "suspended", sequence })
+          const targets = yield* SyncTargets
+          yield* targets
+            .withRun(
+              scope,
+              generation,
+              readModel.applyInstallation({
+                installation,
+                status: "suspended",
+                sequence,
+                authoritative: true,
+              }),
+            )
             .pipe(Effect.mapError((error) => failure(error.message)))
         }),
       })
@@ -171,7 +181,7 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
     const pages = yield* paginate({
       name: `${name}/FetchRepositories`,
       firstUrl: "/installation/repositories?per_page=100",
-      request: { scope: { _tag: "Installation", installationId }, priority: "access-repair" },
+      request: { scope: { _tag: "Installation", installationId }, priority: "foreground" },
       page: GitHubInstallationRepositoriesResponse,
       items: (body) => body.repositories,
       itemSchema: GitHubInstallationRepository,
@@ -195,20 +205,34 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
         const targets = yield* SyncTargets
         yield* readModel
           .withTransaction(
-            Effect.gen(function* () {
-              yield* readModel.applyInstallation({ installation, status: "active", sequence })
-              yield* readModel.applyRepositories({ installationId, repositories, sequence })
-              yield* readModel.markRepositoriesSuspect({
-                installationId,
-                present: repositories.map((repository) => repository.id),
-                sequence,
-              })
-              yield* targets.complete({
-                scope,
-                generation,
-                outcome: { _tag: "Verified", watermark: Option.none() },
-              })
-            }),
+            targets.withRun(
+              scope,
+              generation,
+              Effect.gen(function* () {
+                yield* readModel.applyInstallation({
+                  installation,
+                  status: "active",
+                  sequence,
+                  authoritative: true,
+                })
+                yield* readModel.applyRepositories({
+                  installationId,
+                  repositories,
+                  sequence,
+                  authoritative: true,
+                })
+                yield* readModel.markRepositoriesSuspect({
+                  installationId,
+                  present: repositories.map((repository) => repository.id),
+                  sequence,
+                })
+                yield* targets.complete({
+                  scope,
+                  generation,
+                  outcome: { _tag: "Verified", watermark: Option.none() },
+                })
+              }),
+            ),
           )
           .pipe(Effect.mapError((error) => failure(error.message)))
       }),

@@ -1,3 +1,4 @@
+import { SyncIntegration } from "../../src/SyncIntegration.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -80,6 +81,7 @@ const run = (
   SyncInstallationInventory.execute({ scope, generation: SyncGeneration.make("1") }).pipe(
     Effect.provide(
       SyncInstallationInventoryLayer.pipe(
+        Layer.provide(SyncIntegration.noop),
         Layer.provide(
           Layer.succeed(GitHubHttpCache, {
             get: () => Effect.succeedNone,
@@ -99,18 +101,22 @@ const run = (
         ),
         Layer.provide(
           Layer.succeed(SyncTargets, {
+            withRun: (_scope, _generation, effect) => Effect.map(effect, Option.some),
+            retryDue: Effect.succeed(0),
+            recoverTerminal: () => Effect.void,
             invalidate: () => Effect.die("unused"),
             begin: () => Effect.succeed(begin),
             complete: (request) =>
               Effect.sync(() => {
                 recorder.completed.push(request)
-                return false
+                return true
               }),
             get: () => Effect.succeedNone,
           }),
         ),
         Layer.provide(
           Layer.succeed(GitHubReadModel, {
+            listOpenEntityNumbersBefore: () => Effect.succeed([]),
             withTransaction: (effect) => effect,
             applyInstallation: (observation) =>
               Effect.sync(() => void recorder.installations.push(observation.status)),

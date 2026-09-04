@@ -36,6 +36,11 @@ export type AcquireDecision =
 export interface RateObservation extends BudgetKey {
   readonly headers: GitHubRateLimitHeaders
   readonly observedAt: DateTime.Utc
+  readonly leaseToken?: string | undefined
+  readonly successful?: boolean | undefined
+  readonly cooldown?:
+    | { readonly until: DateTime.Utc; readonly kind: "retry-after" | "secondary" }
+    | undefined
 }
 
 export interface CooldownRequest extends BudgetKey {
@@ -43,22 +48,9 @@ export interface CooldownRequest extends BudgetKey {
   readonly kind: "retry-after" | "secondary"
 }
 
-/** Requests each background priority leaves for foreground work. */
-export const priorityReserve = (priority: GitHubRequestPriority): number => {
-  switch (priority) {
-    case "mutation":
-    case "webhook-refresh":
-      return 0
-    case "access-repair":
-    case "label-validation":
-      return 50
-    case "incremental":
-      return 200
-    case "bootstrap":
-    case "full-repair":
-      return 500
-  }
-}
+/** Background scans preserve a single foreground reserve. */
+export const priorityReserve = (priority: GitHubRequestPriority): number =>
+  priority === "foreground" ? 0 : 200
 
 export const LEASE_DURATION = Duration.seconds(30)
 export const MAX_CONCURRENT_LEASES = 8
@@ -99,17 +91,22 @@ export class GitHubBudget extends Context.Service<
         )
 
     const acquire = Effect.fn("GitHubBudget.acquire")(function* (request: AcquireRequest) {
-      const now = yield* DateTime.now
-      const nowDate = DateTime.toDateUtc(now)
       return yield* sql
         .withTransaction(
           Effect.gen(function* () {
+            // Establish a lockable row even for simultaneous first requests.
+            yield* sql`INSERT INTO github_rate_budget (scope_key, resource)
+              VALUES (${request.scopeKey}, ${request.resource}) ON CONFLICT DO NOTHING`
             const budgets = yield* sql`
               SELECT remaining, reset_at, retry_after_until, secondary_cooldown_until
               FROM github_rate_budget
               WHERE scope_key = ${request.scopeKey} AND resource = ${request.resource}
               FOR UPDATE
             `.pipe(Effect.flatMap(decodeBudget))
+            const now = yield* DateTime.now
+            const nowDate = DateTime.toDateUtc(now)
+            yield* sql`DELETE FROM github_rate_lease WHERE scope_key = ${request.scopeKey}
+              AND resource = ${request.resource} AND expires_at <= ${nowDate}`
             const budget = budgets[0]
 
             const cooldowns = [budget?.retry_after_until, budget?.secondary_cooldown_until]
@@ -175,7 +172,10 @@ export class GitHubBudget extends Context.Service<
           DateTime.addDuration(observation.observedAt, Duration.seconds(seconds)),
         ),
       )
-      yield* sql`
+      yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`
         INSERT INTO github_rate_budget ${sql.insert({
           scope_key: observation.scopeKey,
           resource: observation.resource,
@@ -188,13 +188,26 @@ export class GitHubBudget extends Context.Service<
         })}
         ON CONFLICT (scope_key, resource) DO UPDATE SET
           rate_limit = COALESCE(EXCLUDED.rate_limit, github_rate_budget.rate_limit),
-          remaining = COALESCE(EXCLUDED.remaining, github_rate_budget.remaining),
+          remaining = CASE WHEN EXCLUDED.reset_at = github_rate_budget.reset_at
+            THEN LEAST(EXCLUDED.remaining, github_rate_budget.remaining)
+            ELSE COALESCE(EXCLUDED.remaining, github_rate_budget.remaining) END,
           used = COALESCE(EXCLUDED.used, github_rate_budget.used),
           reset_at = COALESCE(EXCLUDED.reset_at, github_rate_budget.reset_at),
-          retry_after_until = COALESCE(EXCLUDED.retry_after_until, github_rate_budget.retry_after_until),
+          retry_after_until = GREATEST(EXCLUDED.retry_after_until, github_rate_budget.retry_after_until),
           observed_at = EXCLUDED.observed_at
-        WHERE github_rate_budget.observed_at <= EXCLUDED.observed_at
-      `.pipe(wrap("record"))
+        WHERE github_rate_budget.reset_at IS NULL OR EXCLUDED.reset_at IS NULL
+          OR EXCLUDED.reset_at >= github_rate_budget.reset_at
+      `
+            if (observation.cooldown !== undefined)
+              yield* cooldown({ ...observation, ...observation.cooldown })
+            if (observation.successful)
+              yield* sql`UPDATE github_rate_budget SET secondary_strikes = 0
+        WHERE scope_key = ${observation.scopeKey} AND resource = ${observation.resource}`
+            if (observation.leaseToken !== undefined)
+              yield* sql`DELETE FROM github_rate_lease WHERE lease_token = ${observation.leaseToken}`
+          }),
+        )
+        .pipe(wrap("record"))
     })
 
     const cooldown = Effect.fn("GitHubBudget.cooldown")(function* (request: CooldownRequest) {
@@ -202,10 +215,12 @@ export class GitHubBudget extends Context.Service<
         request.kind === "retry-after" ? sql`retry_after_until` : sql`secondary_cooldown_until`
       const until = DateTime.toDateUtc(request.until)
       yield* sql`
-        INSERT INTO github_rate_budget (scope_key, resource, ${column}, observed_at)
-        VALUES (${request.scopeKey}, ${request.resource}, ${until}, CLOCK_TIMESTAMP())
+        INSERT INTO github_rate_budget (scope_key, resource, ${column}, observed_at, secondary_strikes)
+        VALUES (${request.scopeKey}, ${request.resource}, ${until}, CLOCK_TIMESTAMP(), ${request.kind === "secondary" ? 1 : 0})
         ON CONFLICT (scope_key, resource) DO UPDATE SET
-          ${column} = GREATEST(github_rate_budget.${column}, EXCLUDED.${column}),
+          ${column} = GREATEST(github_rate_budget.${column}, EXCLUDED.${column},
+            CASE WHEN ${request.kind === "secondary"} THEN CLOCK_TIMESTAMP() + make_interval(secs => LEAST(900, 60 * power(2, LEAST(github_rate_budget.secondary_strikes, 4)))) ELSE ${until} END),
+          secondary_strikes = CASE WHEN ${request.kind === "secondary"} THEN LEAST(github_rate_budget.secondary_strikes + 1, 5) ELSE github_rate_budget.secondary_strikes END,
           observed_at = CLOCK_TIMESTAMP()
       `.pipe(wrap("cooldown"))
     })

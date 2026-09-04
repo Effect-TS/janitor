@@ -124,89 +124,117 @@ export class GitHubTransport extends Context.Service<
           })
         }
 
-        const token = yield* credential(request.scope)
-        const url = request.url.startsWith("https://")
-          ? request.url
-          : `${GITHUB_API_BASE_URL}${request.url}`
-        let httpRequest = HttpClientRequest.make(request.method)(url).pipe(
-          HttpClientRequest.bearerToken(Redacted.value(token)),
-          HttpClientRequest.setHeaders({
-            accept: "application/vnd.github+json",
-            "x-github-api-version": GITHUB_API_VERSION,
-            "user-agent": GITHUB_USER_AGENT,
-            ...(request.etag === undefined ? {} : { "if-none-match": request.etag }),
-          }),
-        )
-        if (request.body !== undefined) {
-          httpRequest = yield* HttpClientRequest.bodyJson(httpRequest, request.body).pipe(
-            Effect.mapError(
-              (cause) => new GitHubTransportError({ message: "Request body is not JSON", cause }),
-            ),
+        return yield* Effect.gen(function* () {
+          const token = yield* credential(request.scope)
+          const url = request.url.startsWith("https://")
+            ? request.url
+            : `${GITHUB_API_BASE_URL}${request.url}`
+          let httpRequest = HttpClientRequest.make(request.method)(url).pipe(
+            HttpClientRequest.bearerToken(Redacted.value(token)),
+            HttpClientRequest.setHeaders({
+              accept: "application/vnd.github+json",
+              "x-github-api-version": GITHUB_API_VERSION,
+              "user-agent": GITHUB_USER_AGENT,
+              ...(request.etag === undefined ? {} : { "if-none-match": request.etag }),
+            }),
           )
-        }
+          if (request.body !== undefined) {
+            httpRequest = yield* HttpClientRequest.bodyJson(httpRequest, request.body).pipe(
+              Effect.mapError(
+                (cause) => new GitHubTransportError({ message: "Request body is not JSON", cause }),
+              ),
+            )
+          }
 
-        const response = yield* http.execute(httpRequest).pipe(
-          Effect.mapError(
-            (cause) =>
-              new GitHubTransportError({ message: `GitHub request failed: ${url}`, cause }),
-          ),
+          const response = yield* http
+            .execute(httpRequest)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new GitHubTransportError({ message: `GitHub request failed: ${url}`, cause }),
+              ),
+            )
+
+          const observedAt = yield* DateTime.now
+          const headers = yield* decodeHeaders(response.headers).pipe(
+            Effect.orElseSucceed((): GitHubRateLimitHeaders => ({})),
+          )
+          const observedResource = headers["x-ratelimit-resource"] ?? resource
+
+          const requestId = Headers.get(response.headers, "x-github-request-id")
+
+          const record = (cooldown?: { until: DateTime.Utc; kind: "retry-after" | "secondary" }) =>
+            budget.record({
+              scopeKey,
+              resource: observedResource,
+              headers,
+              observedAt,
+              leaseToken,
+              successful: response.status >= 200 && response.status < 400,
+              ...(cooldown === undefined ? {} : { cooldown }),
+            })
+          if (response.status === 304) {
+            yield* record()
+            return { _tag: "NotModified" as const, requestId }
+          }
+
+          if (response.status === 401 && request.scope._tag === "Installation" && attempt === 0) {
+            yield* record()
+            yield* auth.invalidateInstallationToken(request.scope.installationId)
+            return yield* send(request, attempt + 1)
+          }
+
+          const body = yield* readBody(response)
+          const secondary =
+            response.status === 429 ||
+            (typeof body === "object" &&
+              body !== null &&
+              "message" in body &&
+              /secondary rate|abuse/i.test(String(body.message)))
+          const retryAfter = headers["retry-after"]
+          const exhausted = headers["x-ratelimit-remaining"] === 0
+          if (
+            (response.status === 403 || response.status === 429) &&
+            (retryAfter !== undefined || exhausted || secondary)
+          ) {
+            const until =
+              retryAfter !== undefined
+                ? DateTime.addDuration(observedAt, Duration.seconds(retryAfter))
+                : exhausted && headers["x-ratelimit-reset"] !== undefined
+                  ? DateTime.makeUnsafe(headers["x-ratelimit-reset"] * 1000)
+                  : DateTime.addDuration(observedAt, Duration.minutes(1))
+            yield* record({ until, kind: secondary || !exhausted ? "secondary" : "retry-after" })
+            return yield* new GitHubRateLimited({
+              scopeKey,
+              until,
+              reason: retryAfter !== undefined ? "retry-after" : "primary limit",
+            })
+          }
+
+          yield* record()
+          if (response.status >= 200 && response.status < 300) {
+            return {
+              _tag: "Ok" as const,
+              status: response.status,
+              body,
+              etag: Headers.get(response.headers, "etag"),
+              link: Headers.get(response.headers, "link"),
+              requestId,
+            }
+          }
+          return { _tag: "Failed" as const, status: response.status, body, requestId }
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(25),
+            orElse: () =>
+              Effect.fail(
+                new GitHubTransportError({
+                  message: "GitHub request exceeded its rate-budget lease",
+                }),
+              ),
+          }),
           Effect.ensuring(budget.release(leaseToken).pipe(Effect.ignore)),
         )
-
-        const observedAt = yield* DateTime.now
-        const headers = yield* decodeHeaders(response.headers).pipe(
-          Effect.orElseSucceed((): GitHubRateLimitHeaders => ({})),
-        )
-        const observedResource = headers["x-ratelimit-resource"] ?? resource
-        yield* budget.record({ scopeKey, resource: observedResource, headers, observedAt })
-        const requestId = Headers.get(response.headers, "x-github-request-id")
-
-        if (response.status === 304) {
-          return { _tag: "NotModified", requestId }
-        }
-
-        if (response.status === 401 && request.scope._tag === "Installation" && attempt === 0) {
-          yield* auth.invalidateInstallationToken(request.scope.installationId)
-          return yield* send(request, attempt + 1)
-        }
-
-        const retryAfter = headers["retry-after"]
-        const exhausted = headers["x-ratelimit-remaining"] === 0
-        if (
-          (response.status === 403 || response.status === 429) &&
-          (retryAfter !== undefined || exhausted)
-        ) {
-          const until =
-            retryAfter !== undefined
-              ? DateTime.addDuration(observedAt, Duration.seconds(retryAfter))
-              : headers["x-ratelimit-reset"] !== undefined
-                ? DateTime.makeUnsafe(headers["x-ratelimit-reset"] * 1000)
-                : DateTime.addDuration(observedAt, Duration.minutes(1))
-          yield* budget.cooldown({
-            scopeKey,
-            resource: observedResource,
-            until,
-            kind: retryAfter !== undefined ? "retry-after" : "secondary",
-          })
-          return yield* new GitHubRateLimited({
-            scopeKey,
-            until,
-            reason: retryAfter !== undefined ? "retry-after" : "primary limit",
-          })
-        }
-
-        const body = yield* readBody(response)
-        if (response.status >= 200 && response.status < 300) {
-          return {
-            _tag: "Ok",
-            status: response.status,
-            body,
-            etag: Headers.get(response.headers, "etag"),
-            link: Headers.get(response.headers, "link"),
-            requestId,
-          }
-        }
-        return { _tag: "Failed", status: response.status, body, requestId }
       })
 
       return { request: (request: GitHubRequest) => send(request, 0) }

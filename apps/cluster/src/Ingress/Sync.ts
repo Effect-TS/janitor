@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import { WorkflowDispatcher } from "../WorkflowDispatcher.ts"
 import { SyncStatus } from "../SyncStatus.ts"
 
 const respondSummary = HttpServerResponse.schemaJson(SyncSummary)
@@ -14,12 +15,7 @@ const serviceUnavailableResponse = HttpServerResponse.text("Service Unavailable"
   headers: { "Retry-After": "10" },
 })
 
-/**
- * Interim boundary for a state-changing browser request: the request must
- * come from the page Janitor itself serves. Cloudflare Access verification
- * (design: "Human APIs") slots in ahead of this once it exists; it is not the
- * finished authorization story.
- */
+/** Additional browser origin check behind the shared Access middleware. */
 const isSameOrigin = (request: HttpServerRequest.HttpServerRequest): boolean => {
   const fetchSite = request.headers["sec-fetch-site"]
   if (fetchSite !== undefined) {
@@ -60,6 +56,14 @@ export const SyncRequestRoute = HttpRouter.add(
   Effect.gen(function* () {
     const status = yield* SyncStatus
     const result = yield* status.requestAll
+    const dispatcher = yield* WorkflowDispatcher
+    yield* dispatcher
+      .dispatchDue()
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Immediate manual sync dispatch failed; cron will recover it", cause),
+        ),
+      )
     return yield* respondSummary(result.summary, { status: 202 })
   }).pipe(Effect.catchCause(unavailable("request"))),
 ).pipe(Layer.provide(SameOriginMiddleware))

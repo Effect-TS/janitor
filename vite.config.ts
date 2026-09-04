@@ -63,6 +63,16 @@ export default defineConfig({
     },
   },
   test: {
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "backend",
+          include: ["apps/cluster/test/**/*.test.ts", "packages/domain/test/**/*.test.ts"],
+        },
+      },
+      "./apps/web/vite.config.ts",
+    ],
     exclude: [".direnv", "**/node_modules/**"],
     server: {
       deps: {
