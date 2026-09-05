@@ -379,7 +379,7 @@ importers:
         version: 2.0.0-beta.75(patch_hash=35179622ee3aeab32d4c1b6ce315fa9edad7b6cd059e20c701ea7837dcbf94b5)(@effect/platform-node@4.0.0-rc.112(effect@file:vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz)(redis@6.2.1))(@effect/sql-pg@4.0.0-rc.112(effect@file:vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@file:vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz)(pg@8.23.0)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3)
       effect:
         specifier: file:../../vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz
-        version: link:../../../effect/packages/effect
+        version: file:vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz
     devDependencies:
       '@effect/vitest':
         specifier: file:../../vendor/effect-vitest-f4143802256d135864f15314fc37385e919999b1.tgz
