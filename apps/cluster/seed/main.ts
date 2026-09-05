@@ -110,9 +110,7 @@ const seedRepository = Effect.fnUntraced(function* (repository: Fixtures.SeedRep
 
   // The read model starts every repository paused, and mutation is fenced on
   // it being enabled, so this has to happen before any labeling write.
-  if (repository.isEnabled) {
-    yield* sql`UPDATE github_repository SET enabled = TRUE WHERE repository_id = ${repositoryId}`
-  }
+  yield* sql`UPDATE github_repository SET enabled = ${repository.isEnabled}, connected = TRUE WHERE repository_id = ${repositoryId}`
 
   yield* readModel.applyLabelCatalog({
     repositoryId,

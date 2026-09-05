@@ -1,3 +1,4 @@
+import * as Routes from "@/routes"
 import * as Popover from "@foldkit/ui/popover"
 import * as Array from "effect/Array"
 import * as Match from "effect/Match"
@@ -286,6 +287,10 @@ const palette = (h: HtmlBuilder<Message>, model: Model, inputs: ViewInputs): Htm
         className: "max-h-[min(430px,60dvh)] p-1",
         children: paletteBody(h, inputs, model.search),
       }),
+      h.a(
+        [h.Href(Routes.connect()), h.Class("block border-t px-3 py-2 text-sm hover:bg-accent")],
+        ["+ Connect repository…"],
+      ),
       h.div(
         [h.Class("text-muted-foreground flex justify-between border-t px-3 py-1.5 text-[11px]")],
         [

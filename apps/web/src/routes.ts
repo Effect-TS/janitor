@@ -11,6 +11,11 @@ const policyQuery = {
 }
 export const AppRoute = Route.defineRouteUnion({
   Home: {},
+  Connect: {},
+  ConnectReturn: {
+    state: Schema.optionalKey(Schema.String),
+    setup_action: Schema.optionalKey(Schema.String),
+  },
   Repository: repository,
   Policies: { ...repository, ...policyQuery },
   NewPolicy: { ...repository, ...policyQuery },
@@ -40,6 +45,23 @@ const policyBase = pipe(base, Route.slash(Route.literal("policies")))
 const ruleBase = pipe(base, Route.slash(Route.literal("rules")))
 const query = Route.query(Schema.Struct(policyQuery))
 export const home = pipe(Route.root, Route.mapTo(AppRoute.Home))
+export const connect = pipe(
+  Route.literal("repositories"),
+  Route.slash(Route.literal("connect")),
+  Route.mapTo(AppRoute.Connect),
+)
+export const connectReturn = pipe(
+  Route.literal("repositories"),
+  Route.slash(Route.literal("connect")),
+  Route.slash(Route.literal("return")),
+  Route.query(
+    Schema.Struct({
+      state: Schema.optionalKey(Schema.String),
+      setup_action: Schema.optionalKey(Schema.String),
+    }),
+  ),
+  Route.mapTo(AppRoute.ConnectReturn),
+)
 export const repositoryHome = pipe(base, Route.mapTo(AppRoute.Repository))
 export const policies = pipe(policyBase, query, Route.mapTo(AppRoute.Policies))
 export const newPolicy = pipe(
@@ -79,6 +101,8 @@ export const settings = pipe(
 export const parse = Route.parseUrlWithFallback(
   Route.oneOf(
     home,
+    connectReturn,
+    connect,
     repositoryHome,
     policies,
     newPolicy,
@@ -95,6 +119,8 @@ export const parse = Route.parseUrlWithFallback(
 export const path = (route: AppRoute): string =>
   AppRoute.match(route, {
     Home: home,
+    Connect: connect,
+    ConnectReturn: connectReturn,
     Repository: repositoryHome,
     Policies: policies,
     NewPolicy: newPolicy,

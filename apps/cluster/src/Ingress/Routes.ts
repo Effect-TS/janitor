@@ -9,6 +9,7 @@ import {
   RateLimitMiddlewareLayer,
 } from "./Middleware.ts"
 import { RulesRoutesLayer } from "./Rules.ts"
+import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncRoutesLayer } from "./Sync.ts"
 
 const ApiRouterLayer = Layer.effect(
@@ -27,7 +28,7 @@ export const makeRoutesLayer = (
 ) =>
   Layer.mergeAll(
     makeGitHubWebHookRoutesLayer(secrets),
-    Layer.mergeAll(SyncRoutesLayer, RulesRoutesLayer).pipe(
+    Layer.mergeAll(SyncRoutesLayer, RulesRoutesLayer, ConnectionRoutesLayer).pipe(
       Layer.provide(makeAccessMiddlewareLayer(middleware)),
       Layer.provide(AccessJwt.layerFrom(access)),
     ),

@@ -26,6 +26,12 @@ Stop old workers and discard their pending development workflow executions when 
 
 ## After production launch
 
-Keep these baseline files unchanged once production has applied them. Add each subsequent schema change as the next numbered migration, starting with `0006_`. Production changes need forward migrations that preserve existing data; do not squash migrations already deployed to production.
+Keep these baseline files unchanged once production has applied them. Add each subsequent schema change as the next numbered migration, starting with `0007_`. Production changes need forward migrations that preserve existing data; do not squash migrations already deployed to production.
 
 Run `vp check` and `vp test run` from the workspace root. Database tests require a Docker-compatible runtime.
+
+## Repository membership
+
+`0006_repository_connections.sql` adds explicit connection membership, disconnect timestamps, operator audit records, and expiring GitHub setup attempts. Existing repository rows remain connected, including paused rows. Discovery explicitly inserts new repositories as disconnected; inventory refreshes never overwrite membership. Seeds and the operator enable command explicitly connect repositories.
+
+Repository sync eligibility now requires connection membership. Disconnect retains policies, rules, mirror data, and history.

@@ -325,7 +325,7 @@ export class AiClassifier extends Context.Service<
         const granted = yield* sql<{ lease_id: string }>`
           INSERT INTO labeling_ai_lease (lease_id, repository_id, expires_at)
           SELECT ${leaseId}, ${repositoryId}, CLOCK_TIMESTAMP() + ${Duration.toSeconds(LEASE_TTL)} * INTERVAL '1 second'
-          WHERE EXISTS (SELECT 1 FROM labeling_ai_consent WHERE repository_id = ${repositoryId} AND state = 'enabled')
+          WHERE EXISTS (SELECT 1 FROM labeling_ai_consent WHERE repository_id = ${repositoryId} AND state = 'enabled' AND EXISTS(SELECT 1 FROM github_repository r WHERE r.repository_id = ${repositoryId} AND r.connected))
           RETURNING lease_id
         `
         return granted.length === 0 ? Option.none() : Option.some(leaseId)

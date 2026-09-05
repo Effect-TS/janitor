@@ -9,6 +9,8 @@ const parse = (path: string) =>
 describe("SPA routes", () => {
   it.each([
     ["/", "Home"],
+    ["/repositories/connect", "Connect"],
+    ["/repositories/connect/return?state=example", "ConnectReturn"],
     ["/repositories/701", "Repository"],
     ["/repositories/701/policies", "Policies"],
     ["/repositories/701/policies/new", "NewPolicy"],

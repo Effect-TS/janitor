@@ -1,3 +1,4 @@
+import * as Connections from "@/components/repository-connections"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -35,6 +36,8 @@ export type ToastPayload = typeof ToastPayload.Type
 export const AppToast = Toast.make(ToastPayload)
 
 export const Model = Schema.Struct({
+  connectionCancelPath: Schema.String,
+  connections: Connections.Model,
   route: Routes.AppRoute,
   historyIndex: Schema.Int,
   navigationTarget: Schema.Option(Schema.String),
@@ -50,6 +53,7 @@ export const Model = Schema.Struct({
 export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
+  GotConnectionsMessage: { message: Connections.Message },
   GotNavigationMessage: { message: Navigation.Message },
   PersistedRepository: {},
   GotSidebarMessage: {
@@ -102,6 +106,16 @@ const PersistRepository = Command.define("PersistSelectedRepository", {
     }),
 })
 
+const ForgetRepository = Command.define("ForgetDisconnectedRepository", {
+  args: {},
+  messages: [Message.PersistedRepository],
+  execute: () =>
+    Effect.gen(function* () {
+      const store = yield* KeyValueStore.KeyValueStore
+      yield* Effect.ignore(store.remove("janitor:last-repository"))
+      return Message.PersistedRepository()
+    }),
+})
 type Step = Update.Return<Model, Message, AppServices>
 const navigationCommands = (commands: ReadonlyArray<Command.Command<Navigation.Message>>) =>
   Command.mapMessages(commands, (message) => Message.GotNavigationMessage({ message }))
@@ -137,6 +151,23 @@ export const requestNavigation = (
 }
 
 const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
+  if (route._tag === "Connect" || route._tag === "ConnectReturn")
+    return {
+      model: evo(model, {
+        route: () => route,
+        connections: (previous) =>
+          route._tag === "ConnectReturn" && route.setup_action === "request"
+            ? evo(previous, {
+                notice: () =>
+                  "Your GitHub installation request is awaiting organization approval. Refresh after an owner approves access.",
+              })
+            : previous,
+        connectionCancelPath: (previous) =>
+          "repositoryId" in model.route ? Routes.path(model.route) : previous,
+        repositories: () => evo(model.repositories, { panel: () => ({ _tag: "Closed" as const }) }),
+        navigationTarget: () => Option.none(),
+      }),
+    }
   if (route._tag === "Repository")
     return requestNavigation(
       model,
@@ -520,6 +551,74 @@ const foldSyncButton = Update.foldChild({
 
 export const update = (model: Model, message: Message) =>
   Message.match<Update.Return<Model, Message, AppServices>>(message, {
+    GotConnectionsMessage: ({ message }) => {
+      const next = Connections.update(model.connections, message)
+      const updated = evo(model, { connections: () => next.model })
+      if (message._tag === "Loaded" && model.route._tag === "ConnectReturn")
+        return requestNavigation(updated, Routes.connect(), true, false)
+      const commands = Command.mapMessages(next.commands, (message) =>
+        Message.GotConnectionsMessage({ message }),
+      )
+      if (next.outMessage?._tag === "OpenGithub")
+        return requestNavigation(updated, next.outMessage.url, false, false, true)
+      if (next.outMessage?._tag === "Changed") {
+        const { id, action } = next.outMessage
+        const another = Option.getOrElse(model.repositories.repositories, () => []).find(
+          (repo) => repo.repositoryId !== id && repo.access === "accessible",
+        )
+        const reconnect = Option.exists(model.connections.inventory, (inventory) =>
+          inventory.repositories.some((repo) => repo.repositoryId === id && repo.reconnect),
+        )
+        const destination =
+          action === "disconnect"
+            ? another
+              ? Routes.policies({ repositoryId: another.repositoryId })
+              : Routes.home()
+            : action === "connect" && !reconnect
+              ? Routes.policies({ repositoryId: id })
+              : Routes.settings({ repositoryId: id })
+        const shown = AppToast.show(updated.toast, {
+          variant: "Success",
+          payload: {
+            title:
+              action === "disconnect"
+                ? "Repository disconnected"
+                : action === "connect"
+                  ? "Repository connected"
+                  : action === "pause"
+                    ? "Automation paused"
+                    : "Automation resumed",
+            description:
+              action === "disconnect"
+                ? "Policies, rules and history are retained. Reconnect from the repository switcher."
+                : action === "connect" && reconnect
+                  ? "Review your saved rules before resuming automation."
+                  : "",
+          },
+        })
+        const refreshed = evo(updated, {
+          toast: () => shown.model,
+          lastRepositoryId: (previous) => (action === "disconnect" ? Option.none() : previous),
+          repositories: () => evo(updated.repositories, { repositories: () => Option.none() }),
+        })
+        const nav = requestNavigation(refreshed, destination, true, false)
+        return {
+          ...nav,
+          commands: [
+            ...(nav.commands ?? []),
+            ...commands,
+            ...Command.mapMessages(shown.commands, (message) =>
+              Message.GotToastMessage({ message }),
+            ),
+            ...(action === "disconnect" ? [ForgetRepository({})] : []),
+            ...Command.mapMessages([Repositories.FetchRepositories()], (message) =>
+              Message.GotRepositoriesMessage({ message }),
+            ),
+          ],
+        }
+      }
+      return { model: updated, commands }
+    },
     GotNavigationMessage: ({ message }) => updateNavigation(model, message),
     PersistedRepository: () => ({ model }),
     GotSidebarMessage: ({ message }) => foldSidebar(model, message),
@@ -542,6 +641,11 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
   const toast = AppToast.init({ id: "app-toast", defaultDuration: "6 seconds" })
   const repositories = Repositories.init()
   const model = Model.make({
+    connectionCancelPath: Option.match(flags.lastRepositoryId ?? Option.none(), {
+      onNone: Routes.home,
+      onSome: (repositoryId) => Routes.policies({ repositoryId }),
+    }),
+    connections: Connections.init(),
     route: Routes.AppRoute.Home(),
     historyIndex: flags.historyIndex ?? 0,
     navigationTarget: Option.none(),
@@ -680,53 +784,56 @@ const sidebarMenu = (h: HtmlBuilder<Message>, model: Model): Html =>
   })
 
 const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
-  h.div(
-    [],
-    [
-      Sidebar.group(h, {
-        children: [
-          Sidebar.groupLabel(h, { children: ["Repository"] }),
-          Sidebar.menu(h, {
-            children: (["Policies", "Rules", "Activity", "Settings"] as const).map((section) =>
-              Sidebar.menuItem(h, {
-                children: [
-                  h.a(
-                    [
-                      h.Href(
-                        "repositoryId" in model.route
-                          ? Routes.sectionPath(model.route.repositoryId, section)
-                          : Routes.home(),
-                      ),
-                      h.Class(
-                        cn(
-                          Sidebar.sidebarMenuButtonClass,
-                          "repository-nav-link",
-                          model.repositories.section === section && "bg-sidebar-accent font-medium",
-                        ),
-                      ),
-                      h.AriaCurrent(
-                        "repositoryId" in model.route && model.repositories.section === section
-                          ? "page"
-                          : "false",
+  !("repositoryId" in model.route)
+    ? h.empty
+    : h.div(
+        [],
+        [
+          Sidebar.group(h, {
+            children: [
+              Sidebar.groupLabel(h, { children: ["Repository"] }),
+              Sidebar.menu(h, {
+                children: (["Policies", "Rules", "Activity", "Settings"] as const).map((section) =>
+                  Sidebar.menuItem(h, {
+                    children: [
+                      h.a(
+                        [
+                          h.Href(
+                            "repositoryId" in model.route
+                              ? Routes.sectionPath(model.route.repositoryId, section)
+                              : Routes.home(),
+                          ),
+                          h.Class(
+                            cn(
+                              Sidebar.sidebarMenuButtonClass,
+                              "repository-nav-link",
+                              model.repositories.section === section &&
+                                "bg-sidebar-accent font-medium",
+                            ),
+                          ),
+                          h.AriaCurrent(
+                            "repositoryId" in model.route && model.repositories.section === section
+                              ? "page"
+                              : "false",
+                          ),
+                        ],
+                        [
+                          Icon.view(
+                            h,
+                            { Policies: FileCode2, Rules: Tags, Activity, Settings }[section],
+                            "size-4 shrink-0",
+                          ),
+                          h.span([], [section]),
+                        ],
                       ),
                     ],
-                    [
-                      Icon.view(
-                        h,
-                        { Policies: FileCode2, Rules: Tags, Activity, Settings }[section],
-                        "size-4 shrink-0",
-                      ),
-                      h.span([], [section]),
-                    ],
-                  ),
-                ],
+                  }),
+                ),
               }),
-            ),
+            ],
           }),
         ],
-      }),
-    ],
-  )
+      )
 
 const sidebarPanel = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> => [
   Sidebar.header(h, { children: [sidebarMenu(h, model)] }),
@@ -756,11 +863,13 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
               h.span(
                 [h.Class("text-sm font-medium")],
                 [
-                  model.route._tag === "Home"
-                    ? "Repositories"
-                    : model.route._tag === "NotFound"
-                      ? "Page not found"
-                      : model.repositories.section,
+                  model.route._tag === "Connect" || model.route._tag === "ConnectReturn"
+                    ? "Connect repository"
+                    : model.route._tag === "Home"
+                      ? "Repositories"
+                      : model.route._tag === "NotFound"
+                        ? "Page not found"
+                        : model.repositories.section,
                 ],
               ),
             ],
@@ -827,9 +936,29 @@ const sidebarContent = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Ht
   toasts(h, model),
 ]
 
+const connectionView = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  repositoryId: string | null,
+  compact = false,
+) =>
+  h.submodel({
+    slotId: "repository-connections",
+    model: model.connections,
+    view: Connections.view,
+    toParentMessage: (message) => Message.GotConnectionsMessage({ message }),
+    viewInputs: {
+      repositoryId,
+      compact,
+      state: model.route._tag === "ConnectReturn" ? (model.route.state ?? "") : "",
+      cancelPath: model.connectionCancelPath,
+    },
+  })
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.route
   const repositories = Option.getOrElse(model.repositories.repositories, () => [])
+  if (route._tag === "Connect" || route._tag === "ConnectReturn")
+    return connectionView(h, model, null)
   if (route._tag === "NotFound")
     return h.div(
       [h.Class("p-6 space-y-3")],
@@ -840,6 +969,30 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
           ["This address does not match a page in The Janitor."],
         ),
         h.a([h.Href(Routes.home()), h.Class("text-sm underline")], ["Choose a repository"]),
+      ],
+    )
+  if (
+    route._tag === "Home" &&
+    Option.isSome(model.repositories.repositories) &&
+    repositories.length === 0 &&
+    Option.isNone(model.repositories.repositoriesError)
+  )
+    return h.div(
+      [h.Class("policy-empty")],
+      [
+        Icon.view(h, FileCode2, "size-10 text-muted-foreground"),
+        h.h1([h.Class("text-xl font-semibold")], ["Connect your first repository"]),
+        h.p(
+          [h.Class("text-sm text-muted-foreground max-w-sm")],
+          ["Connect a GitHub repository to start building and testing your labeling policies."],
+        ),
+        h.a(
+          [
+            h.Href(Routes.connect()),
+            h.Class("rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm"),
+          ],
+          ["Connect repository"],
+        ),
       ],
     )
   if (route._tag === "Home")
@@ -883,20 +1036,38 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     return h.div(
       [h.Class("p-6 space-y-3")],
       [
-        h.p([h.Role("alert")], ["This repository is unavailable or you no longer have access."]),
+        h.p(
+          [h.Role("alert")],
+          [
+            Option.isSome(model.connections.inventory) &&
+            model.connections.inventory.value.repositories.some(
+              (repo) => repo.repositoryId === route.repositoryId && !repo.connected,
+            )
+              ? "Repository disconnected. Your policies, rules, and history are retained."
+              : "This repository is unavailable or you no longer have access.",
+          ],
+        ),
         h.a([h.Href(Routes.home()), h.Class("text-sm underline")], ["Choose a repository"]),
+        h.a([h.Href(Routes.connect()), h.Class("text-sm underline")], ["Connect or repair access"]),
+        connectionView(h, model, route.repositoryId),
       ],
     )
-  return h.submodel({
+  const content = h.submodel({
     slotId: "repositories",
     model: model.repositories,
     view: Repositories.view,
     toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
   })
+  return route._tag === "Settings"
+    ? h.div([h.Class("space-y-4 p-4")], [connectionView(h, model, route.repositoryId), content])
+    : h.div(
+        [h.Class("flex min-h-0 flex-1 flex-col")],
+        [connectionView(h, model, route.repositoryId, true), content],
+      )
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.route._tag === "Home" ? "Repositories" : model.route._tag === "NotFound" ? "Page not found" : model.repositories.section} · The Janitor`,
+  title: `${model.route._tag === "Connect" || model.route._tag === "ConnectReturn" ? "Connect repository" : model.route._tag === "Home" ? "Repositories" : model.route._tag === "NotFound" ? "Page not found" : model.repositories.section} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

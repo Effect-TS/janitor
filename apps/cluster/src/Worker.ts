@@ -1,3 +1,4 @@
+import { RepositoryConnections } from "./RepositoryConnections.ts"
 import {
   DiscoverInstallationsLayer,
   DiscoverInstallationsRegistration,
@@ -192,6 +193,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         Layer.mergeAll(
           SyncPlanner.layer,
           SyncStatus.layer,
+          RepositoryConnections.layer,
           LabelingRules.layer,
           LabelingTest.layer,
           LabelingOverview.layer,

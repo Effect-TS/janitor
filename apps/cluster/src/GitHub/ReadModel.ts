@@ -320,6 +320,7 @@ export class GitHubReadModel extends Context.Service<
       for (const repository of repositories) {
         yield* sql`
           INSERT INTO github_repository ${sql.insert({
+            connected: false,
             repository_id: repository.id,
             node_id: repository.nodeId ?? null,
             installation_id: installationId,
@@ -385,6 +386,7 @@ export class GitHubReadModel extends Context.Service<
       // keeps its values and a new row records privacy as unknown.
       yield* sql`
         INSERT INTO github_repository ${sql.insert({
+          connected: false,
           repository_id: repository.id,
           node_id: repository.nodeId ?? null,
           installation_id: installationId,

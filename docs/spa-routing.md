@@ -1,5 +1,7 @@
 # SPA routing
 
+Repository onboarding uses `/repositories/connect` and `/repositories/connect/return`. These reserved paths precede repository-ID routes. Home shows a welcome screen after a successful empty workspace response. The picker preserves the previous route for Cancel and respects the unsaved-edit guard. Repository Settings includes connection, pause/resume, and disconnect controls.
+
 The web application uses Foldkit's `Route` parsers and URL builders, runtime URL events, and `Navigation` effects. Routes live in `apps/web/src/routes.ts`.
 
 | Path                                             | Screen                                                 |

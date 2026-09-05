@@ -84,6 +84,7 @@ export class LabelingOverview extends Context.Service<
              (SELECT count(*)::int FROM labeling_policy WHERE repository_id = r.repository_id) AS policy_count
       FROM github_repository r
       LEFT JOIN labeling_repository_rules l ON l.repository_id = r.repository_id
+      WHERE r.connected
       ORDER BY r.owner, r.repo
     `.pipe(
       Effect.flatMap(decodeRepositories),

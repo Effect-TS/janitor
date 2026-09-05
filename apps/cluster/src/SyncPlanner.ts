@@ -225,7 +225,7 @@ export class SyncPlanner extends Context.Service<
         .withTransaction(
           Effect.gen(function* () {
             const rows = yield* sql`
-              UPDATE github_repository SET enabled = ${enabled}, observed_at = CLOCK_TIMESTAMP()
+              UPDATE github_repository SET enabled = ${enabled}, connected = CASE WHEN ${enabled} THEN TRUE ELSE connected END, observed_at = CLOCK_TIMESTAMP()
               WHERE repository_id = ${repositoryId} AND enabled <> ${enabled}
               RETURNING repository_id
             `

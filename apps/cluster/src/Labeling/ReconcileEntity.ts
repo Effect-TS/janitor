@@ -312,126 +312,164 @@ const settle = (
  * the rules bound to it and advances the revision so they stop evaluating.
  */
 const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient
-    const readModel = yield* GitHubReadModel
-    const transport = yield* GitHubTransport
-    const configuration = yield* LabelingConfiguration
-    const { repositoryId, number } = identity
-    const wrapSql = <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
-      Effect.mapError(effect, (error) => new ApplyFailure({ message: describeError(error) }))
+  Effect.flatMap(SqlClient.SqlClient, (transactionSql) =>
+    transactionSql
+      .withTransaction(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient
+          const readModel = yield* GitHubReadModel
+          const transport = yield* GitHubTransport
+          const configuration = yield* LabelingConfiguration
+          const { repositoryId, number } = identity
+          const wrapSql = <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
+            Effect.mapError(effect, (error) => new ApplyFailure({ message: describeError(error) }))
 
-    const skip = (reason: string) =>
-      Effect.forEach(
-        planned.actions,
-        (action) => settle(identity, action.labelId, "failed", reason),
-        {
-          discard: true,
-        },
-      ).pipe(wrapSql, Effect.as({ applied: 0, failed: planned.actions.length, skipped: reason }))
+          const skip = (reason: string) =>
+            Effect.forEach(
+              planned.actions,
+              (action) => settle(identity, action.labelId, "failed", reason),
+              {
+                discard: true,
+              },
+            ).pipe(
+              wrapSql,
+              Effect.as({ applied: 0, failed: planned.actions.length, skipped: reason }),
+            )
 
-    // Fences: repository still enabled, revision still active, snapshot not superseded.
-    const repository = yield* readModel.getRepository(repositoryId).pipe(wrapSql)
-    if (Option.isNone(repository)) return yield* skip("repository is gone")
-    if (!repository.value.enabled) return yield* skip("repository is paused")
-    const active = yield* sql`
+          // Serialize disconnect against the complete external-write attempt.
+          const [membership] = yield* sql<{
+            connected: boolean
+          }>`SELECT connected FROM github_repository WHERE repository_id=${repositoryId} FOR UPDATE`.pipe(
+            wrapSql,
+          )
+          if (!membership?.connected) return yield* skip("repository is disconnected")
+          // Fences: repository still enabled, revision still active, snapshot not superseded.
+          const repository = yield* readModel.getRepository(repositoryId).pipe(wrapSql)
+          if (Option.isNone(repository)) return yield* skip("repository is gone")
+          if (!repository.value.enabled) return yield* skip("repository is paused")
+          if (repository.value.access !== "accessible")
+            return yield* skip("repository access is unavailable")
+          const active = yield* sql`
       SELECT active_revision::text FROM labeling_repository_rules WHERE repository_id = ${repositoryId}
     `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ActiveRow))), wrapSql)
-    if ((active[0]?.active_revision ?? null) !== identity.rulesRevision) {
-      return yield* skip(`rules revision ${identity.rulesRevision} is no longer active`)
-    }
-    const entity = yield* readModel.getEntity(repositoryId, number).pipe(wrapSql)
-    if (Option.isNone(entity)) return yield* skip("entity is gone")
-    const labels = yield* readModel.listLabels(repositoryId).pipe(wrapSql)
-    const nameOf = new Map(labels.map((label) => [label.labelId, label.name]))
-    const present = new Set(entity.value.labels.map((label) => label.labelId))
-    const base = `/repos/${repository.value.owner}/${repository.value.repo}/issues/${number}/labels`
-    const scope = { _tag: "Installation" as const, installationId: repository.value.installationId }
+          if ((active[0]?.active_revision ?? null) !== identity.rulesRevision) {
+            return yield* skip(`rules revision ${identity.rulesRevision} is no longer active`)
+          }
+          const entity = yield* readModel.getEntity(repositoryId, number).pipe(wrapSql)
+          if (Option.isNone(entity)) return yield* skip("entity is gone")
+          const labels = yield* readModel.listLabels(repositoryId).pipe(wrapSql)
+          const nameOf = new Map(labels.map((label) => [label.labelId, label.name]))
+          const present = new Set(entity.value.labels.map((label) => label.labelId))
+          const base = `/repos/${repository.value.owner}/${repository.value.repo}/issues/${number}/labels`
+          const scope = {
+            _tag: "Installation" as const,
+            installationId: repository.value.installationId,
+          }
 
-    let applied = 0
-    let failed = 0
-    for (const action of planned.actions) {
-      const name = nameOf.get(action.labelId)
-      if (name === undefined) {
-        yield* settle(identity, action.labelId, "failed", "label is no longer synchronized").pipe(
-          wrapSql,
-        )
-        failed++
-        continue
-      }
-      // Already in the desired state: the write is done, whoever did it.
-      const done =
-        action.action === "add" ? present.has(action.labelId) : !present.has(action.labelId)
-      if (done) {
-        yield* settle(identity, action.labelId, "applied", "already in the desired state").pipe(
-          wrapSql,
-        )
-        applied++
-        continue
-      }
-      const response = yield* transport
-        .request(
-          action.action === "add"
-            ? { scope, priority: "foreground", method: "POST", url: base, body: { labels: [name] } }
-            : {
-                scope,
-                priority: "foreground",
-                method: "DELETE",
-                url: `${base}/${encodeURIComponent(name)}`,
-              },
-        )
-        .pipe(Effect.mapError((error) => new ApplyFailure({ message: error.message })))
-      if (response._tag === "Ok" || response._tag === "NotModified") {
-        yield* settle(identity, action.labelId, "applied", null).pipe(wrapSql)
-        applied++
-        continue
-      }
-      // Removing a label GitHub already dropped is the desired state.
-      if (action.action === "remove" && response.status === 404) {
-        yield* settle(identity, action.labelId, "applied", "already absent on GitHub").pipe(wrapSql)
-        applied++
-        continue
-      }
-      yield* settle(identity, action.labelId, "failed", `GitHub answered ${response.status}`).pipe(
-        wrapSql,
-      )
-      failed++
-      // Adding a label GitHub does not know: retire the rules bound to it.
-      if (action.action === "add" && response.status === 404) {
-        yield* sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const retired = yield* sql<{ rule_id: string }>`
+          let applied = 0
+          let failed = 0
+          for (const action of planned.actions) {
+            const name = nameOf.get(action.labelId)
+            if (name === undefined) {
+              yield* settle(
+                identity,
+                action.labelId,
+                "failed",
+                "label is no longer synchronized",
+              ).pipe(wrapSql)
+              failed++
+              continue
+            }
+            // Already in the desired state: the write is done, whoever did it.
+            const done =
+              action.action === "add" ? present.has(action.labelId) : !present.has(action.labelId)
+            if (done) {
+              yield* settle(
+                identity,
+                action.labelId,
+                "applied",
+                "already in the desired state",
+              ).pipe(wrapSql)
+              applied++
+              continue
+            }
+            const response = yield* transport
+              .request(
+                action.action === "add"
+                  ? {
+                      scope,
+                      priority: "foreground",
+                      method: "POST",
+                      url: base,
+                      body: { labels: [name] },
+                    }
+                  : {
+                      scope,
+                      priority: "foreground",
+                      method: "DELETE",
+                      url: `${base}/${encodeURIComponent(name)}`,
+                    },
+              )
+              .pipe(Effect.mapError((error) => new ApplyFailure({ message: error.message })))
+            if (response._tag === "Ok" || response._tag === "NotModified") {
+              yield* settle(identity, action.labelId, "applied", null).pipe(wrapSql)
+              applied++
+              continue
+            }
+            // Removing a label GitHub already dropped is the desired state.
+            if (action.action === "remove" && response.status === 404) {
+              yield* settle(identity, action.labelId, "applied", "already absent on GitHub").pipe(
+                wrapSql,
+              )
+              applied++
+              continue
+            }
+            yield* settle(
+              identity,
+              action.labelId,
+              "failed",
+              `GitHub answered ${response.status}`,
+            ).pipe(wrapSql)
+            failed++
+            // Adding a label GitHub does not know: retire the rules bound to it.
+            if (action.action === "add" && response.status === 404) {
+              yield* sql
+                .withTransaction(
+                  Effect.gen(function* () {
+                    const retired = yield* sql<{ rule_id: string }>`
                 UPDATE labeling_rule SET label_status = 'missing', enabled = FALSE,
                   version = version + 1, updated_at = CLOCK_TIMESTAMP()
                 WHERE repository_id = ${repositoryId} AND label_id = ${action.labelId} AND enabled
                 RETURNING rule_id
               `
-              for (const row of retired) {
-                yield* recordAudit(sql, {
-                  repositoryId,
-                  subject: { _tag: "Rule", ruleId: RuleId.make(row.rule_id) },
-                  actor: SYSTEM_ACTOR,
-                  operation: "update",
-                  before: { enabled: true, labelStatus: "valid" },
-                  after: {
-                    enabled: false,
-                    labelStatus: "missing",
-                    reason: `label ${name} is missing on GitHub`,
-                  },
-                })
-              }
-              if (retired.length > 0) yield* configuration.advance(repositoryId, SYSTEM_ACTOR)
-            }),
+                    for (const row of retired) {
+                      yield* recordAudit(sql, {
+                        repositoryId,
+                        subject: { _tag: "Rule", ruleId: RuleId.make(row.rule_id) },
+                        actor: SYSTEM_ACTOR,
+                        operation: "update",
+                        before: { enabled: true, labelStatus: "valid" },
+                        after: {
+                          enabled: false,
+                          labelStatus: "missing",
+                          reason: `label ${name} is missing on GitHub`,
+                        },
+                      })
+                    }
+                    if (retired.length > 0) yield* configuration.advance(repositoryId, SYSTEM_ACTOR)
+                  }),
+                )
+                .pipe(wrapSql)
+            }
+          }
+          yield* Effect.logInfo("Applied label plan").pipe(
+            Effect.annotateLogs({ repositoryId, number, applied, failed }),
           )
-          .pipe(wrapSql)
-      }
-    }
-    yield* Effect.logInfo("Applied label plan").pipe(
-      Effect.annotateLogs({ repositoryId, number, applied, failed }),
-    )
-    return { applied, failed, skipped: "" }
-  })
+          return { applied, failed, skipped: "" }
+        }),
+      )
+      .pipe(Effect.mapError((error) => new ApplyFailure({ message: error.message }))),
+  )
 
 const decodePayload = Schema.decodeUnknownEffect(ReconciliationIdentity)
 

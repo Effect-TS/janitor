@@ -76,7 +76,7 @@ export const seed = Effect.gen(function* () {
   // Mutation is fenced on the repository being enabled; the read model
   // starts repositories paused.
   const sql = yield* SqlClient.SqlClient
-  yield* sql`UPDATE github_repository SET enabled = TRUE WHERE repository_id = ${repositoryId}`
+  yield* sql`UPDATE github_repository SET enabled = TRUE, connected = TRUE WHERE repository_id = ${repositoryId}`
   yield* readModel.applyLabelCatalog({
     repositoryId,
     labels: [
