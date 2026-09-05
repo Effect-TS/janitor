@@ -108,5 +108,10 @@ export const SyncSummary = Schema.Struct({
   /** Scopes GitHub will not let Janitor read. */
   blockedTargets: Schema.Int,
   failedTargets: Schema.Int,
+  queuedTargets: Schema.optional(Schema.Int),
+  runningTargets: Schema.optional(Schema.Int),
+  retryingTargets: Schema.optional(Schema.Int),
+  stalledTargets: Schema.optional(Schema.Int),
+  appliedItems: Schema.optional(Schema.Int),
 }).annotate({ identifier: "SyncSummary" })
 export type SyncSummary = typeof SyncSummary.Type

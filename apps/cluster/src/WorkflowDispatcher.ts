@@ -61,52 +61,73 @@ export class WorkflowDispatcher extends Context.Service<
         const dispatchDue = Effect.fn("WorkflowDispatcher.dispatchDue")(function* (
           options?: DispatchOptions,
         ) {
-          // Lease tokens must be unique across concurrently active isolates, so
-          // this uses platform randomness rather than the Effect-injected PRNG.
-          // oxlint-disable-next-line effecttsgo/crypto-random-uuid-in-effect
-          const leaseToken = crypto.randomUUID()
-          const rows = yield* outbox.claimDue({
-            leaseToken,
-            leaseDuration: LEASE_DURATION,
-            limit: options?.limit ?? 100,
-            only: options?.only,
-          })
-
+          let claimed = 0
           let accepted = 0
           let released = 0
-          for (const row of rows) {
-            const reference = {
-              workflowTag: row.workflow_tag,
-              executionKey: row.execution_key,
+          const limit = Math.max(0, options?.limit ?? 100)
+          while (claimed < limit) {
+            // Lease tokens must be unique across concurrently active isolates, so
+            // this uses platform randomness rather than the Effect-injected PRNG.
+            // oxlint-disable-next-line effecttsgo/crypto-random-uuid-in-effect
+            const leaseToken = crypto.randomUUID()
+            const rows = yield* outbox.claimDue({
               leaseToken,
-            }
-            const registration = byTag.get(row.workflow_tag)
-            if (registration === undefined) {
-              yield* Effect.logError("No workflow registered for outbox row").pipe(
-                Effect.annotateLogs({ tag: row.workflow_tag, key: row.execution_key }),
-              )
-              if (yield* outbox.release(reference, UNKNOWN_TAG_RETRY)) released++
-              continue
-            }
+              leaseDuration: LEASE_DURATION,
+              limit: Math.min(4, limit - claimed),
+              only: options?.only,
+            })
 
-            const submitted = yield* registration
-              .submit(row.payload)
-              .pipe(Effect.provideService(WorkflowEngine.WorkflowEngine, engine), Effect.exit)
-            if (Exit.isSuccess(submitted)) {
-              if (yield* outbox.markAccepted(reference)) accepted++
-              continue
-            }
-            yield* Effect.logError("Workflow submission failed", submitted.cause).pipe(
-              Effect.annotateLogs({
-                tag: row.workflow_tag,
-                key: row.execution_key,
-                attempts: row.attempts,
-              }),
+            if (rows.length === 0) break
+            claimed += rows.length
+            yield* Effect.forEach(
+              rows,
+              (row) =>
+                Effect.gen(function* () {
+                  const reference = {
+                    workflowTag: row.workflow_tag,
+                    executionKey: row.execution_key,
+                    leaseToken,
+                  }
+                  const registration = byTag.get(row.workflow_tag)
+                  if (registration === undefined) {
+                    yield* Effect.logError("No workflow registered for outbox row").pipe(
+                      Effect.annotateLogs({ tag: row.workflow_tag, key: row.execution_key }),
+                    )
+                    if (yield* outbox.release(reference, UNKNOWN_TAG_RETRY)) released++
+                    return
+                  }
+
+                  const submitted = yield* registration
+                    .submit(row.payload)
+                    .pipe(
+                      Effect.timeout("20 seconds"),
+                      Effect.provideService(WorkflowEngine.WorkflowEngine, engine),
+                      Effect.exit,
+                    )
+                  if (Exit.isSuccess(submitted)) {
+                    if (yield* outbox.markAccepted(reference)) accepted++
+                    return
+                  }
+                  yield* Effect.logError("Workflow submission failed", submitted.cause).pipe(
+                    Effect.annotateLogs({
+                      tag: row.workflow_tag,
+                      key: row.execution_key,
+                      attempts: row.attempts,
+                    }),
+                  )
+                  if (yield* outbox.release(reference, backoff(row.attempts))) released++
+                }).pipe(
+                  Effect.timeout("30 seconds"),
+                  // Leave an unacknowledged lease to expire. Other rows can still dispatch.
+                  Effect.catchCause((cause) =>
+                    Effect.logError("Outbox row dispatch failed", cause),
+                  ),
+                ),
+              { concurrency: 4, discard: true },
             )
-            if (yield* outbox.release(reference, backoff(row.attempts))) released++
           }
 
-          return { claimed: rows.length, accepted, released }
+          return { claimed, accepted, released }
         })
 
         return { dispatchDue }

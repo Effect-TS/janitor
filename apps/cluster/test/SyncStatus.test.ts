@@ -69,6 +69,11 @@ layer(StatusLayer, { timeout: "2 minutes" })("SyncStatus against Postgres", (it)
         pendingTargets: 0,
         blockedTargets: 0,
         failedTargets: 0,
+        queuedTargets: 0,
+        runningTargets: 0,
+        retryingTargets: 0,
+        stalledTargets: 0,
+        appliedItems: 0,
       })
     }),
   )

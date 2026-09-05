@@ -181,11 +181,16 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
       scope: { _tag: "Installation" as const, installationId: begun.installationId },
       priority: "background" as const,
     }
-    const applyPage = (name: string, ordinal: number, execute: Effect.Effect<unknown, Error>) =>
+    const applyPage = (
+      name: string,
+      ordinal: number,
+      count: number,
+      execute: Effect.Effect<unknown, Error>,
+    ) =>
       Activity.make({
         name: `SyncRepositoryTrack/${name}/${ordinal}`,
         error: SyncActivityError,
-        execute: targets.withRun(scope, generation, execute).pipe(
+        execute: targets.withRun(scope, generation, execute, { page: ordinal, items: count }).pipe(
           Effect.flatMap((applied) =>
             Option.isSome(applied) ? Effect.void : Effect.fail(failure("Run superseded")),
           ),
@@ -239,11 +244,8 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
             applyPage(
               "ApplyIssues",
               ordinal,
-              Effect.forEach(
-                issues,
-                (issue) => readModel.applyIssue({ repositoryId, issue, sequence }),
-                { discard: true },
-              ),
+              issues.length,
+              readModel.applyIssues({ repositoryId, issues, sequence }),
             ),
         })
         if (pages._tag !== "Complete") return yield* finish(pages)
@@ -295,21 +297,18 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
             applyPage(
               "ApplyPullRequests",
               ordinal,
+              pulls.length,
               Effect.gen(function* () {
-                for (const pullRequest of pulls) {
-                  const applied = yield* readModel.applyPullRequestDetails({
-                    repositoryId,
-                    pullRequest,
-                    sequence,
+                const missing = yield* readModel.applyPullRequests({
+                  repositoryId,
+                  pulls,
+                  sequence,
+                })
+                for (const number of missing)
+                  yield* targets.invalidate({
+                    scope: { _tag: "Entity", repositoryId, number },
+                    sequence: Option.some(sequence),
                   })
-                  if (applied._tag === "Missing") {
-                    // A targeted refresh creates canonical identity and details together.
-                    yield* targets.invalidate({
-                      scope: { _tag: "Entity", repositoryId, number: pullRequest.number },
-                      sequence: Option.some(sequence),
-                    })
-                  }
-                }
               }),
             ),
           onFailed: blockedOn404,

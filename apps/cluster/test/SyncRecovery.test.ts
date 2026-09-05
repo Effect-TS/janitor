@@ -1,6 +1,8 @@
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Duration from "effect/Duration"
+import * as Exit from "effect/Exit"
+import * as Workflow from "effect/unstable/workflow/Workflow"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -99,5 +101,56 @@ layer(DataLayer, { timeout: "2 minutes" })("Sync recovery against engine state",
         )
         assert.strictEqual(resumed, 1)
       }).pipe(Effect.provide(WorkflowEngine.layerMemory)),
+  )
+  it.effect("interrupts a hung live execution before recovering its target", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const sql = yield* SqlClient.SqlClient
+      const previous = Option.getOrThrow(yield* targets.get(scope))
+      yield* targets.complete({
+        scope,
+        generation: previous.requestedGeneration,
+        outcome: { _tag: "Verified", watermark: Option.none() },
+      })
+      const next = yield* targets.invalidate({ scope, sequence: Option.none() })
+      yield* targets.begin(scope, next.generation)
+      yield* sql`UPDATE workflow_outbox SET accepted_at = CLOCK_TIMESTAMP() WHERE execution_key = ${`app:installations:${next.generation}`}`
+      const current = Option.getOrThrow(yield* targets.get(scope))
+      yield* DiscoverInstallations.execute(
+        { scope, generation: current.dispatchedGeneration },
+        { discard: true },
+      )
+      yield* Effect.yieldNow
+      yield* sql`UPDATE sync_target SET progressed_at = CLOCK_TIMESTAMP() - INTERVAL '10 minutes',
+        no_result_since = CLOCK_TIMESTAMP() - INTERVAL '3 minutes' WHERE scope_key = 'app:installations'`
+      const engine = yield* WorkflowEngine.WorkflowEngine
+      let interrupted = false
+      yield* recoverSyncExecutions.pipe(
+        Effect.provideService(WorkflowEngine.WorkflowEngine, {
+          ...engine,
+          interruptUnsafe: (workflow, id) =>
+            engine.interruptUnsafe(workflow, id).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  interrupted = true
+                }),
+              ),
+            ),
+          // Cloudflare persists Complete after interruptUnsafe; the memory engine throws its interrupt cause.
+          poll: (workflow, id) =>
+            interrupted
+              ? Effect.succeed(Option.some(new Workflow.Complete({ exit: Exit.interrupt() })))
+              : engine.poll(workflow, id),
+        }),
+      )
+      assert.isTrue(interrupted)
+      const recovered = Option.getOrThrow(yield* targets.get(scope))
+      assert.strictEqual(recovered.completedGeneration, current.dispatchedGeneration)
+      assert.include(recovered.lastError ?? "", "terminated")
+    }).pipe(
+      Effect.provide(
+        DiscoverInstallations.toLayer(() => Effect.never).pipe(Layer.provideMerge(EngineLayer)),
+      ),
+    ),
   )
 })

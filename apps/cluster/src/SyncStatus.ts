@@ -23,6 +23,11 @@ const SummaryRow = Schema.Struct({
   pending: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
   blocked: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
   failed: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
+  queued: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
+  running: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
+  retrying: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
+  stalled: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
+  applied: Schema.FiniteFromString.pipe(Schema.decodeTo(Schema.Int)),
   last_verified_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
 })
 
@@ -75,6 +80,12 @@ export class SyncStatus extends Context.Service<
           )::text AS pending,
           COUNT(*) FILTER (WHERE health = 'blocked')::text AS blocked,
           COUNT(*) FILTER (WHERE last_error IS NOT NULL)::text AS failed,
+          COUNT(*) FILTER (WHERE requested_generation > completed_generation AND active_generation IS NULL)::text AS queued,
+          COUNT(*) FILTER (WHERE requested_generation > completed_generation AND active_generation IS NOT NULL)::text AS running,
+          COUNT(*) FILTER (WHERE retry_at IS NOT NULL)::text AS retrying,
+          COUNT(*) FILTER (WHERE requested_generation > completed_generation AND no_result_since IS NOT NULL
+            AND progressed_at < CLOCK_TIMESTAMP() - INTERVAL '5 minutes')::text AS stalled,
+          COALESCE(SUM(progress_items) FILTER (WHERE requested_generation > completed_generation),0)::text AS applied,
           CASE WHEN COUNT(*) FILTER (WHERE verified_at IS NULL) > 0 THEN NULL ELSE MIN(verified_at) END AS last_verified_at
         FROM sync_target WHERE sync_scope_enabled(scope)
       `.pipe(Effect.flatMap(decodeSummary), wrap("summary"))
@@ -88,6 +99,11 @@ export class SyncStatus extends Context.Service<
         pendingTargets: pending,
         blockedTargets: blocked,
         failedTargets: failed,
+        queuedTargets: row?.queued ?? 0,
+        runningTargets: row?.running ?? 0,
+        retryingTargets: row?.retrying ?? 0,
+        stalledTargets: row?.stalled ?? 0,
+        appliedItems: row?.applied ?? 0,
       }
       return result
     }).pipe(Effect.withSpan("SyncStatus.summary"))

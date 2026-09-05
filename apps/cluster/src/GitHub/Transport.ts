@@ -8,6 +8,7 @@ import {
   gitHubApiScopeKey,
 } from "@janitor/domain/GitHub/Api"
 import * as Context from "effect/Context"
+import * as Clock from "effect/Clock"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
@@ -25,6 +26,7 @@ import { GitHubBudget, type GitHubBudgetError } from "./RateBudget.ts"
 
 export class GitHubTransportError extends Data.TaggedError("GitHubTransportError")<{
   readonly message: string
+  readonly stage?: string
   readonly cause?: unknown
 }> {}
 
@@ -95,7 +97,18 @@ export class GitHubTransport extends Context.Service<
 
       const readBody = (response: HttpClientResponse.HttpClientResponse) =>
         response.json.pipe(
-          Effect.catch(() => response.text.pipe(Effect.orElseSucceed(() => undefined))),
+          Effect.catch(() =>
+            response.text.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new GitHubTransportError({
+                    stage: "http",
+                    message: "Could not read GitHub response",
+                    cause,
+                  }),
+              ),
+            ),
+          ),
         )
 
       const credential = (scope: GitHubApiScope) =>
@@ -110,12 +123,52 @@ export class GitHubTransport extends Context.Service<
         // oxlint-disable-next-line effecttsgo/crypto-random-uuid-in-effect
         const leaseToken = crypto.randomUUID()
 
-        const decision = yield* budget.acquire({
-          scopeKey,
-          resource,
-          priority: request.priority,
-          leaseToken,
-        })
+        const started = yield* Clock.currentTimeMillis
+        const timings: Record<string, number> = {}
+        const stage = <A, E, R>(name: string, effect: Effect.Effect<A, E, R>, seconds: number) =>
+          Effect.gen(function* () {
+            const start = yield* Clock.currentTimeMillis
+            return yield* effect.pipe(
+              Effect.timeoutOrElse({
+                duration: Duration.seconds(seconds),
+                orElse: () =>
+                  Effect.fail(
+                    new GitHubTransportError({
+                      stage: name,
+                      message: `GitHub request timed out during ${name}`,
+                    }),
+                  ),
+              }),
+              Effect.ensuring(
+                Clock.currentTimeMillis.pipe(
+                  Effect.flatMap((now) =>
+                    Effect.sync(() => {
+                      timings[name] = now - start
+                    }),
+                  ),
+                ),
+              ),
+              Effect.tapError(() =>
+                Effect.logWarning("GitHub request stage failed", {
+                  scope: scopeKey,
+                  stage: name,
+                  durationMs: timings[name],
+                }),
+              ),
+            )
+          })
+        const token = yield* stage("authentication", credential(request.scope), 15)
+
+        const decision = yield* stage(
+          "budget-acquire",
+          budget.acquire({
+            scopeKey,
+            resource,
+            priority: request.priority,
+            leaseToken,
+          }),
+          5,
+        )
         if (decision._tag === "Wait") {
           return yield* new GitHubRateLimited({
             scopeKey,
@@ -124,8 +177,8 @@ export class GitHubTransport extends Context.Service<
           })
         }
 
+        let released = false
         return yield* Effect.gen(function* () {
-          const token = yield* credential(request.scope)
           const url = request.url.startsWith("https://")
             ? request.url
             : `${GITHUB_API_BASE_URL}${request.url}`
@@ -146,15 +199,40 @@ export class GitHubTransport extends Context.Service<
             )
           }
 
-          const response = yield* http
-            .execute(httpRequest)
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new GitHubTransportError({ message: `GitHub request failed: ${url}`, cause }),
-              ),
-            )
+          const received = yield* stage(
+            "http",
+            http
+              .execute(httpRequest)
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new GitHubTransportError({
+                      stage: "http",
+                      message: "GitHub request failed",
+                      cause,
+                    }),
+                ),
+              )
 
+              .pipe(
+                Effect.flatMap(
+                  (
+                    response,
+                  ): Effect.Effect<
+                    {
+                      response: HttpClientResponse.HttpClientResponse
+                      body: unknown
+                    },
+                    GitHubTransportError
+                  > =>
+                    response.status === 304
+                      ? Effect.succeed({ response, body: undefined })
+                      : readBody(response).pipe(Effect.map((body) => ({ response, body }))),
+                ),
+              ),
+            20,
+          )
+          const { response, body } = received
           const observedAt = yield* DateTime.now
           const headers = yield* decodeHeaders(response.headers).pipe(
             Effect.orElseSucceed((): GitHubRateLimitHeaders => ({})),
@@ -164,27 +242,30 @@ export class GitHubTransport extends Context.Service<
           const requestId = Headers.get(response.headers, "x-github-request-id")
 
           const record = (cooldown?: { until: DateTime.Utc; kind: "retry-after" | "secondary" }) =>
-            budget.record({
-              scopeKey,
-              resource: observedResource,
-              headers,
-              observedAt,
-              leaseToken,
-              successful: response.status >= 200 && response.status < 400,
-              ...(cooldown === undefined ? {} : { cooldown }),
-            })
+            stage(
+              "budget-record",
+              budget.record({
+                scopeKey,
+                resource: observedResource,
+                headers,
+                observedAt,
+                leaseToken,
+                successful: response.status >= 200 && response.status < 400,
+                ...(cooldown === undefined ? {} : { cooldown }),
+              }),
+              8,
+            ).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  released = true
+                }),
+              ),
+            )
           if (response.status === 304) {
             yield* record()
             return { _tag: "NotModified" as const, requestId }
           }
 
-          if (response.status === 401 && request.scope._tag === "Installation" && attempt === 0) {
-            yield* record()
-            yield* auth.invalidateInstallationToken(request.scope.installationId)
-            return yield* send(request, attempt + 1)
-          }
-
-          const body = yield* readBody(response)
           const secondary =
             response.status === 429 ||
             (typeof body === "object" &&
@@ -224,20 +305,48 @@ export class GitHubTransport extends Context.Service<
           }
           return { _tag: "Failed" as const, status: response.status, body, requestId }
         }).pipe(
-          Effect.timeoutOrElse({
-            duration: Duration.seconds(25),
-            orElse: () =>
-              Effect.fail(
-                new GitHubTransportError({
-                  message: "GitHub request exceeded its rate-budget lease",
+          Effect.ensuring(
+            Effect.suspend(() =>
+              released
+                ? Effect.void
+                : stage("budget-release", budget.release(leaseToken), 5).pipe(
+                    Effect.catchCause((cause) =>
+                      Effect.logWarning("GitHub lease cleanup failed", cause),
+                    ),
+                  ),
+            ),
+          ),
+          Effect.onExit((exit) =>
+            Clock.currentTimeMillis.pipe(
+              Effect.flatMap((now) =>
+                Effect.logInfo("GitHub request timing", {
+                  scope: scopeKey,
+                  method: request.method,
+                  attempt,
+                  outcome: exit._tag,
+                  durationMs: now - started,
+                  ...timings,
                 }),
               ),
-          }),
-          Effect.ensuring(budget.release(leaseToken).pipe(Effect.ignore)),
+            ),
+          ),
         )
       })
 
-      return { request: (request: GitHubRequest) => send(request, 0) }
+      return {
+        request: (request: GitHubRequest) =>
+          Effect.gen(function* () {
+            const first = yield* send(request, 0)
+            if (
+              first._tag !== "Failed" ||
+              first.status !== 401 ||
+              request.scope._tag !== "Installation"
+            )
+              return first
+            yield* auth.invalidateInstallationToken(request.scope.installationId)
+            return yield* send(request, 1)
+          }),
+      }
     }),
   )
 }

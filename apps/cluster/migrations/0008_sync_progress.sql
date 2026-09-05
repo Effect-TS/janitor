@@ -1,0 +1,6 @@
+ALTER TABLE sync_target
+  ADD COLUMN progressed_at TIMESTAMPTZ,
+  ADD COLUMN inspected_at TIMESTAMPTZ,
+  ADD COLUMN no_result_since TIMESTAMPTZ,
+  ADD COLUMN progress_page INTEGER NOT NULL DEFAULT -1,
+  ADD COLUMN progress_items INTEGER NOT NULL DEFAULT 0;

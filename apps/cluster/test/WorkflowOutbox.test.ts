@@ -3,7 +3,7 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { WorkflowOutbox } from "../src/WorkflowOutbox.ts"
+import { WorkflowOutbox, OutboxWake } from "../src/WorkflowOutbox.ts"
 import { MigratedPostgresLayer } from "./support/Postgres.ts"
 
 const OutboxLayer = WorkflowOutbox.layer.pipe(Layer.provideMerge(MigratedPostgresLayer))
@@ -11,6 +11,33 @@ const OutboxLayer = WorkflowOutbox.layer.pipe(Layer.provideMerge(MigratedPostgre
 const lease = Duration.seconds(60)
 
 layer(OutboxLayer, { timeout: "2 minutes" })("WorkflowOutbox against Postgres", (it) => {
+  it.effect("wakes once after the producer transaction commits", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      let wakes = 0
+      const outbox = yield* WorkflowOutbox.make.pipe(
+        Effect.provideService(
+          OutboxWake,
+          Effect.gen(function* () {
+            const rows =
+              yield* sql`SELECT execution_key FROM workflow_outbox WHERE workflow_tag='wake-test'`
+            assert.strictEqual(rows.length, 2)
+            wakes++
+          }),
+        ),
+      )
+      yield* Effect.scoped(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* outbox.enqueue({ workflowTag: "wake-test", executionKey: "one", payload: {} })
+            yield* outbox.enqueue({ workflowTag: "wake-test", executionKey: "two", payload: {} })
+            assert.strictEqual(wakes, 0)
+          }),
+        ),
+      )
+      assert.strictEqual(wakes, 1)
+    }),
+  )
   it.effect("enqueue is idempotent per workflow tag and execution key", () =>
     Effect.gen(function* () {
       const outbox = yield* WorkflowOutbox

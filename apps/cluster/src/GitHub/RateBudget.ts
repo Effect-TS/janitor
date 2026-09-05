@@ -55,13 +55,11 @@ export const priorityReserve = (priority: GitHubRequestPriority): number =>
 export const LEASE_DURATION = Duration.seconds(30)
 export const MAX_CONCURRENT_LEASES = 8
 
-const BudgetRow = Schema.Struct({
-  remaining: Schema.NullOr(Schema.Int),
-  reset_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
-  retry_after_until: Schema.NullOr(Schema.DateTimeUtcFromDate),
-  secondary_cooldown_until: Schema.NullOr(Schema.DateTimeUtcFromDate),
+const DecisionRow = Schema.Struct({
+  decision: Schema.Literals(["Granted", "Wait"]),
+  until_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  reason: Schema.NullOr(Schema.String),
 })
-const LeaseCountRow = Schema.Struct({ count: Schema.FiniteFromString })
 
 /**
  * Shared GitHub rate budget in Neon. Every active Durable Object and Worker
@@ -79,8 +77,7 @@ export class GitHubBudget extends Context.Service<
 >()("@janitor/cluster/GitHub/RateBudget/GitHubBudget", {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
-    const decodeBudget = Schema.decodeUnknownEffect(Schema.Array(BudgetRow))
-    const decodeCount = Schema.decodeUnknownEffect(Schema.Array(LeaseCountRow))
+    const decodeDecision = Schema.decodeUnknownEffect(Schema.Array(DecisionRow))
 
     const wrap =
       (operation: string) =>
@@ -90,70 +87,24 @@ export class GitHubBudget extends Context.Service<
           (error) => new GitHubBudgetError({ operation, message: describeError(error) }),
         )
 
-    const acquire = Effect.fn("GitHubBudget.acquire")(function* (request: AcquireRequest) {
-      return yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            // Establish a lockable row even for simultaneous first requests.
-            yield* sql`INSERT INTO github_rate_budget (scope_key, resource)
-              VALUES (${request.scopeKey}, ${request.resource}) ON CONFLICT DO NOTHING`
-            const budgets = yield* sql`
-              SELECT remaining, reset_at, retry_after_until, secondary_cooldown_until
-              FROM github_rate_budget
-              WHERE scope_key = ${request.scopeKey} AND resource = ${request.resource}
-              FOR UPDATE
-            `.pipe(Effect.flatMap(decodeBudget))
-            const now = yield* DateTime.now
-            const nowDate = DateTime.toDateUtc(now)
-            yield* sql`DELETE FROM github_rate_lease WHERE scope_key = ${request.scopeKey}
-              AND resource = ${request.resource} AND expires_at <= ${nowDate}`
-            const budget = budgets[0]
-
-            const cooldowns = [budget?.retry_after_until, budget?.secondary_cooldown_until]
-              .filter((until): until is DateTime.Utc => until != null)
-              .filter((until) => DateTime.isGreaterThan(until, now))
-            if (cooldowns.length > 0) {
-              const until = cooldowns.reduce((a, b) => (DateTime.isGreaterThan(a, b) ? a : b))
-              return { _tag: "Wait", until, reason: "cooldown" } as const
-            }
-
-            const counts = yield* sql`
-              SELECT COUNT(*)::text AS count FROM github_rate_lease
-              WHERE scope_key = ${request.scopeKey} AND resource = ${request.resource}
-                AND expires_at > ${nowDate}
-            `.pipe(Effect.flatMap(decodeCount))
-            const active = counts[0]?.count ?? 0
-
-            if (active >= MAX_CONCURRENT_LEASES) {
-              return {
-                _tag: "Wait",
-                until: DateTime.addDuration(now, Duration.seconds(1)),
-                reason: "concurrency",
-              } as const
-            }
-
-            if (
-              budget?.remaining != null &&
-              budget.reset_at !== null &&
-              DateTime.isGreaterThan(budget.reset_at, now) &&
-              budget.remaining - active <= priorityReserve(request.priority)
-            ) {
-              return { _tag: "Wait", until: budget.reset_at, reason: "reserve" } as const
-            }
-
-            yield* sql`
-              INSERT INTO github_rate_lease ${sql.insert({
-                lease_token: request.leaseToken,
-                scope_key: request.scopeKey,
-                resource: request.resource,
-                priority: request.priority,
-                expires_at: DateTime.toDateUtc(DateTime.addDuration(now, LEASE_DURATION)),
-              })}
-            `
-            return { _tag: "Granted", leaseToken: request.leaseToken } as const
-          }),
-        )
-        .pipe(wrap("acquire"))
+    const acquire = Effect.fn("GitHubBudget.acquire")(function* (
+      request: AcquireRequest,
+    ): Generator<Effect.Effect<unknown, GitHubBudgetError>, AcquireDecision> {
+      const now = DateTime.toDateUtc(yield* DateTime.now)
+      const [decision] = yield* sql`SELECT * FROM acquire_github_rate_lease(
+        ${request.scopeKey},${request.resource},${request.priority},${request.leaseToken},${now},
+        ${priorityReserve(request.priority)},${request.priority === "background" ? MAX_CONCURRENT_LEASES - 2 : MAX_CONCURRENT_LEASES},${Duration.toSeconds(LEASE_DURATION)})`.pipe(
+        Effect.flatMap(decodeDecision),
+        wrap("acquire"),
+      )
+      if (!decision || (decision.decision === "Wait" && (!decision.until_at || !decision.reason)))
+        return yield* new GitHubBudgetError({
+          operation: "acquire",
+          message: "Invalid budget decision",
+        })
+      return decision.decision === "Granted"
+        ? { _tag: "Granted", leaseToken: request.leaseToken }
+        : { _tag: "Wait", until: decision.until_at!, reason: decision.reason! }
     })
 
     const release = Effect.fn("GitHubBudget.release")(function* (leaseToken: string) {
@@ -172,11 +123,9 @@ export class GitHubBudget extends Context.Service<
           DateTime.addDuration(observation.observedAt, Duration.seconds(seconds)),
         ),
       )
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`
-        INSERT INTO github_rate_budget ${sql.insert({
+      const record = Effect.gen(function* () {
+        yield* sql`
+        WITH observed AS (INSERT INTO github_rate_budget ${sql.insert({
           scope_key: observation.scopeKey,
           resource: observation.resource,
           rate_limit: headers["x-ratelimit-limit"] ?? null,
@@ -194,20 +143,19 @@ export class GitHubBudget extends Context.Service<
           used = COALESCE(EXCLUDED.used, github_rate_budget.used),
           reset_at = COALESCE(EXCLUDED.reset_at, github_rate_budget.reset_at),
           retry_after_until = GREATEST(EXCLUDED.retry_after_until, github_rate_budget.retry_after_until),
-          observed_at = EXCLUDED.observed_at
+          observed_at = EXCLUDED.observed_at,
+          secondary_strikes = CASE WHEN ${observation.successful === true} THEN 0 ELSE github_rate_budget.secondary_strikes END
         WHERE github_rate_budget.reset_at IS NULL OR EXCLUDED.reset_at IS NULL
           OR EXCLUDED.reset_at >= github_rate_budget.reset_at
+        RETURNING 1)
+        DELETE FROM github_rate_lease WHERE lease_token = ${observation.leaseToken ?? null}
       `
-            if (observation.cooldown !== undefined)
-              yield* cooldown({ ...observation, ...observation.cooldown })
-            if (observation.successful)
-              yield* sql`UPDATE github_rate_budget SET secondary_strikes = 0
-        WHERE scope_key = ${observation.scopeKey} AND resource = ${observation.resource}`
-            if (observation.leaseToken !== undefined)
-              yield* sql`DELETE FROM github_rate_lease WHERE lease_token = ${observation.leaseToken}`
-          }),
-        )
-        .pipe(wrap("record"))
+        if (observation.cooldown !== undefined)
+          yield* cooldown({ ...observation, ...observation.cooldown })
+      })
+      yield* (observation.cooldown === undefined ? record : sql.withTransaction(record)).pipe(
+        wrap("record"),
+      )
     })
 
     const cooldown = Effect.fn("GitHubBudget.cooldown")(function* (request: CooldownRequest) {

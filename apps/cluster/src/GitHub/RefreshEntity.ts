@@ -49,7 +49,7 @@ export const RefreshEntityResult = Schema.Struct({
   outcome: SyncRunOutcome,
 })
 
-/** Targeted refresh of one issue or pull request: the foreground verification path. */
+/** Targeted refresh of one issue or pull request: background content verification. */
 export const RefreshEntity = Workflow.make(REFRESH_ENTITY_TAG, {
   payload: RefreshEntityPayload,
   success: RefreshEntityResult,
@@ -86,7 +86,7 @@ const fetchCollections = (
   headSha: string,
   request: {
     scope: { _tag: "Installation"; installationId: typeof GitHubInstallationId.Type }
-    priority: "foreground"
+    priority: "background"
   },
   required: ReadonlyArray<CollectionTrack>,
 ) =>
@@ -211,7 +211,7 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
     const path = `/repos/${encodeURIComponent(begun.owner)}/${encodeURIComponent(begun.repo)}`
     const request = {
       scope: { _tag: "Installation" as const, installationId: begun.installationId },
-      priority: "foreground" as const,
+      priority: "background" as const,
     }
 
     const integration = yield* SyncIntegration

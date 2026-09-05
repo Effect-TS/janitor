@@ -106,6 +106,11 @@ export const GitHubPullRequestApi = Schema.Struct({
   nodeId: GitHubPullRequestNodeId,
   number: Schema.Int.check(Schema.isGreaterThan(0)),
   state: GitHubIssueState,
+  // Optional so persisted activities from before bulk PR projection still decode.
+  title: Schema.optionalKey(Schema.String),
+  body: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  user: Schema.optionalKey(Schema.NullOr(ApiUser)),
+  labels: Schema.optionalKey(Schema.Array(GitHubLabelApi)),
   draft: Schema.Boolean,
   /** Present on the single pull request endpoint; the list omits it. */
   merged: Schema.optionalKey(Schema.Boolean),

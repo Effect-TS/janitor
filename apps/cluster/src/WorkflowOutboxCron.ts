@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect"
 import * as Singleton from "effect/unstable/cluster/Singleton"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { WorkflowDispatcher } from "./WorkflowDispatcher.ts"
 
 export const WorkflowOutboxCronName = "workflow-outbox-dispatch"
@@ -9,10 +10,21 @@ export const WorkflowOutboxCronLayer = Singleton.make(
   WorkflowOutboxCronName,
   Effect.gen(function* () {
     const dispatcher = yield* WorkflowDispatcher
-    const summary = yield* dispatcher.dispatchDue({ limit: 100 })
-    yield* Effect.logInfo("Dispatched due workflow outbox rows").pipe(
-      Effect.annotateLogs({ ...summary }),
-    )
+    const sql = yield* SqlClient.SqlClient
+    for (let pass = 0; pass < 3; pass++) {
+      const summary = yield* dispatcher.dispatchDue({ limit: 100 })
+      yield* Effect.logInfo("Dispatched due workflow outbox rows").pipe(
+        Effect.annotateLogs({ ...summary }),
+      )
+      // Service the five-second debounce in this background wake, never in a UI request.
+      const [next] = yield* sql<{
+        delay: number | null
+      }>`SELECT GREATEST(0,EXTRACT(EPOCH FROM (MIN(due_at)-CLOCK_TIMESTAMP()))*1000)::int AS delay
+        FROM workflow_outbox WHERE accepted_at IS NULL AND (lease_until IS NULL OR lease_until<=CLOCK_TIMESTAMP())
+        AND due_at<=CLOCK_TIMESTAMP()+INTERVAL '5 seconds' HAVING COUNT(*)>0`
+      if (next?.delay == null) break
+      yield* Effect.sleep(next.delay)
+    }
   }).pipe(
     Effect.catchCause(
       Effect.fnUntraced(function* (cause) {

@@ -27,6 +27,21 @@ const idle = (): SyncButton.Model => {
 }
 
 describe("SyncButton", () => {
+  it("reports failures alongside running work and committed item counts", () => {
+    const model = {
+      ...idle(),
+      summary: Option.some({
+        ...summary("syncing", 3),
+        queuedTargets: 1,
+        runningTargets: 2,
+        appliedItems: 100,
+        failedTargets: 1,
+      }),
+    }
+    expect(SyncButton.tooltipText(model)).toBe(
+      "2 running · 1 queued · 100 items processed in active scans · 1 failed",
+    )
+  })
   it("keeps the polling timer stable when requests start and finish", () => {
     const running = { ...idle(), summary: Option.some(summary("syncing", 1)) }
     const poll = SyncButton.subscriptions.poll
@@ -44,15 +59,17 @@ describe("SyncButton", () => {
   })
 
   it.each([
-    [false, 3000],
-    [true, 60000],
-  ] as const)("waits before polling, including after errors: %s", async (hasError, delay) => {
+    [true, false, false, 3000],
+    [true, true, false, 60000],
+    [false, false, true, 60000],
+  ] as const)("waits before polling: syncing=%s, error=%s, retrying=%s", async (isSyncing, hasError, isRetrying, delay) => {
     vi.useFakeTimers()
     try {
       const messages: SyncButton.Message[] = []
       const stream = SyncButton.subscriptions.poll.dependenciesToStream({
-        isSyncing: true,
+        isSyncing,
         hasError,
+        isRetrying,
       })
       const result = Effect.runPromise(
         stream.pipe(

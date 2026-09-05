@@ -134,6 +134,7 @@ export class SyncTargets extends Context.Service<
       scope: SyncScope,
       generation: SyncGeneration,
       effect: Effect.Effect<A, E, R>,
+      progress?: { readonly page: number; readonly items: number },
     ) => Effect.Effect<Option.Option<A>, E | SyncTargetError, R>
     readonly retryDue: Effect.Effect<number, SyncTargetError>
     /** Replace a terminal engine execution only if it still owns the target. */
@@ -234,6 +235,10 @@ export class SyncTargets extends Context.Service<
           active_full = CASE WHEN active_generation IS NULL THEN full_requested OR (scope->>'_tag' = 'RepositoryTrack' AND scan_watermark IS NULL) ELSE active_full END,
           full_requested = CASE WHEN active_generation IS NULL THEN FALSE ELSE full_requested END,
           dispatched_generation = COALESCE(active_generation, requested_generation),
+          progressed_at = CASE WHEN active_generation IS NULL THEN CLOCK_TIMESTAMP() ELSE progressed_at END,
+          progress_page = CASE WHEN active_generation IS NULL THEN -1 ELSE progress_page END,
+          progress_items = CASE WHEN active_generation IS NULL THEN 0 ELSE progress_items END,
+          no_result_since = CASE WHEN active_generation IS NULL THEN NULL ELSE no_result_since END,
           updated_at = CLOCK_TIMESTAMP()
         WHERE scope_key = ${syncScopeKey(scope)} AND execution_generation = ${generation}
           AND completed_generation < dispatched_generation AND sync_scope_enabled(scope)
@@ -293,6 +298,7 @@ export class SyncTargets extends Context.Service<
       scope: SyncScope,
       generation: SyncGeneration,
       effect: Effect.Effect<A, E, R>,
+      progress?: { readonly page: number; readonly items: number },
     ) =>
       sql
         .withTransaction(
@@ -301,7 +307,14 @@ export class SyncTargets extends Context.Service<
           SELECT scope_key FROM sync_target WHERE scope_key = ${syncScopeKey(scope)}
             AND active_generation = ${generation} AND sync_scope_enabled(scope) FOR UPDATE
         `.pipe(wrap("withRun"))
-            return rows.length === 0 ? Option.none<A>() : Option.some(yield* effect)
+            if (rows.length === 0) return Option.none<A>()
+            const result = yield* effect
+            yield* sql`UPDATE sync_target SET progressed_at = CLOCK_TIMESTAMP(),
+              progress_items = progress_items + CASE WHEN progress_page < ${progress?.page ?? -1}
+                THEN ${progress?.items ?? 0} ELSE 0 END,
+              progress_page = GREATEST(progress_page, ${progress?.page ?? -1})
+              WHERE scope_key = ${syncScopeKey(scope)}`
+            return Option.some(result)
           }),
         )
         .pipe(

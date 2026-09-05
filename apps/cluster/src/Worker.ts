@@ -76,7 +76,7 @@ import {
   ProjectGitHubWebhookRegistration,
 } from "./GitHub/ProjectWebhook.ts"
 import { WorkflowDispatcher } from "./WorkflowDispatcher.ts"
-import { WorkflowOutbox } from "./WorkflowOutbox.ts"
+import { WorkflowOutbox, OutboxWake } from "./WorkflowOutbox.ts"
 import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutboxCron.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
@@ -181,6 +181,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provide(FetchHttpClient.layer),
     )
 
+    let notifyOutbox: Effect.Effect<void> = Effect.void
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
       ProjectGitHubWebhookLayer,
@@ -233,6 +234,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
       Layer.provideMerge(WorkflowOutbox.layer),
       Layer.provide(DatabaseLayer),
+      Layer.provide(
+        Layer.succeed(
+          OutboxWake,
+          Effect.suspend(() => notifyOutbox),
+        ),
+      ),
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
@@ -240,6 +247,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       layer: ClusterLayer,
     })
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)
+    notifyOutbox = wakeOutboxDispatch()
     const wakeSyncRepair = cluster.wake(SyncRepairCronName)
     yield* Cloudflare.Workers.cron("* * * * *", () =>
       Effect.all([wakeOutboxDispatch(), wakeSyncRepair()], { discard: true }),

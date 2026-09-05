@@ -3,8 +3,15 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as Option from "effect/Option"
+import * as Scope from "effect/Scope"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "./SqlErrors.ts"
+
+/** The execution scope closes after its transactions commit or roll back. */
+export const OutboxWake = Context.Reference<Effect.Effect<void>>("WorkflowOutbox/Wake", {
+  defaultValue: () => Effect.void,
+})
 
 export class WorkflowOutboxError extends Schema.TaggedError<WorkflowOutboxError>()(
   "@janitor/cluster/WorkflowOutbox/WorkflowOutboxError",
@@ -69,6 +76,8 @@ export class WorkflowOutbox extends Context.Service<
 >()("@janitor/cluster/WorkflowOutbox/WorkflowOutbox", {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
+    const wake = yield* OutboxWake
+    const notified = new WeakSet<Scope.Scope>()
     const decodeRows = Schema.decodeUnknownEffect(Schema.Array(OutboxRow))
     const encodeJson = Schema.encodeEffect(Schema.UnknownFromJsonString)
 
@@ -93,6 +102,18 @@ export class WorkflowOutbox extends Context.Service<
         SET due_at = LEAST(workflow_outbox.due_at, EXCLUDED.due_at)
         WHERE workflow_outbox.accepted_at IS NULL AND workflow_outbox.attempts = 0
       `.pipe(wrap("enqueue"))
+      const scope = yield* Effect.serviceOption(Scope.Scope)
+      if (Option.isSome(scope) && !notified.has(scope.value)) {
+        notified.add(scope.value)
+        yield* Scope.addFinalizer(
+          scope.value,
+          wake.pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Outbox wake failed; cron will recover", cause),
+            ),
+          ),
+        )
+      }
     })
 
     const claimDue = Effect.fn("WorkflowOutbox.claimDue")(function* (options: ClaimOptions) {

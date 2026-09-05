@@ -41,6 +41,11 @@ export const SyncSummary = Schema.Struct({
   pendingTargets: Schema.Int,
   blockedTargets: Schema.Int,
   failedTargets: Schema.Int,
+  queuedTargets: Schema.optional(Schema.Int),
+  runningTargets: Schema.optional(Schema.Int),
+  retryingTargets: Schema.optional(Schema.Int),
+  stalledTargets: Schema.optional(Schema.Int),
+  appliedItems: Schema.optional(Schema.Int),
 })
 export type SyncSummary = typeof SyncSummary.Type
 
@@ -239,18 +244,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
 // SUBSCRIPTIONS
 
-/** Polls only while a sync is running, so an idle page makes no requests. */
+/** Keep scheduled retries visible without polling an idle page. */
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   poll: entry(
-    { isSyncing: Schema.Boolean, hasError: Schema.Boolean },
+    { isSyncing: Schema.Boolean, hasError: Schema.Boolean, isRetrying: Schema.Boolean },
     {
       modelToDependencies: (model) => ({
         isSyncing: stateOf(model) === "syncing",
         hasError: Option.isSome(model.lastError),
+        isRetrying: Option.isSome(model.summary) && (model.summary.value.retryingTargets ?? 0) > 0,
       }),
-      dependenciesToStream: ({ isSyncing, hasError }) =>
-        isSyncing
-          ? Stream.tick(hasError ? POLL_RETRY_INTERVAL : POLL_INTERVAL).pipe(
+      dependenciesToStream: ({ isSyncing, hasError, isRetrying }) =>
+        isSyncing || isRetrying
+          ? Stream.tick(hasError || !isSyncing ? POLL_RETRY_INTERVAL : POLL_INTERVAL).pipe(
               // tick emits immediately. Wait before the first poll, and keep
               // this subscription alive while individual requests complete.
               Stream.drop(1),
@@ -288,9 +294,25 @@ export const tooltipText = (model: Model): string =>
     onSome: (summary) => {
       switch (summary.state) {
         case "syncing":
-          return `Syncing ${summary.pendingTargets} scopes`
+          return [
+            summary.runningTargets === undefined
+              ? `Syncing ${summary.pendingTargets} scopes`
+              : `${summary.runningTargets} running · ${summary.queuedTargets ?? 0} queued`,
+            (summary.appliedItems ?? 0) > 0
+              ? `${summary.appliedItems} items processed in active scans`
+              : undefined,
+            (summary.stalledTargets ?? 0) > 0
+              ? `${summary.stalledTargets} stalled; recovery in progress`
+              : undefined,
+            summary.failedTargets > 0 ? `${summary.failedTargets} failed` : undefined,
+            (summary.retryingTargets ?? 0) > 0
+              ? `${summary.retryingTargets} scheduled to retry`
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ")
         case "failed":
-          return `${summary.failedTargets} scopes failed; retry available`
+          return `${summary.failedTargets} scopes failed; ${(summary.retryingTargets ?? 0) > 0 ? "automatic retry scheduled" : "retry available"}`
         case "blocked":
           return `${summary.blockedTargets} scopes blocked`
         case "idle":
@@ -334,6 +356,9 @@ export const view = Submodel.defineView<Model, Message, { syncDisabled: boolean 
                       buttonVariants.ghost,
                       buttonSizes["icon-sm"],
                       disabled && "opacity-50 cursor-default",
+                      Option.isSome(model.summary) &&
+                        model.summary.value.failedTargets > 0 &&
+                        "text-amber-500",
                     ),
                   ),
                 ],

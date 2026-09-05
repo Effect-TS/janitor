@@ -32,6 +32,27 @@ const outboxRows = (key: string) =>
   )
 
 layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (it) => {
+  it.effect("records committed page progress once across replay and rolls back failed pages", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const sql = yield* SqlClient.SqlClient
+      const s = scope("900")
+      yield* targets.invalidate({ scope: s, sequence: Option.none() })
+      yield* targets.begin(s, gen(1))
+      yield* targets.withRun(s, gen(1), Effect.void, { page: 0, items: 100 })
+      yield* targets.withRun(s, gen(1), Effect.void, { page: 0, items: 100 })
+      yield* sql
+        .withTransaction(
+          targets
+            .withRun(s, gen(1), Effect.void, { page: 1, items: 50 })
+            .pipe(Effect.andThen(Effect.fail("rollback"))),
+        )
+        .pipe(Effect.result)
+      const [row] = yield* sql<{ progress_items: number; progress_page: number }>`
+        SELECT progress_items,progress_page FROM sync_target WHERE scope_key = 'installation:900'`
+      assert.deepStrictEqual(row, { progress_items: 100, progress_page: 0 })
+    }),
+  )
   it.effect("coalesces a burst of invalidations into one pending run", () =>
     Effect.gen(function* () {
       const targets = yield* SyncTargets

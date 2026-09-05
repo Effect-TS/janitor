@@ -2,6 +2,8 @@ import { assert, describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
+import * as TestClock from "effect/testing/TestClock"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
@@ -71,7 +73,10 @@ const run = <A, E>(
                   )
                 : Effect.sync(() => Redacted.make(`ghs_${++tokenIssue}`)),
             invalidateInstallationToken: (id) =>
-              Effect.sync(() => void recorder.invalidated.push(id)),
+              Effect.sync(() => {
+                assert.deepStrictEqual(recorder.released, recorder.leases)
+                recorder.invalidated.push(id)
+              }),
           }),
         ),
         Layer.provide(
@@ -85,6 +90,7 @@ const run = <A, E>(
             record: (observation) =>
               Effect.sync(() => {
                 recorder.recorded.push(observation)
+                if (observation.leaseToken) recorder.released.push(observation.leaseToken)
                 if (observation.cooldown !== undefined)
                   recorder.cooldowns.push({ ...observation, ...observation.cooldown })
               }),
@@ -104,6 +110,29 @@ const json = (body: unknown, init: ResponseInit = {}) =>
   })
 
 describe("GitHubTransport", () => {
+  it.effect("times out a stalled response body and releases its lease", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+      const fiber = yield* run(
+        recorder,
+        () => new Response(new ReadableStream({ start() {} })),
+        Effect.flatMap(GitHubTransport, (transport) =>
+          transport.request({
+            scope: { _tag: "App" },
+            priority: "background",
+            method: "GET",
+            url: "/slow-body",
+          }),
+        ),
+      ).pipe(Effect.result, Effect.forkChild)
+      yield* TestClock.adjust("21 seconds")
+      const result = yield* Fiber.join(fiber)
+      assert.strictEqual(result._tag, "Failure")
+      if (result._tag === "Failure") assert.include(result.failure.message, "timed out during http")
+      assert.strictEqual(recorder.leases.length, 1)
+      assert.deepStrictEqual(recorder.released, recorder.leases)
+    }),
+  )
   it.effect("attaches installation credentials, records rate headers, and releases the lease", () =>
     Effect.gen(function* () {
       const recorder = makeRecorder()
@@ -303,7 +332,7 @@ describe("GitHubTransport", () => {
     }),
   )
 
-  it.effect("releases the reservation when acquiring credentials fails", () =>
+  it.effect("does not reserve GitHub capacity when acquiring credentials fails", () =>
     Effect.gen(function* () {
       const recorder = makeRecorder()
       const exit = yield* run(

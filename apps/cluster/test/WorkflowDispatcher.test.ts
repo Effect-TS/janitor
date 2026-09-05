@@ -1,6 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
+import * as TestClock from "effect/testing/TestClock"
 import * as Layer from "effect/Layer"
 import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
 import { WorkflowDispatcher, type WorkflowRegistration } from "../src/WorkflowDispatcher.ts"
@@ -37,7 +39,10 @@ const run = (
             claimDue: (options) =>
               Effect.sync(() => {
                 recorder.claims.push(options)
-                return rows
+                return rows.slice(
+                  (recorder.claims.length - 1) * 4,
+                  (recorder.claims.length - 1) * 4 + options.limit,
+                )
               }),
             markAccepted: (reference) =>
               Effect.sync(() => {
@@ -64,6 +69,29 @@ const row = (tag: string, key: string, attempts = 1): OutboxRow => ({
 })
 
 describe("WorkflowDispatcher", () => {
+  it.effect(
+    "dispatches other rows while one submission hangs, then releases the timed-out row",
+    () =>
+      Effect.gen(function* () {
+        const recorder = makeRecorder()
+        const fiber = yield* run(
+          recorder,
+          [row("Slow", "slow"), row("Fast", "fast")],
+          [
+            { tag: "Slow", submit: () => Effect.never },
+            { tag: "Fast", submit: () => Effect.void },
+          ],
+        ).pipe(Effect.forkChild)
+        yield* TestClock.adjust("1 second")
+        assert.deepStrictEqual(
+          recorder.accepted.map((row) => row.executionKey),
+          ["fast"],
+        )
+        yield* TestClock.adjust("20 seconds")
+        assert.deepStrictEqual(yield* Fiber.join(fiber), { claimed: 2, accepted: 1, released: 1 })
+        assert.strictEqual(recorder.released[0]?.[0].executionKey, "slow")
+      }),
+  )
   it.effect("submits claimed rows and marks them accepted with the claim token", () =>
     Effect.gen(function* () {
       const recorder = makeRecorder()

@@ -29,6 +29,8 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as SqlError from "effect/unstable/sql/SqlError"
+import { applyPullRequestBatch } from "./PullRequestBatch.ts"
+import { applyIssueBatch } from "./IssueBatch.ts"
 import { describeError } from "../SqlErrors.ts"
 
 export class GitHubReadModelError extends Schema.TaggedError<GitHubReadModelError>()(
@@ -235,6 +237,16 @@ export class GitHubReadModel extends Context.Service<
     readonly applyIssue: (
       observation: IssueObservation,
     ) => Effect.Effect<PullRequestProjection, GitHubReadModelError>
+    readonly applyPullRequests: (observation: {
+      repositoryId: GitHubRepositoryDatabaseId
+      pulls: ReadonlyArray<GitHubPullRequestApi>
+      sequence: GitHubWebhookJournalSequence
+    }) => Effect.Effect<ReadonlyArray<number>, GitHubReadModelError>
+    readonly applyIssues: (observation: {
+      repositoryId: GitHubRepositoryDatabaseId
+      issues: ReadonlyArray<GitHubIssueApi>
+      sequence: GitHubWebhookJournalSequence
+    }) => Effect.Effect<void, GitHubReadModelError>
     /** Pull request details; skipped until the entity row exists. */
     readonly applyPullRequestDetails: (
       observation: PullRequestDetailsObservation,
@@ -535,30 +547,6 @@ export class GitHubReadModel extends Context.Service<
         { discard: true },
       )
 
-    const replaceEntityLabels = (
-      repositoryId: GitHubRepositoryDatabaseId,
-      number: number,
-      labelIds: ReadonlyArray<string>,
-      operation: string,
-    ) =>
-      Effect.gen(function* () {
-        yield* sql`
-          DELETE FROM github_entity_label WHERE repository_id = ${repositoryId} AND number = ${number}
-        `.pipe(wrap(operation))
-        if (labelIds.length > 0) {
-          yield* sql`
-            INSERT INTO github_entity_label ${sql.insert(
-              labelIds.map((labelId) => ({
-                repository_id: repositoryId,
-                number,
-                label_id: labelId,
-              })),
-            )}
-            ON CONFLICT DO NOTHING
-          `.pipe(wrap(operation))
-        }
-      })
-
     const applyLabelCatalog = Effect.fn("GitHubReadModel.applyLabelCatalog")(function* ({
       repositoryId,
       labels,
@@ -579,55 +567,33 @@ export class GitHubReadModel extends Context.Service<
       `.pipe(wrap("applyLabelCatalog"))
     })
 
-    const applyIssue = Effect.fn("GitHubReadModel.applyIssue")(function* ({
-      repositoryId,
-      issue,
-      sequence,
-    }: IssueObservation) {
-      const updated = yield* sql`
-        INSERT INTO github_entity ${sql.insert({
-          repository_id: repositoryId,
-          number: issue.number,
-          kind: issue.pullRequest === undefined ? "issue" : "pull_request",
-          issue_id: issue.id,
-          issue_node_id: issue.nodeId,
-          title: issue.title,
-          body: issue.body,
-          author_login: issue.user?.login ?? "ghost",
-          author_id: issue.user?.id ?? null,
-          state: issue.state,
-          github_updated_at: DateTime.toDateUtc(issue.updatedAt),
-          projected_sequence: sequence,
-        })}
-        ON CONFLICT (repository_id, number) DO UPDATE SET
-          kind = EXCLUDED.kind,
-          issue_id = EXCLUDED.issue_id,
-          issue_node_id = EXCLUDED.issue_node_id,
-          title = EXCLUDED.title,
-          body = EXCLUDED.body,
-          author_login = EXCLUDED.author_login,
-          author_id = COALESCE(EXCLUDED.author_id, github_entity.author_id),
-          state = EXCLUDED.state,
-          github_updated_at = EXCLUDED.github_updated_at,
-          projected_sequence = EXCLUDED.projected_sequence,
-          observed_at = CLOCK_TIMESTAMP()
-        WHERE github_entity.github_updated_at < EXCLUDED.github_updated_at
-           OR (github_entity.github_updated_at = EXCLUDED.github_updated_at
-               AND github_entity.projected_sequence <= EXCLUDED.projected_sequence)
-        RETURNING number
-      `.pipe(wrap("applyIssue"))
-      if (updated.length === 0) {
-        return { _tag: "Stale" } as const
-      }
-      yield* upsertLabels(repositoryId, issue.labels, sequence, "applyIssue")
-      yield* replaceEntityLabels(
-        repositoryId,
-        issue.number,
-        issue.labels.map((label) => label.id),
-        "applyIssue",
+    const applyPullRequests = (observation: {
+      repositoryId: GitHubRepositoryDatabaseId
+      pulls: ReadonlyArray<GitHubPullRequestApi>
+      sequence: GitHubWebhookJournalSequence
+    }) =>
+      applyPullRequestBatch(observation).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        wrap("applyPullRequests"),
       )
-      return { _tag: "Applied" } as const
-    })
+    const applyIssues = (observation: {
+      repositoryId: GitHubRepositoryDatabaseId
+      issues: ReadonlyArray<GitHubIssueApi>
+      sequence: GitHubWebhookJournalSequence
+    }) =>
+      applyIssueBatch(observation).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.asVoid,
+        wrap("applyIssues"),
+      )
+    const applyIssue = (observation: IssueObservation) =>
+      applyIssueBatch({ ...observation, issues: [observation.issue] }).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.map((numbers) =>
+          numbers.length > 0 ? { _tag: "Applied" as const } : { _tag: "Stale" as const },
+        ),
+        wrap("applyIssue"),
+      )
 
     const applyPullRequestDetails = Effect.fn("GitHubReadModel.applyPullRequestDetails")(
       function* ({ repositoryId, pullRequest, sequence }: PullRequestDetailsObservation) {
@@ -923,6 +889,8 @@ export class GitHubReadModel extends Context.Service<
       applyPullRequest,
       applyLabelCatalog,
       applyIssue,
+      applyIssues,
+      applyPullRequests,
       applyPullRequestDetails,
       getInstallation,
       getRepository,

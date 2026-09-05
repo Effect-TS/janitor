@@ -33,6 +33,7 @@ export class SyncActivityError extends Schema.TaggedError<SyncActivityError>()(
   "SyncActivityError",
   {
     message: Schema.String,
+    retryable: Schema.optional(Schema.Boolean),
   },
 ) {}
 
@@ -48,7 +49,14 @@ export const rateLimitedOrFailure = <A, R>(effect: Effect.Effect<A, GitHubTransp
   Effect.mapError(effect, (error): SyncRateLimited | SyncActivityError =>
     error._tag === "GitHubRateLimited"
       ? new SyncRateLimited({ until: error.until })
-      : failure(error.message),
+      : new SyncActivityError({
+          message: error.message,
+          retryable:
+            error._tag === "@janitor/cluster/GitHub/RateBudget/GitHubBudgetError" ||
+            (error._tag === "GitHubTransportError" &&
+              error.stage !== undefined &&
+              error.stage !== "authentication"),
+        }),
   )
 
 const MAX_RATE_LIMIT_WAITS = 24
@@ -63,13 +71,22 @@ export const withRateLimitWaits = <A, R>(
   make: (attempt: number) => Effect.Effect<A, SyncRateLimited | SyncActivityError, R>,
 ) =>
   Effect.gen(function* () {
+    let transientRetries = 0
     for (let attempt = 0; attempt < MAX_RATE_LIMIT_WAITS; attempt++) {
       const result = yield* make(attempt).pipe(Effect.result)
       if (result._tag === "Success") {
         return result.success
       }
       if (result.failure._tag === "SyncActivityError") {
-        return yield* result.failure
+        if (!result.failure.retryable || transientRetries >= 3) return yield* result.failure
+        // Stable jitter keeps workflow replay deterministic without another activity.
+        const jitter =
+          name.split("").reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 1000
+        yield* DurableClock.sleep({
+          name: `${name}/retry-${attempt}`,
+          duration: Duration.millis(2000 * 2 ** transientRetries++ + jitter),
+        })
+        continue
       }
       const now = yield* DateTime.now
       const wait = Duration.max(
@@ -149,6 +166,12 @@ export const fetchJson = <S extends Schema.Top>(
         return { _tag: "Ok" as const, body, next: cached.value.next, fromCache: true }
       }
       case "Failed":
+        if (request.method === "GET" && response.status >= 500) {
+          return yield* new SyncActivityError({
+            message: describeFailed(response),
+            retryable: true,
+          })
+        }
         return {
           _tag: "Failed" as const,
           status: response.status,

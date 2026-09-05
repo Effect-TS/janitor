@@ -138,6 +138,18 @@ const services = (
       markRepositoriesSuspect: () => Effect.void,
       applyPullRequest: () => Effect.succeed({ _tag: "Applied" as const }),
       applyLabelCatalog: (observation) => Effect.sync(() => void recorder.labels.push(observation)),
+      applyPullRequests: (observation) =>
+        Effect.sync(() => {
+          for (const pullRequest of observation.pulls)
+            recorder.pulls.push({ ...observation, pullRequest })
+          return observation.pulls
+            .filter((pull) => recorder.missingDetails.has(pull.number))
+            .map((pull) => pull.number)
+        }),
+      applyIssues: (observation) =>
+        Effect.sync(() => {
+          for (const issue of observation.issues) recorder.issues.push({ ...observation, issue })
+        }),
       applyIssue: (observation) =>
         Effect.sync(() => {
           recorder.issues.push(observation)
@@ -353,7 +365,7 @@ describe("SyncRepositoryTrack", () => {
     }),
   )
 
-  it.effect(
+  it.live(
     "commits an entity page before fetching the next and never verifies partial scans",
     () =>
       Effect.gen(function* () {
@@ -370,7 +382,9 @@ describe("SyncRepositoryTrack", () => {
         assert.strictEqual(result.outcome, "failed")
         assert.strictEqual(recorder.completed[0]?.outcome._tag, "Failed")
         assert.strictEqual(recorder.issues.length, 1)
+        assert.strictEqual(recorder.requests.length, 5)
       }),
+    { timeout: 30000 },
   )
   it.effect("a complete open scan requests targeted verification of missing local entities", () =>
     Effect.gen(function* () {
@@ -442,8 +456,8 @@ describe("RefreshEntity", () => {
       assert.deepStrictEqual(
         recorder.requests.map((request) => [request.url, request.priority]),
         [
-          ["/repos/effect/janitor/issues/42", "foreground"],
-          ["/repos/effect/janitor/pulls/42", "foreground"],
+          ["/repos/effect/janitor/issues/42", "background"],
+          ["/repos/effect/janitor/pulls/42", "background"],
         ],
       )
       assert.strictEqual(recorder.issues.length, 1)
