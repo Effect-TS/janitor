@@ -36,6 +36,7 @@ const configuration: Repositories.ConfigurationView = {
       description: "",
       publishedVersionId: "v1",
       publishedRevision: 1,
+      publishedEvaluator: "Conditions",
       version: 2,
       createdAt: at,
       updatedAt: at,
@@ -260,7 +261,9 @@ describe("Repositories", () => {
       Story.model((next) => {
         expect(next.panel._tag).toBe("PolicyEditor")
         if (next.panel._tag === "PolicyEditor") {
-          expect(next.panel.editor.source.policyNames).toEqual(["Base is main"])
+          expect(next.panel.editor.source.referencePolicies).toEqual([
+            { name: "Base is main", target: "pull_request" },
+          ])
         }
       }),
     )

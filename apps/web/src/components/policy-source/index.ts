@@ -26,6 +26,8 @@ export { parse } from "./format"
 
 export const MountStatus = Schema.Literals(["Mounting", "Ready", "Failed"])
 
+const ReferencePolicy = Schema.Struct({ name: Schema.String, target: Schema.String })
+
 export const Model = Schema.Struct({
   id: Schema.String,
   source: Schema.String,
@@ -33,7 +35,7 @@ export const Model = Schema.Struct({
   maybeParseError: Schema.Option(Schema.String),
   mountStatus: MountStatus,
   catalog: Schema.Array(FactDescription),
-  policyNames: Schema.Array(Schema.String),
+  referencePolicies: Schema.Array(ReferencePolicy),
 })
 export type Model = typeof Model.Type
 
@@ -70,10 +72,10 @@ export const MountPolicySourceEditor = Mount.defineStream("MountPolicySourceEdit
     id: Schema.String,
     initialSource: Schema.String,
     catalog: Schema.Array(FactDescription),
-    policyNames: Schema.Array(Schema.String),
+    referencePolicies: Schema.Array(ReferencePolicy),
   },
   messages: [Message.MountedEditor, Message.FailedToMountEditor, Message.EditedSource],
-  execute: ({ element, initialSource, catalog, policyNames }) =>
+  execute: ({ element, initialSource, catalog, referencePolicies }) =>
     Stream.callback((queue) =>
       Effect.acquireRelease(
         Effect.tryPromise({
@@ -85,7 +87,10 @@ export const MountPolicySourceEditor = Mount.defineStream("MountPolicySourceEdit
             const editor = createPolicySourceEditor({
               element,
               initialSource,
-              context: { catalog, policyNames },
+              context: {
+                catalog,
+                referencePolicies,
+              },
               onChange: (source) => {
                 Queue.offerUnsafe(queue, Message.EditedSource({ source }))
               },
@@ -114,7 +119,7 @@ export const init = (input: {
   readonly id: string
   readonly source: string
   readonly catalog: ReadonlyArray<FactDescription>
-  readonly policyNames: ReadonlyArray<string>
+  readonly referencePolicies: ReadonlyArray<typeof ReferencePolicy.Type>
 }): Model =>
   Model.make(
     {
@@ -123,7 +128,7 @@ export const init = (input: {
       maybeParseError: parseError(input.source),
       mountStatus: "Mounting",
       catalog: input.catalog,
-      policyNames: input.policyNames,
+      referencePolicies: input.referencePolicies,
     },
     { disableChecks: true },
   )
@@ -169,7 +174,7 @@ export const view = Submodel.defineView<Model, Message>((model, h): Html =>
           id: model.id,
           initialSource: model.source,
           catalog: model.catalog,
-          policyNames: model.policyNames,
+          referencePolicies: model.referencePolicies,
         }),
       ),
     ],

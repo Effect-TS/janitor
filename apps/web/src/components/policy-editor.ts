@@ -16,10 +16,24 @@ import * as Button from "@/components/ui/button"
 import * as Disclosure from "@foldkit/ui/disclosure"
 import * as Menu from "@foldkit/ui/menu"
 import * as Icon from "@/lib/icons"
-import { X, Upload, Save, ChevronRight, CodeXml, Pencil, Ellipsis, Trash2 } from "lucide"
+import {
+  X,
+  Upload,
+  Save,
+  ChevronRight,
+  CodeXml,
+  Pencil,
+  Ellipsis,
+  Trash2,
+  CircleCheck,
+  CircleAlert,
+  CircleHelp,
+  LoaderCircle,
+} from "lucide"
 import { input } from "@/components/ui/input"
 import * as PolicySource from "@/components/policy-source"
 import * as TestBench from "@/components/test-bench"
+import * as Routes from "@/routes"
 import * as PolicyStatus from "@/components/policy-status"
 import {
   ConfigurationView,
@@ -401,7 +415,6 @@ export interface InitInput {
   readonly configuration: ConfigurationView
   readonly repositoryId: string
   readonly catalog: ReadonlyArray<FactDescription>
-  readonly policyNames: ReadonlyArray<string>
   readonly existing: Option.Option<PolicyDetail>
   readonly testCandidates?: TestCandidates | undefined
 }
@@ -415,7 +428,6 @@ export const init = ({
   repositoryId,
   configuration,
   catalog,
-  policyNames,
   existing,
   testCandidates,
 }: InitInput): Model =>
@@ -465,10 +477,14 @@ export const init = ({
           Option.map(existing, (detail) => detail.draft).pipe(Option.getOrElse(() => starter)),
         ),
         catalog,
-        policyNames: Option.match(existing, {
-          onNone: () => policyNames,
-          onSome: (detail) => policyNames.filter((name) => name !== detail.policy.name),
-        }),
+        referencePolicies: configuration.policies
+          .filter(
+            (policy) =>
+              policy.publishedVersionId !== null &&
+              policy.publishedEvaluator === "Conditions" &&
+              !Option.exists(existing, (detail) => detail.policy.policyId === policy.policyId),
+          )
+          .map((policy) => ({ name: policy.name, target: policy.target })),
       }),
       validation: { _tag: "NotValidated" },
       validationRequestId: 0,
@@ -770,22 +786,44 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 // VIEW
 
 const validationView = (h: HtmlBuilder<Message>, validation: Validation): Html => {
-  switch (validation._tag) {
-    case "NotValidated":
-      return h.empty
-    case "Validating":
-      return h.div([h.Class("text-muted-foreground text-xs")], ["Compiling"])
-    case "Invalid":
-      return h.div([h.Class("text-destructive text-xs"), h.Role("alert")], [validation.message])
-    case "Valid":
-      return h.div(
-        [
-          h.Class("text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs"),
-          h.DataAttribute("validation", "valid"),
-        ],
-        ["Policy is valid."],
-      )
-  }
+  const status =
+    validation._tag === "Valid"
+      ? "valid"
+      : validation._tag === "Invalid"
+        ? "invalid"
+        : validation._tag === "Validating"
+          ? "checking"
+          : "unchecked"
+  const icon =
+    validation._tag === "Valid"
+      ? CircleCheck
+      : validation._tag === "Invalid"
+        ? CircleAlert
+        : validation._tag === "Validating"
+          ? LoaderCircle
+          : CircleHelp
+  const title =
+    validation._tag === "Valid"
+      ? "Policy is valid."
+      : validation._tag === "Invalid"
+        ? "Policy is invalid"
+        : validation._tag === "Validating"
+          ? "Checking policy…"
+          : "Not validated"
+  return h.div(
+    [
+      h.Class("policy-validation"),
+      h.DataAttribute("validation", status),
+      h.Role(status === "invalid" ? "alert" : "status"),
+    ],
+    [
+      h.div(
+        [h.Class("flex items-center gap-2 font-medium")],
+        [Icon.view(h, icon, status === "checking" ? "size-4 animate-spin" : "size-4"), title],
+      ),
+      validation._tag === "Invalid" ? h.p([h.Class("text-xs")], [validation.message]) : h.empty,
+    ],
+  )
 }
 
 const submissionView = (h: HtmlBuilder<Message>, submission: Submission): Html => {
@@ -881,7 +919,7 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                             isButtonDisabled: busy,
                             buttonContent: Icon.view(h, Ellipsis, "size-4"),
                             buttonClassName:
-                              "inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+                              "inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 cursor-pointer",
                             anchor: { placement: "bottom-end", gap: 4, padding: 8 },
                             itemsClassName: "z-50 w-44 rounded-md border bg-popover p-1 shadow-md",
                             backdropClassName: "fixed inset-0 z-40",
@@ -1013,7 +1051,6 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                       [h.Class("flex items-center gap-2")],
                       [
                         Icon.view(h, CodeXml, "size-3.5"),
-                        "Program",
                         h.span([h.Class("text-muted-foreground")], ["YAML"]),
                       ],
                     ),
@@ -1130,10 +1167,6 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                   [h.Class("policy-inspector-section flex flex-col gap-3")],
                   [
                     h.h2([h.Class("text-sm font-semibold")], ["Test bench"]),
-                    h.p(
-                      [h.Class("text-xs text-muted-foreground")],
-                      ["Choose an open item to test this draft against."],
-                    ),
                     model.testCandidates._tag === "Failed"
                       ? h.p(
                           [h.Class("text-xs text-destructive"), h.Role("alert")],
@@ -1152,7 +1185,14 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                                   h.For("policy-test-choice"),
                                   h.Class("text-xs text-muted-foreground"),
                                 ],
-                                ["Issue or pull request"],
+                                [
+                                  Option.exists(
+                                    parsedSource(model),
+                                    (source) => source.target === "issue",
+                                  )
+                                    ? "Issues"
+                                    : "Pull Requests",
+                                ],
                               ),
                               h.select(
                                 [
@@ -1220,12 +1260,18 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                         }),
                       ],
                     ),
-                    model.validation._tag === "NotValidated"
-                      ? h.p(
-                          [h.Class("text-xs text-muted-foreground")],
-                          ["Check conditions and policy references before publishing."],
-                        )
-                      : validationView(h, model.validation),
+                    validationView(
+                      h,
+                      Option.isNone(parsedSource(model))
+                        ? {
+                            _tag: "Invalid",
+                            message: Option.getOrElse(
+                              model.source.maybeParseError,
+                              () => "Fix the program structure before validating.",
+                            ),
+                          }
+                        : model.validation,
+                    ),
                   ],
                 ),
                 disclosure(
@@ -1243,8 +1289,11 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                             identity._tag === "Existing" && rule.policyId === identity.policyId,
                         )
                         .map((rule) =>
-                          h.article(
+                          h.a(
                             [
+                              h.Href(
+                                Routes.rule({ repositoryId: model.repositoryId, ruleId: rule.id }),
+                              ),
                               h.Class("policy-rule-card"),
                               h.AriaLabel(
                                 `Rule for ${labelName(model.configuration.labels, rule.labelId)}`,

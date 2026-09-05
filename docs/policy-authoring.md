@@ -10,7 +10,7 @@ decision to a label. Keep reusable conditions in policies; configure label
 behavior in rules.
 
 The right sidebar and policy list show publication status: **Not published**,
-**Changes to publish**, or **Published · vN**. A saved draft can still have changes
+**Draft**, or **Published · vN**. A saved draft can still have changes
 to publish. An unsaved dot also appears
 on the selected policy in the list. Title and description changes only need
 saving; publishing applies program changes. A published version may still be
@@ -34,6 +34,19 @@ matchesWhen:
 `appliesWhen` is optional. Use `all`, `any`, and `not` to combine conditions.
 Completion offers facts and operators from the server's catalog. YAML mapping
 keys must be unique; unknown program and condition keys are rejected.
+
+Press Ctrl+Space in the editor to insert a section at the cursor. Suggestions
+include complete fact comparisons, `all` / `any` / `not` groups, collection
+conditions with `where`, policy references, and classifier sections. Snippets
+keep the surrounding indentation. Tab and Shift+Tab move between editable
+fields; Escape exits the snippet. Undo removes the insertion in one step.
+Outside a snippet, Tab indents and Shift+Tab unindents. Press Escape then Tab
+to move keyboard focus out of the editor.
+
+Suggestions omit existing keys and incompatible condition shapes. Policy
+references list published condition policies for the current target, excluding
+the policy being edited. Snippets provide starting values; review them and test
+the policy before publishing.
 
 ## Referencing policies
 

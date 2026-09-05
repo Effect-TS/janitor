@@ -15,6 +15,8 @@ import * as RepositorySwitcher from "@/components/repository-switcher"
 import * as Sidebar from "@/components/ui/sidebar"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
+import { FileCode2, Tags, Activity, Settings } from "lucide"
+import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
 import * as HttpClient from "effect/unstable/http/HttpClient"
@@ -698,7 +700,7 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                       h.Class(
                         cn(
                           Sidebar.sidebarMenuButtonClass,
-                          "h-8",
+                          "repository-nav-link",
                           model.repositories.section === section && "bg-sidebar-accent font-medium",
                         ),
                       ),
@@ -708,7 +710,14 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                           : "false",
                       ),
                     ],
-                    [h.span([], [section])],
+                    [
+                      Icon.view(
+                        h,
+                        { Policies: FileCode2, Rules: Tags, Activity, Settings }[section],
+                        "size-4 shrink-0",
+                      ),
+                      h.span([], [section]),
+                    ],
                   ),
                 ],
               }),

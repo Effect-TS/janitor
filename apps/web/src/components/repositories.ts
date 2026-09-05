@@ -17,7 +17,7 @@ import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
 import * as Icon from "@/lib/icons"
-import { Plus, Search } from "lucide"
+import { Plus, Search, FileCode2, MousePointer2 } from "lucide"
 import { input } from "@/components/ui/input"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as RuleEditor from "@/components/rule-editor"
@@ -388,9 +388,6 @@ const openPolicyEditor = (model: Model, existing: Option.Option<PolicyDetail>): 
             configuration: detail.configuration,
             catalog: model.catalog,
             testCandidates: detail.testCandidates,
-            policyNames: detail.configuration.policies
-              .filter((policy) => policy.publishedVersionId !== null)
-              .map((policy) => policy.name),
             existing,
           }),
         }),
@@ -993,15 +990,8 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
           )
         }),
       ),
-      policies.length === 0
-        ? h.p(
-            [h.Class("p-4 text-xs text-muted-foreground")],
-            [
-              view.policies.length === 0
-                ? "Create your first policy to get started."
-                : "No policies match your search.",
-            ],
-          )
+      policies.length === 0 && view.policies.length > 0
+        ? h.p([h.Class("p-4 text-xs text-muted-foreground")], ["No policies match your search."])
         : h.empty,
     ],
   )
@@ -1352,17 +1342,41 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
                   : h.div(
                       [h.Class("policy-empty")],
                       [
-                        h.h2([h.Class("text-lg font-semibold")], ["Your policy workspace"]),
+                        h.div(
+                          [h.Class("policy-empty-icon")],
+                          [
+                            Icon.view(
+                              h,
+                              detail.configuration.policies.length === 0
+                                ? FileCode2
+                                : MousePointer2,
+                              "size-6",
+                            ),
+                          ],
+                        ),
+                        h.h2(
+                          [h.Class("text-lg font-semibold")],
+                          [
+                            detail.configuration.policies.length === 0
+                              ? "Create your first policy"
+                              : "Select a policy",
+                          ],
+                        ),
                         h.p(
                           [h.Class("max-w-sm text-sm text-muted-foreground")],
-                          ["Select a policy to edit and test it, or create a new one."],
+                          [
+                            detail.configuration.policies.length === 0
+                              ? "Define when an issue or pull request matches, then test it against your repository."
+                              : "Choose a policy from the list to edit its conditions and test your changes.",
+                          ],
                         ),
-                        Button.view(h, {
-                          variant: "outline",
-                          size: "sm",
-                          label: "Create policy",
-                          onClick: Message.ClickedNewPolicy(),
-                        }),
+                        detail.configuration.policies.length === 0
+                          ? Button.view(h, {
+                              size: "sm",
+                              label: "Create policy",
+                              onClick: Message.ClickedNewPolicy(),
+                            })
+                          : h.empty,
                       ],
                     ),
               ],

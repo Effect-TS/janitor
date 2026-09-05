@@ -9,7 +9,7 @@ export const label = ({ published, revision, changes }: Publication): string =>
   !published
     ? "Not published"
     : changes
-      ? "Changes to publish"
+      ? "Draft"
       : revision === null
         ? "Published"
         : `Published · v${revision}`

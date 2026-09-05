@@ -89,6 +89,7 @@ export const PolicyRecord = Schema.Struct({
   publishedVersionId: Schema.NullOr(Schema.String),
   publishedRevision: Schema.NullOr(Schema.Int),
   draftDiffers: Schema.optionalKey(Schema.Boolean),
+  publishedEvaluator: Schema.optionalKey(Schema.Literals(["Conditions", "Classifier"])),
   version: Schema.Int,
   createdAt: Schema.DateTimeUtc,
   updatedAt: Schema.DateTimeUtc,

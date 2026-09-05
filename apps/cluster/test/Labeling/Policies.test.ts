@@ -701,6 +701,11 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       assert.isTrue(yield* differs)
       detail = yield* policies.publish(repositoryId, id, detail.policy.version, actor)
       assert.isFalse(yield* differs)
+      assert.strictEqual(
+        (yield* policies.list(repositoryId)).find((policy) => policy.policyId === id)
+          ?.publishedEvaluator,
+        "Conditions",
+      )
       detail = yield* policies.save(
         repositoryId,
         id,
@@ -731,6 +736,35 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         actor,
       )
       assert.isFalse(yield* differs)
+    }),
+  )
+  it.effect("identifies published classifiers for reference completion", () =>
+    Effect.gen(function* () {
+      const policies = yield* Policies
+      const draft = yield* policies.create(
+        repositoryId,
+        {
+          name: "Snippet classifier",
+          description: "",
+          source: {
+            target: "issue",
+            classify: {
+              prompt: "Does this describe a bug?",
+              evidence: ["title"],
+              minimumConfidence: 0.8,
+            },
+          },
+        },
+        actor,
+      )
+      assert.isUndefined(draft.policy.publishedEvaluator)
+      yield* policies.publish(repositoryId, draft.policy.policyId, draft.policy.version, actor)
+      assert.strictEqual(
+        (yield* policies.list(repositoryId)).find(
+          (policy) => policy.policyId === draft.policy.policyId,
+        )?.publishedEvaluator,
+        "Classifier",
+      )
     }),
   )
 })

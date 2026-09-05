@@ -99,6 +99,9 @@ export const toPolicyRecord = (row: typeof PolicyRow.Type): PolicyRecord => ({
           row.published_program == null ||
           JSON.stringify(row.draft_program) !== JSON.stringify(row.published_program),
       }),
+  ...(row.published_program == null
+    ? {}
+    : { publishedEvaluator: row.published_program.evaluator._tag }),
   version: row.version,
   createdAt: row.created_at,
   updatedAt: row.updated_at,

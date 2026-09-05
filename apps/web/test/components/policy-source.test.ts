@@ -49,7 +49,10 @@ const complete = async (text: string): Promise<CompletionResult | null> => {
   const state = EditorState.create({ doc: text.replace("|", ""), extensions: [yaml()] })
   return policyCompletionSource({
     catalog,
-    policyNames: ["ready-for-review", "Ready for review", "true"],
+    referencePolicies: ["ready-for-review", "Ready for review", "true"].map((name) => ({
+      name,
+      target: "pull_request",
+    })),
   })(new CompletionContext(state, pos, true))
 }
 
@@ -103,6 +106,156 @@ describe("YAML policy source", () => {
 })
 
 describe("YAML policy completion", () => {
+  it("only offers missing keys for the current condition shape", async () => {
+    const labels = async (source: string) =>
+      (await complete(source))?.options.map((option) => option.label) ?? []
+    expect(
+      await labels(
+        "target: issue\nmatchesWhen:\n  fact: state\n  operator: equals\n  value: open\n|",
+      ),
+    ).toEqual(["appliesWhen"])
+    expect(await labels("matchesWhen:\n  fact: draft\n  |")).toEqual(["operator", "value"])
+    expect(await labels("matchesWhen:\n  policy: Ready\n  |")).toEqual([])
+    expect(await labels("classify:\n  prompt: test\n  |")).toEqual([
+      "evidence",
+      "minimumConfidence",
+    ])
+    expect(await labels("target: issue\nmatchesWhen:\n  |")).not.toContain("some")
+    expect(await labels("matchesWhen:\n  some: checks\n  where:\n    |")).toContain(
+      "Compare completed",
+    )
+    expect(await labels("matchesWhen:\n  some: checks\n  where:\n    |")).not.toContain("policy")
+  })
+
+  it("filters reference names by the document target", async () => {
+    const source = "target: issue\nmatchesWhen:\n  policy: "
+    const state = EditorState.create({ doc: source, extensions: [yaml()] })
+    const result = await policyCompletionSource({
+      catalog,
+      referencePolicies: [
+        { name: "Issue policy", target: "issue" },
+        { name: "PR policy", target: "pull_request" },
+      ],
+    })(new CompletionContext(state, source.length, true))
+    expect(result?.options.map((option) => option.label)).toEqual(["Issue policy"])
+  })
+
+  it.each([
+    [
+      "target: issue\n|",
+      "matchesWhen",
+      { target: "issue", matchesWhen: { fact: "state", operator: "equals", value: "open" } },
+    ],
+    [
+      "target: pull_request\nmatchesWhen:\n  all:\n    - |",
+      "Compare draft",
+      {
+        target: "pull_request",
+        matchesWhen: { all: [{ fact: "draft", operator: "is", value: false }] },
+      },
+    ],
+    [
+      "target: pull_request\nmatchesWhen:\n  some: checks\n  |",
+      "where",
+      {
+        target: "pull_request",
+        matchesWhen: {
+          some: "checks",
+          where: { fact: "name", operator: "equals", value: "example" },
+        },
+      },
+    ],
+    [
+      "target: pull_request\nmatchesWhen:\n  |",
+      "some",
+      {
+        target: "pull_request",
+        matchesWhen: {
+          some: "checks",
+          where: { fact: "name", operator: "equals", value: "example" },
+        },
+      },
+    ],
+    [
+      "target: pull_request\nmatchesWhen:\n  |",
+      "any",
+      {
+        target: "pull_request",
+        matchesWhen: { any: [{ fact: "state", operator: "equals", value: "open" }] },
+      },
+    ],
+  ])("inserts valid indented YAML for %s using %s", async (source, label, expected) => {
+    const element = document.createElement("div")
+    document.body.append(element)
+    const editor = createPolicySourceEditor({
+      element,
+      initialSource: source.replace("|", ""),
+      context: {
+        catalog,
+        referencePolicies: ["Ready"].map((name) => ({ name, target: "pull_request" })),
+      },
+      onChange: () => {},
+    })
+    try {
+      const pos = source.indexOf("|")
+      const result = await policyCompletionSource({
+        catalog,
+        referencePolicies: ["Ready"].map((name) => ({ name, target: "pull_request" })),
+      })(new CompletionContext(editor.state, pos, true))
+      const choice = result!.options.find((option) => option.label === label)!
+      expect(typeof choice.apply).toBe("function")
+      if (typeof choice.apply === "function")
+        choice.apply(editor, choice, result!.from, result!.to ?? pos)
+      expect(Result.getOrThrow(parse(editor.state.doc.toString()))).toEqual(expected)
+      expect(editor.state.selection.main.empty).toBe(false)
+      expect(undo(editor)).toBe(true)
+      expect(editor.state.doc.toString()).toBe(source.replace("|", ""))
+    } finally {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
+  it("navigates classifier fields with Tab and preserves an existing key's value", async () => {
+    const result = await complete("target: issue\nmat|chesWhen:\n  policy: Ready")
+    expect(result?.options.find((option) => option.label === "matchesWhen")?.apply).toBe(
+      "matchesWhen",
+    )
+    const element = document.createElement("div")
+    document.body.append(element)
+    const editor = createPolicySourceEditor({
+      element,
+      initialSource: "target: issue\n",
+      context: { catalog, referencePolicies: [].map((name) => ({ name, target: "pull_request" })) },
+      onChange: () => {},
+    })
+    try {
+      const result = await policyCompletionSource({
+        catalog,
+        referencePolicies: [].map((name) => ({ name, target: "pull_request" })),
+      })(new CompletionContext(editor.state, editor.state.doc.length, true))
+      const choice = result!.options.find((option) => option.label === "classify")!
+      if (typeof choice.apply === "function")
+        choice.apply(editor, choice, result!.from, editor.state.doc.length)
+      expect(
+        editor.state.sliceDoc(editor.state.selection.main.from, editor.state.selection.main.to),
+      ).toBe("Does this describe a bug?")
+      editor.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }))
+      expect(
+        editor.state.sliceDoc(editor.state.selection.main.from, editor.state.selection.main.to),
+      ).toBe("title")
+      editor.contentDOM.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }),
+      )
+      expect(
+        editor.state.sliceDoc(editor.state.selection.main.from, editor.state.selection.main.to),
+      ).toBe("Does this describe a bug?")
+    } finally {
+      editor.destroy()
+      element.remove()
+    }
+  })
+
   it("offers root keys at the document start and condition keys under a matcher", async () => {
     expect((await complete("|"))?.options.map((x) => x.label)).toEqual([
       "target",
@@ -117,7 +270,7 @@ describe("YAML policy completion", () => {
       (await complete("target: pull_request\nmatchesWhen:\n  fa|"))?.options.find(
         (x) => x.label === "fact",
       )?.apply,
-    ).toBe("fact: ")
+    ).toBeTypeOf("function")
   })
 
   it("replaces complete policy names without doubled quotes or lost hyphens", async () => {
@@ -170,6 +323,37 @@ describe("YAML policy completion", () => {
 })
 
 describe("YAML editor integration", () => {
+  it("uses Tab and Shift-Tab for indentation without leaving the editor", () => {
+    const element = document.createElement("div")
+    document.body.append(element)
+    const editor = createPolicySourceEditor({
+      element,
+      initialSource: "target: issue",
+      context: { catalog, referencePolicies: [] },
+      onChange: () => {},
+    })
+    try {
+      editor.focus()
+      const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+      editor.contentDOM.dispatchEvent(tab)
+      expect(tab.defaultPrevented).toBe(true)
+      expect(editor.state.doc.toString()).toBe("  target: issue")
+      expect(editor.hasFocus).toBe(true)
+      editor.contentDOM.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+      expect(editor.state.doc.toString()).toBe("target: issue")
+      expect(editor.hasFocus).toBe(true)
+    } finally {
+      editor.destroy()
+      element.remove()
+    }
+  })
   it("reports the offending YAML location", () => {
     const source = "target: issue\ntarget: pull_request\n"
     const result = inspect(source)
@@ -190,7 +374,10 @@ describe("YAML editor integration", () => {
     const editor = createPolicySourceEditor({
       element,
       initialSource: source,
-      context: { catalog, policyNames: ["Ready"] },
+      context: {
+        catalog,
+        referencePolicies: ["Ready"].map((name) => ({ name, target: "pull_request" })),
+      },
       onChange: (value) => changes.push(value),
     })
     try {
@@ -214,7 +401,10 @@ describe("YAML editor integration", () => {
     const editor = createPolicySourceEditor({
       element,
       initialSource: "target: issue\n",
-      context: { catalog, policyNames: ["ready-for-review"] },
+      context: {
+        catalog,
+        referencePolicies: ["ready-for-review"].map((name) => ({ name, target: "pull_request" })),
+      },
       onChange: (source) => changes.push(source),
     })
     try {

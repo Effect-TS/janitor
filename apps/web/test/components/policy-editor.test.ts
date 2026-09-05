@@ -43,7 +43,6 @@ const fresh = () =>
       labelFreshness: "verified",
     },
     catalog: [],
-    policyNames: ["Ready"],
     existing: Option.none(),
     testCandidates: {
       _tag: "Ready",
@@ -86,6 +85,28 @@ const fresh = () =>
   })
 
 describe("PolicyEditor", () => {
+  it("only passes other published condition policies to reference completion", () => {
+    const published = {
+      ...detail.policy,
+      publishedVersionId: "v1",
+      publishedEvaluator: "Conditions" as const,
+    }
+    const model = PolicyEditor.init({
+      repositoryId: "701",
+      catalog: [],
+      existing: Option.some(detail),
+      configuration: {
+        ...fresh().configuration,
+        policies: [
+          published,
+          { ...published, policyId: "p2", name: "Allowed" },
+          { ...published, policyId: "p3", name: "Classifier", publishedEvaluator: "Classifier" },
+          { ...published, policyId: "p4", name: "Draft", publishedVersionId: null },
+        ],
+      },
+    })
+    expect(model.source.referencePolicies).toEqual([{ name: "Allowed", target: "pull_request" }])
+  })
   it("separates saved input from publication status, including invalid YAML and publish failures", () => {
     expect(PolicyEditor.saveStatus(fresh())).toBe("Not saved yet")
     expect(PolicyEditor.publicationStatus(fresh()).published).toBe(false)
