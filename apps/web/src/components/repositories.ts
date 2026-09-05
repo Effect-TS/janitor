@@ -861,6 +861,10 @@ const table = (
   )
 
 const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
+  const creating =
+    model.panel._tag === "PolicyEditor" && model.panel.editor.identity._tag === "New"
+      ? model.panel.editor
+      : undefined
   const query = model.policySearch.trim().toLowerCase()
   const policies = view.policies.filter((policy) =>
     `${policy.name} ${policy.description}`.toLowerCase().includes(query),
@@ -886,7 +890,7 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
                   "All policies",
                   h.span(
                     [h.Class("ml-2 font-normal text-muted-foreground")],
-                    [String(view.policies.length)],
+                    [String(view.policies.length + (creating ? 1 : 0))],
                   ),
                 ],
               ),
@@ -921,74 +925,115 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
       ),
       h.ul(
         [h.Class("policy-library-list")],
-        policies.map((policy) => {
-          const panel = model.panel
-          const editor =
-            panel._tag === "PolicyEditor" &&
-            panel.editor.identity._tag === "Existing" &&
-            panel.editor.identity.policyId === policy.policyId
-              ? panel.editor
-              : undefined
-          const status =
-            editor === undefined
-              ? {
-                  published: policy.publishedRevision !== null,
-                  revision: policy.publishedRevision,
-                  changes: policy.draftDiffers ?? false,
-                }
-              : PolicyEditor.publicationStatus(editor)
-          return h.li(
-            [h.DataAttribute("policy-id", policy.policyId)],
-            [
-              h.a(
-                [
-                  h.Href(
-                    Routes.policy({
-                      repositoryId: view.repositoryId,
-                      policyId: policy.policyId,
-                      ...(model.policySearch ? { q: model.policySearch } : {}),
-                    }),
-                  ),
-                  h.Class(
-                    cn("policy-library-item", selectedId === policy.policyId && "is-selected"),
-                  ),
-                  h.AriaCurrent(selectedId === policy.policyId ? "page" : "false"),
-                  h.DataAttribute("action", "edit-policy"),
-                ],
-                [
-                  h.span(
-                    [h.Class("policy-library-name flex items-center gap-1.5")],
-                    [
-                      policy.name,
-                      editor !== undefined && PolicyEditor.hasUnsavedInput(editor)
-                        ? h.span(
-                            [
-                              h.Class("policy-unsaved-dot"),
-                              h.Role("img"),
-                              h.AriaLabel("Unsaved changes"),
-                              h.Title("Unsaved changes"),
-                            ],
-                            [],
-                          )
-                        : h.empty,
-                    ],
-                  ),
-                  h.span(
-                    [h.Class("policy-library-summary")],
-                    [policy.description || "No description"],
-                  ),
-                  h.span(
-                    [h.Class("policy-library-meta")],
-                    [
-                      policy.target === "pull_request" ? "Pull requests" : "Issues",
-                      PolicyStatus.view(h, status),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          )
-        }),
+        [
+          ...(creating
+            ? [
+                h.li(
+                  [h.DataAttribute("policy-id", "new")],
+                  [
+                    h.div(
+                      [h.Class("policy-library-item is-selected"), h.AriaCurrent("page")],
+                      [
+                        h.span(
+                          [h.Class("policy-library-name")],
+                          [
+                            (creating.metadataEdits.name ?? creating.name).trim() ||
+                              "Untitled policy",
+                          ],
+                        ),
+                        h.span(
+                          [h.Class("policy-library-summary")],
+                          [
+                            (creating.metadataEdits.description ?? creating.description) ||
+                              "No description",
+                          ],
+                        ),
+                        h.span(
+                          [h.Class("policy-library-meta")],
+                          [
+                            Option.match(PolicyEditor.parsedSource(creating), {
+                              onNone: () => "Policy",
+                              onSome: (source) =>
+                                source.target === "pull_request" ? "Pull requests" : "Issues",
+                            }),
+                            h.span([h.Class("text-muted-foreground")], ["Unsaved"]),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ]
+            : []),
+          ...policies.map((policy) => {
+            const panel = model.panel
+            const editor =
+              panel._tag === "PolicyEditor" &&
+              panel.editor.identity._tag === "Existing" &&
+              panel.editor.identity.policyId === policy.policyId
+                ? panel.editor
+                : undefined
+            const status =
+              editor === undefined
+                ? {
+                    published: policy.publishedRevision !== null,
+                    revision: policy.publishedRevision,
+                    changes: policy.draftDiffers ?? false,
+                  }
+                : PolicyEditor.publicationStatus(editor)
+            return h.li(
+              [h.DataAttribute("policy-id", policy.policyId)],
+              [
+                h.a(
+                  [
+                    h.Href(
+                      Routes.policy({
+                        repositoryId: view.repositoryId,
+                        policyId: policy.policyId,
+                        ...(model.policySearch ? { q: model.policySearch } : {}),
+                      }),
+                    ),
+                    h.Class(
+                      cn("policy-library-item", selectedId === policy.policyId && "is-selected"),
+                    ),
+                    h.AriaCurrent(selectedId === policy.policyId ? "page" : "false"),
+                    h.DataAttribute("action", "edit-policy"),
+                  ],
+                  [
+                    h.span(
+                      [h.Class("policy-library-name flex items-center gap-1.5")],
+                      [
+                        policy.name,
+                        editor !== undefined && PolicyEditor.hasUnsavedInput(editor)
+                          ? h.span(
+                              [
+                                h.Class("policy-unsaved-dot"),
+                                h.Role("img"),
+                                h.AriaLabel("Unsaved changes"),
+                                h.Title("Unsaved changes"),
+                              ],
+                              [],
+                            )
+                          : h.empty,
+                      ],
+                    ),
+                    h.span(
+                      [h.Class("policy-library-summary")],
+                      [policy.description || "No description"],
+                    ),
+                    h.span(
+                      [h.Class("policy-library-meta")],
+                      [
+                        policy.target === "pull_request" ? "Pull requests" : "Issues",
+                        PolicyStatus.view(h, status),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            )
+          }),
+        ],
       ),
       policies.length === 0 && view.policies.length > 0
         ? h.p([h.Class("p-4 text-xs text-muted-foreground")], ["No policies match your search."])

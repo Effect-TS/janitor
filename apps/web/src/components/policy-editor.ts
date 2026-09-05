@@ -1098,14 +1098,32 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
             h.aside(
               [h.Class("policy-inspector"), h.AriaLabel("Policy test bench and information")],
               [
-                isDirty(model) || (canSubmit && hasChangesToPublish(model))
+                identity._tag === "New" ||
+                isDirty(model) ||
+                (canSubmit && hasChangesToPublish(model))
                   ? h.section(
                       [h.Class("policy-sidebar-actions"), h.AriaLabel("Policy controls")],
                       [
                         h.div(
-                          [h.Class("policy-publish-actions")],
                           [
-                            isDirty(model)
+                            h.Class(
+                              identity._tag === "New"
+                                ? "policy-publish-actions policy-creation-actions"
+                                : "policy-publish-actions",
+                            ),
+                          ],
+                          [
+                            identity._tag === "New"
+                              ? Button.view(h, {
+                                  variant: "ghost",
+                                  size: "sm",
+                                  label: "Cancel",
+                                  attributes: [h.DataAttribute("action", "cancel-creation")],
+                                  onClick: Message.ClickedCancel(),
+                                  isDisabled: busy,
+                                })
+                              : h.empty,
+                            identity._tag === "New" || isDirty(model)
                               ? Button.view(h, {
                                   variant: "outline",
                                   size: "sm",
@@ -1117,14 +1135,17 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                                   ),
                                 })
                               : h.empty,
-                            canSubmit && hasChangesToPublish(model)
+                            identity._tag === "New" || (canSubmit && hasChangesToPublish(model))
                               ? Button.view(h, {
                                   size: "sm",
                                   onClick: Message.ClickedPublish(),
                                   isDisabled: !canSubmit || !hasChangesToPublish(model),
                                   label: h.span(
                                     [h.Class("flex items-center gap-1.5")],
-                                    [Icon.view(h, Upload, "size-3.5"), "Publish"],
+                                    [
+                                      Icon.view(h, Upload, "size-3.5"),
+                                      identity._tag === "New" ? "Save & publish" : "Publish",
+                                    ],
                                   ),
                                   attributes: [h.DataAttribute("action", "publish")],
                                 })

@@ -623,7 +623,10 @@ export const update = (model: Model, message: Message) =>
     PersistedRepository: () => ({ model }),
     GotSidebarMessage: ({ message }) => foldSidebar(model, message),
     GotThemeSwitcherMessage: ({ message }) => foldThemeSwitcher(model, message),
-    GotSyncButtonMessage: ({ message }) => foldSyncButton(model, message),
+    GotSyncButtonMessage: ({ message }) =>
+      message._tag === "PressedSync" && repositorySyncDisabled(model)
+        ? { model }
+        : foldSyncButton(model, message),
     GotToastMessage: ({ message }) => foldToast(model, message),
     GotRepositoriesMessage: ({ message }) => updateRepositories(model, message),
     GotRepositorySwitcherMessage: ({ message }) => foldRepositorySwitcher(model, message),
@@ -840,6 +843,16 @@ const sidebarPanel = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html
   Sidebar.content(h, { children: [navMain(h, model)] }),
 ]
 
+const repositorySyncDisabled = (model: Model): boolean =>
+  Option.exists(model.repositories.repositories, (repositories) =>
+    repositories.some(
+      (repository) =>
+        "repositoryId" in model.route &&
+        repository.repositoryId === model.route.repositoryId &&
+        repository.syncEnabled === false,
+    ),
+  )
+
 const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.header(
     [
@@ -881,6 +894,7 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                 slotId: "sync-button",
                 model: model.sync,
                 view: SyncButton.view,
+                viewInputs: { syncDisabled: repositorySyncDisabled(model) },
                 toParentMessage: (message) => Message.GotSyncButtonMessage({ message }),
               }),
               h.submodel({
@@ -936,12 +950,7 @@ const sidebarContent = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Ht
   toasts(h, model),
 ]
 
-const connectionView = (
-  h: HtmlBuilder<Message>,
-  model: Model,
-  repositoryId: string | null,
-  compact = false,
-) =>
+const connectionView = (h: HtmlBuilder<Message>, model: Model, repositoryId: string | null) =>
   h.submodel({
     slotId: "repository-connections",
     model: model.connections,
@@ -949,7 +958,6 @@ const connectionView = (
     toParentMessage: (message) => Message.GotConnectionsMessage({ message }),
     viewInputs: {
       repositoryId,
-      compact,
       state: model.route._tag === "ConnectReturn" ? (model.route.state ?? "") : "",
       cancelPath: model.connectionCancelPath,
     },
@@ -1060,10 +1068,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   })
   return route._tag === "Settings"
     ? h.div([h.Class("space-y-4 p-4")], [connectionView(h, model, route.repositoryId), content])
-    : h.div(
-        [h.Class("flex min-h-0 flex-1 flex-col")],
-        [connectionView(h, model, route.repositoryId, true), content],
-      )
+    : content
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({

@@ -7,6 +7,7 @@ import * as Navigation from "@/navigation"
 import * as Routes from "@/routes"
 import * as Repositories from "@/components/repositories"
 import * as PolicyEditor from "@/components/policy-editor"
+import * as SyncButton from "@/components/sync-button"
 import type { PolicyDetail } from "@/components/labeling-wire"
 
 const url = (path: string) => Option.getOrThrow(Url.fromString(`https://janitor.test${path}`))
@@ -69,6 +70,51 @@ const editor = () =>
   ).model
 
 describe("application routing", () => {
+  it("does not request sync when the selected repository has sync disabled", () => {
+    const model = loaded("/repositories/701/policies").model
+    const disabled: Main.Model = {
+      ...model,
+      sync: { ...model.sync, isPolling: false },
+      repositories: {
+        ...model.repositories,
+        repositories: Option.some([
+          {
+            repositoryId: "701",
+            owner: "Example",
+            repo: "project",
+            access: "accessible",
+            enabled: true,
+            syncEnabled: false,
+            ruleCount: 0,
+            policyCount: 1,
+            configuredRevision: 1,
+            activeRevision: 1,
+          },
+        ]),
+      },
+    }
+    expect(
+      Main.update(
+        disabled,
+        Main.Message.GotSyncButtonMessage({ message: SyncButton.Message.PressedSync() }),
+      ).commands ?? [],
+    ).toEqual([])
+    const enabled = {
+      ...disabled,
+      repositories: {
+        ...disabled.repositories,
+        repositories: Option.map(disabled.repositories.repositories, (rows) =>
+          rows.map((row) => ({ ...row, syncEnabled: true })),
+        ),
+      },
+    }
+    expect(
+      Main.update(
+        enabled,
+        Main.Message.GotSyncButtonMessage({ message: SyncButton.Message.PressedSync() }),
+      ).commands,
+    ).toHaveLength(1)
+  })
   it("redirects root to a remembered accessible repository and otherwise keeps the chooser", () => {
     const first = initial("/").model
     const repository: Repositories.RepositoryOverview = {

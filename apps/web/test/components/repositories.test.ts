@@ -101,6 +101,26 @@ const opened = (): Repositories.Model => ({
 })
 
 describe("Repositories", () => {
+  it("keeps the unsaved policy visible while searching and removes it on cancel", () => {
+    const editing = Repositories.update(opened(), Repositories.Message.ClickedNewPolicy()).model
+    Scene.scene(
+      { update: Repositories.update, view: Repositories.view },
+      Scene.given(editing),
+      Scene.Mount.resolve(
+        PolicySource.MountPolicySourceEditor,
+        PolicySource.Message.MountedEditor(),
+      ),
+      Scene.type(Scene.role("textbox", { name: "Search policies" }), "no match"),
+      Scene.inside(
+        Scene.role("complementary", { name: "Policy library" }),
+        Scene.expect(Scene.text("Untitled policy")).toExist(),
+        Scene.expect(Scene.text("Unsaved")).toExist(),
+      ),
+      Scene.click(Scene.role("button", { name: "Cancel" })),
+      Scene.Mount.expectEnded(PolicySource.MountPolicySourceEditor),
+      Scene.expect(Scene.text("Unsaved")).toBeAbsent(),
+    )
+  })
   it("offers policy deletion in the document toolbar with confirmation", () => {
     const loading = Repositories.update(
       opened(),

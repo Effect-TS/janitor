@@ -549,6 +549,18 @@
 .policy-publish-actions:empty {
   display: none;
 }
+.policy-creation-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.policy-creation-actions > [data-action="publish"] {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+.policy-creation-actions > [data-action="cancel-creation"] {
+  grid-column: 2;
+  grid-row: 2;
+}
 .policy-publish-actions > p {
   flex-basis: 100%;
 }

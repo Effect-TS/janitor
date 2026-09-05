@@ -221,7 +221,7 @@ export const update = (model: Model, message: Message) =>
 export const view = Submodel.defineView<
   Model,
   Message,
-  { repositoryId: string | null; state: string; cancelPath: string; compact?: boolean }
+  { repositoryId: string | null; state: string; cancelPath: string }
 >((model, inputs, h) => {
   const rows = Option.getOrElse(model.inventory, () => ({ repositories: [] })).repositories
   const current = rows.find((row) => row.repositoryId === inputs.repositoryId)
@@ -231,41 +231,6 @@ export const view = Submodel.defineView<
     onClick: Message,
     variant: "outline" | "default" | "destructive" = "outline",
   ) => Button.view(h, { label, onClick, variant, size: "sm", isDisabled: model.busy })
-  if (inputs.compact)
-    return h.div(
-      [h.OnMount(Poll({ state: "" }))],
-      current && (current.syncState !== "ready" || (!current.enabled && current.reconnect))
-        ? [
-            h.div(
-              [
-                h.Class("border-b px-5 py-2 text-sm flex items-center justify-between gap-3"),
-                h.Role("status"),
-              ],
-              [
-                h.span(
-                  [],
-                  [
-                    !current.enabled
-                      ? "Repository paused. Review your saved rules before resuming."
-                      : current.syncState === "paused"
-                        ? "GitHub sync is paused."
-                        : current.syncState === "failed"
-                          ? "Repository sync failed."
-                          : "Syncing repository data… You can start editing policies while it loads.",
-                  ],
-                ),
-                h.a(
-                  [
-                    h.Href(Routes.settings({ repositoryId: current.repositoryId })),
-                    h.Class("underline shrink-0"),
-                  ],
-                  ["Repository settings"],
-                ),
-              ],
-            ),
-          ]
-        : [],
-    )
   return h.section(
     [
       h.Class(

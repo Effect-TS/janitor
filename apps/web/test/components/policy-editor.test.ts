@@ -85,6 +85,25 @@ const fresh = () =>
   })
 
 describe("PolicyEditor", () => {
+  it("offers creation controls before the first edit", () => {
+    Scene.scene(
+      {
+        update: PolicyEditor.update,
+        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+      },
+      Scene.given(fresh()),
+      Scene.Mount.resolve(
+        PolicySource.MountPolicySourceEditor,
+        PolicySource.Message.MountedEditor(),
+      ),
+      Scene.expect(Scene.role("button", { name: "Cancel" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Save draft" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Save & publish" })).toExist(),
+    )
+    expect(PolicyEditor.update(fresh(), PolicyEditor.Message.ClickedCancel()).outMessage).toEqual(
+      PolicyEditor.OutMessage.Cancelled(),
+    )
+  })
   it("only passes other published condition policies to reference completion", () => {
     const published = {
       ...detail.policy,
@@ -158,7 +177,7 @@ describe("PolicyEditor", () => {
           update: PolicyEditor.update,
           view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
         },
-        Scene.given(fresh()),
+        Scene.given({ ...fresh(), identity: { _tag: "Existing", policyId: "p1", version: 1 } }),
         Scene.Mount.resolve(
           PolicySource.MountPolicySourceEditor,
           PolicySource.Message.MountedEditor(),
@@ -189,6 +208,7 @@ describe("PolicyEditor", () => {
       },
       Scene.given({
         ...fresh(),
+        identity: { _tag: "Existing", policyId: "p1", version: 1 },
         name: "Original",
         savedFields: { ...fresh().savedFields, name: "Original" },
       }),
@@ -360,6 +380,7 @@ describe("PolicyEditor", () => {
       },
       Scene.given({
         ...fresh(),
+        identity: { _tag: "Existing", policyId: "p1", version: 1 },
         name: "Original",
         savedFields: { ...fresh().savedFields, name: "Original" },
         hasBeenPublished: true,
