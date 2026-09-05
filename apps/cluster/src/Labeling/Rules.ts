@@ -28,6 +28,7 @@ import {
   type RepositoryNotFound,
   RuleRow,
   toRuleRecord,
+  withRepositoryMutation,
 } from "./Configuration.ts"
 
 export class RulesError extends Data.TaggedError("RulesError")<{
@@ -187,115 +188,106 @@ export class LabelingRules extends Context.Service<
       return rows.map(toRuleRecord)
     })
 
-    const create = Effect.fn("LabelingRules.create")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-      request: CreateRuleRequest,
-      actor: Actor,
-    ) {
-      yield* configuration.requireRepository(repositoryId)
-      yield* validate(repositoryId, request.labelId, request.policyId, request.onNoMatch)
-      const ruleId = RuleId.make(crypto.randomUUID())
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`
+    const create = Effect.fn("LabelingRules.create")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        request: CreateRuleRequest,
+        actor: Actor,
+      ) {
+        yield* configuration.requireRepository(repositoryId)
+        yield* validate(repositoryId, request.labelId, request.policyId, request.onNoMatch)
+        const ruleId = RuleId.make(crypto.randomUUID())
+        yield* Effect.gen(function* () {
+          yield* sql`
               INSERT INTO labeling_rule
                 (rule_id, repository_id, label_id, policy_id, on_no_match, rule_group, priority, enabled, version)
               VALUES (${ruleId}, ${repositoryId}, ${request.labelId}, ${request.policyId},
                       ${request.onNoMatch}, ${request.group}, ${request.priority}, ${request.enabled}, 1)
             `
-            yield* recordAudit(sql, {
-              repositoryId,
-              subject: { _tag: "Rule", ruleId },
-              actor,
-              operation: "create",
-              before: null,
-              after: request,
-            })
-            yield* configuration.advance(repositoryId, actor)
-          }),
-        )
-        .pipe(wrap("create"))
-      const promoted = yield* activation.promote(repositoryId).pipe(wrap("promote"))
-      if (Option.isSome(promoted)) yield* backfillAfterActivation(repositoryId)
-      return yield* find(repositoryId, ruleId)
-    })
+          yield* recordAudit(sql, {
+            repositoryId,
+            subject: { _tag: "Rule", ruleId },
+            actor,
+            operation: "create",
+            before: null,
+            after: request,
+          })
+          yield* configuration.advance(repositoryId, actor)
+        }).pipe(wrap("create"))
+        return yield* find(repositoryId, ruleId)
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
 
-    const patch = Effect.fn("LabelingRules.patch")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-      ruleId: RuleId,
-      request: PatchRuleRequest,
-      actor: Actor,
-    ) {
-      yield* configuration.requireRepository(repositoryId)
-      const current = yield* find(repositoryId, ruleId)
-      if (current.version !== request.version) return yield* new RuleConflict({ current })
-      const next = {
-        labelId: request.labelId ?? current.labelId,
-        policyId: request.policyId ?? current.policyId,
-        onNoMatch: request.onNoMatch ?? current.onNoMatch,
-        group: request.group === undefined ? current.group : request.group,
-        priority: request.priority ?? current.priority,
-        enabled: request.enabled ?? current.enabled,
-      }
-      yield* validate(repositoryId, next.labelId, next.policyId, next.onNoMatch)
-      // A label that came back, or a new label, is valid again.
-      const labelStatus = next.labelId === current.labelId ? current.labelStatus : "valid"
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`
+    const patch = Effect.fn("LabelingRules.patch")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        ruleId: RuleId,
+        request: PatchRuleRequest,
+        actor: Actor,
+      ) {
+        yield* configuration.requireRepository(repositoryId)
+        const current = yield* find(repositoryId, ruleId)
+        if (current.version !== request.version) return yield* new RuleConflict({ current })
+        const next = {
+          labelId: request.labelId ?? current.labelId,
+          policyId: request.policyId ?? current.policyId,
+          onNoMatch: request.onNoMatch ?? current.onNoMatch,
+          group: request.group === undefined ? current.group : request.group,
+          priority: request.priority ?? current.priority,
+          enabled: request.enabled ?? current.enabled,
+        }
+        yield* validate(repositoryId, next.labelId, next.policyId, next.onNoMatch)
+        // A label that came back, or a new label, is valid again.
+        const labelStatus = next.labelId === current.labelId ? current.labelStatus : "valid"
+        yield* Effect.gen(function* () {
+          yield* sql`
               UPDATE labeling_rule
               SET label_id = ${next.labelId}, policy_id = ${next.policyId}, on_no_match = ${next.onNoMatch},
                   rule_group = ${next.group}, priority = ${next.priority}, enabled = ${next.enabled},
                   label_status = ${labelStatus}, version = version + 1, updated_at = CLOCK_TIMESTAMP()
               WHERE rule_id = ${ruleId} AND version = ${request.version}
             `
-            yield* recordAudit(sql, {
-              repositoryId,
-              subject: { _tag: "Rule", ruleId },
-              actor,
-              operation: "update",
-              before: current,
-              after: next,
-            })
-            yield* configuration.advance(repositoryId, actor)
-          }),
-        )
-        .pipe(wrap("patch"))
-      const promoted = yield* activation.promote(repositoryId).pipe(wrap("promote"))
-      if (Option.isSome(promoted)) yield* backfillAfterActivation(repositoryId)
-      return yield* find(repositoryId, ruleId)
-    })
+          yield* recordAudit(sql, {
+            repositoryId,
+            subject: { _tag: "Rule", ruleId },
+            actor,
+            operation: "update",
+            before: current,
+            after: next,
+          })
+          yield* configuration.advance(repositoryId, actor)
+        }).pipe(wrap("patch"))
+        return yield* find(repositoryId, ruleId)
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
 
-    const remove = Effect.fn("LabelingRules.remove")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-      ruleId: RuleId,
-      version: number,
-      actor: Actor,
-    ) {
-      yield* configuration.requireRepository(repositoryId)
-      const current = yield* find(repositoryId, ruleId)
-      if (current.version !== version) return yield* new RuleConflict({ current })
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`DELETE FROM labeling_rule WHERE rule_id = ${ruleId} AND version = ${version}`
-            yield* recordAudit(sql, {
-              repositoryId,
-              subject: { _tag: "Rule", ruleId },
-              actor,
-              operation: "delete",
-              before: current,
-              after: null,
-            })
-            yield* configuration.advance(repositoryId, actor)
-          }),
-        )
-        .pipe(wrap("remove"))
-      const promoted = yield* activation.promote(repositoryId).pipe(wrap("promote"))
-      if (Option.isSome(promoted)) yield* backfillAfterActivation(repositoryId)
-    })
+    const remove = Effect.fn("LabelingRules.remove")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        ruleId: RuleId,
+        version: number,
+        actor: Actor,
+      ) {
+        yield* configuration.requireRepository(repositoryId)
+        const current = yield* find(repositoryId, ruleId)
+        if (current.version !== version) return yield* new RuleConflict({ current })
+        yield* Effect.gen(function* () {
+          yield* sql`DELETE FROM labeling_rule WHERE rule_id = ${ruleId} AND version = ${version}`
+          yield* recordAudit(sql, {
+            repositoryId,
+            subject: { _tag: "Rule", ruleId },
+            actor,
+            operation: "delete",
+            before: current,
+            after: null,
+          })
+          yield* configuration.advance(repositoryId, actor)
+        }).pipe(wrap("remove"))
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
 
     const audit = Effect.fn("LabelingRules.audit")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
@@ -304,7 +296,23 @@ export class LabelingRules extends Context.Service<
       return yield* listAudit(sql, repositoryId).pipe(wrap("audit"))
     })
 
-    return { list, create, patch, remove, audit }
+    const promote = (repositoryId: GitHubRepositoryDatabaseId) =>
+      activation.promote(repositoryId).pipe(
+        wrap("promote"),
+        Effect.flatMap((promoted) =>
+          Option.isSome(promoted) ? backfillAfterActivation(repositoryId) : Effect.void,
+        ),
+      )
+    return {
+      list,
+      audit,
+      create: (repositoryId, request, actor) =>
+        create(repositoryId, request, actor).pipe(Effect.tap(() => promote(repositoryId))),
+      patch: (repositoryId, ruleId, request, actor) =>
+        patch(repositoryId, ruleId, request, actor).pipe(Effect.tap(() => promote(repositoryId))),
+      remove: (repositoryId, ruleId, version, actor) =>
+        remove(repositoryId, ruleId, version, actor).pipe(Effect.tap(() => promote(repositoryId))),
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

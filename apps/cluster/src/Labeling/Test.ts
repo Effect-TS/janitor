@@ -1,5 +1,4 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import { compile } from "@janitor/domain/Labeling/Policy/Compile"
 import { LabelingRevision, PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import { evaluate, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
 import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
@@ -65,6 +64,12 @@ export const entityFacts = (view: EntityView): FactSnapshot =>
 export class LabelingTest extends Context.Service<
   LabelingTest,
   {
+    readonly items: (
+      repositoryId: GitHubRepositoryDatabaseId,
+    ) => Effect.Effect<
+      ReadonlyArray<TestEntity>,
+      RepositoryNotFound | LabelingConfigurationError | LabelingTestError
+    >
     readonly run: (
       repositoryId: GitHubRepositoryDatabaseId,
       request: TestRequest,
@@ -135,9 +140,15 @@ export class LabelingTest extends Context.Service<
                 message: `Policy '${decoded.name}' does not exist`,
               } as const
             }
-            const result = compile({ program: decoded, resolve })
-            if (result._tag === "Rejected") {
-              return { _tag: "Rejected", message: result.issue.message } as const
+            const validation = yield* policies
+              .validate(
+                repositoryId,
+                request.subject.source,
+                Option.fromUndefinedOr(request.subject.policyId),
+              )
+              .pipe(wrap("validate"))
+            if (validation._tag === "Invalid") {
+              return { _tag: "Rejected", message: validation.message } as const
             }
             program = decoded
           } else {
@@ -147,7 +158,7 @@ export class LabelingTest extends Context.Service<
             }
             program = version.program
           }
-          // Drafts are never cached; published policies cache by their version.
+          // Classifier caches also include the prompt, evidence, provider, and confidence threshold.
           const versionId =
             request.subject._tag === "Policy"
               ? (resolve(request.subject.policyId)?.versionId ?? "draft")
@@ -229,7 +240,14 @@ export class LabelingTest extends Context.Service<
       }
     })
 
-    return { run }
+    const items = Effect.fn("LabelingTest.items")(function* (
+      repositoryId: GitHubRepositoryDatabaseId,
+    ) {
+      yield* configuration.requireRepository(repositoryId)
+      const views = yield* entities(repositoryId, []).pipe(wrap("items"))
+      return views.map((view) => describe(view, null, null))
+    })
+    return { run, items }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

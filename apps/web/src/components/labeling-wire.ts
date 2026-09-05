@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import { format } from "@/components/policy-source/format"
 
 /**
  * Wire schemas for the auto-labeling API, mirrored from
@@ -37,6 +38,7 @@ export const RepositoryOverview = Schema.Struct({
   owner: Schema.String,
   repo: Schema.String,
   enabled: Schema.Boolean,
+  syncEnabled: Schema.optionalKey(Schema.Boolean),
   ruleCount: Schema.Int,
   policyCount: Schema.Int,
   access: Schema.Literals(["accessible", "suspect", "lost"]),
@@ -116,6 +118,7 @@ export const PolicyDetail = Schema.Struct({
   policy: PolicyRecord,
   draft: ProgramSource,
   draftDiffers: Schema.Boolean,
+  publishedSource: Schema.optionalKey(Schema.NullOr(ProgramSource)),
   published: Schema.NullOr(PolicyVersionRecord),
 })
 export type PolicyDetail = typeof PolicyDetail.Type
@@ -257,7 +260,10 @@ export type ReconciliationRecord = typeof ReconciliationRecord.Type
 // TEST BENCH
 
 export const TestSubject = Schema.Union([
-  Schema.TaggedStruct("Draft", { source: ProgramSource }),
+  Schema.TaggedStruct("Draft", {
+    source: ProgramSource,
+    policyId: Schema.optionalKey(Schema.String),
+  }),
   Schema.TaggedStruct("Policy", { policyId: Schema.String }),
   Schema.TaggedStruct("Configuration", {}),
 ])
@@ -275,6 +281,12 @@ export const TestEntity = Schema.Struct({
   plan: Schema.NullOr(Plan),
 })
 export type TestEntity = typeof TestEntity.Type
+
+export const TestCandidates = Schema.Union([
+  Schema.TaggedStruct("Ready", { items: Schema.Array(TestEntity) }),
+  Schema.TaggedStruct("Failed", { reason: Schema.String }),
+])
+export type TestCandidates = typeof TestCandidates.Type
 
 export const TestResponse = Schema.Union([
   Schema.TaggedStruct("Evaluated", { entities: Schema.Array(TestEntity) }),
@@ -346,4 +358,4 @@ export const describeOutcome = (outcome: Outcome): string => {
   }
 }
 
-export const formatSource = (source: ProgramSource): string => JSON.stringify(source, null, 2)
+export const formatSource = (source: ProgramSource): string => format(source)

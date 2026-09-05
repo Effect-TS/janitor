@@ -21,6 +21,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
+import * as Schedule from "effect/Schedule"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { GitHubReadModel } from "../src/GitHub/ReadModel.ts"
 import { RulesetActivation } from "../src/Labeling/Activation.ts"
@@ -155,6 +156,7 @@ const seedRepository = Effect.fnUntraced(function* (repository: Fixtures.SeedRep
   }
 
   yield* seedPolicies(repository, repositoryId)
+  yield* sql`UPDATE github_repository SET sync_enabled = FALSE WHERE repository_id = ${repositoryId}`
 })
 
 const seedPolicies = Effect.fnUntraced(function* (
@@ -216,6 +218,9 @@ const seed = Effect.gen(function* () {
     sequence: Fixtures.sequence,
   })
 
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`UPDATE github_installation SET sync_enabled = FALSE WHERE installation_id = ${Fixtures.installationId}`
+
   for (const repository of Fixtures.repositories) {
     yield* seedRepository(repository)
     yield* Effect.log(`seeded ${repository.owner}/${repository.repo}`)
@@ -226,7 +231,18 @@ const seed = Effect.gen(function* () {
 
 const DatabaseUrl = Config.schema(Schema.Redacted(Schema.String), "DATABASE_URL")
 
-const Database = Layer.unwrap(Effect.map(DatabaseUrl, (url) => PgClient.layer({ url })))
+// Alchemy returns the container before PostgreSQL finishes initializing.
+// Retry only connection acquisition; schema and seed errors still fail once.
+const Database = PgClient.layerFrom(
+  Effect.flatMap(DatabaseUrl, (url) =>
+    PgClient.make({ url, connectTimeout: "1 second" }).pipe(
+      Effect.retry({
+        times: 30,
+        schedule: Schedule.spaced("1 second"),
+      }),
+    ),
+  ),
+)
 
 const Services = LabelingRules.layer.pipe(
   Layer.provideMerge(Policies.layer),
@@ -239,10 +255,15 @@ const Services = LabelingRules.layer.pipe(
   Layer.provideMerge(Database),
 )
 
-/** Wipe and refill. Assumes the guard has already passed. */
+/** Wipe and refill atomically. Assumes the guard has already passed. */
 const program = Effect.gen(function* () {
-  yield* truncateAll
-  yield* seed
+  const sql = yield* SqlClient.SqlClient
+  yield* sql.withTransaction(
+    Effect.gen(function* () {
+      yield* truncateAll
+      yield* seed
+    }),
+  )
   yield* Effect.log("seed complete")
 })
 

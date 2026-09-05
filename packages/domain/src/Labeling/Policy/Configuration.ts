@@ -76,6 +76,7 @@ export const PolicyDetail = Schema.Struct({
   draft: ProgramSource,
   /** True when the draft differs from the published program. */
   draftDiffers: Schema.Boolean,
+  publishedSource: Schema.optionalKey(Schema.NullOr(ProgramSource)),
   published: Schema.NullOr(PolicyVersionRecord),
 }).annotate({ identifier: "PolicyDetail" })
 export type PolicyDetail = typeof PolicyDetail.Type

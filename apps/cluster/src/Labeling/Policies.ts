@@ -1,5 +1,5 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import { compile } from "@janitor/domain/Labeling/Policy/Compile"
+import { compile, CompileIssue } from "@janitor/domain/Labeling/Policy/Compile"
 import { PolicyId, type PolicyNames } from "@janitor/domain/Labeling/Policy/Condition"
 import {
   type Actor,
@@ -40,6 +40,7 @@ import {
   toPolicyRecord,
   toVersionRecord,
   VersionRow,
+  withRepositoryMutation,
 } from "./Configuration.ts"
 
 export class PoliciesError extends Data.TaggedError("PoliciesError")<{
@@ -260,6 +261,8 @@ export class Policies extends Context.Service<
         draftDiffers:
           published === null || JSON.stringify(published.program) !== JSON.stringify(draft),
         published,
+        publishedSource:
+          published === null ? null : programToSource(published.program, policyNames),
       }
       return result
     })
@@ -289,11 +292,47 @@ export class Policies extends Context.Service<
       policyId: Option.Option<PolicyId>,
     ) {
       const resolve = yield* resolver(repositoryId)
-      return compile({
+      const result = compile({
         program,
         resolve,
         ...(Option.isSome(policyId) ? { policyId: policyId.value } : {}),
       })
+      if (result._tag === "Rejected" || Option.isNone(policyId)) return result
+      if (program.evaluator._tag === "Classifier") {
+        const bindings =
+          yield* sql`SELECT count(*)::text AS count FROM labeling_rule WHERE policy_id = ${policyId.value} AND on_no_match = 'ensure-absent'`.pipe(
+            Effect.flatMap(decodeCounts),
+            wrap("compile"),
+          )
+        if ((bindings[0]?.count ?? 0) > 0) {
+          return yield* new PolicyInvalid({
+            message:
+              "Rules using this policy must preserve labels on no match before publishing a classifier",
+          })
+        }
+      }
+      // References follow the current published version. Check consumers too.
+      for (const policy of yield* listRows(repositoryId)) {
+        if (policy.policy_id === policyId.value) continue
+        const published = resolve(policy.policy_id)
+        if (published === undefined) continue
+        const checked = compile({
+          program: published.program,
+          policyId: policy.policy_id,
+          resolve: (id) => (id === policyId.value ? { program } : resolve(id)),
+        })
+        if (checked._tag === "Rejected") {
+          return {
+            _tag: "Rejected",
+            issue: new CompileIssue({
+              code: checked.issue.code,
+              location: checked.issue.location,
+              message: `Publishing would invalidate policy '${policy.name}': ${checked.issue.message}`,
+            }),
+          } as const
+        }
+      }
+      return result
     })
 
     const validate = Effect.fn("Policies.validate")(function* (
@@ -308,7 +347,11 @@ export class Policies extends Context.Service<
       if (program instanceof PolicyInvalid) {
         return { _tag: "Invalid", message: program.message } as const
       }
-      const result = yield* compiled(repositoryId, program, policyId)
+      const result = yield* compiled(repositoryId, program, policyId).pipe(
+        Effect.catchTag("PolicyInvalid", (error) => Effect.succeed(error)),
+      )
+      if (result instanceof PolicyInvalid)
+        return { _tag: "Invalid", message: result.message } as const
       return result._tag === "Compiled"
         ? ({ _tag: "Valid", manifest: result.manifest } as const)
         : ({ _tag: "Invalid", message: result.issue.message } as const)
@@ -342,160 +385,154 @@ export class Policies extends Context.Service<
         Effect.map((rows) => (rows[0]?.count ?? 0) > 0),
       )
 
-    const create = Effect.fn("Policies.create")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-      request: CreatePolicyRequest,
-      actor: Actor,
-    ) {
-      yield* configuration.requireRepository(repositoryId)
-      if (yield* nameTaken(repositoryId, request.name, Option.none())) {
-        return yield* new PolicyNameTaken({ name: request.name })
-      }
-      const program = yield* decodeSource(repositoryId, request.source)
-      const policyId = PolicyId.make(yield* newId)
-      const encoded = yield* encodeProgram(program).pipe(wrap("create"))
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`
+    const create = Effect.fn("Policies.create")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        request: CreatePolicyRequest,
+        actor: Actor,
+      ) {
+        yield* configuration.requireRepository(repositoryId)
+        if (yield* nameTaken(repositoryId, request.name, Option.none())) {
+          return yield* new PolicyNameTaken({ name: request.name })
+        }
+        const program = yield* decodeSource(repositoryId, request.source)
+        const policyId = PolicyId.make(yield* newId)
+        const encoded = yield* encodeProgram(program).pipe(wrap("create"))
+        yield* Effect.gen(function* () {
+          yield* sql`
               INSERT INTO labeling_policy (policy_id, repository_id, name, target, description, version)
               VALUES (${policyId}, ${repositoryId}, ${request.name}, ${program.target}, ${request.description}, 1)
             `
-            yield* sql`
+          yield* sql`
               INSERT INTO labeling_policy_draft (policy_id, program) VALUES (${policyId}, ${encoded}::jsonb)
             `
-            yield* recordAudit(sql, {
-              repositoryId,
-              subject: { _tag: "Policy", policyId },
-              actor,
-              operation: "create",
-              before: null,
-              after: { name: request.name, description: request.description, program },
-            })
-          }),
-        )
-        .pipe(wrap("create"))
-      return yield* detail(repositoryId, policyId)
-    })
+          yield* recordAudit(sql, {
+            repositoryId,
+            subject: { _tag: "Policy", policyId },
+            actor,
+            operation: "create",
+            before: null,
+            after: { name: request.name, description: request.description, program },
+          })
+        }).pipe(wrap("create"))
+        return yield* detail(repositoryId, policyId)
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
 
-    const save = Effect.fn("Policies.save")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-      policyId: PolicyId,
-      request: SavePolicyRequest,
-      actor: Actor,
-    ) {
-      yield* configuration.requireRepository(repositoryId)
-      const current = yield* detail(repositoryId, policyId)
-      if (current.policy.version !== request.version) {
-        return yield* new PolicyConflict({ current })
-      }
-      const name = request.name ?? current.policy.name
-      if (
-        name !== current.policy.name &&
-        (yield* nameTaken(repositoryId, name, Option.some(policyId)))
+    const save = Effect.fn("Policies.save")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        policyId: PolicyId,
+        request: SavePolicyRequest,
+        actor: Actor,
       ) {
-        return yield* new PolicyNameTaken({ name })
-      }
-      const program =
-        request.source === undefined
-          ? yield* draftOf(policyId)
-          : yield* decodeSource(repositoryId, request.source)
-      const description = request.description ?? current.policy.description
-      const encoded = yield* encodeProgram(program).pipe(wrap("save"))
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`
+        yield* configuration.requireRepository(repositoryId)
+        const current = yield* detail(repositoryId, policyId)
+        if (current.policy.version !== request.version) {
+          return yield* new PolicyConflict({ current })
+        }
+        const name = request.name ?? current.policy.name
+        if (
+          name !== current.policy.name &&
+          (yield* nameTaken(repositoryId, name, Option.some(policyId)))
+        ) {
+          return yield* new PolicyNameTaken({ name })
+        }
+        const program =
+          request.source === undefined
+            ? yield* draftOf(policyId)
+            : yield* decodeSource(repositoryId, request.source)
+        const description = request.description ?? current.policy.description
+        const encoded = yield* encodeProgram(program).pipe(wrap("save"))
+        yield* Effect.gen(function* () {
+          yield* sql`
               UPDATE labeling_policy
               SET name = ${name}, description = ${description}, target = ${program.target},
                   version = version + 1, updated_at = CLOCK_TIMESTAMP()
               WHERE policy_id = ${policyId} AND version = ${request.version}
             `
-            yield* sql`
+          yield* sql`
               UPDATE labeling_policy_draft SET program = ${encoded}::jsonb, updated_at = CLOCK_TIMESTAMP()
               WHERE policy_id = ${policyId}
             `
-            yield* recordAudit(sql, {
-              repositoryId,
-              subject: { _tag: "Policy", policyId },
-              actor,
-              operation: "update",
-              before: {
-                name: current.policy.name,
-                description: current.policy.description,
-                draft: current.draft,
-              },
-              after: { name, description, program },
-            })
-          }),
-        )
-        .pipe(wrap("save"))
-      return yield* detail(repositoryId, policyId)
-    })
+          yield* recordAudit(sql, {
+            repositoryId,
+            subject: { _tag: "Policy", policyId },
+            actor,
+            operation: "update",
+            before: {
+              name: current.policy.name,
+              description: current.policy.description,
+              draft: current.draft,
+            },
+            after: { name, description, program },
+          })
+        }).pipe(wrap("save"))
+        return yield* detail(repositoryId, policyId)
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
 
-    const publish = Effect.fn("Policies.publish")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-      policyId: PolicyId,
-      version: number,
-      actor: Actor,
-    ) {
-      yield* configuration.requireRepository(repositoryId)
-      const current = yield* detail(repositoryId, policyId)
-      if (current.policy.version !== version) return yield* new PolicyConflict({ current })
-      const program = yield* draftOf(policyId)
-      const result = yield* compiled(repositoryId, program, Option.some(policyId))
-      if (result._tag === "Rejected")
-        return yield* new PolicyInvalid({ message: result.issue.message })
-      const contentHash = yield* sha256Hex(JSON.stringify(program))
-      const encodedProgram = yield* encodeProgram(program).pipe(wrap("publish"))
-      const encodedManifest = yield* encodeManifest(result.manifest).pipe(wrap("publish"))
+    const publish = Effect.fn("Policies.publish")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        policyId: PolicyId,
+        version: number,
+        actor: Actor,
+      ) {
+        yield* configuration.requireRepository(repositoryId)
+        const current = yield* detail(repositoryId, policyId)
+        if (current.policy.version !== version) return yield* new PolicyConflict({ current })
+        const program = yield* draftOf(policyId)
+        const result = yield* compiled(repositoryId, program, Option.some(policyId))
+        if (result._tag === "Rejected")
+          return yield* new PolicyInvalid({ message: result.issue.message })
+        const contentHash = yield* sha256Hex(JSON.stringify(program))
+        const encodedProgram = yield* encodeProgram(program).pipe(wrap("publish"))
+        const encodedManifest = yield* encodeManifest(result.manifest).pipe(wrap("publish"))
 
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const existing = yield* sql`
+        yield* Effect.gen(function* () {
+          const existing = yield* sql`
               SELECT version_id, policy_id, revision, content_hash, program, manifest, created_at
               FROM labeling_policy_version WHERE policy_id = ${policyId} AND content_hash = ${contentHash}
             `.pipe(Effect.flatMap(decodeVersions))
-            let versionId = existing[0]?.version_id
-            if (versionId === undefined) {
-              versionId = PolicyVersionId.make(yield* newId)
-              yield* sql`
+          let versionId = existing[0]?.version_id
+          if (versionId === undefined) {
+            versionId = PolicyVersionId.make(yield* newId)
+            yield* sql`
                 INSERT INTO labeling_policy_version
                   (version_id, policy_id, repository_id, revision, content_hash, program, manifest)
                 VALUES (${versionId}, ${policyId}, ${repositoryId},
                         (SELECT coalesce(max(revision), 0) + 1 FROM labeling_policy_version WHERE policy_id = ${policyId}),
                         ${contentHash}, ${encodedProgram}::jsonb, ${encodedManifest}::jsonb)
               `
-              for (const dependency of result.manifest.references) {
-                yield* sql`
+            for (const dependency of result.manifest.references) {
+              yield* sql`
                   INSERT INTO labeling_policy_dependency (version_id, dependency_policy_id)
                   VALUES (${versionId}, ${dependency})
                 `
-              }
             }
-            yield* sql`
+          }
+          yield* sql`
               UPDATE labeling_policy
               SET published_version_id = ${versionId}, version = version + 1, updated_at = CLOCK_TIMESTAMP()
               WHERE policy_id = ${policyId} AND version = ${version}
             `
-            yield* recordAudit(sql, {
-              repositoryId,
-              subject: { _tag: "Policy", policyId },
-              actor,
-              operation: "publish",
-              before:
-                current.published === null ? null : { versionId: current.published.versionId },
-              after: { versionId, contentHash, manifest: result.manifest },
-            })
-            yield* configuration.advance(repositoryId, actor)
-          }),
-        )
-        .pipe(wrap("publish"))
-      const promoted = yield* activation.promote(repositoryId).pipe(wrap("promote"))
-      if (Option.isSome(promoted)) yield* backfillAfterActivation(repositoryId)
-      return yield* detail(repositoryId, policyId)
-    })
+          yield* recordAudit(sql, {
+            repositoryId,
+            subject: { _tag: "Policy", policyId },
+            actor,
+            operation: "publish",
+            before: current.published === null ? null : { versionId: current.published.versionId },
+            after: { versionId, contentHash, manifest: result.manifest },
+          })
+          yield* configuration.advance(repositoryId, actor)
+        }).pipe(wrap("publish"))
+        return yield* detail(repositoryId, policyId)
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
 
     const versions = Effect.fn("Policies.versions")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
@@ -510,54 +547,83 @@ export class Policies extends Context.Service<
       return rows.map(toVersionRecord)
     })
 
-    const remove = Effect.fn("Policies.remove")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-      policyId: PolicyId,
-      version: number,
-      actor: Actor,
-    ) {
-      yield* configuration.requireRepository(repositoryId)
-      const current = yield* detail(repositoryId, policyId)
-      if (current.policy.version !== version) return yield* new PolicyConflict({ current })
-      const [rules, references] = yield* Effect.all([
-        sql`SELECT count(*)::text AS count FROM labeling_rule WHERE policy_id = ${policyId}`.pipe(
-          Effect.flatMap(decodeCounts),
-        ),
-        sql`
+    const remove = Effect.fn("Policies.remove")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        policyId: PolicyId,
+        version: number,
+        actor: Actor,
+      ) {
+        yield* configuration.requireRepository(repositoryId)
+        const current = yield* detail(repositoryId, policyId)
+        if (current.policy.version !== version) return yield* new PolicyConflict({ current })
+        const [rules, references] = yield* Effect.all([
+          sql`SELECT count(*)::text AS count FROM labeling_rule WHERE policy_id = ${policyId}`.pipe(
+            Effect.flatMap(decodeCounts),
+          ),
+          sql`
           SELECT count(*)::text AS count FROM labeling_policy_dependency d
-          JOIN labeling_policy p ON p.published_version_id = d.version_id
           WHERE d.dependency_policy_id = ${policyId}
         `.pipe(Effect.flatMap(decodeCounts)),
-      ]).pipe(wrap("remove"))
-      const ruleCount = rules[0]?.count ?? 0
-      const referenceCount = references[0]?.count ?? 0
-      if (ruleCount > 0 || referenceCount > 0) {
-        return yield* new PolicyInUse({ policyId, rules: ruleCount, references: referenceCount })
-      }
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`UPDATE labeling_policy SET published_version_id = NULL WHERE policy_id = ${policyId}`
-            yield* sql`DELETE FROM labeling_policy WHERE policy_id = ${policyId}`
-            yield* recordAudit(sql, {
-              repositoryId,
-              subject: { _tag: "Policy", policyId },
-              actor,
-              operation: "delete",
-              before: { name: current.policy.name, draft: current.draft },
-              after: null,
-            })
-            if (current.published !== null) yield* configuration.advance(repositoryId, actor)
-          }),
-        )
-        .pipe(wrap("remove"))
-      if (current.published !== null) {
-        const promoted = yield* activation.promote(repositoryId).pipe(wrap("promote"))
-        if (Option.isSome(promoted)) yield* backfillAfterActivation(repositoryId)
-      }
-    })
+        ]).pipe(wrap("remove"))
+        const ruleCount = rules[0]?.count ?? 0
+        const referenceCount = references[0]?.count ?? 0
+        if (ruleCount > 0 || referenceCount > 0) {
+          return yield* new PolicyInUse({ policyId, rules: ruleCount, references: referenceCount })
+        }
+        const history = yield* sql`
+          SELECT count(*)::text AS count FROM labeling_configuration c
+          JOIN labeling_policy_version v ON c.version_ids ? v.version_id
+          WHERE c.repository_id = ${repositoryId} AND v.policy_id = ${policyId}
+        `.pipe(Effect.flatMap(decodeCounts), wrap("remove"))
+        if ((history[0]?.count ?? 0) > 0) {
+          return yield* new PolicyInvalid({
+            message:
+              "This policy cannot be deleted because retained configuration history uses its published versions",
+          })
+        }
+        yield* Effect.gen(function* () {
+          yield* sql`UPDATE labeling_policy SET published_version_id = NULL WHERE policy_id = ${policyId}`
+          yield* sql`DELETE FROM labeling_policy WHERE policy_id = ${policyId}`
+          yield* recordAudit(sql, {
+            repositoryId,
+            subject: { _tag: "Policy", policyId },
+            actor,
+            operation: "delete",
+            before: { name: current.policy.name, draft: current.draft },
+            after: null,
+          })
+          if (current.published !== null) yield* configuration.advance(repositoryId, actor)
+        }).pipe(wrap("remove"))
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
 
-    return { list, get, create, save, publish, validate, versions, remove, names, resolver }
+    const promote = (repositoryId: GitHubRepositoryDatabaseId) =>
+      activation.promote(repositoryId).pipe(
+        wrap("promote"),
+        Effect.flatMap((promoted) =>
+          Option.isSome(promoted) ? backfillAfterActivation(repositoryId) : Effect.void,
+        ),
+      )
+    return {
+      list,
+      get,
+      create,
+      save,
+      validate,
+      versions,
+      names,
+      resolver,
+      publish: (repositoryId, policyId, version, actor) =>
+        publish(repositoryId, policyId, version, actor).pipe(
+          Effect.tap(() => promote(repositoryId)),
+        ),
+      remove: (repositoryId, policyId, version, actor) =>
+        remove(repositoryId, policyId, version, actor).pipe(
+          Effect.tap(() => promote(repositoryId)),
+        ),
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

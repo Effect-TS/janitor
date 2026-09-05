@@ -1,4 +1,7 @@
 import { assert, layer } from "@effect/vitest"
+import { PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
+import { snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
+import { MAX_TRACE } from "@janitor/domain/Labeling/Policy/Program"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -197,6 +200,81 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
         "unknown",
       )
       failing = false
+
+      // Unknown applicability must stop before cache lookup or a provider call.
+      const classifier = yield* AiClassifier
+      const callsBeforeScope = calls
+      const evaluator = {
+        _tag: "Classifier" as const,
+        prompt: "Is this the fifth change?",
+        evidence: ["title"] as const,
+        minimumConfidence: 0.9,
+      }
+      const scoped = yield* classifier.classify({
+        repositoryId,
+        number: 5,
+        policyVersionId: PolicyVersionId.make("draft"),
+        program: {
+          target: "pull_request",
+          appliesWhen: {
+            _tag: "All",
+            conditions: [
+              ...Array.from({ length: MAX_TRACE }, () => ({
+                _tag: "Fact" as const,
+                fact: "title" as const,
+                operator: "notEmpty" as const,
+              })),
+              {
+                _tag: "Collection",
+                fact: "changedFiles",
+                quantifier: "some",
+                where: { _tag: "Fact", fact: "path", operator: "notEmpty" },
+              },
+            ],
+          },
+          evaluator,
+        },
+        evaluator,
+        snapshot: snapshotFacts({
+          kind: "pull_request",
+          title: "Change 5",
+          body: null,
+          authorLogin: "octocat",
+          state: "open",
+          labels: [],
+          pullRequest: { baseRef: "main", draft: false, headSha: "a".repeat(40) },
+        }),
+        resolve: () => undefined,
+      })
+      assert.strictEqual(scoped.outcome, "unknown")
+      assert.strictEqual(scoped.trace.length, MAX_TRACE)
+      assert.isFalse(scoped.trace.some((entry) => entry.outcome === "unknown"))
+      assert.strictEqual(calls, callsBeforeScope)
+
+      // Drafts share an identity, but changes to their question or threshold need fresh decisions.
+      const draft = (prompt: string, minimumConfidence: number) =>
+        test.run(repositoryId, {
+          subject: {
+            _tag: "Draft",
+            source: {
+              target: "pull_request",
+              classify: { prompt, evidence: ["title"], minimumConfidence },
+            },
+          },
+          numbers: [5],
+        })
+      yield* draft("First question", 0.9)
+      assert.strictEqual(calls, callsBeforeScope + 1)
+      yield* draft("First question", 0.9)
+      assert.strictEqual(calls, callsBeforeScope + 1)
+      yield* draft("Second question", 0.9)
+      assert.strictEqual(calls, callsBeforeScope + 2)
+      const stricter = yield* draft("Second question", 0.99)
+      assert.strictEqual(calls, callsBeforeScope + 3)
+      assert.strictEqual(
+        stricter._tag === "Evaluated" ? stricter.entities[0]?.evaluation?.outcome : stricter._tag,
+        "unknown",
+      )
 
       // Revoking with no live lease disables at once; the configuration still evaluates.
       const revoked = yield* consent.set(repositoryId, false, actor)

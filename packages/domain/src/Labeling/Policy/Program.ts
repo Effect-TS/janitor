@@ -81,7 +81,10 @@ export const ProgramSource = Schema.Union([
     appliesWhen: Schema.optionalKey(ConditionSource),
     classify: ClassifySource,
   }),
-]).annotate({ identifier: "ProgramSource" })
+]).annotate({
+  identifier: "ProgramSource",
+  parseOptions: { onExcessProperty: "error" },
+})
 export type ProgramSource = typeof ProgramSource.Type
 
 export const programFromSource = (
@@ -137,7 +140,7 @@ export const programToSource = (program: Program, names: PolicyNames): ProgramSo
 export const evaluatorFacts = (evaluator: Evaluator): ReadonlyArray<FactName> =>
   evaluator._tag === "Classifier" ? evaluator.evidence : conditionFacts(evaluator.matchesWhen)
 
-/** Decodes authored JSON into a program for one repository's policy names, and encodes back. */
+/** Decodes an authored document into a program for one repository's policy names, and encodes back. */
 export const ProgramFromSource = (names: PolicyNames) =>
   ProgramSource.pipe(
     Schema.decodeTo(Program, {

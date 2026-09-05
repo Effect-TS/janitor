@@ -204,7 +204,10 @@ export interface EvaluateInput {
  * not apply contributes `unknown` to the condition using it, since
  * "out of scope" is not evidence either way.
  */
-export const evaluate = ({ program, snapshot, resolve }: EvaluateInput): Evaluation => {
+const runEvaluation = (
+  { program, snapshot, resolve }: EvaluateInput,
+  applicabilityOnly: boolean,
+): Evaluation => {
   const trace: Array<NodeTrace> = []
   const active = new Set<PolicyId>()
 
@@ -270,6 +273,7 @@ export const evaluate = ({ program, snapshot, resolve }: EvaluateInput): Evaluat
     current: Program,
     appliesLocation: NodeLocation,
     matchesLocation: NodeLocation,
+    evaluateMatches = true,
   ): Evaluation["outcome"] => {
     if (current.target !== snapshot.kind) return "not-applicable"
     if (current.appliesWhen !== null) {
@@ -277,6 +281,7 @@ export const evaluate = ({ program, snapshot, resolve }: EvaluateInput): Evaluat
       if (applies === "no-match") return "not-applicable"
       if (applies === "unknown") return "unknown"
     }
+    if (!evaluateMatches) return "match"
     if (current.evaluator._tag === "Classifier") {
       // A provider evaluates classifiers; without one the answer is unknown.
       record(matchesLocation, "unknown", "classifier needs a provider")
@@ -289,6 +294,7 @@ export const evaluate = ({ program, snapshot, resolve }: EvaluateInput): Evaluat
     program,
     { root: "appliesWhen", path: [] },
     { root: "matchesWhen", path: [] },
+    !applicabilityOnly,
   )
   const last = trace[trace.length - 1]
   const reason =
@@ -301,3 +307,9 @@ export const evaluate = ({ program, snapshot, resolve }: EvaluateInput): Evaluat
         : `${formatNodeLocation(last.location)}: ${last.reason}`
   return { outcome, reason, trace }
 }
+
+export const evaluate = (input: EvaluateInput): Evaluation => runEvaluation(input, false)
+
+/** Checks target and applicability, including full evaluation of referenced policies. */
+export const evaluateApplicability = (input: EvaluateInput): Evaluation =>
+  runEvaluation(input, true)

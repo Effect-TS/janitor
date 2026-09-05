@@ -108,6 +108,10 @@ A cached first page never validates a collection. Pagination follows each page's
 
 `POST /api/v1/sync` requests application discovery, known non-deleted installation inventories, enabled accessible repository tracks, and failed or blocked entity targets. These requests bypass webhook debounce. A manual request can accelerate an unsubmitted debounced execution without changing its payload.
 
+Repository Settings has a separate sync switch. `PUT /api/v1/repositories/:repositoryId/sync` saves `{ "enabled": false }` or `{ "enabled": true }`. Disabling sync retains local data and labeling settings, cancels queued claims, and fences results from old runs. Active runs may finish fetching. Re-enabling an active repository bootstraps its tracks and existing entity targets. Installation inventory still discovers repositories and their metadata; webhook journaling and projection continue.
+
+The shared `sync_scope_enabled` database function excludes paused scopes from requests, claims, retries, result publication, and summary totals. Seed fixtures disable both repository sync and their synthetic installation's inventory sync.
+
 After committing the requests, the route attempts immediate dispatch and returns `202`. Dispatch failure leaves durable work for cron recovery. Human routes remain behind Access verification, with the sync mutation also checking browser origin.
 
 The summary reports pending, failed, and blocked counts. A failed run cannot become a successful idle result merely because it completed. Pending executions do not disappear from the count because they are old. The displayed verification time is the oldest tracked verification and is null if any tracked scope has never verified.
@@ -124,7 +128,7 @@ The maintenance singleton handles execution recovery, sync planning, ruleset act
 
 ## Migration and validation
 
-The four [baseline migrations](../apps/cluster/migrations/README.md) create the current schema directly, including immutable run claims, independent full-scan timing, retry timing, pull-request detail ordering, and secondary-limit backoff state. They replace the development migration history and require a fresh database.
+The [database migrations](../apps/cluster/migrations/README.md) include the consolidated baseline and subsequent schema changes. The baseline defines immutable run claims, independent full-scan timing, retry timing, pull-request detail ordering, and secondary-limit backoff state. It replaces the development migration history and requires a fresh database.
 
 When replacing a development database, stop old workers and discard pending development workflow executions before starting the current Worker against the fresh database. Once production launches, preserve the baseline and add forward migrations. Future changes to durable activity boundaries or persisted run semantics need in-flight upgrade tests against the pinned Cloudflare workflow integration; local memory-engine and PostgreSQL tests do not establish deployed upgrade compatibility.
 

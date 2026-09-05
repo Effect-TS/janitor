@@ -11,6 +11,8 @@ import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import * as Icon from "@/lib/icons"
+import { Play, X } from "lucide"
 import {
   ConfigurationView,
   describeLocation,
@@ -45,12 +47,15 @@ export const Model = Schema.Struct({
   ]),
   /** Entity numbers whose trace is expanded. */
   expanded: Schema.Array(Schema.Int),
+  selectedNumber: Schema.NullOr(Schema.Int),
+  numbers: Schema.Array(Schema.Int),
 })
 export type Model = typeof Model.Type
 
 // MESSAGE
 
 export const Message = defineMessageUnion({
+  SelectedEntity: { number: Schema.Int },
   ClickedRun: {},
   CompletedRunTest: { response: TestResponse },
   FailedRunTest: { reason: Schema.String },
@@ -70,11 +75,15 @@ const describe = (error: unknown): string =>
     : String(error)
 
 export const RunTest = FoldkitCommand.define("RunTest", {
-  args: { repositoryId: Schema.String, subject: TestSubject },
+  args: {
+    repositoryId: Schema.String,
+    subject: TestSubject,
+    numbers: Schema.optionalKey(Schema.Array(Schema.Int)),
+  },
   messages: [Message.CompletedRunTest, Message.FailedRunTest],
-  execute: ({ repositoryId, subject }) =>
+  execute: ({ repositoryId, subject, numbers }) =>
     HttpClientRequest.post(testEndpoint(repositoryId)).pipe(
-      HttpClientRequest.bodyJson({ subject, numbers: [] }),
+      HttpClientRequest.bodyJson({ subject, numbers: numbers ?? [] }),
       Effect.flatMap(HttpClient.execute),
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.flatMap(HttpIncomingMessage.schemaBodyJson(TestResponse)),
@@ -97,6 +106,7 @@ export const init = (input: {
   readonly subject: TestSubject
   readonly title: string
   readonly configuration: ConfigurationView
+  readonly numbers?: ReadonlyArray<number>
 }): UpdateReturn => {
   const model = Model.make(
     {
@@ -106,12 +116,20 @@ export const init = (input: {
       configuration: input.configuration,
       run: { _tag: "Running" },
       expanded: [],
+      selectedNumber: null,
+      numbers: input.numbers ?? [],
     },
     { disableChecks: true },
   )
   return {
     model,
-    commands: [RunTest({ repositoryId: model.repositoryId, subject: model.subject })],
+    commands: [
+      RunTest({
+        repositoryId: model.repositoryId,
+        subject: model.subject,
+        ...(input.numbers === undefined ? {} : { numbers: input.numbers }),
+      }),
+    ],
   }
 }
 
@@ -119,9 +137,16 @@ export const init = (input: {
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
+    SelectedEntity: ({ number }) => ({ model: evo(model, { selectedNumber: () => number }) }),
     ClickedRun: () => ({
       model: evo(model, { run: () => ({ _tag: "Running" as const }) }),
-      commands: [RunTest({ repositoryId: model.repositoryId, subject: model.subject })],
+      commands: [
+        RunTest({
+          repositoryId: model.repositoryId,
+          subject: model.subject,
+          ...(model.numbers.length === 0 ? {} : { numbers: model.numbers }),
+        }),
+      ],
     }),
     CompletedRunTest: ({ response }) => ({
       model: evo(model, {
@@ -253,13 +278,176 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
   )
 }
 
+const draftView = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const entities = model.run._tag === "Evaluated" ? model.run.entities : []
+  const entity = entities.find((entry) => entry.number === model.selectedNumber) ?? entities[0]
+  const running = model.run._tag === "Running"
+  return h.section(
+    [h.Class("policy-draft-bench"), h.DataAttribute("bench", model.run._tag)],
+    [
+      h.div(
+        [h.Class("flex items-center justify-between")],
+        [
+          h.h2(
+            [h.Class("text-sm font-semibold")],
+            [model.numbers.length > 0 ? "Result" : "Test bench"],
+          ),
+          Button.view(h, {
+            variant: "ghost",
+            size: "icon-xs",
+            label: Icon.view(h, X, "size-3"),
+            onClick: Message.ClickedClose(),
+            attributes: [h.AriaLabel("Close"), h.Title("Clear test results")],
+          }),
+        ],
+      ),
+      model.numbers.length > 0
+        ? h.empty
+        : h.p(
+            [h.Class("text-xs text-muted-foreground")],
+            ["Preview this draft against recent open items."],
+          ),
+      entities.length > 0 && model.numbers.length === 0
+        ? h.div(
+            [h.Class("flex flex-col gap-1.5")],
+            [
+              h.label(
+                [h.For("policy-test-item"), h.Class("text-xs text-muted-foreground")],
+                ["Issue or pull request"],
+              ),
+              h.select(
+                [
+                  h.Id("policy-test-item"),
+                  h.Class("policy-test-select"),
+                  h.Value(String(entity?.number ?? "")),
+                  h.OnChange((value) => Message.SelectedEntity({ number: Number(value) })),
+                ],
+                entities.map((entry) =>
+                  h.option([h.Value(String(entry.number))], [`#${entry.number} · ${entry.title}`]),
+                ),
+              ),
+            ],
+          )
+        : h.empty,
+      Button.view(h, {
+        variant: "outline",
+        size: "sm",
+        onClick: Message.ClickedRun(),
+        isDisabled: running,
+        label: h.span(
+          [h.Class("flex items-center gap-1.5")],
+          [Icon.view(h, Play, "size-3"), running ? "Running" : "Test draft"],
+        ),
+      }),
+      model.run._tag === "Failed" || model.run._tag === "Rejected"
+        ? h.p(
+            [h.Role("alert"), h.Class("text-xs text-destructive")],
+            [model.run._tag === "Failed" ? model.run.reason : model.run.message],
+          )
+        : running
+          ? h.p(
+              [h.Role("status"), h.Class("text-xs text-muted-foreground")],
+              ["Evaluating the most recently updated open items"],
+            )
+          : entity === undefined
+            ? h.p(
+                [h.Class("text-xs text-muted-foreground")],
+                ["No open issues or pull requests to test against yet."],
+              )
+            : h.div(
+                [h.Class("policy-test-result"), h.DataAttribute("number", String(entity.number))],
+                [
+                  h.div(
+                    [h.Class("flex items-center justify-between gap-2")],
+                    [
+                      h.span(
+                        [
+                          h.Class(
+                            cn(
+                              "policy-result-tag",
+                              outcomeClass(entity.evaluation?.outcome ?? "unknown"),
+                            ),
+                          ),
+                          h.DataAttribute("outcome", entity.evaluation?.outcome ?? "unknown"),
+                        ],
+                        [describeOutcome(entity.evaluation?.outcome ?? "unknown")],
+                      ),
+                      h.span([h.Class("text-xs text-muted-foreground")], [`#${entity.number}`]),
+                    ],
+                  ),
+                  h.p(
+                    [h.Class("text-xs leading-relaxed text-muted-foreground")],
+                    [
+                      entity.evaluation?.outcome === "match"
+                        ? `This ${entity.kind === "pull_request" ? "pull request" : "issue"} matches the draft.`
+                        : entity.evaluation?.outcome === "no-match"
+                          ? "This item does not meet the draft's conditions."
+                          : (entity.evaluation?.reason ??
+                            "No evaluation is available for this item."),
+                    ],
+                  ),
+                  h.ul(
+                    [h.Class("policy-test-trace")],
+                    (entity.evaluation?.trace ?? []).map((node) =>
+                      h.li(
+                        [h.Title(describeLocation(node.location))],
+                        [
+                          h.span([], [node.reason]),
+                          h.span(
+                            [
+                              h.Class(outcomeClass(node.outcome)),
+                              h.AriaLabel(describeOutcome(node.outcome)),
+                            ],
+                            [
+                              node.outcome === "match"
+                                ? "✓"
+                                : node.outcome === "no-match"
+                                  ? "−"
+                                  : "?",
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  model.subject._tag === "Draft" && model.subject.policyId !== undefined
+                    ? h.div(
+                        [h.Class("policy-test-bindings")],
+                        model.configuration.rules
+                          .filter(
+                            (rule) =>
+                              model.subject._tag === "Draft" &&
+                              rule.policyId === model.subject.policyId,
+                          )
+                          .map((rule) =>
+                            h.div(
+                              [h.Class("flex items-center justify-between gap-2")],
+                              [
+                                h.span([h.Class("text-muted-foreground")], ["Used by rule"]),
+                                h.span(
+                                  [h.Class(chipClass)],
+                                  [labelName(model.configuration.labels, rule.labelId)],
+                                ),
+                              ],
+                            ),
+                          ),
+                      )
+                    : h.empty,
+                ],
+              ),
+      h.p([h.Class("text-xs text-muted-foreground")], ["Tests do not change labels."]),
+    ],
+  )
+}
+
 export const view = Submodel.defineView<Model, Message>((model, h): Html => {
+  if (model.subject._tag === "Draft") return draftView(h, model)
   const running = model.run._tag === "Running"
   return h.section(
     [h.Class("flex flex-col gap-2"), h.DataAttribute("bench", model.run._tag)],
     [
       h.div(
-        [h.Class("flex items-center justify-between gap-3")],
+        [h.Class("flex flex-wrap items-center justify-between gap-3")],
         [
           h.div(
             [h.Class("flex flex-col")],

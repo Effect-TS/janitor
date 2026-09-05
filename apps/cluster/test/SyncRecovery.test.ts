@@ -21,6 +21,22 @@ const DataLayer = SyncTargets.layer.pipe(
 const scope = { _tag: "AppInventory" } as const
 const generation = SyncGeneration.make("1")
 
+// The memory engine ignores the workflow argument. The Cloudflare engine
+// needs its name to find the Durable Object, so check that contract here.
+const EngineLayer = Layer.effect(
+  WorkflowEngine.WorkflowEngine,
+  Effect.gen(function* () {
+    const engine = yield* WorkflowEngine.WorkflowEngine
+    return {
+      ...engine,
+      poll: (workflow, executionId) => {
+        assert.strictEqual<string>(workflow._tag, DiscoverInstallations._tag)
+        return engine.poll(workflow, executionId)
+      },
+    }
+  }),
+).pipe(Layer.provide(WorkflowEngine.layerMemory))
+
 layer(DataLayer, { timeout: "2 minutes" })("Sync recovery against engine state", (it) => {
   it.effect("recovers terminal failure and leaves a durable sleep alone", () =>
     Effect.gen(function* () {
@@ -36,7 +52,7 @@ layer(DataLayer, { timeout: "2 minutes" })("Sync recovery against engine state",
         Effect.provide(
           DiscoverInstallations.toLayer(() =>
             Effect.fail(new SyncActivityError({ message: "injected terminal failure" })),
-          ).pipe(Layer.provideMerge(WorkflowEngine.layerMemory)),
+          ).pipe(Layer.provideMerge(EngineLayer)),
         ),
       )
       assert.strictEqual(Option.getOrThrow(yield* targets.get(scope)).completedGeneration, "1")
@@ -59,7 +75,7 @@ layer(DataLayer, { timeout: "2 minutes" })("Sync recovery against engine state",
         Effect.provide(
           DiscoverInstallations.toLayer(() =>
             DurableClock.sleep({ name: "WaitingForBudget", duration: Duration.hours(2) }),
-          ).pipe(Layer.provideMerge(WorkflowEngine.layerMemory)),
+          ).pipe(Layer.provideMerge(EngineLayer)),
         ),
       )
     }),

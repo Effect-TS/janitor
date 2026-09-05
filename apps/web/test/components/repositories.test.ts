@@ -1,9 +1,12 @@
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
-import { Story } from "foldkit/test"
+import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import { describePlan, describeRevision } from "@/components/labeling-wire"
 import * as Repositories from "@/components/repositories"
+import * as PolicyEditor from "@/components/policy-editor"
+import * as PolicySource from "@/components/policy-source"
+import * as Menu from "@foldkit/ui/menu"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
 const one: Repositories.RepositoryOverview = {
@@ -97,6 +100,102 @@ const opened = (): Repositories.Model => ({
 })
 
 describe("Repositories", () => {
+  it("offers policy deletion in the document toolbar with confirmation", () => {
+    const loading = Repositories.update(
+      opened(),
+      Repositories.Message.ClickedEditPolicy({ policyId: "p1" }),
+    ).model
+    const editing = Repositories.update(
+      loading,
+      Repositories.Message.GotPolicyDetail({
+        detail: {
+          policy: configuration.policies[0]!,
+          draft: {
+            target: "pull_request",
+            matchesWhen: { fact: "baseRef", operator: "equals", value: "main" },
+          },
+          draftDiffers: false,
+          published: null,
+        },
+      }),
+    ).model
+    Scene.scene(
+      { update: Repositories.update, view: Repositories.view },
+      Scene.given(editing),
+      Scene.Mount.resolve(
+        PolicySource.MountPolicySourceEditor,
+        PolicySource.Message.MountedEditor(),
+      ),
+      Scene.inside(
+        Scene.role("complementary", { name: "Policy library" }),
+        Scene.expect(Scene.role("button", { name: "Delete" })).toBeAbsent(),
+      ),
+      Scene.click(Scene.role("button", { name: "Policy actions" })),
+      Scene.Command.resolve(Menu.FocusItems, Menu.Message.CompletedFocusItems()),
+      Scene.Mount.resolve(Menu.PortalMenuBackdrop, Menu.Message.CompletedPortalMenuBackdrop()),
+      Scene.Mount.resolve(Menu.AnchorMenu, Menu.Message.CompletedAnchorMenu()),
+      Scene.click(Scene.role("menuitem", { name: "Delete policy" })),
+      Scene.expect(Scene.role("menuitem", { name: "Confirm delete" })).toExist(),
+    )
+  })
+
+  it("preserves an open draft while navigating and refreshing policy metadata", () => {
+    const created = Repositories.update(opened(), Repositories.Message.ClickedNewPolicy()).model
+    const edited = Repositories.update(
+      created,
+      Repositories.Message.GotPolicyEditorMessage({
+        message: PolicyEditor.Message.UpdatedName({ value: "Work in progress" }),
+      }),
+    ).model
+    const away = Repositories.update(
+      edited,
+      Repositories.Message.SelectedSection({ section: "Activity" }),
+    ).model
+    const back = Repositories.update(
+      away,
+      Repositories.Message.SelectedSection({ section: "Policies" }),
+    ).model
+    const refreshed = Repositories.update(
+      back,
+      Repositories.Message.GotDetail({ repositoryId: "701", detail }),
+    ).model
+    expect(refreshed.panel._tag).toBe("PolicyEditor")
+    if (refreshed.panel._tag === "PolicyEditor")
+      expect(refreshed.panel.editor.name).toBe("Work in progress")
+    expect(Repositories.update(refreshed, Repositories.Message.ClickedNewPolicy()).model).toBe(
+      refreshed,
+    )
+  })
+
+  it("renders a searchable policy library instead of the stacked dashboard", () => {
+    Scene.scene(
+      { update: Repositories.update, view: Repositories.view },
+      Scene.given(opened()),
+      Scene.expect(Scene.text("Base is main")).toExist(),
+      Scene.type(Scene.role("textbox", { name: "Search policies" }), "not a matching policy"),
+      Scene.expect(Scene.text("No policies match your search.")).toExist(),
+      Scene.expect(Scene.text("Base is main")).toBeAbsent(),
+      Scene.expect(Scene.role("button", { name: "New policy" })).toExist(),
+      Scene.expect(Scene.text("AI classification")).toBeAbsent(),
+      Scene.type(Scene.role("textbox", { name: "Search policies" }), "base"),
+      Scene.expect(Scene.text("Base is main")).toExist(),
+    )
+  })
+
+  it("changes sync independently and refreshes the repository list after saving", () => {
+    const model = opened()
+    const clicked = Repositories.update(
+      model,
+      Repositories.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
+    )
+    expect(clicked.model).toBe(model)
+    expect(clicked.commands).toMatchObject([
+      { name: "SetRepositorySync", args: { repositoryId: "701", enabled: false } },
+    ])
+    const completed = Repositories.update(model, Repositories.Message.CompletedToggleSync())
+    expect(completed.commands?.map((command) => command.name)).toEqual(["FetchRepositories"])
+  })
+
   it("fetches the list and the catalog on init and opens the first repository", () => {
     const { model, commands } = Repositories.init()
     expect(commands?.map((command) => command.name)).toEqual(["FetchRepositories", "FetchCatalog"])

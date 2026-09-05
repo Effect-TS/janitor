@@ -8,12 +8,16 @@ import {
   completionKeymap,
 } from "@codemirror/autocomplete"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
-import { json, jsonParseLinter } from "@codemirror/lang-json"
+import { yaml } from "@codemirror/lang-yaml"
+import * as Result from "effect/Result"
+import { isScalar, parseDocument, stringify } from "yaml"
+import { inspect, formatDocument } from "./format"
 import {
   bracketMatching,
   foldGutter,
   foldKeymap,
   indentOnInput,
+  indentUnit,
   syntaxTree,
 } from "@codemirror/language"
 import { lintGutter, linter, lintKeymap } from "@codemirror/lint"
@@ -34,169 +38,197 @@ import type { SyntaxNode } from "@lezer/common"
 import { githubDark, githubLight } from "@uiw/codemirror-theme-github"
 import type { FactDescription } from "@/components/labeling-wire"
 
-/**
- * The policy source editor: JSON with completion for facts, operators,
- * quantifiers, and policy names. Everything offered comes from the fact
- * catalog the server publishes, so completion cannot drift from the schema.
- */
-
+/** Catalog-driven completion for YAML keys, facts, operators, and published policies. */
 export interface EditorContext {
   readonly catalog: ReadonlyArray<FactDescription>
   readonly policyNames: ReadonlyArray<string>
 }
 
-const groupKeys = ["all", "any", "not"] as const
-const rootKeys = ["target", "appliesWhen", "matchesWhen", "classify"] as const
+const rootKeys = ["target", "appliesWhen", "matchesWhen", "classify"]
+const conditionKeys = [
+  "all",
+  "any",
+  "not",
+  "fact",
+  "operator",
+  "value",
+  "caseSensitive",
+  "some",
+  "every",
+  "none",
+  "where",
+  "policy",
+]
+const classifierKeys = ["prompt", "evidence", "minimumConfidence"]
+const isMapping = (node: SyntaxNode): boolean =>
+  node.name === "BlockMapping" || node.name === "FlowMapping"
 
-const stringValue = (state: EditorState, node: SyntaxNode | null): string | null => {
-  if (node === null) return null
-  try {
-    const value: unknown = JSON.parse(state.sliceDoc(node.from, node.to))
-    return typeof value === "string" ? value : null
-  } catch {
-    return null
-  }
-}
-
-const propertyName = (state: EditorState, property: SyntaxNode): string | null =>
-  stringValue(state, property.getChild("PropertyName"))
-
-/** The string value of a sibling property in the enclosing object. */
-const siblingValue = (state: EditorState, object: SyntaxNode, name: string): string | null => {
-  for (let child = object.firstChild; child !== null; child = child.nextSibling) {
-    if (child.name === "Property" && propertyName(state, child) === name) {
-      const value = child.lastChild
-      return value === null || value.name === "PropertyName" ? null : stringValue(state, value)
-    }
-  }
-  return null
-}
-
-const enclosing = (node: SyntaxNode | null, name: string): SyntaxNode | null => {
+const enclosing = (
+  node: SyntaxNode | null,
+  predicate: (node: SyntaxNode) => boolean,
+): SyntaxNode | null => {
   let current = node
-  while (current !== null && current.name !== name) current = current.parent
+  while (current !== null && !predicate(current)) current = current.parent
   return current
 }
 
-const completion = (label: string, detail: string, type = "keyword"): Completion => ({
-  label,
-  detail,
-  type,
-})
-
-const quoted = (label: string, detail: string, type = "keyword"): Completion => ({
-  label,
-  apply: `"${label}"`,
-  detail,
-  type,
-})
-
-/** Which fact a `where` item belongs to, by walking up to the quantified object. */
+const stringValue = (state: EditorState, node: SyntaxNode | null): string | null => {
+  if (node === null) return null
+  const doc = parseDocument(state.sliceDoc(node.from, node.to))
+  return doc.errors.length === 0 && isScalar(doc.contents) && typeof doc.contents.value === "string"
+    ? doc.contents.value
+    : null
+}
+const propertyName = (state: EditorState, pair: SyntaxNode): string | null =>
+  stringValue(state, pair.getChild("Key"))
+const siblingValue = (state: EditorState, mapping: SyntaxNode, key: string): string | null => {
+  for (const pair of mapping.getChildren("Pair")) {
+    if (propertyName(state, pair) === key && pair.lastChild?.name !== ":")
+      return stringValue(state, pair.lastChild)
+  }
+  return null
+}
 const collectionFact = (
   state: EditorState,
-  object: SyntaxNode,
+  mapping: SyntaxNode | null,
   catalog: ReadonlyArray<FactDescription>,
 ): FactDescription | undefined => {
-  let current: SyntaxNode | null = object
+  let current = mapping
   while (current !== null) {
-    if (current.name === "Object") {
+    if (isMapping(current)) {
       for (const key of ["some", "every", "none"]) {
-        const fact = siblingValue(state, current, key)
-        if (fact !== null) return catalog.find((entry) => entry.name === fact)
+        const name = siblingValue(state, current, key)
+        if (name !== null) return catalog.find((fact) => fact.name === name)
       }
     }
     current = current.parent
   }
   return undefined
 }
+const valueCompletion = (label: string, detail: string): Completion => ({
+  label,
+  detail,
+  type: "constant",
+  apply: stringify(label, { lineWidth: 0 }).trimEnd(),
+})
+
+const valueOptions = (
+  key: string | null,
+  state: EditorState,
+  mapping: SyntaxNode | null,
+  context: EditorContext,
+): ReadonlyArray<Completion> => {
+  const root = syntaxTree(state).topNode.getChild("Document")?.firstChild
+  const target = root && isMapping(root) ? siblingValue(state, root, "target") : null
+  const catalog = context.catalog.filter(
+    (fact) => target === null || fact.kinds.some((kind) => kind === target),
+  )
+  const inside = collectionFact(state, mapping, catalog)
+  const factName = mapping === null ? null : siblingValue(state, mapping, "fact")
+  const fact =
+    inside === undefined
+      ? catalog.find((entry) => entry.name === factName)
+      : inside.fields.find((entry) => entry.name === factName)
+  switch (key) {
+    case "fact":
+      return inside === undefined
+        ? catalog
+            .filter((entry) => entry.type !== "Collection")
+            .map((entry) => valueCompletion(entry.name, entry.description))
+        : inside.fields.map((field) =>
+            valueCompletion(field.name, `${inside.name} · ${field.type}`),
+          )
+    case "operator":
+      return (fact?.operators ?? []).map((operator) => valueCompletion(operator, "operator"))
+    case "some":
+    case "every":
+    case "none":
+      return catalog
+        .filter((entry) => entry.type === "Collection")
+        .map((entry) => valueCompletion(entry.name, entry.description))
+    case "policy":
+      return context.policyNames.map((name) => valueCompletion(name, "published policy"))
+    case "target":
+      return ["pull_request", "issue"].map((name) => valueCompletion(name, "target"))
+    case "evidence":
+      return catalog
+        .filter((entry) => entry.type !== "Collection")
+        .map((entry) => valueCompletion(entry.name, "evidence"))
+    case "caseSensitive":
+      return ["true", "false"].map((label) => ({ label, type: "constant" }))
+    case "value":
+      if (fact?.type === "Flag")
+        return ["true", "false"].map((label) => ({ label, type: "constant" }))
+      return factName === "state"
+        ? ["open", "closed"].map((value) => valueCompletion(value, "state"))
+        : []
+    default:
+      return []
+  }
+}
 
 export const policyCompletionSource =
   (context: EditorContext): CompletionSource =>
   (completionContext: CompletionContext) => {
     const { state, pos } = completionContext
-    const tree = syntaxTree(state)
-    const node = tree.resolveInner(pos, -1)
-    const word = completionContext.matchBefore(/"?[\w.]*/)
-    if (word === null && !completionContext.explicit) return null
-    const from = word === null ? pos : word.from + (word.text.startsWith('"') ? 1 : 0)
-    const property = enclosing(node, "Property")
-    const object = enclosing(node, "Object")
-    const inKey = property !== null && node.name === "PropertyName"
-    const options: Array<Completion> = []
-
-    if (inKey || (object !== null && property === null)) {
-      // Keys: root keys at the top, group keys, fact predicate keys, quantifiers, policy.
-      const parentIsRoot = object !== null && object.parent?.name === "JsonText"
-      for (const key of parentIsRoot ? rootKeys : []) options.push(quoted(key, "program"))
-      for (const key of groupKeys) options.push(quoted(key, "group"))
-      for (const key of ["fact", "operator", "value", "caseSensitive"]) {
-        options.push(quoted(key, "predicate", "property"))
+    const line = state.doc.lineAt(pos)
+    const before = state.sliceDoc(line.from, pos)
+    // Whitespace beyond an unfinished scalar is outside Lezer's node range.
+    const anchor = pos - (before.match(/\s*$/)?.[0].length ?? 0)
+    const node = syntaxTree(state).resolveInner(anchor, -1)
+    if (
+      enclosing(node, (entry) => entry.name === "Comment" || entry.name.startsWith("BlockLiteral"))
+    )
+      return null
+    const pair = enclosing(node, (entry) => entry.name === "Pair")
+    const mapping = enclosing(node, isMapping)
+    const key = pair === null ? null : propertyName(state, pair)
+    const onKeyLine = /^\s*(?:-\s*)?[\w-]*$/.test(before)
+    const inEvidence = key === "evidence" && /^\s*-\s*/.test(before)
+    if (onKeyLine && !inEvidence) {
+      if (!completionContext.explicit && before.trim().length === 0) return null
+      const word = completionContext.matchBefore(/[\w-]*/)
+      const keys =
+        /^\S/.test(before) || before.length === 0
+          ? rootKeys
+          : key === "classify"
+            ? classifierKeys
+            : conditionKeys
+      const hasColon = /^\s*:/.test(state.sliceDoc(pos, line.to))
+      return {
+        from: word?.from ?? pos,
+        options: keys.map((label) => ({
+          label,
+          apply: hasColon ? label : `${label}: `,
+          type: "property",
+        })),
+        validFor: /^[\w-]*$/,
       }
-      for (const key of ["some", "every", "none", "where"]) options.push(quoted(key, "collection"))
-      options.push(quoted("policy", "reference"))
-      for (const key of ["prompt", "evidence", "minimumConfidence"]) {
-        options.push(quoted(key, "classifier", "property"))
-      }
-      return { from, options, validFor: /^"?[\w.]*$/ }
     }
-
-    if (property === null || object === null) return null
-    const key = propertyName(state, property)
-    switch (key) {
-      case "fact": {
-        const inside = collectionFact(state, object, context.catalog)
-        if (inside !== undefined) {
-          for (const field of inside.fields)
-            options.push(quoted(field.name, `${inside.name} ${field.type}`))
-        } else {
-          for (const fact of context.catalog) {
-            if (fact.type !== "Collection") {
-              options.push(quoted(fact.name, `${fact.type} · ${fact.kinds.join(", ")}`))
-            }
-          }
-        }
-        break
-      }
-      case "operator": {
-        const inside = collectionFact(state, object, context.catalog)
-        const fieldName = siblingValue(state, object, "fact")
-        const field = inside?.fields.find((entry) => entry.name === fieldName)
-        const fact = context.catalog.find((entry) => entry.name === fieldName)
-        const operators = field?.operators ?? fact?.operators ?? []
-        for (const operator of operators) options.push(quoted(operator, "operator"))
-        break
-      }
-      case "some":
-      case "every":
-      case "none":
-        for (const fact of context.catalog) {
-          if (fact.type === "Collection") options.push(quoted(fact.name, fact.description))
-        }
-        break
-      case "policy":
-        for (const name of context.policyNames) options.push(quoted(name, "policy"))
-        break
-      case "target":
-        options.push(quoted("pull_request", "target"), quoted("issue", "target"))
-        break
-      case "evidence":
-        for (const fact of context.catalog) {
-          if (fact.type !== "Collection") options.push(quoted(fact.name, `evidence · ${fact.type}`))
-        }
-        break
-      case "value": {
-        const fieldName = siblingValue(state, object, "fact")
-        const fact = context.catalog.find((entry) => entry.name === fieldName)
-        if (fact?.type === "Flag")
-          options.push(completion("true", "flag"), completion("false", "flag"))
-        if (fieldName === "state") options.push(quoted("open", "state"), quoted("closed", "state"))
-        break
-      }
-      default:
-        return null
-    }
-    return options.length === 0 ? null : { from, options, validFor: /^"?[\w.]*$/ }
+    const options = valueOptions(key, state, mapping, context)
+    if (options.length === 0) return null
+    const scalar = enclosing(
+      node,
+      (entry) => entry.name === "Literal" || entry.name === "QuotedLiteral",
+    )
+    const from = scalar && scalar.from >= line.from ? scalar.from : pos
+    const to = scalar && scalar.from >= line.from ? scalar.to : pos
+    return { from, to, options, validFor: /^[\w .\-'"/]*$/ }
   }
+
+const yamlLinter = linter((view) =>
+  Result.match(inspect(view.state.doc.toString()), {
+    onSuccess: () => [],
+    onFailure: ({ message, from, to }) => [
+      {
+        from: Math.min(from, view.state.doc.length),
+        to: Math.min(to, view.state.doc.length),
+        severity: "error" as const,
+        message,
+      },
+    ],
+  }),
+)
 
 const editorTheme = EditorView.theme({
   "&": { minHeight: "18rem", maxHeight: "36rem", fontSize: "13px" },
@@ -207,6 +239,20 @@ const editorTheme = EditorView.theme({
   ".cm-content": { padding: "12px 0" },
   "&.cm-focused": { outline: "none" },
 })
+
+export const formatEditor = (id: string): string => {
+  const element = document.getElementById(id)?.querySelector(".cm-editor")
+  const editor = element instanceof HTMLElement ? EditorView.findFromDOM(element) : null
+  if (!editor) throw new Error("The editor is not ready yet")
+  const current = editor.state.doc.toString()
+  const formatted = Result.getOrThrow(formatDocument(current))
+  if (formatted !== current)
+    editor.dispatch({
+      changes: { from: 0, to: current.length, insert: formatted },
+      userEvent: "input.format",
+    })
+  return formatted
+}
 
 const currentTheme = (): Extension =>
   document.documentElement.classList.contains("dark") ? githubDark : githubLight
@@ -248,7 +294,28 @@ export const createPolicySourceEditor = (input: {
       highlightActiveLineGutter(),
       highlightSpecialChars(),
       history(),
-      foldGutter(),
+      foldGutter({
+        markerDOM: (open) => {
+          const marker = document.createElement("span")
+          marker.className = "policy-fold-marker"
+          marker.title = open ? "Fold section" : "Unfold section"
+          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+          svg.setAttribute("viewBox", "0 0 12 12")
+          svg.setAttribute("width", "12")
+          svg.setAttribute("height", "12")
+          svg.setAttribute("fill", "none")
+          svg.setAttribute("stroke", "currentColor")
+          svg.setAttribute("stroke-width", "1.5")
+          svg.setAttribute("stroke-linecap", "round")
+          svg.setAttribute("stroke-linejoin", "round")
+          svg.setAttribute("aria-hidden", "true")
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+          path.setAttribute("d", open ? "M3 4.5 6 7.5 9 4.5" : "M4.5 3 7.5 6 4.5 9")
+          svg.append(path)
+          marker.append(svg)
+          return marker
+        },
+      }),
       drawSelection(),
       dropCursor(),
       indentOnInput(),
@@ -256,8 +323,9 @@ export const createPolicySourceEditor = (input: {
       closeBrackets(),
       highlightActiveLine(),
       highlightSelectionMatches(),
-      json(),
-      linter(jsonParseLinter()),
+      yaml(),
+      indentUnit.of("  "),
+      yamlLinter,
       lintGutter(),
       autocompletion({
         override: [policyCompletionSource(input.context)],
@@ -273,7 +341,7 @@ export const createPolicySourceEditor = (input: {
         ...completionKeymap,
         ...lintKeymap,
       ]),
-      EditorView.contentAttributes.of({ "aria-label": "Policy program JSON" }),
+      EditorView.contentAttributes.of({ "aria-label": "Policy program YAML" }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) input.onChange(update.state.doc.toString())
       }),

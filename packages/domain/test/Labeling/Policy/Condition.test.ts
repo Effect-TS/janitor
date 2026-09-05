@@ -3,6 +3,11 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { GitHubLabelDatabaseId } from "@janitor/domain/GitHub/Id"
 import {
+  CreatePolicyRequest,
+  SavePolicyRequest,
+  ValidatePolicyRequest,
+} from "@janitor/domain/Labeling/Policy/Configuration"
+import {
   Condition,
   conditionFacts,
   ConditionSource,
@@ -12,6 +17,7 @@ import {
 import {
   Program,
   ProgramFromSource,
+  ProgramSource,
   programToSource,
 } from "@janitor/domain/Labeling/Policy/Program"
 
@@ -22,6 +28,53 @@ const names: PolicyNames = {
 }
 
 describe("Condition", () => {
+  it.effect(
+    "rejects misspelled scope and ambiguous authoring keys instead of discarding them",
+    () =>
+      Effect.gen(function* () {
+        const predicate = { fact: "title", operator: "contains", value: "fix" }
+        const invalid = [
+          { target: "pull_request", matchesWhen: predicate, applieswhen: predicate },
+          {
+            target: "pull_request",
+            matchesWhen: predicate,
+            classify: { prompt: "Is this a fix?", evidence: ["title"] },
+          },
+          {
+            target: "pull_request",
+            matchesWhen: { all: [{ ...predicate, policy: "ready" }] },
+          },
+          {
+            target: "pull_request",
+            matchesWhen: {
+              some: "changedFiles",
+              where: { fact: "path", operator: "contains", value: "src", caseSensitve: true },
+            },
+          },
+        ]
+        for (const source of invalid) {
+          const failure = yield* Effect.flip(Schema.decodeUnknownEffect(ProgramSource)(source))
+          assert.strictEqual(failure._tag, "SchemaError")
+          const create = yield* Effect.flip(
+            Schema.decodeUnknownEffect(CreatePolicyRequest)({ name: "Fixes", source }),
+          )
+          assert.strictEqual(create._tag, "SchemaError")
+          const save = yield* Effect.flip(
+            Schema.decodeUnknownEffect(SavePolicyRequest)({ version: 1, source }),
+          )
+          assert.strictEqual(save._tag, "SchemaError")
+          const validate = yield* Effect.flip(
+            Schema.decodeUnknownEffect(ValidatePolicyRequest)({ source }),
+          )
+          assert.strictEqual(validate._tag, "SchemaError")
+        }
+        const failure = yield* Effect.flip(
+          Schema.decodeEffect(ConditionSource)({ ...predicate, policy: "ready" }),
+        )
+        assert.strictEqual(failure._tag, "SchemaError")
+      }),
+  )
+
   it.effect("decodes fact predicates typed by the catalog and rejects mismatched operators", () =>
     Effect.gen(function* () {
       const decoded = yield* Schema.decodeUnknownEffect(Condition)({

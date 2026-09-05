@@ -12,7 +12,10 @@ import { Evaluation, ProgramSource } from "./Program.ts"
  */
 
 export const TestSubject = Schema.Union([
-  Schema.TaggedStruct("Draft", { source: ProgramSource }),
+  Schema.TaggedStruct("Draft", {
+    source: ProgramSource,
+    policyId: Schema.optionalKey(PolicyId),
+  }),
   Schema.TaggedStruct("Policy", { policyId: PolicyId }),
   Schema.TaggedStruct("Configuration", {}),
 ]).annotate({ identifier: "TestSubject" })

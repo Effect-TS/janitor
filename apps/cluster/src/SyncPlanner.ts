@@ -160,7 +160,7 @@ export class SyncPlanner extends Context.Service<
         SELECT i.installation_id, t.verified_at
         FROM github_installation i
         LEFT JOIN sync_target t ON t.scope_key = 'installation:' || i.installation_id
-        WHERE i.status <> 'deleted' AND COALESCE(t.requested_generation, 0) = COALESCE(t.completed_generation, 0) AND t.retry_at IS NULL
+        WHERE i.sync_enabled AND i.status <> 'deleted' AND COALESCE(t.requested_generation, 0) = COALESCE(t.completed_generation, 0) AND t.retry_at IS NULL
       `.pipe(Effect.flatMap(decodeInstallations), wrap("plan"))
       for (const row of installations) {
         const offset = staggerOffset(row.installation_id, RepairPolicy.stagger)
@@ -185,7 +185,7 @@ export class SyncPlanner extends Context.Service<
         CROSS JOIN (VALUES ('labels'), ('entities'), ('pull_requests')) AS track(name)
         LEFT JOIN sync_target t
           ON t.scope_key = 'repository:' || r.repository_id || ':' || track.name
-        WHERE r.enabled AND r.access = 'accessible' AND t.retry_at IS NULL
+        WHERE r.sync_enabled AND sync_scope_enabled(jsonb_build_object('_tag', 'RepositoryTrack', 'repositoryId', r.repository_id)) AND r.enabled AND r.access = 'accessible' AND t.retry_at IS NULL
       `.pipe(Effect.flatMap(decodeTracks), wrap("plan"))
       for (const row of tracks) {
         if (row.pending) continue

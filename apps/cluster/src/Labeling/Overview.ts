@@ -30,6 +30,7 @@ const RepositoryRow = Schema.Struct({
   owner: Schema.String,
   repo: Schema.String,
   enabled: Schema.Boolean,
+  sync_enabled: Schema.Boolean,
   rule_count: Schema.Int,
   policy_count: Schema.Int,
   access: GitHubRepositoryAccess,
@@ -77,7 +78,7 @@ export class LabelingOverview extends Context.Service<
         )
 
     const repositories = sql`
-      SELECT r.repository_id, r.owner, r.repo, r.enabled, r.access,
+      SELECT r.repository_id, r.owner, r.repo, r.enabled, r.sync_enabled, r.access,
              l.configured_revision::text, l.active_revision::text,
              (SELECT count(*)::int FROM labeling_rule WHERE repository_id = r.repository_id) AS rule_count,
              (SELECT count(*)::int FROM labeling_policy WHERE repository_id = r.repository_id) AS policy_count
@@ -92,6 +93,7 @@ export class LabelingOverview extends Context.Service<
           owner: row.owner,
           repo: row.repo,
           enabled: row.enabled,
+          syncEnabled: row.sync_enabled,
           ruleCount: row.rule_count,
           policyCount: row.policy_count,
           access: row.access,

@@ -21,7 +21,7 @@ import {
 } from "@janitor/domain/Labeling/Policy/Configuration"
 import { describeCatalog, FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
-import { TestRequest, TestResponse } from "@janitor/domain/Labeling/Policy/Test"
+import { TestEntity, TestRequest, TestResponse } from "@janitor/domain/Labeling/Policy/Test"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -145,7 +145,7 @@ const respond = (error: Handled) => {
     case "PolicyInUse":
       return respondMessage(
         {
-          message: `The policy is bound by ${error.rules} rules and referenced by ${error.references} policies`,
+          message: `The policy is bound by ${error.rules} rules and referenced by ${error.references} published policy versions, including retained history`,
         },
         { status: 409 },
       )
@@ -172,6 +172,15 @@ const handled =
 const catalog = describeCatalog()
 
 const reads = HttpRouter.addAll([
+  HttpRouter.route(
+    "GET",
+    "/repositories/:repositoryId/test/items",
+    Effect.gen(function* () {
+      const { repositoryId } = yield* repositoryPath
+      const test = yield* LabelingTest
+      return yield* json(Schema.Array(TestEntity))(yield* test.items(repositoryId))
+    }).pipe(handled("testItems")),
+  ),
   HttpRouter.route(
     "GET",
     "/labeling/catalog",

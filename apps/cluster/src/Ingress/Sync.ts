@@ -1,3 +1,5 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import * as Schema from "effect/Schema"
 import { SyncSummary } from "@janitor/domain/GitHub/Sync"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -68,4 +70,28 @@ export const SyncRequestRoute = HttpRouter.add(
   }).pipe(Effect.catchCause(unavailable("request"))),
 ).pipe(Layer.provide(SameOriginMiddleware))
 
-export const SyncRoutesLayer = Layer.mergeAll(SyncSummaryRoute, SyncRequestRoute)
+export const RepositorySyncRoute = HttpRouter.add(
+  "PUT",
+  "/repositories/:repositoryId/sync",
+  Effect.gen(function* () {
+    const { repositoryId } = yield* HttpRouter.schemaPathParams(
+      Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId }),
+    )
+    const { enabled } = yield* HttpServerRequest.schemaBodyJson(
+      Schema.Struct({ enabled: Schema.Boolean }),
+    )
+    const status = yield* SyncStatus
+    const found = yield* status.setRepositorySyncEnabled(repositoryId, enabled)
+    if (!found) return HttpServerResponse.empty({ status: 404 })
+    return HttpServerResponse.empty({ status: 204 })
+  }).pipe(
+    Effect.catchTag("SchemaError", () => Effect.succeed(HttpServerResponse.empty({ status: 400 }))),
+    Effect.catchCause(unavailable("repository setting")),
+  ),
+).pipe(Layer.provide(SameOriginMiddleware))
+
+export const SyncRoutesLayer = Layer.mergeAll(
+  SyncSummaryRoute,
+  SyncRequestRoute,
+  RepositorySyncRoute,
+)

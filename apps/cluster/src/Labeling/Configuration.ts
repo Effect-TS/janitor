@@ -14,7 +14,7 @@ import {
   type SynchronizedLabel,
 } from "@janitor/domain/Labeling/Policy/Configuration"
 import { type FactTrack, FactTrack as FactTrackSchema } from "@janitor/domain/Labeling/Policy/Facts"
-import { Manifest } from "@janitor/domain/Labeling/Policy/Compile"
+import { compile, Manifest } from "@janitor/domain/Labeling/Policy/Compile"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { Program } from "@janitor/domain/Labeling/Policy/Program"
@@ -27,10 +27,31 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { isSqlError } from "effect/unstable/sql/SqlError"
 import { GitHubReadModel } from "../GitHub/ReadModel.ts"
 import { describeError } from "../SqlErrors.ts"
 import { freshnessOf } from "../SyncFreshness.ts"
 import { SyncTargets } from "../SyncTargets.ts"
+
+/** Serialize configuration edits before reading versions or resolving references. */
+export const withRepositoryMutation = <A, E, R>(
+  sql: SqlClient.SqlClient,
+  repositoryId: GitHubRepositoryDatabaseId,
+  effect: Effect.Effect<A, E, R>,
+) =>
+  sql
+    .withTransaction(
+      sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`.pipe(
+        Effect.andThen(effect),
+      ),
+    )
+    .pipe(
+      Effect.mapError((error) =>
+        isSqlError(error)
+          ? new LabelingConfigurationError({ operation: "mutation", message: describeError(error) })
+          : error,
+      ),
+    )
 
 /** Configuration display tolerates older label verification than evaluation will. */
 export const LABEL_MAX_AGE = Duration.hours(24)
@@ -344,8 +365,26 @@ export class LabelingConfiguration extends Context.Service<
       const versions = yield* closeVersions(rules.map((rule) => rule.policyVersionId)).pipe(
         wrap("advance"),
       )
+      const byPolicy = new Map(versions.map((version) => [version.policyId, version]))
+      const manifests = []
+      for (const rule of rules) {
+        const version = byPolicy.get(rule.policyId)
+        if (version === undefined) continue
+        const result = compile({
+          program: version.program,
+          policyId: version.policyId,
+          resolve: (id) => byPolicy.get(id),
+        })
+        if (result._tag === "Rejected") {
+          return yield* new LabelingConfigurationError({
+            operation: "advance",
+            message: result.issue.message,
+          })
+        }
+        manifests.push(result.manifest)
+      }
       const requiredTracks = [
-        ...new Set(versions.flatMap((version) => version.manifest.tracks)),
+        ...new Set(manifests.flatMap((manifest) => manifest.tracks)),
       ].sort() as Array<FactTrack>
 
       // The preparation request: one new generation per track the rules

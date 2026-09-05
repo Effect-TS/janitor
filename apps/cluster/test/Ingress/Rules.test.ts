@@ -137,6 +137,7 @@ const configuration: LabelingConfiguration["Service"] = {
 }
 
 const test: LabelingTest["Service"] = {
+  items: () => Effect.succeed([]),
   run: () => Effect.succeed({ _tag: "Evaluated", entities: [] }),
 }
 

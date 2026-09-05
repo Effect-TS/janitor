@@ -162,6 +162,11 @@ export class SyncTargets extends Context.Service<
 
     const enqueueRun = (scope: SyncScope, generation: SyncGeneration, immediate = false) =>
       Effect.gen(function* () {
+        const encoded = yield* encodeScope(scope)
+        const [policy] = yield* sql<{
+          enabled: boolean
+        }>`SELECT sync_scope_enabled(${encoded}::jsonb) AS enabled`
+        if (!policy?.enabled) return false
         const now = yield* DateTime.now
         yield* outbox.enqueue({
           ...syncRequest(scope, generation),
@@ -172,6 +177,7 @@ export class SyncTargets extends Context.Service<
             retry_at = NULL, updated_at = CLOCK_TIMESTAMP()
           WHERE scope_key = ${syncScopeKey(scope)}
         `
+        return true
       })
 
     const invalidate = Effect.fn("SyncTargets.invalidate")(function* (request: InvalidateRequest) {
@@ -193,6 +199,11 @@ export class SyncTargets extends Context.Service<
             if (gt(row.dispatched_generation, row.completed_generation)) {
               // A manual request may accelerate an unsubmitted debounced run.
               if (request.immediate) {
+                const [policy] = yield* sql<{
+                  enabled: boolean
+                }>`SELECT sync_scope_enabled(${scopeJson}::jsonb) AS enabled`
+                if (!policy?.enabled)
+                  return { generation: row.requested_generation, dispatched: false }
                 yield* outbox.enqueue({
                   ...syncRequest(request.scope, row.execution_generation!),
                   dueAt: DateTime.toDateUtc(yield* DateTime.now),
@@ -200,8 +211,12 @@ export class SyncTargets extends Context.Service<
               }
               return { generation: row.requested_generation, dispatched: false }
             }
-            yield* enqueueRun(request.scope, row.requested_generation, request.immediate)
-            return { generation: row.requested_generation, dispatched: true }
+            const dispatched = yield* enqueueRun(
+              request.scope,
+              row.requested_generation,
+              request.immediate,
+            )
+            return { generation: row.requested_generation, dispatched }
           }),
         )
         .pipe(wrap("invalidate"))
@@ -221,7 +236,7 @@ export class SyncTargets extends Context.Service<
           dispatched_generation = COALESCE(active_generation, requested_generation),
           updated_at = CLOCK_TIMESTAMP()
         WHERE scope_key = ${syncScopeKey(scope)} AND execution_generation = ${generation}
-          AND completed_generation < dispatched_generation
+          AND completed_generation < dispatched_generation AND sync_scope_enabled(scope)
         RETURNING *
       `.pipe(Effect.flatMap(decodeRows), wrap("begin"))
       const row = rows[0]
@@ -284,7 +299,7 @@ export class SyncTargets extends Context.Service<
           Effect.gen(function* () {
             const rows = yield* sql`
           SELECT scope_key FROM sync_target WHERE scope_key = ${syncScopeKey(scope)}
-            AND active_generation = ${generation} FOR UPDATE
+            AND active_generation = ${generation} AND sync_scope_enabled(scope) FOR UPDATE
         `.pipe(wrap("withRun"))
             return rows.length === 0 ? Option.none<A>() : Option.some(yield* effect)
           }),
@@ -301,7 +316,7 @@ export class SyncTargets extends Context.Service<
       .withTransaction(
         Effect.gen(function* () {
           const rows = yield* sql`
-        SELECT * FROM sync_target WHERE retry_at <= CLOCK_TIMESTAMP()
+        SELECT * FROM sync_target WHERE retry_at <= CLOCK_TIMESTAMP() AND sync_scope_enabled(scope)
           AND requested_generation = completed_generation FOR UPDATE SKIP LOCKED
       `.pipe(Effect.flatMap(decodeRows))
           for (const row of rows)

@@ -8,7 +8,7 @@
   "dependencies": {
     "@codemirror/autocomplete": "catalog:",
     "@codemirror/commands": "catalog:",
-    "@codemirror/lang-json": "catalog:",
+    "@codemirror/lang-yaml": "catalog:",
     "@codemirror/language": "catalog:",
     "@codemirror/lint": "catalog:",
     "@codemirror/search": "catalog:",
@@ -23,7 +23,8 @@
     "effect": "catalog:",
     "foldkit": "catalog:",
     "lucide": "catalog:",
-    "tailwind-merge": "catalog:"
+    "tailwind-merge": "catalog:",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "@foldkit/devtools": "catalog:",

@@ -132,7 +132,7 @@ New tables, replacing `labeling_ruleset_revision` and the JSON blob: `labeling_p
 
 The repository page shows two tables. Policies: name, target, published revision, referenced by how many rules, menu with edit, test, delete. Rules: label chip, policy, on-no-match, group and priority, enabled toggle, fires in 30 days, menu with edit, test, delete. Below them the revision status and the reconciliations table already there.
 
-The policy editor is a dialog with name, target, description, and a JSON source editor. Completion and linting are generated from the fact catalog and the repository's policy names, so the editor cannot drift from the schema. Validate shows facts, required tracks, references, and node count. Publish saves and publishes.
+The policy editor is a dialog with name, target, description, and a YAML source editor. Completion and linting are generated from the fact catalog and the repository's policy names, so the editor cannot drift from the schema. Validate shows facts, required tracks, references, and node count. Test draft runs the unsaved program without closing the editor. Publish saves and publishes. See [policy-authoring.md](policy-authoring.md) for the current syntax and reference behavior.
 
 The rule editor is a small dialog: label chips from synchronized labels, policy select, on-no-match, group, priority, enabled.
 
@@ -152,6 +152,6 @@ Each phase ships to the sandbox and is reviewed before the next.
 ## Decisions to confirm
 
 1. Drop yesterday's `dryRun` and `onMatch: remove`. Groups cover exclusivity and the test dialog covers dry runs.
-2. Policies are edited as JSON with generated completion, not as a visual tree.
+2. Policies are edited as YAML with generated completion, not as a visual tree.
 3. The uncommitted rules editor is discarded. The open-entity listing and preview service are kept and folded into `LabelingTest`.
 4. The revision pointer remains the only live fence. No per-row triggers.

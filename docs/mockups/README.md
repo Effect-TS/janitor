@@ -148,3 +148,13 @@ target, published revision, and draft status move below the test bench in the
 right sidebar. Rule usage stays in its existing sidebar disclosure. The
 description uses one line initially and can be resized for longer notes.
 The top navigation links back to the original document study for comparison.
+
+### Sidebar actions
+
+[8e-policy-sidebar-actions.html](8e-policy-sidebar-actions.html) removes the editor's
+top toolbar. Publish and conditional Save draft move above the test bench; Delete
+and Close use labeled, titled icon buttons. The document starts at its editable
+title and description, followed by YAML. Search, edits, draft saving, publishing,
+deletion confirmation, and theme switching work locally. Test results are illustrative.
+Open the HTML file directly in a browser; it uses the shared study styles and
+includes its own interactions.

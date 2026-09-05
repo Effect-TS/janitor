@@ -71,6 +71,7 @@ export const RepositoryOverview = Schema.Struct({
   owner: Schema.String,
   repo: Schema.String,
   enabled: Schema.Boolean,
+  syncEnabled: Schema.optionalKey(Schema.Boolean),
   /** All configured rules, including disabled rules. */
   ruleCount: Schema.Int,
   /** All policies, including unpublished drafts. */

@@ -5,7 +5,7 @@ import {
   AiConsentState,
   PolicyVersionId,
 } from "@janitor/domain/Labeling/Policy/Configuration"
-import { evaluate, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
+import { evaluateApplicability, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
 import type { FactSnapshot } from "@janitor/domain/Labeling/Policy/Facts"
 import type {
   ClassifierEvaluator,
@@ -338,13 +338,13 @@ export class AiClassifier extends Context.Service<
 
     const classify = Effect.fn("AiClassifier.classify")(function* (input: ClassifyInput) {
       // Applicability and target are decided purely; only the question needs a provider.
-      const scoped = evaluate({
+      const scoped = evaluateApplicability({
         program: input.program,
         snapshot: input.snapshot,
         resolve: input.resolve,
       })
-      if (scoped.outcome === "not-applicable") return scoped
-      const trace = scoped.trace.filter((entry) => entry.location.root === "appliesWhen")
+      if (scoped.outcome !== "match") return scoped
+      const trace = scoped.trace
 
       const rendered = renderPrompt(
         input.evaluator.prompt,
@@ -353,7 +353,14 @@ export class AiClassifier extends Context.Service<
       )
       if ("_tag" in rendered)
         return unknown(`rendered prompt is too long (${rendered.length})`, trace)
-      const evidenceHash = yield* sha256Hex(JSON.stringify(rendered.evidence))
+      const evidenceHash = yield* sha256Hex(
+        JSON.stringify({
+          evidence: rendered.evidence,
+          prompt: rendered.text,
+          minimumConfidence: input.evaluator.minimumConfidence,
+          provider: provider.identity,
+        }),
+      )
 
       const cached = yield* sql`
         SELECT outcome, confidence, reason FROM labeling_ai_decision

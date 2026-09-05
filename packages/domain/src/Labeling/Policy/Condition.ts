@@ -257,7 +257,10 @@ export const ConditionSource: Schema.Codec<ConditionSource, unknown> = Schema.su
       ...factSources,
       Schema.Struct({ policy: Schema.String.check(Schema.isMinLength(1)) }),
     ]) as unknown as Schema.Codec<ConditionSource, unknown>,
-).annotate({ identifier: "ConditionSource" })
+).annotate({
+  identifier: "ConditionSource",
+  parseOptions: { onExcessProperty: "error" },
+})
 
 // TRANSFORMATION
 

@@ -339,15 +339,32 @@ const sidebarMenu = (h: HtmlBuilder<Message>, model: Model): Html =>
     ],
   })
 
-const navMain = (h: HtmlBuilder<Message>): Html =>
+const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.div(
     [],
     [
       Sidebar.group(h, {
         children: [
-          Sidebar.groupLabel(h, { children: ["Platform"] }),
+          Sidebar.groupLabel(h, { children: ["Repository"] }),
           Sidebar.menu(h, {
-            children: ["hi"],
+            children: (["Policies", "Rules", "Activity", "Settings"] as const).map((section) =>
+              Sidebar.menuItem(h, {
+                children: [
+                  Sidebar.menuButton(h, {
+                    isActive: model.repositories.section === section,
+                    attributes: [
+                      h.OnClick(
+                        Message.GotRepositoriesMessage({
+                          message: Repositories.Message.SelectedSection({ section }),
+                        }),
+                      ),
+                      h.AriaCurrent(model.repositories.section === section ? "page" : "false"),
+                    ],
+                    children: [h.span([], [section])],
+                  }),
+                ],
+              }),
+            ),
           }),
         ],
       }),
@@ -356,8 +373,7 @@ const navMain = (h: HtmlBuilder<Message>): Html =>
 
 const sidebarPanel = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> => [
   Sidebar.header(h, { children: [sidebarMenu(h, model)] }),
-  Sidebar.content(h, { children: [navMain(h)] }),
-  Sidebar.footer(h, { children: ["Footer"] }),
+  Sidebar.content(h, { children: [navMain(h, model)] }),
 ]
 
 const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
@@ -373,7 +389,15 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
         [
           h.div(
             [h.Class("flex items-center gap-1 lg:gap-2")],
-            [h.span([h.Class("text-sm font-medium")], ["Auto-labeling"])],
+            [
+              Sidebar.trigger(h, {
+                className: "md:hidden",
+                attributes: [
+                  h.OnClick(Message.GotSidebarMessage({ message: Sidebar.Message.Toggled() })),
+                ],
+              }),
+              h.span([h.Class("text-sm font-medium")], [model.repositories.section]),
+            ],
           ),
           h.div(
             [h.Class("flex items-center gap-1")],

@@ -2,6 +2,7 @@ import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Docker from "alchemy/Docker"
 import * as Command from "alchemy/Command"
+import { hashDirectory } from "alchemy/Command/Memo"
 import * as Neon from "alchemy/Neon"
 import * as Output from "alchemy/Output"
 import * as Config from "effect/Config"
@@ -11,14 +12,22 @@ import * as Redacted from "effect/Redacted"
 const LocalDatabasePassword = Redacted.make("janitor")
 
 const LocalDatabase = Effect.gen(function* () {
+  // A new logical resource forces a fresh container. Alchemy can treat a
+  // changed image Output as an update and reuse the old container otherwise.
+  // Local schema changes intentionally discard the old development database.
+  const schemaHash = yield* hashDirectory({
+    cwd: "apps/cluster",
+    memo: { include: ["migrations/*.sql", "docker/postgres/Dockerfile"] },
+  })
   const image = yield* Docker.Image("PostgresImage", {
+    tag: schemaHash,
     build: {
       context: "apps/cluster",
       dockerfile: "docker/postgres/Dockerfile",
     },
   })
 
-  const container = yield* Docker.Container("Postgres", {
+  const container = yield* Docker.Container(`Postgres-${schemaHash}`, {
     image,
     environment: {
       POSTGRES_DB: "janitor",
@@ -45,7 +54,7 @@ const LocalDatabase = Effect.gen(function* () {
     sslmode: "disable",
   }
 
-  yield* seedDevelopmentData(container.ports["5432/tcp"])
+  yield* seedDevelopmentData(container.ports["5432/tcp"], container.id)
 
   return {
     databaseId: container.id,
@@ -63,15 +72,14 @@ const LocalDatabase = Effect.gen(function* () {
  *
  * The connection string is built from the container rather than read from
  * `.env` because the host port is assigned at random (`external: 0`). Passing
- * it through `env` also orders the two: the command cannot run until the
- * container reports healthy.
+ * it through `env` orders the command after container creation. The seed
+ * retries connection acquisition while PostgreSQL initializes.
  *
- * Set `JANITOR_SEED=false` to skip it. Memoization is scoped to the seed
- * itself, so a restart or a hot reload keeps whatever is in the database and
- * only editing the fixtures triggers a fresh wipe. Run `vp run seed` to force
- * one.
+ * Set `JANITOR_SEED=false` to skip it. Seed edits and container replacement
+ * trigger a fresh seed. Ordinary restarts retain the data. Run `vp run seed`
+ * to force a seed against the current container.
  */
-const seedDevelopmentData = (port: Output.Output<number>) =>
+const seedDevelopmentData = (port: Output.Output<number>, containerId: Output.Output<string>) =>
   Effect.gen(function* () {
     const isEnabled = yield* Config.Boolean("JANITOR_SEED").pipe(Config.withDefault(true))
     if (!isEnabled) return
@@ -79,6 +87,8 @@ const seedDevelopmentData = (port: Output.Output<number>) =>
     yield* Command.Exec("SeedDatabase", {
       command: "node apps/cluster/seed/main.ts",
       env: {
+        // Re-seed a replacement even if Docker assigns it the same host port.
+        JANITOR_DATABASE_INSTANCE: containerId,
         DATABASE_URL: Output.interpolate`postgres://janitor:janitor@127.0.0.1:${port}/janitor?sslmode=disable`,
       },
       memo: { include: ["apps/cluster/seed/**"] },

@@ -43,7 +43,7 @@ export default defineConfig({
 
     tasks: {
       dev: {
-        command: "vp exec alchemy dev",
+        command: "vp exec node scripts/dev.mjs",
         cache: false,
       },
       seed: {

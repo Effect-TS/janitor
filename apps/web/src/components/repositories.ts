@@ -16,11 +16,17 @@ import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import * as Icon from "@/lib/icons"
+import { Plus, Search } from "lucide"
+import { input } from "@/components/ui/input"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as RuleEditor from "@/components/rule-editor"
 import * as TestBench from "@/components/test-bench"
 import {
   AiConsent,
+  TestCandidates,
+  TestEntity,
+  testEndpoint,
   aiConsentEndpoint,
   CATALOG_ENDPOINT,
   ConfigurationView,
@@ -58,10 +64,11 @@ export const POLL_INTERVAL = Duration.seconds(10)
 export const RepositoryDetail = Schema.Struct({
   configuration: ConfigurationView,
   reconciliations: Schema.Array(ReconciliationRecord),
+  testCandidates: Schema.optionalKey(TestCandidates),
 })
 export type RepositoryDetail = typeof RepositoryDetail.Type
 
-/** What the panel above the tables shows. */
+/** The open document, rule editor, or configuration test. */
 export const Panel = Schema.Union([
   Schema.TaggedStruct("Closed", {}),
   Schema.TaggedStruct("LoadingPolicy", { policyId: Schema.String }),
@@ -71,7 +78,12 @@ export const Panel = Schema.Union([
 ])
 export type Panel = typeof Panel.Type
 
+export const Section = Schema.Literals(["Policies", "Rules", "Activity", "Settings"])
+export type Section = typeof Section.Type
+
 export const Model = Schema.Struct({
+  section: Section,
+  policySearch: Schema.String,
   repositories: Schema.Option(Schema.Array(RepositoryOverview)),
   repositoriesError: Schema.Option(Schema.String),
   catalog: Schema.Array(FactDescription),
@@ -94,6 +106,8 @@ export type Model = typeof Model.Type
 // MESSAGE
 
 export const Message = defineMessageUnion({
+  SelectedSection: { section: Section },
+  UpdatedPolicySearch: { value: Schema.String },
   GotRepositories: { repositories: Schema.Array(RepositoryOverview) },
   FailedRepositories: { reason: Schema.String },
   GotCatalog: { catalog: Schema.Array(FactDescription) },
@@ -103,6 +117,9 @@ export const Message = defineMessageUnion({
   FailedDetail: { repositoryId: Schema.String, reason: Schema.String },
   GotConsent: { repositoryId: Schema.String, consent: AiConsent },
   ClickedToggleConsent: {},
+  ClickedToggleSync: { repositoryId: Schema.String, enabled: Schema.Boolean },
+  CompletedToggleSync: {},
+  FailedToggleSync: { reason: Schema.String },
   CompletedSetConsent: { repositoryId: Schema.String, consent: AiConsent },
   FailedSetConsent: { reason: Schema.String },
   ClickedNewPolicy: {},
@@ -172,6 +189,15 @@ export const FetchDetail = FoldkitCommand.define("FetchDetail", {
     Effect.all(
       {
         configuration: getJson(configurationEndpoint(repositoryId), ConfigurationView),
+        testCandidates: getJson(
+          `${testEndpoint(repositoryId)}/items`,
+          Schema.Array(TestEntity),
+        ).pipe(
+          Effect.map((items) => ({ _tag: "Ready" as const, items })),
+          Effect.catch((error) =>
+            Effect.succeed({ _tag: "Failed" as const, reason: describe(error) }),
+          ),
+        ),
         reconciliations: getJson(
           reconciliationsEndpoint(repositoryId),
           Schema.Array(ReconciliationRecord),
@@ -194,6 +220,21 @@ export const FetchConsent = FoldkitCommand.define("FetchConsent", {
     getJson(aiConsentEndpoint(repositoryId), AiConsent).pipe(
       Effect.map((consent) => Message.GotConsent({ repositoryId, consent })),
       Effect.catch(() => Effect.never),
+    ),
+})
+
+export const SetRepositorySync = FoldkitCommand.define("SetRepositorySync", {
+  args: { repositoryId: Schema.String, enabled: Schema.Boolean },
+  messages: [Message.CompletedToggleSync, Message.FailedToggleSync],
+  execute: ({ repositoryId, enabled }) =>
+    HttpClientRequest.put(`/api/v1/repositories/${encodeURIComponent(repositoryId)}/sync`).pipe(
+      HttpClientRequest.bodyJson({ enabled }),
+      Effect.flatMap(HttpClient.execute),
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.as(Message.CompletedToggleSync()),
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedToggleSync({ reason: describe(error) })),
+      ),
     ),
 })
 
@@ -282,6 +323,8 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
 export const init = (): UpdateReturn => ({
   model: Model.make(
     {
+      section: "Policies",
+      policySearch: "",
       repositories: Option.none(),
       repositoriesError: Option.none(),
       catalog: [],
@@ -333,8 +376,12 @@ const openPolicyEditor = (model: Model, existing: Option.Option<PolicyDetail>): 
           _tag: "PolicyEditor" as const,
           editor: PolicyEditor.init({
             repositoryId,
+            configuration: detail.configuration,
             catalog: model.catalog,
-            policyNames: detail.configuration.policies.map((policy) => policy.name),
+            testCandidates: detail.testCandidates,
+            policyNames: detail.configuration.policies
+              .filter((policy) => policy.publishedVersionId !== null)
+              .map((policy) => policy.name),
             existing,
           }),
         }),
@@ -411,15 +458,17 @@ const foldPolicyEditor = Update.foldChild({
             : "Publish it to make it available to rules.",
         }),
       Cancelled: () => undefined,
+      RequestedDelete: () => undefined,
       SaveFailed: ({ reason }) => OutMessage.Failed({ title: "The policy was not saved", reason }),
     }),
   foldOutMessage: (outMessage) => (model) =>
     PolicyEditor.OutMessage.match<Step>(outMessage, {
-      Saved: ({ published }) =>
-        published
-          ? { model: closed(model), commands: refresh(model) }
-          : { model, commands: refresh(model) },
+      Saved: () => ({ model, commands: refresh(model) }),
       Cancelled: () => ({ model: closed(model) }),
+      RequestedDelete: ({ policyId, version }) => {
+        const next = update(model, Message.ClickedDeletePolicy({ policyId, version }))
+        return { model: next.model, commands: next.commands ?? [] }
+      },
       SaveFailed: () => ({ model }),
     }),
 })
@@ -474,6 +523,8 @@ const confirmingRule = (model: Model, ruleId: string) =>
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
+    SelectedSection: ({ section }) => ({ model: evo(model, { section: () => section }) }),
+    UpdatedPolicySearch: ({ value }) => ({ model: evo(model, { policySearch: () => value }) }),
     GotRepositories: ({ repositories }) => {
       const next = evo(model, {
         repositories: () => Option.some(repositories),
@@ -502,6 +553,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : {
             model: evo(closed(model), {
               selected: () => Option.some(repositoryId),
+              policySearch: () => "",
               detail: () => Option.none<RepositoryDetail>(),
               detailError: () => Option.none<string>(),
               maybeConsent: () => Option.none<AiConsent>(),
@@ -527,6 +579,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     : repository,
                 ),
               ),
+              panel: (panel) =>
+                panel._tag === "PolicyEditor"
+                  ? {
+                      ...panel,
+                      editor: evo(
+                        PolicyEditor.withTestCandidates(
+                          panel.editor,
+                          detail.testCandidates ?? panel.editor.testCandidates,
+                        ),
+                        {
+                          configuration: () => detail.configuration,
+                        },
+                      ),
+                    }
+                  : panel,
             }),
           }
         : { model },
@@ -538,6 +605,15 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Option.contains(model.selected, repositoryId)
         ? { model: evo(model, { maybeConsent: () => Option.some(consent) }) }
         : { model },
+    ClickedToggleSync: ({ repositoryId, enabled }) => ({
+      model,
+      commands: [SetRepositorySync({ repositoryId, enabled })],
+    }),
+    CompletedToggleSync: () => ({ model, commands: [FetchRepositories()] }),
+    FailedToggleSync: ({ reason }) => ({
+      model,
+      outMessage: OutMessage.Failed({ title: "Sync setting was not saved", reason }),
+    }),
     ClickedToggleConsent: () =>
       Option.match(model.selected, {
         onNone: () => ({ model }),
@@ -583,15 +659,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       outMessage: OutMessage.Failed({ title: "AI consent was not changed", reason }),
     }),
 
-    ClickedNewPolicy: () => ({ model: openPolicyEditor(model, Option.none()) }),
+    ClickedNewPolicy: () => ({
+      model:
+        model.panel._tag === "PolicyEditor" && model.panel.editor.identity._tag === "New"
+          ? model
+          : openPolicyEditor(model, Option.none()),
+    }),
     ClickedEditPolicy: ({ policyId }) =>
-      Option.match(model.selected, {
-        onNone: () => ({ model }),
-        onSome: (repositoryId) => ({
-          model: evo(model, { panel: () => ({ _tag: "LoadingPolicy" as const, policyId }) }),
-          commands: [FetchPolicyDetail({ repositoryId, policyId })],
-        }),
-      }),
+      model.panel._tag === "PolicyEditor" &&
+      model.panel.editor.identity._tag === "Existing" &&
+      model.panel.editor.identity.policyId === policyId
+        ? { model }
+        : Option.match(model.selected, {
+            onNone: () => ({ model }),
+            onSome: (repositoryId) => ({
+              model: evo(model, { panel: () => ({ _tag: "LoadingPolicy" as const, policyId }) }),
+              commands: [FetchPolicyDetail({ repositoryId, policyId })],
+            }),
+          }),
     GotPolicyDetail: ({ detail }) =>
       model.panel._tag === "LoadingPolicy" && model.panel.policyId === detail.policy.policyId
         ? { model: openPolicyEditor(model, Option.some(detail)) }
@@ -673,7 +758,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
           },
     CompletedDelete: ({ what }) => ({
-      model,
+      model: what === "policy" ? closed(model) : model,
       commands: refresh(model),
       outMessage: OutMessage.Notified({
         title: `Deleted the ${what}`,
@@ -755,150 +840,120 @@ const table = (
     ],
   )
 
-const repositoryList = (h: HtmlBuilder<Message>, model: Model): Html =>
-  Option.match(model.repositories, {
-    onNone: () =>
-      h.div(
-        [h.Class("text-muted-foreground text-sm")],
-        [Option.getOrElse(model.repositoriesError, () => "Loading repositories")],
-      ),
-    onSome: (repositories) =>
-      repositories.length === 0
-        ? h.div([h.Class("text-muted-foreground text-sm")], ["No repositories synchronized yet"])
-        : h.ul(
-            [h.Class("flex flex-col gap-1")],
-            repositories.map((repository) => {
-              const isSelected = Option.contains(model.selected, repository.repositoryId)
-              return h.li(
-                [],
-                [
-                  h.button(
-                    [
-                      h.Type("button"),
-                      h.DataAttribute("repository-id", repository.repositoryId),
-                      h.DataAttribute("state", isSelected ? "selected" : "idle"),
-                      h.OnClick(Message.Selected({ repositoryId: repository.repositoryId })),
-                      h.Class(
-                        cn(
-                          "flex w-full cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent",
-                          isSelected && "bg-accent font-medium",
-                        ),
-                      ),
-                    ],
-                    [
-                      h.span([h.Class("truncate")], [`${repository.owner}/${repository.repo}`]),
-                      h.span(
-                        [h.Class("text-muted-foreground text-xs")],
-                        [repository.enabled ? "enabled" : "paused"],
-                      ),
-                    ],
-                  ),
-                ],
-              )
-            }),
-          ),
-  })
-
-const policyRow = (
-  h: HtmlBuilder<Message>,
-  model: Model,
-  view: ConfigurationView,
-  policy: ConfigurationView["policies"][number],
-): Html => {
-  const bound = view.rules.filter((rule) => rule.policyId === policy.policyId).length
-  const confirming = confirmingPolicy(model, policy.policyId)
-  return h.tr(
-    [h.Class("border-t"), h.DataAttribute("policy-id", policy.policyId)],
-    [
-      h.td(
-        [h.Class(cellClass)],
-        [
-          h.div([h.Class("font-medium")], [policy.name]),
-          policy.description === ""
-            ? h.empty
-            : h.div([h.Class("text-muted-foreground text-xs")], [policy.description]),
-        ],
-      ),
-      h.td([h.Class(cellClass)], [policy.target === "pull_request" ? "Pull requests" : "Issues"]),
-      h.td(
-        [h.Class(cellClass)],
-        [
-          h.span(
-            [h.Class(cn(badgeClass, policy.publishedRevision === null && "opacity-60"))],
-            [policy.publishedRevision === null ? "draft" : `v${policy.publishedRevision}`],
-          ),
-        ],
-      ),
-      h.td(
-        [h.Class(cn(cellClass, "text-muted-foreground"))],
-        [bound === 0 ? "no rules" : `${bound} rule${bound === 1 ? "" : "s"}`],
-      ),
-      h.td(
-        [h.Class(cn(cellClass, "text-right whitespace-nowrap"))],
-        [
-          rowButton(h, "Edit", Message.ClickedEditPolicy({ policyId: policy.policyId }), {
-            action: "edit-policy",
-          }),
-          policy.publishedRevision === null
-            ? h.empty
-            : rowButton(h, "Test", Message.ClickedTestPolicy({ policyId: policy.policyId })),
-          rowButton(
-            h,
-            confirming ? "Confirm delete" : "Delete",
-            Message.ClickedDeletePolicy({ policyId: policy.policyId, version: policy.version }),
-            { isDestructive: confirming, action: "delete-policy" },
-          ),
-        ],
-      ),
-    ],
+const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
+  const query = model.policySearch.trim().toLowerCase()
+  const policies = view.policies.filter((policy) =>
+    `${policy.name} ${policy.description}`.toLowerCase().includes(query),
   )
-}
-
-const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html =>
-  h.section(
-    [h.Class("flex flex-col gap-2")],
+  const selectedId =
+    model.panel._tag === "LoadingPolicy"
+      ? model.panel.policyId
+      : model.panel._tag === "PolicyEditor" && model.panel.editor.identity._tag === "Existing"
+        ? model.panel.editor.identity.policyId
+        : undefined
+  return h.aside(
+    [h.Class("policy-library"), h.AriaLabel("Policy library")],
     [
       h.div(
-        [h.Class("flex items-center justify-between gap-2")],
+        [h.Class("policy-library-header")],
         [
           h.div(
-            [h.Class("flex flex-col")],
+            [h.Class("flex items-center justify-between gap-2")],
             [
-              sectionTitle(h, "Policies"),
-              h.span([h.Class("text-muted-foreground text-xs")], [describeRevision(view)]),
+              h.h2(
+                [h.Class("text-xs font-semibold")],
+                [
+                  "All policies",
+                  h.span(
+                    [h.Class("ml-2 font-normal text-muted-foreground")],
+                    [String(view.policies.length)],
+                  ),
+                ],
+              ),
+              Button.view(h, {
+                variant: "ghost",
+                size: "icon-sm",
+                label: Icon.view(h, Plus, "size-4"),
+                onClick: Message.ClickedNewPolicy(),
+                attributes: [
+                  h.AriaLabel("New policy"),
+                  h.Title("New policy"),
+                  h.DataAttribute("action", "new-policy"),
+                ],
+              }),
             ],
           ),
           h.div(
-            [h.Class("flex items-center gap-1")],
+            [h.Class("policy-search-field")],
             [
-              view.rules.length === 0
-                ? h.empty
-                : rowButton(h, "Test configuration", Message.ClickedTestConfiguration()),
-              Button.view(h, {
-                variant: "outline",
-                size: "xs",
-                onClick: Message.ClickedNewPolicy(),
-                label: "New policy",
-                attributes: [h.DataAttribute("action", "new-policy")],
+              Icon.view(h, Search, "size-3.5"),
+              input(h, {
+                id: "policy-search",
+                label: "Search policies",
+                labelClass: "sr-only",
+                placeholder: "Find a policy…",
+                value: model.policySearch,
+                onInput: (value) => Message.UpdatedPolicySearch({ value }),
               }),
             ],
           ),
         ],
       ),
-      view.policies.length === 0
-        ? h.div(
-            [h.Class(emptyClass)],
+      h.ul(
+        [h.Class("policy-library-list")],
+        policies.map((policy) =>
+          h.li(
+            [h.DataAttribute("policy-id", policy.policyId)],
             [
-              "No policies yet. A policy decides when something is true about an issue or pull request.",
+              h.button(
+                [
+                  h.Type("button"),
+                  h.Class(
+                    cn("policy-library-item", selectedId === policy.policyId && "is-selected"),
+                  ),
+                  h.AriaPressed(selectedId === policy.policyId ? "true" : "false"),
+                  h.OnClick(Message.ClickedEditPolicy({ policyId: policy.policyId })),
+                  h.DataAttribute("action", "edit-policy"),
+                ],
+                [
+                  h.span([h.Class("policy-library-name")], [policy.name]),
+                  h.span(
+                    [h.Class("policy-library-summary")],
+                    [policy.description || "No description"],
+                  ),
+                  h.span(
+                    [h.Class("policy-library-meta")],
+                    [
+                      policy.target === "pull_request" ? "Pull requests" : "Issues",
+                      h.span(
+                        [],
+                        [
+                          policy.publishedRevision === null
+                            ? "Draft"
+                            : `Published · v${policy.publishedRevision}`,
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+      policies.length === 0
+        ? h.p(
+            [h.Class("p-4 text-xs text-muted-foreground")],
+            [
+              view.policies.length === 0
+                ? "Create your first policy to get started."
+                : "No policies match your search.",
             ],
           )
-        : table(
-            h,
-            ["Name", "Applies to", "Published", "Bound by", ""],
-            view.policies.map((policy) => policyRow(h, model, view, policy)),
-          ),
+        : h.empty,
     ],
   )
+}
 
 const ruleRow = (
   h: HtmlBuilder<Message>,
@@ -1064,6 +1119,46 @@ const reconciliationsSection = (
     ],
   )
 
+const syncSection = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const repository = Option.flatMap(model.repositories, (repositories) =>
+    Option.fromNullishOr(
+      repositories.find((row) => Option.contains(model.selected, row.repositoryId)),
+    ),
+  )
+  return Option.match(repository, {
+    onNone: () => h.empty,
+    onSome: (row) =>
+      h.section(
+        [h.Class("flex flex-col gap-3")],
+        [
+          sectionTitle(h, "GitHub sync"),
+          h.p(
+            [h.Class("text-sm text-muted-foreground")],
+            [
+              "Keep local data up to date with GitHub. Turning sync off retains cached data and leaves auto-labeling settings unchanged.",
+            ],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Role("switch"),
+              h.AriaChecked(row.syncEnabled !== false),
+              h.AriaLabel("GitHub sync"),
+              h.OnClick(
+                Message.ClickedToggleSync({
+                  repositoryId: row.repositoryId,
+                  enabled: row.syncEnabled === false,
+                }),
+              ),
+              h.Class("w-fit rounded-md border px-3 py-2 text-sm hover:bg-accent"),
+            ],
+            [row.syncEnabled === false ? "Sync off" : "Sync on"],
+          ),
+        ],
+      ),
+  })
+}
+
 const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.section(
     [
@@ -1133,13 +1228,20 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
       return h.empty
     case "LoadingPolicy":
       return h.div([h.Class("text-muted-foreground text-sm")], ["Loading the policy"])
-    case "PolicyEditor":
+    case "PolicyEditor": {
+      const editor = model.panel.editor
       return h.submodel({
         slotId: "policy-editor",
-        model: model.panel.editor,
+        model: editor,
         view: PolicyEditor.view,
+        viewInputs: {
+          confirmingDelete:
+            editor.identity._tag === "Existing" &&
+            confirmingPolicy(model, editor.identity.policyId),
+        },
         toParentMessage: (message) => Message.GotPolicyEditorMessage({ message }),
       })
+    }
     case "RuleEditor":
       return h.submodel({
         slotId: "rule-editor",
@@ -1158,50 +1260,100 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
 }
 
 const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
-  Option.match(model.selected, {
-    onNone: () => h.div([h.Class("text-muted-foreground text-sm")], ["Select a repository"]),
-    onSome: () =>
-      Option.match(model.detail, {
-        onNone: () =>
-          h.div(
-            [h.Class("text-muted-foreground text-sm")],
-            [Option.getOrElse(model.detailError, () => "Loading")],
+  Option.match(model.detail, {
+    onNone: () =>
+      h.div(
+        [h.Class("p-6 text-sm text-muted-foreground")],
+        [
+          Option.getOrElse(model.detailError, () =>
+            Option.getOrElse(model.repositoriesError, () =>
+              Option.isNone(model.selected)
+                ? "Select a repository to get started."
+                : "Loading repository…",
+            ),
           ),
-        onSome: (detail) =>
-          h.div(
-            [h.Class("flex flex-col gap-6")],
-            [
-              Option.match(model.detailError, {
-                onNone: () => h.empty,
-                onSome: (reason) =>
-                  h.div([h.Class("text-destructive text-sm")], [`Refresh failed: ${reason}`]),
-              }),
-              model.panel._tag === "Closed"
-                ? h.empty
-                : h.div(
-                    [h.Class("rounded-lg border bg-card p-4 shadow-xs")],
-                    [panelView(h, model)],
+        ],
+      ),
+    onSome: (detail) => {
+      if (model.section === "Policies") {
+        return h.div(
+          [h.Class("policy-workspace")],
+          [
+            policiesSection(h, model, detail.configuration),
+            h.div(
+              [h.Class("policy-workspace-main")],
+              [
+                Option.match(model.detailError, {
+                  onNone: () => h.empty,
+                  onSome: (reason) =>
+                    h.p(
+                      [h.Class("p-3 text-xs text-destructive"), h.Role("alert")],
+                      [`Refresh failed: ${reason}`],
+                    ),
+                }),
+                model.panel._tag === "PolicyEditor" || model.panel._tag === "LoadingPolicy"
+                  ? panelView(h, model)
+                  : h.div(
+                      [h.Class("policy-empty")],
+                      [
+                        h.h2([h.Class("text-lg font-semibold")], ["Your policy workspace"]),
+                        h.p(
+                          [h.Class("max-w-sm text-sm text-muted-foreground")],
+                          ["Select a policy to edit and test it, or create a new one."],
+                        ),
+                        Button.view(h, {
+                          variant: "outline",
+                          size: "sm",
+                          label: "Create policy",
+                          onClick: Message.ClickedNewPolicy(),
+                        }),
+                      ],
+                    ),
+              ],
+            ),
+          ],
+        )
+      }
+      return h.div(
+        [h.Class("flex min-w-0 flex-col gap-6 overflow-auto p-6")],
+        [
+          model.section === "Rules"
+            ? h.div(
+                [h.Class("flex flex-col gap-5")],
+                [
+                  h.p(
+                    [h.Class("text-xs text-muted-foreground")],
+                    [describeRevision(detail.configuration)],
                   ),
-              policiesSection(h, model, detail.configuration),
-              rulesSection(h, model, detail.configuration),
-              consentSection(h, model),
-              reconciliationsSection(h, detail.reconciliations, detail.configuration),
-            ],
-          ),
-      }),
+                  Button.view(h, {
+                    variant: "outline",
+                    size: "sm",
+                    label: "Test configuration",
+                    onClick: Message.ClickedTestConfiguration(),
+                  }),
+                  model.panel._tag === "RuleEditor" || model.panel._tag === "TestBench"
+                    ? h.div([h.Class("rounded-lg border p-4")], [panelView(h, model)])
+                    : h.empty,
+                  rulesSection(h, model, detail.configuration),
+                ],
+              )
+            : h.empty,
+          model.section === "Activity"
+            ? reconciliationsSection(h, detail.reconciliations, detail.configuration)
+            : h.empty,
+          model.section === "Settings"
+            ? h.div(
+                [h.Class("flex flex-col gap-8")],
+                [syncSection(h, model), consentSection(h, model)],
+              )
+            : h.empty,
+        ],
+      )
+    },
   })
 
 export const view = Submodel.defineView<Model, Message>((model, h) =>
-  h.div(
-    [h.Class("grid gap-6 p-4 lg:grid-cols-[16rem_1fr] lg:p-6")],
-    [
-      h.aside(
-        [h.Class("flex flex-col gap-2")],
-        [sectionTitle(h, "Repositories"), repositoryList(h, model)],
-      ),
-      h.div([h.Class("min-w-0")], [detailPanel(h, model)]),
-    ],
-  ),
+  h.div([h.Class("repository-workspace")], [detailPanel(h, model)]),
 )
 
 /** Refresh server data after sync without replacing an open editor or its draft. */

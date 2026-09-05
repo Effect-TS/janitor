@@ -34,22 +34,22 @@ export const recoverSyncExecutions = Effect.gen(function* () {
         switch (scope._tag) {
           case "AppInventory":
             return DiscoverInstallations.executionId({ scope, generation }).pipe(
-              Effect.flatMap(DiscoverInstallations.poll),
+              Effect.flatMap((executionId) => DiscoverInstallations.poll(executionId)),
               Effect.map(isTerminal),
             )
           case "InstallationInventory":
             return SyncInstallationInventory.executionId({ scope, generation }).pipe(
-              Effect.flatMap(SyncInstallationInventory.poll),
+              Effect.flatMap((executionId) => SyncInstallationInventory.poll(executionId)),
               Effect.map(isTerminal),
             )
           case "RepositoryTrack":
             return SyncRepositoryTrack.executionId({ scope, generation }).pipe(
-              Effect.flatMap(SyncRepositoryTrack.poll),
+              Effect.flatMap((executionId) => SyncRepositoryTrack.poll(executionId)),
               Effect.map(isTerminal),
             )
           case "Entity":
             return RefreshEntity.executionId({ scope, generation }).pipe(
-              Effect.flatMap(RefreshEntity.poll),
+              Effect.flatMap((executionId) => RefreshEntity.poll(executionId)),
               Effect.map(isTerminal),
             )
         }

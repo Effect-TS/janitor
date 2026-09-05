@@ -72,6 +72,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       assert.strictEqual(published.published?.revision, 1)
       assert.deepStrictEqual(published.published?.manifest.tracks, ["pull_requests"])
       assert.isFalse(published.draftDiffers)
+      assert.deepStrictEqual(published.publishedSource, published.draft)
       // Publishing with no rules bound still advances, so the fence is monotonic.
       assert.strictEqual((yield* configuration.view(repositoryId)).configuredRevision, 1)
 
@@ -210,6 +211,12 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         (policy) => policy.name === "Base is main",
       )!
 
+      const items = yield* test.items(repositoryId)
+      assert.deepStrictEqual(
+        items.map((item) => item.number),
+        [6, 5],
+      )
+      assert.isTrue(items.every((item) => item.evaluation === null && item.plan === null))
       const draft = yield* test.run(repositoryId, {
         subject: {
           _tag: "Draft",
@@ -318,6 +325,360 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       assert.strictEqual(
         reviewed._tag === "Evaluated" ? reviewed.entities[0]?.evaluation?.outcome : reviewed._tag,
         "match",
+      )
+    }),
+  )
+  it.effect("allows only one concurrent save and keeps its metadata and draft together", () =>
+    Effect.gen(function* () {
+      const policies = yield* Policies
+      const created = yield* policies.create(
+        repositoryId,
+        { name: "Concurrent", description: "", source: baseMain },
+        actor,
+      )
+      const outcomes = yield* Effect.forEach(
+        ["main", "develop"],
+        (value) =>
+          policies
+            .save(
+              repositoryId,
+              created.policy.policyId,
+              {
+                version: 1,
+                description: value,
+                source: {
+                  target: "pull_request",
+                  matchesWhen: { fact: "baseRef", operator: "equals", value },
+                },
+              },
+              actor,
+            )
+            .pipe(Effect.match({ onFailure: (error) => error._tag, onSuccess: () => "Saved" })),
+        { concurrency: "unbounded" },
+      )
+      assert.deepStrictEqual([...outcomes].sort(), ["PolicyConflict", "Saved"])
+      const current = yield* policies.get(repositoryId, created.policy.policyId)
+      assert.strictEqual(current.policy.version, 2)
+      assert.deepStrictEqual(current.draft, {
+        target: "pull_request",
+        matchesWhen: {
+          fact: "baseRef",
+          operator: "equals",
+          value: current.policy.description,
+          caseSensitive: false,
+        },
+      })
+    }),
+  )
+
+  it.effect("rejects publishing a dependency that breaks an existing consumer", () =>
+    Effect.gen(function* () {
+      const policies = yield* Policies
+      const base = yield* policies.create(
+        repositoryId,
+        { name: "Shared dependency", description: "", source: baseMain },
+        actor,
+      )
+      const published = yield* policies.publish(repositoryId, base.policy.policyId, 1, actor)
+      const consumer = yield* policies.create(
+        repositoryId,
+        {
+          name: "Consumer",
+          description: "",
+          source: { target: "pull_request", matchesWhen: { policy: "Shared dependency" } },
+        },
+        actor,
+      )
+      yield* policies.publish(repositoryId, consumer.policy.policyId, 1, actor)
+      const edited = yield* policies.save(
+        repositoryId,
+        base.policy.policyId,
+        {
+          version: published.policy.version,
+          source: {
+            target: "issue",
+            matchesWhen: { fact: "title", operator: "contains", value: "bug" },
+          },
+        },
+        actor,
+      )
+      const rejected = yield* Effect.flip(
+        policies.publish(repositoryId, base.policy.policyId, edited.policy.version, actor),
+      )
+      assert.strictEqual(rejected._tag, "PolicyInvalid")
+      if (rejected._tag === "PolicyInvalid") assert.include(rejected.message, "Consumer")
+      assert.strictEqual(
+        (yield* policies.get(repositoryId, base.policy.policyId)).published?.versionId,
+        published.published?.versionId,
+      )
+      const selfReference = yield* (yield* LabelingTest).run(repositoryId, {
+        subject: {
+          _tag: "Draft",
+          policyId: base.policy.policyId,
+          source: { target: "pull_request", matchesWhen: { policy: "Shared dependency" } },
+        },
+        numbers: [],
+      })
+      assert.strictEqual(selfReference._tag, "Rejected")
+    }),
+  )
+
+  it.effect("refreshes required tracks when a referenced policy stops using a fact", () =>
+    Effect.gen(function* () {
+      const policies = yield* Policies
+      const rules = yield* LabelingRules
+      const configuration = yield* LabelingConfiguration
+      const dependency = yield* policies.create(
+        repositoryId,
+        {
+          name: "Label dependent",
+          description: "",
+          source: {
+            target: "pull_request",
+            matchesWhen: { fact: "labels", operator: "has", value: bug },
+          },
+        },
+        actor,
+      )
+      const published = yield* policies.publish(repositoryId, dependency.policy.policyId, 1, actor)
+      const consumer = yield* policies.create(
+        repositoryId,
+        {
+          name: "Label consumer",
+          description: "",
+          source: { target: "pull_request", matchesWhen: { policy: "Label dependent" } },
+        },
+        actor,
+      )
+      yield* policies.publish(repositoryId, consumer.policy.policyId, 1, actor)
+      yield* rules.create(
+        repositoryId,
+        {
+          labelId: bug,
+          policyId: consumer.policy.policyId,
+          onNoMatch: "preserve",
+          group: null,
+          priority: 0,
+          enabled: true,
+        },
+        actor,
+      )
+      const before = yield* configuration.view(repositoryId)
+      const beforeSnapshot = Option.getOrThrow(
+        yield* configuration.load(repositoryId, before.configuredRevision),
+      )
+      assert.include(beforeSnapshot.requiredTracks, "labels")
+      const edited = yield* policies.save(
+        repositoryId,
+        dependency.policy.policyId,
+        { version: published.policy.version, source: baseMain },
+        actor,
+      )
+      yield* policies.publish(
+        repositoryId,
+        dependency.policy.policyId,
+        edited.policy.version,
+        actor,
+      )
+      const after = yield* configuration.view(repositoryId)
+      const snapshot = Option.getOrThrow(
+        yield* configuration.load(repositoryId, after.configuredRevision),
+      )
+      assert.notInclude(snapshot.requiredTracks, "labels")
+      assert.include(snapshot.requiredTracks, "pull_requests")
+    }),
+  )
+  it.effect(
+    "preserves references through renames and reports historical references on deletion",
+    () =>
+      Effect.gen(function* () {
+        const policies = yield* Policies
+        const base = yield* policies.create(
+          repositoryId,
+          { name: "Original name", description: "", source: baseMain },
+          actor,
+        )
+        const published = yield* policies.publish(repositoryId, base.policy.policyId, 1, actor)
+        const consumer = yield* policies.create(
+          repositoryId,
+          {
+            name: "Historical consumer",
+            description: "",
+            source: { target: "pull_request", matchesWhen: { policy: "Original name" } },
+          },
+          actor,
+        )
+        const publishedConsumer = yield* policies.publish(
+          repositoryId,
+          consumer.policy.policyId,
+          1,
+          actor,
+        )
+        const renamed = yield* policies.save(
+          repositoryId,
+          base.policy.policyId,
+          { version: published.policy.version, name: "Renamed dependency" },
+          actor,
+        )
+        assert.deepStrictEqual(
+          (yield* policies.get(repositoryId, consumer.policy.policyId)).draft,
+          { target: "pull_request", matchesWhen: { policy: "Renamed dependency" } },
+        )
+        const edited = yield* policies.save(
+          repositoryId,
+          consumer.policy.policyId,
+          { version: publishedConsumer.policy.version, source: baseMain },
+          actor,
+        )
+        yield* policies.publish(
+          repositoryId,
+          consumer.policy.policyId,
+          edited.policy.version,
+          actor,
+        )
+        const blocked = yield* Effect.flip(
+          policies.remove(repositoryId, base.policy.policyId, renamed.policy.version, actor),
+        )
+        assert.strictEqual(blocked._tag, "PolicyInUse")
+        if (blocked._tag === "PolicyInUse") assert.strictEqual(blocked.references, 1)
+      }),
+  )
+
+  it.effect("rejects concurrent rule edits instead of reporting both as saved", () =>
+    Effect.gen(function* () {
+      const policies = yield* Policies
+      const rules = yield* LabelingRules
+      const base = (yield* policies.list(repositoryId)).find(
+        (policy) => policy.name === "Base is main",
+      )!
+      const created = yield* rules.create(
+        repositoryId,
+        {
+          labelId: bug,
+          policyId: base.policyId,
+          onNoMatch: "preserve",
+          group: null,
+          priority: 0,
+          enabled: true,
+        },
+        actor,
+      )
+      const outcomes = yield* Effect.forEach(
+        [1, 2],
+        (priority) =>
+          rules
+            .patch(repositoryId, created.id, { version: created.version, priority }, actor)
+            .pipe(Effect.match({ onFailure: (error) => error._tag, onSuccess: () => "Saved" })),
+        { concurrency: "unbounded" },
+      )
+      assert.deepStrictEqual([...outcomes].sort(), ["RuleConflict", "Saved"])
+    }),
+  )
+  it.effect("prevents classifier conversion while a rule removes labels on no match", () =>
+    Effect.gen(function* () {
+      const policies = yield* Policies
+      const rules = yield* LabelingRules
+      const created = yield* policies.create(
+        repositoryId,
+        { name: "Deterministic bound policy", description: "", source: baseMain },
+        actor,
+      )
+      const published = yield* policies.publish(repositoryId, created.policy.policyId, 1, actor)
+      const rule = yield* rules.create(
+        repositoryId,
+        {
+          labelId: bug,
+          policyId: created.policy.policyId,
+          onNoMatch: "ensure-absent",
+          group: null,
+          priority: 0,
+          enabled: true,
+        },
+        actor,
+      )
+      const source: ProgramSource = {
+        target: "pull_request",
+        classify: {
+          prompt: "Is {{fact:title}} a bug?",
+          evidence: ["title"],
+          minimumConfidence: 0.9,
+        },
+      }
+      const validation = yield* policies.validate(
+        repositoryId,
+        source,
+        Option.some(created.policy.policyId),
+      )
+      assert.strictEqual(validation._tag, "Invalid")
+      const edited = yield* policies.save(
+        repositoryId,
+        created.policy.policyId,
+        { version: published.policy.version, source },
+        actor,
+      )
+      const blocked = yield* Effect.flip(
+        policies.publish(repositoryId, created.policy.policyId, edited.policy.version, actor),
+      )
+      assert.strictEqual(blocked._tag, "PolicyInvalid")
+      yield* rules.patch(
+        repositoryId,
+        rule.id,
+        { version: rule.version, onNoMatch: "preserve" },
+        actor,
+      )
+      const converted = yield* policies.publish(
+        repositoryId,
+        created.policy.policyId,
+        edited.policy.version,
+        actor,
+      )
+      assert.strictEqual(converted.published?.program.evaluator._tag, "Classifier")
+    }),
+  )
+  it.effect("retains an unbound policy's versions when configuration history uses them", () =>
+    Effect.gen(function* () {
+      const policies = yield* Policies
+      const rules = yield* LabelingRules
+      const configuration = yield* LabelingConfiguration
+      const created = yield* policies.create(
+        repositoryId,
+        { name: "Retained configuration policy", description: "", source: baseMain },
+        actor,
+      )
+      const published = yield* policies.publish(repositoryId, created.policy.policyId, 1, actor)
+      const rule = yield* rules.create(
+        repositoryId,
+        {
+          labelId: bug,
+          policyId: created.policy.policyId,
+          onNoMatch: "preserve",
+          group: null,
+          priority: 0,
+          enabled: true,
+        },
+        actor,
+      )
+      const revision = (yield* configuration.view(repositoryId)).configuredRevision
+      const before = Option.getOrThrow(yield* configuration.load(repositoryId, revision))
+      assert.isTrue(before.versions.some((version) => version.policyId === created.policy.policyId))
+      yield* rules.remove(repositoryId, rule.id, rule.version, actor)
+      const currentRevision = (yield* configuration.view(repositoryId)).configuredRevision
+      const current = Option.getOrThrow(yield* configuration.load(repositoryId, currentRevision))
+      assert.isFalse(
+        current.versions.some((version) => version.policyId === created.policy.policyId),
+      )
+      const blocked = yield* Effect.flip(
+        policies.remove(repositoryId, created.policy.policyId, published.policy.version, actor),
+      )
+      assert.strictEqual(blocked._tag, "PolicyInvalid")
+      if (blocked._tag === "PolicyInvalid") assert.include(blocked.message, "configuration history")
+      assert.deepStrictEqual(
+        Option.getOrThrow(yield* configuration.load(repositoryId, revision)),
+        before,
+      )
+      assert.strictEqual(
+        (yield* policies.get(repositoryId, created.policy.policyId)).published?.versionId,
+        published.published?.versionId,
       )
     }),
   )

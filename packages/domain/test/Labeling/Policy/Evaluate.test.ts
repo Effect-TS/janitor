@@ -1,7 +1,14 @@
 import { assert, describe, it } from "@effect/vitest"
 import { GitHubLabelDatabaseId } from "@janitor/domain/GitHub/Id"
 import { type Condition, PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
-import { all, any, evaluate, matchesGlob, not } from "@janitor/domain/Labeling/Policy/Evaluate"
+import {
+  all,
+  any,
+  evaluate,
+  evaluateApplicability,
+  matchesGlob,
+  not,
+} from "@janitor/domain/Labeling/Policy/Evaluate"
 import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
 import type { Program } from "@janitor/domain/Labeling/Policy/Program"
 
@@ -47,6 +54,25 @@ const fact = (fact: string, operator: string, value?: unknown): Condition =>
 const none = () => undefined
 
 describe("Evaluate", () => {
+  it("evaluates referenced scope fully without evaluating the caller's matchesWhen", () => {
+    const ready = PolicyId.make("ready")
+    const input = {
+      program: program(fact("body", "notEmpty"), { _tag: "Policy" as const, policyId: ready }),
+      snapshot: pr(),
+      resolve: () => ({ program: program(fact("draft", "is", false)) }),
+    }
+    assert.strictEqual(evaluateApplicability(input).outcome, "match")
+    assert.strictEqual(evaluate(input).outcome, "no-match")
+    assert.strictEqual(
+      evaluateApplicability({
+        ...input,
+        resolve: () => ({ program: program(fact("draft", "is", true)) }),
+      }).outcome,
+      "not-applicable",
+    )
+    assert.strictEqual(evaluateApplicability({ ...input, resolve: none }).outcome, "unknown")
+  })
+
   it("follows Kleene's tables", () => {
     assert.strictEqual(not("unknown"), "unknown")
     assert.strictEqual(all(["match", "unknown"]), "unknown")

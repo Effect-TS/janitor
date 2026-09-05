@@ -39,6 +39,7 @@ const withHandler = <A, E, R>(
 const stub = (
   requestAll: Effect.Effect<number, SyncStatusError> = Effect.succeed(4),
 ): SyncStatus["Service"] => ({
+  setRepositorySyncEnabled: () => Effect.succeed(true),
   summary: Effect.succeed(summary),
   requestAll: Effect.map(requestAll, (requested) => ({
     summary: { ...summary, state: "syncing" as const, pendingTargets: requested },
@@ -50,6 +51,49 @@ const request = (method: string, headers: Record<string, string> = {}) =>
   new Request("https://janitor.example/sync", { method, headers })
 
 describe("SyncRoutes", () => {
+  it.effect("saves a repository sync switch without changing the labeling setting", () =>
+    withHandler(
+      {
+        ...stub(),
+        setRepositorySyncEnabled: (id, enabled) =>
+          Effect.sync(() => {
+            assert.strictEqual(id, "701")
+            assert.isFalse(enabled)
+            return true
+          }),
+      },
+      (handler) =>
+        Effect.gen(function* () {
+          const response = yield* Effect.promise(() =>
+            handler(
+              new Request("https://janitor.example/repositories/701/sync", {
+                method: "PUT",
+                headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+                body: JSON.stringify({ enabled: false }),
+              }),
+            ),
+          )
+          assert.strictEqual(response.status, 204)
+        }),
+    ),
+  )
+
+  it.effect("rejects malformed sync settings", () =>
+    withHandler(stub(), (handler) =>
+      Effect.gen(function* () {
+        const response = yield* Effect.promise(() =>
+          handler(
+            new Request("https://janitor.example/repositories/701/sync", {
+              method: "PUT",
+              headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+              body: JSON.stringify({ enabled: "false" }),
+            }),
+          ),
+        )
+        assert.strictEqual(response.status, 400)
+      }),
+    ),
+  )
   it.effect("returns the summary as JSON", () =>
     withHandler(stub(), (handler) =>
       Effect.gen(function* () {

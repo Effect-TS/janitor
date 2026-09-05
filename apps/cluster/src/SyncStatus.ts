@@ -44,6 +44,10 @@ export interface RequestAllResult {
 export class SyncStatus extends Context.Service<
   SyncStatus,
   {
+    readonly setRepositorySyncEnabled: (
+      repositoryId: GitHubRepositoryDatabaseId,
+      enabled: boolean,
+    ) => Effect.Effect<boolean, SyncStatusError>
     readonly summary: Effect.Effect<SyncSummary, SyncStatusError>
     readonly requestAll: Effect.Effect<RequestAllResult, SyncStatusError>
   }
@@ -72,7 +76,7 @@ export class SyncStatus extends Context.Service<
           COUNT(*) FILTER (WHERE health = 'blocked')::text AS blocked,
           COUNT(*) FILTER (WHERE last_error IS NOT NULL)::text AS failed,
           CASE WHEN COUNT(*) FILTER (WHERE verified_at IS NULL) > 0 THEN NULL ELSE MIN(verified_at) END AS last_verified_at
-        FROM sync_target
+        FROM sync_target WHERE sync_scope_enabled(scope)
       `.pipe(Effect.flatMap(decodeSummary), wrap("summary"))
       const row = rows[0]
       const pending = row?.pending ?? 0
@@ -93,11 +97,12 @@ export class SyncStatus extends Context.Service<
         .withTransaction(
           Effect.gen(function* () {
             const installations = yield* sql`
-              SELECT installation_id FROM github_installation WHERE status <> 'deleted'
+              SELECT installation_id FROM github_installation WHERE status <> 'deleted' AND sync_enabled
             `.pipe(Effect.flatMap(decodeInstallations))
             const repositories = yield* sql`
               SELECT repository_id FROM github_repository
-              WHERE enabled AND access = 'accessible'
+              WHERE enabled AND access = 'accessible' AND sync_enabled
+                AND sync_scope_enabled(jsonb_build_object('_tag', 'RepositoryTrack', 'repositoryId', repository_id))
             `.pipe(Effect.flatMap(decodeRepositories))
 
             const scopes: Array<SyncScope> = [
@@ -113,7 +118,7 @@ export class SyncStatus extends Context.Service<
               }
             }
             const entities =
-              yield* sql`SELECT scope FROM sync_target WHERE scope->>'_tag' = 'Entity'
+              yield* sql`SELECT scope FROM sync_target WHERE scope->>'_tag' = 'Entity' AND sync_scope_enabled(scope)
               AND (last_error IS NOT NULL OR health = 'blocked')`.pipe(
                 Effect.flatMap(
                   Schema.decodeUnknownEffect(
@@ -135,7 +140,53 @@ export class SyncStatus extends Context.Service<
       return { summary: yield* summary, requested }
     }).pipe(Effect.withSpan("SyncStatus.requestAll"))
 
-    return { summary, requestAll }
+    const setRepositorySyncEnabled = (repositoryId: GitHubRepositoryDatabaseId, enabled: boolean) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<{
+              sync_enabled: boolean
+              enabled: boolean
+            }>`SELECT sync_enabled, enabled FROM github_repository
+              WHERE repository_id = ${repositoryId} FOR UPDATE`
+            if (rows.length === 0) return false
+            if (rows[0]!.sync_enabled === enabled) return true
+            yield* sql`UPDATE github_repository SET sync_enabled = ${enabled} WHERE repository_id = ${repositoryId}`
+            if (!enabled) {
+              // Fence old results and release old claims without deleting local data.
+              yield* sql`UPDATE sync_target SET completed_generation = requested_generation,
+            dispatched_generation = requested_generation, execution_generation = NULL,
+            active_generation = NULL, active_sequence = NULL, active_full = FALSE, retry_at = NULL
+            WHERE scope->>'repositoryId' = ${repositoryId}`
+              yield* sql`DELETE FROM workflow_outbox WHERE accepted_at IS NULL
+            AND payload->'scope'->>'repositoryId' = ${repositoryId}`
+            } else if (rows[0]!.enabled) {
+              for (const track of ["labels", "entities", "pull_requests"] as const) {
+                yield* targets.invalidate({
+                  scope: { _tag: "RepositoryTrack", repositoryId, track },
+                  sequence: Option.none(),
+                  immediate: true,
+                  full: true,
+                })
+              }
+              const entities = yield* sql`SELECT scope FROM sync_target
+                WHERE scope->>'repositoryId' = ${repositoryId} AND scope->>'_tag' = 'Entity'`.pipe(
+                Effect.flatMap(
+                  Schema.decodeUnknownEffect(
+                    Schema.Array(Schema.Struct({ scope: SyncScopeSchema })),
+                  ),
+                ),
+              )
+              for (const { scope } of entities) {
+                yield* targets.invalidate({ scope, sequence: Option.none(), immediate: true })
+              }
+            }
+            return true
+          }),
+        )
+        .pipe(wrap("setRepositorySyncEnabled"))
+
+    return { summary, requestAll, setRepositorySyncEnabled }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
