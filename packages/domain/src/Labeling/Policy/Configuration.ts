@@ -52,6 +52,8 @@ export const PolicyRecord = Schema.Struct({
   /** Null until the first publish. */
   publishedVersionId: Schema.NullOr(PolicyVersionId),
   publishedRevision: Schema.NullOr(Schema.Int),
+  /** Whether the saved program differs from the published version. */
+  draftDiffers: Schema.optionalKey(Schema.Boolean),
   /** Optimistic version of the policy row and its draft, advanced by every save. */
   version: Schema.Int,
   createdAt: Schema.DateTimeUtc,

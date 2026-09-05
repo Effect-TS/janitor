@@ -46,6 +46,7 @@ import {
 } from "@/components/labeling-wire"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
+import * as PolicyStatus from "@/components/policy-status"
 
 export type {
   AiConsent,
@@ -923,8 +924,23 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
       ),
       h.ul(
         [h.Class("policy-library-list")],
-        policies.map((policy) =>
-          h.li(
+        policies.map((policy) => {
+          const panel = model.panel
+          const editor =
+            panel._tag === "PolicyEditor" &&
+            panel.editor.identity._tag === "Existing" &&
+            panel.editor.identity.policyId === policy.policyId
+              ? panel.editor
+              : undefined
+          const status =
+            editor === undefined
+              ? {
+                  published: policy.publishedRevision !== null,
+                  revision: policy.publishedRevision,
+                  changes: policy.draftDiffers ?? false,
+                }
+              : PolicyEditor.publicationStatus(editor)
+          return h.li(
             [h.DataAttribute("policy-id", policy.policyId)],
             [
               h.a(
@@ -943,7 +959,23 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
                   h.DataAttribute("action", "edit-policy"),
                 ],
                 [
-                  h.span([h.Class("policy-library-name")], [policy.name]),
+                  h.span(
+                    [h.Class("policy-library-name flex items-center gap-1.5")],
+                    [
+                      policy.name,
+                      editor !== undefined && PolicyEditor.hasUnsavedInput(editor)
+                        ? h.span(
+                            [
+                              h.Class("policy-unsaved-dot"),
+                              h.Role("img"),
+                              h.AriaLabel("Unsaved changes"),
+                              h.Title("Unsaved changes"),
+                            ],
+                            [],
+                          )
+                        : h.empty,
+                    ],
+                  ),
                   h.span(
                     [h.Class("policy-library-summary")],
                     [policy.description || "No description"],
@@ -952,21 +984,14 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
                     [h.Class("policy-library-meta")],
                     [
                       policy.target === "pull_request" ? "Pull requests" : "Issues",
-                      h.span(
-                        [],
-                        [
-                          policy.publishedRevision === null
-                            ? "Draft"
-                            : `Published · v${policy.publishedRevision}`,
-                        ],
-                      ),
+                      PolicyStatus.view(h, status),
                     ],
                   ),
                 ],
               ),
             ],
-          ),
-        ),
+          )
+        }),
       ),
       policies.length === 0
         ? h.p(

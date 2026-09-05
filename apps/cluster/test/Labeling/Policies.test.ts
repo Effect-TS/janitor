@@ -682,4 +682,55 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       )
     }),
   )
+  it.effect("reports saved program differences in the policy library", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const policies = yield* Policies
+      const configuration = yield* LabelingConfiguration
+      let detail = yield* policies.create(
+        repositoryId,
+        { name: "Status example", description: "", source: baseMain },
+        actor,
+      )
+      const id = detail.policy.policyId
+      const differs = Effect.gen(function* () {
+        return (yield* configuration.view(repositoryId)).policies.find(
+          (policy) => policy.policyId === id,
+        )?.draftDiffers
+      })
+      assert.isTrue(yield* differs)
+      detail = yield* policies.publish(repositoryId, id, detail.policy.version, actor)
+      assert.isFalse(yield* differs)
+      detail = yield* policies.save(
+        repositoryId,
+        id,
+        { version: detail.policy.version, description: "Only metadata changed" },
+        actor,
+      )
+      assert.isFalse(yield* differs)
+      detail = yield* policies.save(
+        repositoryId,
+        id,
+        {
+          version: detail.policy.version,
+          source: {
+            target: "pull_request",
+            matchesWhen: { fact: "baseRef", operator: "equals", value: "next" },
+          },
+        },
+        actor,
+      )
+      assert.isTrue(yield* differs)
+      assert.isTrue(
+        (yield* policies.list(repositoryId)).find((policy) => policy.policyId === id)?.draftDiffers,
+      )
+      yield* policies.save(
+        repositoryId,
+        id,
+        { version: detail.policy.version, source: baseMain },
+        actor,
+      )
+      assert.isFalse(yield* differs)
+    }),
+  )
 })

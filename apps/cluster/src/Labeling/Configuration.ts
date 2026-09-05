@@ -77,6 +77,8 @@ export const PolicyRow = Schema.Struct({
   description: Schema.String,
   published_version_id: Schema.NullOr(PolicyVersionId),
   published_revision: Schema.NullOr(Schema.Int),
+  draft_program: Schema.optionalKey(Program),
+  published_program: Schema.optionalKey(Schema.NullOr(Program)),
   version: Schema.Int,
   created_at: Schema.DateTimeUtcFromDate,
   updated_at: Schema.DateTimeUtcFromDate,
@@ -90,6 +92,13 @@ export const toPolicyRecord = (row: typeof PolicyRow.Type): PolicyRecord => ({
   description: row.description,
   publishedVersionId: row.published_version_id,
   publishedRevision: row.published_revision,
+  ...(row.draft_program === undefined
+    ? {}
+    : {
+        draftDiffers:
+          row.published_program == null ||
+          JSON.stringify(row.draft_program) !== JSON.stringify(row.published_program),
+      }),
   version: row.version,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -98,7 +107,9 @@ export const toPolicyRecord = (row: typeof PolicyRow.Type): PolicyRecord => ({
 /** Policies joined to their published revision number. */
 export const policyColumns = (sql: SqlClient.SqlClient) => sql`
   p.policy_id, p.repository_id, p.name, p.target, p.description, p.published_version_id,
-  v.revision AS published_revision, p.version, p.created_at, p.updated_at
+  v.revision AS published_revision, p.version, p.created_at, p.updated_at,
+  (SELECT d.program FROM labeling_policy_draft d WHERE d.policy_id = p.policy_id) AS draft_program,
+  v.program AS published_program
 `
 
 export const VersionRow = Schema.Struct({

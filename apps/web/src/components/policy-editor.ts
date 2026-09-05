@@ -20,6 +20,7 @@ import { X, Upload, Save, ChevronRight, CodeXml, Pencil, Ellipsis, Trash2 } from
 import { input } from "@/components/ui/input"
 import * as PolicySource from "@/components/policy-source"
 import * as TestBench from "@/components/test-bench"
+import * as PolicyStatus from "@/components/policy-status"
 import {
   ConfigurationView,
   TestCandidates,
@@ -69,7 +70,10 @@ export const Submission = Schema.Union([
     sourceText: Schema.String,
   }),
   Schema.TaggedStruct("Conflicted", {}),
-  Schema.TaggedStruct("SubmitError", { message: Schema.String }),
+  Schema.TaggedStruct("SubmitError", {
+    message: Schema.String,
+    draftSaved: Schema.optionalKey(Schema.Boolean),
+  }),
 ])
 export type Submission = typeof Submission.Type
 
@@ -98,6 +102,7 @@ export const Model = Schema.Struct({
   submission: Submission,
   savedFields: SavedFields,
   hasBeenPublished: Schema.Boolean,
+  publishedRevision: Schema.NullOr(Schema.Int),
   publishedSource: Schema.Option(ProgramSource),
   usedByOpen: Schema.Boolean,
   testCandidates: TestCandidates,
@@ -215,6 +220,28 @@ export const isDirty = (model: Model): boolean =>
   model.name !== model.savedFields.name ||
   model.description !== model.savedFields.description ||
   model.source.source !== model.savedFields.sourceText
+
+export const hasUnsavedInput = (model: Model): boolean =>
+  isDirty(model) ||
+  (model.metadataEdits.name !== null && model.metadataEdits.name !== model.name) ||
+  (model.metadataEdits.description !== null &&
+    model.metadataEdits.description !== model.description)
+
+export const publicationStatus = (model: Model): PolicyStatus.Publication => ({
+  published: model.hasBeenPublished,
+  revision: model.publishedRevision,
+  // Invalid edited YAML must never imply that the editor matches the published program.
+  changes: Option.isNone(parsedSource(model)) || hasChangesToPublish(model),
+})
+
+export const saveStatus = (model: Model): string => {
+  if (model.submission._tag === "Submitting")
+    return model.submission.publish ? "Saving and publishing…" : "Saving…"
+  if (model.submission._tag === "Conflicted") return "Save conflict"
+  if (model.submission._tag === "SubmitError" && !model.submission.draftSaved) return "Save failed"
+  if (model.identity._tag === "New") return "Not saved yet"
+  return hasUnsavedInput(model) ? "Unsaved changes" : "Saved"
+}
 
 const savedFields = (model: Model, detail: PolicyDetail): typeof SavedFields.Type => ({
   name: detail.policy.name,
@@ -400,6 +427,10 @@ export const init = ({
       testNumber: null,
       configuration,
       publishedSource: Option.flatMap(existing, publishedSourceOf),
+      publishedRevision: Option.match(existing, {
+        onNone: () => null,
+        onSome: (detail) => detail.policy.publishedRevision,
+      }),
       usedByOpen: false,
       hasBeenPublished: Option.exists(
         existing,
@@ -672,6 +703,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
     SucceededSavePolicy: ({ detail, published }) => ({
       model: evo(model, {
+        publishedRevision: () => detail.policy.publishedRevision,
         publishedSource: (current) =>
           published
             ? Option.some(detail.draft)
@@ -695,6 +727,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     SavedDraftWithPublishError: ({ detail, reason }) => ({
       model: evo(model, {
+        publishedRevision: () => detail.policy.publishedRevision,
         publishedSource: (current) => Option.orElse(publishedSourceOf(detail), () => current),
         savedFields: () => savedFields(model, detail),
         identity: () => ({
@@ -704,6 +737,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         }),
         submission: () => ({
           _tag: "SubmitError" as const,
+          draftSaved: true,
           message: `Saved as a draft, not published: ${reason}`,
         }),
       }),
@@ -711,6 +745,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     // The draft stays; the base version moves forward so the next save lands on top.
     ConflictedSavePolicy: ({ detail }) => ({
       model: evo(model, {
+        publishedRevision: () => detail.policy.publishedRevision,
+        hasBeenPublished: () => detail.policy.publishedVersionId !== null,
         publishedSource: () => publishedSourceOf(detail),
         identity: () => ({
           _tag: "Existing" as const,
@@ -808,10 +844,6 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
     const busy = isSubmitting(model)
     const canSubmit = issues.length === 0 && !busy
     const identity = model.identity
-    const policy =
-      identity._tag === "Existing"
-        ? model.configuration.policies.find((item) => item.policyId === identity.policyId)
-        : undefined
     const bound =
       identity._tag === "Existing"
         ? model.configuration.rules.filter((rule) => rule.policyId === identity.policyId).length
@@ -1013,10 +1045,7 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                   [h.Class("policy-document-feedback")],
                   [
                     issues.length === 0
-                      ? h.span(
-                          [h.Class("text-muted-foreground text-xs")],
-                          ["Draft changes take effect when published."],
-                        )
+                      ? h.empty
                       : h.ul(
                           [
                             h.Class("text-destructive flex flex-col gap-0.5 text-xs"),
@@ -1032,73 +1061,67 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
             h.aside(
               [h.Class("policy-inspector"), h.AriaLabel("Policy test bench and information")],
               [
-                h.section(
-                  [h.Class("policy-sidebar-actions"), h.AriaLabel("Policy controls")],
-                  [
-                    h.div(
-                      [h.Class("flex items-center justify-between gap-2")],
+                isDirty(model) || (canSubmit && hasChangesToPublish(model))
+                  ? h.section(
+                      [h.Class("policy-sidebar-actions"), h.AriaLabel("Policy controls")],
                       [
-                        h.span(
-                          [h.Class("text-xs text-muted-foreground"), h.Role("status")],
+                        h.div(
+                          [h.Class("policy-publish-actions")],
                           [
-                            busy
-                              ? "Saving…"
-                              : isDirty(model)
-                                ? "Draft changes"
-                                : hasChangesToPublish(model)
-                                  ? "Unpublished changes"
-                                  : "All changes published",
+                            isDirty(model)
+                              ? Button.view(h, {
+                                  variant: "outline",
+                                  size: "sm",
+                                  onClick: Message.ClickedSave(),
+                                  isDisabled: !canSubmit,
+                                  label: h.span(
+                                    [h.Class("flex items-center gap-1.5")],
+                                    [Icon.view(h, Save, "size-3.5"), "Save draft"],
+                                  ),
+                                })
+                              : h.empty,
+                            canSubmit && hasChangesToPublish(model)
+                              ? Button.view(h, {
+                                  size: "sm",
+                                  onClick: Message.ClickedPublish(),
+                                  isDisabled: !canSubmit || !hasChangesToPublish(model),
+                                  label: h.span(
+                                    [h.Class("flex items-center gap-1.5")],
+                                    [Icon.view(h, Upload, "size-3.5"), "Publish"],
+                                  ),
+                                  attributes: [h.DataAttribute("action", "publish")],
+                                })
+                              : h.empty,
                           ],
                         ),
                       ],
-                    ),
+                    )
+                  : h.empty,
+                h.section(
+                  [
+                    h.Class("policy-inspector-section flex flex-col gap-3"),
+                    h.AriaLabel("Versions"),
+                  ],
+                  [
                     h.div(
-                      [h.Class("policy-publish-actions")],
+                      [h.Class("flex items-center justify-between gap-2 flex-wrap")],
                       [
-                        isDirty(model)
-                          ? Button.view(h, {
-                              variant: "outline",
-                              size: "sm",
-                              onClick: Message.ClickedSave(),
-                              isDisabled: !canSubmit,
-                              label: h.span(
-                                [h.Class("flex items-center gap-1.5")],
-                                [Icon.view(h, Save, "size-3.5"), "Save draft"],
-                              ),
-                            })
-                          : h.empty,
-                        canSubmit && hasChangesToPublish(model)
-                          ? Button.view(h, {
-                              size: "sm",
-                              onClick: Message.ClickedPublish(),
-                              isDisabled: !canSubmit || !hasChangesToPublish(model),
-                              label: h.span(
-                                [h.Class("flex items-center gap-1.5")],
-                                [Icon.view(h, Upload, "size-3.5"), "Publish"],
-                              ),
-                              attributes: [h.DataAttribute("action", "publish")],
-                            })
-                          : h.p(
-                              [
-                                h.Class("text-xs text-muted-foreground"),
-                                h.DataAttribute("publish-status", "unavailable"),
-                              ],
-                              [
-                                busy
-                                  ? "Saving your policy…"
-                                  : issues.length > 0
-                                    ? "Resolve the validation issues below to publish."
-                                    : "The published program is up to date. Changes to the title or description only need saving.",
-                              ],
-                            ),
+                        h.h2([h.Class("text-sm font-semibold")], ["Versions"]),
+                        PolicyStatus.view(h, publicationStatus(model)),
                       ],
                     ),
-                    h.p(
-                      [h.Class("text-xs text-muted-foreground")],
+                    h.div(
+                      [h.Class("policy-property")],
                       [
-                        policy?.publishedRevision == null
-                          ? "Not yet published"
-                          : `Published v${policy.publishedRevision}`,
+                        h.span([], ["Published"]),
+                        h.span(
+                          [],
+                          [
+                            model.publishedRevision === null
+                              ? "Not published"
+                              : `v${model.publishedRevision}`,
+                          ],
+                        ),
                       ],
                     ),
                   ],

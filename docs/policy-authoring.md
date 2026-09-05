@@ -9,6 +9,15 @@ A policy decides whether an issue or pull request matches. A rule connects that
 decision to a label. Keep reusable conditions in policies; configure label
 behavior in rules.
 
+The right sidebar and policy list show publication status: **Not published**,
+**Changes to publish**, or **Published · vN**. A saved draft can still have changes
+to publish. An unsaved dot also appears
+on the selected policy in the list. Title and description changes only need
+saving; publishing applies program changes. A published version may still be
+waiting for repository synchronization before it takes effect. The sidebar's
+Versions section shows the published revision with the publication badge beside
+its heading. The controls above it appear only when saving or publishing is available.
+
 ```yaml
 target: pull_request
 appliesWhen:

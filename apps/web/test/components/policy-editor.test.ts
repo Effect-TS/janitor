@@ -86,6 +86,49 @@ const fresh = () =>
   })
 
 describe("PolicyEditor", () => {
+  it("separates saved input from publication status, including invalid YAML and publish failures", () => {
+    expect(PolicyEditor.saveStatus(fresh())).toBe("Not saved yet")
+    expect(PolicyEditor.publicationStatus(fresh()).published).toBe(false)
+    let model = {
+      ...fresh(),
+      name: detail.policy.name,
+      savedFields: { ...fresh().savedFields, name: detail.policy.name },
+      identity: { _tag: "Existing" as const, policyId: "p1", version: 1 },
+      hasBeenPublished: true,
+      publishedRevision: 3,
+      publishedSource: Option.some(detail.draft),
+    }
+    expect(PolicyEditor.saveStatus(model)).toBe("Saved")
+    expect(PolicyEditor.publicationStatus(model)).toEqual({
+      published: true,
+      revision: 3,
+      changes: false,
+    })
+    const renamed = PolicyEditor.update(
+      model,
+      PolicyEditor.Message.UpdatedName({ value: "New title" }),
+    ).model
+    expect(PolicyEditor.saveStatus(renamed)).toBe("Unsaved changes")
+    expect(PolicyEditor.publicationStatus(renamed).changes).toBe(false)
+    const invalid = PolicyEditor.update(
+      model,
+      PolicyEditor.Message.GotSourceMessage({
+        message: PolicySource.Message.EditedSource({ source: "target: [" }),
+      }),
+    ).model
+    expect(PolicyEditor.publicationStatus(invalid).changes).toBe(true)
+    expect(PolicyEditor.saveStatus(invalid)).toBe("Unsaved changes")
+    const failed = PolicyEditor.update(
+      renamed,
+      PolicyEditor.Message.FailedSavePolicy({ reason: "Offline" }),
+    ).model
+    expect(PolicyEditor.saveStatus(failed)).toBe("Save failed")
+    const publishFailed = PolicyEditor.update(
+      model,
+      PolicyEditor.Message.SavedDraftWithPublishError({ detail, reason: "Cannot publish" }),
+    ).model
+    expect(PolicyEditor.saveStatus(publishFailed)).toBe("Saved")
+  })
   it.each(["title", "description"])(
     "discards the %s edit when focus leaves its controls",
     (field) => {
@@ -154,7 +197,7 @@ describe("PolicyEditor", () => {
       Scene.expect(Scene.role("button", { name: "Save draft" })).toBeAbsent(),
     )
   })
-  it("replaces an unavailable Publish button with an explanation", () => {
+  it("shows publication status without repeating the permanent publish explanation", () => {
     Scene.scene(
       {
         update: PolicyEditor.update,
@@ -164,6 +207,7 @@ describe("PolicyEditor", () => {
         ...fresh(),
         name: detail.policy.name,
         hasBeenPublished: true,
+        publishedRevision: 1,
         publishedSource: Option.some(detail.draft),
       }),
       Scene.Mount.resolve(
@@ -171,11 +215,11 @@ describe("PolicyEditor", () => {
         PolicySource.Message.MountedEditor(),
       ),
       Scene.expect(Scene.role("button", { name: "Publish" })).toBeAbsent(),
-      Scene.expect(
-        Scene.text(
-          "The published program is up to date. Changes to the title or description only need saving.",
-        ),
-      ).toExist(),
+      Scene.expect(Scene.text("Published · v1")).toExist(),
+      Scene.expect(Scene.role("region", { name: "Versions" })).toExist(),
+      Scene.expect(Scene.text("v1")).toExist(),
+      Scene.expect(Scene.text("Working draft")).toBeAbsent(),
+      Scene.expect(Scene.text("Draft changes take effect when published.")).toBeAbsent(),
     )
   })
   it("keeps metadata edits separate until Save and discards them on Cancel", () => {
@@ -574,6 +618,7 @@ describe("PolicyEditor asynchronous edits", () => {
     expect(failed.model.identity).toEqual({ _tag: "Existing", policyId: "p1", version: 1 })
     expect(failed.model.submission).toEqual({
       _tag: "SubmitError",
+      draftSaved: true,
       message: "Saved as a draft, not published: Referenced policy is not published",
     })
     expect(failed.outMessage).toBeUndefined()
