@@ -1,5 +1,5 @@
 import * as FoldkitInput from "@foldkit/ui/input"
-import type { Html, HtmlBuilder } from "foldkit/html"
+import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import { cn } from "@/lib/utils"
 
 export const inputClass =
@@ -34,6 +34,7 @@ export type InputConfig<M> = {
   readonly labelClass?: string
   readonly descriptionClass?: string
   readonly wrapperClass?: string
+  readonly attributes?: ReadonlyArray<Attribute<M> | ChildAttribute>
 }
 
 /** Styled text input with label and optional description, built on the
@@ -70,6 +71,7 @@ export const input = <M>(h: HtmlBuilder<M>, config: InputConfig<M>): Html =>
               ...attributes.input,
               h.DataAttribute("slot", "input"),
               h.Class(cn(inputClass, config.className)),
+              ...(config.attributes ?? []),
             ]),
             config.description === undefined
               ? h.empty

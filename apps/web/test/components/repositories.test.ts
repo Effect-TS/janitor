@@ -196,13 +196,15 @@ describe("Repositories", () => {
     expect(completed.commands?.map((command) => command.name)).toEqual(["FetchRepositories"])
   })
 
-  it("fetches the list and the catalog on init and opens the first repository", () => {
+  it("fetches the list and catalog, then loads the repository selected by navigation", () => {
     const { model, commands } = Repositories.init()
     expect(commands?.map((command) => command.name)).toEqual(["FetchRepositories", "FetchCatalog"])
     Story.story(
       Repositories.update,
       Story.given(model),
       Story.message(Repositories.Message.GotRepositories({ repositories: [one, two] })),
+      Story.model((next) => expect(next.selected).toEqual(Option.none())),
+      Story.message(Repositories.Message.Selected({ repositoryId: "701" })),
       Story.model((next) => expect(next.selected).toEqual(Option.some("701"))),
       Story.Command.resolve(
         Repositories.FetchDetail({ repositoryId: "701" }),

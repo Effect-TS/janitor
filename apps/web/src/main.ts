@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as Match from "effect/Match"
+import * as Stream from "effect/Stream"
+import * as Url from "foldkit/url"
+import * as Routes from "@/routes"
+import * as Navigation from "@/navigation"
 
 export const ToastPayload = Schema.Struct({
   title: Schema.String,
@@ -29,6 +33,11 @@ export type ToastPayload = typeof ToastPayload.Type
 export const AppToast = Toast.make(ToastPayload)
 
 export const Model = Schema.Struct({
+  route: Routes.AppRoute,
+  historyIndex: Schema.Int,
+  navigationTarget: Schema.Option(Schema.String),
+  navigationRequestId: Schema.Int,
+  lastRepositoryId: Schema.Option(Schema.String),
   sidebar: Sidebar.Model,
   theme: ThemeSwitcher.Model,
   sync: SyncButton.Model,
@@ -39,6 +48,8 @@ export const Model = Schema.Struct({
 export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
+  GotNavigationMessage: { message: Navigation.Message },
+  PersistedRepository: {},
   GotSidebarMessage: {
     message: Sidebar.Message,
   },
@@ -62,13 +73,165 @@ export type Message = typeof Message.Type
 
 export const Flags = Schema.Struct({
   theme: ThemeSwitcher.Flags,
+  historyIndex: Schema.optionalKey(Schema.Int),
+  lastRepositoryId: Schema.optionalKey(Schema.Option(Schema.String)),
 })
 export type Flags = typeof Flags.Type
 
 export const flags = Effect.gen(function* () {
   const theme = yield* ThemeSwitcher.flags
-  return Flags.make({ theme }, { disableChecks: true })
+  const store = yield* KeyValueStore.KeyValueStore
+  const lastRepositoryId = yield* store.get("janitor:last-repository").pipe(
+    Effect.map(Option.fromNullishOr),
+    Effect.catch(() => Effect.succeed(Option.none<string>())),
+  )
+  const historyIndex = yield* Effect.sync(Navigation.historyIndex)
+  return Flags.make({ theme, lastRepositoryId, historyIndex }, { disableChecks: true })
 })
+
+const PersistRepository = Command.define("PersistSelectedRepository", {
+  args: { repositoryId: Schema.String },
+  messages: [Message.PersistedRepository],
+  execute: ({ repositoryId }) =>
+    Effect.gen(function* () {
+      const store = yield* KeyValueStore.KeyValueStore
+      yield* Effect.ignore(store.set("janitor:last-repository", repositoryId))
+      return Message.PersistedRepository()
+    }),
+})
+
+type Step = Update.Return<Model, Message, AppServices>
+const navigationCommands = (commands: ReadonlyArray<Command.Command<Navigation.Message>>) =>
+  Command.mapMessages(commands, (message) => Message.GotNavigationMessage({ message }))
+
+export const requestNavigation = (
+  model: Model,
+  path: string,
+  replace = false,
+  guard = true,
+  external = false,
+): Step => {
+  if (!external && !replace && path === Routes.path(model.route)) return { model }
+  const destination = Option.getOrThrow(Url.fromString(new URL(path, "http://routing.local").href))
+  const leavingDocument =
+    external || Routes.documentPath(Routes.parse(destination)) !== Routes.documentPath(model.route)
+  if (leavingDocument && Repositories.isSaving(model.repositories)) return { model }
+  return {
+    model: evo(model, { navigationTarget: () => Option.some(path) }),
+    commands: navigationCommands([
+      Navigation.Navigate({
+        path,
+        index: model.historyIndex,
+        replace,
+        external,
+        guard:
+          guard &&
+          !external &&
+          leavingDocument &&
+          Repositories.hasUnsavedChanges(model.repositories),
+      }),
+    ]),
+  }
+}
+
+const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
+  if (route._tag === "Repository")
+    return requestNavigation(
+      model,
+      Routes.policies({ repositoryId: route.repositoryId }),
+      true,
+      false,
+    )
+  if (route._tag === "Home" && Option.isSome(model.repositories.repositories)) {
+    const repositories = model.repositories.repositories.value.filter(
+      (repo) => repo.access === "accessible",
+    )
+    const selected = repositories.find((repo) =>
+      Option.contains(model.lastRepositoryId, repo.repositoryId),
+    )
+    return selected === undefined
+      ? { model: evo(model, { route: () => route }) }
+      : requestNavigation(
+          model,
+          Routes.policies({ repositoryId: selected.repositoryId }),
+          true,
+          false,
+        )
+  }
+  const panel = model.repositories.panel
+  const justSaved =
+    model.route._tag === "NewPolicy" &&
+    route._tag === "Policy" &&
+    panel._tag === "PolicyEditor" &&
+    panel.editor.identity._tag === "Existing" &&
+    panel.editor.identity.policyId === route.policyId
+  const loaded = Repositories.openRoute(
+    model.repositories,
+    route,
+    !justSaved && Routes.documentPath(model.route) !== Routes.documentPath(route),
+  )
+  const accessible =
+    "repositoryId" in route &&
+    Option.exists(model.repositories.repositories, (repositories) =>
+      repositories.some(
+        (repo) => repo.repositoryId === route.repositoryId && repo.access === "accessible",
+      ),
+    )
+  return {
+    model: evo(model, {
+      route: () => route,
+      repositories: () => loaded.model,
+      navigationTarget: () => Option.none(),
+      lastRepositoryId: (previous) => (accessible ? Option.some(route.repositoryId) : previous),
+    }),
+    commands: [
+      ...Command.mapMessages(loaded.commands, (message) =>
+        Message.GotRepositoriesMessage({ message }),
+      ),
+      ...(accessible ? [PersistRepository({ repositoryId: route.repositoryId })] : []),
+    ],
+  }
+}
+
+const updateNavigation = (model: Model, message: Navigation.Message): Step =>
+  Navigation.Message.match(message, {
+    RequestedUrl: ({ request }) =>
+      request._tag === "Internal"
+        ? requestNavigation(model, Routes.urlPath(request.url))
+        : requestNavigation(model, request.href, false, true, true),
+    ChangedUrl: ({ url }) => {
+      const requestId = model.navigationRequestId + 1
+      return {
+        model: evo(model, { navigationRequestId: () => requestId }),
+        commands: navigationCommands([
+          Navigation.CheckHistoryNavigation({
+            url,
+            requestId,
+            fromPath: Routes.path(model.route),
+            fromIndex: model.historyIndex,
+            blocked:
+              Routes.documentPath(Routes.parse(url)) !== Routes.documentPath(model.route) &&
+              Repositories.isSaving(model.repositories),
+            guard:
+              !Option.contains(model.navigationTarget, Routes.urlPath(url)) &&
+              Routes.documentPath(Routes.parse(url)) !== Routes.documentPath(model.route) &&
+              Repositories.hasUnsavedChanges(model.repositories),
+          }),
+        ]),
+      }
+    },
+    ResolvedUrl: ({ url, index, allowed, requestId }) =>
+      requestId !== model.navigationRequestId || !allowed
+        ? { model }
+        : enterRoute(
+            evo(model, { historyIndex: () => index, navigationTarget: () => Option.none() }),
+            Routes.parse(url),
+          ),
+    FinishedNavigation: ({ cancelled }) =>
+      cancelled ? { model: evo(model, { navigationTarget: () => Option.none() }) } : { model },
+    InitializedHistory: () => ({ model }),
+    AttemptedUnload: () => ({ model }),
+  })
 
 const foldSidebar = Update.foldChild({
   update: Sidebar.update,
@@ -189,6 +352,142 @@ const foldRepositories = Update.foldChild({
   foldOutMessage: foldRepositoriesOutMessage,
 })
 
+const updateRepositories = (model: Model, message: Repositories.Message): Step => {
+  const repositoryId =
+    "repositoryId" in model.route
+      ? model.route.repositoryId
+      : Option.getOrUndefined(model.repositories.selected)
+  if (message._tag === "Selected")
+    return requestNavigation(
+      model,
+      Routes.sectionPath(message.repositoryId, model.repositories.section),
+    )
+  if (repositoryId !== undefined) {
+    switch (message._tag) {
+      case "SelectedSection":
+        return requestNavigation(model, Routes.sectionPath(repositoryId, message.section))
+      case "ClickedNewPolicy":
+        return requestNavigation(model, Routes.newPolicy({ repositoryId }))
+      case "ClickedEditPolicy":
+        return requestNavigation(
+          model,
+          Routes.policy({
+            repositoryId,
+            policyId: message.policyId,
+            ...(model.repositories.policySearch ? { q: model.repositories.policySearch } : {}),
+          }),
+        )
+      case "ClickedNewRule":
+        return requestNavigation(model, Routes.newRule({ repositoryId }))
+      case "ClickedEditRule":
+        return requestNavigation(model, Routes.rule({ repositoryId, ruleId: message.ruleId }))
+      case "ClickedTestConfiguration":
+        return requestNavigation(model, Routes.testRules({ repositoryId }))
+      case "ClickedTestPolicy":
+        return requestNavigation(model, Routes.policy({ repositoryId, policyId: message.policyId }))
+      case "UpdatedPolicySearch":
+        if (
+          model.route._tag === "Policies" ||
+          model.route._tag === "Policy" ||
+          model.route._tag === "NewPolicy"
+        ) {
+          const { q: _q, ...route } = model.route
+          return requestNavigation(
+            model,
+            Routes.path(message.value ? { ...route, q: message.value } : route),
+            true,
+          )
+        }
+        break
+      case "GotPolicyEditorMessage": {
+        const child = message.message
+        if (
+          child._tag === "ClickedCancel" ||
+          (child._tag === "GotActionsMenuMessage" &&
+            child.message._tag === "SelectedItem" &&
+            child.message.item === "Close editor")
+        )
+          return requestNavigation(model, Routes.policies({ repositoryId }))
+        if (
+          child._tag === "SelectedTestItem" &&
+          (model.route._tag === "Policy" || model.route._tag === "NewPolicy")
+        )
+          return requestNavigation(
+            model,
+            Routes.path({ ...model.route, item: String(child.number) }),
+            true,
+          )
+        break
+      }
+      case "GotRuleEditorMessage":
+        if (message.message._tag === "ClickedCancel")
+          return requestNavigation(model, Routes.rules({ repositoryId }))
+        break
+      case "GotTestBenchMessage":
+        if (message.message._tag === "ClickedClose")
+          return requestNavigation(model, Routes.rules({ repositoryId }))
+        break
+    }
+  }
+  const next = foldRepositories(model, message)
+  if (message._tag === "GotRepositories" && model.route._tag === "Home") {
+    const entered = enterRoute(next.model, model.route)
+    return {
+      model: entered.model,
+      commands: [...(next.commands ?? []), ...(entered.commands ?? [])],
+    }
+  }
+  if (
+    message._tag === "GotRepositories" &&
+    repositoryId !== undefined &&
+    message.repositories.some(
+      (repo) => repo.repositoryId === repositoryId && repo.access === "accessible",
+    )
+  ) {
+    return {
+      model: evo(next.model, { lastRepositoryId: () => Option.some(repositoryId) }),
+      commands: [...(next.commands ?? []), PersistRepository({ repositoryId })],
+    }
+  }
+  if (
+    (message._tag === "GotDetail" && Option.isNone(model.repositories.detail)) ||
+    message._tag === "GotPolicyDetail"
+  ) {
+    const loaded = Repositories.openRoute(next.model.repositories, model.route, false)
+    return {
+      model: evo(next.model, { repositories: () => loaded.model }),
+      commands: [
+        ...(next.commands ?? []),
+        ...Command.mapMessages(loaded.commands, (message) =>
+          Message.GotRepositoriesMessage({ message }),
+        ),
+      ],
+    }
+  }
+  if (repositoryId !== undefined) {
+    const panel = next.model.repositories.panel
+    let path: string | undefined
+    if (message._tag === "CompletedDelete")
+      path = Routes.sectionPath(repositoryId, model.repositories.section)
+    if (message._tag === "GotRuleEditorMessage" && message.message._tag === "SucceededSaveRule")
+      path = Routes.rules({ repositoryId })
+    if (
+      model.route._tag === "NewPolicy" &&
+      panel._tag === "PolicyEditor" &&
+      panel.editor.identity._tag === "Existing"
+    )
+      path = Routes.policy({ ...model.route, policyId: panel.editor.identity.policyId })
+    if (path !== undefined) {
+      const routed = requestNavigation(next.model, path, true, false)
+      return {
+        model: routed.model,
+        commands: [...(next.commands ?? []), ...(routed.commands ?? [])],
+      }
+    }
+  }
+  return next
+}
+
 /** Picking in the switcher is the same act as picking in the repository list,
  *  so it goes through the same Message and reuses the fetches that follow. */
 const foldRepositorySwitcherOutMessage = Match.type<RepositorySwitcher.OutMessage>().pipe(
@@ -197,7 +496,7 @@ const foldRepositorySwitcherOutMessage = Match.type<RepositorySwitcher.OutMessag
     SelectedRepository:
       ({ repositoryId }) =>
       (model) =>
-        foldRepositories(model, Repositories.Message.Selected({ repositoryId })),
+        requestNavigation(model, Routes.sectionPath(repositoryId, model.repositories.section)),
   }),
 )
 
@@ -219,32 +518,46 @@ const foldSyncButton = Update.foldChild({
 
 export const update = (model: Model, message: Message) =>
   Message.match<Update.Return<Model, Message, AppServices>>(message, {
+    GotNavigationMessage: ({ message }) => updateNavigation(model, message),
+    PersistedRepository: () => ({ model }),
     GotSidebarMessage: ({ message }) => foldSidebar(model, message),
     GotThemeSwitcherMessage: ({ message }) => foldThemeSwitcher(model, message),
     GotSyncButtonMessage: ({ message }) => foldSyncButton(model, message),
     GotToastMessage: ({ message }) => foldToast(model, message),
-    GotRepositoriesMessage: ({ message }) => foldRepositories(model, message),
+    GotRepositoriesMessage: ({ message }) => updateRepositories(model, message),
     GotRepositorySwitcherMessage: ({ message }) => foldRepositorySwitcher(model, message),
   })
 
 export type AppServices = KeyValueStore.KeyValueStore | HttpClient.HttpClient
 
-export const init: Runtime.ApplicationInit<Model, Message, Flags, AppServices> = (flags: Flags) => {
+export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServices> = (
+  flags,
+  url,
+) => {
   const theme = ThemeSwitcher.init(flags.theme)
   const sidebar = Sidebar.init({ id: "app-sidebar" })
   const sync = SyncButton.init()
   const toast = AppToast.init({ id: "app-toast", defaultDuration: "6 seconds" })
   const repositories = Repositories.init()
+  const model = Model.make({
+    route: Routes.AppRoute.Home(),
+    historyIndex: flags.historyIndex ?? 0,
+    navigationTarget: Option.none(),
+    navigationRequestId: 0,
+    lastRepositoryId: flags.lastRepositoryId ?? Option.none(),
+    sidebar,
+    theme: theme.model,
+    sync: sync.model,
+    toast,
+    repositories: repositories.model,
+    repositorySwitcher: RepositorySwitcher.init(),
+  })
+  const entered = enterRoute(model, Routes.parse(url))
   return {
-    model: Model.make({
-      sidebar,
-      theme: theme.model,
-      sync: sync.model,
-      toast,
-      repositories: repositories.model,
-      repositorySwitcher: RepositorySwitcher.init(),
-    }),
+    model: entered.model,
     commands: [
+      ...navigationCommands([Navigation.InitializeHistory({ index: model.historyIndex })]),
+      ...(entered.commands ?? []),
       ...Command.mapMessages(repositories.commands, (message) =>
         Message.GotRepositoriesMessage({ message }),
       ),
@@ -276,11 +589,36 @@ const repositoriesSubscriptions = Subscription.lift(Repositories.subscriptions)<
   toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
 })
 
+const navigationSubscriptions = Subscription.make<Model, Message>()((entry) => ({
+  unsavedChanges: entry(
+    { dirty: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({
+        dirty: Repositories.hasUnsavedChanges(model.repositories),
+      }),
+      dependenciesToStream: ({ dirty }) =>
+        dirty
+          ? Subscription.fromEvent<BeforeUnloadEvent, Message>({
+              target: () => window,
+              type: "beforeunload",
+              toMessage: (event) => {
+                event.preventDefault()
+                return Message.GotNavigationMessage({
+                  message: Navigation.Message.AttemptedUnload(),
+                })
+              },
+            })
+          : Stream.empty,
+    },
+  ),
+}))
+
 export const subscriptions = Subscription.aggregate<Model, Message, AppServices>()(
   sidebarSubscriptions,
   themeSubscriptions,
   syncSubscriptions,
   repositoriesSubscriptions,
+  navigationSubscriptions,
 )
 
 const brandHeader = (h: HtmlBuilder<Message>): Html =>
@@ -350,18 +688,28 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
             children: (["Policies", "Rules", "Activity", "Settings"] as const).map((section) =>
               Sidebar.menuItem(h, {
                 children: [
-                  Sidebar.menuButton(h, {
-                    isActive: model.repositories.section === section,
-                    attributes: [
-                      h.OnClick(
-                        Message.GotRepositoriesMessage({
-                          message: Repositories.Message.SelectedSection({ section }),
-                        }),
+                  h.a(
+                    [
+                      h.Href(
+                        "repositoryId" in model.route
+                          ? Routes.sectionPath(model.route.repositoryId, section)
+                          : Routes.home(),
                       ),
-                      h.AriaCurrent(model.repositories.section === section ? "page" : "false"),
+                      h.Class(
+                        cn(
+                          Sidebar.sidebarMenuButtonClass,
+                          "h-8",
+                          model.repositories.section === section && "bg-sidebar-accent font-medium",
+                        ),
+                      ),
+                      h.AriaCurrent(
+                        "repositoryId" in model.route && model.repositories.section === section
+                          ? "page"
+                          : "false",
+                      ),
                     ],
-                    children: [h.span([], [section])],
-                  }),
+                    [h.span([], [section])],
+                  ),
                 ],
               }),
             ),
@@ -396,7 +744,16 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                   h.OnClick(Message.GotSidebarMessage({ message: Sidebar.Message.Toggled() })),
                 ],
               }),
-              h.span([h.Class("text-sm font-medium")], [model.repositories.section]),
+              h.span(
+                [h.Class("text-sm font-medium")],
+                [
+                  model.route._tag === "Home"
+                    ? "Repositories"
+                    : model.route._tag === "NotFound"
+                      ? "Page not found"
+                      : model.repositories.section,
+                ],
+              ),
             ],
           ),
           h.div(
@@ -456,21 +813,81 @@ const toasts = (h: HtmlBuilder<Message>, model: Model): Html =>
 
 const sidebarContent = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> => [
   Sidebar.inset(h, {
-    children: [
-      mainHeader(h, model),
-      h.submodel({
-        slotId: "repositories",
-        model: model.repositories,
-        view: Repositories.view,
-        toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
-      }),
-    ],
+    children: [mainHeader(h, model), routeContent(h, model)],
   }),
   toasts(h, model),
 ]
 
+const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const route = model.route
+  const repositories = Option.getOrElse(model.repositories.repositories, () => [])
+  if (route._tag === "NotFound")
+    return h.div(
+      [h.Class("p-6 space-y-3")],
+      [
+        h.h1([h.Class("text-lg font-semibold")], ["Page not found"]),
+        h.p(
+          [h.Class("text-sm text-muted-foreground")],
+          ["This address does not match a page in The Janitor."],
+        ),
+        h.a([h.Href(Routes.home()), h.Class("text-sm underline")], ["Choose a repository"]),
+      ],
+    )
+  if (route._tag === "Home")
+    return h.div(
+      [h.Class("p-6 space-y-3")],
+      [
+        h.h1([h.Class("text-lg font-semibold")], ["Choose a repository"]),
+        Option.isSome(model.repositories.repositoriesError)
+          ? h.p([h.Role("alert")], [model.repositories.repositoriesError.value])
+          : Option.isNone(model.repositories.repositories)
+            ? h.p([h.Role("status")], ["Loading repositories…"])
+            : h.div(
+                [h.Class("flex flex-col items-start gap-2")],
+                repositories
+                  .filter((repo) => repo.access === "accessible")
+                  .map((repo) =>
+                    h.a(
+                      [
+                        h.Href(Routes.policies({ repositoryId: repo.repositoryId })),
+                        h.Class("text-sm underline"),
+                      ],
+                      [`${repo.owner}/${repo.repo}`],
+                    ),
+                  ),
+              ),
+        Option.isSome(model.repositories.repositories) &&
+        !repositories.some((repo) => repo.access === "accessible")
+          ? h.p(
+              [h.Class("text-sm text-muted-foreground")],
+              ["No accessible repositories are available."],
+            )
+          : h.empty,
+      ],
+    )
+  if (
+    Option.isSome(model.repositories.repositories) &&
+    !repositories.some(
+      (repo) => repo.repositoryId === route.repositoryId && repo.access === "accessible",
+    )
+  )
+    return h.div(
+      [h.Class("p-6 space-y-3")],
+      [
+        h.p([h.Role("alert")], ["This repository is unavailable or you no longer have access."]),
+        h.a([h.Href(Routes.home()), h.Class("text-sm underline")], ["Choose a repository"]),
+      ],
+    )
+  return h.submodel({
+    slotId: "repositories",
+    model: model.repositories,
+    view: Repositories.view,
+    toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
+  })
+}
+
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: "The Janitor",
+  title: `${model.route._tag === "Home" ? "Repositories" : model.route._tag === "NotFound" ? "Page not found" : model.repositories.section} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

@@ -6,6 +6,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
+import * as Mount from "foldkit/mount"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
@@ -107,6 +108,7 @@ export type Model = typeof Model.Type
 // MESSAGE
 
 export const Message = defineMessageUnion({
+  FocusedMetadataInput: {},
   GotActionsMenuMessage: { message: Menu.Message },
   ClickedEditMetadata: { field: Schema.Literals(["name", "description"]) },
   UpdatedMetadataDraft: { field: Schema.Literals(["name", "description"]), value: Schema.String },
@@ -132,6 +134,15 @@ export const Message = defineMessageUnion({
   ClickedCancel: {},
 })
 export type Message = typeof Message.Type
+
+export const FocusMetadataInput = Mount.define("FocusPolicyMetadataInput", {
+  messages: [Message.FocusedMetadataInput],
+  execute: ({ element }) =>
+    Effect.sync(() => {
+      if (element instanceof HTMLInputElement) element.focus()
+      return Message.FocusedMetadataInput()
+    }),
+})
 
 export const OutMessage = defineMessageUnion({
   RequestedDelete: { policyId: Schema.String, version: Schema.Int },
@@ -201,7 +212,6 @@ export const withTestCandidates = (model: Model, candidates: TestCandidates): Mo
 }
 
 export const isDirty = (model: Model): boolean =>
-  !model.hasBeenPublished ||
   model.name !== model.savedFields.name ||
   model.description !== model.savedFields.description ||
   model.source.source !== model.savedFields.sourceText
@@ -551,6 +561,7 @@ const foldActionsMenu = Update.foldChild({
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
+    FocusedMetadataInput: () => ({ model }),
     GotActionsMenuMessage: ({ message }) =>
       message._tag === "SelectedItem" &&
       message.item === "Delete policy" &&
@@ -863,7 +874,8 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                         [h.Class("policy-metadata-field")],
                         [
                           draft === null
-                            ? h.div(
+                            ? h.keyed("div")(
+                                `metadata-display-${field}`,
                                 [h.Class("policy-metadata-display")],
                                 [
                                   field === "name"
@@ -908,8 +920,12 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                                   }),
                                 ],
                               )
-                            : h.div(
-                                [h.Class("policy-metadata-form")],
+                            : h.keyed("div")(
+                                `metadata-edit-${field}`,
+                                [
+                                  h.Class("policy-metadata-form"),
+                                  h.OnFocusLeave(Message.ClickedCancelMetadata({ field })),
+                                ],
                                 [
                                   input(h, {
                                     id: `policy-${field}`,
@@ -919,6 +935,14 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                                       Message.UpdatedMetadataDraft({ field, value }),
                                     labelClass: "sr-only",
                                     wrapperClass: "gap-0",
+                                    attributes: [
+                                      h.OnMount(FocusMetadataInput()),
+                                      h.OnKeyDownPreventDefault((key) =>
+                                        key === "Escape"
+                                          ? Option.some(Message.ClickedCancelMetadata({ field }))
+                                          : Option.none(),
+                                      ),
+                                    ],
                                     className:
                                       field === "name"
                                         ? "policy-title-input"

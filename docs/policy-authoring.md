@@ -62,9 +62,14 @@ still needs a policy.
 - **Test draft** evaluates the current unsaved program against synchronized open
   items. Results appear inside the editor. Editing the source clears old
   results; closing results keeps your draft.
-- **Save draft** saves without activating the program.
+- **Save draft** appears only for unsaved changes and saves without activating
+  the program. It disappears after saving unless newer edits remain.
 - **Publish** saves, validates, and publishes. If publishing fails after saving,
   the saved draft remains available for correction.
+
+Click the title or description, or its pencil button, to open a focused input.
+The inline Save button applies that field's edit to the draft. Cancel, Escape,
+or moving focus outside the editing controls discards the field's pending edit.
 
 A test does not change labels. Results depend on the available synchronized
 facts, so `unknown` means a decision is not yet available. Classifier tests can

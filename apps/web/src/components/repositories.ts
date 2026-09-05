@@ -45,6 +45,7 @@ import {
   ruleEndpoint,
 } from "@/components/labeling-wire"
 import { cn } from "@/lib/utils"
+import * as Routes from "@/routes"
 
 export type {
   AiConsent,
@@ -72,6 +73,7 @@ export type RepositoryDetail = typeof RepositoryDetail.Type
 export const Panel = Schema.Union([
   Schema.TaggedStruct("Closed", {}),
   Schema.TaggedStruct("LoadingPolicy", { policyId: Schema.String }),
+  Schema.TaggedStruct("Unavailable", { message: Schema.String }),
   Schema.TaggedStruct("PolicyEditor", { editor: PolicyEditor.Model }),
   Schema.TaggedStruct("RuleEditor", { editor: RuleEditor.Model }),
   Schema.TaggedStruct("TestBench", { bench: TestBench.Model }),
@@ -125,7 +127,11 @@ export const Message = defineMessageUnion({
   ClickedNewPolicy: {},
   ClickedEditPolicy: { policyId: Schema.String },
   GotPolicyDetail: { detail: PolicyDetail },
-  FailedPolicyDetail: { reason: Schema.String },
+  FailedPolicyDetail: {
+    reason: Schema.String,
+    repositoryId: Schema.optionalKey(Schema.String),
+    policyId: Schema.optionalKey(Schema.String),
+  },
   ClickedTestPolicy: { policyId: Schema.String },
   ClickedTestConfiguration: {},
   ClickedDeletePolicy: { policyId: Schema.String, version: Schema.Int },
@@ -261,7 +267,9 @@ export const FetchPolicyDetail = FoldkitCommand.define("FetchPolicyDetail", {
     getJson(policyEndpoint(repositoryId, policyId), PolicyDetail).pipe(
       Effect.map((detail) => Message.GotPolicyDetail({ detail })),
       Effect.catch((error) =>
-        Effect.succeed(Message.FailedPolicyDetail({ reason: describe(error) })),
+        Effect.succeed(
+          Message.FailedPolicyDetail({ repositoryId, policyId, reason: describe(error) }),
+        ),
       ),
     ),
 })
@@ -530,22 +538,25 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         repositories: () => Option.some(repositories),
         repositoriesError: () => Option.none<string>(),
       })
-      // Open the first repository so the page is never empty.
-      const first = repositories[0]
-      return Option.isNone(model.selected) && first !== undefined
-        ? {
-            model: evo(next, { selected: () => Option.some(first.repositoryId) }),
-            commands: [
-              FetchDetail({ repositoryId: first.repositoryId }),
-              FetchConsent({ repositoryId: first.repositoryId }),
-            ],
-          }
-        : { model: next }
+      return { model: next }
     },
     FailedRepositories: ({ reason }) => ({
       model: evo(model, { repositoriesError: () => Option.some(reason) }),
     }),
-    GotCatalog: ({ catalog }) => ({ model: evo(model, { catalog: () => catalog }) }),
+    GotCatalog: ({ catalog }) => ({
+      model: evo(model, {
+        catalog: () => catalog,
+        panel: (panel) =>
+          panel._tag === "PolicyEditor"
+            ? {
+                ...panel,
+                editor: evo(panel.editor, {
+                  source: (source) => evo(source, { catalog: () => catalog }),
+                }),
+              }
+            : panel,
+      }),
+    }),
 
     Selected: ({ repositoryId }) =>
       Option.contains(model.selected, repositoryId)
@@ -678,13 +689,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
           }),
     GotPolicyDetail: ({ detail }) =>
-      model.panel._tag === "LoadingPolicy" && model.panel.policyId === detail.policy.policyId
+      model.panel._tag === "LoadingPolicy" &&
+      model.panel.policyId === detail.policy.policyId &&
+      Option.contains(model.selected, detail.policy.repositoryId)
         ? { model: openPolicyEditor(model, Option.some(detail)) }
         : { model },
-    FailedPolicyDetail: ({ reason }) => ({
-      model: closed(model),
-      outMessage: OutMessage.Failed({ title: "Could not open the policy", reason }),
-    }),
+    FailedPolicyDetail: ({ reason, repositoryId, policyId }) =>
+      model.panel._tag === "LoadingPolicy" &&
+      (repositoryId === undefined || Option.contains(model.selected, repositoryId)) &&
+      (policyId === undefined || model.panel.policyId === policyId)
+        ? {
+            model: evo(model, {
+              panel: () => ({
+                _tag: "Unavailable" as const,
+                message: `This policy could not be opened. It may have been deleted or you may no longer have access. ${reason}`,
+              }),
+            }),
+          }
+        : { model },
     ClickedTestPolicy: ({ policyId }) =>
       openTestBench(
         model,
@@ -905,14 +927,19 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
           h.li(
             [h.DataAttribute("policy-id", policy.policyId)],
             [
-              h.button(
+              h.a(
                 [
-                  h.Type("button"),
+                  h.Href(
+                    Routes.policy({
+                      repositoryId: view.repositoryId,
+                      policyId: policy.policyId,
+                      ...(model.policySearch ? { q: model.policySearch } : {}),
+                    }),
+                  ),
                   h.Class(
                     cn("policy-library-item", selectedId === policy.policyId && "is-selected"),
                   ),
-                  h.AriaPressed(selectedId === policy.policyId ? "true" : "false"),
-                  h.OnClick(Message.ClickedEditPolicy({ policyId: policy.policyId })),
+                  h.AriaCurrent(selectedId === policy.policyId ? "page" : "false"),
                   h.DataAttribute("action", "edit-policy"),
                 ],
                 [
@@ -1226,6 +1253,8 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
   switch (model.panel._tag) {
     case "Closed":
       return h.empty
+    case "Unavailable":
+      return h.p([h.Class("p-6 text-sm text-destructive"), h.Role("alert")], [model.panel.message])
     case "LoadingPolicy":
       return h.div([h.Class("text-muted-foreground text-sm")], ["Loading the policy"])
     case "PolicyEditor": {
@@ -1291,7 +1320,9 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
                       [`Refresh failed: ${reason}`],
                     ),
                 }),
-                model.panel._tag === "PolicyEditor" || model.panel._tag === "LoadingPolicy"
+                model.panel._tag === "PolicyEditor" ||
+                model.panel._tag === "LoadingPolicy" ||
+                model.panel._tag === "Unavailable"
                   ? panelView(h, model)
                   : h.div(
                       [h.Class("policy-empty")],
@@ -1331,7 +1362,9 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
                     label: "Test configuration",
                     onClick: Message.ClickedTestConfiguration(),
                   }),
-                  model.panel._tag === "RuleEditor" || model.panel._tag === "TestBench"
+                  model.panel._tag === "RuleEditor" ||
+                  model.panel._tag === "TestBench" ||
+                  model.panel._tag === "Unavailable"
                     ? h.div([h.Class("rounded-lg border p-4")], [panelView(h, model)])
                     : h.empty,
                   rulesSection(h, model, detail.configuration),
@@ -1368,3 +1401,117 @@ export const refreshAfterSync = (model: Model): UpdateReturn => ({
     }),
   ],
 })
+
+/** Materialize a route after navigation, or after its repository finishes loading. */
+export const openRoute = (
+  model: Model,
+  route: Routes.AppRoute,
+  changedDocument: boolean,
+): UpdateReturn => {
+  if (!("repositoryId" in route)) return { model: closed(model) }
+  const selected = update(model, Message.Selected({ repositoryId: route.repositoryId }))
+  let next = evo(changedDocument ? closed(selected.model) : selected.model, {
+    section: () => Routes.section(route),
+    policySearch: () => ("q" in route ? (route.q ?? "") : ""),
+  })
+  if (Option.isNone(next.detail)) return { model: next, commands: selected.commands ?? [] }
+  let result: UpdateReturn = { model: next }
+  if (next.panel._tag === "Closed") {
+    switch (route._tag) {
+      case "NewPolicy":
+        result = update(next, Message.ClickedNewPolicy())
+        break
+      case "Policy":
+        result = update(next, Message.ClickedEditPolicy({ policyId: route.policyId }))
+        break
+      case "NewRule":
+        result = update(next, Message.ClickedNewRule())
+        break
+      case "Rule":
+        result = Option.exists(next.detail, (detail) =>
+          detail.configuration.rules.some((rule) => rule.id === route.ruleId),
+        )
+          ? update(next, Message.ClickedEditRule({ ruleId: route.ruleId }))
+          : {
+              model: evo(next, {
+                panel: () => ({
+                  _tag: "Unavailable" as const,
+                  message: "This rule was not found in this repository.",
+                }),
+              }),
+            }
+        break
+      case "TestRules":
+        result = update(next, Message.ClickedTestConfiguration())
+        break
+    }
+  }
+  next = result.model
+  if (next.panel._tag === "PolicyEditor") {
+    const number =
+      "item" in route &&
+      route.item !== undefined &&
+      /^[1-9]\d*$/.test(route.item) &&
+      Number.isSafeInteger(Number(route.item))
+        ? Number(route.item)
+        : null
+    if (next.panel.editor.testNumber !== number) {
+      const editor = evo(next.panel.editor, {
+        testNumber: () => number,
+        maybeTestBench: () => Option.none(),
+        testGeneration: (generation) => generation + 1,
+      })
+      next = evo(next, { panel: () => ({ _tag: "PolicyEditor" as const, editor }) })
+    }
+  }
+  return { model: next, commands: [...(selected.commands ?? []), ...(result.commands ?? [])] }
+}
+
+/** Save-button visibility includes unpublished drafts; navigation warns only about unsaved input. */
+export const hasUnsavedChanges = (model: Model): boolean => {
+  const panel = model.panel
+  if (panel._tag === "PolicyEditor") {
+    const editor = panel.editor
+    return (
+      editor.submission._tag === "Submitting" ||
+      editor.name !== editor.savedFields.name ||
+      editor.description !== editor.savedFields.description ||
+      editor.source.source !== editor.savedFields.sourceText ||
+      (editor.metadataEdits.name !== null && editor.metadataEdits.name !== editor.name) ||
+      (editor.metadataEdits.description !== null &&
+        editor.metadataEdits.description !== editor.description)
+    )
+  }
+  if (panel._tag === "RuleEditor") {
+    const editor = panel.editor
+    const identity = editor.identity
+    const existing = Option.flatMap(model.detail, (detail) =>
+      Option.fromNullishOr(
+        detail.configuration.rules.find(
+          (rule) => identity._tag === "Existing" && rule.id === identity.ruleId,
+        ),
+      ),
+    )
+    const initial = RuleEditor.init({
+      repositoryId: editor.repositoryId,
+      labels: editor.labels,
+      policies: editor.policies,
+      existing,
+    })
+    return (
+      editor.submission._tag === "Submitting" ||
+      Option.getOrUndefined(editor.maybeLabelId) !== Option.getOrUndefined(initial.maybeLabelId) ||
+      Option.getOrUndefined(editor.maybePolicyId) !==
+        Option.getOrUndefined(initial.maybePolicyId) ||
+      editor.onNoMatch !== initial.onNoMatch ||
+      editor.group !== initial.group ||
+      editor.priority !== initial.priority ||
+      editor.enabled !== initial.enabled
+    )
+  }
+  return false
+}
+
+export const isSaving = (model: Model): boolean =>
+  (model.panel._tag === "PolicyEditor" || model.panel._tag === "RuleEditor") &&
+  model.panel.editor.submission._tag === "Submitting"

@@ -86,6 +86,74 @@ const fresh = () =>
   })
 
 describe("PolicyEditor", () => {
+  it.each(["title", "description"])(
+    "discards the %s edit when focus leaves its controls",
+    (field) => {
+      Scene.scene(
+        {
+          update: PolicyEditor.update,
+          view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+        },
+        Scene.given(fresh()),
+        Scene.Mount.resolve(
+          PolicySource.MountPolicySourceEditor,
+          PolicySource.Message.MountedEditor(),
+        ),
+        Scene.click(Scene.role("button", { name: `Edit ${field}` })),
+        Scene.Mount.resolve(
+          PolicyEditor.FocusMetadataInput,
+          PolicyEditor.Message.FocusedMetadataInput(),
+        ),
+        Scene.type(
+          Scene.role("textbox", { name: field === "title" ? "Title" : "Description" }),
+          "Discard me",
+        ),
+        Scene.focusLeave(".policy-metadata-form"),
+        Scene.Mount.expectEnded(PolicyEditor.FocusMetadataInput),
+        Scene.expect(
+          Scene.role("textbox", { name: field === "title" ? "Title" : "Description" }),
+        ).toBeAbsent(),
+        Scene.expect(Scene.role("button", { name: "Save draft" })).toBeAbsent(),
+      )
+    },
+  )
+  it("cancels title and description edits with Escape without dirtying the draft", () => {
+    Scene.scene(
+      {
+        update: PolicyEditor.update,
+        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+      },
+      Scene.given({
+        ...fresh(),
+        name: "Original",
+        savedFields: { ...fresh().savedFields, name: "Original" },
+      }),
+      Scene.Mount.resolve(
+        PolicySource.MountPolicySourceEditor,
+        PolicySource.Message.MountedEditor(),
+      ),
+      Scene.click(Scene.role("button", { name: "Original" })),
+      Scene.Mount.resolve(
+        PolicyEditor.FocusMetadataInput,
+        PolicyEditor.Message.FocusedMetadataInput(),
+      ),
+      Scene.type(Scene.role("textbox", { name: "Title" }), "Discard this"),
+      Scene.keydown(Scene.role("textbox", { name: "Title" }), "Escape"),
+      Scene.Mount.expectEnded(PolicyEditor.FocusMetadataInput),
+      Scene.expect(Scene.role("textbox", { name: "Title" })).toBeAbsent(),
+      Scene.expect(Scene.role("button", { name: "Original" })).toExist(),
+      Scene.click(Scene.role("button", { name: "Edit description" })),
+      Scene.Mount.resolve(
+        PolicyEditor.FocusMetadataInput,
+        PolicyEditor.Message.FocusedMetadataInput(),
+      ),
+      Scene.type(Scene.role("textbox", { name: "Description" }), "Discard this too"),
+      Scene.keydown(Scene.role("textbox", { name: "Description" }), "Escape"),
+      Scene.Mount.expectEnded(PolicyEditor.FocusMetadataInput),
+      Scene.expect(Scene.role("textbox", { name: "Description" })).toBeAbsent(),
+      Scene.expect(Scene.role("button", { name: "Save draft" })).toBeAbsent(),
+    )
+  })
   it("replaces an unavailable Publish button with an explanation", () => {
     Scene.scene(
       {
@@ -218,8 +286,8 @@ describe("PolicyEditor", () => {
     )
   })
 
-  it("shows Save draft for unpublished policies and only edited published policies", () => {
-    expect(PolicyEditor.isDirty(fresh())).toBe(true)
+  it("shows Save draft only for unsaved edits", () => {
+    expect(PolicyEditor.isDirty(fresh())).toBe(false)
     Scene.scene(
       {
         update: PolicyEditor.update,
@@ -238,17 +306,32 @@ describe("PolicyEditor", () => {
       Scene.expect(Scene.role("button", { name: "Save draft" })).toBeAbsent(),
       Scene.expect(Scene.role("textbox", { name: "Title" })).toBeAbsent(),
       Scene.click(Scene.role("button", { name: "Edit title" })),
+      Scene.Mount.resolve(
+        PolicyEditor.FocusMetadataInput,
+        PolicyEditor.Message.FocusedMetadataInput(),
+      ),
       Scene.type(Scene.role("textbox", { name: "Title" }), "Changed name"),
       Scene.expect(Scene.role("button", { name: "Save draft" })).toBeAbsent(),
       Scene.click(Scene.role("button", { name: "Save title" })),
+      Scene.Mount.expectEnded(PolicyEditor.FocusMetadataInput),
       Scene.expect(Scene.role("button", { name: "Save draft" })).toExist(),
       Scene.click(Scene.role("button", { name: "Edit title" })),
+      Scene.Mount.resolve(
+        PolicyEditor.FocusMetadataInput,
+        PolicyEditor.Message.FocusedMetadataInput(),
+      ),
       Scene.type(Scene.role("textbox", { name: "Title" }), "Original"),
       Scene.click(Scene.role("button", { name: "Save title" })),
+      Scene.Mount.expectEnded(PolicyEditor.FocusMetadataInput),
       Scene.expect(Scene.role("button", { name: "Save draft" })).toBeAbsent(),
       Scene.click(Scene.role("button", { name: "Edit description" })),
+      Scene.Mount.resolve(
+        PolicyEditor.FocusMetadataInput,
+        PolicyEditor.Message.FocusedMetadataInput(),
+      ),
       Scene.type(Scene.role("textbox", { name: "Description" }), "Changed description"),
       Scene.click(Scene.role("button", { name: "Save description" })),
+      Scene.Mount.expectEnded(PolicyEditor.FocusMetadataInput),
       Scene.expect(Scene.role("button", { name: "Save draft" })).toExist(),
     )
   })
@@ -284,7 +367,7 @@ describe("PolicyEditor", () => {
       { ...saving, hasBeenPublished: false },
       PolicyEditor.Message.SucceededSavePolicy({ detail, published: false }),
     ).model
-    expect(PolicyEditor.isDirty(unpublished)).toBe(true)
+    expect(PolicyEditor.isDirty(unpublished)).toBe(false)
     const published = PolicyEditor.update(
       { ...saving, hasBeenPublished: false },
       PolicyEditor.Message.SucceededSavePolicy({ detail, published: true }),
