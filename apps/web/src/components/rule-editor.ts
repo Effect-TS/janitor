@@ -16,6 +16,7 @@ import { Check } from "lucide"
 import * as Button from "@/components/ui/button"
 import { input, inputClass } from "@/components/ui/input"
 import {
+  ConfigurationView,
   OnNoMatch,
   PolicyRecord,
   RuleIssue,
@@ -42,7 +43,7 @@ export type Identity = typeof Identity.Type
 
 export const Submission = Schema.Union([
   Schema.TaggedStruct("NotSubmitted", {}),
-  Schema.TaggedStruct("Submitting", {}),
+  Schema.TaggedStruct("Submitting", { operationId: Schema.Int, snapshot: Schema.String }),
   Schema.TaggedStruct("Conflicted", {}),
   Schema.TaggedStruct("Rejected", { issues: Schema.Array(RuleIssue) }),
   Schema.TaggedStruct("SubmitError", { message: Schema.String }),
@@ -61,6 +62,8 @@ export const Model = Schema.Struct({
   labels: Schema.Array(SynchronizedLabel),
   policies: Schema.Array(PolicyRecord),
   submission: Submission,
+  nextOperationId: Schema.Int,
+  savedSnapshot: Schema.String,
 })
 export type Model = typeof Model.Type
 
@@ -74,16 +77,16 @@ export const Message = defineMessageUnion({
   UpdatedPriority: { value: Schema.String },
   ToggledEnabled: { isChecked: Schema.Boolean },
   ClickedSave: {},
-  SucceededSaveRule: { rule: RuleRecord },
-  ConflictedSaveRule: { rule: RuleRecord },
-  RejectedSaveRule: { issues: Schema.Array(RuleIssue) },
-  FailedSaveRule: { reason: Schema.String },
+  SucceededSaveRule: { rule: RuleRecord, operationId: Schema.Int },
+  ConflictedSaveRule: { rule: RuleRecord, operationId: Schema.Int },
+  RejectedSaveRule: { issues: Schema.Array(RuleIssue), operationId: Schema.Int },
+  FailedSaveRule: { reason: Schema.String, operationId: Schema.Int },
   ClickedCancel: {},
 })
 export type Message = typeof Message.Type
 
 export const OutMessage = defineMessageUnion({
-  Saved: { rule: RuleRecord },
+  Saved: { rule: RuleRecord, closeEditor: Schema.Boolean },
   Cancelled: {},
   SaveFailed: { reason: Schema.String },
 })
@@ -112,6 +115,7 @@ const describe = (error: unknown): string =>
 const IssuesBody = Schema.Struct({ issues: Schema.Array(RuleIssue) })
 
 const Payload = {
+  operationId: Schema.Int,
   repositoryId: Schema.String,
   identity: Identity,
   labelId: Schema.String,
@@ -130,7 +134,17 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
     Message.RejectedSaveRule,
     Message.FailedSaveRule,
   ],
-  execute: ({ repositoryId, identity, labelId, policyId, onNoMatch, group, priority, enabled }) =>
+  execute: ({
+    operationId,
+    repositoryId,
+    identity,
+    labelId,
+    policyId,
+    onNoMatch,
+    group,
+    priority,
+    enabled,
+  }) =>
     Effect.gen(function* () {
       const fields = { labelId, policyId, onNoMatch, group, priority, enabled }
       const request =
@@ -146,21 +160,29 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
         case 200:
         case 201:
           return Message.SucceededSaveRule({
+            operationId,
             rule: yield* HttpIncomingMessage.schemaBodyJson(RuleRecord)(response),
           })
         case 409:
           return Message.ConflictedSaveRule({
+            operationId,
             rule: yield* HttpIncomingMessage.schemaBodyJson(RuleRecord)(response),
           })
         case 422:
-          return Message.RejectedSaveRule(
-            yield* HttpIncomingMessage.schemaBodyJson(IssuesBody)(response),
-          )
+          return Message.RejectedSaveRule({
+            ...(yield* HttpIncomingMessage.schemaBodyJson(IssuesBody)(response)),
+            operationId,
+          })
         default:
-          return Message.FailedSaveRule({ reason: `Server answered ${response.status}` })
+          return Message.FailedSaveRule({
+            reason: `Server answered ${response.status}`,
+            operationId,
+          })
       }
     }).pipe(
-      Effect.catch((error) => Effect.succeed(Message.FailedSaveRule({ reason: describe(error) }))),
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedSaveRule({ reason: describe(error), operationId })),
+      ),
     ),
 })
 
@@ -173,7 +195,7 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
   HttpClient.HttpClient
 >
 
-export const init = (input: {
+const initialize = (input: {
   readonly repositoryId: string
   readonly labels: ReadonlyArray<SynchronizedLabel>
   readonly policies: ReadonlyArray<PolicyRecord>
@@ -203,14 +225,37 @@ export const init = (input: {
       labels: input.labels,
       policies: input.policies,
       submission: { _tag: "NotSubmitted" },
+      nextOperationId: 1,
+      savedSnapshot: "",
     },
     { disableChecks: true },
   )
 
 // UPDATE
 
+const snapshot = (model: Model): string =>
+  JSON.stringify([
+    Option.getOrNull(model.maybeLabelId),
+    Option.getOrNull(model.maybePolicyId),
+    model.onNoMatch,
+    model.group,
+    model.priority,
+    model.enabled,
+  ])
+
+export const init = (input: Parameters<typeof initialize>[0]): Model => {
+  const model = initialize(input)
+  return evo(model, { savedSnapshot: () => snapshot(model) })
+}
+
+export const hasUnsavedChanges = (model: Model): boolean =>
+  model.submission._tag === "Submitting" || snapshot(model) !== model.savedSnapshot
+
 const edited = (model: Model): Model =>
-  evo(model, { submission: () => ({ _tag: "NotSubmitted" as const }) })
+  evo(model, {
+    submission: (current) =>
+      current._tag === "Submitting" ? current : { _tag: "NotSubmitted" as const },
+  })
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
@@ -237,9 +282,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       if (model.submission._tag === "Submitting" || draftIssues(model).length > 0) return { model }
       if (Option.isNone(model.maybeLabelId) || Option.isNone(model.maybePolicyId)) return { model }
       return {
-        model: evo(model, { submission: () => ({ _tag: "Submitting" as const }) }),
+        model: evo(model, {
+          submission: () => ({
+            _tag: "Submitting" as const,
+            operationId: model.nextOperationId,
+            snapshot: snapshot(model),
+          }),
+          nextOperationId: (id) => id + 1,
+        }),
         commands: [
           SaveRule({
+            operationId: model.nextOperationId,
             repositoryId: model.repositoryId,
             identity: model.identity,
             labelId: model.maybeLabelId.value,
@@ -252,24 +305,51 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ],
       }
     },
-    SucceededSaveRule: ({ rule }) => ({
-      model: evo(model, { submission: () => ({ _tag: "NotSubmitted" as const }) }),
-      outMessage: OutMessage.Saved({ rule }),
-    }),
-    ConflictedSaveRule: ({ rule }) => ({
-      model: evo(model, {
-        identity: () => ({ _tag: "Existing" as const, ruleId: rule.id, version: rule.version }),
-        submission: () => ({ _tag: "Conflicted" as const }),
-      }),
-    }),
-    RejectedSaveRule: ({ issues }) => ({
-      model: evo(model, { submission: () => ({ _tag: "Rejected" as const, issues }) }),
-    }),
-    FailedSaveRule: ({ reason }) => ({
-      model: evo(model, { submission: () => ({ _tag: "SubmitError" as const, message: reason }) }),
-      outMessage: OutMessage.SaveFailed({ reason }),
-    }),
-    ClickedCancel: () => ({ model, outMessage: OutMessage.Cancelled() }),
+    SucceededSaveRule: ({ rule, operationId }) => {
+      if (model.submission._tag !== "Submitting" || model.submission.operationId !== operationId)
+        return { model }
+      const submitted = model.submission.snapshot
+      return {
+        model: evo(model, {
+          identity: () => ({ _tag: "Existing" as const, ruleId: rule.id, version: rule.version }),
+          savedSnapshot: () => submitted,
+          submission: () => ({ _tag: "NotSubmitted" as const }),
+        }),
+        outMessage: OutMessage.Saved({ rule, closeEditor: snapshot(model) === submitted }),
+      }
+    },
+    ConflictedSaveRule: ({ rule, operationId }) =>
+      model.submission._tag !== "Submitting" || model.submission.operationId !== operationId
+        ? { model }
+        : {
+            model: evo(model, {
+              identity: () => ({
+                _tag: "Existing" as const,
+                ruleId: rule.id,
+                version: rule.version,
+              }),
+              submission: () => ({ _tag: "Conflicted" as const }),
+            }),
+          },
+    RejectedSaveRule: ({ issues, operationId }) =>
+      model.submission._tag !== "Submitting" || model.submission.operationId !== operationId
+        ? { model }
+        : {
+            model: evo(model, { submission: () => ({ _tag: "Rejected" as const, issues }) }),
+          },
+    FailedSaveRule: ({ reason, operationId }) =>
+      model.submission._tag !== "Submitting" || model.submission.operationId !== operationId
+        ? { model }
+        : {
+            model: evo(model, {
+              submission: () => ({ _tag: "SubmitError" as const, message: reason }),
+            }),
+            outMessage: OutMessage.SaveFailed({ reason }),
+          },
+    ClickedCancel: () =>
+      model.submission._tag === "Submitting"
+        ? { model }
+        : { model, outMessage: OutMessage.Cancelled() },
   })
 
 // VIEW
@@ -489,3 +569,9 @@ export const view = Submodel.defineView<Model, Message>((model, h): Html => {
     ],
   )
 })
+
+export const reflectConfiguration = (model: Model, configuration: ConfigurationView): Model =>
+  evo(model, {
+    labels: () => configuration.labels,
+    policies: () => configuration.policies,
+  })

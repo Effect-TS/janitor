@@ -621,7 +621,7 @@ describe("PolicyEditor asynchronous edits", () => {
     expect(saved.model.name).toBe("Revised")
     expect(saved.model.description).toBe("More detail")
     expect(saved.model.identity).toEqual({ _tag: "Existing", policyId: "p1", version: 1 })
-    expect(saved.outMessage).toBeUndefined()
+    expect(saved.outMessage?._tag).toBe("Saved")
     expect(saved.model.submission._tag).toBe("NotSubmitted")
   })
 
@@ -642,7 +642,7 @@ describe("PolicyEditor asynchronous edits", () => {
       PolicyEditor.Message.SucceededSavePolicy({ detail, published: false }),
     )
     expect(saved.model.source.source).toBe(source)
-    expect(saved.outMessage).toBeUndefined()
+    expect(saved.outMessage?._tag).toBe("Saved")
   })
 
   it("retains the saved policy identity when publication fails", () => {
@@ -663,7 +663,7 @@ describe("PolicyEditor asynchronous edits", () => {
       draftSaved: true,
       message: "Saved as a draft, not published: Referenced policy is not published",
     })
-    expect(failed.outMessage).toBeUndefined()
+    expect(failed.outMessage).toEqual(PolicyEditor.OutMessage.PersistedDraft({ detail }))
     const retry = PolicyEditor.update(failed.model, PolicyEditor.Message.ClickedSave())
     expect(retry.model.submission._tag).toBe("Submitting")
     expect(retry.commands).toHaveLength(1)

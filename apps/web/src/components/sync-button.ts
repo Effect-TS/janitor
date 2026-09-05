@@ -63,6 +63,7 @@ export const Model = Schema.Struct({
   /** Set from the button press until the request answers. */
   isRequesting: Schema.Boolean,
   isPolling: Schema.Boolean,
+  needsRefresh: Schema.Boolean,
   lastError: Schema.Option(Schema.String),
 })
 export type Model = typeof Model.Type
@@ -146,6 +147,7 @@ export const init = (): UpdateReturn => ({
       observedAt: Option.none(),
       isRequesting: false,
       isPolling: true,
+      needsRefresh: false,
       lastError: Option.none(),
     },
     { disableChecks: true },
@@ -182,12 +184,17 @@ const absorbSummary = (
   receivedAt: DateTime.Utc,
 ): UpdateReturn => {
   const wasSyncing = stateOf(model) === "syncing"
-  const next = evo(model, {
+  const next: Model = evo(model, {
     summary: () => Option.some(summary),
     observedAt: () => Option.some(receivedAt),
     isPolling: () => false,
     lastError: () => Option.none<string>(),
   })
+  if (model.needsRefresh)
+    return {
+      model: evo(next, { needsRefresh: () => false, isPolling: () => true }),
+      commands: [FetchSyncSummary()],
+    }
   return wasSyncing && summary.state !== "syncing"
     ? {
         model: next,
@@ -223,7 +230,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotSummary: ({ summary, receivedAt }) => absorbSummary(model, summary, receivedAt),
 
     FailedSummary: ({ reason }) => ({
-      model: evo(model, { isPolling: () => false, lastError: () => Option.some(reason) }),
+      model: evo(model, {
+        isPolling: () => model.needsRefresh,
+        needsRefresh: () => false,
+        lastError: () => Option.some(reason),
+      }),
+      commands: model.needsRefresh ? [FetchSyncSummary()] : [],
     }),
 
     GotRequestResult: ({ summary, receivedAt }) => ({
@@ -231,16 +243,31 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         summary: () => Option.some(summary),
         observedAt: () => Option.some(receivedAt),
         isRequesting: () => false,
+        isPolling: () => model.needsRefresh,
+        needsRefresh: () => false,
         lastError: () => Option.none<string>(),
       }),
+      commands: model.needsRefresh ? [FetchSyncSummary()] : [],
       outMessage: OutMessage.SyncStarted({ pendingTargets: summary.pendingTargets }),
     }),
 
     FailedRequest: ({ reason }) => ({
-      model: evo(model, { isRequesting: () => false, lastError: () => Option.some(reason) }),
+      model: evo(model, {
+        isRequesting: () => false,
+        isPolling: () => model.needsRefresh,
+        needsRefresh: () => false,
+        lastError: () => Option.some(reason),
+      }),
+      commands: model.needsRefresh ? [FetchSyncSummary()] : [],
       outMessage: OutMessage.SyncFailed({ reason }),
     }),
   })
+
+/** A confirmed mutation may have scheduled work while an older summary was in flight. */
+export const informWorkChanged = (model: Model): UpdateReturn =>
+  model.isPolling || model.isRequesting
+    ? { model: evo(model, { needsRefresh: () => true }) }
+    : update(model, Message.Polled())
 
 // SUBSCRIPTIONS
 

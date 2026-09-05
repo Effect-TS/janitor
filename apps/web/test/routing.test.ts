@@ -62,7 +62,10 @@ const detail: Repositories.RepositoryDetail = {
   reconciliations: [],
 }
 const loaded = (path: string) =>
-  send(initial(path).model, Repositories.Message.GotDetail({ repositoryId: "701", detail }))
+  send(
+    initial(path).model,
+    Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
+  )
 const editor = () =>
   send(
     loaded("/repositories/701/policies/p1").model,
@@ -130,14 +133,14 @@ describe("application routing", () => {
     }
     const remembered = send(
       { ...first, lastRepositoryId: Option.some("701") },
-      Repositories.Message.GotRepositories({ repositories: [repository] }),
+      Repositories.Message.GotRepositories({ requestId: 0, repositories: [repository] }),
     )
     expect(remembered.commands).toMatchObject([
       { name: "Navigate", args: { path: "/repositories/701/policies", replace: true } },
     ])
     const unavailable = send(
       { ...first, lastRepositoryId: Option.some("missing") },
-      Repositories.Message.GotRepositories({ repositories: [repository] }),
+      Repositories.Message.GotRepositories({ requestId: 0, repositories: [repository] }),
     )
     expect(unavailable.model.route._tag).toBe("Home")
     expect(unavailable.model.repositories.selected).toEqual(Option.none())
@@ -171,11 +174,14 @@ describe("application routing", () => {
     const first = initial("/repositories/701/policies/p1?q=main&item=214")
     expect(first.model.repositories.selected).toEqual(Option.some("701"))
     expect(first.commands).toContainEqual(
-      expect.objectContaining({ name: "FetchDetail", args: { repositoryId: "701" } }),
+      expect.objectContaining({
+        name: "FetchDetail",
+        args: expect.objectContaining({ repositoryId: "701" }),
+      }),
     )
     const repository = send(
       first.model,
-      Repositories.Message.GotDetail({ repositoryId: "701", detail }),
+      Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
     )
     expect(repository.commands).toContainEqual(
       expect.objectContaining({
@@ -285,5 +291,92 @@ describe("application routing", () => {
     )
     const arrived = land(saved.model, "/repositories/701/policies/p1")
     expect(arrived.model.repositories.panel).toBe(saved.model.repositories.panel)
+  })
+})
+
+describe("mutation navigation", () => {
+  it("does not navigate away when another policy's deletion completes", () => {
+    let model = editor()
+    model = send(
+      model,
+      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 1 }),
+    ).model
+    model = send(
+      model,
+      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 1 }),
+    ).model
+    model = land(model, "/repositories/701/policies/new").model
+    const result = send(
+      model,
+      Repositories.Message.CompletedDelete({
+        repositoryId: "701",
+        subjectId: "p1",
+        operationId: 1,
+        what: "policy",
+      }),
+    )
+    expect(result.model.route._tag).toBe("NewPolicy")
+    expect(result.model.repositories.panel._tag).toBe("PolicyEditor")
+    expect(result.commands?.some((command) => command.name === "Navigate")).toBe(false)
+    expect(result.model.navigationTarget).toEqual(Option.none())
+  })
+
+  it("closes the deleted document when it is still open", () => {
+    let model = editor()
+    model = send(
+      model,
+      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 1 }),
+    ).model
+    model = send(
+      model,
+      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 1 }),
+    ).model
+    const result = send(
+      model,
+      Repositories.Message.CompletedDelete({
+        repositoryId: "701",
+        subjectId: "p1",
+        operationId: 1,
+        what: "policy",
+      }),
+    )
+    expect(result.model.repositories.panel._tag).toBe("Closed")
+    expect(result.model.navigationTarget).toEqual(Option.some("/repositories/701/policies"))
+  })
+
+  it("wakes sync monitoring after changing the sync setting", () => {
+    const initial = loaded("/repositories/701/settings").model
+    let model: Main.Model = {
+      ...initial,
+      sync: { ...initial.sync, isPolling: false },
+      repositories: {
+        ...initial.repositories,
+        repositories: Option.some([
+          {
+            repositoryId: "701",
+            owner: "test",
+            repo: "repo",
+            access: "accessible",
+            enabled: true,
+            syncEnabled: true,
+            policyCount: 1,
+            ruleCount: 0,
+            configuredRevision: 1,
+            activeRevision: 1,
+          },
+        ]),
+      },
+    }
+    model = send(
+      model,
+      Repositories.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
+    ).model
+    expect(Option.getOrThrow(model.repositories.repositories)[0]?.syncEnabled).toBe(false)
+    const saved = send(
+      model,
+      Repositories.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
+    )
+    expect(saved.model.sync.isPolling).toBe(true)
+    expect(saved.commands?.some((command) => command.name === "FetchSyncSummary")).toBe(true)
   })
 })

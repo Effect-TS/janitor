@@ -34,7 +34,7 @@ describe("Repository connections", () => {
       Connections.Message.ClickedChange({ id: "701", action: "disconnect" }),
     )
     expect(disconnected.commands?.[0]?.name).toBe("ChangeRepositoryConnection")
-    expect(disconnected.model.busy).toBe(true)
+    expect(Option.isSome(disconnected.model.pending)).toBe(true)
     expect(
       Connections.update(
         disconnected.model,
@@ -52,7 +52,7 @@ describe("Repository connections", () => {
       Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
       Scene.Command.resolve(
         Connections.Load,
-        Connections.Message.Loaded({ inventory: { repositories: [candidate] } }),
+        Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [candidate] } }),
       ),
       Scene.expect(
         Scene.text(
@@ -72,10 +72,95 @@ describe("Repository connections", () => {
       Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
       Scene.Command.resolve(
         Connections.Load,
-        Connections.Message.Loaded({ inventory: { repositories: [] } }),
+        Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [] } }),
       ),
       Scene.expect(Scene.role("button", { name: "Grant access on GitHub" })).toExist(),
       Scene.expect(Scene.role("button", { name: "Connect repository" })).toBeAbsent(),
     )
+  })
+})
+
+describe("connection result handling", () => {
+  it("preserves inventory and search after pausing and fences older polls", () => {
+    const initial = {
+      ...Connections.init(),
+      search: "example",
+      inventory: Option.some({ repositories: [candidate] }),
+    }
+    const poll = Connections.update(initial, Connections.Message.LoadRequested({ state: "" }))
+    const pending = Connections.update(
+      poll.model,
+      Connections.Message.ClickedChange({ id: "701", action: "pause" }),
+    )
+    expect(pending.model.pending).toEqual(
+      Option.some({ operationId: 1, repositoryId: "701", action: "pause" }),
+    )
+    const completed = Connections.update(
+      pending.model,
+      Connections.Message.Changed({ id: "701", action: "pause", operationId: 1 }),
+    )
+    expect(completed.model.search).toBe("example")
+    expect(Option.getOrThrow(completed.model.inventory).repositories[0]?.enabled).toBe(false)
+    const stale = Connections.update(
+      completed.model,
+      Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [candidate] } }),
+    )
+    expect(stale.model).toBe(completed.model)
+    const failedRefresh = Connections.update(
+      completed.model,
+      Connections.Message.LoadFailed({
+        requestId: Option.getOrThrow(completed.model.maybeLoadRequest),
+        reason: "Offline",
+      }),
+    )
+    expect(Option.getOrThrow(failedRefresh.model.inventory).repositories[0]?.enabled).toBe(false)
+    expect(failedRefresh.model.loadError).toEqual(Option.some("Offline"))
+  })
+
+  it("reconnects a repository with retained configuration in the paused state", () => {
+    const initial = {
+      ...Connections.init(),
+      inventory: Option.some({
+        repositories: [{ ...candidate, connected: false, enabled: false, reconnect: true }],
+      }),
+    }
+    const pending = Connections.update(
+      initial,
+      Connections.Message.ClickedChange({ id: "701", action: "connect" }),
+    ).model
+    const completed = Connections.update(
+      pending,
+      Connections.Message.Changed({ id: "701", action: "connect", operationId: 1 }),
+    )
+    expect(Option.getOrThrow(completed.model.inventory).repositories[0]).toMatchObject({
+      connected: true,
+      enabled: false,
+    })
+    expect(
+      Connections.update(
+        completed.model,
+        Connections.Message.Changed({ id: "701", action: "connect", operationId: 1 }),
+      ).model,
+    ).toBe(completed.model)
+  })
+
+  it("only announces a refreshed inventory after its read succeeds", () => {
+    const pending = Connections.update(
+      Connections.init(),
+      Connections.Message.ClickedRefresh(),
+    ).model
+    const refreshed = Connections.update(
+      pending,
+      Connections.Message.Refreshed({ operationId: 1 }),
+    ).model
+    expect(refreshed.notice).toBe("Refreshing repository list…")
+    const loaded = Connections.update(
+      refreshed,
+      Connections.Message.Loaded({
+        requestId: Option.getOrThrow(refreshed.maybeLoadRequest),
+        inventory: { repositories: [] },
+      }),
+    )
+    expect(loaded.model.notice).toBe("Available repositories are up to date.")
   })
 })

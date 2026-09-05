@@ -64,6 +64,7 @@ describe("RuleEditor", () => {
       Story.message(RuleEditor.Message.ClickedSave()),
       Story.Command.resolve(
         RuleEditor.SaveRule({
+          operationId: 1,
           repositoryId: "701",
           identity: { _tag: "New" },
           labelId: "11",
@@ -73,9 +74,9 @@ describe("RuleEditor", () => {
           priority: 3,
           enabled: true,
         }),
-        RuleEditor.Message.SucceededSaveRule({ rule }),
+        RuleEditor.Message.SucceededSaveRule({ rule, operationId: 1 }),
       ),
-      Story.expectOutMessage(RuleEditor.OutMessage.Saved({ rule })),
+      Story.expectOutMessage(RuleEditor.OutMessage.Saved({ rule, closeEditor: true })),
     )
   })
 
@@ -92,13 +93,80 @@ describe("RuleEditor", () => {
     Story.story(
       RuleEditor.update,
       Story.given(model),
-      Story.message(
+      Story.message(RuleEditor.Message.ClickedSave()),
+      Story.Command.resolve(
+        RuleEditor.SaveRule,
         RuleEditor.Message.RejectedSaveRule({
+          operationId: 1,
           issues: [{ code: "unavailable-label", message: "Label bug was deleted on GitHub" }],
         }),
       ),
       Story.model((next) => expect(next.submission._tag).toBe("Rejected")),
       Story.expectNoOutMessage(),
     )
+  })
+})
+
+describe("rule save lifetime", () => {
+  const existing = () =>
+    RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      existing: Option.some(rule),
+    })
+
+  it("keeps a pending write while editing and preserves the newer draft after success", () => {
+    const saving = RuleEditor.update(existing(), RuleEditor.Message.ClickedSave()).model
+    const edited = RuleEditor.update(
+      saving,
+      RuleEditor.Message.UpdatedGroup({ value: "later edit" }),
+    ).model
+    expect(edited.submission._tag).toBe("Submitting")
+    expect(RuleEditor.update(edited, RuleEditor.Message.ClickedSave()).commands).toBeUndefined()
+    expect(RuleEditor.update(edited, RuleEditor.Message.ClickedCancel()).outMessage).toBeUndefined()
+    const saved = RuleEditor.update(
+      edited,
+      RuleEditor.Message.SucceededSaveRule({ rule: { ...rule, version: 2 }, operationId: 1 }),
+    )
+    expect(saved.model.group).toBe("later edit")
+    expect(saved.model.identity).toEqual({ _tag: "Existing", ruleId: "r1", version: 2 })
+    expect(saved.outMessage).toEqual(
+      RuleEditor.OutMessage.Saved({ rule: { ...rule, version: 2 }, closeEditor: false }),
+    )
+    expect(RuleEditor.hasUnsavedChanges(saved.model)).toBe(true)
+    const retry = RuleEditor.update(saved.model, RuleEditor.Message.ClickedSave())
+    expect(retry.commands?.[0]?.args).toMatchObject({
+      operationId: 2,
+      identity: { version: 2 },
+      group: "later edit",
+    })
+    expect(
+      RuleEditor.update(
+        retry.model,
+        RuleEditor.Message.FailedSaveRule({ operationId: 1, reason: "obsolete" }),
+      ).model,
+    ).toBe(retry.model)
+  })
+
+  it("updates the saved identity of a new rule before another edit can be saved", () => {
+    let model = RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      existing: Option.none(),
+    })
+    model = RuleEditor.update(model, RuleEditor.Message.SelectedLabel({ labelId: "11" })).model
+    model = RuleEditor.update(model, RuleEditor.Message.UpdatedPolicy({ value: "p1" })).model
+    model = RuleEditor.update(model, RuleEditor.Message.ClickedSave()).model
+    model = RuleEditor.update(model, RuleEditor.Message.UpdatedPriority({ value: "7" })).model
+    const saved = RuleEditor.update(
+      model,
+      RuleEditor.Message.SucceededSaveRule({ operationId: 1, rule }),
+    )
+    expect(saved.outMessage?._tag).toBe("Saved")
+    expect(
+      RuleEditor.update(saved.model, RuleEditor.Message.ClickedSave()).commands?.[0]?.args,
+    ).toMatchObject({ identity: { _tag: "Existing", ruleId: "r1" }, operationId: 2 })
   })
 })

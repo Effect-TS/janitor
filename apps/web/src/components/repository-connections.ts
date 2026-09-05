@@ -39,7 +39,16 @@ export const Model = Schema.Struct({
   error: Schema.Option(Schema.String),
   loadError: Schema.Option(Schema.String),
   search: Schema.String,
-  busy: Schema.Boolean,
+  nextOperationId: Schema.Int,
+  pending: Schema.Option(
+    Schema.Struct({
+      operationId: Schema.Int,
+      action: Schema.String,
+      repositoryId: Schema.NullOr(Schema.String),
+    }),
+  ),
+  nextRequestId: Schema.Int,
+  maybeLoadRequest: Schema.Option(Schema.Int),
   dialog: Dialog.Model,
   notice: Schema.String,
 })
@@ -49,28 +58,31 @@ export const init = (): Model => ({
   error: Option.none(),
   loadError: Option.none(),
   search: "",
-  busy: false,
+  nextOperationId: 1,
+  pending: Option.none(),
+  nextRequestId: 1,
+  maybeLoadRequest: Option.none(),
   dialog: Dialog.init({ id: "disconnect-repository", focusSelector: "#cancel-disconnect" }),
   notice: "",
 })
 export const Message = defineMessageUnion({
   GotDialogMessage: { message: Dialog.Message },
   LoadRequested: { state: Schema.String },
-  Loaded: { inventory: Inventory },
-  LoadFailed: { reason: Schema.String },
-  Failed: { reason: Schema.String },
+  Loaded: { inventory: Inventory, requestId: Schema.Int },
+  LoadFailed: { reason: Schema.String, requestId: Schema.Int },
+  Failed: { reason: Schema.String, operationId: Schema.Int },
   Searched: { value: Schema.String },
   ClickedRefresh: {},
   ClickedChange: {
     id: Schema.String,
     action: Schema.Literals(["connect", "disconnect", "resume", "pause"]),
   },
-  Changed: { id: Schema.String, action: Schema.String },
+  Changed: { id: Schema.String, action: Schema.String, operationId: Schema.Int },
   ClickedGithub: { installationId: Schema.NullOr(Schema.String) },
-  GotGithub: { url: Schema.String },
+  GotGithub: { url: Schema.String, operationId: Schema.Int },
   ClickedDisconnect: {},
   CancelledDisconnect: {},
-  Refreshed: {},
+  Refreshed: { operationId: Schema.Int },
 })
 export type Message = typeof Message.Type
 export const OutMessage = defineMessageUnion({
@@ -91,29 +103,35 @@ const request = (method: "POST" | "PUT" | "DELETE" | "PATCH", url: string, body:
     }
     return response
   })
-const failed = (error: unknown) =>
+const failed = (error: unknown, operationId: number) =>
   Message.Failed({
+    operationId,
     reason: error instanceof Error ? error.message : "The request failed. Please retry.",
   })
-const load = HttpClient.get(`${base}/available`).pipe(
-  Effect.flatMap((response) =>
-    response.status === 200
-      ? HttpIncomingMessage.schemaBodyJson(Inventory)(response)
-      : Effect.fail(new Error("Could not load repositories. Retry to continue.")),
-  ),
-  Effect.map((inventory) => Message.Loaded({ inventory })),
-  Effect.catch((error) => Effect.succeed(Message.LoadFailed({ reason: failed(error).reason }))),
-)
+const load = (requestId: number) =>
+  HttpClient.get(`${base}/available`).pipe(
+    Effect.flatMap((response) =>
+      response.status === 200
+        ? HttpIncomingMessage.schemaBodyJson(Inventory)(response)
+        : Effect.fail(new Error("Could not load repositories. Retry to continue.")),
+    ),
+    Effect.map((inventory) => Message.Loaded({ inventory, requestId })),
+    Effect.catch((error) =>
+      Effect.succeed(Message.LoadFailed({ reason: failed(error, 0).reason, requestId })),
+    ),
+  )
 export const Load = Command.define("LoadConnectionInventory", {
-  args: { state: Schema.String },
+  args: { state: Schema.String, requestId: Schema.Int },
   messages: [Message.Loaded, Message.LoadFailed, Message.Failed],
-  execute: ({ state }) =>
+  execute: ({ state, requestId }) =>
     state
       ? request("POST", `${base}/return`, { state }).pipe(
-          Effect.flatMap(() => load),
-          Effect.catch((error) => Effect.succeed(failed(error))),
+          Effect.flatMap(() => load(requestId)),
+          Effect.catch((error) =>
+            Effect.succeed(Message.LoadFailed({ reason: failed(error, 0).reason, requestId })),
+          ),
         )
-      : load,
+      : load(requestId),
 })
 export const Poll = Mount.defineStream("PollRepositoryConnections", {
   args: { state: Schema.String, refresh: Schema.Boolean },
@@ -131,35 +149,35 @@ export const Poll = Mount.defineStream("PollRepositoryConnections", {
     ),
 })
 const Refresh = Command.define("RefreshConnectionInventory", {
-  args: {},
+  args: { operationId: Schema.Int },
   messages: [Message.Refreshed, Message.Failed],
-  execute: () =>
+  execute: ({ operationId }) =>
     request("POST", `${base}/refresh`, {}).pipe(
-      Effect.as(Message.Refreshed()),
-      Effect.catch((error) => Effect.succeed(failed(error))),
+      Effect.as(Message.Refreshed({ operationId })),
+      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
 const Change = Command.define("ChangeRepositoryConnection", {
-  args: { id: Schema.String, action: Schema.String },
+  args: { id: Schema.String, action: Schema.String, operationId: Schema.Int },
   messages: [Message.Changed, Message.Failed],
-  execute: ({ id, action }) =>
+  execute: ({ id, action, operationId }) =>
     request(
       action === "connect" ? "PUT" : action === "disconnect" ? "DELETE" : "PATCH",
       `/api/v1/repositories/${encodeURIComponent(id)}/connection`,
       { enabled: action === "resume" },
     ).pipe(
-      Effect.as(Message.Changed({ id, action })),
-      Effect.catch((error) => Effect.succeed(failed(error))),
+      Effect.as(Message.Changed({ id, action, operationId })),
+      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
 const Github = Command.define("OpenGitHubInstallation", {
-  args: { installationId: Schema.NullOr(Schema.String) },
+  args: { installationId: Schema.NullOr(Schema.String), operationId: Schema.Int },
   messages: [Message.GotGithub, Message.Failed],
-  execute: ({ installationId }) =>
+  execute: ({ installationId, operationId }) =>
     request("POST", `${base}/github`, { installationId }).pipe(
       Effect.flatMap(HttpIncomingMessage.schemaBodyJson(Schema.Struct({ url: Schema.String }))),
-      Effect.map(({ url }) => Message.GotGithub({ url })),
-      Effect.catch((error) => Effect.succeed(failed(error))),
+      Effect.map(({ url }) => Message.GotGithub({ url, operationId })),
+      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
 const mapDialog = (model: Model, result: ReturnType<typeof Dialog.open>) => ({
@@ -168,58 +186,128 @@ const mapDialog = (model: Model, result: ReturnType<typeof Dialog.open>) => ({
     Message.GotDialogMessage({ message }),
   ),
 })
+const isBusy = (model: Model): boolean => Option.isSome(model.pending)
+const matchesOperation = (model: Model, operationId: number) =>
+  Option.exists(model.pending, (pending) => pending.operationId === operationId)
+const begin = (model: Model, action: string, repositoryId: string | null = null): Model =>
+  evo(model, {
+    pending: () => Option.some({ operationId: model.nextOperationId, action, repositoryId }),
+    nextOperationId: (id) => id + 1,
+    error: () => Option.none(),
+    notice: () => "",
+  })
+const reload = (model: Model, state = "") => ({
+  model: evo(model, {
+    nextRequestId: (id) => id + 1,
+    maybeLoadRequest: () => Option.some(model.nextRequestId),
+  }),
+  commands: [Load({ state, requestId: model.nextRequestId })],
+})
 export const update = (model: Model, message: Message) =>
   Message.match<
     Update.ReturnWithOutMessage<Model, Message, typeof OutMessage.Type, HttpClient.HttpClient>
   >(message, {
     GotDialogMessage: ({ message }) =>
-      model.busy ? { model } : mapDialog(model, Dialog.update(model.dialog, message)),
-    LoadRequested: ({ state }) => ({ model, commands: [Load({ state })] }),
-    Loaded: ({ inventory }) => ({
-      model: evo(model, {
-        inventory: () => Option.some(inventory),
-        loadError: () => Option.none(),
-      }),
-    }),
-    LoadFailed: ({ reason }) => ({ model: evo(model, { loadError: () => Option.some(reason) }) }),
-    Failed: ({ reason }) => ({
-      model: evo(model, { busy: () => false, error: () => Option.some(reason) }),
-      commands: Option.isNone(model.inventory) ? [Load({ state: "" })] : [],
-    }),
-    Searched: ({ value }) => ({ model: evo(model, { search: () => value }) }),
-    ClickedRefresh: () => ({
-      model: evo(model, { busy: () => true, error: () => Option.none() }),
-      commands: [Refresh({})],
-    }),
-    Refreshed: () => ({
-      commands: [Load({ state: "" })],
-      model: evo(model, {
-        busy: () => false,
-        notice: () => "Available repositories are up to date.",
-      }),
-    }),
-    ClickedChange: ({ id, action }) =>
-      model.busy
+      isBusy(model) ? { model } : mapDialog(model, Dialog.update(model.dialog, message)),
+    LoadRequested: ({ state }) =>
+      Option.isSome(model.maybeLoadRequest) ? { model } : reload(model, state),
+    Loaded: ({ inventory, requestId }) =>
+      !Option.contains(model.maybeLoadRequest, requestId)
         ? { model }
         : {
-            model: evo(model, { busy: () => true, error: () => Option.none() }),
-            commands: [Change({ id, action })],
+            model: evo(model, {
+              inventory: () => Option.some(inventory),
+              loadError: () => Option.none(),
+              maybeLoadRequest: () => Option.none(),
+              notice: (current) =>
+                current === "Refreshing repository list…"
+                  ? "Available repositories are up to date."
+                  : current,
+            }),
           },
-    Changed: ({ id, action }) => ({
-      model: init(),
-      commands: [Load({ state: "" })],
-      outMessage: OutMessage.Changed({ id, action }),
-    }),
-    ClickedGithub: ({ installationId }) => ({
-      model: evo(model, { busy: () => true, error: () => Option.none() }),
-      commands: [Github({ installationId })],
-    }),
-    GotGithub: ({ url }) => ({
-      model: evo(model, { busy: () => false }),
-      outMessage: OutMessage.OpenGithub({ url }),
-    }),
-    ClickedDisconnect: () => mapDialog(model, Dialog.open(model.dialog)),
-    CancelledDisconnect: () => mapDialog(model, Dialog.close(model.dialog)),
+    LoadFailed: ({ reason, requestId }) =>
+      !Option.contains(model.maybeLoadRequest, requestId)
+        ? { model }
+        : {
+            model: evo(model, {
+              loadError: () => Option.some(reason),
+              maybeLoadRequest: () => Option.none(),
+              notice: () => "",
+            }),
+          },
+    Failed: ({ reason, operationId }) =>
+      !matchesOperation(model, operationId)
+        ? { model }
+        : reload(evo(model, { pending: () => Option.none(), error: () => Option.some(reason) })),
+    Searched: ({ value }) => ({ model: evo(model, { search: () => value }) }),
+    ClickedRefresh: () =>
+      isBusy(model)
+        ? { model }
+        : {
+            model: begin(model, "refresh"),
+            commands: [Refresh({ operationId: model.nextOperationId })],
+          },
+    Refreshed: ({ operationId }) =>
+      !matchesOperation(model, operationId)
+        ? { model }
+        : reload(
+            evo(model, {
+              pending: () => Option.none(),
+              notice: () => "Refreshing repository list…",
+            }),
+          ),
+    ClickedChange: ({ id, action }) =>
+      isBusy(model)
+        ? { model }
+        : {
+            model: begin(model, action, id),
+            commands: [Change({ id, action, operationId: model.nextOperationId })],
+          },
+    Changed: ({ id, action, operationId }) => {
+      if (!matchesOperation(model, operationId)) return { model }
+      const dialogClose = mapDialog(model, Dialog.close(model.dialog))
+      const next = reload(
+        evo(dialogClose.model, {
+          pending: () => Option.none(),
+          inventory: Option.map((inventory) => ({
+            ...inventory,
+            repositories: inventory.repositories.map((row) =>
+              row.repositoryId !== id
+                ? row
+                : {
+                    ...row,
+                    connected: action !== "disconnect",
+                    enabled: action === "resume" || (action === "connect" && !row.reconnect),
+                    reconnect: row.reconnect || action === "disconnect",
+                  },
+            ),
+          })),
+        }),
+      )
+      return {
+        model: next.model,
+        commands: [...(dialogClose.commands ?? []), ...next.commands],
+        outMessage: OutMessage.Changed({ id, action }),
+      }
+    },
+    ClickedGithub: ({ installationId }) =>
+      isBusy(model)
+        ? { model }
+        : {
+            model: begin(model, "github"),
+            commands: [Github({ installationId, operationId: model.nextOperationId })],
+          },
+    GotGithub: ({ url, operationId }) =>
+      !matchesOperation(model, operationId)
+        ? { model }
+        : {
+            model: evo(model, { pending: () => Option.none() }),
+            outMessage: OutMessage.OpenGithub({ url }),
+          },
+    ClickedDisconnect: () =>
+      isBusy(model) ? { model } : mapDialog(model, Dialog.open(model.dialog)),
+    CancelledDisconnect: () =>
+      isBusy(model) ? { model } : mapDialog(model, Dialog.close(model.dialog)),
   })
 export const view = Submodel.defineView<
   Model,
@@ -233,7 +321,25 @@ export const view = Submodel.defineView<
     label: string,
     onClick: Message,
     variant: "outline" | "default" | "destructive" = "outline",
-  ) => Button.view(h, { label, onClick, variant, size: "sm", isDisabled: model.busy })
+  ) =>
+    Button.view(h, {
+      label:
+        Option.isSome(model.pending) &&
+        onClick._tag === "ClickedChange" &&
+        model.pending.value.repositoryId === onClick.id &&
+        model.pending.value.action === onClick.action
+          ? {
+              connect: "Connecting…",
+              disconnect: "Disconnecting…",
+              pause: "Pausing…",
+              resume: "Resuming…",
+            }[onClick.action]
+          : label,
+      onClick,
+      variant,
+      size: "sm",
+      isDisabled: isBusy(model),
+    })
   return h.section(
     [
       h.Class(
@@ -362,7 +468,7 @@ export const view = Submodel.defineView<
                                       size: "sm",
                                       attributes: [h.Id("cancel-disconnect")],
                                       onClick: Message.CancelledDisconnect(),
-                                      isDisabled: model.busy,
+                                      isDisabled: isBusy(model),
                                     }),
                                     button(
                                       "Disconnect repository",
@@ -502,7 +608,7 @@ export const view = Submodel.defineView<
             )
           : h.empty,
       button(
-        model.busy ? "Updating repositories…" : "Refresh repositories",
+        isBusy(model) ? "Updating repositories…" : "Refresh repositories",
         Message.ClickedRefresh(),
       ),
     ],

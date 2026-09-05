@@ -62,34 +62,37 @@ describe("SyncButton", () => {
     [true, false, false, 3000],
     [true, true, false, 60000],
     [false, false, true, 60000],
-  ] as const)("waits before polling: syncing=%s, error=%s, retrying=%s", async (isSyncing, hasError, isRetrying, delay) => {
-    vi.useFakeTimers()
-    try {
-      const messages: SyncButton.Message[] = []
-      const stream = SyncButton.subscriptions.poll.dependenciesToStream({
-        isSyncing,
-        hasError,
-        isRetrying,
-      })
-      const result = Effect.runPromise(
-        stream.pipe(
-          Stream.take(1),
-          Stream.runForEach((message) =>
-            Effect.sync(() => {
-              messages.push(message)
-            }),
+  ] as const)(
+    "waits before polling: syncing=%s, error=%s, retrying=%s",
+    async (isSyncing, hasError, isRetrying, delay) => {
+      vi.useFakeTimers()
+      try {
+        const messages: SyncButton.Message[] = []
+        const stream = SyncButton.subscriptions.poll.dependenciesToStream({
+          isSyncing,
+          hasError,
+          isRetrying,
+        })
+        const result = Effect.runPromise(
+          stream.pipe(
+            Stream.take(1),
+            Stream.runForEach((message) =>
+              Effect.sync(() => {
+                messages.push(message)
+              }),
+            ),
           ),
-        ),
-      )
-      await vi.advanceTimersByTimeAsync(delay - 1)
-      expect(messages).toEqual([])
-      await vi.advanceTimersByTimeAsync(1)
-      await result
-      expect(messages).toEqual([SyncButton.Message.Polled()])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+        )
+        await vi.advanceTimersByTimeAsync(delay - 1)
+        expect(messages).toEqual([])
+        await vi.advanceTimersByTimeAsync(1)
+        await result
+        expect(messages).toEqual([SyncButton.Message.Polled()])
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
   it("fetches the summary on init", () => {
     const { commands } = SyncButton.init()
     expect(commands?.map((command) => command.name)).toEqual(["FetchSyncSummary"])
@@ -207,5 +210,50 @@ describe("SyncButton", () => {
       SyncButton.Message.GotSummary({ summary: summary("idle"), receivedAt: now }),
     )
     expect(received.model.isRequesting).toBe(true)
+  })
+})
+
+describe("sync work invalidation", () => {
+  it("checks for new work while idle and rechecks after an older in-flight response", () => {
+    const initial = SyncButton.init().model
+    const invalidated = SyncButton.informWorkChanged(initial)
+    expect(invalidated.model.needsRefresh).toBe(true)
+    expect(invalidated.commands).toBeUndefined()
+    const summary: SyncButton.SyncSummary = {
+      state: "idle",
+      lastVerifiedAt: null,
+      pendingTargets: 0,
+      blockedTargets: 0,
+      failedTargets: 0,
+    }
+    const arrived = SyncButton.update(
+      invalidated.model,
+      SyncButton.Message.GotSummary({
+        summary,
+        receivedAt: DateTime.makeUnsafe("2026-09-05T12:00:00Z"),
+      }),
+    )
+    expect(arrived.commands?.[0]?.name).toBe("FetchSyncSummary")
+    expect(arrived.model.isPolling).toBe(true)
+    expect(arrived.model.needsRefresh).toBe(false)
+    const settled = SyncButton.update(
+      arrived.model,
+      SyncButton.Message.GotSummary({
+        summary,
+        receivedAt: DateTime.makeUnsafe("2026-09-05T12:00:01Z"),
+      }),
+    )
+    expect(SyncButton.informWorkChanged(settled.model).commands?.[0]?.name).toBe("FetchSyncSummary")
+  })
+
+  it("does not lose invalidation when the previous summary request fails", () => {
+    const invalidated = SyncButton.informWorkChanged(SyncButton.init().model).model
+    const failed = SyncButton.update(
+      invalidated,
+      SyncButton.Message.FailedSummary({ reason: "Offline" }),
+    )
+    expect(failed.model.isPolling).toBe(true)
+    expect(failed.model.needsRefresh).toBe(false)
+    expect(failed.commands?.[0]?.name).toBe("FetchSyncSummary")
   })
 })

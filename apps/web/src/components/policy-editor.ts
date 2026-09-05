@@ -168,6 +168,7 @@ export const OutMessage = defineMessageUnion({
   Saved: { detail: PolicyDetail, published: Schema.Boolean },
   Cancelled: {},
   SaveFailed: { reason: Schema.String },
+  PersistedDraft: { detail: PolicyDetail },
 })
 export type OutMessage = typeof OutMessage.Type
 
@@ -734,12 +735,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         }),
         submission: () => ({ _tag: "NotSubmitted" as const }),
       }),
-      ...(model.submission._tag === "Submitting" &&
-      (model.submission.name !== model.name ||
-        model.submission.description !== model.description ||
-        model.submission.sourceText !== model.source.source)
-        ? {}
-        : { outMessage: OutMessage.Saved({ detail, published }) }),
+      outMessage: OutMessage.Saved({ detail, published }),
     }),
     SavedDraftWithPublishError: ({ detail, reason }) => ({
       model: evo(model, {
@@ -757,6 +753,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           message: `Saved as a draft, not published: ${reason}`,
         }),
       }),
+      outMessage: OutMessage.PersistedDraft({ detail }),
     }),
     // The draft stays; the base version moves forward so the next save lands on top.
     ConflictedSavePolicy: ({ detail }) => ({
@@ -876,10 +873,15 @@ const disclosure = (
     h,
   )
 
-export const view = Submodel.defineView<Model, Message, { readonly confirmingDelete: boolean }>(
-  (model, { confirmingDelete }, h): Html => {
+interface ViewInputs {
+  readonly confirmingDelete: boolean
+  readonly isDeleting?: boolean
+}
+
+export const view = Submodel.defineView<Model, Message, ViewInputs>(
+  (model, { confirmingDelete, isDeleting = false }, h): Html => {
     const issues = draftIssues(model)
-    const busy = isSubmitting(model)
+    const busy = isSubmitting(model) || isDeleting
     const canSubmit = issues.length === 0 && !busy
     const identity = model.identity
     const bound =
@@ -899,6 +901,7 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
                 h.div(
                   [h.Class("policy-document-heading")],
                   [
+                    isDeleting ? h.p([h.Role("status")], ["Deleting policy…"]) : h.empty,
                     h.div(
                       [h.Class("policy-document-menu")],
                       [
@@ -1364,3 +1367,23 @@ export const view = Submodel.defineView<Model, Message, { readonly confirmingDel
     )
   },
 )
+
+/** Refresh shared configuration without replacing the author's draft. */
+export const reflectConfiguration = (model: Model, configuration: ConfigurationView): Model =>
+  evo(model, {
+    configuration: () => configuration,
+    source: (source) =>
+      evo(source, {
+        referencePolicies: () =>
+          configuration.policies
+            .filter(
+              (policy) =>
+                policy.publishedVersionId !== null &&
+                policy.publishedEvaluator === "Conditions" &&
+                !(
+                  model.identity._tag === "Existing" && model.identity.policyId === policy.policyId
+                ),
+            )
+            .map((policy) => ({ name: policy.name, target: policy.target })),
+      }),
+  })

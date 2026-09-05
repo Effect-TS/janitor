@@ -358,8 +358,9 @@ const foldSyncOutMessage =
 
 /** Toast copy for what the repository page reports. */
 export const repositoriesToastFor = Match.type<Repositories.OutMessage>().pipe(
-  Match.withReturnType<Toast.ShowInput<ToastPayload>>(),
+  Match.withReturnType<Toast.ShowInput<ToastPayload> | undefined>(),
   Match.tagsExhaustive({
+    SyncWorkChanged: () => undefined,
     Notified: ({ title, description }) => ({ variant: "Success", payload: { title, description } }),
     Failed: ({ title, reason }) => ({ variant: "Error", payload: { title, description: reason } }),
   }),
@@ -368,12 +369,16 @@ export const repositoriesToastFor = Match.type<Repositories.OutMessage>().pipe(
 const foldRepositoriesOutMessage =
   (outMessage: Repositories.OutMessage): Update.Step<Model, Message, AppServices> =>
   (model) => {
-    const shown = AppToast.show(model.toast, repositoriesToastFor(outMessage))
+    const input = repositoriesToastFor(outMessage)
+    const refreshed = outMessage._tag === "Failed" ? { model } : refreshSyncStatus(model)
+    if (input === undefined) return refreshed
+    const shown = AppToast.show(refreshed.model.toast, input)
     return {
-      model: evo(model, { toast: () => shown.model }),
-      commands: Command.mapMessages(shown.commands, (message) =>
-        Message.GotToastMessage({ message }),
-      ),
+      model: evo(refreshed.model, { toast: () => shown.model }),
+      commands: [
+        ...(refreshed.commands ?? []),
+        ...Command.mapMessages(shown.commands, (message) => Message.GotToastMessage({ message })),
+      ],
     }
   }
 
@@ -500,9 +505,23 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
   if (repositoryId !== undefined) {
     const panel = next.model.repositories.panel
     let path: string | undefined
-    if (message._tag === "CompletedDelete")
-      path = Routes.sectionPath(repositoryId, model.repositories.section)
-    if (message._tag === "GotRuleEditorMessage" && message.message._tag === "SucceededSaveRule")
+    if (
+      message._tag === "CompletedDelete" &&
+      Repositories.isViewingSubject(
+        model.repositories,
+        message.repositoryId,
+        message.what,
+        message.subjectId,
+      ) &&
+      next.model.repositories.panel._tag === "Closed"
+    )
+      path = Routes.sectionPath(message.repositoryId, model.repositories.section)
+    if (
+      message._tag === "GotRuleEditorMessage" &&
+      message.message._tag === "SucceededSaveRule" &&
+      model.repositories.panel._tag === "RuleEditor" &&
+      next.model.repositories.panel._tag === "Closed"
+    )
       path = Routes.rules({ repositoryId })
     if (
       model.route._tag === "NewPolicy" &&
@@ -549,12 +568,24 @@ const foldSyncButton = Update.foldChild({
   foldOutMessage: foldSyncOutMessage,
 })
 
+const refreshSyncStatus = Update.foldChildStep({
+  update: SyncButton.informWorkChanged,
+  read: (model: Model) => Option.some(model.sync),
+  write: (model, next) => evo(model, { sync: () => next }),
+  toParentMessage: (message) => Message.GotSyncButtonMessage({ message }),
+  foldOutMessage: foldSyncOutMessage,
+})
+
 export const update = (model: Model, message: Message) =>
   Message.match<Update.Return<Model, Message, AppServices>>(message, {
     GotConnectionsMessage: ({ message }) => {
       const next = Connections.update(model.connections, message)
       const updated = evo(model, { connections: () => next.model })
-      if (message._tag === "Loaded" && model.route._tag === "ConnectReturn")
+      if (
+        message._tag === "Loaded" &&
+        Option.contains(model.connections.maybeLoadRequest, message.requestId) &&
+        model.route._tag === "ConnectReturn"
+      )
         return requestNavigation(updated, Routes.connect(), true, false)
       const commands = Command.mapMessages(next.commands, (message) =>
         Message.GotConnectionsMessage({ message }),
@@ -596,12 +627,25 @@ export const update = (model: Model, message: Message) =>
                   : "",
           },
         })
+        const repositoryChange = Repositories.informConnectionChanged(
+          updated.repositories,
+          id,
+          action,
+        )
         const refreshed = evo(updated, {
           toast: () => shown.model,
-          lastRepositoryId: (previous) => (action === "disconnect" ? Option.none() : previous),
-          repositories: () => evo(updated.repositories, { repositories: () => Option.none() }),
+          lastRepositoryId: (previous) =>
+            action === "disconnect" && Option.contains(previous, id) ? Option.none() : previous,
+          repositories: () => repositoryChange.model,
         })
-        const nav = requestNavigation(refreshed, destination, true, false)
+        const syncRefresh = refreshSyncStatus(refreshed)
+        const ownsScreen =
+          (model.route._tag === "Settings" && model.route.repositoryId === id) ||
+          model.route._tag === "Connect" ||
+          model.route._tag === "ConnectReturn"
+        const nav = ownsScreen
+          ? requestNavigation(syncRefresh.model, destination, true, false)
+          : { model: syncRefresh.model }
         return {
           ...nav,
           commands: [
@@ -610,8 +654,11 @@ export const update = (model: Model, message: Message) =>
             ...Command.mapMessages(shown.commands, (message) =>
               Message.GotToastMessage({ message }),
             ),
-            ...(action === "disconnect" ? [ForgetRepository({})] : []),
-            ...Command.mapMessages([Repositories.FetchRepositories()], (message) =>
+            ...(action === "disconnect" && Option.contains(model.lastRepositoryId, id)
+              ? [ForgetRepository({})]
+              : []),
+            ...(syncRefresh.commands ?? []),
+            ...Command.mapMessages(repositoryChange.commands, (message) =>
               Message.GotRepositoriesMessage({ message }),
             ),
           ],
