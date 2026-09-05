@@ -9,6 +9,8 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import { retain } from "alchemy/RemovalPolicy"
+import { deployment } from "../Deployment.ts"
 
 // Must exceed Queue retention (4 days), the retry and dead-letter replay
 // window, and a safety margin.
@@ -49,16 +51,19 @@ export const payloadKey = (deliveryId: GitHubWebhookDeliveryId): GitHubWebhookR2
   GitHubWebhookR2ObjectKey.make(`${PAYLOAD_KEY_PREFIX}${deliveryId}`)
 
 /** Encrypted overflow payloads referenced by queue envelopes. */
-export const GitHubWebhookPayloadsBucket = Cloudflare.R2.Bucket("GitHubWebhookPayloads", {
-  lifecycleRules: [
-    {
-      id: "expire-webhook-payloads",
-      prefix: PAYLOAD_KEY_PREFIX,
-      deleteObjectsTransition: {
-        condition: { type: "Age", maxAge: GITHUB_WEBHOOK_PAYLOAD_RETENTION_SECONDS },
+export const GitHubWebhookPayloadsBucket = Effect.gen(function* () {
+  const target = yield* deployment
+  return yield* Cloudflare.R2.Bucket("GitHubWebhookPayloads", {
+    lifecycleRules: [
+      {
+        id: "expire-webhook-payloads",
+        prefix: PAYLOAD_KEY_PREFIX,
+        deleteObjectsTransition: {
+          condition: { type: "Age", maxAge: GITHUB_WEBHOOK_PAYLOAD_RETENTION_SECONDS },
+        },
       },
-    },
-  ],
+    ],
+  }).pipe(retain(target.retain))
 })
 
 const make = Effect.gen(function* () {

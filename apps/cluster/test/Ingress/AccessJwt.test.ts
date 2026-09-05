@@ -1,5 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
+import * as Deferred from "effect/Deferred"
+import * as Fiber from "effect/Fiber"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
@@ -107,6 +109,38 @@ const rejectionReason = (
   )
 
 describe("AccessVerifier", () => {
+  it.effect("does not make a cold request wait for another request's key fetch", () =>
+    Effect.gen(function* () {
+      const key = yield* makeSigningKey("kid-1")
+      const firstStarted = yield* Deferred.make<void>()
+      const releaseFirst = yield* Deferred.make<void>()
+      let fetches = 0
+      const client = HttpClient.make((request) =>
+        Effect.gen(function* () {
+          if (++fetches === 1) {
+            yield* Deferred.succeed(firstStarted, undefined)
+            yield* Deferred.await(releaseFirst)
+          }
+          return HttpClientResponse.fromWeb(
+            request,
+            new Response(JSON.stringify({ keys: [key.jwk] })),
+          )
+        }),
+      )
+      const verifier = yield* AccessJwt.make({ teamDomain: TEAM_DOMAIN, audience: AUDIENCE }).pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      )
+      const token = yield* sign(key, yield* validClaims)
+      const first = yield* verifier.verify(token).pipe(Effect.forkChild)
+      yield* Deferred.await(firstStarted)
+      const second = yield* verifier.verify(token)
+      assert.strictEqual(second.subject, "user-123")
+      yield* Deferred.succeed(releaseFirst, undefined)
+      yield* Fiber.join(first)
+      yield* verifier.verify(token)
+      assert.strictEqual(fetches, 2)
+    }),
+  )
   it.effect("accepts a valid assertion and returns issuer, subject, email, and expiry", () =>
     Effect.gen(function* () {
       const key = yield* makeSigningKey("kid-1")

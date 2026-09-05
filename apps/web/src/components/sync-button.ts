@@ -46,6 +46,7 @@ export type SyncSummary = typeof SyncSummary.Type
 
 /** How often the summary is refreshed while a sync is running. */
 export const POLL_INTERVAL = Duration.seconds(3)
+export const POLL_RETRY_INTERVAL = Duration.seconds(60)
 
 // MODEL
 
@@ -241,13 +242,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 /** Polls only while a sync is running, so an idle page makes no requests. */
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   poll: entry(
-    { isSyncing: Schema.Boolean },
+    { isSyncing: Schema.Boolean, hasError: Schema.Boolean },
     {
       modelToDependencies: (model) => ({
-        isSyncing: !model.isRequesting && !model.isPolling && stateOf(model) === "syncing",
+        isSyncing: stateOf(model) === "syncing",
+        hasError: Option.isSome(model.lastError),
       }),
-      dependenciesToStream: ({ isSyncing }) =>
-        isSyncing ? Stream.map(Stream.tick(POLL_INTERVAL), () => Message.Polled()) : Stream.empty,
+      dependenciesToStream: ({ isSyncing, hasError }) =>
+        isSyncing
+          ? Stream.tick(hasError ? POLL_RETRY_INTERVAL : POLL_INTERVAL).pipe(
+              // tick emits immediately. Wait before the first poll, and keep
+              // this subscription alive while individual requests complete.
+              Stream.drop(1),
+              Stream.map(() => Message.Polled()),
+            )
+          : Stream.empty,
     },
   ),
 }))

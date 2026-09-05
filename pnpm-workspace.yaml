@@ -46,9 +46,9 @@ catalog:
   yaml: 2.9.0
 
 overrides:
-  "@effect/vitest": link:../effect/packages/vitest
+  "@effect/vitest": file:./vendor/effect-vitest-f4143802256d135864f15314fc37385e919999b1.tgz
   "web>effect": "catalog:"
-  effect: link:../effect/packages/effect
+  effect: file:./vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz
   vite: "catalog:"
 
 peerDependencyRules:
@@ -58,12 +58,12 @@ peerDependencyRules:
     vite: "*"
 
 allowBuilds:
-  cpu-features: set this to true or false
+  cpu-features: false
   esbuild: false
   msgpackr-extract: false
-  protobufjs: set this to true or false
+  protobufjs: false
   sharp: false
-  ssh2: set this to true or false
+  ssh2: false
   workerd: true
 
 minimumReleaseAgeExclude:

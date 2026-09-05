@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { GitHubReadModel } from "../src/GitHub/ReadModel.ts"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
 import { GitHubTransport } from "../src/GitHub/Transport.ts"
 import { SyncTargets } from "../src/SyncTargets.ts"
@@ -11,6 +12,7 @@ import { WorkflowOutbox } from "../src/WorkflowOutbox.ts"
 import { MigratedPostgresLayer } from "./support/Postgres.ts"
 const Services = RepositoryConnections.layer.pipe(
   Layer.provideMerge(SyncTargets.layer),
+  Layer.provideMerge(GitHubReadModel.layer),
   Layer.provideMerge(WorkflowOutbox.layer),
   Layer.provideMerge(MigratedPostgresLayer),
   Layer.provide(
@@ -21,7 +23,25 @@ const Services = RepositoryConnections.layer.pipe(
           Effect.succeed({
             _tag: "Ok",
             status: 200,
-            body: request.url === "/app" ? { slug: "janitor" } : { id: 9001 },
+            body:
+              request.url === "/app"
+                ? { slug: "janitor" }
+                : request.url.startsWith("/app/installations?")
+                  ? [
+                      {
+                        id: 88,
+                        account: { id: 2, login: "new-org", type: "Organization" },
+                        repository_selection: "selected",
+                        html_url: "https://github.com/settings/installations/88",
+                        suspended_at: null,
+                      },
+                    ]
+                  : request.url.startsWith("/installation/repositories")
+                    ? {
+                        total_count: 1,
+                        repositories: [{ id: 9002, full_name: "new-org/new-repo", private: false }],
+                      }
+                    : { id: 9001 },
             etag: Option.none(),
             link: Option.none(),
             requestId: Option.none(),
@@ -84,6 +104,25 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       const sql = yield* SqlClient.SqlClient
       yield* sql`UPDATE repository_connection_attempt SET expires_at=now()-interval '1 minute' WHERE state::text=${expired}`
       yield* Effect.flip(connections.returned(expired, actor))
+    }),
+  )
+  it.effect("discovers repositories immediately without dispatching sync or connecting them", () =>
+    Effect.gen(function* () {
+      const connections = yield* RepositoryConnections
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`DELETE FROM github_repository WHERE repository_id = '9002'`
+      const before = yield* sql`SELECT execution_key FROM workflow_outbox ORDER BY execution_key`
+      yield* connections.refresh
+      const repository = (yield* connections.inventory).repositories.find(
+        (row) => row.repositoryId === "9002",
+      )!
+      assert.strictEqual(repository.owner, "new-org")
+      assert.isFalse(repository.connected)
+      assert.strictEqual(repository.access, "accessible")
+      assert.deepStrictEqual(
+        yield* sql`SELECT execution_key FROM workflow_outbox ORDER BY execution_key`,
+        before,
+      )
     }),
   )
   it.effect("waits for an active repository write before completing disconnect", () =>

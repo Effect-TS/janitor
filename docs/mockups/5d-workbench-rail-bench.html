@@ -1,105 +1,353 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>5d · Icon rail, editor over bench</title>
-<link rel="stylesheet" href="mockup.css"><link rel="stylesheet" href="workbench.css">
-<style>
-.app { display: flex; height: 100vh; }
-.rail { width: 56px; border-right: 1px solid var(--border); background: var(--sidebar); display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 6px; }
-.rail .avatar { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg,#f59e0b,#ef4444); margin-bottom: 8px; cursor: pointer; }
-.rail a { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--muted-foreground); }
-.rail a.on { background: var(--accent); color: var(--foreground); }
-.rail .spacer { flex: 1; }
-.plist { width: 250px; border-right: 1px solid var(--border); overflow: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; }
-.plist .t { font-weight: 600; font-size: 14px; padding: 4px 8px 10px; display: flex; align-items: center; }
-.pol { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; }
-.pol:hover, .pol.on { background: var(--accent); }
-.pol .m { font-size: 11.5px; color: var(--muted-foreground); }
-.body { flex: 1; display: grid; grid-template-rows: 52px 1fr 240px; min-width: 0; }
-.ed { padding: 18px 22px 0; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-.ed .meta { display: grid; grid-template-columns: 220px 1fr; gap: 12px; }
-.ed .editor { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 10px 0; }
-.bench { border-top: 1px solid var(--border); display: grid; grid-template-rows: 40px 1fr; min-height: 0; }
-.bench .bh { display: flex; align-items: center; gap: 12px; padding: 0 22px; }
-.bench .bh .t { font-weight: 500; }
-.bench .scroll { overflow: auto; }
-.bench td, .bench th { padding: 7px 22px; }
-</style></head>
-<body><svg style="display:none"><symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol><symbol id="i-policy" viewBox="0 0 24 24"><path d="M8 4h8l4 4v12H4V4z M8 12h8M8 16h5"/></symbol><symbol id="i-rule" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="18" cy="7" r="2"/></symbol><symbol id="i-act" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol><symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3.9a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 2.4a7 7 0 0 0-1.7 1L5.1 5.5l-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-.9a7 7 0 0 0 1.7 1l.4 2.4h5l.4-2.4a7 7 0 0 0 1.7-1l2.3.9 2-3.5-2-1.5c.1-.3.1-.7.1-1z"/></symbol></svg><div class="app">
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>5d · Icon rail, editor over bench</title>
+    <link rel="stylesheet" href="mockup.css" />
+    <link rel="stylesheet" href="workbench.css" />
+    <style>
+      .app {
+        display: flex;
+        height: 100vh;
+      }
+      .rail {
+        width: 56px;
+        border-right: 1px solid var(--border);
+        background: var(--sidebar);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 10px 0;
+        gap: 6px;
+      }
+      .rail .avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #f59e0b, #ef4444);
+        margin-bottom: 8px;
+        cursor: pointer;
+      }
+      .rail a {
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: var(--muted-foreground);
+      }
+      .rail a.on {
+        background: var(--accent);
+        color: var(--foreground);
+      }
+      .rail .spacer {
+        flex: 1;
+      }
+      .plist {
+        width: 250px;
+        border-right: 1px solid var(--border);
+        overflow: auto;
+        padding: 14px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .plist .t {
+        font-weight: 600;
+        font-size: 14px;
+        padding: 4px 8px 10px;
+        display: flex;
+        align-items: center;
+      }
+      .pol {
+        padding: 8px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .pol:hover,
+      .pol.on {
+        background: var(--accent);
+      }
+      .pol .m {
+        font-size: 11.5px;
+        color: var(--muted-foreground);
+      }
+      .body {
+        flex: 1;
+        display: grid;
+        grid-template-rows: 52px 1fr 240px;
+        min-width: 0;
+      }
+      .ed {
+        padding: 18px 22px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-height: 0;
+      }
+      .ed .meta {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 12px;
+      }
+      .ed .editor {
+        flex: 1;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 0;
+      }
+      .bench {
+        border-top: 1px solid var(--border);
+        display: grid;
+        grid-template-rows: 40px 1fr;
+        min-height: 0;
+      }
+      .bench .bh {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 22px;
+      }
+      .bench .bh .t {
+        font-weight: 500;
+      }
+      .bench .scroll {
+        overflow: auto;
+      }
+      .bench td,
+      .bench th {
+        padding: 7px 22px;
+      }
+    </style>
+  </head>
+  <body>
+    <svg style="display: none">
+      <symbol id="i-home" viewBox="0 0 24 24">
+        <path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
+      </symbol>
+      <symbol id="i-policy" viewBox="0 0 24 24">
+        <path d="M8 4h8l4 4v12H4V4z M8 12h8M8 16h5" />
+      </symbol>
+      <symbol id="i-rule" viewBox="0 0 24 24">
+        <path d="M4 7h10M4 12h16M4 17h7" />
+        <circle cx="18" cy="7" r="2" />
+      </symbol>
+      <symbol id="i-act" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></symbol>
+      <symbol id="i-set" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3.9a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 2.4a7 7 0 0 0-1.7 1L5.1 5.5l-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-.9a7 7 0 0 0 1.7 1l.4 2.4h5l.4-2.4a7 7 0 0 0 1.7-1l2.3.9 2-3.5-2-1.5c.1-.3.1-.7.1-1z"
+        />
+      </symbol>
+    </svg>
+    <div class="app">
+      <nav class="rail">
+        <span class="avatar" title="Effect-TS/effect · switch"></span>
+        <a href="#" title="Overview"
+          ><svg class="icon"><use href="#i-home" /></svg
+        ></a>
+        <a href="#" class="on" title="Policies"
+          ><svg class="icon"><use href="#i-policy" /></svg
+        ></a>
+        <a href="#" title="Rules"
+          ><svg class="icon"><use href="#i-rule" /></svg
+        ></a>
+        <a href="#" title="Activity"
+          ><svg class="icon"><use href="#i-act" /></svg
+        ></a>
+        <span class="spacer"></span>
+        <a href="#" title="Settings"
+          ><svg class="icon"><use href="#i-set" /></svg
+        ></a>
+        <a href="#" title="Theme">◐</a>
+      </nav>
 
-<nav class="rail">
-  <span class="avatar" title="Effect-TS/effect · switch"></span>
-  <a href="#" title="Overview"><svg class="icon"><use href="#i-home"/></svg></a>
-  <a href="#" class="on" title="Policies"><svg class="icon"><use href="#i-policy"/></svg></a>
-  <a href="#" title="Rules"><svg class="icon"><use href="#i-rule"/></svg></a>
-  <a href="#" title="Activity"><svg class="icon"><use href="#i-act"/></svg></a>
-  <span class="spacer"></span>
-  <a href="#" title="Settings"><svg class="icon"><use href="#i-set"/></svg></a>
-  <a href="#" title="Theme">◐</a>
-</nav>
+      <aside class="plist">
+        <div class="t">
+          Policies<span class="spacer"></span><button class="btn sm ghost">+</button>
+        </div>
+        <div class="pol on"><span>ready-for-review</span><span class="m">v3 · 2 rules</span></div>
+        <div class="pol"><span>needs-rebase</span><span class="m">v2, draft · 1 rule</span></div>
+        <div class="pol"><span>touches-schema</span><span class="m">v1 · 1 rule</span></div>
+        <div class="pol"><span>is-bug-report</span><span class="m">v4 · AI · issues</span></div>
+        <div class="pol">
+          <span>stale-changes-requested</span><span class="m">v1 · 1 rule</span>
+        </div>
+        <div class="pol"><span>from-core-team</span><span class="m">draft only</span></div>
+      </aside>
 
-<aside class="plist">
-  <div class="t">Policies<span class="spacer"></span><button class="btn sm ghost">+</button></div>
-  <div class="pol on"><span>ready-for-review</span><span class="m">v3 · 2 rules</span></div>
-  <div class="pol"><span>needs-rebase</span><span class="m">v2, draft · 1 rule</span></div>
-  <div class="pol"><span>touches-schema</span><span class="m">v1 · 1 rule</span></div>
-  <div class="pol"><span>is-bug-report</span><span class="m">v4 · AI · issues</span></div>
-  <div class="pol"><span>stale-changes-requested</span><span class="m">v1 · 1 rule</span></div>
-  <div class="pol"><span>from-core-team</span><span class="m">draft only</span></div>
-</aside>
+      <div class="body">
+        <div class="pagebar">
+          <h1>ready-for-review</h1>
+          <span class="pill ok">v3</span>
+          <span class="muted">·</span>
+          <span class="muted">Draft differs</span>
+          <span class="spacer"></span>
+          <span class="muted" style="font-size: 12px">Reads state, draft, reviews, checks</span>
+          <button class="btn">Save draft</button>
+          <button class="btn primary">Publish v4</button>
+        </div>
 
-<div class="body">
-  <div class="pagebar">
-    <h1>ready-for-review</h1>
-    <span class="pill ok">v3</span>
-    <span class="muted">·</span>
-    <span class="muted">Draft differs</span>
-    <span class="spacer"></span>
-    <span class="muted" style="font-size:12px">Reads state, draft, reviews, checks</span>
-    <button class="btn">Save draft</button>
-    <button class="btn primary">Publish v4</button>
-  </div>
+        <section class="ed">
+          <div class="meta">
+            <div class="field">
+              <label>Name</label><input class="input" value="ready-for-review" />
+            </div>
+            <div class="field">
+              <label>Description</label
+              ><input
+                class="input"
+                value="Non-draft PRs with green checks and no outstanding change requests"
+              />
+            </div>
+          </div>
+          <div class="editor">
+            <div class="ln">
+              <span><span class="p">{</span></span>
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"target"</span><span class="p">:</span>
+                <span class="s">"pull_request"</span><span class="p">,</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"appliesWhen"</span><span class="p">:</span>
+                <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span>
+                <span class="s">"state"</span><span class="p">,</span>
+                <span class="k">"operator"</span><span class="p">:</span>
+                <span class="s">"equals"</span><span class="p">,</span>
+                <span class="k">"value"</span><span class="p">:</span> <span class="s">"open"</span>
+                <span class="p">},</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"matchesWhen"</span><span class="p">:</span>
+                <span class="p">{</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"all"</span><span class="p">:</span> <span class="p">[</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span>
+                <span class="s">"draft"</span><span class="p">,</span>
+                <span class="k">"operator"</span><span class="p">:</span> <span class="s">"is"</span
+                ><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span>
+                <span class="v">false</span> <span class="p">},</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="p">{</span> <span class="k">"none"</span><span class="p">:</span>
+                <span class="s">"reviews"</span><span class="p">,</span>
+                <span class="k">"where"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="k">"fact"</span><span class="p">:</span> <span class="s">"state"</span
+                ><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span>
+                <span class="s">"equals"</span><span class="p">,</span>
+                <span class="k">"value"</span><span class="p">:</span>
+                <span class="s">"CHANGES_REQUESTED"</span> <span class="p">} },</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="p">{</span> <span class="k">"every"</span><span class="p">:</span>
+                <span class="s">"checks"</span><span class="p">,</span>
+                <span class="k">"where"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="k">"fact"</span><span class="p">:</span> <span class="s">"state"</span
+                ><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span>
+                <span class="s">"equals"</span><span class="p">,</span>
+                <span class="k">"value"</span><span class="p">:</span>
+                <span class="s">"success"</span> <span class="p">} }</span></span
+              >
+            </div>
+            <div class="ln">
+              <span> <span class="p">]</span></span>
+            </div>
+            <div class="ln">
+              <span> <span class="p">}</span></span>
+            </div>
+            <div class="ln">
+              <span><span class="p">}</span></span>
+            </div>
+          </div>
+        </section>
 
-  <section class="ed">
-    <div class="meta">
-      <div class="field"><label>Name</label><input class="input" value="ready-for-review"></div>
-      <div class="field"><label>Description</label><input class="input" value="Non-draft PRs with green checks and no outstanding change requests"></div>
+        <section class="bench">
+          <div class="bh">
+            <span class="t">Test</span>
+            <div class="seg">
+              <button class="on">Draft</button><button>v3</button
+              ><button>Whole configuration</button>
+            </div>
+            <span class="muted" style="font-size: 12px"
+              >25 open pull requests · 7 match · 3 differ from v3</span
+            >
+            <span class="spacer"></span>
+            <button class="btn sm">Run</button>
+          </div>
+          <div class="scroll">
+            <table>
+              <tbody>
+                <tr class="row">
+                  <td class="mono muted" style="width: 70px">#5121</td>
+                  <td>fix(Schema): brand transforms</td>
+                  <td style="width: 120px"><span class="pill ok">match</span></td>
+                  <td class="muted" style="width: 160px">v3 said no match</td>
+                  <td class="r muted"><a href="#">Trace</a></td>
+                </tr>
+                <tr class="row">
+                  <td class="mono muted">#5118</td>
+                  <td>chore: bump rolldown</td>
+                  <td><span class="pill ok">match</span></td>
+                  <td class="muted"></td>
+                  <td class="r muted"><a href="#">Trace</a></td>
+                </tr>
+                <tr class="row">
+                  <td class="mono muted">#5117</td>
+                  <td>feat(Stream): mergeWith</td>
+                  <td><span class="pill">no match</span></td>
+                  <td class="muted">changes requested by tim-smart</td>
+                  <td class="r muted"><a href="#">Trace</a></td>
+                </tr>
+                <tr class="row">
+                  <td class="mono muted">#5110</td>
+                  <td>docs: workflow guide</td>
+                  <td><span class="pill">unknown</span></td>
+                  <td class="muted">checks not synced</td>
+                  <td class="r muted"><a href="#">Trace</a></td>
+                </tr>
+                <tr class="row">
+                  <td class="mono muted">#5104</td>
+                  <td>refactor(Layer): memo map</td>
+                  <td><span class="pill ok">match</span></td>
+                  <td class="muted">v3 said no match</td>
+                  <td class="r muted"><a href="#">Trace</a></td>
+                </tr>
+                <tr class="row">
+                  <td class="mono muted">#5099</td>
+                  <td>feat(Cause): pretty printer</td>
+                  <td><span class="pill">no match</span></td>
+                  <td class="muted">v3 said match</td>
+                  <td class="r muted"><a href="#">Trace</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
-    <div class="editor">
-<div class="ln"><span><span class="p">{</span></span></div>
-<div class="ln"><span>  <span class="k">"target"</span><span class="p">:</span> <span class="s">"pull_request"</span><span class="p">,</span></span></div>
-<div class="ln"><span>  <span class="k">"appliesWhen"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span> <span class="s">"state"</span><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span> <span class="s">"equals"</span><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span> <span class="s">"open"</span> <span class="p">},</span></span></div>
-<div class="ln"><span>  <span class="k">"matchesWhen"</span><span class="p">:</span> <span class="p">{</span></span></div>
-<div class="ln"><span>    <span class="k">"all"</span><span class="p">:</span> <span class="p">[</span></span></div>
-<div class="ln"><span>      <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span> <span class="s">"draft"</span><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span> <span class="s">"is"</span><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span> <span class="v">false</span> <span class="p">},</span></span></div>
-<div class="ln"><span>      <span class="p">{</span> <span class="k">"none"</span><span class="p">:</span> <span class="s">"reviews"</span><span class="p">,</span> <span class="k">"where"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span> <span class="s">"state"</span><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span> <span class="s">"equals"</span><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span> <span class="s">"CHANGES_REQUESTED"</span> <span class="p">} },</span></span></div>
-<div class="ln"><span>      <span class="p">{</span> <span class="k">"every"</span><span class="p">:</span> <span class="s">"checks"</span><span class="p">,</span> <span class="k">"where"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span> <span class="s">"state"</span><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span> <span class="s">"equals"</span><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span> <span class="s">"success"</span> <span class="p">} }</span></span></div>
-<div class="ln"><span>    <span class="p">]</span></span></div>
-<div class="ln"><span>  <span class="p">}</span></span></div>
-<div class="ln"><span><span class="p">}</span></span></div>
-    </div>
-  </section>
-
-  <section class="bench">
-    <div class="bh">
-      <span class="t">Test</span>
-      <div class="seg"><button class="on">Draft</button><button>v3</button><button>Whole configuration</button></div>
-      <span class="muted" style="font-size:12px">25 open pull requests · 7 match · 3 differ from v3</span>
-      <span class="spacer"></span>
-      <button class="btn sm">Run</button>
-    </div>
-    <div class="scroll">
-      <table>
-        <tbody>
-          <tr class="row"><td class="mono muted" style="width:70px">#5121</td><td>fix(Schema): brand transforms</td><td style="width:120px"><span class="pill ok">match</span></td><td class="muted" style="width:160px">v3 said no match</td><td class="r muted"><a href="#">Trace</a></td></tr>
-          <tr class="row"><td class="mono muted">#5118</td><td>chore: bump rolldown</td><td><span class="pill ok">match</span></td><td class="muted"></td><td class="r muted"><a href="#">Trace</a></td></tr>
-          <tr class="row"><td class="mono muted">#5117</td><td>feat(Stream): mergeWith</td><td><span class="pill">no match</span></td><td class="muted">changes requested by tim-smart</td><td class="r muted"><a href="#">Trace</a></td></tr>
-          <tr class="row"><td class="mono muted">#5110</td><td>docs: workflow guide</td><td><span class="pill">unknown</span></td><td class="muted">checks not synced</td><td class="r muted"><a href="#">Trace</a></td></tr>
-          <tr class="row"><td class="mono muted">#5104</td><td>refactor(Layer): memo map</td><td><span class="pill ok">match</span></td><td class="muted">v3 said no match</td><td class="r muted"><a href="#">Trace</a></td></tr>
-          <tr class="row"><td class="mono muted">#5099</td><td>feat(Cause): pretty printer</td><td><span class="pill">no match</span></td><td class="muted">v3 said match</td><td class="r muted"><a href="#">Trace</a></td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-</div>
-</div>
-<button class="btn sm theme-toggle" onclick="document.documentElement.classList.toggle('dark')">Toggle theme</button>
-</body></html>
+    <button class="btn sm theme-toggle" onclick="document.documentElement.classList.toggle('dark')">
+      Toggle theme
+    </button>
+  </body>
+</html>

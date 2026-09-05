@@ -1,159 +1,408 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Mockup 1 · Policy workbench</title>
-<link rel="stylesheet" href="mockup.css">
-<style>
-.main { display: grid; grid-template-columns: 240px 1fr 320px; grid-template-rows: 1fr 26px; min-height: 0; }
-.rail { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; background: var(--sidebar); }
-.rail .list { overflow: auto; }
-.pol { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
-.pol:hover { background: var(--accent); }
-.pol.on { background: var(--card); box-shadow: inset 2px 0 var(--foreground); }
-.pol .n { font-weight: 500; }
-.pol .m { grid-column: 1 / -1; font-size: 11px; color: var(--muted-foreground); display: flex; gap: 8px; }
-.center { display: flex; flex-direction: column; min-height: 0; }
-.meta { display: grid; grid-template-columns: 1fr 1fr 130px; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-.inspector { border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
-.inspector .body { overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 14px; }
-.inspector h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); font-weight: 500; }
-.chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.tests { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 12px; }
-.tests .t { display: grid; grid-template-columns: 52px 1fr auto; gap: 8px; padding: 3px 6px; border-radius: 4px; }
-.tests .t:hover { background: var(--accent); }
-.tests .o { font-weight: 500; }
-.statusbar { grid-column: 1 / -1; }
-</style></head>
-<body><div class="shell">
-
-<header class="topbar">
-  <div class="brand"><span class="logo"></span>Janitor</div>
-  <div class="repo-switch"><span class="avatar"></span>Effect-TS/effect <span class="chev">▾</span><kbd>⌘K</kbd></div>
-  <nav class="tabs">
-    <a href="#">Overview</a>
-    <a href="#" class="on">Policies <span class="cnt">6</span></a>
-    <a href="#">Rules <span class="cnt">9</span></a>
-    <a href="#">Activity</a>
-    <a href="#">Settings</a>
-  </nav>
-  <div class="spacer"></div>
-  <div class="right">
-    <span class="pill warn"><span class="dot warn"></span>rev 13 waiting on reviews</span>
-    <button class="btn sm ghost">Sync</button>
-    <button class="btn sm ghost">◐</button>
-  </div>
-</header>
-
-<div class="main">
-  <!-- policy rail -->
-  <aside class="rail">
-    <div class="pane-h"><span class="t">Policies</span><span class="spacer"></span><button class="btn sm">+ New</button></div>
-    <div style="padding:6px 8px;border-bottom:1px solid var(--border)"><input class="input" style="width:100%;height:24px" placeholder="Filter…"></div>
-    <div class="list">
-      <div class="pol"><span class="n">ready-for-review</span><span class="pill ok">v3</span><span class="m">PR · 2 rules · conditions</span></div>
-      <div class="pol on"><span class="n">needs-rebase</span><span class="pill ok">v2 <span class="dot warn" title="draft differs"></span></span><span class="m">PR · 1 rule · conditions</span></div>
-      <div class="pol"><span class="n">touches-schema</span><span class="pill ok">v1</span><span class="m">PR · 1 rule · changedFiles</span></div>
-      <div class="pol"><span class="n">is-bug-report</span><span class="pill info">v4 · AI</span><span class="m">Issue · 1 rule · classifier</span></div>
-      <div class="pol"><span class="n">stale-changes-requested</span><span class="pill ok">v1</span><span class="m">PR · 1 rule · reviews</span></div>
-      <div class="pol"><span class="n">from-core-team</span><span class="pill">draft</span><span class="m muted">PR · unpublished · no rules</span></div>
-    </div>
-    <div class="spacer"></div>
-    <div style="padding:8px 10px;border-top:1px solid var(--border)" class="xs muted">Labels synced 2m ago · 41 labels</div>
-  </aside>
-
-  <!-- editor -->
-  <section class="center">
-    <div class="pane-h">
-      <span>needs-rebase</span>
-      <span class="pill warn">Draft differs from v2</span>
-      <span class="spacer"></span>
-      <div class="seg"><button class="on">Draft</button><button>Published v2</button><button>Diff</button></div>
-      <button class="btn sm ghost">Test ▸</button>
-      <button class="btn sm">Save draft</button>
-      <button class="btn sm primary">Publish v3</button>
-      <button class="btn sm ghost">⋯</button>
-    </div>
-    <div class="meta">
-      <div class="field"><label>Name</label><input class="input" value="needs-rebase"></div>
-      <div class="field"><label>Description</label><input class="input" value="Open PRs whose base moved and have a merge conflict check failing"></div>
-      <div class="field"><label>Target</label><select class="select"><option>Pull requests</option><option>Issues</option></select></div>
-    </div>
-    <div class="editor" style="flex:1;position:relative;padding:6px 0">
-<div class="ln"><span><span class="p">{</span></span></div>
-<div class="ln"><span>  <span class="k">"target"</span><span class="p">:</span> <span class="s">"pull_request"</span><span class="p">,</span></span></div>
-<div class="ln"><span>  <span class="k">"appliesWhen"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span> <span class="s">"state"</span><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span> <span class="s">"equals"</span><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span> <span class="s">"open"</span> <span class="p">},</span></span></div>
-<div class="ln"><span>  <span class="k">"matchesWhen"</span><span class="p">:</span> <span class="p">{</span></span></div>
-<div class="ln"><span>    <span class="k">"all"</span><span class="p">:</span> <span class="p">[</span></span></div>
-<div class="ln"><span>      <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span> <span class="s">"draft"</span><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span> <span class="s">"is"</span><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span> <span class="v">false</span> <span class="p">},</span></span></div>
-<div class="ln"><span>      <span class="p">{</span> <span class="k">"not"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"policy"</span><span class="p">:</span> <span class="s">"ready-for-review"</span> <span class="p">} },</span></span></div>
-<div class="ln"><span>      <span class="p">{</span></span></div>
-<div class="ln"><span>        <span class="k">"some"</span><span class="p">:</span> <span class="s">"checks"</span><span class="p">,</span></span></div>
-<div class="ln cur"><span>        <span class="k">"where"</span><span class="p">:</span> <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span> <span class="s">"name"</span><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span> <span class="s">"</span><span style="border-left:1.5px solid var(--foreground)"></span></span></div>
-<div class="ln"><span>      <span class="p">}</span></span></div>
-<div class="ln"><span>    <span class="p">]</span></span></div>
-<div class="ln"><span>  <span class="p">}</span></span></div>
-<div class="ln"><span><span class="p">}</span></span></div>
-      <div class="complete" style="top:206px;left:470px">
-        <div class="c on"><span>equals</span><span>Text</span></div>
-        <div class="c"><span>notEquals</span><span>Text</span></div>
-        <div class="c"><span>contains</span><span>Text</span></div>
-        <div class="c"><span>matchesGlob</span><span>Text</span></div>
-        <div class="c"><span>isEmpty</span><span></span></div>
-        <div class="doc"><b>checks.name</b> · Check run name on the head commit · track <code>checks</code></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- inspector -->
-  <aside class="inspector">
-    <div class="pane-h">
-      <div class="seg"><button class="on">Manifest</button><button>Test</button><button>Rules</button><button>History</button></div>
-    </div>
-    <div class="body">
-      <div>
-        <h4>Validation</h4>
-        <div class="note"><span class="dot ok"></span> Valid · 5 nodes (7 expanded) · compiled 2s ago</div>
-      </div>
-      <div>
-        <h4>Reads</h4>
-        <div class="chips"><span class="pill">state</span><span class="pill">draft</span><span class="pill">checks.name</span><span class="pill">checks.state</span><span class="pill info">→ ready-for-review</span></div>
-      </div>
-      <div>
-        <h4>Needs tracks</h4>
-        <dl class="kv">
-          <dt>entities</dt><dd><span class="dot ok"></span> verified</dd>
-          <dt>pull_requests</dt><dd><span class="dot ok"></span> verified</dd>
-          <dt>checks</dt><dd><span class="dot warn"></span> syncing · 71%</dd>
-          <dt>labels</dt><dd><span class="dot ok"></span> verified</dd>
-        </dl>
-        <p class="xs muted" style="margin:6px 0 0">Publishing creates revision 14. It activates when <b>checks</b> verifies.</p>
-      </div>
-      <div>
-        <h4>Quick test · 25 most recent open PRs</h4>
-        <div class="bar" style="margin-bottom:6px"><i style="width:28%;background:var(--ok)"></i><i style="width:56%;background:var(--warn)"></i><i style="width:8%;background:var(--muted-foreground)"></i><i style="width:8%;background:var(--border)"></i></div>
-        <div class="xs muted" style="display:flex;gap:10px;margin-bottom:6px"><span><span class="dot ok"></span> 7 match</span><span><span class="dot warn"></span> 14 no match</span><span><span class="dot"></span> 2 unknown</span><span>2 n/a</span></div>
-        <div class="tests">
-          <div class="t"><span class="o" style="color:var(--ok)">match</span><span class="truncate">#5121 fix(Schema): brand transforms</span><span class="muted xs">v2: no match</span></div>
-          <div class="t"><span class="o" style="color:var(--ok)">match</span><span class="truncate">#5118 chore: bump rolldown</span><span class="muted xs">same</span></div>
-          <div class="t"><span class="o" style="color:var(--warn)">no match</span><span class="truncate">#5117 feat(Stream): mergeWith</span><span class="muted xs">same</span></div>
-          <div class="t"><span class="o muted">unknown</span><span class="truncate">#5110 docs: workflow guide</span><span class="muted xs">checks missing</span></div>
-          <div class="t"><span class="o" style="color:var(--ok)">match</span><span class="truncate">#5104 refactor(Layer): memo map</span><span class="muted xs">v2: no match</span></div>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mockup 1 · Policy workbench</title>
+    <link rel="stylesheet" href="mockup.css" />
+    <style>
+      .main {
+        display: grid;
+        grid-template-columns: 240px 1fr 320px;
+        grid-template-rows: 1fr 26px;
+        min-height: 0;
+      }
+      .rail {
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        background: var(--sidebar);
+      }
+      .rail .list {
+        overflow: auto;
+      }
+      .pol {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 2px 8px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+      }
+      .pol:hover {
+        background: var(--accent);
+      }
+      .pol.on {
+        background: var(--card);
+        box-shadow: inset 2px 0 var(--foreground);
+      }
+      .pol .n {
+        font-weight: 500;
+      }
+      .pol .m {
+        grid-column: 1 / -1;
+        font-size: 11px;
+        color: var(--muted-foreground);
+        display: flex;
+        gap: 8px;
+      }
+      .center {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr 130px;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .inspector {
+        border-left: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .inspector .body {
+        overflow: auto;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .inspector h4 {
+        margin: 0 0 6px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted-foreground);
+        font-weight: 500;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .tests {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2px;
+        font-size: 12px;
+      }
+      .tests .t {
+        display: grid;
+        grid-template-columns: 52px 1fr auto;
+        gap: 8px;
+        padding: 3px 6px;
+        border-radius: 4px;
+      }
+      .tests .t:hover {
+        background: var(--accent);
+      }
+      .tests .o {
+        font-weight: 500;
+      }
+      .statusbar {
+        grid-column: 1 / -1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="logo"></span>Janitor</div>
+        <div class="repo-switch">
+          <span class="avatar"></span>Effect-TS/effect <span class="chev">▾</span><kbd>⌘K</kbd>
         </div>
-        <button class="btn sm ghost" style="margin-top:6px">Open full bench →</button>
-      </div>
-      <div>
-        <h4>Bound by</h4>
-        <dl class="kv"><dt><span class="label" style="color:#d93f0b"><i></i>needs-rebase</span></dt><dd class="muted">match → add · no match → remove</dd></dl>
-      </div>
-    </div>
-  </aside>
+        <nav class="tabs">
+          <a href="#">Overview</a>
+          <a href="#" class="on">Policies <span class="cnt">6</span></a>
+          <a href="#">Rules <span class="cnt">9</span></a>
+          <a href="#">Activity</a>
+          <a href="#">Settings</a>
+        </nav>
+        <div class="spacer"></div>
+        <div class="right">
+          <span class="pill warn"><span class="dot warn"></span>rev 13 waiting on reviews</span>
+          <button class="btn sm ghost">Sync</button>
+          <button class="btn sm ghost">◐</button>
+        </div>
+      </header>
 
-  <footer class="statusbar">
-    <span><b>Draft</b> · unsaved 40s</span>
-    <span><span class="dot ok"></span> valid</span>
-    <span>ln 10, col 62</span>
-    <span class="spacer"></span>
-    <span>published <b>v2</b> · rev 11 · 3 days ago by maxwellbrown</span>
-    <span>tracks: entities, pull_requests, checks, labels</span>
-  </footer>
-</div>
-<button class="btn sm theme-toggle" onclick="document.documentElement.classList.toggle('dark')">Toggle theme</button>
-</body></html>
+      <div class="main">
+        <!-- policy rail -->
+        <aside class="rail">
+          <div class="pane-h">
+            <span class="t">Policies</span><span class="spacer"></span
+            ><button class="btn sm">+ New</button>
+          </div>
+          <div style="padding: 6px 8px; border-bottom: 1px solid var(--border)">
+            <input class="input" style="width: 100%; height: 24px" placeholder="Filter…" />
+          </div>
+          <div class="list">
+            <div class="pol">
+              <span class="n">ready-for-review</span><span class="pill ok">v3</span
+              ><span class="m">PR · 2 rules · conditions</span>
+            </div>
+            <div class="pol on">
+              <span class="n">needs-rebase</span
+              ><span class="pill ok">v2 <span class="dot warn" title="draft differs"></span></span
+              ><span class="m">PR · 1 rule · conditions</span>
+            </div>
+            <div class="pol">
+              <span class="n">touches-schema</span><span class="pill ok">v1</span
+              ><span class="m">PR · 1 rule · changedFiles</span>
+            </div>
+            <div class="pol">
+              <span class="n">is-bug-report</span><span class="pill info">v4 · AI</span
+              ><span class="m">Issue · 1 rule · classifier</span>
+            </div>
+            <div class="pol">
+              <span class="n">stale-changes-requested</span><span class="pill ok">v1</span
+              ><span class="m">PR · 1 rule · reviews</span>
+            </div>
+            <div class="pol">
+              <span class="n">from-core-team</span><span class="pill">draft</span
+              ><span class="m muted">PR · unpublished · no rules</span>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <div style="padding: 8px 10px; border-top: 1px solid var(--border)" class="xs muted">
+            Labels synced 2m ago · 41 labels
+          </div>
+        </aside>
+
+        <!-- editor -->
+        <section class="center">
+          <div class="pane-h">
+            <span>needs-rebase</span>
+            <span class="pill warn">Draft differs from v2</span>
+            <span class="spacer"></span>
+            <div class="seg">
+              <button class="on">Draft</button><button>Published v2</button><button>Diff</button>
+            </div>
+            <button class="btn sm ghost">Test ▸</button>
+            <button class="btn sm">Save draft</button>
+            <button class="btn sm primary">Publish v3</button>
+            <button class="btn sm ghost">⋯</button>
+          </div>
+          <div class="meta">
+            <div class="field"><label>Name</label><input class="input" value="needs-rebase" /></div>
+            <div class="field">
+              <label>Description</label
+              ><input
+                class="input"
+                value="Open PRs whose base moved and have a merge conflict check failing"
+              />
+            </div>
+            <div class="field">
+              <label>Target</label
+              ><select class="select">
+                <option>Pull requests</option>
+                <option>Issues</option>
+              </select>
+            </div>
+          </div>
+          <div class="editor" style="flex: 1; position: relative; padding: 6px 0">
+            <div class="ln">
+              <span><span class="p">{</span></span>
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"target"</span><span class="p">:</span>
+                <span class="s">"pull_request"</span><span class="p">,</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"appliesWhen"</span><span class="p">:</span>
+                <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span>
+                <span class="s">"state"</span><span class="p">,</span>
+                <span class="k">"operator"</span><span class="p">:</span>
+                <span class="s">"equals"</span><span class="p">,</span>
+                <span class="k">"value"</span><span class="p">:</span> <span class="s">"open"</span>
+                <span class="p">},</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"matchesWhen"</span><span class="p">:</span>
+                <span class="p">{</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"all"</span><span class="p">:</span> <span class="p">[</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="p">{</span> <span class="k">"fact"</span><span class="p">:</span>
+                <span class="s">"draft"</span><span class="p">,</span>
+                <span class="k">"operator"</span><span class="p">:</span> <span class="s">"is"</span
+                ><span class="p">,</span> <span class="k">"value"</span><span class="p">:</span>
+                <span class="v">false</span> <span class="p">},</span></span
+              >
+            </div>
+            <div class="ln">
+              <span>
+                <span class="p">{</span> <span class="k">"not"</span><span class="p">:</span>
+                <span class="p">{</span> <span class="k">"policy"</span><span class="p">:</span>
+                <span class="s">"ready-for-review"</span> <span class="p">} },</span></span
+              >
+            </div>
+            <div class="ln">
+              <span> <span class="p">{</span></span>
+            </div>
+            <div class="ln">
+              <span>
+                <span class="k">"some"</span><span class="p">:</span> <span class="s">"checks"</span
+                ><span class="p">,</span></span
+              >
+            </div>
+            <div class="ln cur">
+              <span>
+                <span class="k">"where"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="k">"fact"</span><span class="p">:</span> <span class="s">"name"</span
+                ><span class="p">,</span> <span class="k">"operator"</span><span class="p">:</span>
+                <span class="s">"</span
+                ><span style="border-left: 1.5px solid var(--foreground)"></span
+              ></span>
+            </div>
+            <div class="ln">
+              <span> <span class="p">}</span></span>
+            </div>
+            <div class="ln">
+              <span> <span class="p">]</span></span>
+            </div>
+            <div class="ln">
+              <span> <span class="p">}</span></span>
+            </div>
+            <div class="ln">
+              <span><span class="p">}</span></span>
+            </div>
+            <div class="complete" style="top: 206px; left: 470px">
+              <div class="c on"><span>equals</span><span>Text</span></div>
+              <div class="c"><span>notEquals</span><span>Text</span></div>
+              <div class="c"><span>contains</span><span>Text</span></div>
+              <div class="c"><span>matchesGlob</span><span>Text</span></div>
+              <div class="c"><span>isEmpty</span><span></span></div>
+              <div class="doc">
+                <b>checks.name</b> · Check run name on the head commit · track <code>checks</code>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- inspector -->
+        <aside class="inspector">
+          <div class="pane-h">
+            <div class="seg">
+              <button class="on">Manifest</button><button>Test</button><button>Rules</button
+              ><button>History</button>
+            </div>
+          </div>
+          <div class="body">
+            <div>
+              <h4>Validation</h4>
+              <div class="note">
+                <span class="dot ok"></span> Valid · 5 nodes (7 expanded) · compiled 2s ago
+              </div>
+            </div>
+            <div>
+              <h4>Reads</h4>
+              <div class="chips">
+                <span class="pill">state</span><span class="pill">draft</span
+                ><span class="pill">checks.name</span><span class="pill">checks.state</span
+                ><span class="pill info">→ ready-for-review</span>
+              </div>
+            </div>
+            <div>
+              <h4>Needs tracks</h4>
+              <dl class="kv">
+                <dt>entities</dt>
+                <dd><span class="dot ok"></span> verified</dd>
+                <dt>pull_requests</dt>
+                <dd><span class="dot ok"></span> verified</dd>
+                <dt>checks</dt>
+                <dd><span class="dot warn"></span> syncing · 71%</dd>
+                <dt>labels</dt>
+                <dd><span class="dot ok"></span> verified</dd>
+              </dl>
+              <p class="xs muted" style="margin: 6px 0 0">
+                Publishing creates revision 14. It activates when <b>checks</b> verifies.
+              </p>
+            </div>
+            <div>
+              <h4>Quick test · 25 most recent open PRs</h4>
+              <div class="bar" style="margin-bottom: 6px">
+                <i style="width: 28%; background: var(--ok)"></i
+                ><i style="width: 56%; background: var(--warn)"></i
+                ><i style="width: 8%; background: var(--muted-foreground)"></i
+                ><i style="width: 8%; background: var(--border)"></i>
+              </div>
+              <div class="xs muted" style="display: flex; gap: 10px; margin-bottom: 6px">
+                <span><span class="dot ok"></span> 7 match</span
+                ><span><span class="dot warn"></span> 14 no match</span
+                ><span><span class="dot"></span> 2 unknown</span><span>2 n/a</span>
+              </div>
+              <div class="tests">
+                <div class="t">
+                  <span class="o" style="color: var(--ok)">match</span
+                  ><span class="truncate">#5121 fix(Schema): brand transforms</span
+                  ><span class="muted xs">v2: no match</span>
+                </div>
+                <div class="t">
+                  <span class="o" style="color: var(--ok)">match</span
+                  ><span class="truncate">#5118 chore: bump rolldown</span
+                  ><span class="muted xs">same</span>
+                </div>
+                <div class="t">
+                  <span class="o" style="color: var(--warn)">no match</span
+                  ><span class="truncate">#5117 feat(Stream): mergeWith</span
+                  ><span class="muted xs">same</span>
+                </div>
+                <div class="t">
+                  <span class="o muted">unknown</span
+                  ><span class="truncate">#5110 docs: workflow guide</span
+                  ><span class="muted xs">checks missing</span>
+                </div>
+                <div class="t">
+                  <span class="o" style="color: var(--ok)">match</span
+                  ><span class="truncate">#5104 refactor(Layer): memo map</span
+                  ><span class="muted xs">v2: no match</span>
+                </div>
+              </div>
+              <button class="btn sm ghost" style="margin-top: 6px">Open full bench →</button>
+            </div>
+            <div>
+              <h4>Bound by</h4>
+              <dl class="kv">
+                <dt>
+                  <span class="label" style="color: #d93f0b"><i></i>needs-rebase</span>
+                </dt>
+                <dd class="muted">match → add · no match → remove</dd>
+              </dl>
+            </div>
+          </div>
+        </aside>
+
+        <footer class="statusbar">
+          <span><b>Draft</b> · unsaved 40s</span>
+          <span><span class="dot ok"></span> valid</span>
+          <span>ln 10, col 62</span>
+          <span class="spacer"></span>
+          <span>published <b>v2</b> · rev 11 · 3 days ago by maxwellbrown</span>
+          <span>tracks: entities, pull_requests, checks, labels</span>
+        </footer>
+      </div>
+      <button
+        class="btn sm theme-toggle"
+        onclick="document.documentElement.classList.toggle('dark')"
+      >
+        Toggle theme
+      </button>
+    </div>
+  </body>
+</html>

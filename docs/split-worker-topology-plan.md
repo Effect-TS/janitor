@@ -40,9 +40,7 @@ resolve from `rootDir`):
 export default {
   async fetch(request: Request, env: { API: Fetcher; ASSETS: Fetcher }) {
     const url = new URL(request.url)
-    return url.pathname.startsWith("/api/v1/")
-      ? env.API.fetch(request)
-      : env.ASSETS.fetch(request)
+    return url.pathname.startsWith("/api/v1/") ? env.API.fetch(request) : env.ASSETS.fetch(request)
   },
 }
 ```

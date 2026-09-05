@@ -1,4 +1,6 @@
 import { RepositoryConnections } from "./RepositoryConnections.ts"
+import { deployment } from "./Deployment.ts"
+import { Readiness } from "./Ingress/Readiness.ts"
 import {
   DiscoverInstallationsLayer,
   DiscoverInstallationsRegistration,
@@ -78,7 +80,6 @@ import { WorkflowOutbox } from "./WorkflowOutbox.ts"
 import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutboxCron.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
-export const DOMAIN = "janitor.effectful.co"
 const ZONE = "effectful.co"
 /**
  * The audience `alchemy dev` stamps on its simulated Access context. Real
@@ -97,7 +98,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // that service exists only in the CLI process, so reading it here fails
     // at runtime with "Service not found: alchemy/Context".
     const dev = yield* ALCHEMY_DEV
-    const access = yield* Access.declare({ dev, domain: DOMAIN })
+    const target = yield* deployment
+    const access = yield* Access.declare({ dev, domain: target.domain, stage: target.stage })
 
     // A deploy leaves the local audience empty and declares no simulated
     // identity, so the runtime fallback that admits header-less requests has
@@ -108,13 +110,14 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
 
     return {
       main: import.meta.url,
-      compatibility: { flags: ["nodejs_compat"] },
+      compatibility: { date: "2026-09-05", flags: ["nodejs_compat"] },
       // The website Worker holds the custom domain for this hostname. A route
       // is more specific than a custom domain, so the API paths land here and
       // everything else falls through to the website. Access protects the
       // hostname, so both are covered without either Worker enrolling.
-      routes: [{ pattern: `${DOMAIN}/api/v1/*`, zoneName: ZONE }],
+      routes: dev ? [] : [{ pattern: `${target.domain}/api/v1/*`, zoneName: ZONE }],
       workersDev: false,
+      observability: { enabled: true, headSamplingRate: 1 },
       // Read at init from the environment: the plan-phase Config interceptor
       // only binds values it can resolve from the deploy environment.
       env: {
@@ -217,6 +220,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(
         Layer.mergeAll(
           GitHubWebhookJournal.layer,
+          Readiness.layer,
           GitHubReadModel.layer,
           SyncTargets.layer,
           ContentPurge.layer,

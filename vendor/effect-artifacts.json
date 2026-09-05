@@ -1,0 +1,14 @@
+{
+  "revision": "f4143802256d135864f15314fc37385e919999b1",
+  "typescript": "7.0.2",
+  "artifacts": [
+    {
+      "file": "vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz",
+      "sha256": "8a45c86c64c9959c57eaf6c5d8326d7a522df288f2fb0a247b7b9f855ca38111"
+    },
+    {
+      "file": "vendor/effect-vitest-f4143802256d135864f15314fc37385e919999b1.tgz",
+      "sha256": "e53fbda21457d25e6454dbf8b356c08a4b56fe01892d67a87458711fc1a533e2"
+    }
+  ]
+}

@@ -7,7 +7,15 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { ConnectionInventory } from "@janitor/domain/GitHub/Connection"
 import { SyncTargets } from "./SyncTargets.ts"
-import { GitHubTransport } from "./GitHub/Transport.ts"
+import { GitHubTransport, type GitHubResponse } from "./GitHub/Transport.ts"
+import { GitHubReadModel } from "./GitHub/ReadModel.ts"
+import { nextLink } from "./GitHub/Link.ts"
+import type { GitHubApiScope } from "@janitor/domain/GitHub/Api"
+import {
+  GitHubInstallationSummary,
+  GitHubInstallationRepositoriesResponse,
+} from "@janitor/domain/GitHub/Installation"
+import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 
 export class ConnectionError extends Schema.TaggedError<ConnectionError>()("ConnectionError", {
   message: Schema.String,
@@ -36,6 +44,7 @@ export class RepositoryConnections extends Context.Service<
     const sql = yield* SqlClient.SqlClient
     const targets = yield* SyncTargets
     const transport = yield* GitHubTransport
+    const readModel = yield* GitHubReadModel
     const inventory = sql`
     SELECT r.repository_id AS "repositoryId", r.installation_id AS "installationId", r.owner, r.repo,
       r.is_private AS "isPrivate", r.connected, r.enabled, (r.disconnected_at IS NOT NULL) AS reconnect,
@@ -52,9 +61,79 @@ export class RepositoryConnections extends Context.Service<
       ),
       wrap,
     )
-    const refresh = targets
-      .invalidate({ scope: { _tag: "AppInventory" }, sequence: Option.none(), immediate: true })
-      .pipe(Effect.asVoid, wrap)
+    // Discover access in this request; background sync only fills repository content.
+    const refresh = Effect.gen(function* () {
+      const [watermark] = yield* sql<{ sequence: string }>`
+        SELECT COALESCE(MAX(sequence),0)::text AS sequence FROM github_webhook_delivery`
+      const sequence = GitHubWebhookJournalSequence.make(watermark!.sequence)
+      const pages = <S extends Schema.Top>(scope: GitHubApiScope, firstUrl: string, schema: S) =>
+        Effect.gen(function* () {
+          const bodies: Array<S["Type"]> = []
+          let url: string | undefined = firstUrl
+          const visited = new Set<string>()
+          while (url !== undefined) {
+            if (
+              visited.has(url) ||
+              new URL(url, "https://api.github.com").origin !== "https://api.github.com"
+            )
+              return yield* new ConnectionError({
+                message: "GitHub returned an invalid pagination link.",
+              })
+            visited.add(url)
+            const response: GitHubResponse = yield* transport.request({
+              scope,
+              priority: "foreground",
+              method: "GET",
+              url,
+            })
+            if (response._tag !== "Ok")
+              return yield* new ConnectionError({
+                message: "Could not refresh GitHub access. Please retry.",
+              })
+            bodies.push(yield* Schema.decodeUnknownEffect(schema)(response.body))
+            url = Option.getOrUndefined(Option.flatMap(response.link, nextLink))
+          }
+          return bodies
+        })
+      const installations = (yield* pages(
+        { _tag: "App" },
+        "/app/installations?per_page=100",
+        Schema.Array(GitHubInstallationSummary),
+      )).flat()
+      for (const installation of installations) {
+        const repositories =
+          installation.suspendedAt === null
+            ? (yield* pages(
+                { _tag: "Installation", installationId: installation.id },
+                "/installation/repositories?per_page=100",
+                GitHubInstallationRepositoriesResponse,
+              )).flatMap((page) => page.repositories)
+            : []
+        yield* readModel.withTransaction(
+          Effect.gen(function* () {
+            yield* readModel.applyInstallation({
+              installation,
+              status: installation.suspendedAt === null ? "active" : "suspended",
+              sequence,
+              authoritative: true,
+            })
+            if (installation.suspendedAt === null) {
+              yield* readModel.applyRepositories({
+                installationId: installation.id,
+                repositories,
+                sequence,
+                authoritative: true,
+              })
+              yield* readModel.markRepositoriesSuspect({
+                installationId: installation.id,
+                present: repositories.map((repo) => repo.id),
+                sequence,
+              })
+            }
+          }),
+        )
+      }
+    }).pipe(wrap)
     const change = (
       id: string,
       action: "connect" | "disconnect" | "resume" | "pause",

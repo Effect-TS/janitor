@@ -10,7 +10,7 @@ import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
-import { Check, ChevronsUpDown } from "lucide"
+import { Check, ChevronsUpDown, Plus } from "lucide"
 import type { RepositoryOverview } from "@/components/labeling-wire"
 import * as CommandPalette from "@/components/ui/command"
 import * as Button from "@/components/ui/button"
@@ -288,8 +288,11 @@ const palette = (h: HtmlBuilder<Message>, model: Model, inputs: ViewInputs): Htm
         children: paletteBody(h, inputs, model.search),
       }),
       h.a(
-        [h.Href(Routes.connect()), h.Class("block border-t px-3 py-2 text-sm hover:bg-accent")],
-        ["+ Connect repository…"],
+        [
+          h.Href(Routes.connect()),
+          h.Class("flex items-center gap-2.5 border-t px-3 py-2 text-xs hover:bg-accent"),
+        ],
+        [Icon.view(h, Plus, "size-3.5 shrink-0"), "Connect repository…"],
       ),
       h.div(
         [h.Class("text-muted-foreground flex justify-between border-t px-3 py-1.5 text-[11px]")],

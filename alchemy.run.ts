@@ -8,7 +8,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
 import { JanitorDatabase } from "@janitor/cluster/Database"
-import ClusterWorker, { DOMAIN } from "@janitor/cluster/Worker"
+import ClusterWorker from "@janitor/cluster/Worker"
+import { deployment } from "@janitor/cluster/Deployment"
+import { Stage } from "alchemy/Stage"
 
 const WEBSITE_DEV_PORT = 1337
 
@@ -34,12 +36,16 @@ export default Alchemy.Stack(
     state: Cloudflare.state(),
   },
   Effect.gen(function* () {
+    const target = yield* deployment
+    const stage = yield* Stage
+    if (target.stage !== "local" && stage !== target.stage)
+      return yield* Effect.die(new Error("JANITOR_STAGE must match the Alchemy --stage argument"))
     const database = yield* JanitorDatabase
     const cluster = yield* ClusterWorker
 
     const website = yield* Cloudflare.Website.Foldkit("Website", {
       rootDir: new URL("./apps/web", import.meta.url).pathname,
-      domain: DOMAIN,
+      ...(target.stage === "local" ? {} : { domain: target.domain }),
       workersDev: false,
       dev: { port: WEBSITE_DEV_PORT, strictPort: true },
     })

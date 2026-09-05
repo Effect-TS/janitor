@@ -48,10 +48,8 @@ value that only the `alchemy dev` command sets on its own process. `deploy`,
 in `apps/cluster/src/Worker.ts` reads it and branches:
 
 ```ts
-const isDev = yield* ALCHEMY_DEV
-const localDev = isDev
-  ? { audience: "local-dev", email: "dev@janitor.local" }
-  : undefined
+const isDev = yield * ALCHEMY_DEV
+const localDev = isDev ? { audience: "local-dev", email: "dev@janitor.local" } : undefined
 
 return {
   // ...
@@ -89,8 +87,7 @@ binding read at init. Four cases:
 
 - The binding is empty. This is every deployed Worker. 401, as today, without
   even looking at the context. The stub path is unreachable in production.
-- Context is `undefined`. The request did not pass through Access at all.
-  401. This is what a Worker sees if someone reaches it around the edge.
+- Context is `undefined`. The request did not pass through Access at all. 401. This is what a Worker sees if someone reaches it around the edge.
 - Context is defined and its `aud` equals the binding. Admit the request with
   a synthetic identity: issuer `local-dev`, subject the stub's email,
   `expiresAt` one hour out. Log at warning level once per process so the

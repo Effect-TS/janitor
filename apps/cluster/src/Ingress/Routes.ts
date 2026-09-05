@@ -11,6 +11,7 @@ import {
 import { RulesRoutesLayer } from "./Rules.ts"
 import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncRoutesLayer } from "./Sync.ts"
+import { ReadinessRoutesLayer } from "./Readiness.ts"
 
 const ApiRouterLayer = Layer.effect(
   HttpRouter.HttpRouter,
@@ -28,7 +29,12 @@ export const makeRoutesLayer = (
 ) =>
   Layer.mergeAll(
     makeGitHubWebHookRoutesLayer(secrets),
-    Layer.mergeAll(SyncRoutesLayer, RulesRoutesLayer, ConnectionRoutesLayer).pipe(
+    Layer.mergeAll(
+      SyncRoutesLayer,
+      RulesRoutesLayer,
+      ConnectionRoutesLayer,
+      ReadinessRoutesLayer,
+    ).pipe(
       Layer.provide(makeAccessMiddlewareLayer(middleware)),
       Layer.provide(AccessJwt.layerFrom(access)),
     ),

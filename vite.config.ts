@@ -52,14 +52,24 @@ export default defineConfig({
         command: "vp exec node apps/cluster/seed/main.ts",
         cache: false,
       },
-      "cloudflare:cluster-spike": {
-        command: "vp exec alchemy deploy --stage cluster-spike",
+      "production:plan": {
+        command: "vp exec node scripts/deploy.ts production plan",
         cache: false,
       },
-      "cloudflare:cluster-redeploy": {
-        command: "vp exec alchemy deploy --stage cluster-spike --force",
+      "production:deploy": {
+        command: "vp exec node scripts/deploy.ts production deploy",
         cache: false,
       },
+      "build:web": { command: "vp build --config apps/web/vite.config.ts" },
+      "check:dependencies": {
+        command: "vp exec node scripts/check-dependencies.mjs",
+        cache: false,
+      },
+      "check:worker-bundle": {
+        command: "vp exec node scripts/check-worker-bundle.ts",
+        cache: false,
+      },
+      "vendor:effect": { command: "vp exec node scripts/vendor-effect.mjs", cache: false },
     },
   },
   test: {

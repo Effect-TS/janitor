@@ -6,7 +6,6 @@ import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as Semaphore from "effect/Semaphore"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 
@@ -169,20 +168,19 @@ export const make = Effect.fnUntraced(function* (config: AccessVerifierConfig) {
   })
 
   let cached: KeySet | undefined
-  const refreshing = yield* Semaphore.make(1)
   const ageOf = (keySet: KeySet, now: DateTime.Utc) =>
     Duration.millis(DateTime.toEpochMillis(now) - DateTime.toEpochMillis(keySet.fetchedAt))
 
-  /** Fetches unless another fiber already replaced the set this caller saw. */
+  // Share completed keys, never an in-flight request or semaphore. Worker
+  // requests have separate I/O contexts; waiting on another request's fiber
+  // can leave this request with no I/O of its own and workerd cancels it.
   const refresh = (seen: KeySet | undefined) =>
-    refreshing.withPermit(
-      Effect.gen(function* () {
-        if (cached !== undefined && cached !== seen) return cached
-        const fresh = yield* fetchKeys
-        cached = fresh
-        return fresh
-      }),
-    )
+    Effect.gen(function* () {
+      if (cached !== undefined && cached !== seen) return cached
+      const fresh = yield* fetchKeys
+      cached = fresh
+      return fresh
+    })
 
   const keyFor = Effect.fnUntraced(function* (kid: string) {
     const now = yield* DateTime.now

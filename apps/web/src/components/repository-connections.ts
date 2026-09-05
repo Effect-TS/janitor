@@ -116,10 +116,12 @@ export const Load = Command.define("LoadConnectionInventory", {
       : load,
 })
 export const Poll = Mount.defineStream("PollRepositoryConnections", {
-  args: { state: Schema.String },
-  messages: [Message.LoadRequested],
-  execute: ({ state }) =>
-    Stream.make(Message.LoadRequested({ state })).pipe(
+  args: { state: Schema.String, refresh: Schema.Boolean },
+  messages: [Message.LoadRequested, Message.ClickedRefresh],
+  execute: ({ state, refresh }) =>
+    Stream.make(
+      state || !refresh ? Message.LoadRequested({ state }) : Message.ClickedRefresh(),
+    ).pipe(
       Stream.concat(
         Stream.tick("3 seconds").pipe(
           Stream.take(40),
@@ -182,6 +184,7 @@ export const update = (model: Model, message: Message) =>
     LoadFailed: ({ reason }) => ({ model: evo(model, { loadError: () => Option.some(reason) }) }),
     Failed: ({ reason }) => ({
       model: evo(model, { busy: () => false, error: () => Option.some(reason) }),
+      commands: Option.isNone(model.inventory) ? [Load({ state: "" })] : [],
     }),
     Searched: ({ value }) => ({ model: evo(model, { search: () => value }) }),
     ClickedRefresh: () => ({
@@ -192,7 +195,7 @@ export const update = (model: Model, message: Message) =>
       commands: [Load({ state: "" })],
       model: evo(model, {
         busy: () => false,
-        notice: () => "Refreshing GitHub access. Available repositories will update shortly.",
+        notice: () => "Available repositories are up to date.",
       }),
     }),
     ClickedChange: ({ id, action }) =>
@@ -236,7 +239,7 @@ export const view = Submodel.defineView<
       h.Class(
         settings ? "rounded-lg border p-5 space-y-4" : "mx-auto w-full max-w-2xl p-6 space-y-5",
       ),
-      h.OnMount(Poll({ state: inputs.state })),
+      h.OnMount(Poll({ state: inputs.state, refresh: !settings })),
     ],
     [
       h.div(
@@ -498,7 +501,10 @@ export const view = Submodel.defineView<
               ],
             )
           : h.empty,
-      button(model.notice ? "Refresh again" : "Refresh repositories", Message.ClickedRefresh()),
+      button(
+        model.busy ? "Updating repositories…" : "Refresh repositories",
+        Message.ClickedRefresh(),
+      ),
     ],
   )
 })

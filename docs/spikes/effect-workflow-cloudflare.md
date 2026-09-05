@@ -1,5 +1,9 @@
 # Effect workflow Cloudflare spike
 
+## Retirement
+
+The `Janitor/cluster-spike` deployment was destroyed on September 5, 2026 with `vp exec alchemy destroy --stage cluster-spike --yes`. Alchemy reported 10 successful resource deletions, including the cluster Worker, queues, payload bucket, Hyperdrive, Neon database, and Access applications. The results below are historical. See the [production deployment plan](../production-deployment-plan.md) for the next deployment.
+
 ## Pins
 
 - Date: 2026-09-01

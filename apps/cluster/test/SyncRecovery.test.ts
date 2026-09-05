@@ -80,4 +80,24 @@ layer(DataLayer, { timeout: "2 minutes" })("Sync recovery against engine state",
       )
     }),
   )
+  it.effect(
+    "resumes an accepted execution whose result was lost instead of leaving it pending",
+    () =>
+      Effect.gen(function* () {
+        const engine = yield* WorkflowEngine.WorkflowEngine
+        let resumed = 0
+        yield* recoverSyncExecutions.pipe(
+          Effect.provideService(WorkflowEngine.WorkflowEngine, {
+            ...engine,
+            poll: () => Effect.succeed(Option.none()),
+            resume: (workflow) =>
+              Effect.sync(() => {
+                assert.strictEqual(workflow._tag, DiscoverInstallations._tag)
+                resumed++
+              }),
+          }),
+        )
+        assert.strictEqual(resumed, 1)
+      }).pipe(Effect.provide(WorkflowEngine.layerMemory)),
+  )
 })

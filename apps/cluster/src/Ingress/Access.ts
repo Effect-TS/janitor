@@ -1,9 +1,10 @@
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Effect from "effect/Effect"
+import { ALCHEMY_PHASE } from "alchemy/Phase"
+import { requiredText } from "../Deployment.ts"
 
 /** The Zero Trust organization whose GitHub identity provider admits people. */
 export const TEAM_DOMAIN = "effectful.cloudflareaccess.com"
-const GITHUB_IDENTITY_PROVIDER_ID = "0d007daa-be1b-4e31-b538-98a8048f6863"
 const GITHUB_ORGANIZATION = "Effectful-Tech"
 
 /**
@@ -16,16 +17,14 @@ const GITHUB_ORGANIZATION = "Effectful-Tech"
  * `alchemy dev` declares nothing here. There is no edge locally, so the
  * `dev.access` stub on the API Worker stands in for it.
  */
-export const application = (domain: string) =>
+export const application = (domain: string, stage: string, identityProviderId: string) =>
   Cloudflare.Access.Application("Access", {
     type: "self_hosted",
-    name: "Janitor",
+    name: `Janitor ${stage}`,
     domain,
     sessionDuration: "8h",
-    allowedIdps: [GITHUB_IDENTITY_PROVIDER_ID],
+    allowedIdps: [identityProviderId],
     autoRedirectToIdentity: true,
-    // Spike policy: any member of the organization. The split into a
-    // configuration team and a stricter operator team comes later.
     policies: [
       {
         name: `${GITHUB_ORGANIZATION} members`,
@@ -33,7 +32,7 @@ export const application = (domain: string) =>
         include: [
           {
             githubOrganization: {
-              identityProviderId: GITHUB_IDENTITY_PROVIDER_ID,
+              identityProviderId,
               name: GITHUB_ORGANIZATION,
             },
           },
@@ -46,22 +45,24 @@ export const application = (domain: string) =>
  * GitHub cannot log in. A more specific application beats the broader one,
  * so this path skips Access and keeps its signature check.
  */
-export const webhookBypass = (domain: string) =>
+export const webhookBypass = (domain: string, stage: string) =>
   Cloudflare.Access.Application("WebhookBypass", {
     type: "self_hosted",
-    name: "Janitor GitHub webhooks",
+    name: `Janitor ${stage} GitHub webhooks`,
     domain: `${domain}/api/v1/webhooks/github`,
     appLauncherVisible: false,
     policies: [{ name: "GitHub deliveries", decision: "bypass", include: ["everyone"] }],
   })
 
-/** Both applications, or nothing when running under `alchemy dev`. */
+/** Provision Access only during deployment; runtime uses the ACCESS_AUD binding. */
 export const declare = Effect.fnUntraced(function* (options: {
   readonly dev: boolean
   readonly domain: string
+  readonly stage: string
 }) {
-  if (options.dev) return undefined
-  const app = yield* application(options.domain)
-  yield* webhookBypass(options.domain)
+  if (options.dev || (yield* ALCHEMY_PHASE) === "runtime") return undefined
+  const identityProviderId = yield* requiredText("ACCESS_GITHUB_IDP_ID")
+  const app = yield* application(options.domain, options.stage, identityProviderId)
+  yield* webhookBypass(options.domain, options.stage)
   return app
 })

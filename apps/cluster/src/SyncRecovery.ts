@@ -1,6 +1,6 @@
 import { SyncGeneration, SyncScope, syncScopeKey } from "@janitor/domain/GitHub/Sync"
 import * as Effect from "effect/Effect"
-import type * as Option from "effect/Option"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { SyncTargets } from "./SyncTargets.ts"
@@ -16,7 +16,7 @@ const Pending = Schema.Array(
   Schema.Struct({ scope: SyncScope, execution_generation: SyncGeneration }),
 )
 
-/** The engine owns liveness, including suspended rate-limit waits. */
+/** Resume executions lost during eviction; leave persisted rate-limit sleeps alone. */
 export const recoverSyncExecutions = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const targets = yield* SyncTargets
@@ -34,22 +34,72 @@ export const recoverSyncExecutions = Effect.gen(function* () {
         switch (scope._tag) {
           case "AppInventory":
             return DiscoverInstallations.executionId({ scope, generation }).pipe(
-              Effect.flatMap((executionId) => DiscoverInstallations.poll(executionId)),
+              Effect.flatMap((executionId) =>
+                DiscoverInstallations.poll(executionId).pipe(
+                  Effect.tap((result) =>
+                    Option.isNone(result) ? DiscoverInstallations.resume(executionId) : Effect.void,
+                  ),
+                ),
+              ),
+              Effect.tap((result) =>
+                Effect.logDebug("Sync execution state", {
+                  scope: syncScopeKey(scope),
+                  state: Option.isSome(result) ? result.value._tag : "NoResult",
+                }),
+              ),
               Effect.map(isTerminal),
             )
           case "InstallationInventory":
             return SyncInstallationInventory.executionId({ scope, generation }).pipe(
-              Effect.flatMap((executionId) => SyncInstallationInventory.poll(executionId)),
+              Effect.flatMap((executionId) =>
+                SyncInstallationInventory.poll(executionId).pipe(
+                  Effect.tap((result) =>
+                    Option.isNone(result)
+                      ? SyncInstallationInventory.resume(executionId)
+                      : Effect.void,
+                  ),
+                ),
+              ),
+              Effect.tap((result) =>
+                Effect.logDebug("Sync execution state", {
+                  scope: syncScopeKey(scope),
+                  state: Option.isSome(result) ? result.value._tag : "NoResult",
+                }),
+              ),
               Effect.map(isTerminal),
             )
           case "RepositoryTrack":
             return SyncRepositoryTrack.executionId({ scope, generation }).pipe(
-              Effect.flatMap((executionId) => SyncRepositoryTrack.poll(executionId)),
+              Effect.flatMap((executionId) =>
+                SyncRepositoryTrack.poll(executionId).pipe(
+                  Effect.tap((result) =>
+                    Option.isNone(result) ? SyncRepositoryTrack.resume(executionId) : Effect.void,
+                  ),
+                ),
+              ),
+              Effect.tap((result) =>
+                Effect.logDebug("Sync execution state", {
+                  scope: syncScopeKey(scope),
+                  state: Option.isSome(result) ? result.value._tag : "NoResult",
+                }),
+              ),
               Effect.map(isTerminal),
             )
           case "Entity":
             return RefreshEntity.executionId({ scope, generation }).pipe(
-              Effect.flatMap((executionId) => RefreshEntity.poll(executionId)),
+              Effect.flatMap((executionId) =>
+                RefreshEntity.poll(executionId).pipe(
+                  Effect.tap((result) =>
+                    Option.isNone(result) ? RefreshEntity.resume(executionId) : Effect.void,
+                  ),
+                ),
+              ),
+              Effect.tap((result) =>
+                Effect.logDebug("Sync execution state", {
+                  scope: syncScopeKey(scope),
+                  state: Option.isSome(result) ? result.value._tag : "NoResult",
+                }),
+              ),
               Effect.map(isTerminal),
             )
         }

@@ -42,7 +42,7 @@ const writes = HttpRouter.addAll([
     "/repository-connections/refresh",
     Effect.gen(function* () {
       yield* (yield* RepositoryConnections).refresh
-      return Response.empty({ status: 202 })
+      return Response.empty({ status: 204 })
     }).pipe(handled),
   ),
   HttpRouter.route(

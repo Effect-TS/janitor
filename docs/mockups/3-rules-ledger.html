@@ -1,219 +1,554 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Mockup 3 · Rules ledger</title>
-<link rel="stylesheet" href="mockup.css">
-<style>
-.main { display: grid; grid-template-columns: 1fr 280px; grid-template-rows: 40px 1fr 26px; min-height: 0; }
-.revbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
-.revbar .step { display: flex; align-items: center; gap: 6px; }
-.revbar .arrow { color: var(--muted-foreground); }
-.content { overflow: auto; min-height: 0; }
-.toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
-.side { border-left: 1px solid var(--border); background: var(--sidebar); overflow: auto; min-height: 0; }
-.side section { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.side h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-foreground); font-weight: 500; display: flex; }
-.lab { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 12px; }
-.lab .cnt { margin-left: auto; color: var(--muted-foreground); font-size: 11px; }
-.edit td { background: var(--sidebar); padding: 10px 14px 12px; }
-.form { display: grid; grid-template-columns: 1.2fr 1.4fr 1fr 1fr 80px; gap: 10px; align-items: end; }
-.help { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.prio { display: inline-flex; align-items: center; gap: 4px; }
-.prio .h { cursor: grab; color: var(--muted-foreground); }
-.hist { display: inline-flex; gap: 1px; align-items: flex-end; height: 14px; }
-.hist i { width: 3px; background: var(--ok); opacity: .7; display: block; }
-.statusbar { grid-column: 1 / -1; }
-</style></head>
-<body><div class="shell">
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mockup 3 · Rules ledger</title>
+    <link rel="stylesheet" href="mockup.css" />
+    <style>
+      .main {
+        display: grid;
+        grid-template-columns: 1fr 280px;
+        grid-template-rows: 40px 1fr 26px;
+        min-height: 0;
+      }
+      .revbar {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+      }
+      .revbar .step {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .revbar .arrow {
+        color: var(--muted-foreground);
+      }
+      .content {
+        overflow: auto;
+        min-height: 0;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+      }
+      .side {
+        border-left: 1px solid var(--border);
+        background: var(--sidebar);
+        overflow: auto;
+        min-height: 0;
+      }
+      .side section {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .side h4 {
+        margin: 0 0 6px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted-foreground);
+        font-weight: 500;
+        display: flex;
+      }
+      .lab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 0;
+        font-size: 12px;
+      }
+      .lab .cnt {
+        margin-left: auto;
+        color: var(--muted-foreground);
+        font-size: 11px;
+      }
+      .edit td {
+        background: var(--sidebar);
+        padding: 10px 14px 12px;
+      }
+      .form {
+        display: grid;
+        grid-template-columns: 1.2fr 1.4fr 1fr 1fr 80px;
+        gap: 10px;
+        align-items: end;
+      }
+      .help {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .prio {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .prio .h {
+        cursor: grab;
+        color: var(--muted-foreground);
+      }
+      .hist {
+        display: inline-flex;
+        gap: 1px;
+        align-items: flex-end;
+        height: 14px;
+      }
+      .hist i {
+        width: 3px;
+        background: var(--ok);
+        opacity: 0.7;
+        display: block;
+      }
+      .statusbar {
+        grid-column: 1 / -1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="logo"></span>Janitor</div>
+        <div class="repo-switch">
+          <span class="avatar"></span>Effect-TS/effect <span class="chev">▾</span><kbd>⌘K</kbd>
+        </div>
+        <nav class="tabs">
+          <a href="#">Overview</a>
+          <a href="#">Policies <span class="cnt">6</span></a>
+          <a href="#" class="on">Rules <span class="cnt">9</span></a>
+          <a href="#">Activity</a>
+          <a href="#">Settings</a>
+        </nav>
+        <div class="spacer"></div>
+        <div class="right">
+          <button class="btn sm ghost">Sync</button><button class="btn sm ghost">◐</button>
+        </div>
+      </header>
 
-<header class="topbar">
-  <div class="brand"><span class="logo"></span>Janitor</div>
-  <div class="repo-switch"><span class="avatar"></span>Effect-TS/effect <span class="chev">▾</span><kbd>⌘K</kbd></div>
-  <nav class="tabs">
-    <a href="#">Overview</a>
-    <a href="#">Policies <span class="cnt">6</span></a>
-    <a href="#" class="on">Rules <span class="cnt">9</span></a>
-    <a href="#">Activity</a>
-    <a href="#">Settings</a>
-  </nav>
-  <div class="spacer"></div>
-  <div class="right"><button class="btn sm ghost">Sync</button><button class="btn sm ghost">◐</button></div>
-</header>
-
-<div class="main">
-  <div class="revbar">
-    <div class="step"><span class="muted">Configured</span><b>rev 13</b></div>
-    <span class="arrow">→</span>
-    <div class="step"><span class="dot warn"></span><span>waiting on <code>reviews</code></span><span class="bar" style="width:80px;margin-left:4px"><i style="width:64%;background:var(--warn)"></i></span><span class="muted xs">64%</span></div>
-    <span class="arrow">→</span>
-    <div class="step"><span class="muted">Active</span><b>rev 12</b><span class="muted xs">since 14:02</span></div>
-    <span class="spacer"></span>
-    <span class="muted">Labels <span class="dot ok"></span> verified 2m ago</span>
-    <span class="muted">AI <span class="dot ok"></span> enabled · gpt-5.6-luna</span>
-    <button class="btn sm ghost">Test whole config ▸</button>
-  </div>
-
-  <div class="content">
-    <div class="toolbar">
-      <input class="input" placeholder="Filter rules…" style="width:220px;height:24px">
-      <div class="seg"><button class="on">All</button><button>Pull requests</button><button>Issues</button></div>
-      <span class="muted xs">9 rules · 7 enabled · 2 labels missing on GitHub</span>
-      <span class="spacer"></span>
-      <button class="btn sm primary">+ New rule</button>
-    </div>
-    <table>
-      <thead><tr>
-        <th style="width:36px"></th>
-        <th>Label</th>
-        <th>When policy matches</th>
-        <th>On no match</th>
-        <th style="width:80px">Priority</th>
-        <th class="r" style="width:110px">Decided · 7d</th>
-        <th style="width:110px"></th>
-      </tr></thead>
-      <tbody>
-        <tr class="group-row"><td colspan="7">Ungrouped · every matching rule applies</td></tr>
-        <tr class="row">
-          <td><span class="switch on"></span></td>
-          <td><span class="label" style="color:#0e8a16"><i></i>schema</span></td>
-          <td>touches-schema <span class="muted xs">v1</span></td>
-          <td class="muted">preserve</td>
-          <td class="muted">—</td>
-          <td class="r"><span class="hist"><i style="height:6px"></i><i style="height:9px"></i><i style="height:4px"></i><i style="height:12px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:14px"></i></span> <span class="num">+31</span></td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">Test</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
-        <tr class="row">
-          <td><span class="switch on"></span></td>
-          <td><span class="label" style="color:#d93f0b"><i></i>needs-rebase</span></td>
-          <td>needs-rebase <span class="muted xs">v2</span> <span class="pill warn" title="a newer draft exists">draft</span></td>
-          <td>ensure absent</td>
-          <td class="muted">—</td>
-          <td class="r"><span class="hist"><i style="height:3px"></i><i style="height:5px"></i><i style="height:8px"></i><i style="height:2px"></i><i style="height:6px"></i><i style="height:4px"></i><i style="height:9px"></i></span> <span class="num">+8 −5</span></td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">Test</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
-        <tr class="row">
-          <td><span class="switch on"></span></td>
-          <td><span class="label" style="color:#b60205"><i></i>bug</span> <span class="pill info">AI</span></td>
-          <td>is-bug-report <span class="muted xs">v4</span></td>
-          <td class="muted">preserve <span class="xs">(classifiers only add)</span></td>
-          <td class="muted">—</td>
-          <td class="r"><span class="hist"><i style="height:10px"></i><i style="height:12px"></i><i style="height:9px"></i><i style="height:14px"></i><i style="height:8px"></i><i style="height:11px"></i><i style="height:13px"></i></span> <span class="num">+52</span></td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">Test</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
-        <tr class="row">
-          <td><span class="switch"></span></td>
-          <td><span class="label" style="color:#5319e7;opacity:.6"><i></i>core-team</span> <span class="pill bad">label missing</span></td>
-          <td>from-core-team <span class="muted xs">unpublished</span></td>
-          <td class="muted">preserve</td>
-          <td class="muted">—</td>
-          <td class="r muted xs">never</td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
-
-        <tr class="group-row"><td colspan="7">Group <b>review-state</b> · exclusive, lowest priority wins · 3 rules</td></tr>
-        <tr class="row sel">
-          <td><span class="switch on"></span></td>
-          <td><span class="label" style="color:#fbca04"><i></i>changes-requested</span></td>
-          <td>stale-changes-requested <span class="muted xs">v1</span></td>
-          <td>ensure absent</td>
-          <td><span class="prio"><span class="h">⋮⋮</span><span class="num">10</span></span></td>
-          <td class="r"><span class="hist"><i style="height:4px"></i><i style="height:6px"></i><i style="height:3px"></i><i style="height:7px"></i><i style="height:5px"></i><i style="height:2px"></i><i style="height:6px"></i></span> <span class="num">+6 −9</span></td>
-          <td class="r"><button class="btn sm ghost">Close</button></td>
-        </tr>
-        <tr class="edit"><td colspan="7">
-          <div class="form">
-            <div class="field"><label>Label</label><select class="select"><option>changes-requested</option><option>ready</option><option>needs-rebase</option></select></div>
-            <div class="field"><label>When policy matches</label><select class="select"><option>stale-changes-requested · v1</option><option>ready-for-review · v3</option><option>needs-rebase · v2</option></select></div>
-            <div class="field"><label>On no match</label><div class="seg"><button>Preserve</button><button class="on">Ensure absent</button></div></div>
-            <div class="field"><label>Group</label><input class="input" value="review-state" list="groups"><datalist id="groups"><option>review-state</option></datalist></div>
-            <div class="field"><label>Priority</label><input class="input num" value="10"></div>
-            <div class="help">
-              <div class="note"><b>Ensure absent</b> removes <span class="label" style="color:#fbca04;height:16px"><i></i>changes-requested</span> whenever the policy stops matching, including labels a person added by hand. <b>Preserve</b> only ever adds.</div>
-              <div class="note">In group <b>review-state</b>, <b>ready</b> (priority 20) and <b>needs-rebase</b> (30) are skipped for any item where this rule matches. Ties resolve by label name.</div>
-            </div>
-            <div style="grid-column:1/-1;display:flex;gap:8px;align-items:center">
-              <span class="muted xs">Preview on 25 open PRs: <b style="color:var(--ok)">+2</b> <b style="color:var(--destructive)">−1</b> · 3 selections change in group</span>
-              <span class="spacer"></span>
-              <button class="btn sm ghost danger">Delete rule</button>
-              <button class="btn sm">Cancel</button>
-              <button class="btn sm primary">Save · rev 14</button>
-            </div>
+      <div class="main">
+        <div class="revbar">
+          <div class="step"><span class="muted">Configured</span><b>rev 13</b></div>
+          <span class="arrow">→</span>
+          <div class="step">
+            <span class="dot warn"></span><span>waiting on <code>reviews</code></span
+            ><span class="bar" style="width: 80px; margin-left: 4px"
+              ><i style="width: 64%; background: var(--warn)"></i></span
+            ><span class="muted xs">64%</span>
           </div>
-        </td></tr>
-        <tr class="row">
-          <td><span class="switch on"></span></td>
-          <td><span class="label" style="color:#0e8a16"><i></i>ready</span></td>
-          <td>ready-for-review <span class="muted xs">v3</span></td>
-          <td>ensure absent</td>
-          <td><span class="prio"><span class="h">⋮⋮</span><span class="num">20</span></span></td>
-          <td class="r"><span class="hist"><i style="height:8px"></i><i style="height:10px"></i><i style="height:12px"></i><i style="height:9px"></i><i style="height:13px"></i><i style="height:7px"></i><i style="height:11px"></i></span> <span class="num">+40 −22</span></td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">Test</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
-        <tr class="row">
-          <td><span class="switch on"></span></td>
-          <td><span class="label" style="color:#d93f0b"><i></i>needs-rebase</span></td>
-          <td>needs-rebase <span class="muted xs">v2</span></td>
-          <td>ensure absent</td>
-          <td><span class="prio"><span class="h">⋮⋮</span><span class="num">30</span></span></td>
-          <td class="r muted xs">shadowed 11×</td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">Test</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
+          <span class="arrow">→</span>
+          <div class="step">
+            <span class="muted">Active</span><b>rev 12</b><span class="muted xs">since 14:02</span>
+          </div>
+          <span class="spacer"></span>
+          <span class="muted">Labels <span class="dot ok"></span> verified 2m ago</span>
+          <span class="muted">AI <span class="dot ok"></span> enabled · gpt-5.6-luna</span>
+          <button class="btn sm ghost">Test whole config ▸</button>
+        </div>
 
-        <tr class="group-row"><td colspan="7">Group <b>size</b> · exclusive · 2 rules</td></tr>
-        <tr class="row">
-          <td><span class="switch on"></span></td>
-          <td><span class="label" style="color:#c2e0c6"><i></i>size/S</span></td>
-          <td>small-diff <span class="muted xs">v1</span></td>
-          <td>ensure absent</td>
-          <td><span class="prio"><span class="h">⋮⋮</span><span class="num">1</span></span></td>
-          <td class="r"><span class="num">+18 −3</span></td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">Test</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
-        <tr class="row">
-          <td><span class="switch"></span></td>
-          <td><span class="label" style="color:#f9d0c4;opacity:.6"><i></i>size/L</span></td>
-          <td>large-diff <span class="muted xs">v1</span></td>
-          <td>ensure absent</td>
-          <td><span class="prio"><span class="h">⋮⋮</span><span class="num">2</span></span></td>
-          <td class="r muted xs">disabled</td>
-          <td class="r"><span class="rowactions"><button class="btn sm ghost">Edit</button><button class="btn sm ghost">⋯</button></span></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+        <div class="content">
+          <div class="toolbar">
+            <input class="input" placeholder="Filter rules…" style="width: 220px; height: 24px" />
+            <div class="seg">
+              <button class="on">All</button><button>Pull requests</button><button>Issues</button>
+            </div>
+            <span class="muted xs">9 rules · 7 enabled · 2 labels missing on GitHub</span>
+            <span class="spacer"></span>
+            <button class="btn sm primary">+ New rule</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 36px"></th>
+                <th>Label</th>
+                <th>When policy matches</th>
+                <th>On no match</th>
+                <th style="width: 80px">Priority</th>
+                <th class="r" style="width: 110px">Decided · 7d</th>
+                <th style="width: 110px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="group-row">
+                <td colspan="7">Ungrouped · every matching rule applies</td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch on"></span></td>
+                <td>
+                  <span class="label" style="color: #0e8a16"><i></i>schema</span>
+                </td>
+                <td>touches-schema <span class="muted xs">v1</span></td>
+                <td class="muted">preserve</td>
+                <td class="muted">—</td>
+                <td class="r">
+                  <span class="hist"
+                    ><i style="height: 6px"></i><i style="height: 9px"></i
+                    ><i style="height: 4px"></i><i style="height: 12px"></i
+                    ><i style="height: 7px"></i><i style="height: 10px"></i
+                    ><i style="height: 14px"></i
+                  ></span>
+                  <span class="num">+31</span>
+                </td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">Test</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch on"></span></td>
+                <td>
+                  <span class="label" style="color: #d93f0b"><i></i>needs-rebase</span>
+                </td>
+                <td>
+                  needs-rebase <span class="muted xs">v2</span>
+                  <span class="pill warn" title="a newer draft exists">draft</span>
+                </td>
+                <td>ensure absent</td>
+                <td class="muted">—</td>
+                <td class="r">
+                  <span class="hist"
+                    ><i style="height: 3px"></i><i style="height: 5px"></i
+                    ><i style="height: 8px"></i><i style="height: 2px"></i
+                    ><i style="height: 6px"></i><i style="height: 4px"></i
+                    ><i style="height: 9px"></i
+                  ></span>
+                  <span class="num">+8 −5</span>
+                </td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">Test</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch on"></span></td>
+                <td>
+                  <span class="label" style="color: #b60205"><i></i>bug</span>
+                  <span class="pill info">AI</span>
+                </td>
+                <td>is-bug-report <span class="muted xs">v4</span></td>
+                <td class="muted">preserve <span class="xs">(classifiers only add)</span></td>
+                <td class="muted">—</td>
+                <td class="r">
+                  <span class="hist"
+                    ><i style="height: 10px"></i><i style="height: 12px"></i
+                    ><i style="height: 9px"></i><i style="height: 14px"></i
+                    ><i style="height: 8px"></i><i style="height: 11px"></i
+                    ><i style="height: 13px"></i
+                  ></span>
+                  <span class="num">+52</span>
+                </td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">Test</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch"></span></td>
+                <td>
+                  <span class="label" style="color: #5319e7; opacity: 0.6"><i></i>core-team</span>
+                  <span class="pill bad">label missing</span>
+                </td>
+                <td>from-core-team <span class="muted xs">unpublished</span></td>
+                <td class="muted">preserve</td>
+                <td class="muted">—</td>
+                <td class="r muted xs">never</td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
 
-  <aside class="side">
-    <section>
-      <h4>Labels on GitHub <span class="spacer"></span><span>41</span></h4>
-      <div class="lab"><span class="label" style="color:#0e8a16"><i></i>ready</span><span class="cnt">1 rule</span></div>
-      <div class="lab"><span class="label" style="color:#0e8a16"><i></i>schema</span><span class="cnt">1 rule</span></div>
-      <div class="lab"><span class="label" style="color:#d93f0b"><i></i>needs-rebase</span><span class="cnt">2 rules</span></div>
-      <div class="lab"><span class="label" style="color:#b60205"><i></i>bug</span><span class="cnt">1 rule</span></div>
-      <div class="lab"><span class="label" style="color:#fbca04"><i></i>changes-requested</span><span class="cnt">1 rule</span></div>
-      <div class="lab"><span class="label" style="color:#1d76db"><i></i>documentation</span><span class="cnt muted">unbound</span></div>
-      <div class="lab"><span class="label" style="color:#7057ff"><i></i>good first issue</span><span class="cnt muted">unbound</span></div>
-      <div class="lab"><span class="label" style="color:#e4e669"><i></i>question</span><span class="cnt muted">unbound</span></div>
-      <button class="btn sm ghost" style="margin-top:4px">Show all 41</button>
-    </section>
-    <section>
-      <h4>Missing on GitHub</h4>
-      <div class="lab"><span class="label" style="color:#5319e7"><i></i>core-team</span><span class="cnt"><button class="btn sm ghost">Create</button></span></div>
-      <div class="lab"><span class="label" style="color:#f9d0c4"><i></i>size/L</span><span class="cnt"><button class="btn sm ghost">Create</button></span></div>
-      <p class="xs muted" style="margin:4px 0 0">Rules bound to a missing label are skipped when a plan is applied.</p>
-    </section>
-    <section>
-      <h4>Last 10 minutes</h4>
-      <div class="lab"><span class="mono muted">#5121</span><span class="label" style="color:#0e8a16;height:16px"><i></i>+ ready</span><span class="cnt">14:31</span></div>
-      <div class="lab"><span class="mono muted">#5121</span><span class="label strike" style="color:#d93f0b;height:16px"><i></i>needs-rebase</span><span class="cnt">14:31</span></div>
-      <div class="lab"><span class="mono muted">#5118</span><span class="label" style="color:#0e8a16;height:16px"><i></i>+ schema</span><span class="cnt">14:29</span></div>
-      <div class="lab"><span class="mono muted">#5117</span><span class="pill bad" style="height:16px">failed</span><span class="cnt">14:27</span></div>
-      <a href="#" class="xs" style="display:block;margin-top:4px">Open activity →</a>
-    </section>
-  </aside>
+              <tr class="group-row">
+                <td colspan="7">
+                  Group <b>review-state</b> · exclusive, lowest priority wins · 3 rules
+                </td>
+              </tr>
+              <tr class="row sel">
+                <td><span class="switch on"></span></td>
+                <td>
+                  <span class="label" style="color: #fbca04"><i></i>changes-requested</span>
+                </td>
+                <td>stale-changes-requested <span class="muted xs">v1</span></td>
+                <td>ensure absent</td>
+                <td>
+                  <span class="prio"><span class="h">⋮⋮</span><span class="num">10</span></span>
+                </td>
+                <td class="r">
+                  <span class="hist"
+                    ><i style="height: 4px"></i><i style="height: 6px"></i
+                    ><i style="height: 3px"></i><i style="height: 7px"></i
+                    ><i style="height: 5px"></i><i style="height: 2px"></i
+                    ><i style="height: 6px"></i
+                  ></span>
+                  <span class="num">+6 −9</span>
+                </td>
+                <td class="r"><button class="btn sm ghost">Close</button></td>
+              </tr>
+              <tr class="edit">
+                <td colspan="7">
+                  <div class="form">
+                    <div class="field">
+                      <label>Label</label
+                      ><select class="select">
+                        <option>changes-requested</option>
+                        <option>ready</option>
+                        <option>needs-rebase</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>When policy matches</label
+                      ><select class="select">
+                        <option>stale-changes-requested · v1</option>
+                        <option>ready-for-review · v3</option>
+                        <option>needs-rebase · v2</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>On no match</label>
+                      <div class="seg">
+                        <button>Preserve</button><button class="on">Ensure absent</button>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <label>Group</label
+                      ><input class="input" value="review-state" list="groups" /><datalist
+                        id="groups"
+                      >
+                        <option>review-state</option>
+                      </datalist>
+                    </div>
+                    <div class="field">
+                      <label>Priority</label><input class="input num" value="10" />
+                    </div>
+                    <div class="help">
+                      <div class="note">
+                        <b>Ensure absent</b> removes
+                        <span class="label" style="color: #fbca04; height: 16px"
+                          ><i></i>changes-requested</span
+                        >
+                        whenever the policy stops matching, including labels a person added by hand.
+                        <b>Preserve</b> only ever adds.
+                      </div>
+                      <div class="note">
+                        In group <b>review-state</b>, <b>ready</b> (priority 20) and
+                        <b>needs-rebase</b> (30) are skipped for any item where this rule matches.
+                        Ties resolve by label name.
+                      </div>
+                    </div>
+                    <div style="grid-column: 1/-1; display: flex; gap: 8px; align-items: center">
+                      <span class="muted xs"
+                        >Preview on 25 open PRs: <b style="color: var(--ok)">+2</b>
+                        <b style="color: var(--destructive)">−1</b> · 3 selections change in
+                        group</span
+                      >
+                      <span class="spacer"></span>
+                      <button class="btn sm ghost danger">Delete rule</button>
+                      <button class="btn sm">Cancel</button>
+                      <button class="btn sm primary">Save · rev 14</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch on"></span></td>
+                <td>
+                  <span class="label" style="color: #0e8a16"><i></i>ready</span>
+                </td>
+                <td>ready-for-review <span class="muted xs">v3</span></td>
+                <td>ensure absent</td>
+                <td>
+                  <span class="prio"><span class="h">⋮⋮</span><span class="num">20</span></span>
+                </td>
+                <td class="r">
+                  <span class="hist"
+                    ><i style="height: 8px"></i><i style="height: 10px"></i
+                    ><i style="height: 12px"></i><i style="height: 9px"></i
+                    ><i style="height: 13px"></i><i style="height: 7px"></i
+                    ><i style="height: 11px"></i
+                  ></span>
+                  <span class="num">+40 −22</span>
+                </td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">Test</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch on"></span></td>
+                <td>
+                  <span class="label" style="color: #d93f0b"><i></i>needs-rebase</span>
+                </td>
+                <td>needs-rebase <span class="muted xs">v2</span></td>
+                <td>ensure absent</td>
+                <td>
+                  <span class="prio"><span class="h">⋮⋮</span><span class="num">30</span></span>
+                </td>
+                <td class="r muted xs">shadowed 11×</td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">Test</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
 
-  <footer class="statusbar">
-    <span>9 rules read <b>6 policies</b> across tracks entities, labels, pull_requests, checks, reviews, changed_files</span>
-    <span class="spacer"></span>
-    <span>last change: maxwellbrown · 14:02 · bound <b>ready</b> to ready-for-review v3</span>
-  </footer>
-</div>
-<button class="btn sm theme-toggle" onclick="document.documentElement.classList.toggle('dark')">Toggle theme</button>
-</body></html>
+              <tr class="group-row">
+                <td colspan="7">Group <b>size</b> · exclusive · 2 rules</td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch on"></span></td>
+                <td>
+                  <span class="label" style="color: #c2e0c6"><i></i>size/S</span>
+                </td>
+                <td>small-diff <span class="muted xs">v1</span></td>
+                <td>ensure absent</td>
+                <td>
+                  <span class="prio"><span class="h">⋮⋮</span><span class="num">1</span></span>
+                </td>
+                <td class="r"><span class="num">+18 −3</span></td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">Test</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
+              <tr class="row">
+                <td><span class="switch"></span></td>
+                <td>
+                  <span class="label" style="color: #f9d0c4; opacity: 0.6"><i></i>size/L</span>
+                </td>
+                <td>large-diff <span class="muted xs">v1</span></td>
+                <td>ensure absent</td>
+                <td>
+                  <span class="prio"><span class="h">⋮⋮</span><span class="num">2</span></span>
+                </td>
+                <td class="r muted xs">disabled</td>
+                <td class="r">
+                  <span class="rowactions"
+                    ><button class="btn sm ghost">Edit</button
+                    ><button class="btn sm ghost">⋯</button></span
+                  >
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <aside class="side">
+          <section>
+            <h4>Labels on GitHub <span class="spacer"></span><span>41</span></h4>
+            <div class="lab">
+              <span class="label" style="color: #0e8a16"><i></i>ready</span
+              ><span class="cnt">1 rule</span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #0e8a16"><i></i>schema</span
+              ><span class="cnt">1 rule</span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #d93f0b"><i></i>needs-rebase</span
+              ><span class="cnt">2 rules</span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #b60205"><i></i>bug</span
+              ><span class="cnt">1 rule</span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #fbca04"><i></i>changes-requested</span
+              ><span class="cnt">1 rule</span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #1d76db"><i></i>documentation</span
+              ><span class="cnt muted">unbound</span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #7057ff"><i></i>good first issue</span
+              ><span class="cnt muted">unbound</span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #e4e669"><i></i>question</span
+              ><span class="cnt muted">unbound</span>
+            </div>
+            <button class="btn sm ghost" style="margin-top: 4px">Show all 41</button>
+          </section>
+          <section>
+            <h4>Missing on GitHub</h4>
+            <div class="lab">
+              <span class="label" style="color: #5319e7"><i></i>core-team</span
+              ><span class="cnt"><button class="btn sm ghost">Create</button></span>
+            </div>
+            <div class="lab">
+              <span class="label" style="color: #f9d0c4"><i></i>size/L</span
+              ><span class="cnt"><button class="btn sm ghost">Create</button></span>
+            </div>
+            <p class="xs muted" style="margin: 4px 0 0">
+              Rules bound to a missing label are skipped when a plan is applied.
+            </p>
+          </section>
+          <section>
+            <h4>Last 10 minutes</h4>
+            <div class="lab">
+              <span class="mono muted">#5121</span
+              ><span class="label" style="color: #0e8a16; height: 16px"><i></i>+ ready</span
+              ><span class="cnt">14:31</span>
+            </div>
+            <div class="lab">
+              <span class="mono muted">#5121</span
+              ><span class="label strike" style="color: #d93f0b; height: 16px"
+                ><i></i>needs-rebase</span
+              ><span class="cnt">14:31</span>
+            </div>
+            <div class="lab">
+              <span class="mono muted">#5118</span
+              ><span class="label" style="color: #0e8a16; height: 16px"><i></i>+ schema</span
+              ><span class="cnt">14:29</span>
+            </div>
+            <div class="lab">
+              <span class="mono muted">#5117</span
+              ><span class="pill bad" style="height: 16px">failed</span
+              ><span class="cnt">14:27</span>
+            </div>
+            <a href="#" class="xs" style="display: block; margin-top: 4px">Open activity →</a>
+          </section>
+        </aside>
+
+        <footer class="statusbar">
+          <span
+            >9 rules read <b>6 policies</b> across tracks entities, labels, pull_requests, checks,
+            reviews, changed_files</span
+          >
+          <span class="spacer"></span>
+          <span>last change: maxwellbrown · 14:02 · bound <b>ready</b> to ready-for-review v3</span>
+        </footer>
+      </div>
+      <button
+        class="btn sm theme-toggle"
+        onclick="document.documentElement.classList.toggle('dark')"
+      >
+        Toggle theme
+      </button>
+    </div>
+  </body>
+</html>
