@@ -1,3 +1,5 @@
+import { RuleTestJobs, RuleTestJob } from "../Labeling/RuleTestJob.ts"
+import { AiRuleDefinition, inspectAiRule } from "@janitor/domain/Labeling/Policy/AiRule"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { ReconciliationRecord, RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
@@ -174,6 +176,28 @@ const catalog = describeCatalog()
 const reads = HttpRouter.addAll([
   HttpRouter.route(
     "GET",
+    "/repositories/:repositoryId/rules/:ruleId",
+    Effect.gen(function* () {
+      const { repositoryId, ruleId } = yield* rulePath
+      const rule = (yield* (yield* LabelingRules).list(repositoryId)).find(
+        (rule) => rule.id === ruleId,
+      )
+      return rule ? yield* json(RuleRecord)(rule) : notFound
+    }).pipe(handled("rule")),
+  ),
+  HttpRouter.route(
+    "GET",
+    "/repositories/:repositoryId/rule-tests/:testId",
+    Effect.gen(function* () {
+      const { repositoryId, testId } = yield* HttpRouter.schemaPathParams(
+        Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId, testId: Schema.String }),
+      )
+      const result = yield* (yield* RuleTestJobs).get(repositoryId, testId)
+      return result ? yield* json(RuleTestJob)(result) : notFound
+    }).pipe(handled("ruleTest")),
+  ),
+  HttpRouter.route(
+    "GET",
     "/repositories/:repositoryId/test/items",
     Effect.gen(function* () {
       const { repositoryId } = yield* repositoryPath
@@ -275,6 +299,47 @@ const reads = HttpRouter.addAll([
 ])
 
 const writes = HttpRouter.addAll([
+  HttpRouter.route(
+    "POST",
+    "/repositories/:repositoryId/rules/validate",
+    Effect.gen(function* () {
+      const { repositoryId } = yield* repositoryPath
+      yield* (yield* LabelingConfiguration).requireRepository(repositoryId)
+      const request = yield* body(AiRuleDefinition)
+      const result = inspectAiRule(request)
+      return yield* json(
+        Schema.Struct({
+          references: Schema.Array(Schema.String),
+          diagnostics: Schema.Array(
+            Schema.Struct({ from: Schema.Int, to: Schema.Int, message: Schema.String }),
+          ),
+        }),
+      )(result)
+    }).pipe(handled("validateAiRule")),
+  ),
+  HttpRouter.route(
+    "POST",
+    "/repositories/:repositoryId/rule-tests",
+    Effect.gen(function* () {
+      const { repositoryId } = yield* repositoryPath
+      const request = yield* body(TestRequest)
+      if (request.numbers.length !== 1 || request.subject._tag === "Configuration")
+        return badRequest
+      if (request.subject._tag === "Draft") {
+        const validation = yield* (yield* Policies).validate(
+          repositoryId,
+          request.subject.source,
+          Option.none(),
+        )
+        if (validation._tag === "Invalid")
+          return yield* respondMessage({ message: validation.message }, { status: 422 })
+      }
+      return yield* json(RuleTestJob)(yield* (yield* RuleTestJobs).enqueue(repositoryId, request), {
+        status: 202,
+        headers: { "Retry-After": "1" },
+      })
+    }).pipe(handled("enqueueRuleTest")),
+  ),
   HttpRouter.route(
     "POST",
     "/repositories/:repositoryId/policies",

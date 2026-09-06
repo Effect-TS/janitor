@@ -109,6 +109,8 @@ export class ContentPurge extends Context.Service<
           WHERE repository_id IN ${sql.in(repositoryIds)}
         `
         yield* sql`DELETE FROM github_http_cache WHERE repository_id IN ${sql.in(repositoryIds)}`
+        yield* sql`DELETE FROM labeling_rule_test WHERE repository_id IN ${sql.in(repositoryIds)}`
+        yield* sql`DELETE FROM labeling_ai_decision WHERE repository_id IN ${sql.in(repositoryIds)}`
       })
 
     const runDue = Effect.fn("ContentPurge.runDue")(function* (now: DateTime.Utc) {

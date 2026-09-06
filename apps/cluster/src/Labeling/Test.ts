@@ -37,8 +37,8 @@ const PointerRow = Schema.Struct({
   configured_revision: Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision)),
 })
 
-export const entityFacts = (view: EntityView): FactSnapshot =>
-  snapshotFacts({
+export const entityFacts = (view: EntityView): FactSnapshot => {
+  const snapshot = snapshotFacts({
     kind: view.entity.kind,
     title: view.entity.title,
     body: view.entity.body,
@@ -55,6 +55,17 @@ export const entityFacts = (view: EntityView): FactSnapshot =>
       onSome: (collections) => ({ collections }),
     }),
   })
+
+  if (Option.isSome(view.collections)) {
+    const facts = { ...snapshot.facts }
+    const collections = view.collections.value
+    if (!collections.filesComplete) delete facts.changedFiles
+    if (!collections.checksComplete) delete facts.checks
+    if (!collections.reviewsComplete) delete facts.reviews
+    return { ...snapshot, facts }
+  }
+  return snapshot
+}
 
 /**
  * The test bench (plan: "LabelingTest"). Evaluates a draft, a published

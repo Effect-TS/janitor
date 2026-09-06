@@ -136,6 +136,7 @@ export const toVersionRecord = (row: typeof VersionRow.Type): PolicyVersionRecor
 
 export const RuleRow = Schema.Struct({
   rule_id: RuleId,
+  ai_definition: RuleRecord.fields.ai,
   repository_id: GitHubRepositoryDatabaseId,
   label_id: RuleRecord.fields.labelId,
   policy_id: PolicyId,
@@ -151,6 +152,7 @@ export const RuleRow = Schema.Struct({
 
 export const toRuleRecord = (row: typeof RuleRow.Type): RuleRecord => ({
   id: row.rule_id,
+  ai: row.ai_definition ?? null,
   repositoryId: row.repository_id,
   labelId: row.label_id,
   policyId: row.policy_id,
@@ -451,11 +453,11 @@ export class LabelingConfiguration extends Context.Service<
           sql`
             SELECT ${policyColumns(sql)} FROM labeling_policy p
             LEFT JOIN labeling_policy_version v ON v.version_id = p.published_version_id
-            WHERE p.repository_id = ${repositoryId} ORDER BY p.name
+            WHERE p.repository_id = ${repositoryId} AND p.owner_rule_id IS NULL ORDER BY p.name
           `.pipe(Effect.flatMap(decodePolicies), wrap("view")),
           sql`
             SELECT rule_id, repository_id, label_id, policy_id, on_no_match, rule_group, priority,
-                   enabled, label_status, version, created_at, updated_at
+                   enabled, label_status, version, created_at, updated_at, ai_definition
             FROM labeling_rule WHERE repository_id = ${repositoryId} ORDER BY created_at, rule_id
           `.pipe(Effect.flatMap(decodeRules), wrap("view")),
           labels(repositoryId),

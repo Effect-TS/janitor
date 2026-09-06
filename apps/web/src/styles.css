@@ -1106,3 +1106,21 @@
 .rules-table td:nth-child(-n + 3) {
   padding-right: 24px;
 }
+.ai-fact-reference {
+  color: #82ab96;
+  background: #82ab9615;
+  border-radius: 3px;
+}
+.ai-confidence {
+  accent-color: #82ab96;
+  cursor: pointer;
+}
+.ai-rule-document {
+  max-width: none;
+  padding: 24px;
+}
+@media (max-width: 640px) {
+  .ai-rule-document {
+    padding: 16px 12px;
+  }
+}

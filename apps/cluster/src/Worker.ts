@@ -1,3 +1,4 @@
+import { RuleTestJobLayer, RuleTestJobRegistration, RuleTestJobs } from "./Labeling/RuleTestJob.ts"
 import { RepositoryConnections } from "./RepositoryConnections.ts"
 import { deployment } from "./Deployment.ts"
 import { Readiness } from "./Ingress/Readiness.ts"
@@ -160,7 +161,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       onNone: () => ClassifierProvider.unavailable,
       onSome: (apiKey) =>
         ClassifierProvider.fromLanguageModel({ provider: "openai", model: ai.model }).pipe(
-          Layer.provide(OpenAiLanguageModel.layer({ model: ai.model })),
+          Layer.provide(
+            OpenAiLanguageModel.layer({ model: ai.model, config: { max_completion_tokens: 1000 } }),
+          ),
           Layer.provide(
             OpenAiClient.layer({
               apiKey,
@@ -189,6 +192,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       SyncRepositoryTrackLayer,
       RefreshEntityLayer,
       ReconcileEntityLayer,
+      RuleTestJobLayer,
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
     ).pipe(
@@ -200,6 +204,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           RepositoryConnections.layer,
           LabelingRules.layer,
           LabelingTest.layer,
+          RuleTestJobs.layer,
           LabelingOverview.layer,
         ),
       ),
@@ -215,6 +220,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           SyncRepositoryTrackRegistration,
           RefreshEntityRegistration,
           ReconcileEntityRegistration,
+          RuleTestJobRegistration,
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),

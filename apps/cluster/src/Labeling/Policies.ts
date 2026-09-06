@@ -172,14 +172,14 @@ export class Policies extends Context.Service<
       sql`
         SELECT ${policyColumns(sql)} FROM labeling_policy p
         LEFT JOIN labeling_policy_version v ON v.version_id = p.published_version_id
-        WHERE p.repository_id = ${repositoryId} ORDER BY p.name
+        WHERE p.repository_id = ${repositoryId} AND p.owner_rule_id IS NULL ORDER BY p.name
       `.pipe(Effect.flatMap(decodePolicies), wrap("list"))
 
     const findRow = (repositoryId: GitHubRepositoryDatabaseId, policyId: PolicyId) =>
       sql`
         SELECT ${policyColumns(sql)} FROM labeling_policy p
         LEFT JOIN labeling_policy_version v ON v.version_id = p.published_version_id
-        WHERE p.repository_id = ${repositoryId} AND p.policy_id = ${policyId}
+        WHERE p.repository_id = ${repositoryId} AND p.policy_id = ${policyId} AND p.owner_rule_id IS NULL
       `.pipe(
         Effect.flatMap(decodePolicies),
         wrap("find"),

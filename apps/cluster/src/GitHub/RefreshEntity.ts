@@ -72,6 +72,8 @@ const BeginActivityResult = Schema.Union([
 const Collections = Schema.Struct({
   files: Schema.Array(Schema.Struct({ path: Schema.String, status: Schema.String })),
   filesComplete: Schema.Boolean,
+  checksComplete: Schema.Boolean,
+  reviewsComplete: Schema.Boolean,
   checks: Schema.Array(Schema.Struct({ name: Schema.String, state: Schema.String })),
   reviews: Schema.Array(Schema.Struct({ reviewer: Schema.String, state: Schema.String })),
 })
@@ -94,6 +96,8 @@ const fetchCollections = (
     const collections: typeof Collections.Type = {
       files: [],
       filesComplete: false,
+      checksComplete: false,
+      reviewsComplete: false,
       checks: [],
       reviews: [],
     }
@@ -127,6 +131,7 @@ const fetchCollections = (
       if (checks._tag !== "Complete")
         return yield* failure(checks._tag === "Failed" ? checks.message : checks.reason)
       Object.assign(collections, {
+        checksComplete: true,
         checks: checks.items.map((run) => ({
           name: run.name,
           state: run.conclusion ?? run.status,
@@ -153,6 +158,7 @@ const fetchCollections = (
           latest.set(reviewer, review.state)
       }
       Object.assign(collections, {
+        reviewsComplete: true,
         reviews: [...latest].map(([reviewer, state]) => ({ reviewer, state })),
       })
     }

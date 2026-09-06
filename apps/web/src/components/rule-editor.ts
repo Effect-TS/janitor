@@ -1,3 +1,9 @@
+import * as Duration from "effect/Duration"
+import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReferences"
+import * as Mount from "foldkit/mount"
+import * as Stream from "effect/Stream"
+import * as Queue from "effect/Queue"
+import { AiRuleDefinition, FactDescription } from "@/components/labeling-wire"
 import * as Switch from "@foldkit/ui/switch"
 import * as Disclosure from "@foldkit/ui/disclosure"
 import * as Select from "@foldkit/ui/select"
@@ -58,6 +64,9 @@ export type Submission = typeof Submission.Type
 
 export const Model = Schema.Struct({
   repositoryId: Schema.String,
+  ai: Schema.NullOr(AiRuleDefinition),
+  creationKey: Schema.NullOr(Schema.String),
+  catalog: Schema.Array(FactDescription),
   identity: Identity,
   maybeLabelId: Schema.Option(Schema.String),
   maybePolicyId: Schema.Option(Schema.String),
@@ -75,7 +84,7 @@ export const Model = Schema.Struct({
   testGeneration: Schema.Int,
   testResult: Schema.Union([
     Schema.TaggedStruct("Idle", {}),
-    Schema.TaggedStruct("Running", {}),
+    Schema.TaggedStruct("Running", { status: Schema.optionalKey(Schema.String) }),
     Schema.TaggedStruct("Done", { response: TestResponse }),
     Schema.TaggedStruct("Failed", { reason: Schema.String }),
   ]),
@@ -86,6 +95,12 @@ export type Model = typeof Model.Type
 // MESSAGE
 
 export const Message = defineMessageUnion({
+  PreparedCreation: { key: Schema.String },
+  SelectedType: { value: Schema.String },
+  EditedPrompt: { value: Schema.String },
+  SelectedTarget: { value: Schema.String },
+  ChangedConfidence: { value: Schema.String },
+  FailedPromptEditor: { reason: Schema.String },
   SelectedLabel: { labelId: Schema.String },
   UpdatedPolicy: { value: Schema.String },
   UpdatedOnNoMatch: { value: Schema.String },
@@ -102,6 +117,12 @@ export const Message = defineMessageUnion({
   ToggledGroup: { isOpen: Schema.Boolean },
   SelectedTestItem: { number: Schema.Int },
   ClickedTest: {},
+  QueuedTest: {
+    testId: Schema.String,
+    generation: Schema.Int,
+    status: Schema.String,
+    polls: Schema.Int,
+  },
   CompletedTest: { response: TestResponse, generation: Schema.Int },
   FailedTest: { reason: Schema.String, generation: Schema.Int },
 })
@@ -119,12 +140,17 @@ export type OutMessage = typeof OutMessage.Type
 
 export const draftIssues = (model: Model): ReadonlyArray<string> => [
   ...(Option.isNone(model.maybeLabelId) ? ["Pick a label"] : []),
-  ...(!model.policies.some(
-    (policy) =>
-      Option.contains(model.maybePolicyId, policy.policyId) && policy.publishedVersionId !== null,
-  )
-    ? ["Pick a published policy"]
-    : []),
+  ...(model.ai
+    ? inspectAiPrompt(model.ai.prompt, model.ai.target, model.catalog).diagnostics.map(
+        (d) => d.message,
+      )
+    : !model.policies.some(
+          (policy) =>
+            Option.contains(model.maybePolicyId, policy.policyId) &&
+            policy.publishedVersionId !== null,
+        )
+      ? ["Pick a published policy"]
+      : []),
   ...(Option.exists(
     model.maybeLabelId,
     (id) =>
@@ -151,6 +177,8 @@ const describe = (error: unknown): string =>
 const IssuesBody = Schema.Struct({ issues: Schema.Array(RuleIssue) })
 
 const Payload = {
+  requestId: Schema.optionalKey(Schema.String),
+  ai: Schema.optionalKey(AiRuleDefinition),
   operationId: Schema.Int,
   repositoryId: Schema.String,
   identity: Identity,
@@ -172,6 +200,8 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
   ],
   execute: ({
     operationId,
+    requestId,
+    ai,
     repositoryId,
     identity,
     labelId,
@@ -182,7 +212,15 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
     enabled,
   }) =>
     Effect.gen(function* () {
-      const fields = { labelId, policyId, onNoMatch, group, priority, enabled }
+      const fields = {
+        requestId,
+        labelId,
+        ...(ai ? { ai } : { policyId }),
+        onNoMatch: ai ? "preserve" : onNoMatch,
+        group,
+        priority,
+        enabled,
+      }
       const request =
         identity._tag === "New"
           ? HttpClientRequest.post(rulesEndpoint(repositoryId)).pipe(
@@ -224,25 +262,40 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
 
 export const TestRule = FoldkitCommand.define("TestRule", {
   args: {
+    ai: Schema.optionalKey(AiRuleDefinition),
+    evidence: Schema.optionalKey(Schema.Array(Schema.String)),
     repositoryId: Schema.String,
     policyId: Schema.String,
     number: Schema.Int,
     generation: Schema.Int,
   },
-  messages: [Message.CompletedTest, Message.FailedTest],
-  execute: ({ repositoryId, policyId, number, generation }) =>
+  messages: [Message.QueuedTest, Message.FailedTest],
+  execute: ({ repositoryId, policyId, number, generation, ai, evidence }) =>
     Effect.gen(function* () {
       const request = yield* HttpClientRequest.bodyJson(
-        HttpClientRequest.post(testEndpoint(repositoryId)),
-        { subject: { _tag: "Policy", policyId }, numbers: [number] },
+        HttpClientRequest.post(testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests")),
+        {
+          subject: ai
+            ? {
+                _tag: "Draft",
+                source: {
+                  target: ai.target,
+                  classify: {
+                    prompt: ai.prompt,
+                    minimumConfidence: ai.minimumConfidence,
+                    evidence,
+                  },
+                },
+              }
+            : { _tag: "Policy", policyId },
+          numbers: [number],
+        },
       )
       const response = yield* HttpClient.execute(request)
-      if (response.status !== 200)
+      if (response.status !== 202)
         return Message.FailedTest({ reason: `Server answered ${response.status}`, generation })
-      return Message.CompletedTest({
-        response: yield* HttpIncomingMessage.schemaBodyJson(TestResponse)(response),
-        generation,
-      })
+      const job = yield* HttpIncomingMessage.schemaBodyJson(RuleTestJob)(response)
+      return Message.QueuedTest({ testId: job.testId, generation, status: job.status, polls: 0 })
     }).pipe(
       Effect.catch((error) =>
         Effect.succeed(Message.FailedTest({ reason: describe(error), generation })),
@@ -253,7 +306,9 @@ const selectedPolicy = (model: Model) =>
   model.policies.find((policy) => Option.contains(model.maybePolicyId, policy.policyId))
 export const testItems = (model: Model) =>
   model.testCandidates._tag === "Ready"
-    ? model.testCandidates.items.filter((item) => item.kind === selectedPolicy(model)?.target)
+    ? model.testCandidates.items.filter(
+        (item) => item.kind === (model.ai?.target ?? selectedPolicy(model)?.target),
+      )
     : []
 const selectedTestItem = (model: Model) =>
   testItems(model).find((item) => item.number === model.selectedNumber) ?? testItems(model)[0]
@@ -269,6 +324,7 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
 
 const initialize = (input: {
   readonly repositoryId: string
+  readonly catalog?: ReadonlyArray<FactDescription>
   readonly labels: ReadonlyArray<SynchronizedLabel>
   readonly policies: ReadonlyArray<PolicyRecord>
   readonly testCandidates?: TestCandidates | undefined
@@ -277,6 +333,9 @@ const initialize = (input: {
   Model.make(
     {
       repositoryId: input.repositoryId,
+      creationKey: null,
+      ai: Option.map(input.existing, (rule) => rule.ai ?? null).pipe(Option.getOrNull),
+      catalog: input.catalog ?? [],
       identity: Option.match(input.existing, {
         onNone: () => ({ _tag: "New" as const }),
         onSome: (rule) => ({ _tag: "Existing" as const, ruleId: rule.id, version: rule.version }),
@@ -319,6 +378,7 @@ const snapshot = (model: Model): string =>
     model.group,
     model.priority,
     model.enabled,
+    model.ai,
   ])
 
 export const init = (input: Parameters<typeof initialize>[0]): Model => {
@@ -339,6 +399,58 @@ const edited = (model: Model): Model =>
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
+    PreparedCreation: ({ key }) => ({
+      model: evo(model, { creationKey: (current) => current ?? key }),
+    }),
+    SelectedType: ({ value }) =>
+      model.identity._tag !== "New"
+        ? { model }
+        : {
+            model: edited(
+              evo(model, {
+                ai: () =>
+                  value === "ai"
+                    ? {
+                        target: "pull_request" as const,
+                        prompt:
+                          "Does this describe a bug?\n\nTitle: {{fact:title}}\nDescription: {{fact:body}}",
+                        minimumConfidence: 0.8,
+                      }
+                    : null,
+                onNoMatch: () => "preserve" as const,
+              }),
+            ),
+          },
+    EditedPrompt: ({ value }) => ({
+      model: model.ai ? edited(evo(model, { ai: () => ({ ...model.ai!, prompt: value }) })) : model,
+    }),
+    SelectedTarget: ({ value }) => ({
+      model: model.ai
+        ? edited(
+            evo(model, {
+              ai: () => ({
+                ...model.ai!,
+                target: value === "issue" ? ("issue" as const) : ("pull_request" as const),
+              }),
+            }),
+          )
+        : model,
+    }),
+    ChangedConfidence: ({ value }) => ({
+      model: model.ai
+        ? edited(
+            evo(model, {
+              ai: () => ({
+                ...model.ai!,
+                minimumConfidence: Math.max(0, Math.min(1, Number(value) / 100)),
+              }),
+            }),
+          )
+        : model,
+    }),
+    FailedPromptEditor: ({ reason }) => ({
+      model: evo(model, { submission: () => ({ _tag: "SubmitError" as const, message: reason }) }),
+    }),
     SelectedLabel: ({ labelId }) => ({
       model: edited(
         evo(model, { maybeLabelId: () => (labelId === "" ? Option.none() : Option.some(labelId)) }),
@@ -362,7 +474,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
     ClickedSave: () => {
       if (model.submission._tag === "Submitting" || draftIssues(model).length > 0) return { model }
-      if (Option.isNone(model.maybeLabelId) || Option.isNone(model.maybePolicyId)) return { model }
+      if (Option.isNone(model.maybeLabelId) || (!model.ai && Option.isNone(model.maybePolicyId)))
+        return { model }
       return {
         model: evo(model, {
           submission: () => ({
@@ -375,10 +488,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         commands: [
           SaveRule({
             operationId: model.nextOperationId,
+            ...(model.creationKey ? { requestId: model.creationKey } : {}),
             repositoryId: model.repositoryId,
             identity: model.identity,
             labelId: model.maybeLabelId.value,
-            policyId: model.maybePolicyId.value,
+            policyId: Option.getOrElse(model.maybePolicyId, () => ""),
+            ...(model.ai
+              ? {
+                  ai: model.ai,
+                  evidence: inspectAiPrompt(model.ai.prompt, model.ai.target, model.catalog)
+                    .references,
+                }
+              : {}),
             onNoMatch: model.onNoMatch,
             group: model.group.trim() === "" ? null : model.group.trim(),
             priority: Number(model.priority.trim() === "" ? "0" : model.priority.trim()),
@@ -436,7 +557,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       const item = selectedTestItem(model)
       if (
         !item ||
-        Option.isNone(model.maybePolicyId) ||
+        (!model.ai && Option.isNone(model.maybePolicyId)) ||
         draftIssues(model).length ||
         model.testResult._tag === "Running"
       )
@@ -450,13 +571,29 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         commands: [
           TestRule({
             repositoryId: model.repositoryId,
-            policyId: model.maybePolicyId.value,
+            policyId: Option.getOrElse(model.maybePolicyId, () => ""),
+            ...(model.ai
+              ? {
+                  ai: model.ai,
+                  evidence: inspectAiPrompt(model.ai.prompt, model.ai.target, model.catalog)
+                    .references,
+                }
+              : {}),
             number: item.number,
             generation,
           }),
         ],
       }
     },
+    QueuedTest: ({ testId, generation, polls, status }) =>
+      generation !== model.testGeneration
+        ? { model }
+        : {
+            model: evo(model, { testResult: () => ({ _tag: "Running" as const, status }) }),
+            commands: [
+              PollRuleTest({ repositoryId: model.repositoryId, testId, generation, polls }),
+            ],
+          },
     CompletedTest: ({ response, generation }) =>
       generation !== model.testGeneration
         ? { model }
@@ -582,7 +719,10 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
   const result = model.testResult
   if (result._tag === "Idle") return h.empty
   if (result._tag === "Running")
-    return h.p([h.Role("status"), h.Class("text-xs text-muted-foreground")], ["Testing…"])
+    return h.p(
+      [h.Role("status"), h.Class("text-xs text-muted-foreground")],
+      [result.status === "queued" ? "Queued…" : "Evaluating…"],
+    )
   if (result._tag === "Failed")
     return h.p([h.Role("alert"), h.Class("text-xs text-destructive")], [result.reason])
   if (result.response._tag === "Rejected")
@@ -616,6 +756,17 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
           h.span([h.Class("text-xs text-muted-foreground")], [`#${entity.number}`]),
         ],
       ),
+      entity.evaluation?.reason
+        ? h.p([h.Class("text-xs text-muted-foreground")], [entity.evaluation.reason])
+        : h.empty,
+      entity.evaluation?.confidence !== undefined
+        ? h.p(
+            [h.Class("text-xs")],
+            [
+              `Confidence: ${Math.round(entity.evaluation.confidence * 100)}%${entity.evaluation.cached ? " · Cached" : ""}`,
+            ],
+          )
+        : h.empty,
       h.ul(
         [h.Class("policy-test-trace")],
         (entity.evaluation?.trace ?? []).map((node) =>
@@ -656,7 +807,11 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
     const policy = selectedPolicy(model)
     const label = model.labels.find((label) => Option.contains(model.maybeLabelId, label.labelId))
     return h.div(
-      [h.Class("rule-document"), h.DataAttribute("editor", "rule")],
+      [
+        h.Class("rule-document"),
+        h.DataAttribute("editor", "rule"),
+        ...(model.identity._tag === "New" ? [h.OnMount(PrepareCreation({}))] : []),
+      ],
       [
         h.header(
           [h.Class("rule-navigation")],
@@ -715,97 +870,124 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                     h.p(
                       [h.Class("mt-2 text-xs leading-relaxed text-muted-foreground")],
                       [
-                        policy && label
-                          ? `Apply ${label.name} to ${policy.target === "issue" ? "issues" : "pull requests"} that match ${policy.name}.`
-                          : "Choose a published policy and the label it manages.",
+                        model.ai
+                          ? "Use the referenced facts to decide whether this label applies."
+                          : policy && label
+                            ? `Apply ${label.name} to ${policy.target === "issue" ? "issues" : "pull requests"} that match ${policy.name}.`
+                            : "Choose a published policy and the label it manages.",
                       ],
                     ),
                   ],
                 ),
+                model.identity._tag === "New"
+                  ? h.div(
+                      [h.Class("px-6 pt-4 max-w-sm")],
+                      [
+                        selectField(h, {
+                          id: "rule-type",
+                          label: "Rule type",
+                          value: model.ai ? "ai" : "policy",
+                          options: [
+                            ["policy", "Policy"],
+                            ["ai", "AI"],
+                          ],
+                          onChange: (value) => Message.SelectedType({ value }),
+                        }),
+                      ],
+                    )
+                  : h.empty,
                 h.div(
-                  [h.Class("rule-flow")],
+                  [h.Class(model.ai ? "rule-flow ai-rule-document" : "rule-flow")],
                   [
-                    step(h, "1", "When", [
-                      selectField(h, {
-                        id: "rule-policy",
-                        label: "When policy matches",
-                        value: Option.getOrElse(model.maybePolicyId, () => ""),
-                        options: [
-                          ["", "Choose a published policy…"],
-                          ...publishedPolicies(model).map(
-                            (policy) => [policy.policyId, policy.name] as const,
-                          ),
-                        ],
-                        onChange: (value) => Message.UpdatedPolicy({ value }),
-                      }),
-                      policy
-                        ? h.div(
-                            [h.Class("mt-3 flex items-center gap-2 text-xs text-muted-foreground")],
-                            [
-                              Icon.view(h, FileCode2, "size-3"),
-                              `${policy.target === "issue" ? "Issues" : "Pull requests"} · Published v${policy.publishedRevision}`,
-                            ],
-                          )
-                        : h.empty,
-                      policy?.description
-                        ? h.p(
-                            [h.Class("mt-3 text-xs leading-relaxed text-muted-foreground")],
-                            [policy.description],
-                          )
-                        : h.empty,
-                    ]),
-                    step(h, "2", "Then", [
-                      selectField(h, {
-                        id: "rule-label",
-                        label: "Add a GitHub label",
-                        value: Option.getOrElse(model.maybeLabelId, () => ""),
-                        options: [
-                          ["", "Choose a label…"],
-                          ...model.labels
-                            .filter(
-                              (label) =>
-                                label.availability !== "unavailable" ||
-                                Option.contains(model.maybeLabelId, label.labelId),
-                            )
-                            .map(
-                              (label) =>
-                                [
-                                  label.labelId,
-                                  `${label.name}${label.availability === "unavailable" ? " (unavailable)" : ""}`,
-                                ] as const,
+                    ...(model.ai
+                      ? [aiFields(h, model)]
+                      : [
+                          step(h, "1", "When", [
+                            selectField(h, {
+                              id: "rule-policy",
+                              label: "When policy matches",
+                              value: Option.getOrElse(model.maybePolicyId, () => ""),
+                              options: [
+                                ["", "Choose a published policy…"],
+                                ...publishedPolicies(model).map(
+                                  (policy) => [policy.policyId, policy.name] as const,
+                                ),
+                              ],
+                              onChange: (value) => Message.UpdatedPolicy({ value }),
+                            }),
+                            policy
+                              ? h.div(
+                                  [
+                                    h.Class(
+                                      "mt-3 flex items-center gap-2 text-xs text-muted-foreground",
+                                    ),
+                                  ],
+                                  [
+                                    Icon.view(h, FileCode2, "size-3"),
+                                    `${policy.target === "issue" ? "Issues" : "Pull requests"} · Published v${policy.publishedRevision}`,
+                                  ],
+                                )
+                              : h.empty,
+                            policy?.description
+                              ? h.p(
+                                  [h.Class("mt-3 text-xs leading-relaxed text-muted-foreground")],
+                                  [policy.description],
+                                )
+                              : h.empty,
+                          ]),
+                          step(h, "2", "Then", [
+                            selectField(h, {
+                              id: "rule-label",
+                              label: "Add a GitHub label",
+                              value: Option.getOrElse(model.maybeLabelId, () => ""),
+                              options: [
+                                ["", "Choose a label…"],
+                                ...model.labels
+                                  .filter(
+                                    (label) =>
+                                      label.availability !== "unavailable" ||
+                                      Option.contains(model.maybeLabelId, label.labelId),
+                                  )
+                                  .map(
+                                    (label) =>
+                                      [
+                                        label.labelId,
+                                        `${label.name}${label.availability === "unavailable" ? " (unavailable)" : ""}`,
+                                      ] as const,
+                                  ),
+                              ],
+                              onChange: (labelId) => Message.SelectedLabel({ labelId }),
+                            }),
+                            h.p(
+                              [h.Class("mt-3 text-xs text-muted-foreground")],
+                              [
+                                model.labels.length
+                                  ? "Already present? Leave it in place."
+                                  : "No labels synchronized yet.",
+                              ],
                             ),
-                        ],
-                        onChange: (labelId) => Message.SelectedLabel({ labelId }),
-                      }),
-                      h.p(
-                        [h.Class("mt-3 text-xs text-muted-foreground")],
-                        [
-                          model.labels.length
-                            ? "Already present? Leave it in place."
-                            : "No labels synchronized yet.",
-                        ],
-                      ),
-                    ]),
-                    step(h, "3", "Otherwise", [
-                      selectField(h, {
-                        id: "rule-on-no-match",
-                        label: "When it does not match",
-                        value: model.onNoMatch,
-                        options: [
-                          ["ensure-absent", "Remove the label"],
-                          ["preserve", "Leave unchanged"],
-                        ],
-                        onChange: (value) => Message.UpdatedOnNoMatch({ value }),
-                      }),
-                      h.p(
-                        [h.Class("mt-3 text-xs text-muted-foreground")],
-                        [
-                          model.onNoMatch === "preserve"
-                            ? "Keep the current label state if the policy does not match."
-                            : "Remove this label if the policy stops matching.",
-                        ],
-                      ),
-                    ]),
+                          ]),
+                          step(h, "3", "Otherwise", [
+                            selectField(h, {
+                              id: "rule-on-no-match",
+                              label: "When it does not match",
+                              value: model.onNoMatch,
+                              options: [
+                                ["ensure-absent", "Remove the label"],
+                                ["preserve", "Leave unchanged"],
+                              ],
+                              onChange: (value) => Message.UpdatedOnNoMatch({ value }),
+                            }),
+                            h.p(
+                              [h.Class("mt-3 text-xs text-muted-foreground")],
+                              [
+                                model.onNoMatch === "preserve"
+                                  ? "Keep the current label state if the policy does not match."
+                                  : "Remove this label if the policy stops matching.",
+                              ],
+                            ),
+                          ]),
+                        ]),
                     Disclosure.view(
                       {
                         id: "rule-grouping",
@@ -853,7 +1035,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                       h.p(
                                         [h.Class("text-xs text-muted-foreground")],
                                         [
-                                          "The matching rule with the lowest priority wins. Other labels in the group are removed.",
+                                          "The matching rule with the lowest priority wins. Other labels follow their rules’ no-match behavior.",
                                         ],
                                       ),
                                     ],
@@ -920,14 +1102,17 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                             ? h.p(
                                 [h.Class("text-xs text-muted-foreground")],
                                 [
-                                  policy
+                                  policy || model.ai
                                     ? "No open items are available for this policy."
                                     : "Select a policy to choose a test item.",
                                 ],
                               )
                             : selectField(h, {
                                 id: "rule-test-item",
-                                label: policy?.target === "issue" ? "Issues" : "Pull Requests",
+                                label:
+                                  (model.ai?.target ?? policy?.target) === "issue"
+                                    ? "Issues"
+                                    : "Pull Requests",
                                 value: String(selectedTestItem(model)?.number ?? ""),
                                 options: testItems(model).map((item) => [
                                   String(item.number),
@@ -1006,3 +1191,187 @@ export const reflectConfiguration = (
     ? evo(next, { testResult: () => ({ _tag: "Idle" as const }), testGeneration: (id) => id + 1 })
     : next
 }
+
+const MountAiPrompt = Mount.defineStream("MountAiPrompt", {
+  args: { source: Schema.String, catalog: Schema.Array(FactDescription) },
+  messages: [Message.EditedPrompt, Message.FailedPromptEditor],
+  execute: ({ element, source, catalog }) =>
+    Stream.callback((queue) =>
+      Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async () => {
+            if (!(element instanceof HTMLElement)) throw new Error("AI editor host unavailable")
+            const { createAiPromptEditor } = await import("./policy-source/ai-editor")
+            return createAiPromptEditor(element, source, catalog, (value) =>
+              Queue.offerUnsafe(queue, Message.EditedPrompt({ value })),
+            )
+          },
+          catch: (error) => String(error),
+        }),
+        (editor) => Effect.sync(() => editor.destroy()),
+      ).pipe(
+        Effect.flatMap(() => Effect.never),
+        Effect.catch((reason) =>
+          Effect.sync(() => {
+            Queue.offerUnsafe(queue, Message.FailedPromptEditor({ reason }))
+          }),
+        ),
+      ),
+    ),
+})
+const aiFields = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const ai = model.ai!
+  return h.div(
+    [h.Class("flex flex-col gap-5")],
+    [
+      h.div(
+        [h.Class("grid grid-cols-1 gap-4 md:grid-cols-2")],
+        [
+          selectField(h, {
+            id: "ai-target",
+            label: "Applies to",
+            value: ai.target,
+            options: [
+              ["pull_request", "Pull requests"],
+              ["issue", "Issues"],
+            ],
+            onChange: (value) => Message.SelectedTarget({ value }),
+          }),
+          selectField(h, {
+            id: "ai-label",
+            label: "GitHub label",
+            value: Option.getOrElse(model.maybeLabelId, () => ""),
+            options: [
+              ["", "Choose a label…"],
+              ...model.labels
+                .filter((l) => l.availability !== "unavailable")
+                .map((l) => [l.labelId, l.name] as const),
+            ],
+            onChange: (labelId) => Message.SelectedLabel({ labelId }),
+          }),
+        ],
+      ),
+      h.div(
+        [h.Class("flex flex-col gap-2")],
+        [
+          h.div(
+            [h.Class("flex justify-between text-xs")],
+            [
+              h.span([], ["Instructions"]),
+              h.span([h.Class("text-muted-foreground")], [`${ai.prompt.length} / 4,000`]),
+            ],
+          ),
+          h.div(
+            [
+              h.Id("ai-prompt"),
+              h.DataAttribute("target", ai.target),
+              h.DataAttribute("catalog", JSON.stringify(model.catalog)),
+              h.Class("rounded-md border overflow-hidden"),
+              h.OnMount(MountAiPrompt({ source: ai.prompt, catalog: model.catalog })),
+            ],
+            [],
+          ),
+          h.p(
+            [h.Class("text-xs text-muted-foreground")],
+            ["Type {{ to reference a fact. Only referenced facts are used as evidence."],
+          ),
+        ],
+      ),
+      h.div(
+        [h.Class("rounded-lg border bg-muted/20 p-5")],
+        [
+          h.div(
+            [h.Class("flex justify-between items-center")],
+            [
+              h.div(
+                [],
+                [
+                  h.label(
+                    [h.For("ai-confidence"), h.Class("text-sm font-medium")],
+                    ["Minimum confidence"],
+                  ),
+                  h.p(
+                    [h.Class("text-xs text-muted-foreground mt-1")],
+                    ["Leave labels unchanged below this model-reported score."],
+                  ),
+                ],
+              ),
+              h.span(
+                [h.Class("text-2xl tabular-nums")],
+                [`${Math.round(ai.minimumConfidence * 100)}%`],
+              ),
+            ],
+          ),
+          h.input([
+            h.Id("ai-confidence"),
+            h.Type("range"),
+            h.Min("0"),
+            h.Max("100"),
+            h.Step("5"),
+            h.Value(String(ai.minimumConfidence * 100)),
+            h.Class("ai-confidence w-full my-5"),
+            h.OnInput((value) => Message.ChangedConfidence({ value })),
+          ]),
+          h.div(
+            [h.Class("flex justify-end gap-2")],
+            [70, 80, 95].map((value) =>
+              Button.view(h, {
+                variant: ai.minimumConfidence * 100 === value ? "secondary" : "outline",
+                size: "sm",
+                label: `${value}%`,
+                onClick: Message.ChangedConfidence({ value: String(value) }),
+              }),
+            ),
+          ),
+        ],
+      ),
+    ],
+  )
+}
+
+const RuleTestJob = Schema.Struct({
+  testId: Schema.String,
+  status: Schema.Literals(["queued", "running", "done", "failed"]),
+  response: Schema.NullOr(TestResponse),
+  message: Schema.NullOr(Schema.String),
+})
+export const PollRuleTest = FoldkitCommand.define("PollRuleTest", {
+  args: {
+    repositoryId: Schema.String,
+    testId: Schema.String,
+    generation: Schema.Int,
+    polls: Schema.Int,
+  },
+  messages: [Message.QueuedTest, Message.CompletedTest, Message.FailedTest],
+  execute: ({ repositoryId, testId, generation, polls }) =>
+    Effect.gen(function* () {
+      if (polls >= 100)
+        return Message.FailedTest({ generation, reason: "The test timed out. Try again." })
+      yield* Effect.sleep(Duration.seconds(Math.min(3, 1 + polls / 5)))
+      const response = yield* HttpClient.get(
+        testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests/") + encodeURIComponent(testId),
+      )
+      if (response.status !== 200)
+        return Message.FailedTest({
+          generation,
+          reason: `Unable to read test result (${response.status})`,
+        })
+      const job = yield* HttpIncomingMessage.schemaBodyJson(RuleTestJob)(response)
+      if (job.status === "done" && job.response)
+        return Message.CompletedTest({ generation, response: job.response })
+      if (job.status === "failed")
+        return Message.FailedTest({ generation, reason: job.message ?? "Test failed" })
+      return Message.QueuedTest({ testId, generation, status: job.status, polls: polls + 1 })
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedTest({ generation, reason: describe(error) })),
+      ),
+    ),
+})
+
+const PrepareCreation = Mount.defineStream("PrepareRuleCreation", {
+  args: {},
+  messages: [Message.PreparedCreation],
+  execute: () =>
+    Stream.fromEffect(Effect.sync(() => Message.PreparedCreation({ key: crypto.randomUUID() }))),
+})

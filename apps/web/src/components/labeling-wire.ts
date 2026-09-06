@@ -136,7 +136,14 @@ export type ValidatePolicyResponse = typeof ValidatePolicyResponse.Type
 export const OnNoMatch = Schema.Literals(["ensure-absent", "preserve"])
 export type OnNoMatch = typeof OnNoMatch.Type
 
+export const AiRuleDefinition = Schema.Struct({
+  target: PolicyTarget,
+  prompt: Schema.String,
+  minimumConfidence: Schema.Number,
+})
+export type AiRuleDefinition = typeof AiRuleDefinition.Type
 export const RuleRecord = Schema.Struct({
+  ai: Schema.optionalKey(Schema.NullOr(AiRuleDefinition)),
   id: Schema.String,
   repositoryId: Schema.String,
   labelId: Schema.String,
@@ -216,6 +223,8 @@ export const NodeTrace = Schema.Struct({
 export type NodeTrace = typeof NodeTrace.Type
 
 export const Evaluation = Schema.Struct({
+  confidence: Schema.optionalKey(Schema.Number),
+  cached: Schema.optionalKey(Schema.Boolean),
   outcome: Outcome,
   reason: Schema.String,
   trace: Schema.Array(NodeTrace),

@@ -606,6 +606,7 @@ const openRuleEditor = (
           _tag: "RuleEditor" as const,
           editor: RuleEditor.init({
             repositoryId,
+            catalog: model.catalog,
             labels: detail.configuration.labels,
             policies: detail.configuration.policies,
             existing: rule,
@@ -807,7 +808,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                   source: (source) => evo(source, { catalog: () => catalog }),
                 }),
               }
-            : panel,
+            : panel._tag === "RuleEditor"
+              ? { ...panel, editor: evo(panel.editor, { catalog: () => catalog }) }
+              : panel,
       }),
     }),
 
@@ -1492,7 +1495,16 @@ const foldRuleMenu = (ruleId: string) =>
   })
 
 export const ruleBehavior = (view: ConfigurationView, rule: RuleRecord): string =>
-  `Add ${labelName(view.labels, rule.labelId)} when ${policyName(view.policies, rule.policyId)} matches. Otherwise, ${rule.onNoMatch === "preserve" ? "leave it unchanged" : "remove the label"}.`
+  rule.ai
+    ? (rule.ai.prompt.split("\n")[0] ?? "AI classification")
+    : `Add ${labelName(view.labels, rule.labelId)} when ${policyName(view.policies, rule.policyId)} matches. Otherwise, ${rule.onNoMatch === "preserve" ? "leave it unchanged" : "remove the label"}.`
+
+const ruleType = (view: ConfigurationView, rule: RuleRecord): string =>
+  rule.ai ||
+  view.policies.find((policy) => policy.policyId === rule.policyId)?.publishedEvaluator ===
+    "Classifier"
+    ? "AI"
+    : "Policy"
 
 export const labelBadgeStyle = (color: string | null | undefined): Record<string, string> => {
   if (!color || !/^[0-9a-f]{6}$/i.test(color)) return {}
@@ -1571,7 +1583,7 @@ const ruleRow = (
         [
           h.span(
             [h.Class("inline-flex items-center gap-1.5 text-xs text-muted-foreground")],
-            [Icon.view(h, FileCode2, "size-3.5"), "Policy"],
+            [Icon.view(h, FileCode2, "size-3.5"), ruleType(view, rule)],
           ),
         ],
       ),
@@ -1658,7 +1670,7 @@ const ruleRow = (
 const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
   const query = model.ruleSearch.trim().toLowerCase()
   const rules = view.rules.filter((rule) =>
-    `${ruleBehavior(view, rule)} ${rule.group ?? ""} ${view.policies.find((policy) => policy.policyId === rule.policyId)?.description ?? ""} policy`
+    `${labelName(view.labels, rule.labelId)} ${ruleBehavior(view, rule)} ${rule.group ?? ""} ${view.policies.find((policy) => policy.policyId === rule.policyId)?.description ?? ""} ${ruleType(view, rule)}`
       .toLowerCase()
       .includes(query),
   )

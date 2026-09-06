@@ -422,6 +422,23 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
           let applied = 0
           let failed = 0
           for (const action of planned.actions) {
+            const blockedAi =
+              yield* sql`SELECT e.rule_id FROM labeling_rule_evaluation e JOIN labeling_policy_version v ON v.version_id=e.policy_version_id
+              WHERE e.repository_id=${repositoryId} AND e.number=${number} AND e.snapshot_generation=${identity.snapshotGeneration} AND e.rules_revision=${identity.rulesRevision}
+              AND e.rule_id=${action.ruleId} AND v.program->'evaluator'->>'_tag'='Classifier'
+              AND NOT EXISTS (SELECT 1 FROM labeling_ai_consent WHERE repository_id=${repositoryId} AND state='enabled')`.pipe(
+                wrapSql,
+              )
+            if (blockedAi.length) {
+              yield* settle(
+                identity,
+                action.labelId,
+                "failed",
+                "AI access was disabled before applying labels",
+              ).pipe(wrapSql)
+              failed++
+              continue
+            }
             const name = nameOf.get(action.labelId)
             if (name === undefined) {
               yield* settle(

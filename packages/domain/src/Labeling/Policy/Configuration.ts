@@ -1,3 +1,4 @@
+import { AiRuleDefinition } from "./AiRule.ts"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "../../GitHub/Id.ts"
@@ -121,6 +122,7 @@ export const LabelStatus = Schema.Literals(["valid", "missing"]).annotate({
 
 export const RuleRecord = Schema.Struct({
   ...RuleBinding.fields,
+  ai: Schema.optionalKey(Schema.NullOr(AiRuleDefinition)),
   repositoryId: GitHubRepositoryDatabaseId,
   labelStatus: LabelStatus,
   version: Schema.Int,
@@ -130,9 +132,13 @@ export const RuleRecord = Schema.Struct({
 export type RuleRecord = typeof RuleRecord.Type
 
 export const CreateRuleRequest = Schema.Struct({
+  requestId: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+  ),
+  ai: Schema.optionalKey(AiRuleDefinition),
   labelId: GitHubLabelDatabaseId,
-  policyId: PolicyId,
-  onNoMatch: OnNoMatch,
+  policyId: Schema.optionalKey(PolicyId),
+  onNoMatch: OnNoMatch.pipe(Schema.withDecodingDefaultKey(Effect.succeed("preserve"))),
   group: Schema.NullOr(RuleGroup).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   priority: Schema.Int.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
@@ -140,6 +146,7 @@ export const CreateRuleRequest = Schema.Struct({
 export type CreateRuleRequest = typeof CreateRuleRequest.Type
 
 export const PatchRuleRequest = Schema.Struct({
+  ai: Schema.optionalKey(AiRuleDefinition),
   version: Schema.Int,
   labelId: Schema.optionalKey(GitHubLabelDatabaseId),
   policyId: Schema.optionalKey(PolicyId),
@@ -157,6 +164,7 @@ export const RuleIssueCode = Schema.Literals([
   "policy-not-published",
   "policy-target-mismatch",
   "classifier-preserve-only",
+  "invalid-ai-rule",
 ]).annotate({ identifier: "RuleIssueCode" })
 export type RuleIssueCode = typeof RuleIssueCode.Type
 

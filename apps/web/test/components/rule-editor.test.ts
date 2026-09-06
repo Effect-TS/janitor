@@ -274,3 +274,49 @@ describe("rule flow view", () => {
     )
   })
 })
+
+it("saves an AI definition without selecting a policy and tests unsaved facts", () => {
+  const catalog = ["title", "body"].map((name) => ({
+    name,
+    type: "Text" as const,
+    kinds: ["issue", "pull_request"] as const,
+    track: "entities",
+    description: name,
+    fields: [],
+    operators: [],
+  }))
+  let model = RuleEditor.init({
+    repositoryId: "701",
+    labels,
+    policies: [],
+    existing: Option.none(),
+    catalog,
+    testCandidates: {
+      _tag: "Ready",
+      items: [
+        {
+          number: 5,
+          kind: "pull_request",
+          title: "Change",
+          authorLogin: "a",
+          baseRef: "main",
+          draft: false,
+          labels: [],
+          evaluation: null,
+          plan: null,
+        },
+      ],
+    },
+  })
+  model = RuleEditor.update(model, RuleEditor.Message.SelectedType({ value: "ai" })).model
+  model = RuleEditor.update(model, RuleEditor.Message.SelectedLabel({ labelId: "11" })).model
+  expect(RuleEditor.draftIssues(model)).toEqual([])
+  expect(RuleEditor.update(model, RuleEditor.Message.ClickedSave()).commands).toHaveLength(1)
+  expect(RuleEditor.update(model, RuleEditor.Message.ClickedTest()).commands).toHaveLength(1)
+  model = RuleEditor.update(
+    model,
+    RuleEditor.Message.EditedPrompt({ value: "{{fact:diff}}" }),
+  ).model
+  expect(RuleEditor.draftIssues(model)).toContain("Unknown fact 'diff'")
+  expect(RuleEditor.update(model, RuleEditor.Message.ClickedSave()).commands).toBeUndefined()
+})

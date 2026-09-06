@@ -155,3 +155,7 @@ Oversized or incomplete evidence returns Unknown without silently truncating inp
 Initial acceptance targets: metadata saves remain sub-second apart from network latency; cached tests finish within two seconds; ordinary fact-based tests target p95 under 30 seconds, with every job terminal within its configured deadline. These are measurement targets, not current guarantees. Run a labeled fixture set containing issue categorization, documentation labels, author/label-based context, misleading PR descriptions, missing or truncated facts, and questions that cannot be answered without code. Report precision/recall and abstention separately; a higher slider setting must not be advertised as a guaranteed accuracy rate.
 
 Run the project's dependency checks, `vp check`, `vp test`, frontend build, and Worker bundle check. Rehearse migration and rollback compatibility. Production rollback disables AI automation and restores compatible code; it does not destroy evidence, audit, or policy history.
+
+## Implementation notes
+
+See [AI labeling rules](./ai-labeling-rules.md) for the implemented API, editor, and operational limits. The API adds an optional `ai` definition to the existing rule format rather than replacing it with a union. Initial budgets use fixed request/concurrency limits and a conservative UTF-8 input cap. Production rollout and provider accuracy, latency, and cost measurements remain pending.

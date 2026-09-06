@@ -81,7 +81,7 @@ export class LabelingOverview extends Context.Service<
       SELECT r.repository_id, r.owner, r.repo, r.enabled, r.sync_enabled, r.access,
              l.configured_revision::text, l.active_revision::text,
              (SELECT count(*)::int FROM labeling_rule WHERE repository_id = r.repository_id) AS rule_count,
-             (SELECT count(*)::int FROM labeling_policy WHERE repository_id = r.repository_id) AS policy_count
+             (SELECT count(*)::int FROM labeling_policy WHERE repository_id = r.repository_id AND owner_rule_id IS NULL) AS policy_count
       FROM github_repository r
       LEFT JOIN labeling_repository_rules l ON l.repository_id = r.repository_id
       WHERE r.connected

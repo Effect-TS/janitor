@@ -40,3 +40,12 @@ Repository sync eligibility now requires connection membership. Disconnect retai
 
 `0009_label_colors.sql` adds the nullable GitHub label color. Existing labels keep
 working and receive their colors on the next label sync or entity observation.
+
+## AI rules
+
+`0010_ai_rules.sql` adds rule-owned classifier policies, editable AI definitions,
+retry-safe creation keys, expiring classifier claims, and asynchronous test jobs.
+It also records whether check/review collections were actually fetched. Existing
+collection rows default to incomplete and become usable after their next refresh.
+Historical classifier versions remain after a rule is deleted. Existing policy
+rules and shared classifier policies remain compatible.

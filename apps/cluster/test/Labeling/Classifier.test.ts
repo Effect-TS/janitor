@@ -288,12 +288,12 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
         subject: { _tag: "Configuration" },
         numbers: [5],
       })
-      // Cached match still applies; unknown for the rest would preserve.
+      // Revoked consent also blocks cached decisions from proposing new actions.
       assert.deepStrictEqual(
         whole._tag === "Evaluated"
           ? whole.entities[0]?.plan?.actions.map((action) => action.action)
           : whole._tag,
-        ["add"],
+        [],
       )
       assert.strictEqual(published.published?.manifest.tracks[0], "entities")
     }),

@@ -219,6 +219,8 @@ export type NodeTrace = typeof NodeTrace.Type
 export const MAX_TRACE = 64
 
 export const Evaluation = Schema.Struct({
+  confidence: Schema.optionalKey(Schema.Number),
+  cached: Schema.optionalKey(Schema.Boolean),
   outcome: Outcome,
   reason: Schema.String,
   trace: Schema.Array(NodeTrace).check(Schema.isMaxLength(MAX_TRACE)),

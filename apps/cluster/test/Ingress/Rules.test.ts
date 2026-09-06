@@ -1,3 +1,4 @@
+import { RuleTestJobs } from "../../src/Labeling/RuleTestJob.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -181,6 +182,16 @@ const withHandler = <A, E, R>(
             Context.add(LabelingRules, rules),
             Context.add(LabelingConfiguration, configuration),
             Context.add(LabelingTest, test),
+            Context.add(RuleTestJobs, {
+              enqueue: () =>
+                Effect.succeed({
+                  testId: "test-1",
+                  status: "queued",
+                  response: null,
+                  message: null,
+                }),
+              get: () => Effect.succeed(null),
+            }),
             Context.add(LabelingOverview, overview),
             Context.add(AiConsentService, consentService),
             Context.add(CurrentAccessIdentity, identity),

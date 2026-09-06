@@ -84,6 +84,8 @@ export interface IssueObservation {
 export interface PullRequestCollections {
   readonly files: ReadonlyArray<{ readonly path: string; readonly status: string }>
   readonly filesComplete: boolean
+  readonly checksComplete?: boolean
+  readonly reviewsComplete?: boolean
   readonly checks: ReadonlyArray<{ readonly name: string; readonly state: string }>
   readonly reviews: ReadonlyArray<{ readonly reviewer: string; readonly state: string }>
 }
@@ -185,7 +187,12 @@ const LabelRow = Schema.Struct({
   observed_at: Schema.DateTimeUtcFromDate,
 })
 
-const AggregateRow = Schema.Struct({ number: Schema.Int, files_complete: Schema.Boolean })
+const AggregateRow = Schema.Struct({
+  number: Schema.Int,
+  files_complete: Schema.Boolean,
+  checks_complete: Schema.Boolean,
+  reviews_complete: Schema.Boolean,
+})
 const FileRow = Schema.Struct({ number: Schema.Int, path: Schema.String, status: Schema.String })
 const CheckRow = Schema.Struct({ number: Schema.Int, name: Schema.String, state: Schema.String })
 const ReviewRow = Schema.Struct({
@@ -741,7 +748,7 @@ export class GitHubReadModel extends Context.Service<
         `.pipe(Effect.flatMap(rowsToRecords(EntityLabelRow)), wrap(operation))
         const pullRequestByNumber = new Map(pullRequests.map((pr) => [pr.number, pr]))
         const aggregates = yield* sql`
-          SELECT number, files_complete FROM github_pull_request_collections
+          SELECT number, files_complete, checks_complete, reviews_complete FROM github_pull_request_collections
           WHERE repository_id = ${repositoryId} AND number IN ${sql.in(numbers)}
         `.pipe(Effect.flatMap(rowsToRecords(AggregateRow)), wrap(operation))
         const files = yield* sql`
@@ -765,6 +772,8 @@ export class GitHubReadModel extends Context.Service<
                   .filter((row) => row.number === number)
                   .map(({ path, status }) => ({ path, status })),
                 filesComplete: aggregate.files_complete,
+                checksComplete: aggregate.checks_complete,
+                reviewsComplete: aggregate.reviews_complete,
                 checks: checks
                   .filter((row) => row.number === number)
                   .map(({ name, state }) => ({ name, state })),
@@ -791,8 +800,8 @@ export class GitHubReadModel extends Context.Service<
         DELETE FROM github_pull_request_collections WHERE repository_id = ${repositoryId} AND number = ${number}
       `.pipe(wrap("applyPullRequestCollections"))
         const inserted = yield* sql`
-        INSERT INTO github_pull_request_collections (repository_id, number, files_complete)
-        SELECT ${repositoryId}, ${number}, ${collections.filesComplete}
+        INSERT INTO github_pull_request_collections (repository_id, number, files_complete, checks_complete, reviews_complete)
+        SELECT ${repositoryId}, ${number}, ${collections.filesComplete}, ${collections.checksComplete ?? false}, ${collections.reviewsComplete ?? false}
         WHERE EXISTS (SELECT 1 FROM github_entity WHERE repository_id = ${repositoryId} AND number = ${number})
         RETURNING number
       `.pipe(wrap("applyPullRequestCollections"))
