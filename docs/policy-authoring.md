@@ -89,6 +89,11 @@ still needs a policy.
 - **Publish** saves, validates, and publishes. If publishing fails after saving,
   the saved draft remains available for correction.
 
+Publishing or changing a rule does not scan or re-evaluate existing issues and
+pull requests. Webhooks and background synchronization trigger evaluations, which
+use the latest published policies and currently enabled rules. This also applies
+to older queued events and existing items. Draft changes do not affect automation.
+
 Click the title or description, or its pencil button, to open a focused input.
 The inline Save button applies that field's edit to the draft. Cancel, Escape,
 or moving focus outside the editing controls discards the field's pending edit.

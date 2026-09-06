@@ -24,12 +24,7 @@ const PendingRow = Schema.Struct({
 
 const PromotedRow = Schema.Struct({ repository_id: GitHubRepositoryDatabaseId })
 
-/**
- * Promotes a configured ruleset revision to active once every track it
- * recorded at save time has verified at least the generation it requested.
- * Called after a save, after a repository track verifies, and by the repair
- * cron for recovery, so a lost wakeup only delays promotion.
- */
+/** Repairs legacy configured/active pointers without scheduling evaluations. */
 export class RulesetActivation extends Context.Service<
   RulesetActivation,
   {
@@ -57,38 +52,15 @@ export class RulesetActivation extends Context.Service<
           (error) => new RulesetActivationError({ operation, message: describeError(error) }),
         )
 
-    // One statement decides readiness on the database's view of the tracks,
-    // so concurrent callers cannot promote on stale reads. A track with no
-    // target row or a lower verified generation blocks promotion.
     const promoteReady = (repositoryId: Option.Option<GitHubRepositoryDatabaseId>) =>
       sql`
-        WITH candidate AS (
-          SELECT r.repository_id, r.configured_revision, c.preparation AS required_tracks
-          FROM labeling_repository_rules r
-          JOIN labeling_configuration c
-            ON c.repository_id = r.repository_id AND c.revision = r.configured_revision
-          WHERE r.active_revision IS DISTINCT FROM r.configured_revision
-            AND (${Option.getOrNull(repositoryId)}::text IS NULL
-                 OR r.repository_id = ${Option.getOrNull(repositoryId)})
-        ),
-        ready AS (
-          SELECT c.repository_id, c.configured_revision
-          FROM candidate c
-          WHERE NOT EXISTS (
-            SELECT 1 FROM jsonb_each_text(c.required_tracks) AS need(track, generation)
-            LEFT JOIN sync_target t
-              ON t.scope_key = 'repository:' || c.repository_id || ':' || need.track
-            WHERE t.scope_key IS NULL
-               OR t.health <> 'ok'
-               OR t.verified_generation < need.generation::bigint
-          )
-        )
         UPDATE labeling_repository_rules r
-        SET active_revision = ready.configured_revision,
+        SET active_revision = r.configured_revision,
             activated_at = CLOCK_TIMESTAMP(),
             updated_at = CLOCK_TIMESTAMP()
-        FROM ready
-        WHERE r.repository_id = ready.repository_id
+        WHERE r.active_revision IS DISTINCT FROM r.configured_revision
+          AND (${Option.getOrNull(repositoryId)}::text IS NULL
+               OR r.repository_id = ${Option.getOrNull(repositoryId)})
         RETURNING r.repository_id
       `.pipe(Effect.flatMap(decodePromoted))
 

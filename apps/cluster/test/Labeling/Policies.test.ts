@@ -99,9 +99,9 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       )
       const afterRule = yield* configuration.view(repositoryId)
       assert.strictEqual(afterRule.configuredRevision, 3)
-      assert.deepStrictEqual(afterRule.pendingTracks, ["pull_requests"])
-      // The publish with nothing bound needed no tracks, so it activated at once.
-      assert.strictEqual(afterRule.activeRevision, 2)
+      assert.deepStrictEqual(afterRule.pendingTracks, [])
+      // Publication is immediately available without requesting synchronization.
+      assert.strictEqual(afterRule.activeRevision, 3)
 
       const snapshot = Option.getOrThrow(
         yield* configuration.load(repositoryId, LabelingRevision.make(3)),
@@ -113,7 +113,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       assert.strictEqual(snapshot.versions.length, 1)
 
       yield* verifyTrack("pull_requests")
-      assert.isTrue(Option.isSome(yield* activation.promote(repositoryId)))
+      assert.isTrue(Option.isNone(yield* activation.promote(repositoryId)))
       assert.strictEqual((yield* configuration.view(repositoryId)).activeRevision, 3)
 
       // Every change is audited with the Access subject.

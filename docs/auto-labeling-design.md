@@ -37,10 +37,10 @@ A reconciliation identity is:
 
 - canonical entity identity;
 - synchronized snapshot generation;
-- prepared active rules revision;
+- latest published rules revision;
 - AI approval-policy revision.
 
-Several deliveries may converge on one reconciliation. Delivery ID deduplicates ingestion and projection only. A later snapshot generation, active rules revision, or AI approval-policy revision creates a new reconciliation identity. Policy changes emit a handoff even when GitHub state is unchanged.
+Several deliveries may converge on one reconciliation. Delivery ID deduplicates ingestion and projection only. A later snapshot generation, active rules revision, or AI approval-policy revision creates a new reconciliation identity. Policy changes do not emit handoffs. Webhook and background-sync work uses the latest configuration when it evaluates, regardless of when the event arrived or the item was created. Queued work carrying an older revision is handed off under the latest revision.
 
 Evaluation requires a `Verified` snapshot within its purpose-specific age limit. If the snapshot is projected, syncing, stale, blocked, superseded, expired, or missing required fields, labeling requests targeted synchronization and makes no mutation. This keeps freshness and repair policy in the synchronization boundary.
 
@@ -88,7 +88,7 @@ All API, persisted, workflow, GitHub, and AI boundaries use Effect Schema. Exter
 | Covered journal sequence | Highest known invalidation covered by verification    |
 | Relevant fingerprint     | Hash of fields and labels used by active rules        |
 | Freshness status         | Qualification supplied by synchronization             |
-| Active rules revision    | Prepared immutable ruleset to evaluate                |
+| Active rules revision    | Latest published ruleset to evaluate                  |
 | AI approval revision     | Consent and provider-policy fence                     |
 
 Repository content and credentials do not appear in workflow submission payloads. The workflow loads the snapshot from the application database by this identity.
@@ -99,7 +99,7 @@ A configured label stores repository ID, GitHub database and node IDs, and last 
 
 ### Ruleset
 
-A ruleset is an immutable repository revision. The repository stores configured and active revisions separately. Save advances the configured revision and writes a synchronization preparation request in the same transaction. Synchronization promotes it to active only after all required tracks are ready.
+A ruleset is an immutable repository revision. Publishing a policy or changing a rule updates the configured and active pointers in the same transaction. This does not request synchronization, scan existing items, or enqueue reconciliation. Draft saves do not change the ruleset.
 
 Each rule has a stable ID, name, enabled state, issue or pull-request target, concrete or AI evaluator, and one or more existing label references. Validation rejects empty outputs, duplicate IDs, cross-repository labels, unresolved labels, incompatible predicates, and size-limit violations. For one entity kind, a label cannot be both concrete enforced and AI apply-only.
 
@@ -113,7 +113,7 @@ The first release uses a closed predicate set:
 | Pull request | base branch is, draft state is    |
 | Issue        | no issue-only predicate initially |
 
-Equality and case-folding semantics are explicit. Negation, if added, uses separate typed operators rather than a general expression language. A rules revision cannot activate until synchronization can qualify every field its predicates need.
+Equality and case-folding semantics are explicit. Negation, if added, uses separate typed operators rather than a general expression language. Publication is independent of snapshot readiness. Missing facts produce unknown evaluations until normal synchronization fetches them.
 
 ### AI evaluator
 
@@ -151,7 +151,7 @@ The Cloudflare workflow engine uses first-payload-wins for duplicate execution I
 
 The workflow orchestrates serializable receipts. Stable activities are:
 
-1. Load and qualify the synchronized snapshot and prepared active rules revision.
+1. Load and qualify the synchronized snapshot and latest published rules revision.
 2. Acquire and recheck a bounded AI call lease, then evaluate each AI rule under a stable activity name containing its rule ID. Evaluate concrete predicates purely over the loaded snapshot.
 3. Aggregate decisions and persist the proposed plan.
 4. Recheck fences and apply the remaining label set difference.
@@ -165,7 +165,7 @@ Expected reconciliation failures are typed outcomes. With default defect capture
 
 ### Rules changes and repair
 
-Saving a revision creates a revision-scoped synchronization preparation request. Synchronization performs required open, `state=all`, or retiring-label-filtered scans and emits qualified snapshots only after promotion to active.
+Publishing a revision changes what subsequent evaluations use without initiating work. Normal webhooks and background synchronization still emit qualified snapshots. If publication overlaps an evaluation or a pending label-write attempt, the old plan is fenced and the entity is handed off to the latest revision.
 
 Low-frequency synchronized repair covers webhook loss and mutation uncertainty. It respects the shared SQL rate budget and shows progress and typed failures in the UI. Auto-labeling neither paginates GitHub entities nor owns repair scheduling.
 
@@ -185,7 +185,7 @@ Initial operations load rules, list synchronized labels with freshness, save a c
 
 ### Application persistence
 
-Neon stores immutable rules revisions, managed-label state, prepared active revisions, snapshots, reconciliation generations, decisions, plans, mutation audit, AI cache, usage, and privacy metadata. Effect workflow execution state remains in platform-owned Durable Object SQLite. These stores have separate migration and operational ownership.
+Neon stores immutable rules revisions, managed-label state, current revision pointers, snapshots, reconciliation generations, decisions, plans, mutation audit, AI cache, usage, and privacy metadata. Effect workflow execution state remains in platform-owned Durable Object SQLite. These stores have separate migration and operational ownership.
 
 ## User interface
 
@@ -195,7 +195,7 @@ The rule editor selects target before predicates, renders concrete predicates as
 
 Preview is an explicit action because AI may send content and incur cost. It uses a qualified snapshot and shows snapshot generation and age, draft revision, predicate and AI outcomes, additions, managed removals, preserved labels, indeterminate results, and provider/model/prompt-policy identity. Preview never mutates.
 
-The Foldkit model represents loading, failure, clean, dirty, validation failure, saving, conflict, preview, preparation, synchronization, and reconciliation progress as explicit states. Saved state and editable draft remain separate. On conflict or refresh failure, preserve the draft and prior view while showing a recovery action.
+The Foldkit model represents loading, failure, clean, dirty, validation failure, saving, conflict, preview, synchronization, and reconciliation progress as explicit states. Saved state and editable draft remain separate. On conflict or refresh failure, preserve the draft and prior view while showing a recovery action.
 
 ## Observability and privacy
 
@@ -252,7 +252,7 @@ API and UI tests cover Access audience and repository authorization, full synchr
 Release invariants are:
 
 1. Janitor never removes a label outside the active or revision-bound-retiring concrete-managed set for that repository and entity kind.
-2. A stale, blocked, unprepared, superseded, or policy-revision-mismatched snapshot never authorizes mutation.
+2. A stale, blocked, superseded, or policy-revision-mismatched plan never authorizes mutation. Revision-mismatched work is handed off to the latest configuration.
 3. After inputs stop changing and retries and repair complete, enforced labels equal the latest resolved concrete decisions, apply-only labels include successful AI additions, and unmanaged labels remain unchanged.
 
 ## Delivery sequence
@@ -263,7 +263,7 @@ Release invariants are:
 4. Add issue events and remaining concrete predicates only after their synchronized projection tracks are ready.
 5. Add AI behind repository opt-in after privacy, cost, repeated-call, indeterminate, and retention gates pass.
 
-The tracer is a concrete "pull request base branch is `main`" rule targeting one existing label. It exercises synchronized label discovery, revision preparation, qualified snapshots, workflow submission, convergent mutation, and audit before AI adds another failure mode.
+The tracer is a concrete "pull request base branch is `main`" rule targeting one existing label. It exercises synchronized label discovery, revision publication, qualified snapshots, workflow submission, convergent mutation, and audit before AI adds another failure mode.
 
 ## Rejected alternatives
 
@@ -282,7 +282,7 @@ The tracer is a concrete "pull request base branch is `main`" rule targeting one
 
 - The Effect Cloudflare integration is branch-only and unreleased.
 - GitHub mutation and workflow persistence cannot be atomic.
-- Large repositories make preparation and retirement scans expensive.
+- Large repositories make background synchronization and retirement scans expensive.
 - Managed-label removal can surprise users unless the UI makes ownership explicit.
 - AI introduces private-data handling, nondeterminism, cost, and provider outages.
 

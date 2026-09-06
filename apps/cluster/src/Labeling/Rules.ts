@@ -13,12 +13,9 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
-import { RulesetActivation } from "./Activation.ts"
-import { backfillAfterActivation } from "./SnapshotHandoff.ts"
 import { listAudit, recordAudit } from "./Audit.ts"
 import {
   LabelingConfiguration,
@@ -64,7 +61,7 @@ const ruleColumns = (sql: SqlClient.SqlClient) => sql`
 /**
  * Rules (plan: "Rules"). A rule binds one synchronized label to one
  * published policy. Every write is audited and advances the repository
- * revision, so the change reaches evaluation through activation.
+ * revision, so subsequent evaluations use the change without scheduling a backfill.
  */
 export class LabelingRules extends Context.Service<
   LabelingRules,
@@ -97,7 +94,6 @@ export class LabelingRules extends Context.Service<
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     const configuration = yield* LabelingConfiguration
-    const activation = yield* RulesetActivation
     const decodeRules = Schema.decodeUnknownEffect(Schema.Array(RuleRow))
     const decodePolicies = Schema.decodeUnknownEffect(Schema.Array(PolicyRow))
 
@@ -296,22 +292,12 @@ export class LabelingRules extends Context.Service<
       return yield* listAudit(sql, repositoryId).pipe(wrap("audit"))
     })
 
-    const promote = (repositoryId: GitHubRepositoryDatabaseId) =>
-      activation.promote(repositoryId).pipe(
-        wrap("promote"),
-        Effect.flatMap((promoted) =>
-          Option.isSome(promoted) ? backfillAfterActivation(repositoryId) : Effect.void,
-        ),
-      )
     return {
       list,
       audit,
-      create: (repositoryId, request, actor) =>
-        create(repositoryId, request, actor).pipe(Effect.tap(() => promote(repositoryId))),
-      patch: (repositoryId, ruleId, request, actor) =>
-        patch(repositoryId, ruleId, request, actor).pipe(Effect.tap(() => promote(repositoryId))),
-      remove: (repositoryId, ruleId, version, actor) =>
-        remove(repositoryId, ruleId, version, actor).pipe(Effect.tap(() => promote(repositoryId))),
+      create,
+      patch,
+      remove,
     }
   }),
 }) {

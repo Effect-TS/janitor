@@ -28,8 +28,6 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
-import { RulesetActivation } from "./Activation.ts"
-import { backfillAfterActivation } from "./SnapshotHandoff.ts"
 import { recordAudit } from "./Audit.ts"
 import {
   LabelingConfiguration,
@@ -155,7 +153,6 @@ export class Policies extends Context.Service<
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     const configuration = yield* LabelingConfiguration
-    const activation = yield* RulesetActivation
     const decodePolicies = Schema.decodeUnknownEffect(Schema.Array(PolicyRow))
     const decodeVersions = Schema.decodeUnknownEffect(Schema.Array(VersionRow))
     const decodeDrafts = Schema.decodeUnknownEffect(Schema.Array(DraftRow))
@@ -599,13 +596,6 @@ export class Policies extends Context.Service<
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
     )
 
-    const promote = (repositoryId: GitHubRepositoryDatabaseId) =>
-      activation.promote(repositoryId).pipe(
-        wrap("promote"),
-        Effect.flatMap((promoted) =>
-          Option.isSome(promoted) ? backfillAfterActivation(repositoryId) : Effect.void,
-        ),
-      )
     return {
       list,
       get,
@@ -615,14 +605,8 @@ export class Policies extends Context.Service<
       versions,
       names,
       resolver,
-      publish: (repositoryId, policyId, version, actor) =>
-        publish(repositoryId, policyId, version, actor).pipe(
-          Effect.tap(() => promote(repositoryId)),
-        ),
-      remove: (repositoryId, policyId, version, actor) =>
-        remove(repositoryId, policyId, version, actor).pipe(
-          Effect.tap(() => promote(repositoryId)),
-        ),
+      publish,
+      remove,
     }
   }),
 }) {

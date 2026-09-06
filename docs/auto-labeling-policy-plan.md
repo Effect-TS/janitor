@@ -30,7 +30,7 @@ Slopcop also carries things we should not repeat. Facts are string literals repe
 - **Three-valued logic, stated once.** Conditions evaluate to `match`, `no-match`, or `unknown` under Kleene's tables. `unknown` is what a fact the snapshot cannot supply produces. Nothing else invents it.
 - **Applicability is scope, not a condition.** A policy that does not apply to an entity is `not-applicable`, a fourth outcome that rules treat as "leave the label alone".
 - **Evaluation is pure and runs on snapshots.** Facts come from the read model at a verified generation. There are no triggers, because a qualified snapshot is already the converged state and every enabled rule runs on it.
-- **One fence.** The repository labeling revision, which already gates activation and names reconciliations, is the only version that means "this configuration is live". Policy versions are content-addressed and immutable. Rows carry an optimistic version for editing and nothing more.
+- **One fence.** The repository labeling revision, which identifies the current configuration and names reconciliations, is the only version that means "this configuration is live". Policy versions are content-addressed and immutable. Rows carry an optimistic version for editing and nothing more.
 - **AI is an evaluator, not a rule kind.** A policy is applicability plus an evaluator. The evaluator is a condition program today and may be a classifier later. Rules and the planner never learn which.
 - **Labels are references.** A rule points at a stable label ID that synchronization already tracks. Names are display.
 
@@ -97,7 +97,7 @@ A rule bound to a policy whose evaluator cannot produce `no-match` safely, which
 
 ### Configuration revision
 
-The repository's labeling revision advances whenever a policy publishes, a rule is created, changed, enabled, disabled, or removed. Each advance writes a preparation request whose required tracks are the union of the manifests of every published policy referenced by an enabled rule. Activation, promotion, and the reconciliation identity keep working unchanged. The active revision is what the reconcile workflow loads.
+The repository's labeling revision advances whenever a policy publishes, a rule is created, changed, enabled, disabled, or removed. Each advance snapshots enabled rules and their latest published dependencies and updates the configured and active pointers atomically. It records required tracks for subsequent synchronization, without invalidating targets or scheduling backfill. Event and sync evaluations use the latest configured revision. Queued work carrying an older revision hands off to a new identity instead of applying the old plan.
 
 ### Plan
 
@@ -145,7 +145,7 @@ Each phase ships to the sandbox and is reviewed before the next.
 1. **Domain.** Fact catalog, generated predicate schemas, condition and program schemas with the authoring transformation, evaluator with Kleene semantics and traces, compiler with manifest, planner. Pure tests only.
 2. **Persistence and services.** Migration, `Policies`, `LabelingRules`, `LabelingConfiguration`, `LabelingTest`, routes, the evaluate activity recording per-rule outcomes. Mutation off. Postgres tests.
 3. **Web.** CodeMirror dependency, policy editor with generated completion, the two tables, rule dialog, test dialog. Delete the card editor.
-4. **Apply and own.** Mutation activity using node IDs, action rows marked applied, missing labels disable their rules, managed-label ownership per the design, backfill on activation.
+4. **Apply and own.** Mutation activity using node IDs, action rows marked applied, missing labels disable their rules, managed-label ownership per the design, event-driven evaluation without activation backfill.
 5. **Classifier evaluator.** Prompt, evidence from the catalog, minimum confidence, consent and leases. Rules bound to it are forced to `preserve`.
 6. **Collection tracks.** Changed files, checks, reviews as synchronization tracks, which makes their facts available with no domain change.
 

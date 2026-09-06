@@ -3,6 +3,7 @@ import {
   ReconciliationOutcome,
 } from "@janitor/domain/Labeling/Reconciliation"
 import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
+import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { evaluate, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
 import { type Evaluation } from "@janitor/domain/Labeling/Policy/Program"
 import { Plan, plan, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
@@ -23,7 +24,7 @@ import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { recordAudit } from "./Audit.ts"
 import { classifyOrUnknown } from "./Classifier.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
-import { EVALUATION_MAX_AGE, RECONCILE_ENTITY_TAG } from "./SnapshotHandoff.ts"
+import { EVALUATION_MAX_AGE, RECONCILE_ENTITY_TAG, SnapshotHandoff } from "./SnapshotHandoff.ts"
 import { entityFacts } from "./Test.ts"
 
 export class ReconcileActivityError extends Schema.TaggedError<ReconcileActivityError>()(
@@ -69,9 +70,30 @@ const EvaluateResult = Schema.Union([
   }),
 ])
 
-const ActiveRow = Schema.Struct({
-  active_revision: Schema.NullOr(Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision))),
+const ConfiguredRow = Schema.Struct({
+  configured_revision: Schema.NullOr(
+    Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision)),
+  ),
 })
+
+/** Retain the event's work when its queued or journaled plan uses an old revision. */
+const handoffLatest = (identity: ReconciliationIdentity) =>
+  Effect.gen(function* () {
+    const targets = yield* SyncTargets
+    const handoff = yield* SnapshotHandoff
+    const target = yield* targets.get({
+      _tag: "Entity",
+      repositoryId: identity.repositoryId,
+      number: identity.number,
+    })
+    if (Option.isNone(target)) return
+    yield* handoff.publish({
+      repositoryId: identity.repositoryId,
+      number: identity.number,
+      generation: target.value.verifiedGeneration,
+      sequence: target.value.verifiedSequence ?? GitHubWebhookJournalSequence.make("0"),
+    })
+  })
 
 class EvaluateFailure extends Data.TaggedError("EvaluateFailure")<{ readonly message: string }> {}
 
@@ -97,19 +119,22 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
         const targets = yield* SyncTargets
         const readModel = yield* GitHubReadModel
         const configuration = yield* LabelingConfiguration
-        const active = yield* sql`
-          SELECT active_revision::text FROM labeling_repository_rules
+        const configured = yield* sql`
+          SELECT configured_revision::text FROM labeling_repository_rules
           WHERE repository_id = ${repositoryId}
         `.pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ActiveRow))),
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ConfiguredRow))),
           Effect.mapError((error) => new EvaluateFailure({ message: describeError(error) })),
         )
-        const activeRevision = active[0]?.active_revision ?? null
-        if (activeRevision !== identity.rulesRevision) {
+        const configuredRevision = configured[0]?.configured_revision ?? null
+        if (configuredRevision !== identity.rulesRevision) {
+          yield* handoffLatest(identity).pipe(
+            Effect.mapError((error) => new EvaluateFailure({ message: error.message })),
+          )
           return {
             _tag: "Disqualified" as const,
             outcome: "superseded" as const,
-            detail: `rules revision ${identity.rulesRevision} is no longer active`,
+            detail: `rules revision ${identity.rulesRevision} was superseded; handed off to the latest configuration`,
           }
         }
         const target = yield* targets
@@ -189,8 +214,33 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
       }).pipe(Effect.mapError((error) => failure(error.message))),
     })
 
-    const outcome =
-      evaluated._tag === "Evaluated"
+    // A slow evaluation (for example a classifier) may overlap a publication.
+    // Check even empty plans so a former no-match cannot swallow the event.
+    const current =
+      evaluated._tag !== "Evaluated" ||
+      (yield* Activity.make({
+        name: "ReconcileEntity/CheckRevision",
+        success: Schema.Boolean,
+        error: ReconcileActivityError,
+        execute: Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient
+          const rows = yield* sql`
+          SELECT configured_revision::text FROM labeling_repository_rules
+          WHERE repository_id = ${repositoryId}
+        `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ConfiguredRow))))
+          if (rows[0]?.configured_revision === identity.rulesRevision) return true
+          yield* handoffLatest(identity)
+          return false
+        }).pipe(Effect.mapError((error) => failure(describeError(error)))),
+      }))
+
+    const outcome = !current
+      ? {
+          outcome: "superseded" as const,
+          detail: "configuration changed during evaluation; handed off to the latest configuration",
+          plan: null,
+        }
+      : evaluated._tag === "Evaluated"
         ? {
             outcome: "evaluated" as const,
             detail: describePlan(evaluated.plan),
@@ -220,7 +270,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
                   AND snapshot_generation = ${identity.snapshotGeneration}
                   AND rules_revision = ${identity.rulesRevision}
               `
-              if (evaluated._tag !== "Evaluated") return
+              if (evaluated._tag !== "Evaluated" || !current) return
               const selected = new Set(
                 evaluated.plan.rules.filter((rule) => rule.selected).map((rule) => rule.ruleId),
               )
@@ -259,7 +309,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
       }),
     })
 
-    if (evaluated._tag === "Evaluated" && evaluated.plan.actions.length > 0) {
+    if (current && evaluated._tag === "Evaluated" && evaluated.plan.actions.length > 0) {
       yield* Activity.make({
         name: "ReconcileEntity/Apply",
         success: ApplyResult,
@@ -349,11 +399,14 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
           if (!repository.value.enabled) return yield* skip("repository is paused")
           if (repository.value.access !== "accessible")
             return yield* skip("repository access is unavailable")
-          const active = yield* sql`
-      SELECT active_revision::text FROM labeling_repository_rules WHERE repository_id = ${repositoryId}
-    `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ActiveRow))), wrapSql)
-          if ((active[0]?.active_revision ?? null) !== identity.rulesRevision) {
-            return yield* skip(`rules revision ${identity.rulesRevision} is no longer active`)
+          const configured = yield* sql`
+      SELECT configured_revision::text FROM labeling_repository_rules WHERE repository_id = ${repositoryId}
+    `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ConfiguredRow))), wrapSql)
+          if ((configured[0]?.configured_revision ?? null) !== identity.rulesRevision) {
+            yield* handoffLatest(identity).pipe(wrapSql)
+            return yield* skip(
+              `rules revision ${identity.rulesRevision} was superseded; handed off to the latest configuration`,
+            )
           }
           const entity = yield* readModel.getEntity(repositoryId, number).pipe(wrapSql)
           if (Option.isNone(entity)) return yield* skip("entity is gone")

@@ -1,5 +1,4 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import { GitHubRepositoryTrack } from "@janitor/domain/GitHub/Sync"
 import {
   type Actor,
   ConfigurationSnapshot,
@@ -184,19 +183,10 @@ const PendingTrackRow = Schema.Struct({ track: Schema.String })
 
 const ZERO = LabelingRevision.make(0)
 
-/** How many open pull requests one revision advance asks to refresh. */
-export const ENTITY_INVALIDATION_LIMIT = 500
-
-const isRepositoryTrack = (track: FactTrack): track is GitHubRepositoryTrack =>
-  GitHubRepositoryTrack.literals.some((known) => known === track)
-
 /**
- * The repository's labeling revision (plan: "Configuration revision").
- * `advance` runs inside the caller's transaction after a publish or a rule
- * change: it snapshots the enabled rules with the versions they bind,
- * pins every version those programs reference, records the preparation
- * request, and moves the configured pointer. `load` reads a snapshot back
- * by revision so a reconciliation evaluates exactly what was live.
+ * Snapshots the enabled rules and their latest published dependencies in the
+ * caller's transaction. The new revision is immediately available to event
+ * and sync evaluations. Publishing never schedules entity scans or backfill.
  */
 export class LabelingConfiguration extends Context.Service<
   LabelingConfiguration,
@@ -401,44 +391,11 @@ export class LabelingConfiguration extends Context.Service<
         ...new Set(manifests.flatMap((manifest) => manifest.tracks)),
       ].sort() as Array<FactTrack>
 
-      // The preparation request: one new generation per track the rules
-      // need, recorded so promotion can wait for exactly those. Tracks
-      // synchronization does not have yet are not waited for; their facts
-      // evaluate as unknown until the track exists.
-      const preparation: Record<string, string> = {}
-      // Collection facts are fetched per entity, so a revision that reads
-      // them asks every open pull request to refresh; they become available
-      // as those refreshes verify, and evaluate unknown until then.
-      if (requiredTracks.some((track) => !isRepositoryTrack(track))) {
-        const open = yield* readModel
-          .listOpenEntities(repositoryId, ENTITY_INVALIDATION_LIMIT)
-          .pipe(wrap("advance"))
-        for (const { entity, pullRequest } of open) {
-          if (Option.isNone(pullRequest)) continue
-          yield* targets
-            .invalidate({
-              scope: { _tag: "Entity", repositoryId, number: entity.number },
-              sequence: Option.none(),
-            })
-            .pipe(wrap("advance"))
-        }
-      }
-      for (const track of requiredTracks) {
-        if (!isRepositoryTrack(track)) continue
-        const { generation } = yield* targets
-          .invalidate({
-            scope: { _tag: "RepositoryTrack", repositoryId, track },
-            sequence: Option.none(),
-          })
-          .pipe(wrap("advance"))
-        preparation[track] = generation
-      }
-
       const encoded = yield* Effect.all({
         rules: encodeRules(rules),
         versionIds: encodeVersionIds(versions.map((version) => version.versionId)),
         tracks: encodeTracks(requiredTracks),
-        preparation: encodePreparation(preparation as Preparation),
+        preparation: encodePreparation({}),
       }).pipe(wrap("advance"))
       yield* sql`
         INSERT INTO labeling_configuration
@@ -447,10 +404,12 @@ export class LabelingConfiguration extends Context.Service<
                 ${encoded.tracks}::jsonb, ${encoded.preparation}::jsonb, ${actor.issuer}, ${actor.subject})
       `.pipe(wrap("advance"))
       yield* sql`
-        INSERT INTO labeling_repository_rules (repository_id, configured_revision)
-        VALUES (${repositoryId}, ${next})
+        INSERT INTO labeling_repository_rules (repository_id, configured_revision, active_revision, activated_at)
+        VALUES (${repositoryId}, ${next}, ${next}, CLOCK_TIMESTAMP())
         ON CONFLICT (repository_id) DO UPDATE SET
           configured_revision = EXCLUDED.configured_revision,
+          active_revision = EXCLUDED.active_revision,
+          activated_at = CLOCK_TIMESTAMP(),
           updated_at = CLOCK_TIMESTAMP()
       `.pipe(wrap("advance"))
       yield* Effect.logInfo("Advanced auto-labeling configuration").pipe(

@@ -652,7 +652,7 @@ const foldPolicyEditor = Update.foldChild({
             ? `Published ${detail.policy.name}`
             : `Saved ${detail.policy.name} as a draft`,
           description: published
-            ? "Rules bound to it re-evaluate once synchronization verifies the tracks it needs."
+            ? "Rules use this revision the next time a webhook or sync triggers evaluation."
             : "Publish it to make it available to rules.",
         }),
       Cancelled: () => undefined,

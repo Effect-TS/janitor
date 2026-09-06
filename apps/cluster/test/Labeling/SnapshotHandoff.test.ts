@@ -109,7 +109,7 @@ layer(Services, { timeout: "2 minutes" })("SnapshotHandoff against Postgres", (i
         actor,
       )
       yield* verifyTrack("pull_requests")
-      assert.isTrue(Option.isSome(yield* activation.promote(repositoryId)))
+      assert.isTrue(Option.isNone(yield* activation.promote(repositoryId)))
       const revision = LabelingRevision.make(2)
 
       const unknown = yield* handoff.publish({
@@ -125,17 +125,13 @@ layer(Services, { timeout: "2 minutes" })("SnapshotHandoff against Postgres", (i
       // A retried activity is a no-op on the same identity.
       const again = yield* handoff.publish({ repositoryId, number, generation, sequence: seq })
       assert.strictEqual(again._tag, "Published")
-      // Publishing the policy activated revision 1 with nothing bound, and the
-      // backfill handed #5 off at that revision; the rule then made revision 2.
+      // Publication and rule enablement did not enqueue any existing entities.
       assert.deepStrictEqual(
         (yield* outboxKeys).map((row) => row.execution_key),
-        [
-          `reconcile:${repositoryId}:${number}:${generation}:1`,
-          `reconcile:${repositoryId}:${number}:${generation}:${revision}`,
-        ],
+        [`reconcile:${repositoryId}:${number}:${generation}:${revision}`],
       )
       const pending = yield* overview.reconciliations(repositoryId)
-      assert.strictEqual(pending.length, 2)
+      assert.strictEqual(pending.length, 1)
       assert.isNull(pending[0]?.outcome)
 
       // The workflow re-qualifies the snapshot, evaluates every rule, and records the plan.
@@ -199,9 +195,7 @@ layer(Services, { timeout: "2 minutes" })("SnapshotHandoff against Postgres", (i
       const superseded = yield* ReconcileEntity.execute({ ...identity, snapshotGeneration: newer })
       assert.strictEqual(superseded.outcome, "superseded")
 
-      // Activation backfills every open entity whose snapshot is verified: #5
-      // already has a handoff at the newer generation, so only #6 is new
-      // once its entity scope verifies.
+      // A later sync verification hands off only that entity.
       const targets = yield* SyncTargets
       const scope6 = { _tag: "Entity", repositoryId, number: 6 } as const
       const six = yield* targets.invalidate({ scope: scope6, sequence: Option.some(seq) })
@@ -211,8 +205,7 @@ layer(Services, { timeout: "2 minutes" })("SnapshotHandoff against Postgres", (i
         generation: six.generation,
         outcome: { _tag: "Verified", watermark: Option.none() },
       })
-      const backfilled = yield* handoff.publishOpen(repositoryId)
-      assert.strictEqual(backfilled, 2)
+      yield* handoff.publish({ repositoryId, number: 6, generation: six.generation, sequence: seq })
       assert.include(
         (yield* outboxKeys).map((row) => row.execution_key),
         `reconcile:${repositoryId}:6:${six.generation}:${revision}`,

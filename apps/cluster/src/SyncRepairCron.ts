@@ -4,7 +4,6 @@ import * as Singleton from "effect/unstable/cluster/Singleton"
 import { ContentPurge } from "./ContentPurge.ts"
 import { RulesetActivation } from "./Labeling/Activation.ts"
 import { AiConsentService } from "./Labeling/Classifier.ts"
-import { backfillAfterActivation } from "./Labeling/SnapshotHandoff.ts"
 import { REPAIR_PLANNER_NAME, SyncPlanner } from "./SyncPlanner.ts"
 import { recoverSyncExecutions } from "./SyncRecovery.ts"
 
@@ -31,8 +30,7 @@ export const SyncRepairCronLayer = Singleton.make(
       "Ruleset activation",
       Effect.gen(function* () {
         const activation = yield* RulesetActivation
-        const promoted = yield* activation.promoteAll
-        yield* Effect.forEach(promoted, backfillAfterActivation, { discard: true })
+        yield* activation.promoteAll
       }),
     )
     yield* independently(

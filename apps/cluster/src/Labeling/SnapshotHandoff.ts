@@ -40,9 +40,6 @@ export interface HandoffRequest {
   readonly sequence: GitHubWebhookJournalSequence
 }
 
-/** How many open entities one activation backfill considers. */
-export const BACKFILL_LIMIT = 500
-
 export type HandoffResult =
   | { readonly _tag: "Published"; readonly identity: ReconciliationIdentity }
   | {
@@ -50,8 +47,10 @@ export type HandoffResult =
       readonly reason: "no-active-revision" | "no-entity" | "not-verified"
     }
 
-const ActiveRow = Schema.Struct({
-  active_revision: Schema.NullOr(Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision))),
+const ConfiguredRow = Schema.Struct({
+  configured_revision: Schema.NullOr(
+    Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision)),
+  ),
 })
 
 const sha256Hex = (text: string) =>
@@ -70,14 +69,6 @@ export class SnapshotHandoff extends Context.Service<
     readonly publish: (
       request: HandoffRequest,
     ) => Effect.Effect<HandoffResult, SnapshotHandoffError>
-    /**
-     * Hands off every open entity whose snapshot is already verified, so a
-     * newly active revision evaluates existing items and not only the next
-     * one to change. Returns how many were published.
-     */
-    readonly publishOpen: (
-      repositoryId: GitHubRepositoryDatabaseId,
-    ) => Effect.Effect<number, SnapshotHandoffError>
   }
 >()("@janitor/cluster/Labeling/SnapshotHandoff/SnapshotHandoff", {
   make: Effect.gen(function* () {
@@ -85,7 +76,7 @@ export class SnapshotHandoff extends Context.Service<
     const readModel = yield* GitHubReadModel
     const targets = yield* SyncTargets
     const outbox = yield* WorkflowOutbox
-    const decodeActive = Schema.decodeUnknownEffect(Schema.Array(ActiveRow))
+    const decodeConfigured = Schema.decodeUnknownEffect(Schema.Array(ConfiguredRow))
 
     const wrap =
       (operation: string) =>
@@ -97,10 +88,10 @@ export class SnapshotHandoff extends Context.Service<
 
     const publish = Effect.fn("SnapshotHandoff.publish")(function* (request: HandoffRequest) {
       const { repositoryId, number } = request
-      const active = yield* sql`
-        SELECT active_revision::text FROM labeling_repository_rules WHERE repository_id = ${repositoryId}
-      `.pipe(Effect.flatMap(decodeActive), wrap("activeRevision"))
-      const rulesRevision = active[0]?.active_revision ?? null
+      const configured = yield* sql`
+        SELECT configured_revision::text FROM labeling_repository_rules WHERE repository_id = ${repositoryId}
+      `.pipe(Effect.flatMap(decodeConfigured), wrap("configuredRevision"))
+      const rulesRevision = configured[0]?.configured_revision ?? null
       if (rulesRevision === null) {
         return { _tag: "Skipped", reason: "no-active-revision" } as const
       }
@@ -168,55 +159,8 @@ export class SnapshotHandoff extends Context.Service<
       return { _tag: "Published", identity } as const
     })
 
-    const publishOpen = Effect.fn("SnapshotHandoff.publishOpen")(function* (
-      repositoryId: GitHubRepositoryDatabaseId,
-    ) {
-      const entities = yield* readModel
-        .listOpenEntities(repositoryId, BACKFILL_LIMIT)
-        .pipe(wrap("listOpenEntities"))
-      let published = 0
-      for (const { entity } of entities) {
-        const target = yield* targets
-          .get({ _tag: "Entity", repositoryId, number: entity.number })
-          .pipe(wrap("getTarget"))
-        if (Option.isNone(target)) continue
-        const result = yield* publish({
-          repositoryId,
-          number: entity.number,
-          generation: target.value.verifiedGeneration,
-          sequence: target.value.verifiedSequence ?? GitHubWebhookJournalSequence.make("0"),
-        })
-        if (result._tag === "Published") published++
-      }
-      yield* Effect.logInfo("Backfilled qualified snapshots after activation").pipe(
-        Effect.annotateLogs({ repositoryId, published, considered: entities.length }),
-      )
-      return published
-    })
-
-    return { publish, publishOpen }
+    return { publish }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
-
-/**
- * Runs the backfill when the handoff service is present. Optional so
- * synchronization tests without labeling still run, and never fails the
- * caller: a lost backfill is repaired by the next refresh of each entity.
- */
-export const backfillAfterActivation = (repositoryId: GitHubRepositoryDatabaseId) =>
-  Effect.serviceOption(SnapshotHandoff).pipe(
-    Effect.flatMap((handoff) =>
-      Option.isNone(handoff)
-        ? Effect.void
-        : handoff.value.publishOpen(repositoryId).pipe(
-            Effect.asVoid,
-            Effect.catchCause((cause) =>
-              Effect.logError("Backfill after activation failed", cause).pipe(
-                Effect.annotateLogs({ repositoryId }),
-              ),
-            ),
-          ),
-    ),
-  )

@@ -129,6 +129,8 @@ export const verifyTrack = (track: "labels" | "entities" | "pull_requests") =>
   Effect.gen(function* () {
     const targets = yield* SyncTargets
     const scope = { _tag: "RepositoryTrack", repositoryId, track } as const
+    const existing = yield* targets.get(scope)
+    if (Option.isNone(existing)) yield* targets.invalidate({ scope, sequence: Option.some(seq) })
     const record = Option.getOrThrow(yield* targets.get(scope))
     yield* targets.begin(scope, record.requestedGeneration)
     yield* targets.complete({
