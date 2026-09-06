@@ -439,12 +439,7 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
         break
       case "GotPolicyEditorMessage": {
         const child = message.message
-        if (
-          child._tag === "ClickedCancel" ||
-          (child._tag === "GotActionsMenuMessage" &&
-            child.message._tag === "SelectedItem" &&
-            child.message.item === "Close editor")
-        )
+        if (child._tag === "ClickedCancel")
           return requestNavigation(model, Routes.policies({ repositoryId }))
         if (
           child._tag === "SelectedTestItem" &&
