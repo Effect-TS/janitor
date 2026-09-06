@@ -85,11 +85,37 @@ const fresh = () =>
   })
 
 describe("PolicyEditor", () => {
+  it("requires modal confirmation and allows cancellation before deleting", () => {
+    const model = PolicyEditor.init({
+      repositoryId: "701",
+      configuration: fresh().configuration,
+      catalog: [],
+      existing: Option.some(detail),
+    })
+    expect(
+      PolicyEditor.update(model, PolicyEditor.Message.ConfirmedDelete()).outMessage,
+    ).toBeUndefined()
+    const opened = PolicyEditor.update(model, PolicyEditor.Message.ClickedDelete())
+    expect(opened.model.deleteDialog.isOpen).toBe(true)
+    expect(opened.outMessage).toBeUndefined()
+    const cancelled = PolicyEditor.update(opened.model, PolicyEditor.Message.CancelledDelete())
+    expect(cancelled.model.deleteDialog.isOpen).toBe(false)
+    expect(cancelled.outMessage).toBeUndefined()
+    const confirmed = PolicyEditor.update(opened.model, PolicyEditor.Message.ConfirmedDelete())
+    expect(confirmed.model.deleteDialog.isOpen).toBe(false)
+    expect(confirmed.outMessage).toEqual(
+      PolicyEditor.OutMessage.RequestedDelete({ policyId: "p1", version: 1 }),
+    )
+    expect(
+      PolicyEditor.update(confirmed.model, PolicyEditor.Message.ConfirmedDelete()).outMessage,
+    ).toBeUndefined()
+  })
+
   it("offers creation controls before the first edit", () => {
     Scene.scene(
       {
         update: PolicyEditor.update,
-        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+        view: Scene.withViewInputs(PolicyEditor.view, {})(),
       },
       Scene.given(fresh()),
       Scene.Mount.resolve(
@@ -175,7 +201,7 @@ describe("PolicyEditor", () => {
       Scene.scene(
         {
           update: PolicyEditor.update,
-          view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+          view: Scene.withViewInputs(PolicyEditor.view, {})(),
         },
         Scene.given({ ...fresh(), identity: { _tag: "Existing", policyId: "p1", version: 1 } }),
         Scene.Mount.resolve(
@@ -204,7 +230,7 @@ describe("PolicyEditor", () => {
     Scene.scene(
       {
         update: PolicyEditor.update,
-        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+        view: Scene.withViewInputs(PolicyEditor.view, {})(),
       },
       Scene.given({
         ...fresh(),
@@ -242,7 +268,7 @@ describe("PolicyEditor", () => {
     Scene.scene(
       {
         update: PolicyEditor.update,
-        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+        view: Scene.withViewInputs(PolicyEditor.view, {})(),
       },
       Scene.given({
         ...fresh(),
@@ -357,7 +383,7 @@ describe("PolicyEditor", () => {
     Scene.scene(
       {
         update: PolicyEditor.update,
-        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+        view: Scene.withViewInputs(PolicyEditor.view, {})(),
       },
       Scene.given(fresh()),
       Scene.Mount.resolve(
@@ -376,7 +402,7 @@ describe("PolicyEditor", () => {
     Scene.scene(
       {
         update: PolicyEditor.update,
-        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+        view: Scene.withViewInputs(PolicyEditor.view, {})(),
       },
       Scene.given({
         ...fresh(),
@@ -842,7 +868,7 @@ describe("testing an unsaved draft", () => {
     Scene.scene(
       {
         update: PolicyEditor.update,
-        view: Scene.withViewInputs(PolicyEditor.view, { confirmingDelete: false })(),
+        view: Scene.withViewInputs(PolicyEditor.view, {})(),
       },
       Scene.given(fresh()),
       Scene.Mount.resolve(

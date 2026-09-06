@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Flow · Labeling rule study · Janitor</title>
+    <link rel="stylesheet" href="mockup.css" />
+    <link rel="stylesheet" href="rule-editor-studies.css" />
+    <script defer="" src="rule-editor-studies.js"></script>
+  </head>
+  <body class="rule-study rs-variant-b" data-variant="b">
+    <svg class="rs-svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="i-grid" viewBox="0 0 24 24">
+          <path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"></path>
+        </symbol>
+        <symbol id="i-file" viewBox="0 0 24 24">
+          <path
+            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h5"
+          ></path>
+        </symbol>
+        <symbol id="i-rule" viewBox="0 0 24 24">
+          <path
+            d="M4 4v5a3 3 0 0 0 3 3h10a3 3 0 0 1 3 3v5 M4 12v8 M1 17l3 3 3-3 M17 17l3 3 3-3 M8 4h12"
+          ></path>
+        </symbol>
+        <symbol id="i-activity" viewBox="0 0 24 24">
+          <path d="M3 12h4l3-8 4 16 3-8h4"></path>
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"></path></symbol>
+        <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14 M5 12h14"></path></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24">
+          <path d="M21 21l-4.4-4.4 M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0"></path>
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12 M6 18 18 6"></path></symbol>
+        <symbol id="i-more" viewBox="0 0 24 24">
+          <path d="M5 12h.01 M12 12h.01 M19 12h.01"></path>
+        </symbol>
+        <symbol id="i-tag" viewBox="0 0 24 24">
+          <path d="M20 13l-7 7a2 2 0 0 1-3 0L2 12V3h9l9 7a2 2 0 0 1 0 3Z M7 7h.01"></path>
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"></path></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24">
+          <path
+            d="M12 3V1 M12 23v-2 M3 12H1 M23 12h-2 M4 4l2 2 M18 18l2 2 M4 20l2-2 M18 6l2-2 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0"
+          ></path>
+        </symbol>
+        <symbol id="i-git" viewBox="0 0 24 24">
+          <path
+            d="M6 3v12 M6 9c0 5 12 0 12 6 M3 18a3 3 0 1 0 6 0 3 3 0 0 0-6 0 M15 18a3 3 0 1 0 6 0 3 3 0 0 0-6 0 M15 6a3 3 0 1 0 6 0 3 3 0 0 0-6 0"
+          ></path>
+        </symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16 m-6-6 6 6-6 6"></path></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24">
+          <path d="m12 3 9 4v5c0 5-9 9-9 9S3 17 3 12V7Z m-5 9 3 3 5-6"></path>
+        </symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24">
+          <path d="M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7"></path>
+        </symbol>
+        <symbol id="i-back" viewBox="0 0 24 24"><path d="M20 12H4 m6-6-6 6 6 6"></path></symbol>
+      </defs>
+    </svg>
+    <header class="rs-study-strip">
+      <span class="rs-study-label">Rule editor studies</span>
+      <nav aria-label="Mockup variants">
+        <a href="9a-rule-document.html"><span class="rs-study-number">A</span>Document</a
+        ><a href="9b-rule-flow.html" aria-current="page"
+          ><span class="rs-study-number">B</span>Flow</a
+        ><a href="9c-rule-table.html"><span class="rs-study-number">C</span>Table + inspector</a
+        ><a href="9d-rule-preview.html"><span class="rs-study-number">D</span>Preview first</a>
+        <a href="9e-rule-table-flow.html"><span class="rs-study-number">E</span>Table to flow</a>
+      </nav>
+      <span class="rs-prototype-label">Interactive mockup · local sample data</span
+      ><button
+        class="rs-icon-button"
+        type="button"
+        aria-label="Toggle light or dark theme"
+        title="Toggle light or dark theme"
+        data-action="theme"
+      >
+        <svg class="rs-icon" aria-hidden="true"><use href="#i-sun"></use></svg>
+      </button>
+    </header>
+    <div class="rs-shell">
+      <aside class="rs-app-sidebar">
+        <a class="rs-brand" href="6e-home.html"
+          ><span class="rs-brand-mark"
+            ><svg class="rs-icon" aria-hidden="true"><use href="#i-rule"></use></svg></span
+          ><span>The Janitor<small>Repository maintenance</small></span></a
+        >
+        <details class="rs-repository">
+          <summary>
+            <span class="rs-avatar">E</span
+            ><span><small>Effect-TS</small><strong>effect</strong></span
+            ><svg class="rs-icon" aria-hidden="true"><use href="#i-down"></use></svg>
+          </summary>
+          <div class="rs-repository-menu">
+            <span
+              ><svg class="rs-icon" aria-hidden="true"><use href="#i-check"></use></svg>Effect-TS /
+              effect</span
+            ><a href="7a-repository-switcher-compact.html"
+              >Repository switcher study
+              <svg class="rs-icon" aria-hidden="true"><use href="#i-arrow"></use></svg
+            ></a>
+          </div>
+        </details>
+        <div class="rs-nav-label">Repository</div>
+        <nav class="rs-app-nav" aria-label="Repository navigation">
+          <a href="6e-home.html"
+            ><svg class="rs-icon" aria-hidden="true"><use href="#i-grid"></use></svg>Overview</a
+          ><a href="8e-policy-sidebar-actions.html"
+            ><svg class="rs-icon" aria-hidden="true"><use href="#i-file"></use></svg>Policies</a
+          ><a href="9b-rule-flow.html" aria-current="page"
+            ><svg class="rs-icon" aria-hidden="true"><use href="#i-rule"></use></svg>Labeling
+            rules<span class="rs-nav-count">5</span></a
+          ><a href="6d-activity.html"
+            ><svg class="rs-icon" aria-hidden="true"><use href="#i-activity"></use></svg>Activity</a
+          >
+        </nav>
+        <div class="rs-sidebar-bottom"><span class="rs-open-dot"></span>Connected to GitHub</div>
+      </aside>
+      <main class="rs-workspace">
+        <header class="rs-workspace-header">
+          <span>Effect-TS / effect</span
+          ><svg class="rs-icon" aria-hidden="true"><use href="#i-chevron"></use></svg
+          ><strong>Labeling rules</strong
+          ><span class="rs-layout-note">Read the rule from condition to outcome.</span>
+        </header>
+        <div class="rs-panes">
+          <aside class="rs-catalog">
+            <div class="rs-catalog-heading">
+              <h2>All rules <span data-rule-count="">5</span></h2>
+              <button
+                class="rs-icon-button"
+                type="button"
+                aria-label="New rule"
+                title="New rule"
+                data-action="new"
+              >
+                <svg class="rs-icon" aria-hidden="true"><use href="#i-plus"></use></svg>
+              </button>
+            </div>
+            <label class="rs-search"
+              ><svg class="rs-icon" aria-hidden="true"><use href="#i-search"></use></svg
+              ><input
+                type="search"
+                id="search"
+                placeholder="Find a rule…"
+                aria-label="Search rules"
+              /><kbd>/</kbd></label
+            >
+            <div class="rs-list-filters">
+              <button class="rs-filter is-current" data-filter="all" aria-pressed="true">All</button
+              ><button class="rs-filter" data-filter="enabled" aria-pressed="false">Enabled</button
+              ><button class="rs-filter" data-filter="paused" aria-pressed="false">Paused</button>
+            </div>
+            <div class="rs-rule-list" data-rule-list=""></div>
+            <p class="rs-filter-empty" data-filter-empty="" hidden="">No matching rules.</p>
+            <div class="rs-catalog-foot">Labels come from GitHub.</div>
+          </aside>
+          <article class="rs-editor" data-editor="">
+            <header class="rs-document-heading">
+              <div>
+                <div class="rs-eyebrow">Labeling rule</div>
+                <h1>
+                  <svg class="rs-icon" aria-hidden="true"><use href="#i-tag"></use></svg
+                  ><span data-rule-title="">documentation</span>
+                </h1>
+                <p data-heading-description="">Apply a label when its policy matches.</p>
+              </div>
+              <details class="rs-menu">
+                <summary aria-label="Rule actions" title="Rule actions">
+                  <svg class="rs-icon" aria-hidden="true"><use href="#i-more"></use></svg>
+                </summary>
+                <div class="rs-menu-panel">
+                  <button type="button" data-action="close">
+                    <svg class="rs-icon" aria-hidden="true"><use href="#i-close"></use></svg>Close
+                    rule</button
+                  ><button class="rs-danger" type="button" data-action="delete">
+                    <svg class="rs-icon" aria-hidden="true"><use href="#i-trash"></use></svg>Delete
+                    rule
+                  </button>
+                </div>
+              </details>
+            </header>
+            <div class="rs-flow">
+              <section class="rs-flow-step">
+                <span class="rs-step-marker">1</span>
+                <div class="rs-flow-card">
+                  <div class="rs-eyebrow">When</div>
+                  <div class="rs-field">
+                    <label for="policy">When policy matches</label>
+                    <div class="rs-select-wrap">
+                      <svg class="rs-icon" aria-hidden="true"><use href="#i-file"></use></svg
+                      ><select id="policy" data-field="policy">
+                        <option value="">Choose a published policy…</option>
+                        <option value="docs">Touches documentation</option>
+                        <option value="main">Targets main</option>
+                        <option value="bug">Fixes a bug</option>
+                        <option value="first">First contribution</option>
+                        <option value="stale">Inactive issue</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="rs-policy-context">
+                    <div>
+                      <span class="rs-small" data-policy-target="">Pull requests</span
+                      ><span class="rs-dot-separator">·</span
+                      ><span class="rs-small" data-policy-version="">Published v3</span>
+                    </div>
+                    <a href="8e-policy-sidebar-actions.html" class="rs-text-link"
+                      >View policy
+                      <svg class="rs-icon" aria-hidden="true"><use href="#i-arrow"></use></svg
+                    ></a>
+                  </div>
+                  <p class="rs-help" data-policy-description="">
+                    All changed files are within the docs directory.
+                  </p>
+                </div>
+              </section>
+              <section class="rs-flow-step">
+                <span class="rs-step-marker">2</span>
+                <div class="rs-flow-card">
+                  <div class="rs-eyebrow">Then</div>
+                  <h2>Add a label</h2>
+                  <div class="rs-field">
+                    <label for="label">GitHub label</label>
+                    <div class="rs-select-wrap">
+                      <svg class="rs-icon" aria-hidden="true"><use href="#i-tag"></use></svg
+                      ><select id="label" data-field="label">
+                        <option value="">Choose a label…</option>
+                        <option>documentation</option>
+                        <option>needs-review</option>
+                        <option>bug</option>
+                        <option>first-contribution</option>
+                        <option>stale</option>
+                      </select>
+                    </div>
+                  </div>
+                  <p class="rs-help">Already present? Leave it in place.</p>
+                </div>
+              </section>
+              <section class="rs-flow-step">
+                <span class="rs-step-marker">3</span>
+                <div class="rs-flow-card">
+                  <div class="rs-eyebrow">Otherwise</div>
+                  <fieldset class="rs-choice-field">
+                    <legend>When it does not match</legend>
+                    <div class="rs-choices">
+                      <label
+                        ><input
+                          type="radio"
+                          name="miss"
+                          value="remove"
+                          data-field="miss"
+                          checked=""
+                        /><span>Remove label</span></label
+                      ><label
+                        ><input type="radio" name="miss" value="preserve" data-field="miss" /><span
+                          >Leave unchanged</span
+                        ></label
+                      >
+                    </div>
+                    <p class="rs-help" data-miss-help="">
+                      Remove this label if the policy stops matching.
+                    </p>
+                  </fieldset>
+                </div>
+              </section>
+            </div>
+            <div class="rs-flow-options">
+              <details class="rs-disclosure rs-grouping">
+                <summary>
+                  <svg class="rs-icon" aria-hidden="true"><use href="#i-chevron"></use></svg
+                  ><span>Exclusive group</span
+                  ><span class="rs-summary-meta" data-group-summary="">None</span>
+                </summary>
+                <div class="rs-disclosure-body">
+                  <p class="rs-help">
+                    Use a group when only one of its labels should apply. The matching rule with the
+                    lowest priority wins.
+                  </p>
+                  <div class="rs-two-fields">
+                    <div class="rs-field">
+                      <label for="group">Group</label
+                      ><input
+                        id="group"
+                        data-field="group"
+                        placeholder="No group"
+                        list="group-names"
+                      /><datalist id="group-names">
+                        <option value="change-type"></option>
+                        <option value="triage"></option>
+                      </datalist>
+                    </div>
+                    <div class="rs-field">
+                      <label for="priority">Priority</label
+                      ><input
+                        id="priority"
+                        data-field="priority"
+                        type="number"
+                        value="20"
+                        step="1"
+                      />
+                    </div>
+                  </div>
+                  <div class="rs-group-preview" data-group-preview=""></div>
+                </div>
+              </details>
+            </div>
+          </article>
+          <aside class="rs-inspector" data-inspector="">
+            <section class="rs-inspector-section rs-rule-state">
+              <div class="rs-save-actions" data-save-actions="" hidden="">
+                <button class="rs-button rs-primary" type="button" data-action="save">
+                  Save changes</button
+                ><button class="rs-button" type="button" data-action="discard">Discard</button>
+                <p class="rs-help">Changes stay local until saved.</p>
+              </div>
+              <div class="rs-section-heading">
+                <h2>Rule status</h2>
+                <span class="rs-status" data-status="">Enabled</span>
+              </div>
+              <label class="rs-switch-row" for="enabled"
+                ><span>Apply this rule</span
+                ><span class="rs-switch"
+                  ><input type="checkbox" id="enabled" data-field="enabled" checked="" /><span
+                    aria-hidden="true"
+                  ></span></span
+              ></label>
+              <div class="rs-meta-row"><span>Revision</span><span data-revision="">4</span></div>
+            </section>
+            <section class="rs-inspector-section">
+              <div class="rs-section-heading"><h2>Validation</h2></div>
+              <div class="rs-validation" data-validation="">
+                <svg class="rs-icon" aria-hidden="true"><use href="#i-check"></use></svg
+                ><span>Ready to save</span>
+              </div>
+            </section>
+            <section class="rs-bench rs-inspector-section">
+              <div class="rs-section-heading">
+                <h2>Test bench</h2>
+                <span class="rs-small">Sample data</span>
+              </div>
+              <div class="rs-field">
+                <label for="sample" data-sample-label="">Pull requests</label
+                ><select id="sample">
+                  <option value="docs">#8049 · Clarify the Stream guide</option>
+                  <option value="core">#8051 · Fix a retry regression</option>
+                  <option value="mixed">#8047 · Update docs and runtime</option>
+                </select>
+              </div>
+              <button class="rs-button rs-test-button" type="button" data-action="test">
+                <svg class="rs-icon" aria-hidden="true"><use href="#i-play"></use></svg>Test rule
+              </button>
+              <div class="rs-test-results" data-test-results="">
+                <div class="rs-result-heading">
+                  <span class="rs-result-icon"
+                    ><svg class="rs-icon" aria-hidden="true"><use href="#i-check"></use></svg
+                  ></span>
+                  <div><strong>Policy matches</strong><span>Label will be added</span></div>
+                </div>
+                <div class="rs-trace">
+                  <div>
+                    <svg class="rs-icon" aria-hidden="true"><use href="#i-check"></use></svg
+                    ><span>Pull request</span><span class="rs-small">Match</span>
+                  </div>
+                  <div>
+                    <svg class="rs-icon" aria-hidden="true"><use href="#i-check"></use></svg
+                    ><span>Files are in docs/**</span><span class="rs-small">2 files</span>
+                  </div>
+                </div>
+                <div class="rs-label-change">
+                  <span class="rs-change-sign">+</span
+                  ><span class="rs-label-chip" data-live-label="">documentation</span
+                  ><span class="rs-small">Add label</span>
+                </div>
+              </div>
+              <p class="rs-test-note">Illustrative results. No GitHub labels are changed.</p>
+            </section>
+            <details class="rs-disclosure rs-inspector-disclosure">
+              <summary>
+                <svg class="rs-icon" aria-hidden="true"><use href="#i-chevron"></use></svg>Policy
+                binding
+              </summary>
+              <p class="rs-help">
+                This rule follows the policy's published version. Unpublished policy edits do not
+                affect this rule.
+              </p>
+            </details>
+          </aside>
+          <div class="rs-empty" data-empty="" hidden="">
+            <svg class="rs-icon" aria-hidden="true"><use href="#i-rule"></use></svg>
+            <h1>Select a labeling rule</h1>
+            <p>Choose a rule to review its policy and label behavior.</p>
+            <button class="rs-button rs-primary" type="button" data-action="new">
+              <svg class="rs-icon" aria-hidden="true"><use href="#i-plus"></use></svg>Create rule
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div class="rs-toast" role="status" aria-live="polite" hidden=""></div>
+    <dialog class="rs-delete-dialog">
+      <h2>Delete this rule?</h2>
+      <p>The rule will be removed from this mockup. Existing GitHub labels are unaffected.</p>
+      <div class="rs-dialog-actions">
+        <button class="rs-button" data-action="cancel-delete">Cancel</button
+        ><button class="rs-button rs-danger-button" data-action="confirm-delete">
+          Delete rule
+        </button>
+      </div>
+    </dialog>
+    <noscript
+      ><p class="rs-noscript">
+        Enable JavaScript to select rules and try the form interactions.
+      </p></noscript
+    >
+  </body>
+</html>

@@ -158,3 +158,77 @@ title and description, followed by YAML. Search, edits, draft saving, publishing
 deletion confirmation, and theme switching work locally. Test results are illustrative.
 Open the HTML file directly in a browser; it uses the shared study styles and
 includes its own interactions.
+
+## Labeling rule editor studies
+
+Four rule editor directions use the policy screen's neutral palette, compact
+navigation, quiet label colors, and conditional save controls. Open any file
+directly in a browser, then use the tabs along the top to compare them.
+
+| File                                           | Direction                                                                                                                                                       |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [9a-rule-document.html](9a-rule-document.html) | Recommended starting point. Searchable rule list, a simple central form, and a right sidebar for status, validation, and testing. Closest to the policy editor. |
+| [9b-rule-flow.html](9b-rule-flow.html)         | A vertical **When → Then → Otherwise** flow makes the condition and outcomes easier to read. Optional grouping stays collapsed.                                 |
+| [9c-rule-table.html](9c-rule-table.html)       | The rules collection stays visible beside a scrollable editor. Better for reviewing and adjusting several rules.                                                |
+| [9d-rule-preview.html](9d-rule-preview.html)   | Configuration and a larger test preview sit side by side. Sample files and label changes make the rule's effect easier to inspect.                              |
+
+The heading uses the selected GitHub label. Rules do not gain an invented name,
+description, YAML editor, or separate publishing lifecycle. The form reflects the
+current model: label, published policy, no-match behavior, enabled state, and
+optional exclusive group and priority. Lower priority values win within a group.
+
+Search, rule selection, enabled/paused filters, new rules, conditional saving,
+discarding changes, deletion confirmation, group fields, and light/dark mode work
+locally. Press `/` outside a field to focus search. Choose a sample PR or issue
+before testing; changing the form or sample clears the previous result. The initial
+result demonstrates the presentation. Unsaved edits remain with each rule when
+switching selections and reset when the page reloads.
+
+Saving and testing are simulations using small local fixtures. No GitHub labels
+or application data are changed. Policy links open the existing policy mockup.
+The five HTML files share `rule-editor-studies.css` and `rule-editor-studies.js`.
+They require no build step, external fonts, or network requests.
+
+### Table variant revision
+
+`9c-rule-table.html` now starts with a full-width table. It includes a rule type
+column and a truncated behavior description, with the full text available on
+hover. Current fixtures are Policy rules; the type column leaves room for future
+AI rules. Search also matches behavior descriptions.
+
+Click any part of a row, or focus it and press Enter or Space, to open a docked
+configuration sheet. The table stays visible and usable beside it. Closing the
+sheet restores the table's width and returns focus to the row; unsaved edits are
+retained locally. Status, configuration, validation, and testing have separate
+cards with labeled header bands. On narrow screens the sheet appears below the
+table, without a backdrop or overlay.
+
+### Table to flow variant
+
+[9e-rule-table-flow.html](9e-rule-table-flow.html) opens with a rules table containing
+label, type, behavior, and status. Choose **Edit rule** from a row's menu or click
+**New rule** to replace the table with a When → Then → Otherwise flow editor.
+Status, validation, and the test bench use separate sidebar cards.
+
+Save returns to the table. Cancel discards changes or removes the new rule.
+Back to rules retains unsaved work locally. The original table-and-sheet study
+remains available as variant C. All five studies share the same local fixtures.
+
+### Rule flow control layouts
+
+These four interactive studies start with the same rules table. Use **New rule**
+or a row menu's **Edit rule** action to open the editor. Each removes the validation
+status, policy binding section, and duplicate close control. Back to rules stays
+at the top left. Save appears for unsaved changes; Cancel discards them. Delete
+requires confirmation and is available for existing rules. Invalid fields still
+prevent saving, with a short error message in the form.
+
+| Mockup                                                         | Control placement                                                                                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [10a-rule-flow-header.html](10a-rule-flow-header.html)         | Enable switch at the far right of the Back to rules header. Save/cancel above the test bench and a full-width red Delete button at the bottom of the right sidebar. No status badge. |
+| [10b-rule-flow-left-rail.html](10b-rule-flow-left-rail.html)   | Status and actions in a narrow left rail, with testing below the vertical flow.                                                                                                      |
+| [10c-rule-flow-footer.html](10c-rule-flow-footer.html)         | Status and actions in a bottom bar, with testing on the right. The bar stays visible on desktop and follows the form on mobile.                                                      |
+| [10d-rule-flow-horizontal.html](10d-rule-flow-horizontal.html) | Controls above three side-by-side flow steps, with a full-width test bench below. Steps stack on smaller screens.                                                                    |
+
+Use the links at the top to compare the layouts. All interactions use local sample
+data and reset on reload. These studies also share `rule-flow-controls.css`.

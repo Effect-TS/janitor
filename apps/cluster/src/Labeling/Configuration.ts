@@ -257,6 +257,7 @@ export class LabelingConfiguration extends Context.Service<
       const synchronized: ReadonlyArray<SynchronizedLabel> = records.map((label) => ({
         labelId: label.labelId,
         name: label.name,
+        color: label.color ?? null,
         availability: label.availability,
       }))
       return { labels: synchronized, freshness }

@@ -417,12 +417,18 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
         )
       case "ClickedNewRule":
         return requestNavigation(model, Routes.newRule({ repositoryId }))
+      case "GotRuleMenuMessage":
+        if (message.message._tag === "SelectedItem" && message.message.item === "Edit") {
+          const next = foldRepositories(model, message)
+          const routed = requestNavigation(
+            next.model,
+            Routes.rule({ repositoryId, ruleId: message.ruleId }),
+          )
+          return { ...routed, commands: [...(next.commands ?? []), ...(routed.commands ?? [])] }
+        }
+        break
       case "ClickedEditRule":
         return requestNavigation(model, Routes.rule({ repositoryId, ruleId: message.ruleId }))
-      case "ClickedTestConfiguration":
-        return requestNavigation(model, Routes.testRules({ repositoryId }))
-      case "ClickedTestPolicy":
-        return requestNavigation(model, Routes.policy({ repositoryId, policyId: message.policyId }))
       case "UpdatedPolicySearch":
         if (
           model.route._tag === "Policies" ||
@@ -454,10 +460,6 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
       }
       case "GotRuleEditorMessage":
         if (message.message._tag === "ClickedCancel")
-          return requestNavigation(model, Routes.rules({ repositoryId }))
-        break
-      case "GotTestBenchMessage":
-        if (message.message._tag === "ClickedClose")
           return requestNavigation(model, Routes.rules({ repositoryId }))
         break
     }

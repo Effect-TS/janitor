@@ -197,6 +197,7 @@ export type ConfigurationSnapshot = typeof ConfigurationSnapshot.Type
 
 /** A label as synchronization currently knows it. */
 export const SynchronizedLabel = Schema.Struct({
+  color: Schema.optionalKey(Schema.NullOr(Schema.String)),
   labelId: GitHubLabelDatabaseId,
   name: Schema.String,
   availability: GitHubLabelAvailability,

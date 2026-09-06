@@ -35,3 +35,8 @@ Run `vp check` and `vp test run` from the workspace root. Database tests require
 `0006_repository_connections.sql` adds explicit connection membership, disconnect timestamps, operator audit records, and expiring GitHub setup attempts. Existing repository rows remain connected, including paused rows. Discovery explicitly inserts new repositories as disconnected; inventory refreshes never overwrite membership. Seeds and the operator enable command explicitly connect repositories.
 
 Repository sync eligibility now requires connection membership. Disconnect retains policies, rules, mirror data, and history.
+
+## GitHub label colors
+
+`0009_label_colors.sql` adds the nullable GitHub label color. Existing labels keep
+working and receive their colors on the next label sync or entity observation.

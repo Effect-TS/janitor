@@ -101,7 +101,7 @@ export class ContentPurge extends Context.Service<
           WHERE repository_id IN ${sql.in(repositoryIds)}
         `
         yield* sql`
-          UPDATE github_label SET name = '', observed_at = CLOCK_TIMESTAMP()
+          UPDATE github_label SET name = '', color = NULL, observed_at = CLOCK_TIMESTAMP()
           WHERE repository_id IN ${sql.in(repositoryIds)}
         `
         yield* sql`

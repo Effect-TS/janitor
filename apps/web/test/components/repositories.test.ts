@@ -10,6 +10,7 @@ import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import { describePlan, describeRevision } from "@/components/labeling-wire"
 import * as Repositories from "@/components/repositories"
+import * as Dialog from "@foldkit/ui/dialog"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
 
@@ -162,8 +163,15 @@ describe("Repositories", () => {
       Scene.inside(
         Scene.role("complementary", { name: "Policy test bench and information" }),
         Scene.click(Scene.role("button", { name: "Delete policy" })),
-        Scene.expect(Scene.role("button", { name: "Confirm delete" })).toExist(),
       ),
+      Scene.Command.resolve(Dialog.ShowDialog, Dialog.Message.SucceededShowDialog()),
+      Scene.inside(
+        Scene.role("dialog", { name: "Delete policy?" }),
+        Scene.expect(Scene.role("button", { name: "Delete policy" })).toExist(),
+        Scene.click(Scene.role("button", { name: "Cancel" })),
+      ),
+      Scene.Command.resolve(Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()),
+      Scene.expect(Scene.role("dialog", { name: "Delete policy?" })).toBeAbsent(),
     )
   })
 
@@ -681,10 +689,9 @@ describe("shared mutation views", () => {
     Scene.scene(
       { update: Repositories.update, view: Repositories.view },
       Scene.given({ ...pending, section: "Rules" }),
-      Scene.expect(Scene.role("switch")).toBeDisabled(),
       Scene.expect(Scene.text("Disabling…")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Edit" })).toBeDisabled(),
-      Scene.expect(Scene.role("button", { name: "Delete" })).toBeDisabled(),
+      Scene.expect(Scene.role("switch", { name: "Enable bug" })).toBeDisabled(),
+      Scene.expect(Scene.role("button", { name: "Actions for bug" })).toBeDisabled(),
     )
   })
 
@@ -733,5 +740,42 @@ describe("shared mutation views", () => {
     if (model.panel._tag === "RuleEditor") expect(model.panel.editor.group).toBe("newer input")
     expect(Repositories.hasUnsavedChanges(model)).toBe(true)
     expect(Repositories.isSaving(model)).toBe(false)
+  })
+})
+
+describe("rules workspace", () => {
+  it("replaces the table with a flow editor and returns on cancellation", () => {
+    const table = { ...ready(), section: "Rules" as const }
+    const opened = Repositories.update(
+      table,
+      Repositories.Message.ClickedEditRule({ ruleId: "r1" }),
+    ).model
+    Scene.scene(
+      { update: Repositories.update, view: Repositories.view },
+      Scene.given(opened),
+      Scene.expect(Scene.role("button", { name: "Back to rules" })).toExist(),
+      Scene.expect(Scene.role("table")).not.toExist(),
+      Scene.click(Scene.role("button", { name: "Back to rules" })),
+      Scene.expect(Scene.role("table")).toExist(),
+      Scene.expect(Scene.role("columnheader", { name: "Type" })).toExist(),
+      Scene.expect(Scene.role("columnheader", { name: "Behavior" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Actions for bug" })).toExist(),
+    )
+  })
+})
+
+describe("GitHub label badge colors", () => {
+  it("uses the GitHub color with readable foregrounds and rejects invalid CSS", () => {
+    expect(Repositories.labelBadgeStyle("ffffff")).toMatchObject({
+      backgroundColor: "#ffffff",
+      color: "#111111",
+    })
+    expect(Repositories.labelBadgeStyle("000000")).toMatchObject({
+      backgroundColor: "#000000",
+      color: "#ffffff",
+    })
+    expect(Repositories.labelBadgeStyle("d73a4a").backgroundColor).toBe("#d73a4a")
+    expect(Repositories.labelBadgeStyle("red;display:none")).toEqual({})
+    expect(Repositories.labelBadgeStyle(null)).toEqual({})
   })
 })

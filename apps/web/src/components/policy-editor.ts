@@ -14,6 +14,7 @@ import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
 import * as Disclosure from "@foldkit/ui/disclosure"
+import * as Dialog from "@foldkit/ui/dialog"
 import * as Icon from "@/lib/icons"
 import {
   Upload,
@@ -93,6 +94,7 @@ const SavedFields = Schema.Struct({
 })
 
 export const Model = Schema.Struct({
+  deleteDialog: Dialog.Model,
   repositoryId: Schema.String,
   configuration: ConfigurationView,
   maybeTestBench: Schema.Option(TestBench.Model),
@@ -123,6 +125,9 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   FocusedMetadataInput: {},
   ClickedDelete: {},
+  CancelledDelete: {},
+  ConfirmedDelete: {},
+  GotDeleteDialogMessage: { message: Dialog.Message },
   ClickedEditMetadata: { field: Schema.Literals(["name", "description"]) },
   UpdatedMetadataDraft: { field: Schema.Literals(["name", "description"]), value: Schema.String },
   ClickedSaveMetadata: { field: Schema.Literals(["name", "description"]) },
@@ -428,6 +433,7 @@ export const init = ({
 }: InitInput): Model =>
   Model.make(
     {
+      deleteDialog: Dialog.init({ id: "delete-policy", focusSelector: "#cancel-delete-policy" }),
       repositoryId,
       testCandidates: testCandidates ?? { _tag: "Ready", items: [] },
       testNumber: null,
@@ -578,13 +584,27 @@ const submit = (model: Model, publish: boolean): UpdateReturn =>
           },
   })
 
+const mapDeleteDialog = (model: Model, result: ReturnType<typeof Dialog.open>): UpdateReturn => ({
+  model: evo(model, { deleteDialog: () => result.model }),
+  commands: FoldkitCommand.mapMessages(result.commands, (message) =>
+    Message.GotDeleteDialogMessage({ message }),
+  ),
+})
+
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     FocusedMetadataInput: () => ({ model }),
+    GotDeleteDialogMessage: ({ message }) =>
+      mapDeleteDialog(model, Dialog.update(model.deleteDialog, message)),
+    CancelledDelete: () => mapDeleteDialog(model, Dialog.close(model.deleteDialog)),
     ClickedDelete: () =>
       model.identity._tag === "Existing" && !isSubmitting(model)
+        ? mapDeleteDialog(model, Dialog.open(model.deleteDialog))
+        : { model },
+    ConfirmedDelete: () =>
+      model.deleteDialog.isOpen && model.identity._tag === "Existing" && !isSubmitting(model)
         ? {
-            model,
+            ...mapDeleteDialog(model, Dialog.close(model.deleteDialog)),
             outMessage: OutMessage.RequestedDelete({
               policyId: model.identity.policyId,
               version: model.identity.version,
@@ -842,12 +862,11 @@ const disclosure = (
   )
 
 interface ViewInputs {
-  readonly confirmingDelete: boolean
   readonly isDeleting?: boolean
 }
 
 export const view = Submodel.defineView<Model, Message, ViewInputs>(
-  (model, { confirmingDelete, isDeleting = false }, h): Html => {
+  (model, { isDeleting = false }, h): Html => {
     const issues = draftIssues(model)
     const busy = isSubmitting(model) || isDeleting
     const canSubmit = issues.length === 0 && !busy
@@ -1296,18 +1315,14 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                         Button.view(h, {
                           variant: "destructive",
                           size: "lg",
-                          className: "w-full h-10 text-base",
+                          className: "w-full h-10",
                           isDisabled: busy,
                           onClick: Message.ClickedDelete(),
                           label: h.span(
                             [h.Class("flex items-center gap-1.5")],
                             [
                               Icon.view(h, Trash2, "size-4"),
-                              isDeleting
-                                ? "Deleting policy…"
-                                : confirmingDelete
-                                  ? "Confirm delete"
-                                  : "Delete policy",
+                              isDeleting ? "Deleting policy…" : "Delete policy",
                             ],
                           ),
                         }),
@@ -1318,6 +1333,60 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
             ),
           ],
         ),
+        h.submodel({
+          slotId: "delete-policy-dialog",
+          model: model.deleteDialog,
+          view: Dialog.view,
+          toParentMessage: (message) => Message.GotDeleteDialogMessage({ message }),
+          viewInputs: {
+            toView: (render) =>
+              h.dialog(
+                [
+                  ...render.dialog,
+                  h.Class(
+                    "fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none bg-transparent p-0 text-foreground",
+                  ),
+                ],
+                render.isVisible
+                  ? [
+                      h.div([...render.backdrop, h.Class("fixed inset-0 bg-black/40")], []),
+                      h.div(
+                        [
+                          ...render.panel,
+                          h.Class(
+                            "relative mx-auto mt-[20vh] w-[calc(100%-2rem)] max-w-md rounded-xl border bg-background p-5 shadow-xl space-y-4",
+                          ),
+                        ],
+                        [
+                          h.h2([...render.title, h.Class("font-semibold")], ["Delete policy?"]),
+                          h.p(
+                            [...render.description, h.Class("text-sm text-muted-foreground")],
+                            ['Delete "' + model.name + '"? This cannot be undone.'],
+                          ),
+                          h.div(
+                            [h.Class("flex justify-end gap-2")],
+                            [
+                              Button.view(h, {
+                                label: "Cancel",
+                                variant: "outline",
+                                attributes: [h.Id("cancel-delete-policy")],
+                                onClick: Message.CancelledDelete(),
+                              }),
+                              Button.view(h, {
+                                label: "Delete policy",
+                                variant: "destructive",
+                                isDisabled: busy,
+                                onClick: Message.ConfirmedDelete(),
+                              }),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ]
+                  : [],
+              ),
+          },
+        }),
       ],
     )
   },

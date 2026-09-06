@@ -175,6 +175,7 @@ const PullRequestRow = Schema.Struct({
 })
 
 const LabelRow = Schema.Struct({
+  color: Schema.NullOr(Schema.String),
   repository_id: GitHubLabelRecord.fields.repositoryId,
   label_id: GitHubLabelRecord.fields.labelId,
   node_id: GitHubLabelRecord.fields.nodeId,
@@ -480,12 +481,14 @@ export class GitHubReadModel extends Context.Service<
             label_id: label.id,
             node_id: label.nodeId ?? null,
             name: label.name,
+            color: label.color ?? null,
             availability: "available",
             projected_sequence: sequence,
           })}
           ON CONFLICT (repository_id, label_id) DO UPDATE SET
             node_id = COALESCE(EXCLUDED.node_id, github_label.node_id),
             name = EXCLUDED.name,
+            color = COALESCE(EXCLUDED.color, github_label.color),
             availability = 'available',
             projected_sequence = EXCLUDED.projected_sequence,
             observed_at = CLOCK_TIMESTAMP()
@@ -520,6 +523,7 @@ export class GitHubReadModel extends Context.Service<
         readonly id: string
         readonly nodeId?: string | undefined
         readonly name: string
+        readonly color?: string | undefined
       }>,
       sequence: GitHubWebhookJournalSequence,
       operation: string,
@@ -533,12 +537,14 @@ export class GitHubReadModel extends Context.Service<
               label_id: label.id,
               node_id: label.nodeId ?? null,
               name: label.name,
+              color: label.color ?? null,
               availability: "available",
               projected_sequence: sequence,
             })}
             ON CONFLICT (repository_id, label_id) DO UPDATE SET
               node_id = COALESCE(EXCLUDED.node_id, github_label.node_id),
               name = EXCLUDED.name,
+              color = COALESCE(EXCLUDED.color, github_label.color),
               availability = 'available',
               projected_sequence = EXCLUDED.projected_sequence,
               observed_at = CLOCK_TIMESTAMP()
@@ -847,6 +853,7 @@ export class GitHubReadModel extends Context.Service<
       return rows.map((row): GitHubLabelRecord => ({
         repositoryId: row.repository_id,
         labelId: row.label_id,
+        color: row.color,
         nodeId: row.node_id,
         name: row.name,
         availability: row.availability,

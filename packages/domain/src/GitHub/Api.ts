@@ -67,6 +67,7 @@ const ApiUser = Schema.Struct({
 }).annotate({ identifier: "GitHubApiUser" })
 
 export const GitHubLabelApi = Schema.Struct({
+  color: Schema.optionalKey(Schema.String),
   id: GitHubLabelDatabaseIdFromStringOrNumber,
   nodeId: GitHubLabelNodeId,
   name: Schema.NonEmptyString,

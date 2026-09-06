@@ -380,3 +380,63 @@ describe("mutation navigation", () => {
     expect(saved.commands?.some((command) => command.name === "FetchSyncSummary")).toBe(true)
   })
 })
+
+describe("rule menu routing", () => {
+  it("updates the URL when Edit is chosen and navigates back to the rules table", () => {
+    const rule = {
+      id: "r1",
+      repositoryId: "701",
+      labelId: "11",
+      policyId: "p1",
+      onNoMatch: "preserve" as const,
+      group: null,
+      priority: 0,
+      enabled: true,
+      labelStatus: "valid" as const,
+      version: 1,
+      createdAt: at,
+      updatedAt: at,
+    }
+    const base = loaded("/repositories/701/rules").model
+    const model = {
+      ...base,
+      repositories: {
+        ...base.repositories,
+        detail: Option.some({
+          ...detail,
+          configuration: { ...detail.configuration, rules: [rule] },
+        }),
+      },
+    }
+    const edit = send(
+      model,
+      Repositories.Message.GotRuleMenuMessage({
+        ruleId: "r1",
+        message: { _tag: "SelectedItem", item: "Edit", index: 0 },
+      }),
+    )
+    expect(edit.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Navigate",
+          args: expect.objectContaining({ path: "/repositories/701/rules/r1" }),
+        }),
+      ]),
+    )
+    const opened = land(edit.model, "/repositories/701/rules/r1").model
+    expect(opened.repositories.panel._tag).toBe("RuleEditor")
+    const back = send(
+      opened,
+      Repositories.Message.GotRuleEditorMessage({ message: { _tag: "ClickedCancel" } }),
+    )
+    expect(back.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Navigate",
+          args: expect.objectContaining({ path: "/repositories/701/rules" }),
+        }),
+      ]),
+    )
+    expect(land(back.model, "/repositories/701/rules").model.repositories.panel._tag).toBe("Closed")
+  })
+})

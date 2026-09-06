@@ -30,6 +30,7 @@ const PullRequestBase = Schema.Struct({
 }).annotate({ identifier: "PullRequestBase" })
 
 export const PullRequestLabel = Schema.Struct({
+  color: Schema.optionalKey(Schema.String),
   id: GitHubLabelDatabaseIdFromStringOrNumber,
   nodeId: Schema.optionalKey(GitHubLabelNodeId),
   name: Schema.NonEmptyString,

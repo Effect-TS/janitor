@@ -1,4 +1,5 @@
-import * as Checkbox from "@foldkit/ui/checkbox"
+import * as Switch from "@foldkit/ui/switch"
+import * as Disclosure from "@foldkit/ui/disclosure"
 import * as Select from "@foldkit/ui/select"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -12,7 +13,7 @@ import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
-import { Check } from "lucide"
+import { ArrowLeft, ChevronRight, FileCode2, Tag, Play, Trash2 } from "lucide"
 import * as Button from "@/components/ui/button"
 import { input, inputClass } from "@/components/ui/input"
 import {
@@ -24,6 +25,11 @@ import {
   ruleEndpoint,
   rulesEndpoint,
   SynchronizedLabel,
+  TestCandidates,
+  TestResponse,
+  testEndpoint,
+  labelName,
+  describeOutcome,
 } from "@/components/labeling-wire"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
@@ -64,6 +70,16 @@ export const Model = Schema.Struct({
   submission: Submission,
   nextOperationId: Schema.Int,
   savedSnapshot: Schema.String,
+  testCandidates: TestCandidates,
+  selectedNumber: Schema.NullOr(Schema.Int),
+  testGeneration: Schema.Int,
+  testResult: Schema.Union([
+    Schema.TaggedStruct("Idle", {}),
+    Schema.TaggedStruct("Running", {}),
+    Schema.TaggedStruct("Done", { response: TestResponse }),
+    Schema.TaggedStruct("Failed", { reason: Schema.String }),
+  ]),
+  groupOpen: Schema.Boolean,
 })
 export type Model = typeof Model.Type
 
@@ -82,12 +98,19 @@ export const Message = defineMessageUnion({
   RejectedSaveRule: { issues: Schema.Array(RuleIssue), operationId: Schema.Int },
   FailedSaveRule: { reason: Schema.String, operationId: Schema.Int },
   ClickedCancel: {},
+  ClickedDelete: {},
+  ToggledGroup: { isOpen: Schema.Boolean },
+  SelectedTestItem: { number: Schema.Int },
+  ClickedTest: {},
+  CompletedTest: { response: TestResponse, generation: Schema.Int },
+  FailedTest: { reason: Schema.String, generation: Schema.Int },
 })
 export type Message = typeof Message.Type
 
 export const OutMessage = defineMessageUnion({
   Saved: { rule: RuleRecord, closeEditor: Schema.Boolean },
   Cancelled: {},
+  RequestedDelete: { ruleId: Schema.String, version: Schema.Int },
   SaveFailed: { reason: Schema.String },
 })
 export type OutMessage = typeof OutMessage.Type
@@ -96,8 +119,21 @@ export type OutMessage = typeof OutMessage.Type
 
 export const draftIssues = (model: Model): ReadonlyArray<string> => [
   ...(Option.isNone(model.maybeLabelId) ? ["Pick a label"] : []),
-  ...(Option.isNone(model.maybePolicyId) ? ["Pick a published policy"] : []),
-  ...(model.priority.trim() !== "" && !/^-?\d+$/.test(model.priority.trim())
+  ...(!model.policies.some(
+    (policy) =>
+      Option.contains(model.maybePolicyId, policy.policyId) && policy.publishedVersionId !== null,
+  )
+    ? ["Pick a published policy"]
+    : []),
+  ...(Option.exists(
+    model.maybeLabelId,
+    (id) =>
+      !model.labels.some((label) => label.labelId === id && label.availability !== "unavailable"),
+  )
+    ? ["Choose an available label"]
+    : []),
+  ...(model.priority.trim() !== "" &&
+  (!/^-?\d+$/.test(model.priority.trim()) || !Number.isSafeInteger(Number(model.priority)))
     ? ["Priority must be a whole number"]
     : []),
 ]
@@ -186,6 +222,42 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
     ),
 })
 
+export const TestRule = FoldkitCommand.define("TestRule", {
+  args: {
+    repositoryId: Schema.String,
+    policyId: Schema.String,
+    number: Schema.Int,
+    generation: Schema.Int,
+  },
+  messages: [Message.CompletedTest, Message.FailedTest],
+  execute: ({ repositoryId, policyId, number, generation }) =>
+    Effect.gen(function* () {
+      const request = yield* HttpClientRequest.bodyJson(
+        HttpClientRequest.post(testEndpoint(repositoryId)),
+        { subject: { _tag: "Policy", policyId }, numbers: [number] },
+      )
+      const response = yield* HttpClient.execute(request)
+      if (response.status !== 200)
+        return Message.FailedTest({ reason: `Server answered ${response.status}`, generation })
+      return Message.CompletedTest({
+        response: yield* HttpIncomingMessage.schemaBodyJson(TestResponse)(response),
+        generation,
+      })
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedTest({ reason: describe(error), generation })),
+      ),
+    ),
+})
+const selectedPolicy = (model: Model) =>
+  model.policies.find((policy) => Option.contains(model.maybePolicyId, policy.policyId))
+export const testItems = (model: Model) =>
+  model.testCandidates._tag === "Ready"
+    ? model.testCandidates.items.filter((item) => item.kind === selectedPolicy(model)?.target)
+    : []
+const selectedTestItem = (model: Model) =>
+  testItems(model).find((item) => item.number === model.selectedNumber) ?? testItems(model)[0]
+
 // INIT
 
 export type UpdateReturn = Update.ReturnWithOutMessage<
@@ -199,6 +271,7 @@ const initialize = (input: {
   readonly repositoryId: string
   readonly labels: ReadonlyArray<SynchronizedLabel>
   readonly policies: ReadonlyArray<PolicyRecord>
+  readonly testCandidates?: TestCandidates | undefined
   readonly existing: Option.Option<RuleRecord>
 }): Model =>
   Model.make(
@@ -227,6 +300,11 @@ const initialize = (input: {
       submission: { _tag: "NotSubmitted" },
       nextOperationId: 1,
       savedSnapshot: "",
+      testCandidates: input.testCandidates ?? { _tag: "Ready", items: [] },
+      selectedNumber: null,
+      testGeneration: 0,
+      testResult: { _tag: "Idle" },
+      groupOpen: Option.exists(input.existing, (rule) => rule.group !== null),
     },
     { disableChecks: true },
   )
@@ -253,6 +331,8 @@ export const hasUnsavedChanges = (model: Model): boolean =>
 
 const edited = (model: Model): Model =>
   evo(model, {
+    testResult: () => ({ _tag: "Idle" as const }),
+    testGeneration: (id) => id + 1,
     submission: (current) =>
       current._tag === "Submitting" ? current : { _tag: "NotSubmitted" as const },
   })
@@ -260,7 +340,9 @@ const edited = (model: Model): Model =>
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     SelectedLabel: ({ labelId }) => ({
-      model: edited(evo(model, { maybeLabelId: () => Option.some(labelId) })),
+      model: edited(
+        evo(model, { maybeLabelId: () => (labelId === "" ? Option.none() : Option.some(labelId)) }),
+      ),
     }),
     UpdatedPolicy: ({ value }) => ({
       model: edited(
@@ -346,6 +428,53 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
             outMessage: OutMessage.SaveFailed({ reason }),
           },
+    ToggledGroup: ({ isOpen }) => ({ model: evo(model, { groupOpen: () => isOpen }) }),
+    SelectedTestItem: ({ number }) => ({
+      model: edited(evo(model, { selectedNumber: () => number })),
+    }),
+    ClickedTest: () => {
+      const item = selectedTestItem(model)
+      if (
+        !item ||
+        Option.isNone(model.maybePolicyId) ||
+        draftIssues(model).length ||
+        model.testResult._tag === "Running"
+      )
+        return { model }
+      const generation = model.testGeneration + 1
+      return {
+        model: evo(model, {
+          testGeneration: () => generation,
+          testResult: () => ({ _tag: "Running" as const }),
+        }),
+        commands: [
+          TestRule({
+            repositoryId: model.repositoryId,
+            policyId: model.maybePolicyId.value,
+            number: item.number,
+            generation,
+          }),
+        ],
+      }
+    },
+    CompletedTest: ({ response, generation }) =>
+      generation !== model.testGeneration
+        ? { model }
+        : { model: evo(model, { testResult: () => ({ _tag: "Done" as const, response }) }) },
+    FailedTest: ({ reason, generation }) =>
+      generation !== model.testGeneration
+        ? { model }
+        : { model: evo(model, { testResult: () => ({ _tag: "Failed" as const, reason }) }) },
+    ClickedDelete: () =>
+      model.identity._tag === "Existing" && model.submission._tag !== "Submitting"
+        ? {
+            model,
+            outMessage: OutMessage.RequestedDelete({
+              ruleId: model.identity.ruleId,
+              version: model.identity.version,
+            }),
+          }
+        : { model },
     ClickedCancel: () =>
       model.submission._tag === "Submitting"
         ? { model }
@@ -355,7 +484,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 // VIEW
 
 const labelClass = "text-muted-foreground text-xs font-medium"
-const chipClass = "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
 const selectClass = cn(inputClass, "h-8 appearance-none pr-6 text-sm")
 
 const selectField = (
@@ -390,43 +518,6 @@ const selectField = (
     h,
   )
 
-const labelPicker = (h: HtmlBuilder<Message>, model: Model): Html =>
-  h.div(
-    [h.Class("flex flex-col gap-1")],
-    [
-      h.span([h.Class(labelClass)], ["Label"]),
-      model.labels.length === 0
-        ? h.span([h.Class("text-muted-foreground text-xs")], ["No labels synchronized yet"])
-        : h.div(
-            [h.Class("flex flex-wrap gap-1")],
-            model.labels.map((label) => {
-              const isSelected = Option.contains(model.maybeLabelId, label.labelId)
-              const isGone = label.availability === "unavailable"
-              return h.button(
-                [
-                  h.Type("button"),
-                  h.Disabled(isGone && !isSelected),
-                  h.AriaPressed(String(isSelected)),
-                  h.DataAttribute("label-id", label.labelId),
-                  h.OnClick(Message.SelectedLabel({ labelId: label.labelId })),
-                  h.Class(
-                    cn(
-                      chipClass,
-                      "cursor-pointer transition-colors",
-                      isSelected
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "hover:bg-accent",
-                      isGone && "line-through opacity-60",
-                    ),
-                  ),
-                ],
-                [label.name],
-              )
-            }),
-          ),
-    ],
-  )
-
 const submissionView = (h: HtmlBuilder<Message>, submission: Submission): Html => {
   switch (submission._tag) {
     case "NotSubmitted":
@@ -447,131 +538,471 @@ const submissionView = (h: HtmlBuilder<Message>, submission: Submission): Html =
   }
 }
 
-export const view = Submodel.defineView<Model, Message>((model, h): Html => {
-  const issues = draftIssues(model)
-  const busy = model.submission._tag === "Submitting"
+const step = (
+  h: HtmlBuilder<Message>,
+  number: string,
+  title: string,
+  children: ReadonlyArray<Html>,
+): Html =>
+  h.section(
+    [h.Class("rule-flow-step")],
+    [
+      h.span([h.Class("rule-step-number"), h.AriaHidden(true)], [number]),
+      h.div(
+        [h.Class("rule-flow-card")],
+        [h.h2([h.Class("rule-step-title")], [title]), ...children],
+      ),
+    ],
+  )
+
+/** A single-rule preview uses a real published policy evaluation, never changes labels. */
+export const previewAction = (
+  model: Model,
+  outcome: string,
+  labels: ReadonlyArray<string>,
+): string => {
+  if (!model.enabled) return "Rule is disabled; labels stay unchanged."
+  if (outcome === "not-applicable")
+    return "Policy does not apply to this item; labels stay unchanged."
+  if (outcome === "unknown") return "Could not determine a match; labels stay unchanged."
+  const present = Option.exists(model.maybeLabelId, (id) => labels.includes(id))
+  const name = labelName(
+    model.labels,
+    Option.getOrElse(model.maybeLabelId, () => ""),
+  )
+  if (outcome === "match") return present ? `${name} is already applied.` : `Add ${name}`
+  return model.onNoMatch === "preserve"
+    ? "Leave labels unchanged"
+    : present
+      ? `Remove ${name}`
+      : `${name} is already absent.`
+}
+
+const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const result = model.testResult
+  if (result._tag === "Idle") return h.empty
+  if (result._tag === "Running")
+    return h.p([h.Role("status"), h.Class("text-xs text-muted-foreground")], ["Testing…"])
+  if (result._tag === "Failed")
+    return h.p([h.Role("alert"), h.Class("text-xs text-destructive")], [result.reason])
+  if (result.response._tag === "Rejected")
+    return h.p([h.Role("alert"), h.Class("text-xs text-destructive")], [result.response.message])
+  const entity = result.response.entities[0]
+  if (!entity)
+    return h.p(
+      [h.Class("text-xs text-muted-foreground")],
+      ["This item is no longer available. Choose another item."],
+    )
+  const outcome = entity.evaluation?.outcome ?? "unknown"
   return h.div(
-    [h.Class("flex flex-col gap-4"), h.DataAttribute("editor", "rule")],
+    [h.Class("policy-test-result"), h.DataAttribute("outcome", outcome)],
     [
       h.div(
         [h.Class("flex items-center justify-between gap-3")],
         [
-          h.h2(
-            [h.Class("text-sm font-semibold tracking-tight")],
-            [model.identity._tag === "New" ? "New rule" : "Edit rule"],
-          ),
-          h.div(
-            [h.Class("flex items-center gap-2")],
+          h.strong(
             [
-              Button.view(h, {
-                variant: "outline",
-                size: "sm",
-                onClick: Message.ClickedCancel(),
-                isDisabled: busy,
-                label: "Cancel",
-              }),
-              Button.view(h, {
-                size: "sm",
-                onClick: Message.ClickedSave(),
-                isDisabled: issues.length > 0 || busy,
-                label: busy ? "Saving" : "Save rule",
-                attributes: [h.DataAttribute("action", "save")],
-              }),
+              h.Class(
+                cn(
+                  "text-xs",
+                  outcome === "match"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-muted-foreground",
+                ),
+              ),
+            ],
+            [describeOutcome(outcome)],
+          ),
+          h.span([h.Class("text-xs text-muted-foreground")], [`#${entity.number}`]),
+        ],
+      ),
+      h.ul(
+        [h.Class("policy-test-trace")],
+        (entity.evaluation?.trace ?? []).map((node) =>
+          h.li(
+            [],
+            [
+              h.span([], [node.reason]),
+              h.span(
+                [h.AriaLabel(describeOutcome(node.outcome))],
+                [node.outcome === "match" ? "✓" : node.outcome === "no-match" ? "−" : "?"],
+              ),
             ],
           ),
-        ],
+        ),
       ),
-      labelPicker(h, model),
-      h.div(
-        [h.Class("grid gap-3 sm:grid-cols-2 lg:grid-cols-4")],
-        [
-          selectField(h, {
-            id: "rule-policy",
-            label: "When policy matches",
-            value: Option.getOrElse(model.maybePolicyId, () => ""),
-            options: [
-              ["", "Choose a policy"] as const,
-              ...publishedPolicies(model).map((policy) => [policy.policyId, policy.name] as const),
-            ],
-            onChange: (value) => Message.UpdatedPolicy({ value }),
-          }),
-          selectField(h, {
-            id: "rule-on-no-match",
-            label: "When it does not match",
-            value: model.onNoMatch,
-            options: [
-              ["ensure-absent", "Remove the label"],
-              ["preserve", "Leave the label alone"],
-            ],
-            onChange: (value) => Message.UpdatedOnNoMatch({ value }),
-          }),
-          input(h, {
-            id: "rule-group",
-            label: "Exclusive group",
-            value: model.group,
-            placeholder: "optional",
-            onInput: (value) => Message.UpdatedGroup({ value }),
-            labelClass,
-            wrapperClass: "gap-1",
-          }),
-          input(h, {
-            id: "rule-priority",
-            label: "Priority in group",
-            value: model.priority,
-            type: "number",
-            onInput: (value) => Message.UpdatedPriority({ value }),
-            labelClass,
-            wrapperClass: "gap-1",
-          }),
-        ],
+      h.p(
+        [h.Class("rounded-md border p-2 text-xs")],
+        [previewAction(model, outcome, entity.labels)],
       ),
-      Checkbox.view(
-        {
-          id: "rule-enabled",
-          isChecked: model.enabled,
-          onToggle: (isChecked) => Message.ToggledEnabled({ isChecked }),
-          toView: (attributes) =>
-            h.div(
-              [h.Class("flex items-center gap-2")],
+      model.group.trim()
+        ? h.p(
+            [h.Class("text-xs text-muted-foreground")],
+            [
+              "Single-rule preview. Other rules in this exclusive group may change the final result.",
+            ],
+          )
+        : h.empty,
+    ],
+  )
+}
+
+export type ViewInputs = { readonly isDeleting?: boolean; readonly confirmingDelete?: boolean }
+export const view = Submodel.defineView<Model, Message, ViewInputs>(
+  (model, { isDeleting = false, confirmingDelete = false }, h): Html => {
+    const issues = draftIssues(model)
+    const busy = model.submission._tag === "Submitting" || isDeleting
+    const dirty = model.identity._tag === "New" || hasUnsavedChanges(model)
+    const policy = selectedPolicy(model)
+    const label = model.labels.find((label) => Option.contains(model.maybeLabelId, label.labelId))
+    return h.div(
+      [h.Class("rule-document"), h.DataAttribute("editor", "rule")],
+      [
+        h.header(
+          [h.Class("rule-navigation")],
+          [
+            Button.view(h, {
+              variant: "outline",
+              size: "sm",
+              onClick: Message.ClickedCancel(),
+              isDisabled: busy,
+              label: h.span(
+                [h.Class("flex items-center gap-2")],
+                [Icon.view(h, ArrowLeft, "size-3.5"), "Back to rules"],
+              ),
+            }),
+            Switch.view(
+              {
+                id: "rule-enabled",
+                isChecked: model.enabled,
+                isDisabled: busy,
+                onToggle: (isChecked) => Message.ToggledEnabled({ isChecked }),
+                toView: (attributes) =>
+                  h.div(
+                    [h.Class("ml-auto flex items-center gap-3")],
+                    [
+                      h.label(
+                        [...attributes.label, h.Class("cursor-pointer text-xs font-medium")],
+                        ["Enable"],
+                      ),
+                      h.button(
+                        [...attributes.button, h.Class("rule-enable-switch")],
+                        [h.span([h.AriaHidden(true)], [])],
+                      ),
+                    ],
+                  ),
+              },
+              h,
+            ),
+          ],
+        ),
+        h.div(
+          [h.Class("rule-editor-workspace")],
+          [
+            h.article(
+              [h.Class("rule-editor-main")],
               [
-                h.button(
+                h.header(
+                  [h.Class("rule-document-heading")],
                   [
-                    ...attributes.checkbox,
-                    h.Class(
-                      "border-input data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground flex size-4 items-center justify-center rounded-[4px] border",
+                    h.h1(
+                      [h.Class("flex items-center gap-2 text-2xl font-semibold tracking-tight")],
+                      [
+                        Icon.view(h, Tag, "size-5 text-muted-foreground"),
+                        label?.name ?? "New rule",
+                      ],
                     ),
-                    h.DataAttribute("state", model.enabled ? "checked" : "unchecked"),
+                    h.p(
+                      [h.Class("mt-2 text-xs leading-relaxed text-muted-foreground")],
+                      [
+                        policy && label
+                          ? `Apply ${label.name} to ${policy.target === "issue" ? "issues" : "pull requests"} that match ${policy.name}.`
+                          : "Choose a published policy and the label it manages.",
+                      ],
+                    ),
                   ],
-                  model.enabled ? [Icon.view(h, Check, "size-3")] : [],
                 ),
-                h.label(
-                  [...attributes.label, h.Class("cursor-pointer text-sm select-none")],
-                  ["Enabled"],
+                h.div(
+                  [h.Class("rule-flow")],
+                  [
+                    step(h, "1", "When", [
+                      selectField(h, {
+                        id: "rule-policy",
+                        label: "When policy matches",
+                        value: Option.getOrElse(model.maybePolicyId, () => ""),
+                        options: [
+                          ["", "Choose a published policy…"],
+                          ...publishedPolicies(model).map(
+                            (policy) => [policy.policyId, policy.name] as const,
+                          ),
+                        ],
+                        onChange: (value) => Message.UpdatedPolicy({ value }),
+                      }),
+                      policy
+                        ? h.div(
+                            [h.Class("mt-3 flex items-center gap-2 text-xs text-muted-foreground")],
+                            [
+                              Icon.view(h, FileCode2, "size-3"),
+                              `${policy.target === "issue" ? "Issues" : "Pull requests"} · Published v${policy.publishedRevision}`,
+                            ],
+                          )
+                        : h.empty,
+                      policy?.description
+                        ? h.p(
+                            [h.Class("mt-3 text-xs leading-relaxed text-muted-foreground")],
+                            [policy.description],
+                          )
+                        : h.empty,
+                    ]),
+                    step(h, "2", "Then", [
+                      selectField(h, {
+                        id: "rule-label",
+                        label: "Add a GitHub label",
+                        value: Option.getOrElse(model.maybeLabelId, () => ""),
+                        options: [
+                          ["", "Choose a label…"],
+                          ...model.labels
+                            .filter(
+                              (label) =>
+                                label.availability !== "unavailable" ||
+                                Option.contains(model.maybeLabelId, label.labelId),
+                            )
+                            .map(
+                              (label) =>
+                                [
+                                  label.labelId,
+                                  `${label.name}${label.availability === "unavailable" ? " (unavailable)" : ""}`,
+                                ] as const,
+                            ),
+                        ],
+                        onChange: (labelId) => Message.SelectedLabel({ labelId }),
+                      }),
+                      h.p(
+                        [h.Class("mt-3 text-xs text-muted-foreground")],
+                        [
+                          model.labels.length
+                            ? "Already present? Leave it in place."
+                            : "No labels synchronized yet.",
+                        ],
+                      ),
+                    ]),
+                    step(h, "3", "Otherwise", [
+                      selectField(h, {
+                        id: "rule-on-no-match",
+                        label: "When it does not match",
+                        value: model.onNoMatch,
+                        options: [
+                          ["ensure-absent", "Remove the label"],
+                          ["preserve", "Leave unchanged"],
+                        ],
+                        onChange: (value) => Message.UpdatedOnNoMatch({ value }),
+                      }),
+                      h.p(
+                        [h.Class("mt-3 text-xs text-muted-foreground")],
+                        [
+                          model.onNoMatch === "preserve"
+                            ? "Keep the current label state if the policy does not match."
+                            : "Remove this label if the policy stops matching.",
+                        ],
+                      ),
+                    ]),
+                    Disclosure.view(
+                      {
+                        id: "rule-grouping",
+                        isOpen: model.groupOpen,
+                        onToggle: (isOpen) => Message.ToggledGroup({ isOpen }),
+                        toView: ({ button, panel }) =>
+                          h.section(
+                            [h.Class("rule-grouping")],
+                            [
+                              h.button(
+                                [...button, h.Class("flex w-full items-center gap-2 py-2 text-xs")],
+                                [
+                                  Icon.view(
+                                    h,
+                                    ChevronRight,
+                                    cn("size-3", model.groupOpen && "rotate-90"),
+                                  ),
+                                  "Exclusive group",
+                                  h.span(
+                                    [h.Class("ml-auto text-muted-foreground")],
+                                    [model.group.trim() || "None"],
+                                  ),
+                                ],
+                              ),
+                              model.groupOpen
+                                ? h.div(
+                                    [...panel, h.Class("mt-3 flex flex-col gap-3")],
+                                    [
+                                      input(h, {
+                                        id: "rule-group",
+                                        label: "Group",
+                                        value: model.group,
+                                        placeholder: "optional",
+                                        onInput: (value) => Message.UpdatedGroup({ value }),
+                                        labelClass,
+                                      }),
+                                      input(h, {
+                                        id: "rule-priority",
+                                        label: "Priority",
+                                        value: model.priority,
+                                        type: "number",
+                                        onInput: (value) => Message.UpdatedPriority({ value }),
+                                        labelClass,
+                                      }),
+                                      h.p(
+                                        [h.Class("text-xs text-muted-foreground")],
+                                        [
+                                          "The matching rule with the lowest priority wins. Other labels in the group are removed.",
+                                        ],
+                                      ),
+                                    ],
+                                  )
+                                : h.empty,
+                            ],
+                          ),
+                      },
+                      h,
+                    ),
+                    submissionView(h, model.submission),
+                    issues.length
+                      ? h.p(
+                          [h.Class("text-xs text-destructive"), h.Role("status")],
+                          [issues.join(". ")],
+                        )
+                      : h.empty,
+                  ],
                 ),
               ],
             ),
-        },
-        h,
-      ),
-      h.div(
-        [h.Class("text-muted-foreground text-xs")],
-        [
-          "In a group, the matching rule with the lowest priority wins and the others' labels come off.",
-        ],
-      ),
-      issues.length === 0
-        ? h.empty
-        : h.ul(
-            [h.Class("text-destructive flex flex-col gap-0.5 text-xs")],
-            issues.map((issue) => h.li([], [issue])),
-          ),
-      submissionView(h, model.submission),
-    ],
-  )
-})
+            h.aside(
+              [h.Class("rule-inspector"), h.AriaLabel("Rule controls and testing")],
+              [
+                dirty
+                  ? h.div(
+                      [h.Class("rule-save-actions")],
+                      [
+                        Button.view(h, {
+                          size: "sm",
+                          className: "flex-1",
+                          onClick: Message.ClickedSave(),
+                          isDisabled: issues.length > 0 || busy,
+                          label: busy
+                            ? "Saving…"
+                            : model.identity._tag === "New"
+                              ? "Create rule"
+                              : "Save changes",
+                          attributes: [h.DataAttribute("action", "save")],
+                        }),
+                        Button.view(h, {
+                          size: "sm",
+                          variant: "outline",
+                          onClick: Message.ClickedCancel(),
+                          isDisabled: busy,
+                          label: "Cancel",
+                        }),
+                      ],
+                    )
+                  : h.empty,
+                h.section(
+                  [h.Class("rule-test-card")],
+                  [
+                    h.h2([h.Class("rule-test-heading")], ["Test bench"]),
+                    h.div(
+                      [h.Class("flex flex-col gap-3 p-4")],
+                      [
+                        model.testCandidates._tag === "Failed"
+                          ? h.p(
+                              [h.Class("text-xs text-destructive")],
+                              ["Could not load test items. Retrying on the next refresh."],
+                            )
+                          : testItems(model).length === 0
+                            ? h.p(
+                                [h.Class("text-xs text-muted-foreground")],
+                                [
+                                  policy
+                                    ? "No open items are available for this policy."
+                                    : "Select a policy to choose a test item.",
+                                ],
+                              )
+                            : selectField(h, {
+                                id: "rule-test-item",
+                                label: policy?.target === "issue" ? "Issues" : "Pull Requests",
+                                value: String(selectedTestItem(model)?.number ?? ""),
+                                options: testItems(model).map((item) => [
+                                  String(item.number),
+                                  `#${item.number} · ${item.title}`,
+                                ]),
+                                onChange: (value) =>
+                                  Message.SelectedTestItem({ number: Number(value) }),
+                              }),
+                        Button.view(h, {
+                          variant: "outline",
+                          size: "sm",
+                          onClick: Message.ClickedTest(),
+                          isDisabled:
+                            issues.length > 0 ||
+                            !selectedTestItem(model) ||
+                            model.testResult._tag === "Running",
+                          label: h.span(
+                            [h.Class("flex items-center gap-2")],
+                            [Icon.view(h, Play, "size-3"), "Test rule"],
+                          ),
+                        }),
+                        testResultView(h, model),
+                      ],
+                    ),
+                  ],
+                ),
+                model.identity._tag === "Existing"
+                  ? h.div(
+                      [h.Class("rule-delete-actions")],
+                      [
+                        Button.view(h, {
+                          variant: "destructive",
+                          size: "lg",
+                          className: "w-full h-10",
+                          onClick: Message.ClickedDelete(),
+                          isDisabled: busy,
+                          label: h.span(
+                            [h.Class("flex items-center gap-1.5")],
+                            [
+                              Icon.view(h, Trash2, "size-4"),
+                              isDeleting
+                                ? "Deleting rule…"
+                                : confirmingDelete
+                                  ? "Confirm delete"
+                                  : "Delete rule",
+                            ],
+                          ),
+                          attributes: [h.DataAttribute("action", "delete-rule")],
+                        }),
+                      ],
+                    )
+                  : h.empty,
+              ],
+            ),
+          ],
+        ),
+      ],
+    )
+  },
+)
 
-export const reflectConfiguration = (model: Model, configuration: ConfigurationView): Model =>
-  evo(model, {
+export const reflectConfiguration = (
+  model: Model,
+  configuration: ConfigurationView,
+  testCandidates?: TestCandidates,
+): Model => {
+  const next = evo(model, {
     labels: () => configuration.labels,
     policies: () => configuration.policies,
+    testCandidates: () => testCandidates ?? model.testCandidates,
   })
+  const changed =
+    selectedPolicy(model)?.publishedVersionId !== selectedPolicy(next)?.publishedVersionId ||
+    selectedTestItem(model)?.number !== selectedTestItem(next)?.number
+  return changed
+    ? evo(next, { testResult: () => ({ _tag: "Idle" as const }), testGeneration: (id) => id + 1 })
+    : next
+}

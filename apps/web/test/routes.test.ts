@@ -17,7 +17,6 @@ describe("SPA routes", () => {
     ["/repositories/701/policies/p1", "Policy"],
     ["/repositories/701/rules", "Rules"],
     ["/repositories/701/rules/new", "NewRule"],
-    ["/repositories/701/rules/test", "TestRules"],
     ["/repositories/701/rules/r1", "Rule"],
     ["/repositories/701/activity", "Activity"],
     ["/repositories/701/settings", "Settings"],
@@ -47,4 +46,10 @@ describe("SPA routes", () => {
   ])("shows not found for %s", (path) => {
     expect(parse(path)._tag).toBe("NotFound")
   })
+})
+
+it("opens the rules table for retired configuration-test links", () => {
+  const route = parse("/repositories/701/rules/test")
+  expect(route._tag).toBe("Rules")
+  expect(Routes.path(route)).toBe("/repositories/701/rules")
 })

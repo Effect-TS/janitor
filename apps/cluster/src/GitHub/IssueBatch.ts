@@ -65,11 +65,13 @@ export const applyIssueBatch = (request: {
             label_id: label.id,
             node_id: label.nodeId,
             name: label.name,
+            color: label.color ?? null,
             availability: "available",
             projected_sequence: sequence,
           })),
       )}
       ON CONFLICT (repository_id,label_id) DO UPDATE SET node_id=EXCLUDED.node_id,name=EXCLUDED.name,
+        color=COALESCE(EXCLUDED.color,github_label.color),
         availability='available',projected_sequence=EXCLUDED.projected_sequence,observed_at=CLOCK_TIMESTAMP()
       WHERE github_label.projected_sequence <= EXCLUDED.projected_sequence`
         yield* sql`DELETE FROM github_entity_label WHERE repository_id=${repositoryId} AND number IN ${sql.in([...numbers])}`

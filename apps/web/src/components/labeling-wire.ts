@@ -158,6 +158,7 @@ export type RuleIssue = typeof RuleIssue.Type
 // CONFIGURATION
 
 export const SynchronizedLabel = Schema.Struct({
+  color: Schema.optionalKey(Schema.NullOr(Schema.String)),
   labelId: Schema.String,
   name: Schema.String,
   availability: Schema.Literals(["available", "suspect", "unavailable"]),

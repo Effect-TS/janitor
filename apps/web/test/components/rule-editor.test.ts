@@ -1,6 +1,6 @@
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
-import { Story } from "foldkit/test"
+import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import type { PolicyRecord, RuleRecord } from "@/components/labeling-wire"
 import * as RuleEditor from "@/components/rule-editor"
@@ -168,5 +168,109 @@ describe("rule save lifetime", () => {
     expect(
       RuleEditor.update(saved.model, RuleEditor.Message.ClickedSave()).commands?.[0]?.args,
     ).toMatchObject({ identity: { _tag: "Existing", ruleId: "r1" }, operationId: 2 })
+  })
+})
+
+describe("rule flow testing", () => {
+  const fresh = () =>
+    RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published, draft],
+      existing: Option.some(rule),
+      testCandidates: {
+        _tag: "Ready",
+        items: [
+          {
+            number: 12,
+            kind: "pull_request",
+            title: "Update docs",
+            authorLogin: "octocat",
+            labels: [],
+            baseRef: "main",
+            draft: false,
+            evaluation: null,
+            plan: null,
+          },
+          {
+            number: 13,
+            kind: "issue",
+            title: "Bug report",
+            authorLogin: "octocat",
+            labels: [],
+            baseRef: null,
+            draft: null,
+            evaluation: null,
+            plan: null,
+          },
+        ],
+      },
+    })
+  it("tests only the selected target and ignores results from before an edit", () => {
+    expect(RuleEditor.testItems(fresh()).map((item) => item.number)).toEqual([12])
+    const started = RuleEditor.update(fresh(), RuleEditor.Message.ClickedTest()).model
+    expect(started.testResult._tag).toBe("Running")
+    const edited = RuleEditor.update(
+      started,
+      RuleEditor.Message.UpdatedOnNoMatch({ value: "ensure-absent" }),
+    ).model
+    const late = RuleEditor.update(
+      edited,
+      RuleEditor.Message.CompletedTest({
+        generation: started.testGeneration,
+        response: { _tag: "Evaluated", entities: [] },
+      }),
+    ).model
+    expect(late.testResult._tag).toBe("Idle")
+    expect(late.onNoMatch).toBe("ensure-absent")
+  })
+  it("requires an available label and a published policy", () => {
+    const noLabel = RuleEditor.update(
+      fresh(),
+      RuleEditor.Message.SelectedLabel({ labelId: "" }),
+    ).model
+    expect(RuleEditor.draftIssues(noLabel)).toContain("Pick a label")
+    const unpublished = RuleEditor.update(
+      fresh(),
+      RuleEditor.Message.UpdatedPolicy({ value: "p2" }),
+    ).model
+    expect(
+      RuleEditor.update(unpublished, RuleEditor.Message.ClickedTest()).commands,
+    ).toBeUndefined()
+    expect(RuleEditor.draftIssues(unpublished)).toContain("Pick a published policy")
+  })
+  it("preserves labels for unknown, inapplicable, and disabled evaluations", () => {
+    expect(RuleEditor.previewAction(fresh(), "unknown", ["11"])).toContain("unchanged")
+    expect(RuleEditor.previewAction(fresh(), "not-applicable", ["11"])).toContain("unchanged")
+    expect(RuleEditor.previewAction({ ...fresh(), enabled: false }, "match", [])).toContain(
+      "disabled",
+    )
+    expect(
+      RuleEditor.previewAction({ ...fresh(), onNoMatch: "ensure-absent" }, "no-match", ["11"]),
+    ).toBe("Remove bug")
+    expect(RuleEditor.previewAction(fresh(), "match", [])).toBe("Add bug")
+  })
+})
+
+describe("rule flow view", () => {
+  const existing = () =>
+    RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      existing: Option.some(rule),
+    })
+  const scene = { update: RuleEditor.update, view: Scene.withViewInputs(RuleEditor.view, {})() }
+  it("shows Enable and Back navigation, with save controls only after edits", () => {
+    Scene.scene(
+      scene,
+      Scene.given(existing()),
+      Scene.expect(Scene.role("switch", { name: "Enable" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Back to rules" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Save changes" })).not.toExist(),
+      Scene.click(Scene.role("switch", { name: "Enable" })),
+      Scene.expect(Scene.role("button", { name: "Save changes" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Delete rule" })).toExist(),
+    )
   })
 })

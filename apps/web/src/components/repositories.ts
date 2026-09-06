@@ -1,3 +1,5 @@
+import * as Switch from "@foldkit/ui/switch"
+import * as Menu from "@foldkit/ui/menu"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -9,7 +11,7 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
-import type { Html, HtmlBuilder } from "foldkit/html"
+import { childAttributes, type Html, type HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
@@ -17,11 +19,10 @@ import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
 import * as Icon from "@/lib/icons"
-import { Plus, Search, FileCode2, MousePointer2 } from "lucide"
+import { Plus, Search, FileCode2, MousePointer2, Ellipsis, Pencil, Tags } from "lucide"
 import { input } from "@/components/ui/input"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as RuleEditor from "@/components/rule-editor"
-import * as TestBench from "@/components/test-bench"
 import {
   AiConsent,
   TestCandidates,
@@ -32,7 +33,6 @@ import {
   ConfigurationView,
   configurationEndpoint,
   describePlan,
-  describeRevision,
   FactDescription,
   labelName,
   PolicyDetail,
@@ -78,7 +78,6 @@ export const Panel = Schema.Union([
   Schema.TaggedStruct("Unavailable", { message: Schema.String }),
   Schema.TaggedStruct("PolicyEditor", { editor: PolicyEditor.Model }),
   Schema.TaggedStruct("RuleEditor", { editor: RuleEditor.Model }),
-  Schema.TaggedStruct("TestBench", { bench: TestBench.Model }),
 ])
 export type Panel = typeof Panel.Type
 
@@ -106,6 +105,8 @@ export const Model = Schema.Struct({
   consentError: Schema.Option(Schema.String),
   section: Section,
   policySearch: Schema.String,
+  ruleSearch: Schema.String,
+  ruleMenus: Schema.Record(Schema.String, Menu.Model),
   repositories: Schema.Option(Schema.Array(RepositoryOverview)),
   repositoriesError: Schema.Option(Schema.String),
   catalog: Schema.Array(FactDescription),
@@ -115,13 +116,8 @@ export const Model = Schema.Struct({
   maybeConsent: Schema.Option(AiConsent),
 
   panel: Panel,
-  /** A row whose delete button was pressed once; the second press deletes. */
-  maybeConfirmingDelete: Schema.Option(
-    Schema.Union([
-      Schema.TaggedStruct("Policy", { policyId: Schema.String }),
-      Schema.TaggedStruct("Rule", { ruleId: Schema.String }),
-    ]),
-  ),
+  /** A rule row whose delete button was pressed once; the second press deletes. */
+  maybeConfirmingDelete: Schema.Option(Schema.TaggedStruct("Rule", { ruleId: Schema.String })),
 })
 export type Model = typeof Model.Type
 
@@ -154,10 +150,10 @@ export const Message = defineMessageUnion({
     repositoryId: Schema.optionalKey(Schema.String),
     policyId: Schema.optionalKey(Schema.String),
   },
-  ClickedTestPolicy: { policyId: Schema.String },
-  ClickedTestConfiguration: {},
   ClickedDeletePolicy: { policyId: Schema.String, version: Schema.Int },
   ClickedNewRule: {},
+  UpdatedRuleSearch: { value: Schema.String },
+  GotRuleMenuMessage: { ruleId: Schema.String, message: Menu.Message },
   ClickedEditRule: { ruleId: Schema.String },
   ClickedToggleRule: { ruleId: Schema.String },
   ClickedDeleteRule: { ruleId: Schema.String, version: Schema.Int },
@@ -171,7 +167,6 @@ export const Message = defineMessageUnion({
   FailedToggleRule: { ...ResponseContext, ruleId: Schema.String, reason: Schema.String },
   GotPolicyEditorMessage: { message: PolicyEditor.Message },
   GotRuleEditorMessage: { message: RuleEditor.Message },
-  GotTestBenchMessage: { message: TestBench.Message },
 })
 export type Message = typeof Message.Type
 
@@ -420,6 +415,8 @@ export const init = (): UpdateReturn => ({
       consentError: Option.none(),
       section: "Policies",
       policySearch: "",
+      ruleSearch: "",
+      ruleMenus: {},
       repositories: Option.none(),
       repositoriesError: Option.none(),
       catalog: [],
@@ -521,7 +518,11 @@ const updateConfiguration = (
         : panel._tag === "RuleEditor" && Option.isSome(detail)
           ? {
               ...panel,
-              editor: RuleEditor.reflectConfiguration(panel.editor, detail.value.configuration),
+              editor: RuleEditor.reflectConfiguration(
+                panel.editor,
+                detail.value.configuration,
+                detail.value.testCandidates,
+              ),
             }
           : panel,
     repositories: Option.map((rows) =>
@@ -608,32 +609,10 @@ const openRuleEditor = (
             labels: detail.configuration.labels,
             policies: detail.configuration.policies,
             existing: rule,
+            testCandidates: detail.testCandidates,
           }),
         }),
       })
-    },
-  })
-
-const openTestBench = (
-  model: Model,
-  subject: TestBench.Model["subject"],
-  title: string,
-): UpdateReturn =>
-  Option.match(loaded(model), {
-    onNone: () => ({ model }),
-    onSome: ({ repositoryId, detail }) => {
-      const bench = TestBench.init({
-        repositoryId,
-        subject,
-        title,
-        configuration: detail.configuration,
-      })
-      return {
-        model: evo(model, { panel: () => ({ _tag: "TestBench" as const, bench: bench.model }) }),
-        commands: FoldkitCommand.mapMessages(bench.commands, (message) =>
-          Message.GotTestBenchMessage({ message }),
-        ),
-      }
     },
   })
 
@@ -688,6 +667,7 @@ const foldRuleEditor = Update.foldChild({
           description: "It takes effect once the revision activates.",
         }),
       Cancelled: () => undefined,
+      RequestedDelete: () => undefined,
       SaveFailed: ({ reason }) => OutMessage.Failed({ title: "The rule was not saved", reason }),
     }),
   foldOutMessage: (outMessage) => (model) =>
@@ -695,26 +675,13 @@ const foldRuleEditor = Update.foldChild({
       Saved: ({ rule, closeEditor }) =>
         refresh(acceptRule(closeEditor ? closed(model) : model, rule)),
       Cancelled: () => ({ model: closed(model) }),
+      RequestedDelete: ({ ruleId, version }) => {
+        const next = deleteSubject(model, "rule", ruleId, version)
+        return { model: next.model, commands: next.commands ?? [] }
+      },
       SaveFailed: () => ({ model }),
     }),
 })
-
-const foldTestBench = Update.foldChild({
-  update: TestBench.update,
-  read: (model: Model) =>
-    model.panel._tag === "TestBench" ? Option.some(model.panel.bench) : Option.none(),
-  write: (model, nextBench) =>
-    evo(model, { panel: () => ({ _tag: "TestBench" as const, bench: nextBench }) }),
-  toParentMessage: (message) => Message.GotTestBenchMessage({ message }),
-  foldOutMessage: (outMessage) => (model) =>
-    TestBench.OutMessage.match<Step>(outMessage, { Closed: () => ({ model: closed(model) }) }),
-})
-
-const confirmingPolicy = (model: Model, policyId: string) =>
-  Option.exists(
-    model.maybeConfirmingDelete,
-    (entry) => entry._tag === "Policy" && entry.policyId === policyId,
-  )
 
 const confirmingRule = (model: Model, ruleId: string) =>
   Option.exists(
@@ -757,15 +724,10 @@ const deleteSubject = (
     (isViewingSubject(model, repositoryId, what, subjectId) && isSaving(model))
   )
     return { model }
-  if (!(what === "policy" ? confirmingPolicy(model, subjectId) : confirmingRule(model, subjectId)))
+  if (what === "rule" && !confirmingRule(model, subjectId))
     return {
       model: evo(model, {
-        maybeConfirmingDelete: () =>
-          Option.some(
-            what === "policy"
-              ? { _tag: "Policy" as const, policyId: subjectId }
-              : { _tag: "Rule" as const, ruleId: subjectId },
-          ),
+        maybeConfirmingDelete: () => Option.some({ _tag: "Rule" as const, ruleId: subjectId }),
       }),
     }
   return {
@@ -913,7 +875,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                   : panel._tag === "RuleEditor"
                     ? {
                         ...panel,
-                        editor: RuleEditor.reflectConfiguration(panel.editor, detail.configuration),
+                        editor: RuleEditor.reflectConfiguration(
+                          panel.editor,
+                          detail.configuration,
+                          detail.testCandidates,
+                        ),
                       }
                     : panel,
             }),
@@ -1128,19 +1094,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
           }
         : { model },
-    ClickedTestPolicy: ({ policyId }) =>
-      openTestBench(
-        model,
-        { _tag: "Policy", policyId },
-        Option.match(model.detail, {
-          onNone: () => policyId,
-          onSome: (detail) => `Policy ${policyName(detail.configuration.policies, policyId)}`,
-        }),
-      ),
-    ClickedTestConfiguration: () =>
-      openTestBench(model, { _tag: "Configuration" }, "Every rule of the configured revision"),
     ClickedDeletePolicy: ({ policyId, version }) =>
       deleteSubject(model, "policy", policyId, version),
+    UpdatedRuleSearch: ({ value }) => ({ model: evo(model, { ruleSearch: () => value }) }),
+    GotRuleMenuMessage: ({ ruleId, message }) => foldRuleMenu(ruleId)(model, message),
     ClickedNewRule: () => ({ model: openRuleEditor(model, Option.none()) }),
     ClickedEditRule: ({ ruleId }) =>
       Option.isSome(model.selected) &&
@@ -1273,8 +1230,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       ])
         ? { model }
         : foldPolicyEditor(model, message),
-    GotRuleEditorMessage: ({ message }) => foldRuleEditor(model, message),
-    GotTestBenchMessage: ({ message }) => foldTestBench(model, message),
+    GotRuleEditorMessage: ({ message }) =>
+      model.panel._tag === "RuleEditor" &&
+      model.panel.editor.identity._tag === "Existing" &&
+      hasMutation(model, model.panel.editor.repositoryId, model.panel.editor.identity.ruleId, [
+        "RuleDelete",
+      ])
+        ? { model }
+        : foldRuleEditor(model, message),
   })
 
 // SUBSCRIPTIONS
@@ -1297,29 +1260,9 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 const badgeClass = "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
 const cellClass = "py-1.5 pr-3 align-top"
 const headClass = "py-1 pr-3 text-left text-xs font-medium"
-const emptyClass = "text-muted-foreground rounded-md border border-dashed p-4 text-sm"
 
 const sectionTitle = <M>(h: HtmlBuilder<M>, text: string): Html =>
   h.h2([h.Class("text-sm font-semibold tracking-tight")], [text])
-
-const rowButton = (
-  h: HtmlBuilder<Message>,
-  label: string,
-  onClick: Message,
-  options: {
-    readonly isDestructive?: boolean
-    readonly action?: string
-    readonly isDisabled?: boolean
-  } = {},
-): Html =>
-  Button.view(h, {
-    isDisabled: options.isDisabled ?? false,
-    variant: options.isDestructive ? "destructive" : "ghost",
-    size: "xs",
-    onClick,
-    label,
-    attributes: options.action === undefined ? [] : [h.DataAttribute("action", options.action)],
-  })
 
 const table = (
   h: HtmlBuilder<Message>,
@@ -1534,119 +1477,306 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
   )
 }
 
+const RuleMenu = Menu.create<"Edit">()
+const ruleMenuModel = (model: Model, ruleId: string) =>
+  model.ruleMenus[ruleId] ?? Menu.init({ id: `rule-menu-${ruleId}`, isModal: false })
+const foldRuleMenu = (ruleId: string) =>
+  Update.foldChild({
+    update: RuleMenu.update,
+    read: (model: Model) => Option.some(ruleMenuModel(model, ruleId)),
+    write: (model, menu) => evo(model, { ruleMenus: (menus) => ({ ...menus, [ruleId]: menu }) }),
+    toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId, message }),
+    foldOutMessage: () => (model) => ({
+      model: openRuleEditor(model, Option.some({ _tag: "Existing", ruleId, version: 0 })),
+    }),
+  })
+
+export const ruleBehavior = (view: ConfigurationView, rule: RuleRecord): string =>
+  `Add ${labelName(view.labels, rule.labelId)} when ${policyName(view.policies, rule.policyId)} matches. Otherwise, ${rule.onNoMatch === "preserve" ? "leave it unchanged" : "remove the label"}.`
+
+export const labelBadgeStyle = (color: string | null | undefined): Record<string, string> => {
+  if (!color || !/^[0-9a-f]{6}$/i.test(color)) return {}
+  const channels = [0, 2, 4].map((offset) => {
+    const value = parseInt(color.slice(offset, offset + 2), 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+  return {
+    backgroundColor: `#${color}`,
+    borderColor: `#${color}`,
+    color: luminance > 0.179 ? "#111111" : "#ffffff",
+  }
+}
+
 const ruleRow = (
   h: HtmlBuilder<Message>,
   model: Model,
   view: ConfigurationView,
-  rule: ConfigurationView["rules"][number],
+  rule: RuleRecord,
 ): Html => {
+  const name = labelName(view.labels, rule.labelId)
+  const label = view.labels.find((label) => label.labelId === rule.labelId)
   const pending = model.pendingMutations.find(
     (mutation) =>
       mutation.repositoryId === rule.repositoryId &&
       mutation.subjectId === rule.id &&
       (mutation.kind === "RuleToggle" || mutation.kind === "RuleDelete"),
   )
-  const confirming = confirmingRule(model, rule.id)
   return h.tr(
-    [h.Class(cn("border-t", !rule.enabled && "opacity-60")), h.DataAttribute("rule-id", rule.id)],
+    [h.DataAttribute("rule-id", rule.id)],
     [
       h.td(
-        [h.Class(cellClass)],
+        [],
+        [
+          Switch.view(
+            {
+              id: `rule-toggle-${rule.id}`,
+              isChecked: rule.enabled,
+              isDisabled: pending !== undefined,
+              onToggle: () => Message.ClickedToggleRule({ ruleId: rule.id }),
+              toView: (attributes) =>
+                h.div(
+                  [],
+                  [
+                    h.span([...attributes.label, h.Class("sr-only")], [`Enable ${name}`]),
+                    h.button(
+                      [
+                        ...attributes.button,
+                        h.Class("rule-enable-switch rule-table-switch"),
+                        h.AriaBusy(pending !== undefined),
+                      ],
+                      [h.span([h.AriaHidden(true)], [])],
+                    ),
+                    pending
+                      ? h.span(
+                          [h.Class("sr-only"), h.Role("status")],
+                          [
+                            pending.kind === "RuleDelete"
+                              ? "Deleting…"
+                              : rule.enabled
+                                ? "Enabling…"
+                                : "Disabling…",
+                          ],
+                        )
+                      : h.empty,
+                  ],
+                ),
+            },
+            h,
+          ),
+        ],
+      ),
+      h.td(
+        [],
         [
           h.span(
-            [h.Class(cn(badgeClass, rule.labelStatus === "missing" && "line-through"))],
-            [labelName(view.labels, rule.labelId)],
+            [h.Class("inline-flex items-center gap-1.5 text-xs text-muted-foreground")],
+            [Icon.view(h, FileCode2, "size-3.5"), "Policy"],
           ),
         ],
       ),
-      h.td([h.Class(cellClass)], [policyName(view.policies, rule.policyId)]),
       h.td(
-        [h.Class(cn(cellClass, "text-muted-foreground"))],
-        [rule.onNoMatch === "ensure-absent" ? "remove label" : "leave alone"],
-      ),
-      h.td(
-        [h.Class(cn(cellClass, "text-muted-foreground"))],
-        [rule.group === null ? "" : `${rule.group} · ${rule.priority}`],
-      ),
-      h.td(
-        [h.Class(cellClass)],
+        [],
         [
-          h.button(
+          h.span(
             [
-              h.Type("button"),
-              h.Role("switch"),
-              h.AriaChecked(rule.enabled),
-              h.Disabled(pending !== undefined),
-              h.AriaBusy(pending !== undefined),
-              h.OnClick(Message.ClickedToggleRule({ ruleId: rule.id })),
-              h.Class(
-                cn(
-                  "cursor-pointer text-xs",
-                  rule.enabled ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+              h.Class(cn(badgeClass, rule.labelStatus === "missing" && "line-through")),
+              h.Style(labelBadgeStyle(label?.color)),
+            ],
+            [name],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.p(
+            [h.Class("truncate text-xs"), h.Title(ruleBehavior(view, rule))],
+            [ruleBehavior(view, rule)],
+          ),
+          h.p(
+            [h.Class("mt-1 truncate text-xs text-muted-foreground")],
+            [
+              view.policies.find((policy) => policy.policyId === rule.policyId)?.description ||
+                policyName(view.policies, rule.policyId),
+            ],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.span(
+            [
+              h.Class("block truncate text-xs text-muted-foreground"),
+              h.Title(rule.group ?? "No exclusive group"),
+            ],
+            [rule.group ?? "—"],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.submodel({
+            slotId: `rule-menu-${rule.id}`,
+            model: ruleMenuModel(model, rule.id),
+            view: RuleMenu.view,
+            viewInputs: {
+              items: ["Edit"],
+              ariaLabel: `Actions for ${name}`,
+              isButtonDisabled: hasMutation(model, rule.repositoryId, rule.id, [
+                "RuleDelete",
+                "RuleToggle",
+              ]),
+              buttonContent: Icon.view(h, Ellipsis, "size-4"),
+              buttonClassName: "rule-row-menu-button",
+              buttonAttributes: childAttributes([
+                h.AriaLabel(`Actions for ${name}`),
+                h.Title("Rule actions"),
+              ]),
+              itemsClassName: "z-50 min-w-36 rounded-lg border bg-popover p-1 shadow-md",
+              anchor: { placement: "bottom-end", gap: 4 },
+              itemToConfig: (_item, { isActive }) => ({
+                className: cn(
+                  "flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-xs",
+                  isActive && "bg-accent",
                 ),
-              ),
-            ],
-            [
-              pending?.kind === "RuleToggle"
-                ? rule.enabled
-                  ? "Enabling…"
-                  : "Disabling…"
-                : rule.enabled
-                  ? "enabled"
-                  : "disabled",
-            ],
-          ),
-        ],
-      ),
-      h.td(
-        [h.Class(cn(cellClass, "text-right whitespace-nowrap"))],
-        [
-          rowButton(h, "Edit", Message.ClickedEditRule({ ruleId: rule.id }), {
-            action: "edit-rule",
-            isDisabled: pending !== undefined,
+                content: h.span(
+                  [h.Class("flex items-center gap-2"), h.DataAttribute("action", "edit-rule")],
+                  [Icon.view(h, Pencil, "size-3"), "Edit rule"],
+                ),
+              }),
+            },
+            toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId: rule.id, message }),
           }),
-          rowButton(
-            h,
-            pending?.kind === "RuleDelete" ? "Deleting…" : confirming ? "Confirm delete" : "Delete",
-            Message.ClickedDeleteRule({ ruleId: rule.id, version: rule.version }),
-            { isDestructive: confirming, action: "delete-rule", isDisabled: pending !== undefined },
-          ),
         ],
       ),
     ],
   )
 }
-
-const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html =>
-  h.section(
-    [h.Class("flex flex-col gap-2")],
+const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
+  const query = model.ruleSearch.trim().toLowerCase()
+  const rules = view.rules.filter((rule) =>
+    `${ruleBehavior(view, rule)} ${rule.group ?? ""} ${view.policies.find((policy) => policy.policyId === rule.policyId)?.description ?? ""} policy`
+      .toLowerCase()
+      .includes(query),
+  )
+  return h.section(
+    [h.Class("rules-library")],
     [
-      h.div(
-        [h.Class("flex items-center justify-between gap-2")],
+      h.header(
+        [h.Class("flex items-center justify-between gap-4")],
         [
-          sectionTitle(h, "Rules"),
+          h.div(
+            [],
+            [
+              h.h1([h.Class("text-xl font-semibold tracking-tight")], ["Labeling rules"]),
+              h.p(
+                [h.Class("mt-1 text-xs text-muted-foreground")],
+                ["Connect policies to the labels they manage."],
+              ),
+            ],
+          ),
           Button.view(h, {
             variant: "outline",
-            size: "xs",
+            size: "sm",
             onClick: Message.ClickedNewRule(),
-            isDisabled: !view.policies.some((policy) => policy.publishedRevision !== null),
-            label: "New rule",
+            label: h.span(
+              [h.Class("flex items-center gap-2")],
+              [Icon.view(h, Plus, "size-3.5"), "New rule"],
+            ),
             attributes: [h.DataAttribute("action", "new-rule")],
           }),
         ],
       ),
+      h.div(
+        [h.Class("my-5 flex items-center justify-between gap-3")],
+        [
+          h.div(
+            [h.Class("relative w-72 max-w-full")],
+            [
+              Icon.view(
+                h,
+                Search,
+                "pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground",
+              ),
+              input(h, {
+                id: "rule-search",
+                label: "Search rules",
+                labelClass: "sr-only",
+                value: model.ruleSearch,
+                placeholder: "Find a rule…",
+                onInput: (value) => Message.UpdatedRuleSearch({ value }),
+                className: "h-8 pl-8",
+                attributes: [h.AriaLabel("Search rules")],
+              }),
+            ],
+          ),
+          h.span([h.Class("text-xs text-muted-foreground")], [`${view.rules.length} rules`]),
+        ],
+      ),
       view.rules.length === 0
         ? h.div(
-            [h.Class(emptyClass)],
-            ["No rules yet. A rule adds a label when a published policy matches."],
+            [
+              h.Class(
+                "flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center",
+              ),
+            ],
+            [
+              Icon.view(h, Tags, "size-8 text-muted-foreground"),
+              h.h2([h.Class("text-sm font-semibold")], ["Create your first labeling rule"]),
+              h.p(
+                [h.Class("max-w-sm text-xs text-muted-foreground")],
+                [
+                  "Choose a published policy, select a label, and decide what happens when it doesn't match.",
+                ],
+              ),
+              Button.view(h, {
+                size: "sm",
+                label: "Create rule",
+                onClick: Message.ClickedNewRule(),
+              }),
+            ],
           )
-        : table(
-            h,
-            ["Label", "Policy", "On no match", "Group", "", ""],
-            view.rules.map((rule) => ruleRow(h, model, view, rule)),
+        : h.div(
+            [h.Class("overflow-x-auto")],
+            [
+              h.table(
+                [h.Class("rules-table")],
+                [
+                  h.thead(
+                    [],
+                    [
+                      h.tr(
+                        [],
+                        ["Enabled", "Type", "Label", "Behavior", "Exclusive group", ""].map(
+                          (title) =>
+                            h.th(
+                              [h.Scope("col")],
+                              [title || h.span([h.Class("sr-only")], ["Actions"])],
+                            ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  h.tbody(
+                    [],
+                    rules.map((rule) => ruleRow(h, model, view, rule)),
+                  ),
+                ],
+              ),
+              rules.length === 0
+                ? h.p(
+                    [h.Class("p-6 text-center text-xs text-muted-foreground")],
+                    ["No rules match your search."],
+                  )
+                : h.empty,
+            ],
           ),
     ],
   )
+}
 
 const reconciliationsSection = (
   h: HtmlBuilder<Message>,
@@ -1869,9 +1999,6 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
           isDeleting:
             editor.identity._tag === "Existing" &&
             hasMutation(model, editor.repositoryId, editor.identity.policyId, ["PolicyDelete"]),
-          confirmingDelete:
-            editor.identity._tag === "Existing" &&
-            confirmingPolicy(model, editor.identity.policyId),
         },
         toParentMessage: (message) => Message.GotPolicyEditorMessage({ message }),
       })
@@ -1881,14 +2008,20 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
         slotId: "rule-editor",
         model: model.panel.editor,
         view: RuleEditor.view,
+        viewInputs: {
+          isDeleting:
+            model.panel.editor.identity._tag === "Existing" &&
+            hasMutation(
+              model,
+              model.panel.editor.repositoryId,
+              model.panel.editor.identity.ruleId,
+              ["RuleDelete"],
+            ),
+          confirmingDelete:
+            model.panel.editor.identity._tag === "Existing" &&
+            confirmingRule(model, model.panel.editor.identity.ruleId),
+        },
         toParentMessage: (message) => Message.GotRuleEditorMessage({ message }),
-      })
-    case "TestBench":
-      return h.submodel({
-        slotId: "test-bench",
-        model: model.panel.bench,
-        view: TestBench.view,
-        toParentMessage: (message) => Message.GotTestBenchMessage({ message }),
       })
   }
 }
@@ -1974,32 +2107,18 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
           ],
         )
       }
+      if (model.section === "Rules")
+        return h.div(
+          [h.Class("rules-workspace")],
+          [
+            model.panel._tag === "RuleEditor" || model.panel._tag === "Unavailable"
+              ? panelView(h, model)
+              : rulesSection(h, model, detail.configuration),
+          ],
+        )
       return h.div(
         [h.Class("flex min-w-0 flex-col gap-6 overflow-auto p-6")],
         [
-          model.section === "Rules"
-            ? h.div(
-                [h.Class("flex flex-col gap-5")],
-                [
-                  h.p(
-                    [h.Class("text-xs text-muted-foreground")],
-                    [describeRevision(detail.configuration)],
-                  ),
-                  Button.view(h, {
-                    variant: "outline",
-                    size: "sm",
-                    label: "Test configuration",
-                    onClick: Message.ClickedTestConfiguration(),
-                  }),
-                  model.panel._tag === "RuleEditor" ||
-                  model.panel._tag === "TestBench" ||
-                  model.panel._tag === "Unavailable"
-                    ? h.div([h.Class("rounded-lg border p-4")], [panelView(h, model)])
-                    : h.empty,
-                  rulesSection(h, model, detail.configuration),
-                ],
-              )
-            : h.empty,
           model.section === "Activity"
             ? reconciliationsSection(h, detail.reconciliations, detail.configuration)
             : h.empty,
@@ -2089,9 +2208,6 @@ export const openRoute = (
                 }),
               }),
             }
-        break
-      case "TestRules":
-        result = update(next, Message.ClickedTestConfiguration())
         break
     }
   }

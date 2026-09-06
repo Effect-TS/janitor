@@ -318,7 +318,7 @@ layer(ReadModelLayer, { timeout: "2 minutes" })("GitHubReadModel against Postgre
 
       yield* readModel.applyLabelCatalog({
         repositoryId: scanRepo,
-        labels: [apiLabel("10", "bug"), apiLabel("11", "docs")],
+        labels: [{ ...apiLabel("10", "bug"), color: "d73a4a" }, apiLabel("11", "docs")],
         sequence: seq(30),
       })
       yield* readModel.applyLabelCatalog({
@@ -328,6 +328,16 @@ layer(ReadModelLayer, { timeout: "2 minutes" })("GitHubReadModel against Postgre
       })
 
       const labels = yield* readModel.listLabels(scanRepo)
+      assert.strictEqual(labels.find((label) => label.labelId === "10")?.color, "d73a4a")
+      yield* readModel.applyLabelCatalog({
+        repositoryId: scanRepo,
+        labels: [{ ...apiLabel("10", "bug-renamed"), color: "0052cc" }],
+        sequence: seq(32),
+      })
+      assert.strictEqual(
+        (yield* readModel.listLabels(scanRepo)).find((label) => label.labelId === "10")?.color,
+        "0052cc",
+      )
       assert.deepStrictEqual(
         labels.map((stored) => [stored.labelId, stored.name, stored.availability]),
         [

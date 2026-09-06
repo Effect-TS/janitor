@@ -76,6 +76,7 @@ export const GitHubLabelAvailability = Schema.Literals([
 export type GitHubLabelAvailability = typeof GitHubLabelAvailability.Type
 
 export const GitHubLabelRecord = Schema.Struct({
+  color: Schema.optionalKey(Schema.NullOr(Schema.String)),
   repositoryId: GitHubRepositoryDatabaseId,
   labelId: GitHubLabelDatabaseId,
   nodeId: Schema.NullOr(GitHubLabelNodeId),

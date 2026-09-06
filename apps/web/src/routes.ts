@@ -23,7 +23,6 @@ export const AppRoute = Route.defineRouteUnion({
   Rules: repository,
   NewRule: repository,
   Rule: { ...repository, ruleId: Schema.String },
-  TestRules: repository,
   Activity: repository,
   Settings: repository,
   NotFound: { path: Schema.String },
@@ -83,10 +82,11 @@ export const newRule = pipe(
   Route.mapTo(AppRoute.NewRule),
 )
 export const rule = pipe(ruleBase, Route.slash(idSegment("ruleId")), Route.mapTo(AppRoute.Rule))
-export const testRules = pipe(
+// Old bookmarks open the rules table instead of treating "test" as a rule ID.
+const legacyRuleTest = pipe(
   ruleBase,
   Route.slash(Route.literal("test")),
-  Route.mapTo(AppRoute.TestRules),
+  Route.mapTo(AppRoute.Rules),
 )
 export const activity = pipe(
   base,
@@ -109,7 +109,7 @@ export const parse = Route.parseUrlWithFallback(
     policy,
     rules,
     newRule,
-    testRules,
+    legacyRuleTest,
     rule,
     activity,
     settings,
@@ -128,7 +128,6 @@ export const path = (route: AppRoute): string =>
     Rules: rules,
     NewRule: newRule,
     Rule: rule,
-    TestRules: testRules,
     Activity: activity,
     Settings: settings,
     NotFound: ({ path }) => path,
@@ -138,7 +137,6 @@ export const section = (route: AppRoute): "Policies" | "Rules" | "Activity" | "S
     case "Rules":
     case "NewRule":
     case "Rule":
-    case "TestRules":
       return "Rules"
     case "Activity":
       return "Activity"
