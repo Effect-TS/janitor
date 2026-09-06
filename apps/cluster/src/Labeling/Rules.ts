@@ -3,6 +3,7 @@ import {
   inspectAiRule,
   type AiRuleDefinition,
 } from "@janitor/domain/Labeling/Policy/AiRule"
+import { Program } from "@janitor/domain/Labeling/Policy/Program"
 import { compile } from "@janitor/domain/Labeling/Policy/Compile"
 import * as Encoding from "effect/Encoding"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
@@ -195,7 +196,20 @@ export class LabelingRules extends Context.Service<
         if (inspected.diagnostics.length)
           return yield* invalidAi(inspected.diagnostics.map((d) => d.message).join("; "))
         const program = aiRuleProgram(definition)
-        const compiled = compile({ program, resolve: () => undefined })
+        const published = yield* sql`SELECT p.policy_id, v.program FROM labeling_policy p
+          JOIN labeling_policy_version v ON v.version_id=p.published_version_id
+          WHERE p.repository_id=${repositoryId} AND p.owner_rule_id IS NULL`.pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.Array(Schema.Struct({ policy_id: PolicyId, program: Program })),
+            ),
+          ),
+          wrap("gate"),
+        )
+        const compiled = compile({
+          program,
+          resolve: (id) => published.find((p) => p.policy_id === id),
+        })
         if (compiled._tag === "Rejected") return yield* invalidAi(compiled.issue.message)
         const encoded = JSON.stringify(program)
         const hash = Encoding.encodeHex(
@@ -222,6 +236,9 @@ export class LabelingRules extends Context.Service<
           if (!versions.length)
             yield* sql`INSERT INTO labeling_policy_version (version_id,policy_id,repository_id,revision,content_hash,program,manifest)
             VALUES (${versionId},${policyId},${repositoryId},(SELECT coalesce(max(revision),0)+1 FROM labeling_policy_version WHERE policy_id=${policyId}),${hash},${encoded}::jsonb,${JSON.stringify(compiled.manifest)}::jsonb)`
+          for (const dependency of compiled.manifest.references) {
+            yield* sql`INSERT INTO labeling_policy_dependency (version_id,dependency_policy_id) VALUES (${versionId},${dependency}) ON CONFLICT DO NOTHING`
+          }
           yield* sql`UPDATE labeling_policy SET published_version_id=${versionId} WHERE policy_id=${policyId}`
         }).pipe(wrap("classifier"))
         return policyId

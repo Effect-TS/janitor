@@ -116,8 +116,6 @@ export const Model = Schema.Struct({
   maybeConsent: Schema.Option(AiConsent),
 
   panel: Panel,
-  /** A rule row whose delete button was pressed once; the second press deletes. */
-  maybeConfirmingDelete: Schema.Option(Schema.TaggedStruct("Rule", { ruleId: Schema.String })),
 })
 export type Model = typeof Model.Type
 
@@ -425,7 +423,6 @@ export const init = (): UpdateReturn => ({
       detailError: Option.none(),
       maybeConsent: Option.none(),
       panel: { _tag: "Closed" },
-      maybeConfirmingDelete: Option.none(),
     },
     { disableChecks: true },
   ),
@@ -439,7 +436,6 @@ type Step = Update.Return<Model, Message, HttpClient.HttpClient>
 const closed = (model: Model): Model =>
   evo(model, {
     panel: () => ({ _tag: "Closed" as const }),
-    maybeConfirmingDelete: () => Option.none(),
   })
 
 const hasMutation = (
@@ -684,12 +680,6 @@ const foldRuleEditor = Update.foldChild({
     }),
 })
 
-const confirmingRule = (model: Model, ruleId: string) =>
-  Option.exists(
-    model.maybeConfirmingDelete,
-    (entry) => entry._tag === "Rule" && entry.ruleId === ruleId,
-  )
-
 export const isViewingSubject = (
   model: Model,
   repositoryId: string,
@@ -725,23 +715,14 @@ const deleteSubject = (
     (isViewingSubject(model, repositoryId, what, subjectId) && isSaving(model))
   )
     return { model }
-  if (what === "rule" && !confirmingRule(model, subjectId))
-    return {
-      model: evo(model, {
-        maybeConfirmingDelete: () => Option.some({ _tag: "Rule" as const, ruleId: subjectId }),
-      }),
-    }
   return {
-    model: evo(
-      startMutation(model, {
-        repositoryId,
-        subjectId,
-        kind: what === "policy" ? "PolicyDelete" : "RuleDelete",
-        previousEnabled: false,
-        enabled: false,
-      }),
-      { maybeConfirmingDelete: () => Option.none() },
-    ),
+    model: startMutation(model, {
+      repositoryId,
+      subjectId,
+      kind: what === "policy" ? "PolicyDelete" : "RuleDelete",
+      previousEnabled: false,
+      enabled: false,
+    }),
     commands: [
       DeleteSubject({
         repositoryId,
@@ -2029,9 +2010,6 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
               model.panel.editor.identity.ruleId,
               ["RuleDelete"],
             ),
-          confirmingDelete:
-            model.panel.editor.identity._tag === "Existing" &&
-            confirmingRule(model, model.panel.editor.identity.ruleId),
         },
         toParentMessage: (message) => Message.GotRuleEditorMessage({ message }),
       })

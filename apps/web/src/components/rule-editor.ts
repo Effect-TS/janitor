@@ -5,6 +5,7 @@ import * as Stream from "effect/Stream"
 import * as Queue from "effect/Queue"
 import { AiRuleDefinition, FactDescription } from "@/components/labeling-wire"
 import * as Switch from "@foldkit/ui/switch"
+import * as Dialog from "@foldkit/ui/dialog"
 import * as Disclosure from "@foldkit/ui/disclosure"
 import * as Select from "@foldkit/ui/select"
 import * as Effect from "effect/Effect"
@@ -63,6 +64,7 @@ export const Submission = Schema.Union([
 export type Submission = typeof Submission.Type
 
 export const Model = Schema.Struct({
+  deleteDialog: Dialog.Model,
   repositoryId: Schema.String,
   ai: Schema.NullOr(AiRuleDefinition),
   creationKey: Schema.NullOr(Schema.String),
@@ -99,6 +101,7 @@ export const Message = defineMessageUnion({
   SelectedType: { value: Schema.String },
   EditedPrompt: { value: Schema.String },
   SelectedTarget: { value: Schema.String },
+  SelectedGate: { value: Schema.String },
   ChangedConfidence: { value: Schema.String },
   FailedPromptEditor: { reason: Schema.String },
   SelectedLabel: { labelId: Schema.String },
@@ -114,6 +117,9 @@ export const Message = defineMessageUnion({
   FailedSaveRule: { reason: Schema.String, operationId: Schema.Int },
   ClickedCancel: {},
   ClickedDelete: {},
+  ConfirmedDelete: {},
+  CancelledDelete: {},
+  GotDeleteDialogMessage: { message: Dialog.Message },
   ToggledGroup: { isOpen: Schema.Boolean },
   SelectedTestItem: { number: Schema.Int },
   ClickedTest: {},
@@ -139,6 +145,16 @@ export type OutMessage = typeof OutMessage.Type
 // DOMAIN
 
 export const draftIssues = (model: Model): ReadonlyArray<string> => [
+  ...(model.ai?.gatePolicyId &&
+  !model.policies.some(
+    (p) =>
+      p.policyId === model.ai!.gatePolicyId &&
+      p.publishedVersionId !== null &&
+      p.target === model.ai!.target &&
+      p.publishedEvaluator === "Conditions",
+  )
+    ? ["Choose a published gate policy for this target"]
+    : []),
   ...(Option.isNone(model.maybeLabelId) ? ["Pick a label"] : []),
   ...(model.ai
     ? inspectAiPrompt(model.ai.prompt, model.ai.target, model.catalog).diagnostics.map(
@@ -280,6 +296,7 @@ export const TestRule = FoldkitCommand.define("TestRule", {
                 _tag: "Draft",
                 source: {
                   target: ai.target,
+                  ...(ai.gatePolicyId ? { appliesWhen: { policy: ai.gatePolicyId } } : {}),
                   classify: {
                     prompt: ai.prompt,
                     minimumConfidence: ai.minimumConfidence,
@@ -334,6 +351,7 @@ const initialize = (input: {
     {
       repositoryId: input.repositoryId,
       creationKey: null,
+      deleteDialog: Dialog.init({ id: "delete-rule", focusSelector: "#cancel-delete-rule" }),
       ai: Option.map(input.existing, (rule) => rule.ai ?? null).pipe(Option.getOrNull),
       catalog: input.catalog ?? [],
       identity: Option.match(input.existing, {
@@ -397,6 +415,13 @@ const edited = (model: Model): Model =>
       current._tag === "Submitting" ? current : { _tag: "NotSubmitted" as const },
   })
 
+const mapDeleteDialog = (model: Model, result: ReturnType<typeof Dialog.open>): UpdateReturn => ({
+  model: evo(model, { deleteDialog: () => result.model }),
+  commands: FoldkitCommand.mapMessages(result.commands, (message) =>
+    Message.GotDeleteDialogMessage({ message }),
+  ),
+})
+
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     PreparedCreation: ({ key }) => ({
@@ -423,6 +448,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           },
     EditedPrompt: ({ value }) => ({
       model: model.ai ? edited(evo(model, { ai: () => ({ ...model.ai!, prompt: value }) })) : model,
+    }),
+    SelectedGate: ({ value }) => ({
+      model: model.ai
+        ? edited(evo(model, { ai: () => ({ ...model.ai!, gatePolicyId: value || null }) }))
+        : model,
     }),
     SelectedTarget: ({ value }) => ({
       model: model.ai
@@ -602,10 +632,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       generation !== model.testGeneration
         ? { model }
         : { model: evo(model, { testResult: () => ({ _tag: "Failed" as const, reason }) }) },
+    GotDeleteDialogMessage: ({ message }) =>
+      mapDeleteDialog(model, Dialog.update(model.deleteDialog, message)),
+    CancelledDelete: () => mapDeleteDialog(model, Dialog.close(model.deleteDialog)),
     ClickedDelete: () =>
       model.identity._tag === "Existing" && model.submission._tag !== "Submitting"
+        ? mapDeleteDialog(model, Dialog.open(model.deleteDialog))
+        : { model },
+    ConfirmedDelete: () =>
+      model.deleteDialog.isOpen &&
+      model.identity._tag === "Existing" &&
+      model.submission._tag !== "Submitting"
         ? {
-            model,
+            ...mapDeleteDialog(model, Dialog.close(model.deleteDialog)),
             outMessage: OutMessage.RequestedDelete({
               ruleId: model.identity.ruleId,
               version: model.identity.version,
@@ -798,9 +837,9 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
   )
 }
 
-export type ViewInputs = { readonly isDeleting?: boolean; readonly confirmingDelete?: boolean }
+export type ViewInputs = { readonly isDeleting?: boolean }
 export const view = Submodel.defineView<Model, Message, ViewInputs>(
-  (model, { isDeleting = false, confirmingDelete = false }, h): Html => {
+  (model, { isDeleting = false }, h): Html => {
     const issues = draftIssues(model)
     const busy = model.submission._tag === "Submitting" || isDeleting
     const dirty = model.identity._tag === "New" || hasUnsavedChanges(model)
@@ -1153,11 +1192,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                             [h.Class("flex items-center gap-1.5")],
                             [
                               Icon.view(h, Trash2, "size-4"),
-                              isDeleting
-                                ? "Deleting rule…"
-                                : confirmingDelete
-                                  ? "Confirm delete"
-                                  : "Delete rule",
+                              isDeleting ? "Deleting rule…" : "Delete rule",
                             ],
                           ),
                           attributes: [h.DataAttribute("action", "delete-rule")],
@@ -1169,6 +1204,64 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
             ),
           ],
         ),
+        h.submodel({
+          slotId: "delete-rule-dialog",
+          model: model.deleteDialog,
+          view: Dialog.view,
+          toParentMessage: (message) => Message.GotDeleteDialogMessage({ message }),
+          viewInputs: {
+            toView: (render) =>
+              h.dialog(
+                [
+                  ...render.dialog,
+                  h.Class(
+                    "fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none bg-transparent p-0 text-foreground",
+                  ),
+                ],
+                render.isVisible
+                  ? [
+                      h.div([...render.backdrop, h.Class("fixed inset-0 bg-black/40")], []),
+                      h.div(
+                        [
+                          ...render.panel,
+                          h.Class(
+                            "relative mx-auto mt-[20vh] w-[calc(100%-2rem)] max-w-md rounded-xl border bg-background p-5 shadow-xl space-y-4",
+                          ),
+                        ],
+                        [
+                          h.h2([...render.title, h.Class("font-semibold")], ["Delete rule?"]),
+                          h.p(
+                            [...render.description, h.Class("text-sm text-muted-foreground")],
+                            [
+                              'Delete "' +
+                                (label?.name ?? "this rule") +
+                                '"? This cannot be undone.',
+                            ],
+                          ),
+                          h.div(
+                            [h.Class("flex justify-end gap-2")],
+                            [
+                              Button.view(h, {
+                                label: "Cancel",
+                                variant: "outline",
+                                attributes: [h.Id("cancel-delete-rule")],
+                                onClick: Message.CancelledDelete(),
+                              }),
+                              Button.view(h, {
+                                label: "Delete rule",
+                                variant: "destructive",
+                                isDisabled: busy,
+                                onClick: Message.ConfirmedDelete(),
+                              }),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ]
+                  : [],
+              ),
+          },
+        }),
       ],
     )
   },
@@ -1250,6 +1343,27 @@ const aiFields = (h: HtmlBuilder<Message>, model: Model): Html => {
             onChange: (labelId) => Message.SelectedLabel({ labelId }),
           }),
         ],
+      ),
+      selectField(h, {
+        id: "ai-gate",
+        label: "Gate policy",
+        value: ai.gatePolicyId ?? "",
+        options: [
+          ["", "No gate · always evaluate"],
+          ...model.policies
+            .filter(
+              (p) =>
+                p.publishedVersionId !== null &&
+                p.target === ai.target &&
+                p.publishedEvaluator === "Conditions",
+            )
+            .map((p) => [p.policyId, p.name] as const),
+        ],
+        onChange: (value) => Message.SelectedGate({ value }),
+      }),
+      h.p(
+        [h.Class("-mt-3 text-xs text-muted-foreground")],
+        ["AI runs only when this policy matches. Otherwise, labels stay unchanged."],
       ),
       h.div(
         [h.Class("flex flex-col gap-2")],

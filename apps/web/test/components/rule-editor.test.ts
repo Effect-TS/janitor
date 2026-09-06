@@ -320,3 +320,22 @@ it("saves an AI definition without selecting a policy and tests unsaved facts", 
   expect(RuleEditor.draftIssues(model)).toContain("Unknown fact 'diff'")
   expect(RuleEditor.update(model, RuleEditor.Message.ClickedSave()).commands).toBeUndefined()
 })
+
+it("requires confirmation before deleting a rule and supports cancellation", () => {
+  const model = RuleEditor.init({
+    repositoryId: "701",
+    policies: [published],
+    labels,
+    existing: Option.some(rule),
+  })
+  expect(RuleEditor.update(model, RuleEditor.Message.ConfirmedDelete()).outMessage).toBeUndefined()
+  const opened = RuleEditor.update(model, RuleEditor.Message.ClickedDelete())
+  expect(opened.model.deleteDialog.isOpen).toBe(true)
+  expect(opened.outMessage).toBeUndefined()
+  const cancelled = RuleEditor.update(opened.model, RuleEditor.Message.CancelledDelete())
+  expect(cancelled.model.deleteDialog.isOpen).toBe(false)
+  expect(cancelled.outMessage).toBeUndefined()
+  const confirmed = RuleEditor.update(opened.model, RuleEditor.Message.ConfirmedDelete())
+  expect(confirmed.outMessage).toEqual({ _tag: "RequestedDelete", ruleId: "r1", version: 1 })
+  expect(confirmed.model.deleteDialog.isOpen).toBe(false)
+})

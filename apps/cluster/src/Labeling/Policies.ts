@@ -168,11 +168,11 @@ export class Policies extends Context.Service<
           (error) => new PoliciesError({ operation, message: describeError(error) }),
         )
 
-    const listRows = (repositoryId: GitHubRepositoryDatabaseId) =>
+    const listRows = (repositoryId: GitHubRepositoryDatabaseId, includeOwned = false) =>
       sql`
         SELECT ${policyColumns(sql)} FROM labeling_policy p
         LEFT JOIN labeling_policy_version v ON v.version_id = p.published_version_id
-        WHERE p.repository_id = ${repositoryId} AND p.owner_rule_id IS NULL ORDER BY p.name
+        WHERE p.repository_id = ${repositoryId} AND (${includeOwned} OR p.owner_rule_id IS NULL) ORDER BY p.name
       `.pipe(Effect.flatMap(decodePolicies), wrap("list"))
 
     const findRow = (repositoryId: GitHubRepositoryDatabaseId, policyId: PolicyId) =>
@@ -309,7 +309,7 @@ export class Policies extends Context.Service<
         }
       }
       // References follow the current published version. Check consumers too.
-      for (const policy of yield* listRows(repositoryId)) {
+      for (const policy of yield* listRows(repositoryId, true)) {
         if (policy.policy_id === policyId.value) continue
         const published = resolve(policy.policy_id)
         if (published === undefined) continue

@@ -309,15 +309,10 @@ describe("Repositories", () => {
     )
   })
 
-  it("deletes only on the second press and refreshes afterwards", () => {
+  it("deletes a confirmed rule and refreshes afterwards", () => {
     Story.story(
       Repositories.update,
       Story.given(opened()),
-      Story.message(Repositories.Message.ClickedDeleteRule({ ruleId: "r1", version: 1 })),
-      Story.model((next) =>
-        expect(next.maybeConfirmingDelete).toEqual(Option.some({ _tag: "Rule", ruleId: "r1" })),
-      ),
-      Story.Command.expectNone(),
       Story.message(Repositories.Message.ClickedDeleteRule({ ruleId: "r1", version: 1 })),
       Story.Command.resolve(
         Repositories.DeleteSubject({

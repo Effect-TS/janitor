@@ -5,6 +5,12 @@ a question using fact references such as `{{fact:title}}` and `{{fact:body}}`.
 Typing `{{` opens autocomplete. Enter or Tab inserts the selected reference;
 Escape dismisses it. Outside autocomplete, Tab indents in the editor.
 
+An optional **Gate policy** limits evaluation to items matching a published condition
+policy for the same target. A non-match or unknown result skips the AI call and
+preserves labels. Gate references follow the published policy through the existing
+configuration versioning; tests also honor unsaved gate changes. Referenced gate
+policies cannot be deleted or changed into incompatible classifiers.
+
 The server derives the evidence from these references. Unknown references,
 malformed tags, target-incompatible facts, and more than eight unique facts are
 rejected. `changedFiles` contains paths and statuses only. Diff and source-code
@@ -37,6 +43,7 @@ Content-Type: application/json
   "labelId": "11",
   "ai": {
     "target": "pull_request",
+    "gatePolicyId": null,
     "prompt": "Does this describe a bug?\nTitle: {{fact:title}}\nDescription: {{fact:body}}",
     "minimumConfidence": 0.8
   },

@@ -137,6 +137,7 @@ export const OnNoMatch = Schema.Literals(["ensure-absent", "preserve"])
 export type OnNoMatch = typeof OnNoMatch.Type
 
 export const AiRuleDefinition = Schema.Struct({
+  gatePolicyId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   target: PolicyTarget,
   prompt: Schema.String,
   minimumConfidence: Schema.Number,

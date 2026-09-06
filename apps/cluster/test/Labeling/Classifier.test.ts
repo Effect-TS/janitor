@@ -298,4 +298,110 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       assert.strictEqual(published.published?.manifest.tracks[0], "entities")
     }),
   )
+  it.effect("gates owned AI evaluation and validates referenced policy changes", () =>
+    Effect.gen(function* () {
+      yield* seed
+      yield* seedPullRequests
+      failing = false
+      calls = 0
+      const policies = yield* Policies
+      const rules = yield* LabelingRules
+      const test = yield* LabelingTest
+      const consent = yield* AiConsentService
+      const gate = yield* policies.create(
+        repositoryId,
+        {
+          name: "Only five",
+          description: "",
+          source: {
+            target: "pull_request",
+            matchesWhen: { fact: "title", operator: "equals", value: "Change 5" },
+          },
+        },
+        actor,
+      )
+      const gateId = gate.policy.policyId
+      const ai = {
+        target: "pull_request" as const,
+        prompt: "Is {{fact:title}} the fifth change?",
+        minimumConfidence: 0.8,
+        gatePolicyId: gateId,
+      }
+      const request = {
+        ai,
+        labelId: bug,
+        onNoMatch: "preserve" as const,
+        group: null,
+        priority: 0,
+        enabled: true,
+      }
+      assert.strictEqual(
+        (yield* Effect.flip(rules.create(repositoryId, request, actor)))._tag,
+        "RuleInvalid",
+      )
+      yield* policies.publish(repositoryId, gateId, 1, actor)
+      const rule = yield* rules.create(repositoryId, request, actor)
+      assert.strictEqual(rule.ai?.gatePolicyId, gateId)
+      const gateDetail = yield* policies.get(repositoryId, gateId)
+      assert.strictEqual(
+        (yield* Effect.flip(
+          policies.remove(repositoryId, gateId, gateDetail.policy.version, actor),
+        ))._tag,
+        "PolicyInUse",
+      )
+      yield* consent.set(repositoryId, true, actor)
+      const result = yield* test.run(repositoryId, {
+        subject: { _tag: "Policy", policyId: rule.policyId },
+        numbers: [5, 6],
+      })
+      assert.deepStrictEqual(
+        result._tag === "Evaluated"
+          ? result.entities.map((e) => e.evaluation?.outcome)
+          : result._tag,
+        ["match", "not-applicable"],
+      )
+      assert.strictEqual(calls, 1)
+      const draft = yield* test.run(repositoryId, {
+        subject: {
+          _tag: "Draft",
+          source: {
+            target: "pull_request",
+            appliesWhen: { policy: gateId },
+            classify: { prompt: ai.prompt, evidence: ["title"], minimumConfidence: 0.8 },
+          },
+        },
+        numbers: [6],
+      })
+      assert.strictEqual(
+        draft._tag === "Evaluated" ? draft.entities[0]?.evaluation?.outcome : draft._tag,
+        "not-applicable",
+      )
+      assert.strictEqual(calls, 1)
+      const bad = yield* rules
+        .patch(
+          repositoryId,
+          rule.id,
+          { version: rule.version, ai: { ...ai, target: "issue" } },
+          actor,
+        )
+        .pipe(Effect.flip)
+      assert.strictEqual(bad._tag, "RuleInvalid")
+      const classifierGate = yield* policies.validate(
+        repositoryId,
+        {
+          target: "pull_request",
+          classify: { prompt: ai.prompt, evidence: ["title"], minimumConfidence: 0.8 },
+        },
+        Option.some(gateId),
+      )
+      assert.strictEqual(classifierGate._tag, "Invalid")
+      const cleared = yield* rules.patch(
+        repositoryId,
+        rule.id,
+        { version: rule.version, ai: { ...ai, gatePolicyId: null } },
+        actor,
+      )
+      assert.strictEqual(cleared.ai?.gatePolicyId, null)
+    }),
+  )
 })
