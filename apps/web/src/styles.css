@@ -845,10 +845,10 @@
 .rules-table th:nth-child(3) {
   width: 46%;
 }
-.rules-table th:nth-child(4) {
+.rules-table th:nth-child(5) {
   width: 14%;
 }
-.rules-table th:nth-child(5) {
+.rules-table th:nth-child(4) {
   width: 6%;
 }
 .rule-row-menu-button {
@@ -1039,10 +1039,10 @@
 .rules-table th:nth-child(3) {
   width: 10%;
 }
-.rules-table th:nth-child(4) {
+.rules-table th:nth-child(5) {
   width: 41%;
 }
-.rules-table th:nth-child(5) {
+.rules-table th:nth-child(4) {
   width: 16%;
 }
 .rules-table th:nth-child(6) {
@@ -1091,14 +1091,14 @@
   text-overflow: ellipsis;
   vertical-align: middle;
 }
-.rules-table th:nth-child(4) {
+.rules-table th:nth-child(5) {
   width: auto;
 }
-.rules-table td:nth-child(4) p {
+.rules-table td:nth-child(5) p {
   width: 0;
   min-width: 100%;
 }
-.rules-table th:nth-child(5) {
+.rules-table th:nth-child(4) {
   width: 14%;
 }
 

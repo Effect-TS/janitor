@@ -1602,6 +1602,18 @@ const ruleRow = (
       h.td(
         [],
         [
+          h.span(
+            [
+              h.Class("block truncate text-xs text-muted-foreground"),
+              h.Title(rule.group ?? "No exclusive group"),
+            ],
+            [rule.group ? `${rule.group} / ${rule.priority}` : "—"],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
           h.p(
             [h.Class("truncate text-xs"), h.Title(ruleBehavior(view, rule))],
             [ruleBehavior(view, rule)],
@@ -1612,18 +1624,6 @@ const ruleRow = (
               view.policies.find((policy) => policy.policyId === rule.policyId)?.description ||
                 policyName(view.policies, rule.policyId),
             ],
-          ),
-        ],
-      ),
-      h.td(
-        [],
-        [
-          h.span(
-            [
-              h.Class("block truncate text-xs text-muted-foreground"),
-              h.Title(rule.group ?? "No exclusive group"),
-            ],
-            [rule.group ?? "—"],
           ),
         ],
       ),
@@ -1762,7 +1762,7 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
                     [
                       h.tr(
                         [],
-                        ["Enabled", "Type", "Label", "Behavior", "Exclusive group", ""].map(
+                        ["Enabled", "Type", "Label", "Exclusive group", "Behavior", ""].map(
                           (title) =>
                             h.th(
                               [h.Scope("col")],
