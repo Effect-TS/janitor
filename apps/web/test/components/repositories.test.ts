@@ -12,7 +12,6 @@ import { describePlan, describeRevision } from "@/components/labeling-wire"
 import * as Repositories from "@/components/repositories"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
-import * as Menu from "@foldkit/ui/menu"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
 const one: Repositories.RepositoryOverview = {
@@ -129,7 +128,7 @@ describe("Repositories", () => {
       Scene.expect(Scene.text("Unsaved")).toBeAbsent(),
     )
   })
-  it("offers policy deletion in the document toolbar with confirmation", () => {
+  it("offers policy deletion in the right sidebar with confirmation", () => {
     const loading = Repositories.update(
       opened(),
       Repositories.Message.ClickedEditPolicy({ policyId: "p1" }),
@@ -159,12 +158,12 @@ describe("Repositories", () => {
         Scene.role("complementary", { name: "Policy library" }),
         Scene.expect(Scene.role("button", { name: "Delete" })).toBeAbsent(),
       ),
-      Scene.click(Scene.role("button", { name: "Policy actions" })),
-      Scene.Command.resolve(Menu.FocusItems, Menu.Message.CompletedFocusItems()),
-      Scene.Mount.resolve(Menu.PortalMenuBackdrop, Menu.Message.CompletedPortalMenuBackdrop()),
-      Scene.Mount.resolve(Menu.AnchorMenu, Menu.Message.CompletedAnchorMenu()),
-      Scene.click(Scene.role("menuitem", { name: "Delete policy" })),
-      Scene.expect(Scene.role("menuitem", { name: "Confirm delete" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Close editor" })).toBeAbsent(),
+      Scene.inside(
+        Scene.role("complementary", { name: "Policy test bench and information" }),
+        Scene.click(Scene.role("button", { name: "Delete policy" })),
+        Scene.expect(Scene.role("button", { name: "Confirm delete" })).toExist(),
+      ),
     )
   })
 

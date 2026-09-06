@@ -14,16 +14,13 @@ import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
 import * as Disclosure from "@foldkit/ui/disclosure"
-import * as Menu from "@foldkit/ui/menu"
 import * as Icon from "@/lib/icons"
 import {
-  X,
   Upload,
   Save,
   ChevronRight,
   CodeXml,
   Pencil,
-  Ellipsis,
   Trash2,
   CircleCheck,
   CircleAlert,
@@ -58,8 +55,6 @@ import {
  */
 
 // MODEL
-
-export const ActionsMenu = Menu.create<"Close editor" | "Delete policy" | "Confirm delete">()
 
 export const Identity = Schema.Union([
   Schema.TaggedStruct("New", {}),
@@ -98,7 +93,6 @@ const SavedFields = Schema.Struct({
 })
 
 export const Model = Schema.Struct({
-  actionsMenu: Menu.Model,
   repositoryId: Schema.String,
   configuration: ConfigurationView,
   maybeTestBench: Schema.Option(TestBench.Model),
@@ -128,7 +122,7 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   FocusedMetadataInput: {},
-  GotActionsMenuMessage: { message: Menu.Message },
+  ClickedDelete: {},
   ClickedEditMetadata: { field: Schema.Literals(["name", "description"]) },
   UpdatedMetadataDraft: { field: Schema.Literals(["name", "description"]), value: Schema.String },
   ClickedSaveMetadata: { field: Schema.Literals(["name", "description"]) },
@@ -435,7 +429,6 @@ export const init = ({
   Model.make(
     {
       repositoryId,
-      actionsMenu: Menu.init({ id: "policy-actions-menu" }),
       testCandidates: testCandidates ?? { _tag: "Ready", items: [] },
       testNumber: null,
       configuration,
@@ -585,36 +578,11 @@ const submit = (model: Model, publish: boolean): UpdateReturn =>
           },
   })
 
-const foldActionsMenu = Update.foldChild({
-  update: ActionsMenu.update,
-  read: (model: Model) => Option.some(model.actionsMenu),
-  write: (model, actionsMenu) => evo(model, { actionsMenu: () => actionsMenu }),
-  toParentMessage: (message) => Message.GotActionsMenuMessage({ message }),
-  foldOutMessage:
-    ({ value }) =>
-    (model): UpdateReturn => {
-      if (isSubmitting(model)) return { model }
-      if (value === "Close editor") return { model, outMessage: OutMessage.Cancelled() }
-      return model.identity._tag === "Existing"
-        ? {
-            model,
-            outMessage: OutMessage.RequestedDelete({
-              policyId: model.identity.policyId,
-              version: model.identity.version,
-            }),
-          }
-        : { model }
-    },
-})
-
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     FocusedMetadataInput: () => ({ model }),
-    GotActionsMenuMessage: ({ message }) =>
-      message._tag === "SelectedItem" &&
-      message.item === "Delete policy" &&
-      model.identity._tag === "Existing" &&
-      !isSubmitting(model)
+    ClickedDelete: () =>
+      model.identity._tag === "Existing" && !isSubmitting(model)
         ? {
             model,
             outMessage: OutMessage.RequestedDelete({
@@ -622,7 +590,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
               version: model.identity.version,
             }),
           }
-        : foldActionsMenu(model, message),
+        : { model },
     SelectedTestItem: ({ number }) => ({
       model: evo(model, {
         testNumber: () => number,
@@ -902,44 +870,6 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                   [h.Class("policy-document-heading")],
                   [
                     isDeleting ? h.p([h.Role("status")], ["Deleting policy…"]) : h.empty,
-                    h.div(
-                      [h.Class("policy-document-menu")],
-                      [
-                        h.submodel({
-                          slotId: "policy-actions",
-                          model: model.actionsMenu,
-                          view: ActionsMenu.view,
-                          toParentMessage: (message) => Message.GotActionsMenuMessage({ message }),
-                          viewInputs: {
-                            items:
-                              identity._tag === "New"
-                                ? ["Close editor"]
-                                : [
-                                    "Close editor",
-                                    confirmingDelete ? "Confirm delete" : "Delete policy",
-                                  ],
-                            ariaLabel: "Policy actions",
-                            isButtonDisabled: busy,
-                            buttonContent: Icon.view(h, Ellipsis, "size-4"),
-                            buttonClassName:
-                              "inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 cursor-pointer",
-                            anchor: { placement: "bottom-end", gap: 4, padding: 8 },
-                            itemsClassName: "z-50 w-44 rounded-md border bg-popover p-1 shadow-md",
-                            backdropClassName: "fixed inset-0 z-40",
-                            itemToConfig: (item, { isActive }) => ({
-                              className: `cursor-pointer rounded-sm px-2 py-1.5 text-xs outline-none ${isActive ? "bg-accent " : ""}${item === "Close editor" ? "text-foreground" : "text-destructive"}`,
-                              content: h.span(
-                                [h.Class("flex items-center gap-2")],
-                                [
-                                  Icon.view(h, item === "Close editor" ? X : Trash2, "size-3.5"),
-                                  item,
-                                ],
-                              ),
-                            }),
-                          },
-                        }),
-                      ],
-                    ),
                     ...(["name", "description"] as const).map((field) => {
                       const draft = model.metadataEdits[field]
                       const label = field === "name" ? "title" : "description"
@@ -1359,6 +1289,31 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                           ),
                         ),
                 ),
+                identity._tag === "Existing"
+                  ? h.div(
+                      [h.Class("policy-delete-actions")],
+                      [
+                        Button.view(h, {
+                          variant: "destructive",
+                          size: "lg",
+                          className: "w-full h-10 text-base",
+                          isDisabled: busy,
+                          onClick: Message.ClickedDelete(),
+                          label: h.span(
+                            [h.Class("flex items-center gap-1.5")],
+                            [
+                              Icon.view(h, Trash2, "size-4"),
+                              isDeleting
+                                ? "Deleting policy…"
+                                : confirmingDelete
+                                  ? "Confirm delete"
+                                  : "Delete policy",
+                            ],
+                          ),
+                        }),
+                      ],
+                    )
+                  : h.empty,
               ],
             ),
           ],
