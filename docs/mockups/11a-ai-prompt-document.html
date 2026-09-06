@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI rule · Prompt document</title>
+    <link rel="stylesheet" href="mockup.css" />
+    <link rel="stylesheet" href="ai-rule-studies.css" />
+    <script src="ai-rule-studies.js" defer></script>
+  </head>
+  <body data-variant="a">
+    <header class="study-bar">
+      <span>AI rule studies</span>
+      <nav aria-label="Mockup variants">
+        <a href="11a-ai-prompt-document.html" aria-current="page"><b>A</b>Prompt document</a
+        ><a href="11b-ai-decision-flow.html"><b>B</b>Decision flow</a
+        ><a href="11c-ai-test-workspace.html"><b>C</b>Test workspace</a
+        ><a href="11d-ai-compact-form.html"><b>D</b>Compact form</a>
+        <a href="11e-ai-inline-facts.html"><b>E</b>Inline facts</a>
+      </nav>
+      <button id="theme" class="icon-button" aria-label="Toggle color theme">
+        <svg
+          class="icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path
+            d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0"
+          />
+        </svg>
+      </button>
+    </header>
+    <div class="shell">
+      <aside class="app-nav">
+        <a class="brand" href="6e-home.html"
+          ><span class="brand-mark"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M5 3v6a3 3 0 0 0 3 3h8a3 3 0 0 1 3 3v6M5 15v6M2 18l3 3 3-3" /></svg></span
+          ><span><strong>The Janitor</strong><small>Repository maintenance</small></span></a
+        ><a class="repo" href="7a-repository-switcher-compact.html"
+          ><span class="avatar">E</span><span><small>Effect-TS</small><strong>effect</strong></span
+          ><span class="connected" title="Connected"></span></a
+        ><span class="nav-caption">Repository</span>
+        <nav>
+          <a href="6e-home.html"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" /></svg
+            >Overview</a
+          ><a href="8e-policy-sidebar-actions.html"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 3H5v18h14V8l-5-5v5h5M8 13h8M8 17h5" /></svg
+            >Policies</a
+          ><a href="10a-rule-flow-header.html" aria-current="page"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M5 3v6a3 3 0 0 0 3 3h8a3 3 0 0 1 3 3v6M5 15v6M2 18l3 3 3-3" /></svg
+            >Labeling rules</a
+          ><a href="6d-activity.html"
+            ><svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 12h5l3-8 4 16 3-8h5" /></svg
+            >Activity</a
+          >
+        </nav>
+        <div class="nav-bottom"><span class="connected"></span>Connected to GitHub</div>
+      </aside>
+      <main>
+        <div class="breadcrumb">Effect-TS / effect <span>/</span> Labeling rules</div>
+        <form id="rule-form">
+          <header class="editor-top">
+            <a class="back" href="10a-rule-flow-header.html"
+              ><svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M19 12H5m6-6-6 6 6 6" /></svg
+              >Back to rules</a
+            ><label class="enable"
+              >Enable<input type="checkbox" name="enabled" role="switch" checked /><span
+                class="switch-track"
+              ></span
+            ></label>
+          </header>
+          <div class="editor-heading">
+            <div class="eyebrow">
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4Z" /></svg
+              >AI rule
+            </div>
+            <h1 data-label>breaking-change</h1>
+            <p>Label changes that require users to update their code.</p>
+          </div>
+          <div class="workspace">
+            <div class="editor-main">
+              <section class="document">
+                <div class="fields">
+                  <div class="field">
+                    <label for="target">Applies to</label
+                    ><select id="target" name="target">
+                      <option>Pull requests</option>
+                      <option>Issues</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="label">GitHub label</label
+                    ><select id="label" name="label">
+                      <option>breaking-change</option>
+                      <option>bug</option>
+                      <option>documentation</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="field prompt-field">
+                  <div class="field-heading">
+                    <label for="prompt">Instructions</label><span class="muted" id="count"></span>
+                  </div>
+                  <textarea id="prompt" name="prompt" maxlength="4000" spellcheck="false">
+Does this change break compatibility for existing users?
+
+Look for removed or renamed public APIs, changed function signatures, or behavior that requires users to update their code.
+
+Do not count internal refactors, new optional features, or documentation-only changes.</textarea>
+                  <div class="prompt-foot">
+                    <span>Ask a yes/no question using the selected evidence.</span
+                    ><button type="button" class="text-button" id="example">Use example</button>
+                  </div>
+                </div>
+                <fieldset class="evidence">
+                  <legend>Evidence to read</legend>
+                  <label><input type="checkbox" name="title" checked /> Title</label
+                  ><label><input type="checkbox" name="body" checked /> Description</label
+                  ><label data-pr-only
+                    ><input type="checkbox" name="files" checked /> Changed file paths</label
+                  >
+                </fieldset>
+                <div class="document-bottom">
+                  <div class="field">
+                    <div class="field-heading">
+                      <label for="confidence">Minimum confidence</label
+                      ><output id="confidence-value" for="confidence">80%</output>
+                    </div>
+                    <input
+                      id="confidence"
+                      name="confidence"
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value="80"
+                    />
+                    <div class="range-labels"><span>0%</span><span>100%</span></div>
+                  </div>
+                  <div class="outcome">
+                    <span class="success-dot"></span>
+                    <div>
+                      <strong
+                        >Add <span class="label-badge" data-label>breaking-change</span> on a
+                        confident match</strong
+                      >
+                      <p>Otherwise, leave labels unchanged.</p>
+                    </div>
+                  </div>
+                </div>
+                <details class="advanced">
+                  <summary>Exclusive group <span class="muted">Optional</span></summary>
+                  <div class="fields">
+                    <div class="field">
+                      <label for="group">Group</label
+                      ><input id="group" name="group" placeholder="e.g. release-type" />
+                    </div>
+                    <div class="field">
+                      <label for="priority">Priority</label
+                      ><input id="priority" name="priority" type="number" value="0" min="0" />
+                    </div>
+                  </div>
+                  <p class="muted">Lower priority values win within a group.</p>
+                </details>
+              </section>
+            </div>
+            <aside class="inspector">
+              <section class="actions" id="actions" hidden>
+                <button type="submit" class="button primary full">Save changes</button
+                ><button type="button" class="button full" id="cancel">Cancel</button
+                ><span class="micro">Unsaved changes</span>
+              </section>
+              <section class="bench">
+                <h2>Test bench</h2>
+                <label for="sample" id="sample-label">Pull Requests</label
+                ><select id="sample">
+                  <option value="match">#1842 Remove deprecated constructors</option>
+                  <option value="miss">#1839 Clarify getting started guide</option>
+                  <option value="uncertain">#1827 Adjust scheduler behavior</option></select
+                ><button class="button full" type="button" id="test">
+                  <svg
+                    class="icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m8 5 11 7-11 7Z" /></svg
+                  >Test rule
+                </button>
+                <p class="micro">Simulated results. No labels are changed.</p>
+                <div id="result" class="result" aria-live="polite">
+                  <div class="result-heading">
+                    <span class="success-dot"></span><strong>Would add label</strong
+                    ><span class="result-score">94%</span>
+                  </div>
+                  <span class="label-badge" data-label>breaking-change</span>
+                  <p>Public constructors are removed and callers must migrate.</p>
+                  <dl>
+                    <div>
+                      <dt>Decision</dt>
+                      <dd>Match</dd>
+                    </div>
+                    <div>
+                      <dt>Minimum confidence</dt>
+                      <dd data-threshold>80%</dd>
+                    </div>
+                  </dl>
+                </div>
+              </section>
+              <button type="button" id="delete" class="button destructive full">
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg
+                >Delete rule
+              </button>
+              <details class="consent">
+                <summary>AI access <span class="connected"></span></summary>
+                <p>
+                  AI classification is enabled for this repository. Only selected evidence is sent
+                  for evaluation.
+                </p>
+              </details>
+            </aside>
+          </div>
+        </form>
+        <div id="deleted" hidden>
+          <h1>Rule deleted</h1>
+          <p>This only removes the mockup's local example.</p>
+          <button class="button" id="restore">Restore example</button>
+        </div>
+      </main>
+    </div>
+    <footer class="study-note">
+      <span>Prompt document</span> Give the instructions room to breathe.
+      <span>Interactive mockup · resets on reload</span>
+    </footer>
+    <div id="toast" role="status" hidden></div>
+    <dialog id="delete-dialog">
+      <h2>Delete this rule?</h2>
+      <p>The rule is removed from this mockup. Existing GitHub labels are unchanged.</p>
+      <div class="dialog-actions">
+        <button type="button" class="button" id="keep">Cancel</button
+        ><button type="button" class="button destructive" id="confirm-delete">Delete rule</button>
+      </div>
+    </dialog>
+  </body>
+</html>

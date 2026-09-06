@@ -232,3 +232,53 @@ prevent saving, with a short error message in the form.
 
 Use the links at the top to compare the layouts. All interactions use local sample
 data and reset on reload. These studies also share `rule-flow-controls.css`.
+
+## AI labeling rule studies
+
+Four interactive HTML variants explore editing an AI rule within the existing
+labeling-rule layout. Open a file directly in a browser and use the top tabs to
+compare the alternatives.
+
+| Mockup                                                     | Direction                                                                                                    |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| [11a-ai-prompt-document.html](11a-ai-prompt-document.html) | Recommended starting point. A large prompt document, compact evidence controls, and a quiet outcome summary. |
+| [11b-ai-decision-flow.html](11b-ai-decision-flow.html)     | A numbered Read → Decide → Apply flow, closest to the current rule editor.                                   |
+| [11c-ai-test-workspace.html](11c-ai-test-workspace.html)   | Instructions beside an evidence preview, with test controls and results in the right sidebar.                |
+| [11d-ai-compact-form.html](11d-ai-compact-form.html)       | Aligned form rows make scope, instructions, evidence, and confidence easy to scan.                           |
+
+Each uses a single GitHub label, a yes/no classifier prompt, selected evidence,
+and minimum confidence. Negative, uncertain, and below-threshold results leave
+existing labels unchanged. The form combines classifier and rule configuration
+as a proposed editing experience; it does not change the application's current
+policy-backed storage or add a separate publishing lifecycle.
+
+Enable stays beside Back to rules. Save and Cancel appear in the right sidebar
+only after edits. Delete sits directly below the test bench and asks for
+confirmation. Repository AI access and exclusive grouping remain collapsed.
+
+Try editing and canceling, saving, changing the target to Issues, selecting a
+different test item, raising the confidence threshold, and switching themes.
+The test fixtures demonstrate match, no-match, and unknown states. Scores and
+explanations are fixed examples, not evaluations of edited prompts. Nothing is
+sent to an AI provider or GitHub. All changes reset on reload.
+
+The files share `ai-rule-studies.css`, `ai-rule-studies.js`, and `mockup.css`.
+They work without a server, build step, or external assets. Desktop and mobile
+layouts and the local interactions were checked in Chromium.
+
+### Inline fact references
+
+[11e-ai-inline-facts.html](11e-ai-inline-facts.html) revises the prompt document
+with literal `{{fact:title}}` references instead of evidence checkboxes. Type
+`{{` or choose **Insert fact**, then filter suggestions by name. Arrow keys
+select an option; Enter or Tab inserts it; Escape dismisses the suggestions.
+Available suggestions follow the Issues/Pull Requests target. Unknown,
+incomplete, or incompatible references prevent saving, as do more than eight
+unique facts. Referenced facts would determine the evidence automatically in
+the proposed implementation.
+
+The outcome summary below the prompt is removed. Minimum confidence now uses a
+separate card with a larger readout, a filled track, and 70%, 80%, and 95%
+presets. The test result uses “Match” instead of “Would add label.” The original
+four layouts remain available for comparison. Autocomplete, target validation,
+presets, cancel, and mobile overflow were checked in Chromium.
