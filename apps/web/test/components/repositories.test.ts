@@ -110,7 +110,7 @@ const opened = (): Repositories.Model => ({
 })
 
 describe("Repositories", () => {
-  it("keeps the unsaved policy visible while searching and removes it on cancel", () => {
+  it("keeps the unsaved policy visible until the shell accepts cancellation", () => {
     const editing = Repositories.update(opened(), Repositories.Message.ClickedNewPolicy()).model
     Scene.scene(
       { update: Repositories.update, view: Repositories.view },
@@ -126,8 +126,8 @@ describe("Repositories", () => {
         Scene.expect(Scene.text("Unsaved")).toExist(),
       ),
       Scene.click(Scene.role("button", { name: "Cancel" })),
-      Scene.Mount.expectEnded(PolicySource.MountPolicySourceEditor),
-      Scene.expect(Scene.text("Unsaved")).toBeAbsent(),
+      Scene.expectOutMessage(Repositories.OutMessage.RequestedEditorClose({ section: "Policies" })),
+      Scene.expect(Scene.text("Unsaved")).toExist(),
     )
   })
   it("offers policy deletion in the right sidebar with confirmation", () => {
@@ -740,7 +740,7 @@ describe("shared mutation views", () => {
 })
 
 describe("rules workspace", () => {
-  it("replaces the table with a flow editor and returns on cancellation", () => {
+  it("requests navigation back without closing the rule editor before confirmation", () => {
     const table = { ...ready(), section: "Rules" as const }
     const opened = Repositories.update(
       table,
@@ -752,10 +752,8 @@ describe("rules workspace", () => {
       Scene.expect(Scene.role("button", { name: "Back to rules" })).toExist(),
       Scene.expect(Scene.role("table")).not.toExist(),
       Scene.click(Scene.role("button", { name: "Back to rules" })),
-      Scene.expect(Scene.role("table")).toExist(),
-      Scene.expect(Scene.role("columnheader", { name: "Type" })).toExist(),
-      Scene.expect(Scene.role("columnheader", { name: "Behavior" })).toExist(),
-      Scene.expect(Scene.role("button", { name: "Actions for bug" })).toExist(),
+      Scene.expectOutMessage(Repositories.OutMessage.RequestedEditorClose({ section: "Rules" })),
+      Scene.expect(Scene.role("table")).not.toExist(),
     )
   })
 })

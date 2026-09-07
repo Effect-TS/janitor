@@ -168,11 +168,15 @@ export const Message = defineMessageUnion({
 })
 export type Message = typeof Message.Type
 
-/** What the shell needs to know to show toasts. */
+/** Events the shell uses for navigation, notifications, and sync status. */
 export const OutMessage = defineMessageUnion({
   Notified: { title: Schema.String, description: Schema.String },
   Failed: { title: Schema.String, reason: Schema.String },
   SyncWorkChanged: {},
+  RequestedEditorClose: { section: Schema.Literals(["Policies", "Rules"]) },
+  RequestedRule: { ruleId: Schema.String },
+  SelectedPolicyTestItem: { number: Schema.Int },
+  RuleSaved: { closeEditor: Schema.Boolean },
 })
 export type OutMessage = typeof OutMessage.Type
 
@@ -631,7 +635,7 @@ const foldPolicyEditor = Update.foldChild({
             ? "Rules use this revision the next time a webhook or sync triggers evaluation."
             : "Publish it to make it available to rules.",
         }),
-      Cancelled: () => undefined,
+      Cancelled: () => OutMessage.RequestedEditorClose({ section: "Policies" }),
       RequestedDelete: () => undefined,
       SaveFailed: ({ reason }) => OutMessage.Failed({ title: "The policy was not saved", reason }),
       PersistedDraft: () => undefined,
@@ -640,7 +644,7 @@ const foldPolicyEditor = Update.foldChild({
     PolicyEditor.OutMessage.match<Step>(outMessage, {
       Saved: ({ detail }) => refresh(acceptPolicy(model, detail)),
       PersistedDraft: ({ detail }) => refresh(acceptPolicy(model, detail)),
-      Cancelled: () => ({ model: closed(model) }),
+      Cancelled: () => ({ model }),
       RequestedDelete: ({ policyId, version }) => {
         const next = update(model, Message.ClickedDeletePolicy({ policyId, version }))
         return { model: next.model, commands: next.commands ?? [] }
@@ -658,12 +662,8 @@ const foldRuleEditor = Update.foldChild({
   toParentMessage: (message) => Message.GotRuleEditorMessage({ message }),
   toParentOutMessage: (outMessage) =>
     RuleEditor.OutMessage.match<OutMessage | undefined>(outMessage, {
-      Saved: () =>
-        OutMessage.Notified({
-          title: "Rule saved",
-          description: "It takes effect once the revision activates.",
-        }),
-      Cancelled: () => undefined,
+      Saved: ({ closeEditor }) => OutMessage.RuleSaved({ closeEditor }),
+      Cancelled: () => OutMessage.RequestedEditorClose({ section: "Rules" }),
       RequestedDelete: () => undefined,
       SaveFailed: ({ reason }) => OutMessage.Failed({ title: "The rule was not saved", reason }),
     }),
@@ -671,7 +671,7 @@ const foldRuleEditor = Update.foldChild({
     RuleEditor.OutMessage.match<Step>(outMessage, {
       Saved: ({ rule, closeEditor }) =>
         refresh(acceptRule(closeEditor ? closed(model) : model, rule)),
-      Cancelled: () => ({ model: closed(model) }),
+      Cancelled: () => ({ model }),
       RequestedDelete: ({ ruleId, version }) => {
         const next = deleteSubject(model, "rule", ruleId, version)
         return { model: next.model, commands: next.commands ?? [] }
@@ -1206,14 +1206,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }
     },
 
-    GotPolicyEditorMessage: ({ message }) =>
-      model.panel._tag === "PolicyEditor" &&
-      model.panel.editor.identity._tag === "Existing" &&
-      hasMutation(model, model.panel.editor.repositoryId, model.panel.editor.identity.policyId, [
-        "PolicyDelete",
-      ])
-        ? { model }
-        : foldPolicyEditor(model, message),
+    GotPolicyEditorMessage: ({ message }) => {
+      if (model.panel._tag !== "PolicyEditor") return { model }
+      const editor = model.panel.editor
+      if (
+        editor.identity._tag === "Existing" &&
+        hasMutation(model, editor.repositoryId, editor.identity.policyId, ["PolicyDelete"])
+      )
+        return { model }
+      if (message._tag === "SelectedTestItem")
+        return { model, outMessage: OutMessage.SelectedPolicyTestItem({ number: message.number }) }
+      return foldPolicyEditor(model, message)
+    },
     GotRuleEditorMessage: ({ message }) =>
       model.panel._tag === "RuleEditor" &&
       model.panel.editor.identity._tag === "Existing" &&
@@ -1470,9 +1474,7 @@ const foldRuleMenu = (ruleId: string) =>
     read: (model: Model) => Option.some(ruleMenuModel(model, ruleId)),
     write: (model, menu) => evo(model, { ruleMenus: (menus) => ({ ...menus, [ruleId]: menu }) }),
     toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId, message }),
-    foldOutMessage: () => (model) => ({
-      model: openRuleEditor(model, Option.some({ _tag: "Existing", ruleId, version: 0 })),
-    }),
+    toParentOutMessage: () => OutMessage.RequestedRule({ ruleId }),
   })
 
 export const ruleBehavior = (view: ConfigurationView, rule: RuleRecord): string =>

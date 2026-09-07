@@ -320,6 +320,13 @@ export const repositoriesToastFor = Match.type<Repositories.OutMessage>().pipe(
   Match.withReturnType<Toast.ShowInput<ToastPayload> | undefined>(),
   Match.tagsExhaustive({
     SyncWorkChanged: () => undefined,
+    RequestedEditorClose: () => undefined,
+    RequestedRule: () => undefined,
+    SelectedPolicyTestItem: () => undefined,
+    RuleSaved: () => ({
+      variant: "Success",
+      payload: { title: "Rule saved", description: "It takes effect once the revision activates." },
+    }),
     Notified: ({ title, description }) => ({ variant: "Success", payload: { title, description } }),
     Failed: ({ title, reason }) => ({ variant: "Error", payload: { title, description: reason } }),
   }),
@@ -328,14 +335,41 @@ export const repositoriesToastFor = Match.type<Repositories.OutMessage>().pipe(
 const foldRepositoriesOutMessage =
   (outMessage: Repositories.OutMessage): Update.Step<Model, Message, AppServices> =>
   (model) => {
+    const route = model.navigation.route
+    const repositoryId =
+      "repositoryId" in route
+        ? route.repositoryId
+        : Option.getOrUndefined(model.repositories.selected)
+    if (repositoryId !== undefined) {
+      switch (outMessage._tag) {
+        case "RequestedEditorClose":
+          return requestNavigation(model, Routes.sectionPath(repositoryId, outMessage.section))
+        case "RequestedRule":
+          return requestNavigation(model, Routes.rule({ repositoryId, ruleId: outMessage.ruleId }))
+        case "SelectedPolicyTestItem":
+          return route._tag === "Policy" || route._tag === "NewPolicy"
+            ? requestNavigation(
+                model,
+                Routes.path({ ...route, item: String(outMessage.number) }),
+                true,
+              )
+            : { model }
+      }
+    }
     const input = repositoriesToastFor(outMessage)
+    if (input === undefined && outMessage._tag !== "SyncWorkChanged") return { model }
     const refreshed = outMessage._tag === "Failed" ? { model } : refreshSyncStatus(model)
     if (input === undefined) return refreshed
-    const shown = AppToast.show(refreshed.model.toast, input)
+    const routed =
+      outMessage._tag === "RuleSaved" && outMessage.closeEditor && repositoryId !== undefined
+        ? requestNavigation(refreshed.model, Routes.rules({ repositoryId }), true, false)
+        : { model: refreshed.model }
+    const shown = AppToast.show(routed.model.toast, input)
     return {
-      model: evo(refreshed.model, { toast: () => shown.model }),
+      model: evo(routed.model, { toast: () => shown.model }),
       commands: [
         ...(refreshed.commands ?? []),
+        ...(routed.commands ?? []),
         ...Command.mapMessages(shown.commands, (message) => Message.GotToastMessage({ message })),
       ],
     }
@@ -373,16 +407,6 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
         )
       case "ClickedNewRule":
         return requestNavigation(model, Routes.newRule({ repositoryId }))
-      case "GotRuleMenuMessage":
-        if (message.message._tag === "SelectedItem" && message.message.item === "Edit") {
-          const next = foldRepositories(model, message)
-          const routed = requestNavigation(
-            next.model,
-            Routes.rule({ repositoryId, ruleId: message.ruleId }),
-          )
-          return { ...routed, commands: [...(next.commands ?? []), ...(routed.commands ?? [])] }
-        }
-        break
       case "ClickedEditRule":
         return requestNavigation(model, Routes.rule({ repositoryId, ruleId: message.ruleId }))
       case "UpdatedPolicySearch":
@@ -398,25 +422,6 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
             true,
           )
         }
-        break
-      case "GotPolicyEditorMessage": {
-        const child = message.message
-        if (child._tag === "ClickedCancel")
-          return requestNavigation(model, Routes.policies({ repositoryId }))
-        if (
-          child._tag === "SelectedTestItem" &&
-          (model.navigation.route._tag === "Policy" || model.navigation.route._tag === "NewPolicy")
-        )
-          return requestNavigation(
-            model,
-            Routes.path({ ...model.navigation.route, item: String(child.number) }),
-            true,
-          )
-        break
-      }
-      case "GotRuleEditorMessage":
-        if (message.message._tag === "ClickedCancel")
-          return requestNavigation(model, Routes.rules({ repositoryId }))
         break
     }
   }
@@ -469,13 +474,6 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
       next.model.repositories.panel._tag === "Closed"
     )
       path = Routes.sectionPath(message.repositoryId, model.repositories.section)
-    if (
-      message._tag === "GotRuleEditorMessage" &&
-      message.message._tag === "SucceededSaveRule" &&
-      model.repositories.panel._tag === "RuleEditor" &&
-      next.model.repositories.panel._tag === "Closed"
-    )
-      path = Routes.rules({ repositoryId })
     if (
       model.navigation.route._tag === "NewPolicy" &&
       panel._tag === "PolicyEditor" &&

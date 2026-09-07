@@ -297,6 +297,29 @@ describe("application routing", () => {
     expect(searched.model.repositories.policySearch).toBe("main")
   })
 
+  it("routes policy test selection through the workspace without refreshing sync", () => {
+    const model = editor()
+    const selected = send(
+      model,
+      Repositories.Message.GotPolicyEditorMessage({
+        message: PolicyEditor.Message.SelectedTestItem({ number: 42 }),
+      }),
+    )
+    expect(selected.model.repositories.panel).toBe(model.repositories.panel)
+    expect(selected.commands).toMatchObject([
+      {
+        name: "Navigate",
+        args: { path: "/repositories/701/policies/p1?item=42", replace: true, guard: false },
+      },
+    ])
+    expect(selected.commands).toHaveLength(1)
+    const arrived = land(selected.model, "/repositories/701/policies/p1?item=42").model
+    expect(arrived.repositories.panel).toMatchObject({
+      _tag: "PolicyEditor",
+      editor: { testNumber: 42 },
+    })
+  })
+
   it("replaces the new policy URL after saving without losing newer edits", () => {
     const model = loaded("/repositories/701/policies/new").model
     const saved = send(
@@ -466,5 +489,50 @@ describe("rule menu routing", () => {
       ]),
     )
     expect(land(back.model, "/repositories/701/rules").model.repositories.panel._tag).toBe("Closed")
+    if (opened.repositories.panel._tag !== "RuleEditor") throw new Error("Expected rule editor")
+    const currentEditor = opened.repositories.panel.editor
+    const saving = {
+      ...opened,
+      repositories: {
+        ...opened.repositories,
+        panel: {
+          _tag: "RuleEditor" as const,
+          editor: {
+            ...currentEditor,
+            submission: {
+              _tag: "Submitting" as const,
+              operationId: 1,
+              snapshot: currentEditor.savedSnapshot,
+            },
+          },
+        },
+      },
+    }
+    const completed = Repositories.Message.GotRuleEditorMessage({
+      message: { _tag: "SucceededSaveRule", operationId: 1, rule },
+    })
+    const saved = send(saving, completed)
+    expect(saved.commands).toContainEqual(
+      expect.objectContaining({
+        name: "Navigate",
+        args: expect.objectContaining({ path: "/repositories/701/rules", guard: false }),
+      }),
+    )
+    const newer = {
+      ...saving,
+      repositories: {
+        ...saving.repositories,
+        panel: {
+          ...saving.repositories.panel,
+          editor: { ...saving.repositories.panel.editor, group: "newer edit" },
+        },
+      },
+    }
+    const retained = send(newer, completed)
+    expect(retained.commands?.some((command) => command.name === "Navigate")).toBe(false)
+    expect(retained.model.repositories.panel).toMatchObject({
+      _tag: "RuleEditor",
+      editor: { group: "newer edit" },
+    })
   })
 })
