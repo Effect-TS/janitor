@@ -17,7 +17,7 @@ const candidate = {
   ruleCount: 3,
   syncState: "ready",
 }
-const settings = { repositoryId: "701", state: "", cancelPath: "/" }
+const settings = { repositoryId: "701", state: "" }
 describe("Repository connections", () => {
   it("requires confirmation before disconnecting and allows cancellation", () => {
     const initial = { ...Connections.init(), inventory: Option.some({ repositories: [candidate] }) }
@@ -75,6 +75,7 @@ describe("Repository connections", () => {
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [] } }),
       ),
       Scene.expect(Scene.role("button", { name: "Grant access on GitHub" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Cancel" })).toExist(),
       Scene.expect(Scene.role("button", { name: "Connect repository" })).toBeAbsent(),
     )
   })

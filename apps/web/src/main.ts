@@ -35,7 +35,6 @@ export type ToastPayload = typeof ToastPayload.Type
 export const AppToast = Toast.make(ToastPayload)
 
 export const Model = Schema.Struct({
-  connectionCancelPath: Schema.String,
   connections: Connections.Model,
   navigation: Navigation.Model,
   lastRepositoryId: Schema.Option(Schema.String),
@@ -144,15 +143,20 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
     return {
       model: evo(model, {
         navigation: (navigation) => Navigation.enter(navigation, route),
-        connections: (previous) =>
-          route._tag === "ConnectReturn" && route.setup_action === "request"
-            ? evo(previous, {
+        connections: (previous) => {
+          const entered = Connections.enter(
+            previous,
+            "repositoryId" in model.navigation.route
+              ? Routes.path(model.navigation.route)
+              : previous.returnPath,
+          )
+          return route._tag === "ConnectReturn" && route.setup_action === "request"
+            ? evo(entered, {
                 notice: () =>
                   "Your GitHub installation request is awaiting organization approval. Refresh after an owner approves access.",
               })
-            : previous,
-        connectionCancelPath: (previous) =>
-          "repositoryId" in model.navigation.route ? Routes.path(model.navigation.route) : previous,
+            : entered
+        },
         repositories: () => evo(model.repositories, { panel: () => ({ _tag: "Closed" as const }) }),
       }),
     }
@@ -539,6 +543,8 @@ export const update = (model: Model, message: Message) =>
       const commands = Command.mapMessages(next.commands, (message) =>
         Message.GotConnectionsMessage({ message }),
       )
+      if (next.outMessage?._tag === "Cancelled")
+        return requestNavigation(updated, next.outMessage.path)
       if (next.outMessage?._tag === "OpenGithub")
         return requestNavigation(updated, next.outMessage.url, false, false, true)
       if (next.outMessage?._tag === "Changed") {
@@ -641,11 +647,12 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
   const toast = AppToast.init({ id: "app-toast", defaultDuration: "6 seconds" })
   const repositories = Repositories.init()
   const model = Model.make({
-    connectionCancelPath: Option.match(flags.lastRepositoryId ?? Option.none(), {
-      onNone: Routes.home,
-      onSome: (repositoryId) => Routes.repositoryHome({ repositoryId }),
-    }),
-    connections: Connections.init(),
+    connections: Connections.init(
+      Option.match(flags.lastRepositoryId ?? Option.none(), {
+        onNone: Routes.home,
+        onSome: (repositoryId) => Routes.repositoryHome({ repositoryId }),
+      }),
+    ),
     navigation: Navigation.init(flags.historyIndex ?? 0),
     lastRepositoryId: flags.lastRepositoryId ?? Option.none(),
     sidebar,
@@ -965,7 +972,6 @@ const connectionView = (h: HtmlBuilder<Message>, model: Model, repositoryId: str
       repositoryId,
       state:
         model.navigation.route._tag === "ConnectReturn" ? (model.navigation.route.state ?? "") : "",
-      cancelPath: model.connectionCancelPath,
     },
   })
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {

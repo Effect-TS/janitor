@@ -8,6 +8,7 @@ import * as Routes from "@/routes"
 import * as Repositories from "@/components/repositories"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as SyncButton from "@/components/sync-button"
+import * as Connections from "@/components/repository-connections"
 import type { PolicyDetail } from "@/components/labeling-wire"
 
 const url = (path: string) => Option.getOrThrow(Url.fromString(`https://janitor.test${path}`))
@@ -73,6 +74,31 @@ const editor = () =>
   ).model
 
 describe("application routing", () => {
+  it("returns to the originating page after cancelling the connection flow", () => {
+    const path = "/repositories/701/settings"
+    const connected = land(loaded(path).model, Routes.connect()).model
+    expect(connected.connections.returnPath).toBe(path)
+    const callback = land(connected, "/repositories/connect/return").model
+    const returned = land(callback, Routes.connect()).model
+    const cancelled = Main.update(
+      returned,
+      Main.Message.GotConnectionsMessage({ message: Connections.Message.ClickedCancel() }),
+    )
+    expect(cancelled.commands).toMatchObject([{ name: "Navigate", args: { path } }])
+  })
+
+  it("uses the remembered repository when opening the connection flow directly", () => {
+    const remembered = Main.init(
+      {
+        theme: { preferredTheme: "System", systemTheme: "Light" },
+        lastRepositoryId: Option.some("701"),
+      },
+      url(Routes.connect()),
+    ).model
+    expect(remembered.connections.returnPath).toBe("/repositories/701")
+    expect(initial(Routes.connect()).model.connections.returnPath).toBe("/")
+  })
+
   it("does not request sync when the selected repository has sync disabled", () => {
     const model = loaded("/repositories/701/policies").model
     const disabled: Main.Model = {

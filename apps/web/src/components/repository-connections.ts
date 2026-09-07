@@ -35,6 +35,7 @@ const Candidate = Schema.Struct({
 })
 const Inventory = Schema.Struct({ repositories: Schema.Array(Candidate) })
 export const Model = Schema.Struct({
+  returnPath: Schema.String,
   inventory: Schema.Option(Inventory),
   error: Schema.Option(Schema.String),
   loadError: Schema.Option(Schema.String),
@@ -53,7 +54,8 @@ export const Model = Schema.Struct({
   notice: Schema.String,
 })
 export type Model = typeof Model.Type
-export const init = (): Model => ({
+export const init = (returnPath = Routes.home()): Model => ({
+  returnPath,
   inventory: Option.none(),
   error: Option.none(),
   loadError: Option.none(),
@@ -65,7 +67,12 @@ export const init = (): Model => ({
   dialog: Dialog.init({ id: "disconnect-repository", focusSelector: "#cancel-disconnect" }),
   notice: "",
 })
+/** Enter from a repository route, or retain the destination across the GitHub callback. */
+export const enter = (model: Model, returnPath = model.returnPath): Model =>
+  evo(model, { returnPath: () => returnPath })
+
 export const Message = defineMessageUnion({
+  ClickedCancel: {},
   GotDialogMessage: { message: Dialog.Message },
   LoadRequested: { state: Schema.String },
   Loaded: { inventory: Inventory, requestId: Schema.Int },
@@ -86,6 +93,7 @@ export const Message = defineMessageUnion({
 })
 export type Message = typeof Message.Type
 export const OutMessage = defineMessageUnion({
+  Cancelled: { path: Schema.String },
   Changed: { id: Schema.String, action: Schema.String },
   OpenGithub: { url: Schema.String },
 })
@@ -207,6 +215,7 @@ export const update = (model: Model, message: Message) =>
   Message.match<
     Update.ReturnWithOutMessage<Model, Message, typeof OutMessage.Type, HttpClient.HttpClient>
   >(message, {
+    ClickedCancel: () => ({ model, outMessage: OutMessage.Cancelled({ path: model.returnPath }) }),
     GotDialogMessage: ({ message }) =>
       isBusy(model) ? { model } : mapDialog(model, Dialog.update(model.dialog, message)),
     LoadRequested: ({ state }) =>
@@ -312,7 +321,7 @@ export const update = (model: Model, message: Message) =>
 export const view = Submodel.defineView<
   Model,
   Message,
-  { repositoryId: string | null; state: string; cancelPath: string }
+  { repositoryId: string | null; state: string }
 >((model, inputs, h) => {
   const rows = Option.getOrElse(model.inventory, () => ({ repositories: [] })).repositories
   const current = rows.find((row) => row.repositoryId === inputs.repositoryId)
@@ -601,7 +610,12 @@ export const view = Submodel.defineView<
                       Message.ClickedGithub({ installationId: null }),
                       "default",
                     ),
-                    h.a([h.Href(inputs.cancelPath), h.Class("text-sm underline")], ["Cancel"]),
+                    Button.view(h, {
+                      label: "Cancel",
+                      variant: "link",
+                      className: "px-0 text-sm underline",
+                      onClick: Message.ClickedCancel(),
+                    }),
                   ],
                 ),
               ],
