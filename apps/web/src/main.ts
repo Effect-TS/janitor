@@ -23,7 +23,6 @@ import * as Toast from "@foldkit/ui/toast"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as Match from "effect/Match"
 import * as Stream from "effect/Stream"
-import * as Url from "foldkit/url"
 import * as Routes from "@/routes"
 import * as Navigation from "@/navigation"
 
@@ -38,10 +37,7 @@ export const AppToast = Toast.make(ToastPayload)
 export const Model = Schema.Struct({
   connectionCancelPath: Schema.String,
   connections: Connections.Model,
-  route: Routes.AppRoute,
-  historyIndex: Schema.Int,
-  navigationTarget: Schema.Option(Schema.String),
-  navigationRequestId: Schema.Int,
+  navigation: Navigation.Model,
   lastRepositoryId: Schema.Option(Schema.String),
   sidebar: Sidebar.Model,
   theme: ThemeSwitcher.Model,
@@ -120,6 +116,11 @@ type Step = Update.Return<Model, Message, AppServices>
 const navigationCommands = (commands: ReadonlyArray<Command.Command<Navigation.Message>>) =>
   Command.mapMessages(commands, (message) => Message.GotNavigationMessage({ message }))
 
+const navigationContext = (model: Model): Navigation.Context => ({
+  isSaving: Repositories.isSaving(model.repositories),
+  hasUnsavedChanges: Repositories.hasUnsavedChanges(model.repositories),
+})
+
 export const requestNavigation = (
   model: Model,
   path: string,
@@ -127,26 +128,14 @@ export const requestNavigation = (
   guard = true,
   external = false,
 ): Step => {
-  if (!external && !replace && path === Routes.path(model.route)) return { model }
-  const destination = Option.getOrThrow(Url.fromString(new URL(path, "http://routing.local").href))
-  const leavingDocument =
-    external || Routes.documentPath(Routes.parse(destination)) !== Routes.documentPath(model.route)
-  if (leavingDocument && Repositories.isSaving(model.repositories)) return { model }
+  const next = Navigation.request(model.navigation, path, navigationContext(model), {
+    replace,
+    guard,
+    external,
+  })
   return {
-    model: evo(model, { navigationTarget: () => Option.some(path) }),
-    commands: navigationCommands([
-      Navigation.Navigate({
-        path,
-        index: model.historyIndex,
-        replace,
-        external,
-        guard:
-          guard &&
-          !external &&
-          leavingDocument &&
-          Repositories.hasUnsavedChanges(model.repositories),
-      }),
-    ]),
+    model: evo(model, { navigation: () => next.model }),
+    commands: navigationCommands(next.commands ?? []),
   }
 }
 
@@ -154,7 +143,7 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return {
       model: evo(model, {
-        route: () => route,
+        navigation: (navigation) => Navigation.enter(navigation, route),
         connections: (previous) =>
           route._tag === "ConnectReturn" && route.setup_action === "request"
             ? evo(previous, {
@@ -163,9 +152,8 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
               })
             : previous,
         connectionCancelPath: (previous) =>
-          "repositoryId" in model.route ? Routes.path(model.route) : previous,
+          "repositoryId" in model.navigation.route ? Routes.path(model.navigation.route) : previous,
         repositories: () => evo(model.repositories, { panel: () => ({ _tag: "Closed" as const }) }),
-        navigationTarget: () => Option.none(),
       }),
     }
   if (route._tag === "Home" && Option.isSome(model.repositories.repositories)) {
@@ -176,7 +164,7 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
       Option.contains(model.lastRepositoryId, repo.repositoryId),
     )
     return selected === undefined
-      ? { model: evo(model, { route: () => route }) }
+      ? { model: evo(model, { navigation: (navigation) => Navigation.enter(navigation, route) }) }
       : requestNavigation(
           model,
           Routes.repositoryHome({ repositoryId: selected.repositoryId }),
@@ -186,7 +174,7 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
   }
   const panel = model.repositories.panel
   const justSaved =
-    model.route._tag === "NewPolicy" &&
+    model.navigation.route._tag === "NewPolicy" &&
     route._tag === "Policy" &&
     panel._tag === "PolicyEditor" &&
     panel.editor.identity._tag === "Existing" &&
@@ -194,7 +182,7 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
   const loaded = Repositories.openRoute(
     model.repositories,
     route,
-    !justSaved && Routes.documentPath(model.route) !== Routes.documentPath(route),
+    !justSaved && Routes.documentPath(model.navigation.route) !== Routes.documentPath(route),
   )
   const accessible =
     "repositoryId" in route &&
@@ -205,9 +193,8 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
     )
   return {
     model: evo(model, {
-      route: () => route,
+      navigation: (navigation) => Navigation.enter(navigation, route),
       repositories: () => loaded.model,
-      navigationTarget: () => Option.none(),
       lastRepositoryId: (previous) => (accessible ? Option.some(route.repositoryId) : previous),
     }),
     commands: [
@@ -219,45 +206,20 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
   }
 }
 
-const updateNavigation = (model: Model, message: Navigation.Message): Step =>
-  Navigation.Message.match(message, {
-    RequestedUrl: ({ request }) =>
-      request._tag === "Internal"
-        ? requestNavigation(model, Routes.urlPath(request.url))
-        : requestNavigation(model, request.href, false, true, true),
-    ChangedUrl: ({ url }) => {
-      const requestId = model.navigationRequestId + 1
-      return {
-        model: evo(model, { navigationRequestId: () => requestId }),
-        commands: navigationCommands([
-          Navigation.CheckHistoryNavigation({
-            url,
-            requestId,
-            fromPath: Routes.path(model.route),
-            fromIndex: model.historyIndex,
-            blocked:
-              Routes.documentPath(Routes.parse(url)) !== Routes.documentPath(model.route) &&
-              Repositories.isSaving(model.repositories),
-            guard:
-              !Option.contains(model.navigationTarget, Routes.urlPath(url)) &&
-              Routes.documentPath(Routes.parse(url)) !== Routes.documentPath(model.route) &&
-              Repositories.hasUnsavedChanges(model.repositories),
-          }),
-        ]),
-      }
-    },
-    ResolvedUrl: ({ url, index, allowed, requestId }) =>
-      requestId !== model.navigationRequestId || !allowed
-        ? { model }
-        : enterRoute(
-            evo(model, { historyIndex: () => index, navigationTarget: () => Option.none() }),
-            Routes.parse(url),
-          ),
-    FinishedNavigation: ({ cancelled }) =>
-      cancelled ? { model: evo(model, { navigationTarget: () => Option.none() }) } : { model },
-    InitializedHistory: () => ({ model }),
-    AttemptedUnload: () => ({ model }),
-  })
+const updateNavigation = (model: Model, message: Navigation.Message): Step => {
+  const next = Navigation.update(model.navigation, message, navigationContext(model))
+  const updated =
+    next.model === model.navigation ? model : evo(model, { navigation: () => next.model })
+  const entered = next.outMessage
+    ? Navigation.OutMessage.match(next.outMessage, {
+        AcceptedRoute: ({ route }) => enterRoute(updated, route),
+      })
+    : { model: updated }
+  return {
+    model: entered.model,
+    commands: [...navigationCommands(next.commands ?? []), ...(entered.commands ?? [])],
+  }
+}
 
 const foldSidebar = Update.foldChild({
   update: Sidebar.update,
@@ -385,8 +347,8 @@ const foldRepositories = Update.foldChild({
 
 const updateRepositories = (model: Model, message: Repositories.Message): Step => {
   const repositoryId =
-    "repositoryId" in model.route
-      ? model.route.repositoryId
+    "repositoryId" in model.navigation.route
+      ? model.navigation.route.repositoryId
       : Option.getOrUndefined(model.repositories.selected)
   if (message._tag === "Selected")
     return requestNavigation(model, Routes.repositoryHome({ repositoryId: message.repositoryId }))
@@ -421,11 +383,11 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
         return requestNavigation(model, Routes.rule({ repositoryId, ruleId: message.ruleId }))
       case "UpdatedPolicySearch":
         if (
-          model.route._tag === "Policies" ||
-          model.route._tag === "Policy" ||
-          model.route._tag === "NewPolicy"
+          model.navigation.route._tag === "Policies" ||
+          model.navigation.route._tag === "Policy" ||
+          model.navigation.route._tag === "NewPolicy"
         ) {
-          const { q: _q, ...route } = model.route
+          const { q: _q, ...route } = model.navigation.route
           return requestNavigation(
             model,
             Routes.path(message.value ? { ...route, q: message.value } : route),
@@ -439,11 +401,11 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
           return requestNavigation(model, Routes.policies({ repositoryId }))
         if (
           child._tag === "SelectedTestItem" &&
-          (model.route._tag === "Policy" || model.route._tag === "NewPolicy")
+          (model.navigation.route._tag === "Policy" || model.navigation.route._tag === "NewPolicy")
         )
           return requestNavigation(
             model,
-            Routes.path({ ...model.route, item: String(child.number) }),
+            Routes.path({ ...model.navigation.route, item: String(child.number) }),
             true,
           )
         break
@@ -455,8 +417,8 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
     }
   }
   const next = foldRepositories(model, message)
-  if (message._tag === "GotRepositories" && model.route._tag === "Home") {
-    const entered = enterRoute(next.model, model.route)
+  if (message._tag === "GotRepositories" && model.navigation.route._tag === "Home") {
+    const entered = enterRoute(next.model, model.navigation.route)
     return {
       model: entered.model,
       commands: [...(next.commands ?? []), ...(entered.commands ?? [])],
@@ -478,7 +440,7 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
     (message._tag === "GotDetail" && Option.isNone(model.repositories.detail)) ||
     message._tag === "GotPolicyDetail"
   ) {
-    const loaded = Repositories.openRoute(next.model.repositories, model.route, false)
+    const loaded = Repositories.openRoute(next.model.repositories, model.navigation.route, false)
     return {
       model: evo(next.model, { repositories: () => loaded.model }),
       commands: [
@@ -511,11 +473,11 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
     )
       path = Routes.rules({ repositoryId })
     if (
-      model.route._tag === "NewPolicy" &&
+      model.navigation.route._tag === "NewPolicy" &&
       panel._tag === "PolicyEditor" &&
       panel.editor.identity._tag === "Existing"
     )
-      path = Routes.policy({ ...model.route, policyId: panel.editor.identity.policyId })
+      path = Routes.policy({ ...model.navigation.route, policyId: panel.editor.identity.policyId })
     if (path !== undefined) {
       const routed = requestNavigation(next.model, path, true, false)
       return {
@@ -571,7 +533,7 @@ export const update = (model: Model, message: Message) =>
       if (
         message._tag === "Loaded" &&
         Option.contains(model.connections.maybeLoadRequest, message.requestId) &&
-        model.route._tag === "ConnectReturn"
+        model.navigation.route._tag === "ConnectReturn"
       )
         return requestNavigation(updated, Routes.connect(), true, false)
       const commands = Command.mapMessages(next.commands, (message) =>
@@ -627,9 +589,10 @@ export const update = (model: Model, message: Message) =>
         })
         const syncRefresh = refreshSyncStatus(refreshed)
         const ownsScreen =
-          (model.route._tag === "Settings" && model.route.repositoryId === id) ||
-          model.route._tag === "Connect" ||
-          model.route._tag === "ConnectReturn"
+          (model.navigation.route._tag === "Settings" &&
+            model.navigation.route.repositoryId === id) ||
+          model.navigation.route._tag === "Connect" ||
+          model.navigation.route._tag === "ConnectReturn"
         const nav = ownsScreen
           ? requestNavigation(syncRefresh.model, destination, true, false)
           : { model: syncRefresh.model }
@@ -683,10 +646,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
       onSome: (repositoryId) => Routes.repositoryHome({ repositoryId }),
     }),
     connections: Connections.init(),
-    route: Routes.AppRoute.Home(),
-    historyIndex: flags.historyIndex ?? 0,
-    navigationTarget: Option.none(),
-    navigationRequestId: 0,
+    navigation: Navigation.init(flags.historyIndex ?? 0),
     lastRepositoryId: flags.lastRepositoryId ?? Option.none(),
     sidebar,
     theme: theme.model,
@@ -699,7 +659,9 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
   return {
     model: entered.model,
     commands: [
-      ...navigationCommands([Navigation.InitializeHistory({ index: model.historyIndex })]),
+      ...navigationCommands([
+        Navigation.InitializeHistory({ index: model.navigation.historyIndex }),
+      ]),
       ...(entered.commands ?? []),
       ...Command.mapMessages(repositories.commands, (message) =>
         Message.GotRepositoriesMessage({ message }),
@@ -821,7 +783,7 @@ const sidebarMenu = (h: HtmlBuilder<Message>, model: Model): Html =>
   })
 
 const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
-  !("repositoryId" in model.route)
+  !("repositoryId" in model.navigation.route)
     ? h.empty
     : h.div(
         [],
@@ -837,8 +799,8 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                         h.a(
                           [
                             h.Href(
-                              "repositoryId" in model.route
-                                ? Routes.sectionPath(model.route.repositoryId, section)
+                              "repositoryId" in model.navigation.route
+                                ? Routes.sectionPath(model.navigation.route.repositoryId, section)
                                 : Routes.home(),
                             ),
                             h.Class(
@@ -850,7 +812,7 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                               ),
                             ),
                             h.AriaCurrent(
-                              "repositoryId" in model.route &&
+                              "repositoryId" in model.navigation.route &&
                                 model.repositories.section === section
                                 ? "page"
                                 : "false",
@@ -889,8 +851,8 @@ const repositorySyncDisabled = (model: Model): boolean =>
   Option.exists(model.repositories.repositories, (repositories) =>
     repositories.some(
       (repository) =>
-        "repositoryId" in model.route &&
-        repository.repositoryId === model.route.repositoryId &&
+        "repositoryId" in model.navigation.route &&
+        repository.repositoryId === model.navigation.route.repositoryId &&
         repository.syncEnabled === false,
     ),
   )
@@ -918,11 +880,12 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
               h.span(
                 [h.Class("text-sm font-medium")],
                 [
-                  model.route._tag === "Connect" || model.route._tag === "ConnectReturn"
+                  model.navigation.route._tag === "Connect" ||
+                  model.navigation.route._tag === "ConnectReturn"
                     ? "Connect repository"
-                    : model.route._tag === "Home"
+                    : model.navigation.route._tag === "Home"
                       ? "Repositories"
-                      : model.route._tag === "NotFound"
+                      : model.navigation.route._tag === "NotFound"
                         ? "Page not found"
                         : model.repositories.section,
                 ],
@@ -1000,12 +963,13 @@ const connectionView = (h: HtmlBuilder<Message>, model: Model, repositoryId: str
     toParentMessage: (message) => Message.GotConnectionsMessage({ message }),
     viewInputs: {
       repositoryId,
-      state: model.route._tag === "ConnectReturn" ? (model.route.state ?? "") : "",
+      state:
+        model.navigation.route._tag === "ConnectReturn" ? (model.navigation.route.state ?? "") : "",
       cancelPath: model.connectionCancelPath,
     },
   })
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
-  const route = model.route
+  const route = model.navigation.route
   const repositories = Option.getOrElse(model.repositories.repositories, () => [])
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
@@ -1114,7 +1078,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.route._tag === "Connect" || model.route._tag === "ConnectReturn" ? "Connect repository" : model.route._tag === "Home" ? "Repositories" : model.route._tag === "NotFound" ? "Page not found" : model.repositories.section} · The Janitor`,
+  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : model.repositories.section} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

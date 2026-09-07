@@ -1,9 +1,45 @@
+import * as Option from "effect/Option"
+import { evo } from "foldkit/struct"
+import type * as Update from "foldkit/update"
+import * as Routes from "@/routes"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Command from "foldkit/command"
 import * as Navigation from "foldkit/navigation"
 import * as Url from "foldkit/url"
 import { defineMessageUnion } from "foldkit/message"
+
+/** Accepted location and the state needed to guard browser navigation. */
+export const Model = Schema.Struct({
+  route: Routes.AppRoute,
+  historyIndex: Schema.Int,
+  pendingDestination: Schema.Option(Schema.String),
+  requestId: Schema.Int,
+})
+export type Model = typeof Model.Type
+export const init = (historyIndex = 0): Model => ({
+  route: Routes.AppRoute.Home(),
+  historyIndex,
+  pendingDestination: Option.none(),
+  requestId: 0,
+})
+
+/** The workspace supplies these facts; navigation does not inspect editor state. */
+export interface Context {
+  readonly isSaving: boolean
+  readonly hasUnsavedChanges: boolean
+}
+export interface RequestOptions {
+  readonly replace?: boolean
+  readonly guard?: boolean
+  readonly external?: boolean
+}
+export const OutMessage = defineMessageUnion({ AcceptedRoute: { route: Routes.AppRoute } })
+export type OutMessage = typeof OutMessage.Type
+
+/** Commit the accepted route together with the parent's page transition. */
+export const enter = (model: Model, route: Routes.AppRoute): Model =>
+  evo(model, { route: () => route, pendingDestination: () => Option.none() })
 
 export const Message = defineMessageUnion({
   RequestedUrl: { request: Navigation.UrlRequest },
@@ -74,3 +110,73 @@ export const CheckHistoryNavigation = Command.define("CheckHistoryNavigation", {
       return Message.ResolvedUrl({ url, index, allowed, requestId })
     }),
 })
+
+type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>
+
+export const request = (
+  model: Model,
+  path: string,
+  context: Context,
+  { replace = false, guard = true, external = false }: RequestOptions = {},
+): UpdateReturn => {
+  if (!external && !replace && path === Routes.path(model.route)) return { model }
+  const destination = Option.getOrThrow(Url.fromString(new URL(path, "http://routing.local").href))
+  const leavingDocument =
+    external || Routes.documentPath(Routes.parse(destination)) !== Routes.documentPath(model.route)
+  if (leavingDocument && context.isSaving) return { model }
+  return {
+    model: evo(model, { pendingDestination: () => Option.some(path) }),
+    commands: [
+      Navigate({
+        path,
+        index: model.historyIndex,
+        replace,
+        external,
+        guard: guard && !external && leavingDocument && context.hasUnsavedChanges,
+      }),
+    ],
+  }
+}
+
+export const update = (model: Model, message: Message, context: Context): UpdateReturn =>
+  Message.match<UpdateReturn>(message, {
+    RequestedUrl: ({ request: destination }) =>
+      destination._tag === "Internal"
+        ? request(model, Routes.urlPath(destination.url), context)
+        : request(model, destination.href, context, { external: true }),
+    ChangedUrl: ({ url }) => {
+      const requestId = model.requestId + 1
+      return {
+        model: evo(model, { requestId: () => requestId }),
+        commands: [
+          CheckHistoryNavigation({
+            url,
+            requestId,
+            fromPath: Routes.path(model.route),
+            fromIndex: model.historyIndex,
+            blocked:
+              Routes.documentPath(Routes.parse(url)) !== Routes.documentPath(model.route) &&
+              context.isSaving,
+            guard:
+              !Option.contains(model.pendingDestination, Routes.urlPath(url)) &&
+              Routes.documentPath(Routes.parse(url)) !== Routes.documentPath(model.route) &&
+              context.hasUnsavedChanges,
+          }),
+        ],
+      }
+    },
+    ResolvedUrl: ({ url, index, allowed, requestId }) =>
+      requestId !== model.requestId || !allowed
+        ? { model }
+        : {
+            model: evo(model, {
+              historyIndex: () => index,
+              pendingDestination: () => Option.none(),
+            }),
+            outMessage: OutMessage.AcceptedRoute({ route: Routes.parse(url) }),
+          },
+    FinishedNavigation: ({ cancelled }) =>
+      cancelled ? { model: evo(model, { pendingDestination: () => Option.none() }) } : { model },
+    InitializedHistory: () => ({ model }),
+    AttemptedUnload: () => ({ model }),
+  })

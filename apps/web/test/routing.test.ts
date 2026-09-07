@@ -23,7 +23,7 @@ const land = (model: Main.Model, path: string) =>
         url: url(path),
         index: 1,
         allowed: true,
-        requestId: model.navigationRequestId,
+        requestId: model.navigation.requestId,
       }),
     }),
   )
@@ -142,7 +142,7 @@ describe("application routing", () => {
       { ...first, lastRepositoryId: Option.some("missing") },
       Repositories.Message.GotRepositories({ requestId: 0, repositories: [repository] }),
     )
-    expect(unavailable.model.route._tag).toBe("Home")
+    expect(unavailable.model.navigation.route._tag).toBe("Home")
     expect(unavailable.model.repositories.selected).toEqual(Option.none())
     expect(unavailable.commands ?? []).toEqual([])
   })
@@ -163,7 +163,7 @@ describe("application routing", () => {
         message: Navigation.Message.ResolvedUrl({
           url: url("/repositories/701/rules"),
           index: 9,
-          requestId: model.navigationRequestId - 1,
+          requestId: model.navigation.requestId - 1,
           allowed: true,
         }),
       }),
@@ -315,10 +315,10 @@ describe("mutation navigation", () => {
         what: "policy",
       }),
     )
-    expect(result.model.route._tag).toBe("NewPolicy")
+    expect(result.model.navigation.route._tag).toBe("NewPolicy")
     expect(result.model.repositories.panel._tag).toBe("PolicyEditor")
     expect(result.commands?.some((command) => command.name === "Navigate")).toBe(false)
-    expect(result.model.navigationTarget).toEqual(Option.none())
+    expect(result.model.navigation.pendingDestination).toEqual(Option.none())
   })
 
   it("closes the deleted document when it is still open", () => {
@@ -341,7 +341,9 @@ describe("mutation navigation", () => {
       }),
     )
     expect(result.model.repositories.panel._tag).toBe("Closed")
-    expect(result.model.navigationTarget).toEqual(Option.some("/repositories/701/policies"))
+    expect(result.model.navigation.pendingDestination).toEqual(
+      Option.some("/repositories/701/policies"),
+    )
   })
 
   it("wakes sync monitoring after changing the sync setting", () => {
