@@ -339,7 +339,7 @@ const foldRepositoriesOutMessage =
     const repositoryId =
       "repositoryId" in route
         ? route.repositoryId
-        : Option.getOrUndefined(model.repositories.selected)
+        : Option.getOrUndefined(model.repositories.dataRepositoryId)
     if (repositoryId !== undefined) {
       switch (outMessage._tag) {
         case "RequestedEditorClose":
@@ -387,13 +387,11 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
   const repositoryId =
     "repositoryId" in model.navigation.route
       ? model.navigation.route.repositoryId
-      : Option.getOrUndefined(model.repositories.selected)
+      : Option.getOrUndefined(model.repositories.dataRepositoryId)
   if (message._tag === "Selected")
     return requestNavigation(model, Routes.repositoryHome({ repositoryId: message.repositoryId }))
   if (repositoryId !== undefined) {
     switch (message._tag) {
-      case "SelectedSection":
-        return requestNavigation(model, Routes.sectionPath(repositoryId, message.section))
       case "ClickedNewPolicy":
         return requestNavigation(model, Routes.newPolicy({ repositoryId }))
       case "ClickedEditPolicy":
@@ -473,7 +471,7 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
       ) &&
       next.model.repositories.panel._tag === "Closed"
     )
-      path = Routes.sectionPath(message.repositoryId, model.repositories.section)
+      path = Routes.sectionPath(message.repositoryId, Routes.section(model.navigation.route))
     if (
       model.navigation.route._tag === "NewPolicy" &&
       panel._tag === "PolicyEditor" &&
@@ -750,7 +748,10 @@ const brandHeader = (h: HtmlBuilder<Message>): Html =>
  *  page only owns which repository is current. */
 const switcherInputs = (model: Model): RepositorySwitcher.ViewInputs => ({
   repositories: Option.getOrElse(model.repositories.repositories, () => []),
-  maybeSelectedId: model.repositories.selected,
+  maybeSelectedId:
+    "repositoryId" in model.navigation.route
+      ? Option.some(model.navigation.route.repositoryId)
+      : Option.none(),
 })
 
 const repositorySwitcher = (h: HtmlBuilder<Message>, model: Model): Html =>
@@ -812,13 +813,13 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                               cn(
                                 Sidebar.sidebarMenuButtonClass,
                                 "repository-nav-link",
-                                model.repositories.section === section &&
+                                Routes.section(model.navigation.route) === section &&
                                   "bg-sidebar-accent font-medium",
                               ),
                             ),
                             h.AriaCurrent(
                               "repositoryId" in model.navigation.route &&
-                                model.repositories.section === section
+                                Routes.section(model.navigation.route) === section
                                 ? "page"
                                 : "false",
                             ),
@@ -892,7 +893,7 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                       ? "Repositories"
                       : model.navigation.route._tag === "NotFound"
                         ? "Page not found"
-                        : model.repositories.section,
+                        : Routes.section(model.navigation.route),
                 ],
               ),
             ],
@@ -1074,6 +1075,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     slotId: "repositories",
     model: model.repositories,
     view: Repositories.view,
+    viewInputs: { section: Routes.section(route) },
     toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
   })
   return route._tag === "Settings"
@@ -1082,7 +1084,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : model.repositories.section} · The Janitor`,
+  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

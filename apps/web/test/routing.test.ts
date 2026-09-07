@@ -169,7 +169,7 @@ describe("application routing", () => {
       Repositories.Message.GotRepositories({ requestId: 0, repositories: [repository] }),
     )
     expect(unavailable.model.navigation.route._tag).toBe("Home")
-    expect(unavailable.model.repositories.selected).toEqual(Option.none())
+    expect(unavailable.model.repositories.dataRepositoryId).toEqual(Option.none())
     expect(unavailable.commands ?? []).toEqual([])
   })
 
@@ -198,7 +198,7 @@ describe("application routing", () => {
   })
   it("loads a direct policy link after its repository, preserving query state", () => {
     const first = initial("/repositories/701/policies/p1?q=main&item=214")
-    expect(first.model.repositories.selected).toEqual(Option.some("701"))
+    expect(first.model.repositories.dataRepositoryId).toEqual(Option.some("701"))
     expect(first.commands).toContainEqual(
       expect.objectContaining({
         name: "FetchDetail",

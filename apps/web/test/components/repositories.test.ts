@@ -102,8 +102,7 @@ const consent: Repositories.AiConsent = {
 
 const opened = (): Repositories.Model => ({
   ...Repositories.init().model,
-  section: "Policies",
-  selected: Option.some("701"),
+  dataRepositoryId: Option.some("701"),
   repositories: Option.some([one, two]),
   maybeDetailRequest: Option.some(1),
   detail: Option.some(detail),
@@ -113,7 +112,10 @@ describe("Repositories", () => {
   it("keeps the unsaved policy visible until the shell accepts cancellation", () => {
     const editing = Repositories.update(opened(), Repositories.Message.ClickedNewPolicy()).model
     Scene.scene(
-      { update: Repositories.update, view: Repositories.view },
+      {
+        update: Repositories.update,
+        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+      },
       Scene.given(editing),
       Scene.Mount.resolve(
         PolicySource.MountPolicySourceEditor,
@@ -150,7 +152,10 @@ describe("Repositories", () => {
       }),
     ).model
     Scene.scene(
-      { update: Repositories.update, view: Repositories.view },
+      {
+        update: Repositories.update,
+        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+      },
       Scene.given(editing),
       Scene.Mount.resolve(
         PolicySource.MountPolicySourceEditor,
@@ -176,7 +181,7 @@ describe("Repositories", () => {
     )
   })
 
-  it("preserves an open draft while navigating and refreshing policy metadata", () => {
+  it("preserves an open draft while refreshing policy metadata", () => {
     const created = Repositories.update(opened(), Repositories.Message.ClickedNewPolicy()).model
     const edited = Repositories.update(
       created,
@@ -184,16 +189,8 @@ describe("Repositories", () => {
         message: PolicyEditor.Message.UpdatedName({ value: "Work in progress" }),
       }),
     ).model
-    const away = Repositories.update(
-      edited,
-      Repositories.Message.SelectedSection({ section: "Activity" }),
-    ).model
-    const back = Repositories.update(
-      away,
-      Repositories.Message.SelectedSection({ section: "Policies" }),
-    ).model
     const refreshed = Repositories.update(
-      back,
+      edited,
       Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
     ).model
     expect(refreshed.panel._tag).toBe("PolicyEditor")
@@ -206,7 +203,10 @@ describe("Repositories", () => {
 
   it("renders a searchable policy library instead of the stacked dashboard", () => {
     Scene.scene(
-      { update: Repositories.update, view: Repositories.view },
+      {
+        update: Repositories.update,
+        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+      },
       Scene.given(opened()),
       Scene.expect(Scene.text("Base is main")).toExist(),
       Scene.type(Scene.role("textbox", { name: "Search policies" }), "not a matching policy"),
@@ -245,9 +245,9 @@ describe("Repositories", () => {
       Story.message(
         Repositories.Message.GotRepositories({ requestId: 0, repositories: [one, two] }),
       ),
-      Story.model((next) => expect(next.selected).toEqual(Option.none())),
+      Story.model((next) => expect(next.dataRepositoryId).toEqual(Option.none())),
       Story.message(Repositories.Message.Selected({ repositoryId: "701" })),
-      Story.model((next) => expect(next.selected).toEqual(Option.some("701"))),
+      Story.model((next) => expect(next.dataRepositoryId).toEqual(Option.some("701"))),
       Story.Command.resolve(
         Repositories.FetchDetail({ requestId: 1, repositoryId: "701" }),
         Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
@@ -273,7 +273,7 @@ describe("Repositories", () => {
       Story.given({ ...opened(), panel: { _tag: "LoadingPolicy", policyId: "p1" } }),
       Story.message(Repositories.Message.Selected({ repositoryId: "702" })),
       Story.model((next) => {
-        expect(next.selected).toEqual(Option.some("702"))
+        expect(next.dataRepositoryId).toEqual(Option.some("702"))
         expect(next.detail).toEqual(Option.none())
         expect(next.panel._tag).toBe("Closed")
       }),
@@ -377,7 +377,7 @@ const ready = (): Repositories.Model => {
     Repositories.Message.Selected({ repositoryId: "701" }),
   ).model
   return Repositories.update(
-    { ...selected, section: "Policies" },
+    selected,
     Repositories.Message.GotDetail({ repositoryId: "701", requestId: 1, detail }),
   ).model
 }
@@ -683,8 +683,11 @@ describe("shared mutation views", () => {
       Repositories.Message.ClickedToggleRule({ ruleId: "r1" }),
     ).model
     Scene.scene(
-      { update: Repositories.update, view: Repositories.view },
-      Scene.given({ ...pending, section: "Rules" }),
+      {
+        update: Repositories.update,
+        view: Scene.withViewInputs(Repositories.view, { section: "Rules" })(),
+      },
+      Scene.given(pending),
       Scene.expect(Scene.text("Disabling…")).toExist(),
       Scene.expect(Scene.role("switch", { name: "Enable bug" })).toBeDisabled(),
       Scene.expect(Scene.role("button", { name: "Actions for bug" })).toBeDisabled(),
@@ -701,7 +704,10 @@ describe("shared mutation views", () => {
       Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
     ).model
     Scene.scene(
-      { update: Repositories.update, view: Repositories.view },
+      {
+        update: Repositories.update,
+        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+      },
       Scene.given(pending),
       Scene.expect(Scene.text("Base is main")).toExist(),
       Scene.expect(Scene.text("Deleting…")).toExist(),
@@ -741,13 +747,16 @@ describe("shared mutation views", () => {
 
 describe("rules workspace", () => {
   it("requests navigation back without closing the rule editor before confirmation", () => {
-    const table = { ...ready(), section: "Rules" as const }
+    const table = ready()
     const opened = Repositories.update(
       table,
       Repositories.Message.ClickedEditRule({ ruleId: "r1" }),
     ).model
     Scene.scene(
-      { update: Repositories.update, view: Repositories.view },
+      {
+        update: Repositories.update,
+        view: Scene.withViewInputs(Repositories.view, { section: "Rules" })(),
+      },
       Scene.given(opened),
       Scene.expect(Scene.role("button", { name: "Back to rules" })).toExist(),
       Scene.expect(Scene.role("table")).not.toExist(),
@@ -776,8 +785,11 @@ describe("GitHub label badge colors", () => {
 
 it("renders the minimal repository Overview with a rules link", () => {
   Scene.scene(
-    { update: Repositories.update, view: Repositories.view },
-    Scene.given({ ...opened(), section: "Overview" }),
+    {
+      update: Repositories.update,
+      view: Scene.withViewInputs(Repositories.view, { section: "Overview" })(),
+    },
+    Scene.given(opened()),
     Scene.expect(Scene.text("Your repository is connected.")).toExist(),
     Scene.expect(Scene.role("link", { name: "View rules" })).toExist(),
     Scene.expect(Scene.text("Recent activity")).toBeAbsent(),

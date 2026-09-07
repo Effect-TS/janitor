@@ -103,14 +103,14 @@ export const Model = Schema.Struct({
   maybeConsentRequest: Schema.Option(Schema.Int),
   maybeRepositoriesRequest: Schema.Option(Schema.Int),
   consentError: Schema.Option(Schema.String),
-  section: Section,
   policySearch: Schema.String,
   ruleSearch: Schema.String,
   ruleMenus: Schema.Record(Schema.String, Menu.Model),
   repositories: Schema.Option(Schema.Array(RepositoryOverview)),
   repositoriesError: Schema.Option(Schema.String),
   catalog: Schema.Array(FactDescription),
-  selected: Schema.Option(Schema.String),
+  /** Repository owning the cached detail and its in-flight requests. */
+  dataRepositoryId: Schema.Option(Schema.String),
   detail: Schema.Option(RepositoryDetail),
   detailError: Schema.Option(Schema.String),
   maybeConsent: Schema.Option(AiConsent),
@@ -122,7 +122,6 @@ export type Model = typeof Model.Type
 // MESSAGE
 
 export const Message = defineMessageUnion({
-  SelectedSection: { section: Section },
   UpdatedPolicySearch: { value: Schema.String },
   GotRepositories: { repositories: Schema.Array(RepositoryOverview), requestId: Schema.Int },
   FailedRepositories: { reason: Schema.String, requestId: Schema.Int },
@@ -415,14 +414,13 @@ export const init = (): UpdateReturn => ({
       maybeConsentRequest: Option.none(),
       maybeRepositoriesRequest: Option.some(0),
       consentError: Option.none(),
-      section: "Overview",
       policySearch: "",
       ruleSearch: "",
       ruleMenus: {},
       repositories: Option.none(),
       repositoriesError: Option.none(),
       catalog: [],
-      selected: Option.none(),
+      dataRepositoryId: Option.none(),
       detail: Option.none(),
       detailError: Option.none(),
       maybeConsent: Option.none(),
@@ -471,8 +469,8 @@ const startMutation = (model: Model, mutation: Omit<Mutation, "operationId">): M
   })
 
 const refresh = (model: Model, force = true): Step => {
-  if (Option.isNone(model.selected)) return { model }
-  const repositoryId = model.selected.value
+  if (Option.isNone(model.dataRepositoryId)) return { model }
+  const repositoryId = model.dataRepositoryId.value
   const detail = force || Option.isNone(model.maybeDetailRequest)
   const consent = force || Option.isNone(model.maybeConsentRequest)
   const requestId = model.nextRequestId
@@ -502,7 +500,7 @@ const updateConfiguration = (
   repositoryId: string,
   transform: (configuration: ConfigurationView) => ConfigurationView,
 ): Model => {
-  if (!Option.contains(model.selected, repositoryId)) return model
+  if (!Option.contains(model.dataRepositoryId, repositoryId)) return model
   const detail = Option.map(model.detail, (detail) => ({
     ...detail,
     configuration: transform(detail.configuration),
@@ -565,7 +563,7 @@ interface Loaded {
 }
 
 const loaded = (model: Model): Option.Option<Loaded> =>
-  Option.flatMap(model.selected, (repositoryId) =>
+  Option.flatMap(model.dataRepositoryId, (repositoryId) =>
     Option.map(model.detail, (detail) => ({ repositoryId, detail })),
   )
 
@@ -686,7 +684,7 @@ export const isViewingSubject = (
   what: "policy" | "rule",
   subjectId: string,
 ): boolean => {
-  if (!Option.contains(model.selected, repositoryId)) return false
+  if (!Option.contains(model.dataRepositoryId, repositoryId)) return false
   const panel = model.panel
   return what === "policy"
     ? panel._tag === "PolicyEditor" &&
@@ -703,8 +701,8 @@ const deleteSubject = (
   subjectId: string,
   version: number,
 ): UpdateReturn => {
-  if (Option.isNone(model.selected)) return { model }
-  const repositoryId = model.selected.value
+  if (Option.isNone(model.dataRepositoryId)) return { model }
+  const repositoryId = model.dataRepositoryId.value
   if (
     hasMutation(
       model,
@@ -741,7 +739,6 @@ const deleteSubject = (
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
-    SelectedSection: ({ section }) => ({ model: evo(model, { section: () => section }) }),
     UpdatedPolicySearch: ({ value }) => ({ model: evo(model, { policySearch: () => value }) }),
     GotRepositories: ({ repositories, requestId }) => {
       if (!Option.contains(model.maybeRepositoriesRequest, requestId)) return { model }
@@ -754,7 +751,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                   mutation.kind === "SyncToggle" && mutation.repositoryId === row.repositoryId,
               )
               const counted =
-                Option.contains(model.selected, row.repositoryId) && Option.isSome(model.detail)
+                Option.contains(model.dataRepositoryId, row.repositoryId) &&
+                Option.isSome(model.detail)
                   ? {
                       ...row,
                       policyCount: model.detail.value.configuration.policies.length,
@@ -796,11 +794,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
 
     Selected: ({ repositoryId }) =>
-      Option.contains(model.selected, repositoryId)
+      Option.contains(model.dataRepositoryId, repositoryId)
         ? { model }
         : refresh(
             evo(closed(model), {
-              selected: () => Option.some(repositoryId),
+              dataRepositoryId: () => Option.some(repositoryId),
               policySearch: () => "",
               detail: () => Option.none(),
               detailError: () => Option.none(),
@@ -826,7 +824,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           }),
         },
       }
-      return Option.contains(model.selected, repositoryId) &&
+      return Option.contains(model.dataRepositoryId, repositoryId) &&
         Option.contains(model.maybeDetailRequest, requestId)
         ? {
             model: evo(model, {
@@ -871,7 +869,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : { model }
     },
     FailedDetail: ({ repositoryId, reason, requestId }) =>
-      Option.contains(model.selected, repositoryId) &&
+      Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeDetailRequest, requestId)
         ? {
             model: evo(model, {
@@ -881,7 +879,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           }
         : { model },
     GotConsent: ({ repositoryId, consent, requestId }) =>
-      Option.contains(model.selected, repositoryId) &&
+      Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeConsentRequest, requestId)
         ? {
             model: evo(model, {
@@ -892,7 +890,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           }
         : { model },
     FailedConsent: ({ repositoryId, reason, requestId }) =>
-      Option.contains(model.selected, repositoryId) &&
+      Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeConsentRequest, requestId)
         ? {
             model: evo(model, {
@@ -967,8 +965,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }
     },
     ClickedToggleConsent: () => {
-      if (Option.isNone(model.selected) || Option.isNone(model.maybeConsent)) return { model }
-      const repositoryId = model.selected.value
+      if (Option.isNone(model.dataRepositoryId) || Option.isNone(model.maybeConsent))
+        return { model }
+      const repositoryId = model.dataRepositoryId.value
       if (
         hasMutation(model, repositoryId, repositoryId, ["Consent"]) ||
         model.maybeConsent.value.state === "draining"
@@ -998,7 +997,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         return { model }
       const next = evo(finishMutation(model, operationId), {
         maybeConsent: (current) =>
-          Option.contains(model.selected, repositoryId) ? Option.some(consent) : current,
+          Option.contains(model.dataRepositoryId, repositoryId) ? Option.some(consent) : current,
       })
       return {
         ...refresh(next),
@@ -1052,7 +1051,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.panel.editor.identity._tag === "Existing" &&
       model.panel.editor.identity.policyId === policyId
         ? { model }
-        : Option.match(model.selected, {
+        : Option.match(model.dataRepositoryId, {
             onNone: () => ({ model }),
             onSome: (repositoryId) => ({
               model: evo(model, { panel: () => ({ _tag: "LoadingPolicy" as const, policyId }) }),
@@ -1062,12 +1061,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotPolicyDetail: ({ detail }) =>
       model.panel._tag === "LoadingPolicy" &&
       model.panel.policyId === detail.policy.policyId &&
-      Option.contains(model.selected, detail.policy.repositoryId)
+      Option.contains(model.dataRepositoryId, detail.policy.repositoryId)
         ? { model: openPolicyEditor(model, Option.some(detail)) }
         : { model },
     FailedPolicyDetail: ({ reason, repositoryId, policyId }) =>
       model.panel._tag === "LoadingPolicy" &&
-      (repositoryId === undefined || Option.contains(model.selected, repositoryId)) &&
+      (repositoryId === undefined || Option.contains(model.dataRepositoryId, repositoryId)) &&
       (policyId === undefined || model.panel.policyId === policyId)
         ? {
             model: evo(model, {
@@ -1084,13 +1083,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     GotRuleMenuMessage: ({ ruleId, message }) => foldRuleMenu(ruleId)(model, message),
     ClickedNewRule: () => ({ model: openRuleEditor(model, Option.none()) }),
     ClickedEditRule: ({ ruleId }) =>
-      Option.isSome(model.selected) &&
-      hasMutation(model, model.selected.value, ruleId, ["RuleToggle", "RuleDelete"])
+      Option.isSome(model.dataRepositoryId) &&
+      hasMutation(model, model.dataRepositoryId.value, ruleId, ["RuleToggle", "RuleDelete"])
         ? { model }
         : { model: openRuleEditor(model, Option.some({ _tag: "Existing", ruleId, version: 0 })) },
     ClickedToggleRule: ({ ruleId }) => {
-      if (Option.isNone(model.selected) || Option.isNone(model.detail)) return { model }
-      const repositoryId = model.selected.value
+      if (Option.isNone(model.dataRepositoryId) || Option.isNone(model.detail)) return { model }
+      const repositoryId = model.dataRepositoryId.value
       const rule = model.detail.value.configuration.rules.find((rule) => rule.id === ruleId)
       if (!rule || hasMutation(model, repositoryId, ruleId, ["RuleToggle", "RuleDelete"]))
         return { model }
@@ -1234,7 +1233,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   repositoryPoll: entry(
     { hasSelection: Schema.Boolean },
     {
-      modelToDependencies: (model) => ({ hasSelection: Option.isSome(model.selected) }),
+      modelToDependencies: (model) => ({ hasSelection: Option.isSome(model.dataRepositoryId) }),
       dependenciesToStream: ({ hasSelection }) =>
         hasSelection
           ? Stream.map(Stream.tick(POLL_INTERVAL), () => Message.Polled())
@@ -1843,7 +1842,7 @@ const reconciliationsSection = (
 const syncSection = (h: HtmlBuilder<Message>, model: Model): Html => {
   const repository = Option.flatMap(model.repositories, (repositories) =>
     Option.fromNullishOr(
-      repositories.find((row) => Option.contains(model.selected, row.repositoryId)),
+      repositories.find((row) => Option.contains(model.dataRepositoryId, row.repositoryId)),
     ),
   )
   return Option.match(repository, {
@@ -2018,7 +2017,7 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
   }
 }
 
-const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
+const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): Html =>
   Option.match(model.detail, {
     onNone: () =>
       h.div(
@@ -2026,7 +2025,7 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
         [
           Option.getOrElse(model.detailError, () =>
             Option.getOrElse(model.repositoriesError, () =>
-              Option.isNone(model.selected)
+              Option.isNone(model.dataRepositoryId)
                 ? "Select a repository to get started."
                 : "Loading repository…",
             ),
@@ -2034,9 +2033,9 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
         ],
       ),
     onSome: (detail) => {
-      if (model.section === "Overview") {
+      if (section === "Overview") {
         const repository = Option.getOrElse(model.repositories, () => []).find((repo) =>
-          Option.contains(model.selected, repo.repositoryId),
+          Option.contains(model.dataRepositoryId, repo.repositoryId),
         )
         if (!repository) return h.empty
         return h.section(
@@ -2083,7 +2082,7 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
           ],
         )
       }
-      if (model.section === "Policies") {
+      if (section === "Policies") {
         return h.div(
           [h.Class("policy-workspace")],
           [
@@ -2148,7 +2147,7 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
           ],
         )
       }
-      if (model.section === "Rules")
+      if (section === "Rules")
         return h.div(
           [h.Class("rules-workspace")],
           [
@@ -2160,10 +2159,10 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
       return h.div(
         [h.Class("flex min-w-0 flex-col gap-6 overflow-auto p-6")],
         [
-          model.section === "Activity"
+          section === "Activity"
             ? reconciliationsSection(h, detail.reconciliations, detail.configuration)
             : h.empty,
-          model.section === "Settings"
+          section === "Settings"
             ? h.div(
                 [h.Class("flex flex-col gap-8")],
                 [syncSection(h, model), consentSection(h, model)],
@@ -2174,8 +2173,9 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
     },
   })
 
-export const view = Submodel.defineView<Model, Message>((model, h) =>
-  h.div([h.Class("repository-workspace")], [detailPanel(h, model)]),
+export const view = Submodel.defineView<Model, Message, { section: Section }>(
+  (model, { section }, h) =>
+    h.div([h.Class("repository-workspace")], [detailPanel(h, model, section)]),
 )
 
 /** Refresh server data after sync without replacing an open editor or its draft. */
@@ -2220,7 +2220,6 @@ export const openRoute = (
   if (!("repositoryId" in route)) return { model: closed(model) }
   const selected = update(model, Message.Selected({ repositoryId: route.repositoryId }))
   let next = evo(changedDocument ? closed(selected.model) : selected.model, {
-    section: () => Routes.section(route),
     policySearch: () => ("q" in route ? (route.q ?? "") : ""),
   })
   if (Option.isNone(next.detail)) return { model: next, commands: selected.commands ?? [] }
