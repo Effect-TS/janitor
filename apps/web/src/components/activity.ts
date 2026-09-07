@@ -369,6 +369,12 @@ export const outcome = (
     return { label: "Waiting for a verified snapshot", tone: "text-muted-foreground", icon: Clock }
   if (entry.actions.some((action) => action.status === "applied"))
     return { label: "Labels updated", tone: "text-emerald-600 dark:text-emerald-400", icon: Check }
+  if (entry.evaluations?.some((rule) => rule.reason.startsWith("Gate unresolved:")))
+    return {
+      label: "Gate unresolved · AI skipped",
+      tone: "text-amber-700 dark:text-amber-400",
+      icon: CircleAlert,
+    }
   if (entry.plan?.rules.some((rule) => rule.outcome === "unknown"))
     return {
       label: "Could not decide · labels unchanged",
@@ -490,6 +496,39 @@ const eventView = (
                     [entry.detail],
                   )
                 : h.empty,
+              ...(entry.evaluations ?? []).map((evaluation) =>
+                h.div(
+                  [h.Class("activity-detail-row")],
+                  [
+                    h.div(
+                      [],
+                      [
+                        h.p(
+                          [h.Class("text-xs font-medium")],
+                          [
+                            evaluation.reason.startsWith("Skipped by gate:")
+                              ? "Skipped by gate"
+                              : evaluation.outcome,
+                          ],
+                        ),
+                        h.p([h.Class("text-xs text-muted-foreground mt-1")], [evaluation.reason]),
+                      ],
+                    ),
+                    h.a(
+                      [
+                        h.Href(
+                          Routes.rule({
+                            repositoryId: model.repositoryId,
+                            ruleId: evaluation.ruleId,
+                          }),
+                        ),
+                        h.Class("text-xs underline"),
+                      ],
+                      ["View rule"],
+                    ),
+                  ],
+                ),
+              ),
               ...entry.actions.map((action) =>
                 h.div(
                   [h.Class("activity-detail-row")],
@@ -546,7 +585,7 @@ const eventView = (
                     [h.Class("text-xs text-muted-foreground mb-3")],
                     [
                       entry.plan?.rules.some((rule) => rule.outcome === "unknown")
-                        ? "At least one rule could not decide. Existing labels were preserved. Historical classifier explanations are not recorded with this evaluation."
+                        ? "Unresolved rules preserved existing labels."
                         : "No label writes were recorded for this evaluation.",
                     ],
                   )

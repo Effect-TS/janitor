@@ -6,6 +6,7 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import * as Activity from "effect/unstable/workflow/Activity"
 import * as DurableClock from "effect/unstable/workflow/DurableClock"
 import { GITHUB_API_BASE_URL, gitHubApiScopeKey } from "@janitor/domain/GitHub/Api"
@@ -220,56 +221,88 @@ export const paginate = <A, S extends Schema.Top, E = never, R = never>(options:
       items: Schema.Array(options.itemSchema),
       next: Schema.NullOr(Schema.String),
     })
-    for (let ordinal = 0; next !== null && ordinal < (options.maxPages ?? MAX_PAGES); ordinal++) {
-      const url: string = next
-      const result = yield* withRateLimitWaits(`${options.name}/${ordinal}`, (attempt) =>
-        Activity.make({
-          name: `${options.name}/${ordinal}/${attempt}`,
-          success: Schema.Union([
-            Schema.TaggedStruct("Page", pageSchema.fields),
-            Schema.TaggedStruct("Failed", { status: Schema.Int, message: Schema.String }),
-          ]),
-          error: SyncActivityFailure,
-          execute: Effect.gen(function* () {
-            const response = yield* fetchJson(
-              { ...options.request, method: "GET", url },
-              options.page,
-              options.cache,
-            )
-            if (response._tag === "Failed") {
-              return { _tag: "Failed" as const, status: response.status, message: response.message }
-            }
-            const items = options.items(response.body)
-            // A 304 on a page that was full when stored proves nothing about
-            // pages after it, so probe one further rather than trust the cached end.
-            const next =
-              response.fromCache && Option.isNone(response.next) && items.length >= PAGE_SIZE
-                ? Option.some(probeUrl(url))
-                : response.next
-            return {
-              _tag: "Page" as const,
-              items,
-              next: options.stopAfter?.(response.body) ? null : Option.getOrNull(next),
-            }
+    const limit = options.maxPages ?? MAX_PAGES
+    type Stop = { _tag: "Failed"; message: string } | { _tag: "Blocked"; reason: string }
+    let stopped:
+      | { _tag: "Failed"; message: string }
+      | { _tag: "Blocked"; reason: string }
+      | undefined
+    yield* Stream.paginate({ url: options.firstUrl, ordinal: 0 }, ({ url, ordinal }) =>
+      Effect.gen(function* () {
+        const result = yield* withRateLimitWaits(`${options.name}/${ordinal}`, (attempt) =>
+          Activity.make({
+            name: `${options.name}/${ordinal}/${attempt}`,
+            success: Schema.Union([
+              Schema.TaggedStruct("Page", pageSchema.fields),
+              Schema.TaggedStruct("Failed", { status: Schema.Int, message: Schema.String }),
+            ]),
+            error: SyncActivityFailure,
+            execute: Effect.gen(function* () {
+              const response = yield* fetchJson(
+                { ...options.request, method: "GET", url },
+                options.page,
+                options.cache,
+              )
+              if (response._tag === "Failed") {
+                return {
+                  _tag: "Failed" as const,
+                  status: response.status,
+                  message: response.message,
+                }
+              }
+              const items = options.items(response.body)
+              // A 304 on a page that was full when stored proves nothing about
+              // pages after it, so probe one further rather than trust the cached end.
+              const next =
+                response.fromCache && Option.isNone(response.next) && items.length >= PAGE_SIZE
+                  ? Option.some(probeUrl(url))
+                  : response.next
+              return {
+                _tag: "Page" as const,
+                items,
+                next: options.stopAfter?.(response.body) ? null : Option.getOrNull(next),
+              }
+            }),
           }),
+        ).pipe(Effect.result)
+        if (result._tag === "Failure") {
+          return [
+            [{ _tag: "Failed" as const, message: result.failure.message }] as ReadonlyArray<Stop>,
+            Option.none(),
+          ] as const
+        }
+        if (result.success._tag === "Failed") {
+          const blocked = options.onFailed?.(result.success.status)
+          return [
+            [
+              blocked === "blocked"
+                ? { _tag: "Blocked" as const, reason: `http-${result.success.status}` }
+                : { _tag: "Failed" as const, message: result.success.message },
+            ] as ReadonlyArray<Stop>,
+            Option.none(),
+          ] as const
+        }
+        if (options.onPage) yield* options.onPage(result.success.items, ordinal)
+        count += result.success.items.length
+        if (options.collect !== false) collected.push(...result.success.items)
+        next = result.success.next
+        return [
+          [] as ReadonlyArray<Stop>,
+          next !== null && ordinal + 1 < limit
+            ? Option.some({ url: next, ordinal: ordinal + 1 })
+            : Option.none(),
+        ] as const
+      }),
+    ).pipe(
+      Stream.runForEach((result) =>
+        Effect.sync(() => {
+          stopped = result
         }),
-      ).pipe(Effect.result)
-      if (result._tag === "Failure") {
-        return { _tag: "Failed" as const, message: result.failure.message }
-      }
-      if (result.success._tag === "Failed") {
-        const blocked = options.onFailed?.(result.success.status)
-        return blocked === "blocked"
-          ? { _tag: "Blocked" as const, reason: `http-${result.success.status}` }
-          : { _tag: "Failed" as const, message: result.success.message }
-      }
-      if (options.onPage) yield* options.onPage(result.success.items, ordinal)
-      count += result.success.items.length
-      if (options.collect !== false) collected.push(...result.success.items)
-      next = result.success.next
-    }
+      ),
+    )
+    if (stopped) return stopped
     if (next !== null && !options.allowTruncate) {
-      return { _tag: "Failed" as const, message: `${options.name} exceeded ${MAX_PAGES} pages` }
+      return { _tag: "Failed" as const, message: `${options.name} exceeded ${limit} pages` }
     }
     return {
       _tag: "Complete" as const,

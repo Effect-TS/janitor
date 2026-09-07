@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime"
 import {
   GitHubCheckRunsApi,
   GitHubCheckRunApi,
@@ -72,6 +73,7 @@ const BeginActivityResult = Schema.Union([
 const Collections = Schema.Struct({
   files: Schema.Array(Schema.Struct({ path: Schema.String, status: Schema.String })),
   filesComplete: Schema.Boolean,
+  filesIncompleteReason: Schema.optionalKey(Schema.NullOr(Schema.String)),
   checksComplete: Schema.Boolean,
   reviewsComplete: Schema.Boolean,
   checks: Schema.Array(Schema.Struct({ name: Schema.String, state: Schema.String })),
@@ -79,13 +81,14 @@ const Collections = Schema.Struct({
 })
 
 /** How many changed files one refresh reads before marking the listing incomplete. */
-export const MAX_CHANGED_FILES = 300
+export const MAX_CHANGED_FILES = 3000
 const PAGE = 100
 
 const fetchCollections = (
   path: string,
   number: number,
   headSha: string,
+  expectedFiles: number | undefined,
   request: {
     scope: { _tag: "Installation"; installationId: typeof GitHubInstallationId.Type }
     priority: "background"
@@ -114,9 +117,26 @@ const fetchCollections = (
       })
       if (files._tag !== "Complete")
         return yield* failure(files._tag === "Failed" ? files.message : files.reason)
+      const uniqueFiles = [...new Map(files.items.map((file) => [file.filename, file])).values()]
+      const complete =
+        files.complete && expectedFiles !== undefined && uniqueFiles.length === expectedFiles
+      if (
+        !complete &&
+        files.complete &&
+        expectedFiles !== undefined &&
+        expectedFiles <= MAX_CHANGED_FILES
+      )
+        return yield* failure(
+          "Changed-file listing did not match the PR file count; refresh must retry",
+        )
       Object.assign(collections, {
-        files: files.items.map((file) => ({ path: file.filename, status: file.status })),
-        filesComplete: files.complete,
+        files: uniqueFiles.map((file) => ({ path: file.filename, status: file.status })),
+        filesComplete: complete,
+        filesIncompleteReason: complete
+          ? null
+          : expectedFiles === undefined
+            ? "Changed-file total is unavailable; completeness could not be verified"
+            : `Only ${uniqueFiles.length} of ${expectedFiles} changed files available; GitHub file listing limit reached`,
       })
     }
     if (required.includes("checks")) {
@@ -255,7 +275,31 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
       const collections =
         required.length === 0
           ? null
-          : yield* fetchCollections(path, number, pull.body.head.sha, request, required)
+          : yield* fetchCollections(
+              path,
+              number,
+              pull.body.head.sha,
+              pull.body.changedFiles,
+              request,
+              required,
+            )
+      if (collections !== null) {
+        const verified = yield* fetchInActivity(
+          "RefreshEntity/VerifyPull",
+          { ...request, method: "GET", url: `${path}/pulls/${number}` },
+          GitHubPullRequestApi,
+        )
+        if (verified._tag === "Failed") return yield* failure(verified.message)
+        if (
+          verified.body.head.sha !== pull.body.head.sha ||
+          verified.body.base.sha !== pull.body.base.sha ||
+          verified.body.changedFiles !== pull.body.changedFiles ||
+          !DateTime.Equivalence(verified.body.updatedAt, pull.body.updatedAt)
+        )
+          return yield* failure(
+            "Pull request changed during collection refresh; refresh must retry",
+          )
+      }
       return { _tag: "Found" as const, issue: issue.body, pullRequest: pull.body, collections }
     }).pipe(Effect.result)
 

@@ -41,7 +41,7 @@ export const activityPage = Effect.fn("Labeling.activityPage")(function* (
     SELECT r.number::text || ':' || r.snapshot_generation::text || ':' || r.rules_revision::text AS id,
       r.number, r.title, r.kind, r.created_at AS "createdAt", r.outcome, r.detail,
       r.rules_revision::int AS revision, r.snapshot_generation::text AS generation, r.plan,
-      COALESCE(a.actions, '[]'::jsonb) AS actions
+      COALESCE(a.actions, '[]'::jsonb) AS actions, COALESCE(ev.evaluations, '[]'::jsonb) AS evaluations
     FROM page r
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(jsonb_build_object('labelId', a.label_id, 'name', l.name, 'color', l.color,
@@ -52,6 +52,15 @@ export const activityPage = Effect.fn("Labeling.activityPage")(function* (
       WHERE a.repository_id=r.repository_id AND a.number=r.number
         AND a.snapshot_generation=r.snapshot_generation AND a.rules_revision=r.rules_revision
     ) a ON true
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(jsonb_build_object('ruleId', v.rule_id, 'outcome', v.outcome, 'reason',
+        CASE WHEN v.outcome='unknown' AND v.reason LIKE 'appliesWhen:%' THEN
+          'Gate unresolved: ' || COALESCE((SELECT t->>'reason' FROM jsonb_array_elements(v.trace) t WHERE t->>'outcome'='unknown' LIMIT 1), v.reason)
+        WHEN v.outcome='not-applicable' AND v.reason='applicability did not match' THEN 'Skipped by gate: applicability did not match'
+        ELSE v.reason END) ORDER BY v.rule_id) AS evaluations
+      FROM labeling_rule_evaluation v WHERE v.repository_id=r.repository_id AND v.number=r.number
+        AND v.snapshot_generation=r.snapshot_generation AND v.rules_revision=r.rules_revision
+    ) ev ON true
     ORDER BY r.created_at DESC,r.number DESC,r.snapshot_generation DESC,r.rules_revision DESC
   `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Row))))
   const entries = rows.slice(0, ACTIVITY_PAGE_SIZE)

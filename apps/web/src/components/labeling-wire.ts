@@ -441,6 +441,11 @@ export const ActivityEntry = Schema.Struct({
   revision: Schema.Int,
   plan: Schema.NullOr(Plan),
   actions: Schema.Array(ActivityAction),
+  evaluations: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({ ruleId: Schema.String, outcome: Schema.String, reason: Schema.String }),
+    ),
+  ),
 })
 export type ActivityEntry = typeof ActivityEntry.Type
 export const ActivityPage = Schema.Struct({

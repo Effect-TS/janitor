@@ -117,10 +117,18 @@ export const GitHubPullRequestApi = Schema.Struct({
   merged: Schema.optionalKey(Schema.Boolean),
   mergedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   updatedAt: Schema.DateTimeUtcFromString,
+  changedFiles: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   head: Schema.Struct({ sha: GitHubCommitSha }),
-  base: Schema.Struct({ ref: Schema.NonEmptyString }),
+  base: Schema.Struct({ ref: Schema.NonEmptyString, sha: Schema.optionalKey(GitHubCommitSha) }),
 })
-  .pipe(Schema.encodeKeys({ nodeId: "node_id", mergedAt: "merged_at", updatedAt: "updated_at" }))
+  .pipe(
+    Schema.encodeKeys({
+      nodeId: "node_id",
+      mergedAt: "merged_at",
+      updatedAt: "updated_at",
+      changedFiles: "changed_files",
+    }),
+  )
   .annotate({ identifier: "GitHubPullRequestApi" })
 export type GitHubPullRequestApi = typeof GitHubPullRequestApi.Type
 

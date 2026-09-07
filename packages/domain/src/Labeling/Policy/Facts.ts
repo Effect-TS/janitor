@@ -146,6 +146,7 @@ export const FactSnapshot = Schema.Struct({
   kind: GitHubEntityKind,
   /** Keyed by fact name. Absent facts are unavailable, not empty. */
   facts: Schema.Record(Schema.String, FactValue),
+  unavailableReasons: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 }).annotate({ identifier: "FactSnapshot" })
 export type FactSnapshot = typeof FactSnapshot.Type
 

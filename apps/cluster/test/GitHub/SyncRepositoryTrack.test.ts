@@ -506,7 +506,7 @@ describe("RefreshEntity", () => {
         ["reviews"],
       )
       assert.strictEqual(result.outcome, "verified")
-      assert.strictEqual(recorder.requests.length, 4)
+      assert.strictEqual(recorder.requests.length, 5)
       assert.isFalse(
         recorder.requests.some(
           (request) => request.url.includes("/files") || request.url.includes("/check-runs"),
@@ -516,5 +516,63 @@ describe("RefreshEntity", () => {
         { reviewer: "octocat", state: "CHANGES_REQUESTED" },
       ])
     }),
+  )
+  it.live(
+    "reads beyond 300 files and refuses incomplete or changing snapshots",
+    () =>
+      Effect.gen(function* () {
+        for (const scenario of ["complete", "limit", "mismatch", "changed", "failed"] as const) {
+          const recorder = makeRecorder()
+          let pullReads = 0
+          const total = scenario === "limit" ? 3100 : 350
+          const result = yield* runRefresh(
+            recorder,
+            (request) => {
+              if (request.url.endsWith("/issues/42"))
+                return ok(issue(42, "2026-09-02T10:00:00.000Z", true))
+              if (request.url.endsWith("/pulls/42")) {
+                pullReads++
+                return ok({
+                  ...pull(
+                    42,
+                    scenario === "changed" && pullReads > 1
+                      ? "2026-09-02T11:00:00.000Z"
+                      : "2026-09-02T10:00:00.000Z",
+                  ),
+                  changed_files: total,
+                })
+              }
+              const page = Number(
+                new URL(request.url, "https://api.github.com").searchParams.get("page") ?? "1",
+              )
+              if (scenario === "failed" && page === 2) return failed(500)
+              const available = scenario === "mismatch" ? 349 : total
+              const count = Math.min(100, available - (page - 1) * 100)
+              return ok(
+                Array.from({ length: count }, (_, i) => ({
+                  filename: `packages/${(page - 1) * 100 + i}/package.json`,
+                  status: "modified",
+                })),
+                page * 100 < available
+                  ? `<https://api.github.com/repos/effect/janitor/pulls/42/files?per_page=100&page=${page + 1}>; rel="next"`
+                  : undefined,
+              )
+            },
+            ["changed_files"],
+          )
+          if (scenario === "complete" || scenario === "limit") {
+            assert.strictEqual(result.outcome, "verified")
+            const collections = recorder.collections[0]!.collections
+            assert.strictEqual(collections.files.length, scenario === "limit" ? 3000 : 350)
+            assert.strictEqual(collections.filesComplete, scenario === "complete")
+            if (scenario === "limit")
+              assert.include(collections.filesIncompleteReason!, "3000 of 3100")
+          } else {
+            assert.strictEqual(result.outcome, "failed")
+            assert.lengthOf(recorder.collections, 0)
+          }
+        }
+      }),
+    { timeout: 60000 },
   )
 })

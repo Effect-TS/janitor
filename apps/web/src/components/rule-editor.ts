@@ -883,11 +883,17 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
               ),
             ],
             [
-              outcome === "unknown" && entity.evaluation?.reasonCode
-                ? ["insufficient-evidence", "low-confidence"].includes(entity.evaluation.reasonCode)
-                  ? "Insufficient evidence"
-                  : "Could not evaluate"
-                : describeOutcome(outcome),
+              entity.evaluation?.reason.startsWith("Skipped by gate:")
+                ? "Skipped by gate"
+                : entity.evaluation?.reason.startsWith("Gate unresolved:")
+                  ? "Gate unresolved · AI skipped"
+                  : outcome === "unknown" && entity.evaluation?.reasonCode
+                    ? ["insufficient-evidence", "low-confidence"].includes(
+                        entity.evaluation.reasonCode,
+                      )
+                      ? "Insufficient evidence"
+                      : "Could not evaluate"
+                    : describeOutcome(outcome),
             ],
           ),
           h.span([h.Class("text-xs text-muted-foreground")], [`#${entity.number}`]),

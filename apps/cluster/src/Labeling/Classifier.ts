@@ -562,8 +562,14 @@ export class AiClassifier extends Context.Service<
 }
 
 /** Present when the worker configured a provider; tests provide their own. */
-export const classifyOrUnknown = (input: ClassifyInput) =>
-  Effect.serviceOption(AiClassifier).pipe(
+export const classifyOrUnknown = (input: ClassifyInput) => {
+  const gate = evaluateApplicability({
+    program: input.program,
+    snapshot: input.snapshot,
+    resolve: input.resolve,
+  })
+  if (gate.outcome !== "match") return Effect.succeed(gate)
+  return Effect.serviceOption(AiClassifier).pipe(
     Effect.flatMap((classifier) =>
       Option.isNone(classifier)
         ? Effect.succeed<Evaluation>({
@@ -582,3 +588,4 @@ export const classifyOrUnknown = (input: ClassifyInput) =>
             ),
     ),
   )
+}

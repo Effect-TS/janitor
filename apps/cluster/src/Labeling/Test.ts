@@ -62,7 +62,17 @@ export const entityFacts = (view: EntityView): FactSnapshot => {
     if (!collections.filesComplete) delete facts.changedFiles
     if (!collections.checksComplete) delete facts.checks
     if (!collections.reviewsComplete) delete facts.reviews
-    return { ...snapshot, facts }
+    return {
+      ...snapshot,
+      facts,
+      unavailableReasons: !collections.filesComplete
+        ? {
+            changedFiles:
+              collections.filesIncompleteReason ??
+              `Changed-file listing is incomplete (${collections.files.length} files available)`,
+          }
+        : {},
+    }
   }
   return snapshot
 }

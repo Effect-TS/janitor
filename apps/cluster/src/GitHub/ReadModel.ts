@@ -83,6 +83,7 @@ export interface IssueObservation {
 
 export interface PullRequestCollections {
   readonly files: ReadonlyArray<{ readonly path: string; readonly status: string }>
+  readonly filesIncompleteReason?: string | null
   readonly filesComplete: boolean
   readonly checksComplete?: boolean
   readonly reviewsComplete?: boolean
@@ -189,6 +190,7 @@ const LabelRow = Schema.Struct({
 
 const AggregateRow = Schema.Struct({
   number: Schema.Int,
+  files_incomplete_reason: Schema.NullOr(Schema.String),
   files_complete: Schema.Boolean,
   checks_complete: Schema.Boolean,
   reviews_complete: Schema.Boolean,
@@ -748,7 +750,7 @@ export class GitHubReadModel extends Context.Service<
         `.pipe(Effect.flatMap(rowsToRecords(EntityLabelRow)), wrap(operation))
         const pullRequestByNumber = new Map(pullRequests.map((pr) => [pr.number, pr]))
         const aggregates = yield* sql`
-          SELECT number, files_complete, checks_complete, reviews_complete FROM github_pull_request_collections
+          SELECT number, files_incomplete_reason, files_complete, checks_complete, reviews_complete FROM github_pull_request_collections
           WHERE repository_id = ${repositoryId} AND number IN ${sql.in(numbers)}
         `.pipe(Effect.flatMap(rowsToRecords(AggregateRow)), wrap(operation))
         const files = yield* sql`
@@ -772,6 +774,7 @@ export class GitHubReadModel extends Context.Service<
                   .filter((row) => row.number === number)
                   .map(({ path, status }) => ({ path, status })),
                 filesComplete: aggregate.files_complete,
+                filesIncompleteReason: aggregate.files_incomplete_reason,
                 checksComplete: aggregate.checks_complete,
                 reviewsComplete: aggregate.reviews_complete,
                 checks: checks
@@ -800,17 +803,16 @@ export class GitHubReadModel extends Context.Service<
         DELETE FROM github_pull_request_collections WHERE repository_id = ${repositoryId} AND number = ${number}
       `.pipe(wrap("applyPullRequestCollections"))
         const inserted = yield* sql`
-        INSERT INTO github_pull_request_collections (repository_id, number, files_complete, checks_complete, reviews_complete)
-        SELECT ${repositoryId}, ${number}, ${collections.filesComplete}, ${collections.checksComplete ?? false}, ${collections.reviewsComplete ?? false}
+        INSERT INTO github_pull_request_collections (repository_id, number, files_complete, checks_complete, reviews_complete, files_incomplete_reason)
+        SELECT ${repositoryId}, ${number}, ${collections.filesComplete}, ${collections.checksComplete ?? false}, ${collections.reviewsComplete ?? false}, ${collections.filesIncompleteReason ?? null}
         WHERE EXISTS (SELECT 1 FROM github_entity WHERE repository_id = ${repositoryId} AND number = ${number})
         RETURNING number
       `.pipe(wrap("applyPullRequestCollections"))
         if (inserted.length === 0) return
-        for (const file of collections.files) {
-          yield* sql`
-          INSERT INTO github_pull_request_file (repository_id, number, path, status)
-          VALUES (${repositoryId}, ${number}, ${file.path}, ${file.status}) ON CONFLICT DO NOTHING
-        `.pipe(wrap("applyPullRequestCollections"))
+        if (collections.files.length > 0) {
+          yield* sql`INSERT INTO github_pull_request_file ${sql.insert(collections.files.map((file) => ({ repository_id: repositoryId, number, path: file.path, status: file.status })))} ON CONFLICT DO NOTHING`.pipe(
+            wrap("applyPullRequestCollections"),
+          )
         }
         for (const check of collections.checks) {
           yield* sql`

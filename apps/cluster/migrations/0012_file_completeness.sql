@@ -1,0 +1,1 @@
+ALTER TABLE github_pull_request_collections ADD COLUMN files_incomplete_reason text;

@@ -234,13 +234,22 @@ const runEvaluation = (
         return record(location, not(condition(node.condition, negated(location))), "negated")
       case "Fact": {
         const value = snapshot.facts[node.fact]
-        if (value === undefined) return record(location, "unknown", `${node.fact} is unavailable`)
+        if (value === undefined)
+          return record(
+            location,
+            "unknown",
+            snapshot.unavailableReasons?.[node.fact] ?? `${node.fact} is unavailable`,
+          )
         return record(location, factTruth(value, node), `${node.fact} ${node.operator}`)
       }
       case "Collection": {
         const value = snapshot.facts[node.fact]
         if (value === undefined || value._tag !== "Collection") {
-          return record(location, "unknown", `${node.fact} is unavailable`)
+          return record(
+            location,
+            "unknown",
+            snapshot.unavailableReasons?.[node.fact] ?? `${node.fact} is unavailable`,
+          )
         }
         const truths = value.value.map((item) => itemTruth(item, node.where))
         return record(
@@ -297,14 +306,17 @@ const runEvaluation = (
     !applicabilityOnly,
   )
   const last = trace[trace.length - 1]
+  const missing = trace.find((entry) => entry.outcome === "unknown")
   const reason =
-    outcome === "not-applicable"
-      ? program.target !== snapshot.kind
-        ? `targets ${program.target}`
-        : "applicability did not match"
-      : last === undefined
-        ? outcome
-        : `${formatNodeLocation(last.location)}: ${last.reason}`
+    applicabilityOnly && outcome === "unknown"
+      ? `Gate unresolved: ${missing?.reason ?? "policy could not be evaluated"}`
+      : outcome === "not-applicable"
+        ? program.target !== snapshot.kind
+          ? `targets ${program.target}`
+          : "Skipped by gate: applicability did not match"
+        : last === undefined
+          ? outcome
+          : `${formatNodeLocation(last.location)}: ${last.reason}`
   return { outcome, reason, trace }
 }
 
