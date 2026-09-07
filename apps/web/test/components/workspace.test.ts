@@ -9,13 +9,13 @@ import * as Option from "effect/Option"
 import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import { describePlan, describeRevision } from "@/components/labeling-wire"
-import * as Repositories from "@/components/repositories"
+import * as Workspace from "@/components/workspace"
 import * as Dialog from "@foldkit/ui/dialog"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
-const one: Repositories.RepositoryOverview = {
+const one: Workspace.RepositoryOverview = {
   repositoryId: "701",
   owner: "effect",
   repo: "one",
@@ -26,9 +26,9 @@ const one: Repositories.RepositoryOverview = {
   configuredRevision: 1,
   activeRevision: 1,
 }
-const two: Repositories.RepositoryOverview = { ...one, repositoryId: "702", repo: "two" }
+const two: Workspace.RepositoryOverview = { ...one, repositoryId: "702", repo: "two" }
 
-const configuration: Repositories.ConfigurationView = {
+const configuration: Workspace.ConfigurationView = {
   repositoryId: "701",
   configuredRevision: 1,
   activeRevision: 1,
@@ -68,7 +68,7 @@ const configuration: Repositories.ConfigurationView = {
   labelFreshness: "verified",
 }
 
-const detail: Repositories.RepositoryDetail = {
+const detail: Workspace.RepositoryDetail = {
   configuration,
   reconciliations: [
     {
@@ -91,7 +91,7 @@ const detail: Repositories.RepositoryDetail = {
   ],
 }
 
-const consent: Repositories.AiConsent = {
+const consent: Workspace.AiConsent = {
   repositoryId: "701",
   state: "disabled",
   provider: "openai",
@@ -100,8 +100,8 @@ const consent: Repositories.AiConsent = {
   updatedAt: at,
 }
 
-const opened = (): Repositories.Model => ({
-  ...Repositories.init().model,
+const opened = (): Workspace.Model => ({
+  ...Workspace.init().model,
   dataRepositoryId: Option.some("701"),
   repositories: Option.some([one, two]),
   maybeDetailRequest: Option.some(1),
@@ -110,11 +110,11 @@ const opened = (): Repositories.Model => ({
 
 describe("Repositories", () => {
   it("keeps the unsaved policy visible until the shell accepts cancellation", () => {
-    const editing = Repositories.update(opened(), Repositories.Message.ClickedNewPolicy()).model
+    const editing = Workspace.update(opened(), Workspace.Message.ClickedNewPolicy()).model
     Scene.scene(
       {
-        update: Repositories.update,
-        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Policies" })(),
       },
       Scene.given(editing),
       Scene.Mount.resolve(
@@ -128,18 +128,18 @@ describe("Repositories", () => {
         Scene.expect(Scene.text("Unsaved")).toExist(),
       ),
       Scene.click(Scene.role("button", { name: "Cancel" })),
-      Scene.expectOutMessage(Repositories.OutMessage.RequestedEditorClose({ section: "Policies" })),
+      Scene.expectOutMessage(Workspace.OutMessage.RequestedEditorClose({ section: "Policies" })),
       Scene.expect(Scene.text("Unsaved")).toExist(),
     )
   })
   it("offers policy deletion in the right sidebar with confirmation", () => {
-    const loading = Repositories.update(
+    const loading = Workspace.update(
       opened(),
-      Repositories.Message.ClickedEditPolicy({ policyId: "p1" }),
+      Workspace.Message.ClickedEditPolicy({ policyId: "p1" }),
     ).model
-    const editing = Repositories.update(
+    const editing = Workspace.update(
       loading,
-      Repositories.Message.GotPolicyDetail({
+      Workspace.Message.GotPolicyDetail({
         detail: {
           policy: configuration.policies[0]!,
           draft: {
@@ -153,8 +153,8 @@ describe("Repositories", () => {
     ).model
     Scene.scene(
       {
-        update: Repositories.update,
-        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Policies" })(),
       },
       Scene.given(editing),
       Scene.Mount.resolve(
@@ -182,30 +182,28 @@ describe("Repositories", () => {
   })
 
   it("preserves an open draft while refreshing policy metadata", () => {
-    const created = Repositories.update(opened(), Repositories.Message.ClickedNewPolicy()).model
-    const edited = Repositories.update(
+    const created = Workspace.update(opened(), Workspace.Message.ClickedNewPolicy()).model
+    const edited = Workspace.update(
       created,
-      Repositories.Message.GotPolicyEditorMessage({
+      Workspace.Message.GotPolicyEditorMessage({
         message: PolicyEditor.Message.UpdatedName({ value: "Work in progress" }),
       }),
     ).model
-    const refreshed = Repositories.update(
+    const refreshed = Workspace.update(
       edited,
-      Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
+      Workspace.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
     ).model
     expect(refreshed.panel._tag).toBe("PolicyEditor")
     if (refreshed.panel._tag === "PolicyEditor")
       expect(refreshed.panel.editor.name).toBe("Work in progress")
-    expect(Repositories.update(refreshed, Repositories.Message.ClickedNewPolicy()).model).toBe(
-      refreshed,
-    )
+    expect(Workspace.update(refreshed, Workspace.Message.ClickedNewPolicy()).model).toBe(refreshed)
   })
 
   it("renders a searchable policy library instead of the stacked dashboard", () => {
     Scene.scene(
       {
-        update: Repositories.update,
-        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Policies" })(),
       },
       Scene.given(opened()),
       Scene.expect(Scene.text("Base is main")).toExist(),
@@ -221,40 +219,38 @@ describe("Repositories", () => {
 
   it("changes sync independently and refreshes the repository list after saving", () => {
     const model = opened()
-    const clicked = Repositories.update(
+    const clicked = Workspace.update(
       model,
-      Repositories.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
+      Workspace.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
     )
     expect(Option.getOrThrow(clicked.model.repositories)[0]?.syncEnabled).toBe(false)
     expect(clicked.commands).toMatchObject([
       { name: "SetRepositorySync", args: { repositoryId: "701", enabled: false } },
     ])
-    const completed = Repositories.update(
+    const completed = Workspace.update(
       clicked.model,
-      Repositories.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
+      Workspace.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
     )
     expect(completed.commands?.map((command) => command.name)).toEqual(["FetchRepositories"])
   })
 
   it("fetches the list and catalog, then loads the repository selected by navigation", () => {
-    const { model, commands } = Repositories.init()
+    const { model, commands } = Workspace.init()
     expect(commands?.map((command) => command.name)).toEqual(["FetchRepositories", "FetchCatalog"])
     Story.story(
-      Repositories.update,
+      Workspace.update,
       Story.given(model),
-      Story.message(
-        Repositories.Message.GotRepositories({ requestId: 0, repositories: [one, two] }),
-      ),
+      Story.message(Workspace.Message.GotRepositories({ requestId: 0, repositories: [one, two] })),
       Story.model((next) => expect(next.dataRepositoryId).toEqual(Option.none())),
-      Story.message(Repositories.Message.Selected({ repositoryId: "701" })),
+      Story.message(Workspace.Message.Selected({ repositoryId: "701" })),
       Story.model((next) => expect(next.dataRepositoryId).toEqual(Option.some("701"))),
       Story.Command.resolve(
-        Repositories.FetchDetail({ requestId: 1, repositoryId: "701" }),
-        Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
+        Workspace.FetchDetail({ requestId: 1, repositoryId: "701" }),
+        Workspace.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
       ),
       Story.Command.resolve(
-        Repositories.FetchConsent({ requestId: 2, repositoryId: "701" }),
-        Repositories.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
+        Workspace.FetchConsent({ requestId: 2, repositoryId: "701" }),
+        Workspace.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
       ),
       Story.model((next) => {
         expect(next.detail).toEqual(Option.some(detail))
@@ -269,21 +265,21 @@ describe("Repositories", () => {
 
   it("drops a late answer for a repository that is no longer selected and closes the panel", () => {
     Story.story(
-      Repositories.update,
+      Workspace.update,
       Story.given({ ...opened(), panel: { _tag: "LoadingPolicy", policyId: "p1" } }),
-      Story.message(Repositories.Message.Selected({ repositoryId: "702" })),
+      Story.message(Workspace.Message.Selected({ repositoryId: "702" })),
       Story.model((next) => {
         expect(next.dataRepositoryId).toEqual(Option.some("702"))
         expect(next.detail).toEqual(Option.none())
         expect(next.panel._tag).toBe("Closed")
       }),
       Story.Command.resolve(
-        Repositories.FetchDetail({ requestId: 1, repositoryId: "702" }),
-        Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
+        Workspace.FetchDetail({ requestId: 1, repositoryId: "702" }),
+        Workspace.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
       ),
       Story.Command.resolve(
-        Repositories.FetchConsent({ requestId: 2, repositoryId: "702" }),
-        Repositories.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
+        Workspace.FetchConsent({ requestId: 2, repositoryId: "702" }),
+        Workspace.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
       ),
       Story.model((next) => {
         expect(next.detail).toEqual(Option.none())
@@ -294,11 +290,11 @@ describe("Repositories", () => {
 
   it("opens editors and the bench from the tables", () => {
     Story.story(
-      Repositories.update,
+      Workspace.update,
       Story.given(opened()),
-      Story.message(Repositories.Message.ClickedNewRule()),
+      Story.message(Workspace.Message.ClickedNewRule()),
       Story.model((next) => expect(next.panel._tag).toBe("RuleEditor")),
-      Story.message(Repositories.Message.ClickedNewPolicy()),
+      Story.message(Workspace.Message.ClickedNewPolicy()),
       Story.model((next) => {
         expect(next.panel._tag).toBe("PolicyEditor")
         if (next.panel._tag === "PolicyEditor") {
@@ -312,11 +308,11 @@ describe("Repositories", () => {
 
   it("deletes a confirmed rule and refreshes afterwards", () => {
     Story.story(
-      Repositories.update,
+      Workspace.update,
       Story.given(opened()),
-      Story.message(Repositories.Message.ClickedDeleteRule({ ruleId: "r1", version: 1 })),
+      Story.message(Workspace.Message.ClickedDeleteRule({ ruleId: "r1", version: 1 })),
       Story.Command.resolve(
-        Repositories.DeleteSubject({
+        Workspace.DeleteSubject({
           repositoryId: "701",
           subjectId: "r1",
           operationId: 1,
@@ -324,7 +320,7 @@ describe("Repositories", () => {
           version: 1,
           what: "rule",
         }),
-        Repositories.Message.CompletedDelete({
+        Workspace.Message.CompletedDelete({
           what: "rule",
           repositoryId: "701",
           subjectId: "r1",
@@ -332,18 +328,18 @@ describe("Repositories", () => {
         }),
       ),
       Story.expectOutMessage(
-        Repositories.OutMessage.Notified({
+        Workspace.OutMessage.Notified({
           title: "Deleted the rule",
           description: "The list has been updated.",
         }),
       ),
       Story.Command.resolve(
-        Repositories.FetchDetail({ requestId: 1, repositoryId: "701" }),
-        Repositories.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
+        Workspace.FetchDetail({ requestId: 1, repositoryId: "701" }),
+        Workspace.Message.GotDetail({ requestId: 1, repositoryId: "701", detail }),
       ),
       Story.Command.resolve(
-        Repositories.FetchConsent({ requestId: 2, repositoryId: "701" }),
-        Repositories.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
+        Workspace.FetchConsent({ requestId: 2, repositoryId: "701" }),
+        Workspace.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
       ),
     )
   })
@@ -367,42 +363,39 @@ describe("Repositories", () => {
   })
 })
 
-const ready = (): Repositories.Model => {
-  const listed = Repositories.update(
-    Repositories.init().model,
-    Repositories.Message.GotRepositories({ requestId: 0, repositories: [one, two] }),
+const ready = (): Workspace.Model => {
+  const listed = Workspace.update(
+    Workspace.init().model,
+    Workspace.Message.GotRepositories({ requestId: 0, repositories: [one, two] }),
   ).model
-  const selected = Repositories.update(
+  const selected = Workspace.update(
     listed,
-    Repositories.Message.Selected({ repositoryId: "701" }),
+    Workspace.Message.Selected({ repositoryId: "701" }),
   ).model
-  return Repositories.update(
+  return Workspace.update(
     selected,
-    Repositories.Message.GotDetail({ repositoryId: "701", requestId: 1, detail }),
+    Workspace.Message.GotDetail({ repositoryId: "701", requestId: 1, detail }),
   ).model
 }
 
 describe("mutation reconciliation", () => {
   it("toggles a rule immediately, serializes its writes, and rolls back only that field", () => {
-    const clicked = Repositories.update(
-      ready(),
-      Repositories.Message.ClickedToggleRule({ ruleId: "r1" }),
-    )
+    const clicked = Workspace.update(ready(), Workspace.Message.ClickedToggleRule({ ruleId: "r1" }))
     expect(Option.getOrThrow(clicked.model.detail).configuration.rules[0]?.enabled).toBe(false)
     expect(
-      Repositories.update(clicked.model, Repositories.Message.ClickedToggleRule({ ruleId: "r1" }))
+      Workspace.update(clicked.model, Workspace.Message.ClickedToggleRule({ ruleId: "r1" }))
         .commands,
     ).toBeUndefined()
     expect(
-      Repositories.update(
+      Workspace.update(
         clicked.model,
-        Repositories.Message.ClickedDeleteRule({ ruleId: "r1", version: 1 }),
+        Workspace.Message.ClickedDeleteRule({ ruleId: "r1", version: 1 }),
       ).commands,
     ).toBeUndefined()
     const changed = { ...clicked.model, policySearch: "keep this" }
-    const failed = Repositories.update(
+    const failed = Workspace.update(
       changed,
-      Repositories.Message.FailedToggleRule({
+      Workspace.Message.FailedToggleRule({
         repositoryId: "701",
         ruleId: "r1",
         operationId: 1,
@@ -416,58 +409,58 @@ describe("mutation reconciliation", () => {
   })
 
   it("preserves optimistic values during polling and rejects a response from before the successful write", () => {
-    const poll = Repositories.update(ready(), Repositories.Message.Polled())
+    const poll = Workspace.update(ready(), Workspace.Message.Polled())
     const oldRequest = Option.getOrThrow(poll.model.maybeDetailRequest)
-    const clicked = Repositories.update(
+    const clicked = Workspace.update(
       poll.model,
-      Repositories.Message.ClickedToggleRule({ ruleId: "r1" }),
+      Workspace.Message.ClickedToggleRule({ ruleId: "r1" }),
     )
-    const polled = Repositories.update(
+    const polled = Workspace.update(
       clicked.model,
-      Repositories.Message.GotDetail({ repositoryId: "701", requestId: oldRequest, detail }),
+      Workspace.Message.GotDetail({ repositoryId: "701", requestId: oldRequest, detail }),
     )
     expect(Option.getOrThrow(polled.model.detail).configuration.rules[0]?.enabled).toBe(false)
     const rule = { ...configuration.rules[0]!, enabled: false, version: 2 }
-    const saved = Repositories.update(
+    const saved = Workspace.update(
       polled.model,
-      Repositories.Message.CompletedToggleRule({ repositoryId: "701", operationId: 1, rule }),
+      Workspace.Message.CompletedToggleRule({ repositoryId: "701", operationId: 1, rule }),
     )
     expect(Option.getOrThrow(saved.model.detail).configuration.rules[0]).toEqual(rule)
     expect(saved.outMessage?._tag).toBe("SyncWorkChanged")
-    const obsolete = Repositories.update(
+    const obsolete = Workspace.update(
       saved.model,
-      Repositories.Message.GotDetail({ repositoryId: "701", requestId: oldRequest, detail }),
+      Workspace.Message.GotDetail({ repositoryId: "701", requestId: oldRequest, detail }),
     )
     expect(obsolete.model).toBe(saved.model)
     expect(
-      Repositories.update(saved.model, Repositories.Message.Polled()).commands?.filter(
+      Workspace.update(saved.model, Workspace.Message.Polled()).commands?.filter(
         (command) => command.name === "FetchDetail",
       ),
     ).toHaveLength(0)
   })
 
   it("makes sync settings visible immediately and rejects obsolete list results", () => {
-    const polling = Repositories.refreshRepositories(ready())
-    const clicked = Repositories.update(
+    const polling = Workspace.refreshRepositories(ready())
+    const clicked = Workspace.update(
       polling.model,
-      Repositories.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
+      Workspace.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
     )
     expect(Option.getOrThrow(clicked.model.repositories)[0]?.syncEnabled).toBe(false)
-    const pendingList = Repositories.update(
+    const pendingList = Workspace.update(
       clicked.model,
-      Repositories.Message.GotRepositories({
+      Workspace.Message.GotRepositories({
         requestId: Option.getOrThrow(polling.model.maybeRepositoriesRequest),
         repositories: [one, two],
       }),
     )
     expect(Option.getOrThrow(pendingList.model.repositories)[0]?.syncEnabled).toBe(false)
-    const saved = Repositories.update(
+    const saved = Workspace.update(
       pendingList.model,
-      Repositories.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
+      Workspace.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
     )
-    const oldList = Repositories.update(
+    const oldList = Workspace.update(
       saved.model,
-      Repositories.Message.GotRepositories({
+      Workspace.Message.GotRepositories({
         requestId: Option.getOrThrow(polling.model.maybeRepositoriesRequest),
         repositories: [one, two],
       }),
@@ -476,19 +469,19 @@ describe("mutation reconciliation", () => {
   })
 
   it("removes a deleted policy immediately without closing another policy", () => {
-    const first = Repositories.update(
+    const first = Workspace.update(
       ready(),
-      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
+      Workspace.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
     ).model
-    const deleting = Repositories.update(
+    const deleting = Workspace.update(
       first,
-      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
+      Workspace.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
     ).model
     expect(deleting.pendingMutations[0]?.kind).toBe("PolicyDelete")
-    const openedOther = Repositories.update(deleting, Repositories.Message.ClickedNewPolicy()).model
-    const completed = Repositories.update(
+    const openedOther = Workspace.update(deleting, Workspace.Message.ClickedNewPolicy()).model
+    const completed = Workspace.update(
       openedOther,
-      Repositories.Message.CompletedDelete({
+      Workspace.Message.CompletedDelete({
         repositoryId: "701",
         subjectId: "p1",
         what: "policy",
@@ -499,9 +492,9 @@ describe("mutation reconciliation", () => {
     expect(Option.getOrThrow(completed.model.detail).configuration.policies).toEqual([])
     expect(Option.getOrThrow(completed.model.repositories)[0]?.policyCount).toBe(0)
     expect(
-      Repositories.update(
+      Workspace.update(
         completed.model,
-        Repositories.Message.CompletedDelete({
+        Workspace.Message.CompletedDelete({
           repositoryId: "701",
           subjectId: "p1",
           what: "policy",
@@ -512,17 +505,17 @@ describe("mutation reconciliation", () => {
   })
 
   it("keeps a rejected deletion visible and reports the server reason", () => {
-    const first = Repositories.update(
+    const first = Workspace.update(
       ready(),
-      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
+      Workspace.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
     ).model
-    const deleting = Repositories.update(
+    const deleting = Workspace.update(
       first,
-      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
+      Workspace.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
     ).model
-    const failed = Repositories.update(
+    const failed = Workspace.update(
       deleting,
-      Repositories.Message.FailedDelete({
+      Workspace.Message.FailedDelete({
         repositoryId: "701",
         subjectId: "p1",
         operationId: 1,
@@ -538,39 +531,39 @@ describe("mutation reconciliation", () => {
   })
 
   it("keeps consent errors recoverable and pending consent scoped to its repository", () => {
-    const failed = Repositories.update(
+    const failed = Workspace.update(
       ready(),
-      Repositories.Message.FailedConsent({ repositoryId: "701", requestId: 2, reason: "Offline" }),
+      Workspace.Message.FailedConsent({ repositoryId: "701", requestId: 2, reason: "Offline" }),
     )
     expect(failed.model.consentError).toEqual(Option.some("Offline"))
-    const retry = Repositories.update(failed.model, Repositories.Message.ClickedRetryConsent())
-    const loaded = Repositories.update(
+    const retry = Workspace.update(failed.model, Workspace.Message.ClickedRetryConsent())
+    const loaded = Workspace.update(
       retry.model,
-      Repositories.Message.GotConsent({
+      Workspace.Message.GotConsent({
         repositoryId: "701",
         requestId: Option.getOrThrow(retry.model.maybeConsentRequest),
         consent,
       }),
     ).model
-    const pending = Repositories.update(loaded, Repositories.Message.ClickedToggleConsent()).model
-    const other = Repositories.update(
+    const pending = Workspace.update(loaded, Workspace.Message.ClickedToggleConsent()).model
+    const other = Workspace.update(
       pending,
-      Repositories.Message.Selected({ repositoryId: "702" }),
+      Workspace.Message.Selected({ repositoryId: "702" }),
     ).model
     const otherConsent = { ...consent, repositoryId: "702" }
-    const received = Repositories.update(
+    const received = Workspace.update(
       other,
-      Repositories.Message.GotConsent({
+      Workspace.Message.GotConsent({
         repositoryId: "702",
         requestId: Option.getOrThrow(other.maybeConsentRequest),
         consent: otherConsent,
       }),
     ).model
-    const second = Repositories.update(received, Repositories.Message.ClickedToggleConsent())
+    const second = Workspace.update(received, Workspace.Message.ClickedToggleConsent())
     expect(second.commands?.[0]?.args).toMatchObject({ repositoryId: "702", operationId: 2 })
-    const firstDone = Repositories.update(
+    const firstDone = Workspace.update(
       second.model,
-      Repositories.Message.CompletedSetConsent({
+      Workspace.Message.CompletedSetConsent({
         repositoryId: "701",
         operationId: 1,
         consent: { ...consent, state: "enabled" },
@@ -582,8 +575,8 @@ describe("mutation reconciliation", () => {
   })
 
   it("publishes saved policy data to the list even when publication fails", () => {
-    const editing = Repositories.update(ready(), Repositories.Message.ClickedNewPolicy()).model
-    const persisted: Repositories.PolicyDetail = {
+    const editing = Workspace.update(ready(), Workspace.Message.ClickedNewPolicy()).model
+    const persisted: Workspace.PolicyDetail = {
       policy: {
         ...configuration.policies[0]!,
         policyId: "new",
@@ -598,9 +591,9 @@ describe("mutation reconciliation", () => {
       draftDiffers: true,
       published: null,
     }
-    const saved = Repositories.update(
+    const saved = Workspace.update(
       editing,
-      Repositories.Message.GotPolicyEditorMessage({
+      Workspace.Message.GotPolicyEditorMessage({
         message: PolicyEditor.Message.SavedDraftWithPublishError({
           detail: persisted,
           reason: "Reference missing",
@@ -629,7 +622,7 @@ describe("mutation HTTP results", () => {
       ),
     )
     const message = await Effect.runPromise(
-      Repositories.DeleteSubject({
+      Workspace.DeleteSubject({
         repositoryId: "701",
         operationId: 1,
         subjectId: "r1",
@@ -659,7 +652,7 @@ describe("mutation HTTP results", () => {
       ),
     )
     const message = await Effect.runPromise(
-      Repositories.ToggleRule({
+      Workspace.ToggleRule({
         repositoryId: "701",
         operationId: 4,
         ruleId: "r1",
@@ -678,14 +671,14 @@ describe("mutation HTTP results", () => {
 
 describe("shared mutation views", () => {
   it("renders the pending rule state and disables duplicate actions", () => {
-    const pending = Repositories.update(
+    const pending = Workspace.update(
       ready(),
-      Repositories.Message.ClickedToggleRule({ ruleId: "r1" }),
+      Workspace.Message.ClickedToggleRule({ ruleId: "r1" }),
     ).model
     Scene.scene(
       {
-        update: Repositories.update,
-        view: Scene.withViewInputs(Repositories.view, { section: "Rules" })(),
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Rules" })(),
       },
       Scene.given(pending),
       Scene.expect(Scene.text("Disabling…")).toExist(),
@@ -695,18 +688,18 @@ describe("shared mutation views", () => {
   })
 
   it("renders policy deletion without removing its row before confirmation", () => {
-    const confirming = Repositories.update(
+    const confirming = Workspace.update(
       ready(),
-      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
+      Workspace.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
     ).model
-    const pending = Repositories.update(
+    const pending = Workspace.update(
       confirming,
-      Repositories.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
+      Workspace.Message.ClickedDeletePolicy({ policyId: "p1", version: 2 }),
     ).model
     Scene.scene(
       {
-        update: Repositories.update,
-        view: Scene.withViewInputs(Repositories.view, { section: "Policies" })(),
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Policies" })(),
       },
       Scene.given(pending),
       Scene.expect(Scene.text("Base is main")).toExist(),
@@ -715,15 +708,9 @@ describe("shared mutation views", () => {
   })
 
   it("updates the saved rule row while retaining newer input in its editor", () => {
-    let model = Repositories.update(
-      ready(),
-      Repositories.Message.ClickedEditRule({ ruleId: "r1" }),
-    ).model
+    let model = Workspace.update(ready(), Workspace.Message.ClickedEditRule({ ruleId: "r1" })).model
     const send = (message: RuleEditor.Message) => {
-      model = Repositories.update(
-        model,
-        Repositories.Message.GotRuleEditorMessage({ message }),
-      ).model
+      model = Workspace.update(model, Workspace.Message.GotRuleEditorMessage({ message })).model
     }
     send(RuleEditor.Message.UpdatedGroup({ value: "submitted" }))
     send(RuleEditor.Message.ClickedSave())
@@ -740,28 +727,28 @@ describe("shared mutation views", () => {
     })
     expect(model.panel._tag).toBe("RuleEditor")
     if (model.panel._tag === "RuleEditor") expect(model.panel.editor.group).toBe("newer input")
-    expect(Repositories.hasUnsavedChanges(model)).toBe(true)
-    expect(Repositories.isSaving(model)).toBe(false)
+    expect(Workspace.hasUnsavedChanges(model)).toBe(true)
+    expect(Workspace.isSaving(model)).toBe(false)
   })
 })
 
 describe("rules workspace", () => {
   it("requests navigation back without closing the rule editor before confirmation", () => {
     const table = ready()
-    const opened = Repositories.update(
+    const opened = Workspace.update(
       table,
-      Repositories.Message.ClickedEditRule({ ruleId: "r1" }),
+      Workspace.Message.ClickedEditRule({ ruleId: "r1" }),
     ).model
     Scene.scene(
       {
-        update: Repositories.update,
-        view: Scene.withViewInputs(Repositories.view, { section: "Rules" })(),
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Rules" })(),
       },
       Scene.given(opened),
       Scene.expect(Scene.role("button", { name: "Back to rules" })).toExist(),
       Scene.expect(Scene.role("table")).not.toExist(),
       Scene.click(Scene.role("button", { name: "Back to rules" })),
-      Scene.expectOutMessage(Repositories.OutMessage.RequestedEditorClose({ section: "Rules" })),
+      Scene.expectOutMessage(Workspace.OutMessage.RequestedEditorClose({ section: "Rules" })),
       Scene.expect(Scene.role("table")).not.toExist(),
     )
   })
@@ -769,25 +756,25 @@ describe("rules workspace", () => {
 
 describe("GitHub label badge colors", () => {
   it("uses the GitHub color with readable foregrounds and rejects invalid CSS", () => {
-    expect(Repositories.labelBadgeStyle("ffffff")).toMatchObject({
+    expect(Workspace.labelBadgeStyle("ffffff")).toMatchObject({
       backgroundColor: "#ffffff",
       color: "#111111",
     })
-    expect(Repositories.labelBadgeStyle("000000")).toMatchObject({
+    expect(Workspace.labelBadgeStyle("000000")).toMatchObject({
       backgroundColor: "#000000",
       color: "#ffffff",
     })
-    expect(Repositories.labelBadgeStyle("d73a4a").backgroundColor).toBe("#d73a4a")
-    expect(Repositories.labelBadgeStyle("red;display:none")).toEqual({})
-    expect(Repositories.labelBadgeStyle(null)).toEqual({})
+    expect(Workspace.labelBadgeStyle("d73a4a").backgroundColor).toBe("#d73a4a")
+    expect(Workspace.labelBadgeStyle("red;display:none")).toEqual({})
+    expect(Workspace.labelBadgeStyle(null)).toEqual({})
   })
 })
 
 it("renders the minimal repository Overview with a rules link", () => {
   Scene.scene(
     {
-      update: Repositories.update,
-      view: Scene.withViewInputs(Repositories.view, { section: "Overview" })(),
+      update: Workspace.update,
+      view: Scene.withViewInputs(Workspace.view, { section: "Overview" })(),
     },
     Scene.given(opened()),
     Scene.expect(Scene.text("Your repository is connected.")).toExist(),

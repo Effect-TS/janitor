@@ -11,7 +11,7 @@ import { evo } from "foldkit/struct"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as JanitorIcon from "@/components/janitor-icon"
-import * as Repositories from "@/components/repositories"
+import * as Workspace from "@/components/workspace"
 import * as RepositorySwitcher from "@/components/repository-switcher"
 import * as Sidebar from "@/components/ui/sidebar"
 import * as SyncButton from "@/components/sync-button"
@@ -42,7 +42,7 @@ export const Model = Schema.Struct({
   theme: ThemeSwitcher.Model,
   sync: SyncButton.Model,
   toast: AppToast.Model,
-  repositories: Repositories.Model,
+  workspace: Workspace.Model,
   repositorySwitcher: RepositorySwitcher.Model,
 })
 export type Model = typeof Model.Type
@@ -63,8 +63,8 @@ export const Message = defineMessageUnion({
   GotToastMessage: {
     message: AppToast.Message,
   },
-  GotRepositoriesMessage: {
-    message: Repositories.Message,
+  GotWorkspaceMessage: {
+    message: Workspace.Message,
   },
   GotRepositorySwitcherMessage: {
     message: RepositorySwitcher.Message,
@@ -116,8 +116,8 @@ const navigationCommands = (commands: ReadonlyArray<Command.Command<Navigation.M
   Command.mapMessages(commands, (message) => Message.GotNavigationMessage({ message }))
 
 const navigationContext = (model: Model): Navigation.Context => ({
-  isSaving: Repositories.isSaving(model.repositories),
-  hasUnsavedChanges: Repositories.hasUnsavedChanges(model.repositories),
+  isSaving: Workspace.isSaving(model.workspace),
+  hasUnsavedChanges: Workspace.hasUnsavedChanges(model.workspace),
 })
 
 export const requestNavigation = (
@@ -157,11 +157,11 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
               })
             : entered
         },
-        repositories: () => evo(model.repositories, { panel: () => ({ _tag: "Closed" as const }) }),
+        workspace: () => evo(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
       }),
     }
-  if (route._tag === "Home" && Option.isSome(model.repositories.repositories)) {
-    const repositories = model.repositories.repositories.value.filter(
+  if (route._tag === "Home" && Option.isSome(model.workspace.repositories)) {
+    const repositories = model.workspace.repositories.value.filter(
       (repo) => repo.access === "accessible",
     )
     const selected = repositories.find((repo) =>
@@ -176,21 +176,21 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
           false,
         )
   }
-  const panel = model.repositories.panel
+  const panel = model.workspace.panel
   const justSaved =
     model.navigation.route._tag === "NewPolicy" &&
     route._tag === "Policy" &&
     panel._tag === "PolicyEditor" &&
     panel.editor.identity._tag === "Existing" &&
     panel.editor.identity.policyId === route.policyId
-  const loaded = Repositories.openRoute(
-    model.repositories,
+  const loaded = Workspace.openRoute(
+    model.workspace,
     route,
     !justSaved && Routes.documentPath(model.navigation.route) !== Routes.documentPath(route),
   )
   const accessible =
     "repositoryId" in route &&
-    Option.exists(model.repositories.repositories, (repositories) =>
+    Option.exists(model.workspace.repositories, (repositories) =>
       repositories.some(
         (repo) => repo.repositoryId === route.repositoryId && repo.access === "accessible",
       ),
@@ -198,12 +198,12 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
   return {
     model: evo(model, {
       navigation: (navigation) => Navigation.enter(navigation, route),
-      repositories: () => loaded.model,
+      workspace: () => loaded.model,
       lastRepositoryId: (previous) => (accessible ? Option.some(route.repositoryId) : previous),
     }),
     commands: [
       ...Command.mapMessages(loaded.commands, (message) =>
-        Message.GotRepositoriesMessage({ message }),
+        Message.GotWorkspaceMessage({ message }),
       ),
       ...(accessible ? [PersistRepository({ repositoryId: route.repositoryId })] : []),
     ],
@@ -302,21 +302,21 @@ const foldSyncOutMessage =
     const shown = AppToast.show(model.toast, toastFor(outMessage))
     const refreshed =
       outMessage._tag === "SyncFinished"
-        ? Repositories.refreshAfterSync(model.repositories)
-        : { model: model.repositories, commands: [] }
+        ? Workspace.refreshAfterSync(model.workspace)
+        : { model: model.workspace, commands: [] }
     return {
-      model: evo(model, { toast: () => shown.model, repositories: () => refreshed.model }),
+      model: evo(model, { toast: () => shown.model, workspace: () => refreshed.model }),
       commands: [
         ...Command.mapMessages(shown.commands, (message) => Message.GotToastMessage({ message })),
         ...Command.mapMessages(refreshed.commands, (message) =>
-          Message.GotRepositoriesMessage({ message }),
+          Message.GotWorkspaceMessage({ message }),
         ),
       ],
     }
   }
 
 /** Toast copy for what the repository page reports. */
-export const repositoriesToastFor = Match.type<Repositories.OutMessage>().pipe(
+export const workspaceToastFor = Match.type<Workspace.OutMessage>().pipe(
   Match.withReturnType<Toast.ShowInput<ToastPayload> | undefined>(),
   Match.tagsExhaustive({
     SyncWorkChanged: () => undefined,
@@ -332,14 +332,14 @@ export const repositoriesToastFor = Match.type<Repositories.OutMessage>().pipe(
   }),
 )
 
-const foldRepositoriesOutMessage =
-  (outMessage: Repositories.OutMessage): Update.Step<Model, Message, AppServices> =>
+const foldWorkspaceOutMessage =
+  (outMessage: Workspace.OutMessage): Update.Step<Model, Message, AppServices> =>
   (model) => {
     const route = model.navigation.route
     const repositoryId =
       "repositoryId" in route
         ? route.repositoryId
-        : Option.getOrUndefined(model.repositories.dataRepositoryId)
+        : Option.getOrUndefined(model.workspace.dataRepositoryId)
     if (repositoryId !== undefined) {
       switch (outMessage._tag) {
         case "RequestedEditorClose":
@@ -356,7 +356,7 @@ const foldRepositoriesOutMessage =
             : { model }
       }
     }
-    const input = repositoriesToastFor(outMessage)
+    const input = workspaceToastFor(outMessage)
     if (input === undefined && outMessage._tag !== "SyncWorkChanged") return { model }
     const refreshed = outMessage._tag === "Failed" ? { model } : refreshSyncStatus(model)
     if (input === undefined) return refreshed
@@ -375,19 +375,19 @@ const foldRepositoriesOutMessage =
     }
   }
 
-const foldRepositories = Update.foldChild({
-  update: Repositories.update,
-  read: (model: Model) => Option.some(model.repositories),
-  write: (model, next) => evo(model, { repositories: () => next }),
-  toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
-  foldOutMessage: foldRepositoriesOutMessage,
+const foldWorkspace = Update.foldChild({
+  update: Workspace.update,
+  read: (model: Model) => Option.some(model.workspace),
+  write: (model, next) => evo(model, { workspace: () => next }),
+  toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
+  foldOutMessage: foldWorkspaceOutMessage,
 })
 
-const updateRepositories = (model: Model, message: Repositories.Message): Step => {
+const updateWorkspace = (model: Model, message: Workspace.Message): Step => {
   const repositoryId =
     "repositoryId" in model.navigation.route
       ? model.navigation.route.repositoryId
-      : Option.getOrUndefined(model.repositories.dataRepositoryId)
+      : Option.getOrUndefined(model.workspace.dataRepositoryId)
   if (message._tag === "Selected")
     return requestNavigation(model, Routes.repositoryHome({ repositoryId: message.repositoryId }))
   if (repositoryId !== undefined) {
@@ -400,7 +400,7 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
           Routes.policy({
             repositoryId,
             policyId: message.policyId,
-            ...(model.repositories.policySearch ? { q: model.repositories.policySearch } : {}),
+            ...(model.workspace.policySearch ? { q: model.workspace.policySearch } : {}),
           }),
         )
       case "ClickedNewRule":
@@ -423,7 +423,7 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
         break
     }
   }
-  const next = foldRepositories(model, message)
+  const next = foldWorkspace(model, message)
   if (message._tag === "GotRepositories" && model.navigation.route._tag === "Home") {
     const entered = enterRoute(next.model, model.navigation.route)
     return {
@@ -444,32 +444,32 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
     }
   }
   if (
-    (message._tag === "GotDetail" && Option.isNone(model.repositories.detail)) ||
+    (message._tag === "GotDetail" && Option.isNone(model.workspace.detail)) ||
     message._tag === "GotPolicyDetail"
   ) {
-    const loaded = Repositories.openRoute(next.model.repositories, model.navigation.route, false)
+    const loaded = Workspace.openRoute(next.model.workspace, model.navigation.route, false)
     return {
-      model: evo(next.model, { repositories: () => loaded.model }),
+      model: evo(next.model, { workspace: () => loaded.model }),
       commands: [
         ...(next.commands ?? []),
         ...Command.mapMessages(loaded.commands, (message) =>
-          Message.GotRepositoriesMessage({ message }),
+          Message.GotWorkspaceMessage({ message }),
         ),
       ],
     }
   }
   if (repositoryId !== undefined) {
-    const panel = next.model.repositories.panel
+    const panel = next.model.workspace.panel
     let path: string | undefined
     if (
       message._tag === "CompletedDelete" &&
-      Repositories.isViewingSubject(
-        model.repositories,
+      Workspace.isViewingSubject(
+        model.workspace,
         message.repositoryId,
         message.what,
         message.subjectId,
       ) &&
-      next.model.repositories.panel._tag === "Closed"
+      next.model.workspace.panel._tag === "Closed"
     )
       path = Routes.sectionPath(message.repositoryId, Routes.section(model.navigation.route))
     if (
@@ -545,7 +545,7 @@ export const update = (model: Model, message: Message) =>
         return requestNavigation(updated, next.outMessage.url, false, false, true)
       if (next.outMessage?._tag === "Changed") {
         const { id, action } = next.outMessage
-        const another = Option.getOrElse(model.repositories.repositories, () => []).find(
+        const another = Option.getOrElse(model.workspace.repositories, () => []).find(
           (repo) => repo.repositoryId !== id && repo.access === "accessible",
         )
         const reconnect = Option.exists(model.connections.inventory, (inventory) =>
@@ -578,16 +578,12 @@ export const update = (model: Model, message: Message) =>
                   : "",
           },
         })
-        const repositoryChange = Repositories.informConnectionChanged(
-          updated.repositories,
-          id,
-          action,
-        )
+        const repositoryChange = Workspace.informConnectionChanged(updated.workspace, id, action)
         const refreshed = evo(updated, {
           toast: () => shown.model,
           lastRepositoryId: (previous) =>
             action === "disconnect" && Option.contains(previous, id) ? Option.none() : previous,
-          repositories: () => repositoryChange.model,
+          workspace: () => repositoryChange.model,
         })
         const syncRefresh = refreshSyncStatus(refreshed)
         const ownsScreen =
@@ -611,7 +607,7 @@ export const update = (model: Model, message: Message) =>
               : []),
             ...(syncRefresh.commands ?? []),
             ...Command.mapMessages(repositoryChange.commands, (message) =>
-              Message.GotRepositoriesMessage({ message }),
+              Message.GotWorkspaceMessage({ message }),
             ),
           ],
         }
@@ -627,7 +623,7 @@ export const update = (model: Model, message: Message) =>
         ? { model }
         : foldSyncButton(model, message),
     GotToastMessage: ({ message }) => foldToast(model, message),
-    GotRepositoriesMessage: ({ message }) => updateRepositories(model, message),
+    GotWorkspaceMessage: ({ message }) => updateWorkspace(model, message),
     GotRepositorySwitcherMessage: ({ message }) => foldRepositorySwitcher(model, message),
   })
 
@@ -641,7 +637,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
   const sidebar = Sidebar.init({ id: "app-sidebar" })
   const sync = SyncButton.init()
   const toast = AppToast.init({ id: "app-toast", defaultDuration: "6 seconds" })
-  const repositories = Repositories.init()
+  const workspace = Workspace.init()
   const model = Model.make({
     connections: Connections.init(
       Option.match(flags.lastRepositoryId ?? Option.none(), {
@@ -655,7 +651,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
     theme: theme.model,
     sync: sync.model,
     toast,
-    repositories: repositories.model,
+    workspace: workspace.model,
     repositorySwitcher: RepositorySwitcher.init(),
   })
   const entered = enterRoute(model, Routes.parse(url))
@@ -666,8 +662,8 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
         Navigation.InitializeHistory({ index: model.navigation.historyIndex }),
       ]),
       ...(entered.commands ?? []),
-      ...Command.mapMessages(repositories.commands, (message) =>
-        Message.GotRepositoriesMessage({ message }),
+      ...Command.mapMessages(workspace.commands, (message) =>
+        Message.GotWorkspaceMessage({ message }),
       ),
       ...Command.mapMessages(theme.commands, (message) =>
         Message.GotThemeSwitcherMessage({ message }),
@@ -692,9 +688,9 @@ const syncSubscriptions = Subscription.lift(SyncButton.subscriptions)<Model, Mes
   toParentMessage: (message) => Message.GotSyncButtonMessage({ message }),
 })
 
-const repositoriesSubscriptions = Subscription.lift(Repositories.subscriptions)<Model, Message>({
-  toChildModel: (model) => model.repositories,
-  toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
+const workspaceSubscriptions = Subscription.lift(Workspace.subscriptions)<Model, Message>({
+  toChildModel: (model) => model.workspace,
+  toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
 })
 
 const navigationSubscriptions = Subscription.make<Model, Message>()((entry) => ({
@@ -702,7 +698,7 @@ const navigationSubscriptions = Subscription.make<Model, Message>()((entry) => (
     { dirty: Schema.Boolean },
     {
       modelToDependencies: (model) => ({
-        dirty: Repositories.hasUnsavedChanges(model.repositories),
+        dirty: Workspace.hasUnsavedChanges(model.workspace),
       }),
       dependenciesToStream: ({ dirty }) =>
         dirty
@@ -725,7 +721,7 @@ export const subscriptions = Subscription.aggregate<Model, Message, AppServices>
   sidebarSubscriptions,
   themeSubscriptions,
   syncSubscriptions,
-  repositoriesSubscriptions,
+  workspaceSubscriptions,
   navigationSubscriptions,
 )
 
@@ -747,7 +743,7 @@ const brandHeader = (h: HtmlBuilder<Message>): Html =>
 /** Everything the switcher renders. It groups and filters the list itself; the
  *  page only owns which repository is current. */
 const switcherInputs = (model: Model): RepositorySwitcher.ViewInputs => ({
-  repositories: Option.getOrElse(model.repositories.repositories, () => []),
+  repositories: Option.getOrElse(model.workspace.repositories, () => []),
   maybeSelectedId:
     "repositoryId" in model.navigation.route
       ? Option.some(model.navigation.route.repositoryId)
@@ -854,7 +850,7 @@ const sidebarPanel = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html
 ]
 
 const repositorySyncDisabled = (model: Model): boolean =>
-  Option.exists(model.repositories.repositories, (repositories) =>
+  Option.exists(model.workspace.repositories, (repositories) =>
     repositories.some(
       (repository) =>
         "repositoryId" in model.navigation.route &&
@@ -975,7 +971,7 @@ const connectionView = (h: HtmlBuilder<Message>, model: Model, repositoryId: str
   })
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.navigation.route
-  const repositories = Option.getOrElse(model.repositories.repositories, () => [])
+  const repositories = Option.getOrElse(model.workspace.repositories, () => [])
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")
@@ -992,9 +988,9 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     )
   if (
     route._tag === "Home" &&
-    Option.isSome(model.repositories.repositories) &&
+    Option.isSome(model.workspace.repositories) &&
     repositories.length === 0 &&
-    Option.isNone(model.repositories.repositoriesError)
+    Option.isNone(model.workspace.repositoriesError)
   )
     return h.div(
       [h.Class("policy-empty")],
@@ -1019,9 +1015,9 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
       [h.Class("p-6 space-y-3")],
       [
         h.h1([h.Class("text-lg font-semibold")], ["Choose a repository"]),
-        Option.isSome(model.repositories.repositoriesError)
-          ? h.p([h.Role("alert")], [model.repositories.repositoriesError.value])
-          : Option.isNone(model.repositories.repositories)
+        Option.isSome(model.workspace.repositoriesError)
+          ? h.p([h.Role("alert")], [model.workspace.repositoriesError.value])
+          : Option.isNone(model.workspace.repositories)
             ? h.p([h.Role("status")], ["Loading repositories…"])
             : h.div(
                 [h.Class("flex flex-col items-start gap-2")],
@@ -1037,7 +1033,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
                     ),
                   ),
               ),
-        Option.isSome(model.repositories.repositories) &&
+        Option.isSome(model.workspace.repositories) &&
         !repositories.some((repo) => repo.access === "accessible")
           ? h.p(
               [h.Class("text-sm text-muted-foreground")],
@@ -1047,7 +1043,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
       ],
     )
   if (
-    Option.isSome(model.repositories.repositories) &&
+    Option.isSome(model.workspace.repositories) &&
     !repositories.some(
       (repo) => repo.repositoryId === route.repositoryId && repo.access === "accessible",
     )
@@ -1072,11 +1068,11 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
       ],
     )
   const content = h.submodel({
-    slotId: "repositories",
-    model: model.repositories,
-    view: Repositories.view,
+    slotId: "workspace",
+    model: model.workspace,
+    view: Workspace.view,
     viewInputs: { section: Routes.section(route) },
-    toParentMessage: (message) => Message.GotRepositoriesMessage({ message }),
+    toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
   })
   return route._tag === "Settings"
     ? h.div([h.Class("space-y-4 p-4")], [connectionView(h, model, route.repositoryId), content])
