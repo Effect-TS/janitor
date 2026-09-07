@@ -102,6 +102,7 @@ const consent: Repositories.AiConsent = {
 
 const opened = (): Repositories.Model => ({
   ...Repositories.init().model,
+  section: "Policies",
   selected: Option.some("701"),
   repositories: Option.some([one, two]),
   maybeDetailRequest: Option.some(1),
@@ -376,7 +377,7 @@ const ready = (): Repositories.Model => {
     Repositories.Message.Selected({ repositoryId: "701" }),
   ).model
   return Repositories.update(
-    selected,
+    { ...selected, section: "Policies" },
     Repositories.Message.GotDetail({ repositoryId: "701", requestId: 1, detail }),
   ).model
 }
@@ -773,4 +774,14 @@ describe("GitHub label badge colors", () => {
     expect(Repositories.labelBadgeStyle("red;display:none")).toEqual({})
     expect(Repositories.labelBadgeStyle(null)).toEqual({})
   })
+})
+
+it("renders the minimal repository Overview with a rules link", () => {
+  Scene.scene(
+    { update: Repositories.update, view: Repositories.view },
+    Scene.given({ ...opened(), section: "Overview" }),
+    Scene.expect(Scene.text("Your repository is connected.")).toExist(),
+    Scene.expect(Scene.role("link", { name: "View rules" })).toExist(),
+    Scene.expect(Scene.text("Recent activity")).toBeAbsent(),
+  )
 })

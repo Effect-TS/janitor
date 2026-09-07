@@ -7,7 +7,7 @@ The web application uses Foldkit's `Route` parsers and URL builders, runtime URL
 | Path                                             | Screen                                                 |
 | ------------------------------------------------ | ------------------------------------------------------ |
 | `/`                                              | Last-used accessible repository, or repository chooser |
-| `/repositories/:repositoryId`                    | Redirect to the repository's policies                  |
+| `/repositories/:repositoryId`                    | Repository Overview                                    |
 | `/repositories/:repositoryId/policies`           | Policy library                                         |
 | `/repositories/:repositoryId/policies/new`       | New policy                                             |
 | `/repositories/:repositoryId/policies/:policyId` | Policy document and test bench                         |
@@ -48,3 +48,5 @@ Browser Back/Forward uses the same protection. History entries carry an index so
 Vite serves the SPA entry point for direct development URLs. The existing Alchemy `Cloudflare.Website.Foldkit` resource configures `single-page-application` asset fallback in production. API traffic continues to use `/api`.
 
 Route parsing and loading behavior are covered by `apps/web/test/routes.test.ts` and `apps/web/test/routing.test.ts`.
+
+The repository root renders the minimal Overview: repository name, connection message, and a View rules link. Home with a remembered accessible repository, the repository chooser, and repository switching open Overview. Explicit section and editor links retain their destinations.

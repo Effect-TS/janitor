@@ -16,7 +16,7 @@ import * as RepositorySwitcher from "@/components/repository-switcher"
 import * as Sidebar from "@/components/ui/sidebar"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
-import { FileCode2, Tags, Activity, Settings } from "lucide"
+import { House, FileCode2, Tags, Activity, Settings } from "lucide"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
@@ -168,13 +168,6 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
         navigationTarget: () => Option.none(),
       }),
     }
-  if (route._tag === "Repository")
-    return requestNavigation(
-      model,
-      Routes.policies({ repositoryId: route.repositoryId }),
-      true,
-      false,
-    )
   if (route._tag === "Home" && Option.isSome(model.repositories.repositories)) {
     const repositories = model.repositories.repositories.value.filter(
       (repo) => repo.access === "accessible",
@@ -186,7 +179,7 @@ const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
       ? { model: evo(model, { route: () => route }) }
       : requestNavigation(
           model,
-          Routes.policies({ repositoryId: selected.repositoryId }),
+          Routes.repositoryHome({ repositoryId: selected.repositoryId }),
           true,
           false,
         )
@@ -396,10 +389,7 @@ const updateRepositories = (model: Model, message: Repositories.Message): Step =
       ? model.route.repositoryId
       : Option.getOrUndefined(model.repositories.selected)
   if (message._tag === "Selected")
-    return requestNavigation(
-      model,
-      Routes.sectionPath(message.repositoryId, model.repositories.section),
-    )
+    return requestNavigation(model, Routes.repositoryHome({ repositoryId: message.repositoryId }))
   if (repositoryId !== undefined) {
     switch (message._tag) {
       case "SelectedSection":
@@ -545,7 +535,7 @@ const foldRepositorySwitcherOutMessage = Match.type<RepositorySwitcher.OutMessag
     SelectedRepository:
       ({ repositoryId }) =>
       (model) =>
-        requestNavigation(model, Routes.sectionPath(repositoryId, model.repositories.section)),
+        requestNavigation(model, Routes.repositoryHome({ repositoryId })),
   }),
 )
 
@@ -600,10 +590,10 @@ export const update = (model: Model, message: Message) =>
         const destination =
           action === "disconnect"
             ? another
-              ? Routes.policies({ repositoryId: another.repositoryId })
+              ? Routes.repositoryHome({ repositoryId: another.repositoryId })
               : Routes.home()
             : action === "connect" && !reconnect
-              ? Routes.policies({ repositoryId: id })
+              ? Routes.repositoryHome({ repositoryId: id })
               : Routes.settings({ repositoryId: id })
         const shown = AppToast.show(updated.toast, {
           variant: "Success",
@@ -690,7 +680,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
   const model = Model.make({
     connectionCancelPath: Option.match(flags.lastRepositoryId ?? Option.none(), {
       onNone: Routes.home,
-      onSome: (repositoryId) => Routes.policies({ repositoryId }),
+      onSome: (repositoryId) => Routes.repositoryHome({ repositoryId }),
     }),
     connections: Connections.init(),
     route: Routes.AppRoute.Home(),
@@ -840,41 +830,49 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
             children: [
               Sidebar.groupLabel(h, { children: ["Repository"] }),
               Sidebar.menu(h, {
-                children: (["Policies", "Rules", "Activity", "Settings"] as const).map((section) =>
-                  Sidebar.menuItem(h, {
-                    children: [
-                      h.a(
-                        [
-                          h.Href(
-                            "repositoryId" in model.route
-                              ? Routes.sectionPath(model.route.repositoryId, section)
-                              : Routes.home(),
-                          ),
-                          h.Class(
-                            cn(
-                              Sidebar.sidebarMenuButtonClass,
-                              "repository-nav-link",
-                              model.repositories.section === section &&
-                                "bg-sidebar-accent font-medium",
+                children: (["Overview", "Policies", "Rules", "Activity", "Settings"] as const).map(
+                  (section) =>
+                    Sidebar.menuItem(h, {
+                      children: [
+                        h.a(
+                          [
+                            h.Href(
+                              "repositoryId" in model.route
+                                ? Routes.sectionPath(model.route.repositoryId, section)
+                                : Routes.home(),
                             ),
-                          ),
-                          h.AriaCurrent(
-                            "repositoryId" in model.route && model.repositories.section === section
-                              ? "page"
-                              : "false",
-                          ),
-                        ],
-                        [
-                          Icon.view(
-                            h,
-                            { Policies: FileCode2, Rules: Tags, Activity, Settings }[section],
-                            "size-4 shrink-0",
-                          ),
-                          h.span([], [section]),
-                        ],
-                      ),
-                    ],
-                  }),
+                            h.Class(
+                              cn(
+                                Sidebar.sidebarMenuButtonClass,
+                                "repository-nav-link",
+                                model.repositories.section === section &&
+                                  "bg-sidebar-accent font-medium",
+                              ),
+                            ),
+                            h.AriaCurrent(
+                              "repositoryId" in model.route &&
+                                model.repositories.section === section
+                                ? "page"
+                                : "false",
+                            ),
+                          ],
+                          [
+                            Icon.view(
+                              h,
+                              {
+                                Overview: House,
+                                Policies: FileCode2,
+                                Rules: Tags,
+                                Activity,
+                                Settings,
+                              }[section],
+                              "size-4 shrink-0",
+                            ),
+                            h.span([], [section]),
+                          ],
+                        ),
+                      ],
+                    }),
                 ),
               }),
             ],
@@ -1063,7 +1061,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
                   .map((repo) =>
                     h.a(
                       [
-                        h.Href(Routes.policies({ repositoryId: repo.repositoryId })),
+                        h.Href(Routes.repositoryHome({ repositoryId: repo.repositoryId })),
                         h.Class("text-sm underline"),
                       ],
                       [`${repo.owner}/${repo.repo}`],

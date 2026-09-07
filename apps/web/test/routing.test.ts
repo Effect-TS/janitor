@@ -136,7 +136,7 @@ describe("application routing", () => {
       Repositories.Message.GotRepositories({ requestId: 0, repositories: [repository] }),
     )
     expect(remembered.commands).toMatchObject([
-      { name: "Navigate", args: { path: "/repositories/701/policies", replace: true } },
+      { name: "Navigate", args: { path: "/repositories/701", replace: true } },
     ])
     const unavailable = send(
       { ...first, lastRepositoryId: Option.some("missing") },
@@ -147,11 +147,11 @@ describe("application routing", () => {
     expect(unavailable.commands ?? []).toEqual([])
   })
 
-  it("preserves the current section when switching repositories", () => {
+  it("opens Overview when switching repositories", () => {
     const model = loaded("/repositories/701/settings").model
     const changed = send(model, Repositories.Message.Selected({ repositoryId: "702" }))
     expect(changed.commands).toMatchObject([
-      { name: "Navigate", args: { path: "/repositories/702/settings" } },
+      { name: "Navigate", args: { path: "/repositories/702" } },
     ])
   })
 

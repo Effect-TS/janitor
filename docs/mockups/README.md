@@ -165,12 +165,12 @@ Four rule editor directions use the policy screen's neutral palette, compact
 navigation, quiet label colors, and conditional save controls. Open any file
 directly in a browser, then use the tabs along the top to compare them.
 
-| File                                           | Direction                                                                                                                                                       |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [9a-rule-document.html](9a-rule-document.html) | Recommended starting point. Searchable rule list, a simple central form, and a right sidebar for status, validation, and testing. Closest to the policy editor. |
-| [9b-rule-flow.html](9b-rule-flow.html)         | A vertical **When → Then → Otherwise** flow makes the condition and outcomes easier to read. Optional grouping stays collapsed.                                 |
-| [9c-rule-table.html](9c-rule-table.html)       | The rules collection stays visible beside a scrollable editor. Better for reviewing and adjusting several rules.                                                |
-| [9d-rule-preview.html](9d-rule-preview.html)   | Configuration and a larger test preview sit side by side. Sample files and label changes make the rule's effect easier to inspect.                              |
+| File                                           | Direction                                                                                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [9a-rule-document.html](9a-rule-document.html) | Searchable rule list, a simple central form, and a right sidebar for status, validation, and testing. Closest to the policy editor. |
+| [9b-rule-flow.html](9b-rule-flow.html)         | A vertical **When → Then → Otherwise** flow makes the condition and outcomes easier to read. Optional grouping stays collapsed.     |
+| [9c-rule-table.html](9c-rule-table.html)       | The rules collection stays visible beside a scrollable editor. Better for reviewing and adjusting several rules.                    |
+| [9d-rule-preview.html](9d-rule-preview.html)   | Configuration and a larger test preview sit side by side. Sample files and label changes make the rule's effect easier to inspect.  |
 
 The heading uses the selected GitHub label. Rules do not gain an invented name,
 description, YAML editor, or separate publishing lifecycle. The form reflects the
@@ -282,3 +282,32 @@ separate card with a larger readout, a filled track, and 70%, 80%, and 95%
 presets. The test result uses “Match” instead of “Would add label.” The original
 four layouts remain available for comparison. Autocomplete, target validation,
 presets, cancel, and mobile overflow were checked in Chromium.
+
+## Repository Overview
+
+[12e-overview-empty.html](12e-overview-empty.html) is the revised direction: the
+repository name, “Your repository is connected,” and a View rules link. Open the
+HTML directly in a browser. No status panels, counters, or activity feed.
+
+### Earlier Overview studies
+
+The four initial dashboard layouts below were rejected and are retained only
+for reference.
+
+Four standalone HTML variants for the repository landing screen:
+
+- [12a-overview-brief.html](12a-overview-brief.html): The brief. One column with labeling status, compact counts, and recent activity. Recommended starting point.
+- [12b-overview-split.html](12b-overview-split.html): Activity first. Recent decisions on the left, with a narrow status and navigation rail on the right.
+- [12c-overview-ledger.html](12c-overview-ledger.html): The ledger. A slim summary and a compact activity table for scanning many decisions.
+- [12d-overview-rules.html](12d-overview-rules.html): Rules at a glance. Rule cards show labels, evaluator types, gates, and latest outcomes above recent activity.
+
+Use the top preview controls to switch between enabled, needs-attention, paused,
+and no-rules states, or toggle the color theme. Navigation links either open an
+existing HTML study or a small explanation of the intended destination. The sync
+button is also a local preview. All data is illustrative; no requests are sent to
+Janitor, GitHub APIs, or an AI provider. Changes reset on reload.
+
+These files share `repository-overview-studies.css`,
+`repository-overview-studies.js`, and `mockup.css`. Open them directly in a browser;
+no build or server is needed. Desktop and phone widths, all four states, and
+preview controls were checked in Chromium.

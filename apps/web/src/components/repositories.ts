@@ -81,7 +81,7 @@ export const Panel = Schema.Union([
 ])
 export type Panel = typeof Panel.Type
 
-export const Section = Schema.Literals(["Policies", "Rules", "Activity", "Settings"])
+export const Section = Schema.Literals(["Overview", "Policies", "Rules", "Activity", "Settings"])
 export type Section = typeof Section.Type
 
 const Mutation = Schema.Struct({
@@ -411,7 +411,7 @@ export const init = (): UpdateReturn => ({
       maybeConsentRequest: Option.none(),
       maybeRepositoriesRequest: Option.some(0),
       consentError: Option.none(),
-      section: "Policies",
+      section: "Overview",
       policySearch: "",
       ruleSearch: "",
       ruleMenus: {},
@@ -2032,6 +2032,55 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model): Html =>
         ],
       ),
     onSome: (detail) => {
+      if (model.section === "Overview") {
+        const repository = Option.getOrElse(model.repositories, () => []).find((repo) =>
+          Option.contains(model.selected, repo.repositoryId),
+        )
+        if (!repository) return h.empty
+        return h.section(
+          [
+            h.Class("flex min-h-[60vh] flex-1 items-center justify-center px-6 pb-24 pt-12"),
+            h.AriaLabel("Repository overview"),
+          ],
+          [
+            h.div(
+              [h.Class("text-center")],
+              [
+                h.span(
+                  [
+                    h.Class(
+                      "mx-auto mb-4 grid size-11 place-items-center rounded-xl border bg-card text-sm text-muted-foreground",
+                    ),
+                    h.AriaHidden(true),
+                  ],
+                  [repository.owner.slice(0, 1).toUpperCase()],
+                ),
+                h.h1(
+                  [h.Class("text-base font-medium tracking-tight")],
+                  [repository.owner + " / " + repository.repo],
+                ),
+                h.p(
+                  [h.Class("mb-5 mt-2 text-xs text-muted-foreground")],
+                  [
+                    repository.access === "accessible"
+                      ? "Your repository is connected."
+                      : "Repository access needs attention.",
+                  ],
+                ),
+                h.a(
+                  [
+                    h.Href(Routes.rules({ repositoryId: repository.repositoryId })),
+                    h.Class(
+                      "inline-flex items-center justify-center gap-3 rounded-md border px-3 py-2 text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring",
+                    ),
+                  ],
+                  ["View rules", h.span([h.AriaHidden(true)], ["→"])],
+                ),
+              ],
+            ),
+          ],
+        )
+      }
       if (model.section === "Policies") {
         return h.div(
           [h.Class("policy-workspace")],

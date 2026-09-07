@@ -132,8 +132,12 @@ export const path = (route: AppRoute): string =>
     Settings: settings,
     NotFound: ({ path }) => path,
   })
-export const section = (route: AppRoute): "Policies" | "Rules" | "Activity" | "Settings" => {
+export const section = (
+  route: AppRoute,
+): "Overview" | "Policies" | "Rules" | "Activity" | "Settings" => {
   switch (route._tag) {
+    case "Repository":
+      return "Overview"
     case "Rules":
     case "NewRule":
     case "Rule":
@@ -148,9 +152,15 @@ export const section = (route: AppRoute): "Policies" | "Rules" | "Activity" | "S
 }
 export const sectionPath = (
   repositoryId: string,
-  section: "Policies" | "Rules" | "Activity" | "Settings",
+  section: "Overview" | "Policies" | "Rules" | "Activity" | "Settings",
 ): string =>
-  ({ Policies: policies, Rules: rules, Activity: activity, Settings: settings })[section]({
+  ({
+    Overview: repositoryHome,
+    Policies: policies,
+    Rules: rules,
+    Activity: activity,
+    Settings: settings,
+  })[section]({
     repositoryId,
   })
 export const urlPath = (url: Url.Url): string => path(parse(url))

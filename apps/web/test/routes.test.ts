@@ -53,3 +53,9 @@ it("opens the rules table for retired configuration-test links", () => {
   expect(route._tag).toBe("Rules")
   expect(Routes.path(route)).toBe("/repositories/701/rules")
 })
+
+it("uses the repository root for Overview and preserves section deep links", () => {
+  expect(Routes.section(parse("/repositories/701"))).toBe("Overview")
+  expect(Routes.sectionPath("701", "Overview")).toBe("/repositories/701")
+  expect(Routes.section(parse("/repositories/701/policies/p1"))).toBe("Policies")
+})
