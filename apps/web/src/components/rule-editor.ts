@@ -1,3 +1,6 @@
+import * as Clock from "effect/Clock"
+import { AiInputDetails } from "@/components/labeling-wire"
+import { aiInputView, InputInspection } from "@/components/ai-input-view"
 import * as Duration from "effect/Duration"
 import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReferences"
 import * as Mount from "foldkit/mount"
@@ -86,10 +89,18 @@ export const Model = Schema.Struct({
   testGeneration: Schema.Int,
   testResult: Schema.Union([
     Schema.TaggedStruct("Idle", {}),
-    Schema.TaggedStruct("Running", { status: Schema.optionalKey(Schema.String) }),
-    Schema.TaggedStruct("Done", { response: TestResponse }),
+    Schema.TaggedStruct("Running", {
+      status: Schema.Literals(["submitting", "queued", "running"]),
+      elapsedSeconds: Schema.Int,
+      pollError: Schema.optionalKey(Schema.String),
+    }),
+    Schema.TaggedStruct("Done", {
+      response: TestResponse,
+      testId: Schema.optionalKey(Schema.String),
+    }),
     Schema.TaggedStruct("Failed", { reason: Schema.String }),
   ]),
+  inputInspection: InputInspection,
   groupOpen: Schema.Boolean,
 })
 export type Model = typeof Model.Type
@@ -97,6 +108,9 @@ export type Model = typeof Model.Type
 // MESSAGE
 
 export const Message = defineMessageUnion({
+  ClickedInspectInput: {},
+  LoadedInput: { generation: Schema.Int, details: AiInputDetails },
+  FailedInput: { generation: Schema.Int, reason: Schema.String },
   PreparedCreation: { key: Schema.String },
   SelectedType: { value: Schema.String },
   EditedPrompt: { value: Schema.String },
@@ -126,10 +140,17 @@ export const Message = defineMessageUnion({
   QueuedTest: {
     testId: Schema.String,
     generation: Schema.Int,
-    status: Schema.String,
+    status: Schema.Literals(["queued", "running"]),
+    startedAt: Schema.Number,
+    elapsedSeconds: Schema.Int,
+    pollError: Schema.optionalKey(Schema.String),
     polls: Schema.Int,
   },
-  CompletedTest: { response: TestResponse, generation: Schema.Int },
+  CompletedTest: {
+    response: TestResponse,
+    generation: Schema.Int,
+    testId: Schema.optionalKey(Schema.String),
+  },
   FailedTest: { reason: Schema.String, generation: Schema.Int },
 })
 export type Message = typeof Message.Type
@@ -285,9 +306,10 @@ export const TestRule = FoldkitCommand.define("TestRule", {
     number: Schema.Int,
     generation: Schema.Int,
   },
-  messages: [Message.QueuedTest, Message.FailedTest],
+  messages: [Message.QueuedTest, Message.CompletedTest, Message.FailedTest],
   execute: ({ repositoryId, policyId, number, generation, ai, evidence }) =>
     Effect.gen(function* () {
+      const startedAt = yield* Clock.currentTimeMillis
       const request = yield* HttpClientRequest.bodyJson(
         HttpClientRequest.post(testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests")),
         {
@@ -312,8 +334,9 @@ export const TestRule = FoldkitCommand.define("TestRule", {
       if (response.status !== 202)
         return Message.FailedTest({ reason: `Server answered ${response.status}`, generation })
       const job = yield* HttpIncomingMessage.schemaBodyJson(RuleTestJob)(response)
-      return Message.QueuedTest({ testId: job.testId, generation, status: job.status, polls: 0 })
+      return testJobMessage(job, generation, startedAt, 0, yield* Clock.currentTimeMillis)
     }).pipe(
+      Effect.timeout("15 seconds"),
       Effect.catch((error) =>
         Effect.succeed(Message.FailedTest({ reason: describe(error), generation })),
       ),
@@ -381,6 +404,7 @@ const initialize = (input: {
       selectedNumber: null,
       testGeneration: 0,
       testResult: { _tag: "Idle" },
+      inputInspection: { _tag: "Idle" },
       groupOpen: Option.exists(input.existing, (rule) => rule.group !== null),
     },
     { disableChecks: true },
@@ -410,6 +434,7 @@ export const hasUnsavedChanges = (model: Model): boolean =>
 const edited = (model: Model): Model =>
   evo(model, {
     testResult: () => ({ _tag: "Idle" as const }),
+    inputInspection: () => ({ _tag: "Idle" as const }),
     testGeneration: (id) => id + 1,
     submission: (current) =>
       current._tag === "Submitting" ? current : { _tag: "NotSubmitted" as const },
@@ -596,7 +621,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       return {
         model: evo(model, {
           testGeneration: () => generation,
-          testResult: () => ({ _tag: "Running" as const }),
+          testResult: () => ({
+            _tag: "Running" as const,
+            status: "submitting" as const,
+            elapsedSeconds: 0,
+          }),
+          inputInspection: () => ({ _tag: "Idle" as const }),
         }),
         commands: [
           TestRule({
@@ -615,21 +645,69 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ],
       }
     },
-    QueuedTest: ({ testId, generation, polls, status }) =>
-      generation !== model.testGeneration
+    QueuedTest: ({ testId, generation, polls, status, startedAt, elapsedSeconds, pollError }) => {
+      if (generation !== model.testGeneration || model.testResult._tag !== "Running")
+        return { model }
+      const phase = model.testResult.status === "running" ? ("running" as const) : status
+      return {
+        model: evo(model, {
+          testResult: () => ({
+            _tag: "Running" as const,
+            status: phase,
+            elapsedSeconds,
+            ...(pollError ? { pollError } : {}),
+          }),
+        }),
+        commands: [
+          PollRuleTest({
+            repositoryId: model.repositoryId,
+            testId,
+            generation,
+            polls,
+            startedAt,
+            status: phase,
+          }),
+        ],
+      }
+    },
+    CompletedTest: ({ response, generation, testId }) =>
+      generation !== model.testGeneration || model.testResult._tag !== "Running"
         ? { model }
         : {
-            model: evo(model, { testResult: () => ({ _tag: "Running" as const, status }) }),
+            model: evo(model, {
+              testResult: () => ({
+                _tag: "Done" as const,
+                response,
+                ...(testId ? { testId } : {}),
+              }),
+            }),
+          },
+    ClickedInspectInput: () =>
+      model.testResult._tag !== "Done" ||
+      !model.testResult.testId ||
+      model.inputInspection._tag === "Loading" ||
+      model.inputInspection._tag === "Ready"
+        ? { model }
+        : {
+            model: evo(model, { inputInspection: () => ({ _tag: "Loading" as const }) }),
             commands: [
-              PollRuleTest({ repositoryId: model.repositoryId, testId, generation, polls }),
+              LoadInput({
+                repositoryId: model.repositoryId,
+                testId: model.testResult.testId,
+                generation: model.testGeneration,
+              }),
             ],
           },
-    CompletedTest: ({ response, generation }) =>
+    LoadedInput: ({ generation, details }) =>
       generation !== model.testGeneration
         ? { model }
-        : { model: evo(model, { testResult: () => ({ _tag: "Done" as const, response }) }) },
-    FailedTest: ({ reason, generation }) =>
+        : { model: evo(model, { inputInspection: () => ({ _tag: "Ready" as const, details }) }) },
+    FailedInput: ({ generation, reason }) =>
       generation !== model.testGeneration
+        ? { model }
+        : { model: evo(model, { inputInspection: () => ({ _tag: "Failed" as const, reason }) }) },
+    FailedTest: ({ reason, generation }) =>
+      generation !== model.testGeneration || model.testResult._tag !== "Running"
         ? { model }
         : { model: evo(model, { testResult: () => ({ _tag: "Failed" as const, reason }) }) },
     GotDeleteDialogMessage: ({ message }) =>
@@ -760,7 +838,21 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
   if (result._tag === "Running")
     return h.p(
       [h.Role("status"), h.Class("text-xs text-muted-foreground")],
-      [result.status === "queued" ? "Queued…" : "Evaluating…"],
+      [
+        h.span([h.Class("font-medium")], ["Testing…"]),
+        h.span(
+          [h.Class("ml-2")],
+          [
+            { submitting: "Submitting", queued: "Queued", running: "Evaluating" }[result.status] +
+              (result.elapsedSeconds >= 5 ? ` · ${result.elapsedSeconds}s` : ""),
+          ],
+        ),
+        result.pollError
+          ? h.span([h.Class("block mt-1")], ["Unable to check progress. Retrying the same test…"])
+          : result.status === "queued" && result.elapsedSeconds >= 5
+            ? h.span([h.Class("block mt-1")], ["Waiting for an evaluation slot."])
+            : h.empty,
+      ],
     )
   if (result._tag === "Failed")
     return h.p([h.Role("alert"), h.Class("text-xs text-destructive")], [result.reason])
@@ -790,11 +882,29 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
                 ),
               ),
             ],
-            [describeOutcome(outcome)],
+            [
+              outcome === "unknown" && entity.evaluation?.reasonCode
+                ? ["insufficient-evidence", "low-confidence"].includes(entity.evaluation.reasonCode)
+                  ? "Insufficient evidence"
+                  : "Could not evaluate"
+                : describeOutcome(outcome),
+            ],
           ),
           h.span([h.Class("text-xs text-muted-foreground")], [`#${entity.number}`]),
         ],
       ),
+      entity.evaluation?.cached && !entity.evaluation.inputReport
+        ? h.p(
+            [h.Class("text-xs text-muted-foreground")],
+            ["Input details unavailable for this earlier result."],
+          )
+        : aiInputView(
+            h,
+            entity.evaluation?.inputReport,
+            model.inputInspection,
+            Message.ClickedInspectInput(),
+            !!result.testId,
+          ),
       entity.evaluation?.reason
         ? h.p([h.Class("text-xs text-muted-foreground")], [entity.evaluation.reason])
         : h.empty,
@@ -1449,36 +1559,112 @@ const RuleTestJob = Schema.Struct({
   response: Schema.NullOr(TestResponse),
   message: Schema.NullOr(Schema.String),
 })
+const testJobMessage = (
+  job: typeof RuleTestJob.Type,
+  generation: number,
+  startedAt: number,
+  polls: number,
+  now: number,
+) => {
+  if (job.status === "done" && job.response)
+    return Message.CompletedTest({ generation, response: job.response, testId: job.testId })
+  if (job.status === "failed")
+    return Message.FailedTest({ generation, reason: job.message ?? "Test failed" })
+  if (job.status === "done")
+    return Message.FailedTest({
+      generation,
+      reason: "The completed test has no result. Run it again.",
+    })
+  return Message.QueuedTest({
+    testId: job.testId,
+    generation,
+    status: job.status,
+    startedAt,
+    polls,
+    elapsedSeconds: Math.floor((now - startedAt) / 1000),
+  })
+}
 export const PollRuleTest = FoldkitCommand.define("PollRuleTest", {
   args: {
     repositoryId: Schema.String,
     testId: Schema.String,
     generation: Schema.Int,
     polls: Schema.Int,
+    startedAt: Schema.Number,
+    status: Schema.Literals(["queued", "running"]),
   },
   messages: [Message.QueuedTest, Message.CompletedTest, Message.FailedTest],
-  execute: ({ repositoryId, testId, generation, polls }) =>
+  execute: ({ repositoryId, testId, generation, polls, startedAt, status }) =>
     Effect.gen(function* () {
-      if (polls >= 100)
-        return Message.FailedTest({ generation, reason: "The test timed out. Try again." })
-      yield* Effect.sleep(Duration.seconds(Math.min(3, 1 + polls / 5)))
+      if ((yield* Clock.currentTimeMillis) - startedAt >= 240_000)
+        return Message.FailedTest({ generation, reason: "The test timed out. Run it again." })
+      yield* Effect.sleep(Duration.seconds(Math.min(5, 1 + polls / 5)))
       const response = yield* HttpClient.get(
         testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests/") + encodeURIComponent(testId),
-      )
+      ).pipe(Effect.timeout("10 seconds"))
+      if (response.status >= 500 || response.status === 429)
+        return Message.QueuedTest({
+          testId,
+          generation,
+          status,
+          startedAt,
+          polls: polls + 1,
+          elapsedSeconds: Math.floor(((yield* Clock.currentTimeMillis) - startedAt) / 1000),
+          pollError: "temporarily unavailable",
+        })
       if (response.status !== 200)
         return Message.FailedTest({
           generation,
-          reason: `Unable to read test result (${response.status})`,
+          reason:
+            response.status === 404
+              ? "The test expired or is unavailable. Run it again."
+              : "Unable to read this test. Check repository access.",
         })
       const job = yield* HttpIncomingMessage.schemaBodyJson(RuleTestJob)(response)
-      if (job.status === "done" && job.response)
-        return Message.CompletedTest({ generation, response: job.response })
-      if (job.status === "failed")
-        return Message.FailedTest({ generation, reason: job.message ?? "Test failed" })
-      return Message.QueuedTest({ testId, generation, status: job.status, polls: polls + 1 })
+      return testJobMessage(job, generation, startedAt, polls + 1, yield* Clock.currentTimeMillis)
     }).pipe(
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedTest({ generation, reason: describe(error) })),
+      Effect.timeout("20 seconds"),
+      Effect.catch(() =>
+        Effect.map(Clock.currentTimeMillis, (now) =>
+          Message.QueuedTest({
+            testId,
+            generation,
+            status,
+            startedAt,
+            polls: polls + 1,
+            elapsedSeconds: Math.floor((now - startedAt) / 1000),
+            pollError: "connection interrupted",
+          }),
+        ),
+      ),
+    ),
+})
+export const LoadInput = FoldkitCommand.define("LoadRuleTestInput", {
+  args: { repositoryId: Schema.String, testId: Schema.String, generation: Schema.Int },
+  messages: [Message.LoadedInput, Message.FailedInput],
+  execute: ({ repositoryId, testId, generation }) =>
+    Effect.gen(function* () {
+      const response = yield* HttpClient.get(
+        testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests/") +
+          encodeURIComponent(testId) +
+          "/input",
+      )
+      if (response.status !== 200)
+        return Message.FailedInput({
+          generation,
+          reason:
+            response.status === 404
+              ? "Input details expired or are unavailable. Run the test again to inspect a new snapshot."
+              : "Unable to load input details. Try again.",
+        })
+      const details = yield* HttpIncomingMessage.schemaBodyJson(AiInputDetails)(response)
+      return Message.LoadedInput({ generation, details })
+    }).pipe(
+      Effect.timeout("15 seconds"),
+      Effect.catch(() =>
+        Effect.succeed(
+          Message.FailedInput({ generation, reason: "Unable to load input details. Try again." }),
+        ),
       ),
     ),
 })

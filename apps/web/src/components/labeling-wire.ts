@@ -223,7 +223,48 @@ export const NodeTrace = Schema.Struct({
 })
 export type NodeTrace = typeof NodeTrace.Type
 
+export const Omission = Schema.Struct({
+  start: Schema.Int,
+  end: Schema.Int,
+  unit: Schema.Literals(["characters", "items"]),
+})
+export const InputFactReport = Schema.Struct({
+  name: Schema.String,
+  originalBytes: Schema.Int,
+  suppliedBytes: Schema.Int,
+  omission: Schema.NullOr(Omission),
+})
+export const AiInputReport = Schema.Struct({
+  version: Schema.Int,
+  budgetBytes: Schema.Int,
+  originalBytes: Schema.Int,
+  suppliedBytes: Schema.Int,
+  status: Schema.Literals(["complete", "shortened", "rejected"]),
+  facts: Schema.Array(InputFactReport),
+})
+export type AiInputReport = typeof AiInputReport.Type
+export const AiInputDetails = Schema.Struct({
+  system: Schema.String,
+  text: Schema.String,
+  facts: Schema.Array(Schema.Struct({ name: Schema.String, json: Schema.String })),
+})
+export type AiInputDetails = typeof AiInputDetails.Type
+export const AiReasonCode = Schema.Literals([
+  "input-too-large",
+  "missing-evidence",
+  "access-disabled",
+  "provider-unavailable",
+  "provider-failed",
+  "budget-exhausted",
+  "concurrent-timeout",
+  "insufficient-evidence",
+  "low-confidence",
+])
+export type AiReasonCode = typeof AiReasonCode.Type
+
 export const Evaluation = Schema.Struct({
+  inputReport: Schema.optionalKey(AiInputReport),
+  reasonCode: Schema.optionalKey(AiReasonCode),
   confidence: Schema.optionalKey(Schema.Number),
   cached: Schema.optionalKey(Schema.Boolean),
   outcome: Outcome,

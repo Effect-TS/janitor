@@ -178,6 +178,7 @@ export class LabelingTest extends Context.Service<
             Effect.map(
               program.evaluator._tag === "Classifier"
                 ? classifyOrUnknown({
+                    inspectInput: true,
                     repositoryId,
                     number: view.entity.number,
                     policyVersionId: PolicyVersionId.make(versionId),
@@ -222,6 +223,7 @@ export class LabelingTest extends Context.Service<
                     ? "unknown"
                     : version.program.evaluator._tag === "Classifier"
                       ? (yield* classifyOrUnknown({
+                          inspectInput: true,
                           repositoryId,
                           number: view.entity.number,
                           policyVersionId: version.versionId,

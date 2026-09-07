@@ -1,3 +1,4 @@
+import { AiInputReport, AiInputDetails, AiReasonCode } from "./AiInput.ts"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
@@ -219,6 +220,9 @@ export type NodeTrace = typeof NodeTrace.Type
 export const MAX_TRACE = 64
 
 export const Evaluation = Schema.Struct({
+  inputReport: Schema.optionalKey(AiInputReport),
+  inputDetails: Schema.optionalKey(AiInputDetails),
+  reasonCode: Schema.optionalKey(AiReasonCode),
   confidence: Schema.optionalKey(Schema.Number),
   cached: Schema.optionalKey(Schema.Boolean),
   outcome: Outcome,

@@ -404,4 +404,63 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       assert.strictEqual(cleared.ai?.gatePolicyId, null)
     }),
   )
+  it.effect("retains input reports on cache hits and failures, and hashes omitted evidence", () =>
+    Effect.gen(function* () {
+      yield* seed
+      yield* seedPullRequests
+      failing = false
+      calls = 0
+      yield* (yield* AiConsentService).set(repositoryId, true, actor)
+      const classifier = yield* AiClassifier
+      const evaluator = {
+        _tag: "Classifier" as const,
+        prompt: "Classify {{fact:title}} using {{fact:body}}",
+        evidence: ["title", "body"] as const,
+        minimumConfidence: 0.8,
+      }
+      const run = (middle: string) =>
+        classifier.classify({
+          repositoryId,
+          number: 5,
+          policyVersionId: PolicyVersionId.make("draft"),
+          program: { target: "pull_request", appliesWhen: null, evaluator },
+          evaluator,
+          snapshot: snapshotFacts({
+            kind: "pull_request",
+            title: "Change 5",
+            body: "begin\n" + "a".repeat(20000) + middle + "b".repeat(20000) + "\nend",
+            authorLogin: "octocat",
+            state: "open",
+            labels: [],
+            pullRequest: { baseRef: "main", draft: false, headSha: "a".repeat(40) },
+          }),
+          resolve: () => undefined,
+          inspectInput: true,
+        })
+      const first = yield* run("x")
+      assert.strictEqual(first.inputReport?.status, "shortened")
+      assert.isAtMost(first.inputReport!.suppliedBytes, 16000)
+      assert.isDefined(first.inputDetails)
+      const cached = yield* run("x")
+      assert.strictEqual(cached.cached, true)
+      assert.deepStrictEqual(cached.inputReport, first.inputReport)
+      assert.deepStrictEqual(cached.inputDetails, first.inputDetails)
+      assert.strictEqual(calls, 1)
+      yield* run("y")
+      assert.strictEqual(calls, 2)
+      failing = true
+      const failed = yield* run("z").pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            failing = false
+          }),
+        ),
+      )
+      assert.strictEqual(failed.outcome, "unknown")
+      assert.strictEqual(failed.reasonCode, "provider-failed")
+      assert.strictEqual(failed.inputReport?.status, "shortened")
+      assert.isDefined(failed.inputDetails)
+      assert.strictEqual(calls, 3)
+    }),
+  )
 })

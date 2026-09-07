@@ -1,3 +1,4 @@
+import { AiInputDetails } from "@janitor/domain/Labeling/Policy/AiInput"
 import { RuleTestJobs, RuleTestJob } from "../Labeling/RuleTestJob.ts"
 import { AiRuleDefinition, inspectAiRule } from "@janitor/domain/Labeling/Policy/AiRule"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
@@ -184,6 +185,26 @@ const reads = HttpRouter.addAll([
       )
       return rule ? yield* json(RuleRecord)(rule) : notFound
     }).pipe(handled("rule")),
+  ),
+  HttpRouter.route(
+    "GET",
+    "/repositories/:repositoryId/rule-tests/:testId/input",
+    Effect.gen(function* () {
+      const { repositoryId, testId } = yield* HttpRouter.schemaPathParams(
+        Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId, testId: Schema.String }),
+      )
+      const job = yield* (yield* RuleTestJobs).get(repositoryId, testId, true)
+      const details =
+        job?.response?._tag === "Evaluated"
+          ? job.response.entities[0]?.evaluation?.inputDetails
+          : undefined
+      return details
+        ? yield* json(AiInputDetails)(details)
+        : HttpServerResponse.text(
+            "Input details expired or are unavailable. Run the test again to inspect a new snapshot.",
+            { status: 404 },
+          )
+    }).pipe(handled("ruleTestInput")),
   ),
   HttpRouter.route(
     "GET",

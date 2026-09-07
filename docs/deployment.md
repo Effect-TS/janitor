@@ -99,3 +99,7 @@ For incorrect labels, pause automation in Settings. Sync is an independent contr
 Retain the previous release commit and deployment identifiers. A code rollback must remain compatible with database and durable state. Cloudflare documents [rollback limits](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/), including Durable Object lifecycle changes. Prefer a forward fix when storage changes cannot be reversed safely.
 
 No destroy action is supported. Preserve the shared Alchemy state store and production data during recovery.
+
+## AI input limits
+
+`LABELING_AI_INPUT_BYTES` optionally sets the AI input budget from 4,000 to 64,000 bytes. The default is 16,000, including reserved request framing. Deploy after changing it. Larger referenced facts are shortened deterministically, and tests disclose each omitted range. Full tested evidence is available through the authenticated input endpoint for five minutes, then expires. Snapshots above the separate 128 KB source limit are rejected with an actionable explanation.

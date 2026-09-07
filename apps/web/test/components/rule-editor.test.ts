@@ -206,6 +206,146 @@ describe("rule flow testing", () => {
         ],
       },
     })
+  it("shows omissions from the tested snapshot and explains expired inspection", () => {
+    const initial = fresh()
+    if (initial.testCandidates._tag !== "Ready") return
+    const started = RuleEditor.update(initial, RuleEditor.Message.ClickedTest()).model
+    const completed = RuleEditor.update(
+      started,
+      RuleEditor.Message.CompletedTest({
+        generation: started.testGeneration,
+        testId: "test-1",
+        response: {
+          _tag: "Evaluated",
+          entities: [
+            {
+              ...initial.testCandidates.items[0]!,
+              evaluation: {
+                outcome: "match",
+                reason: "Matches",
+                trace: [],
+                inputReport: {
+                  version: 3,
+                  budgetBytes: 16000,
+                  originalBytes: 18000,
+                  suppliedBytes: 16000,
+                  status: "shortened",
+                  facts: [
+                    {
+                      name: "body",
+                      originalBytes: 15,
+                      suppliedBytes: 9,
+                      omission: { start: 5, end: 11, unit: "characters" },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ).model
+    const loading = RuleEditor.update(completed, RuleEditor.Message.ClickedInspectInput())
+    expect(loading.commands?.[0]?.name).toBe("LoadRuleTestInput")
+    const ready = RuleEditor.update(
+      loading.model,
+      RuleEditor.Message.LoadedInput({
+        generation: started.testGeneration,
+        details: {
+          system: "system",
+          text: "prepared input",
+          facts: [{ name: "body", json: JSON.stringify("startMIDDLEend") }],
+        },
+      }),
+    ).model
+    const scene = { update: RuleEditor.update, view: Scene.withViewInputs(RuleEditor.view, {})() }
+    Scene.scene(
+      scene,
+      Scene.given(ready),
+      Scene.expect(Scene.text("AI input shortened")).toExist(),
+      Scene.expect(Scene.text("MIDDLE")).toExist(),
+      Scene.expect(Scene.text("View sent input")).toExist(),
+    )
+    const expired = RuleEditor.update(
+      loading.model,
+      RuleEditor.Message.FailedInput({
+        generation: started.testGeneration,
+        reason: "Input details expired. Run the test again.",
+      }),
+    ).model
+    Scene.scene(
+      scene,
+      Scene.given(expired),
+      Scene.expect(Scene.role("alert")).toHaveText("Input details expired. Run the test again."),
+    )
+  })
+  it("keeps progress monotonic and ignores updates after completion", () => {
+    const started = RuleEditor.update(fresh(), RuleEditor.Message.ClickedTest()).model
+    expect(started.testResult).toMatchObject({ status: "submitting" })
+    const progress = (status: "queued" | "running") =>
+      RuleEditor.Message.QueuedTest({
+        testId: "test-1",
+        generation: started.testGeneration,
+        status,
+        polls: 1,
+        startedAt: 0,
+        elapsedSeconds: 5,
+      })
+    const queued = RuleEditor.update(started, progress("queued")).model
+    expect(queued.testResult).toMatchObject({ status: "queued" })
+    const running = RuleEditor.update(queued, progress("running")).model
+    const old = RuleEditor.update(running, progress("queued"))
+    expect(old.model.testResult).toMatchObject({ status: "running" })
+    expect(old.commands?.[0]?.name).toBe("PollRuleTest")
+    const done = RuleEditor.update(
+      old.model,
+      RuleEditor.Message.CompletedTest({
+        generation: started.testGeneration,
+        testId: "test-1",
+        response: { _tag: "Evaluated", entities: [] },
+      }),
+    ).model
+    expect(RuleEditor.update(done, progress("queued")).model).toBe(done)
+    expect(
+      RuleEditor.update(
+        done,
+        RuleEditor.Message.FailedTest({
+          generation: started.testGeneration,
+          reason: "late failure",
+        }),
+      ).model,
+    ).toBe(done)
+  })
+  it("polls the same job after a transient read failure and fences stale input inspection", () => {
+    const started = RuleEditor.update(fresh(), RuleEditor.Message.ClickedTest()).model
+    const next = RuleEditor.update(
+      started,
+      RuleEditor.Message.QueuedTest({
+        testId: "same-job",
+        generation: started.testGeneration,
+        status: "queued",
+        polls: 2,
+        startedAt: 0,
+        elapsedSeconds: 10,
+        pollError: "offline",
+      }),
+    )
+    expect(next.commands?.[0]?.args).toMatchObject({ testId: "same-job" })
+    expect(next.commands?.[0]?.name).toBe("PollRuleTest")
+    const edited = RuleEditor.update(
+      next.model,
+      RuleEditor.Message.UpdatedPriority({ value: "1" }),
+    ).model
+    expect(
+      RuleEditor.update(
+        edited,
+        RuleEditor.Message.LoadedInput({
+          generation: started.testGeneration,
+          details: { system: "", text: "old", facts: [] },
+        }),
+      ).model,
+    ).toBe(edited)
+  })
   it("tests only the selected target and ignores results from before an edit", () => {
     expect(RuleEditor.testItems(fresh()).map((item) => item.number)).toEqual([12])
     const started = RuleEditor.update(fresh(), RuleEditor.Message.ClickedTest()).model

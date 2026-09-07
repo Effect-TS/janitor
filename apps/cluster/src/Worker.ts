@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema"
 import { RuleTestJobLayer, RuleTestJobRegistration, RuleTestJobs } from "./Labeling/RuleTestJob.ts"
 import { RepositoryConnections } from "./RepositoryConnections.ts"
 import { deployment } from "./Deployment.ts"
@@ -61,6 +62,7 @@ import {
   AiConsentService,
   ClassifierProvider,
   providerConfig,
+  AiInputBudget,
 } from "./Labeling/Classifier.ts"
 import { LabelingConfiguration } from "./Labeling/Configuration.ts"
 import { Policies } from "./Labeling/Policies.ts"
@@ -157,6 +159,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // The classifier provider is optional: without a key every classifier
     // policy evaluates unknown, which preserves labels.
     const ai = yield* Config.unwrap(providerConfig)
+    const inputBudget = yield* Config.schema(
+      Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
+      "LABELING_AI_INPUT_BYTES",
+    ).pipe(Config.withDefault(16000))
     const ProviderLayer = Option.match(ai.apiKey, {
       onNone: () => ClassifierProvider.unavailable,
       onSome: (apiKey) =>
@@ -240,6 +246,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
       Layer.provideMerge(WorkflowOutbox.layer),
       Layer.provide(DatabaseLayer),
+      Layer.provide(Layer.succeed(AiInputBudget, inputBudget)),
       Layer.provide(
         Layer.succeed(
           OutboxWake,

@@ -55,6 +55,7 @@ export const enqueueRuleTest = Effect.fn("enqueueRuleTest")(function* (
 export const getRuleTest = Effect.fn("getRuleTest")(function* (
   repositoryId: GitHubRepositoryDatabaseId,
   testId: string,
+  includeInput = false,
 ) {
   const configuration = yield* LabelingConfiguration
   yield* configuration.requireRepository(repositoryId)
@@ -64,11 +65,26 @@ export const getRuleTest = Effect.fn("getRuleTest")(function* (
   if (!connected.length) return yield* new RepositoryNotFound({ repositoryId })
   yield* sql`UPDATE labeling_rule_test SET status='failed',message='The test expired. Run it again.' WHERE repository_id=${repositoryId} AND test_id=${testId} AND expires_at<CLOCK_TIMESTAMP() AND status IN ('queued','running')`
   const rows =
-    yield* sql`SELECT request,status,response,message FROM labeling_rule_test WHERE repository_id=${repositoryId} AND test_id=${testId}`.pipe(
+    yield* sql`SELECT request,status,response,message FROM labeling_rule_test WHERE repository_id=${repositoryId} AND test_id=${testId} AND (expires_at>CLOCK_TIMESTAMP() OR NOT ${includeInput})`.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Row))),
     )
   return rows[0]
-    ? { testId, status: rows[0].status, response: rows[0].response, message: rows[0].message }
+    ? {
+        testId,
+        status: rows[0].status,
+        response:
+          !includeInput && rows[0].response?._tag === "Evaluated"
+            ? {
+                ...rows[0].response,
+                entities: rows[0].response.entities.map((entity): typeof entity => {
+                  if (!entity.evaluation) return entity
+                  const { inputDetails: _details, ...evaluation } = entity.evaluation
+                  return { ...entity, evaluation }
+                }),
+              }
+            : rows[0].response,
+        message: rows[0].message,
+      }
     : null
 })
 export const TestWorkflow = Workflow.make(TAG, {
@@ -125,6 +141,7 @@ export class RuleTestJobs extends Context.Service<
     readonly get: (
       repositoryId: GitHubRepositoryDatabaseId,
       testId: string,
+      includeInput?: boolean,
     ) => Effect.Effect<typeof RuleTestJob.Type | null, unknown>
   }
 >()("@janitor/Labeling/RuleTestJobs") {
@@ -141,8 +158,8 @@ export class RuleTestJobs extends Context.Service<
             Effect.provideService(LabelingConfiguration, configuration),
             Effect.provideService(WorkflowOutbox, outbox),
           ),
-        get: (repositoryId: GitHubRepositoryDatabaseId, testId: string) =>
-          getRuleTest(repositoryId, testId).pipe(
+        get: (repositoryId: GitHubRepositoryDatabaseId, testId: string, includeInput = false) =>
+          getRuleTest(repositoryId, testId, includeInput).pipe(
             Effect.provideService(SqlClient.SqlClient, sql),
             Effect.provideService(LabelingConfiguration, configuration),
           ),

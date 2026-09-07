@@ -11,7 +11,7 @@ export const WorkflowOutboxCronLayer = Singleton.make(
   Effect.gen(function* () {
     const dispatcher = yield* WorkflowDispatcher
     const sql = yield* SqlClient.SqlClient
-    yield* sql`DELETE FROM labeling_rule_test WHERE created_at<CLOCK_TIMESTAMP()-INTERVAL '24 hours'`
+    yield* sql`DELETE FROM labeling_rule_test WHERE expires_at<CLOCK_TIMESTAMP()`
     yield* sql`DELETE FROM labeling_ai_claim WHERE expires_at<CLOCK_TIMESTAMP()`
     for (let pass = 0; pass < 3; pass++) {
       const summary = yield* dispatcher.dispatchDue({ limit: 100 })
