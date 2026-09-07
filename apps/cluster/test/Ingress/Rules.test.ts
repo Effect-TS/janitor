@@ -1,3 +1,4 @@
+import { ActivityReader } from "../../src/Labeling/Activity.ts"
 import { RuleTestJobs } from "../../src/Labeling/RuleTestJob.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as Context from "effect/Context"
@@ -193,6 +194,9 @@ const withHandler = <A, E, R>(
               get: () => Effect.succeed(null),
             }),
             Context.add(LabelingOverview, overview),
+            Context.add(ActivityReader, {
+              page: () => Effect.succeed({ entries: [], cursor: null }),
+            }),
             Context.add(AiConsentService, consentService),
             Context.add(CurrentAccessIdentity, identity),
           ),
@@ -214,6 +218,18 @@ describe("RulesRoutes", () => {
   it.effect("serves the configuration, policies, and rules", () =>
     withHandler((handler) =>
       Effect.gen(function* () {
+        const activity = yield* Effect.promise(() =>
+          handler(request("GET", `${base}/activity?search=fix&target=pull_request`)),
+        )
+        assert.strictEqual(activity.status, 200)
+        assert.deepStrictEqual(yield* Effect.promise(() => activity.json()), {
+          entries: [],
+          cursor: null,
+        })
+        const badCursor = yield* Effect.promise(() =>
+          handler(request("GET", `${base}/activity?cursor=invalid`)),
+        )
+        assert.strictEqual(badCursor.status, 400)
         const configured = yield* Effect.promise(() =>
           handler(request("GET", `${base}/configuration`)),
         )

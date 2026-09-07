@@ -1,3 +1,4 @@
+import { ActivityReader } from "./Labeling/Activity.ts"
 import * as Schema from "effect/Schema"
 import { RuleTestJobLayer, RuleTestJobRegistration, RuleTestJobs } from "./Labeling/RuleTestJob.ts"
 import { RepositoryConnections } from "./RepositoryConnections.ts"
@@ -113,7 +114,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
 
     return {
       main: import.meta.url,
-      compatibility: { date: "2026-09-05", flags: ["nodejs_compat"] },
+      // The pinned local workerd is 1.20260704.1; newer dates fail at startup.
+      compatibility: { date: dev ? "2026-07-04" : "2026-09-05", flags: ["nodejs_compat"] },
       // The website Worker holds the custom domain for this hostname. A route
       // is more specific than a custom domain, so the API paths land here and
       // everything else falls through to the website. Access protects the
@@ -212,6 +214,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           LabelingTest.layer,
           RuleTestJobs.layer,
           LabelingOverview.layer,
+          ActivityReader.layer,
         ),
       ),
       Layer.provideMerge(Policies.layer),

@@ -1,3 +1,5 @@
+import { ActivityCursor, ActivityPage } from "@janitor/domain/Labeling/Activity"
+import { ActivityReader } from "../Labeling/Activity.ts"
 import { AiInputDetails } from "@janitor/domain/Labeling/Policy/AiInput"
 import { RuleTestJobs, RuleTestJob } from "../Labeling/RuleTestJob.ts"
 import { AiRuleDefinition, inspectAiRule } from "@janitor/domain/Labeling/Policy/AiRule"
@@ -238,6 +240,27 @@ const reads = HttpRouter.addAll([
       const overview = yield* LabelingOverview
       return yield* json(Schema.Array(RepositoryOverview))(yield* overview.repositories)
     }).pipe(handled("repositories")),
+  ),
+  HttpRouter.route(
+    "GET",
+    "/repositories/:repositoryId/activity",
+    Effect.gen(function* () {
+      const { repositoryId } = yield* repositoryPath
+      const query = yield* HttpRouter.schemaParams(
+        Schema.Struct({
+          search: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
+          target: Schema.optionalKey(Schema.Literals(["all", "issue", "pull_request"])),
+          cursor: Schema.optionalKey(Schema.fromJsonString(ActivityCursor)),
+        }),
+      )
+      return yield* json(ActivityPage)(
+        yield* (yield* ActivityReader).page(repositoryId, {
+          search: query.search ?? "",
+          target: query.target ?? "all",
+          cursor: query.cursor ?? null,
+        }),
+      )
+    }).pipe(handled("activity")),
   ),
   HttpRouter.route(
     "GET",

@@ -1124,3 +1124,201 @@
     padding: 16px 12px;
   }
 }
+
+/* Activity owns the remaining inset height; only its list scrolls. */
+.repository-activity {
+  flex: 0 0 auto;
+  height: calc(100dvh - 48px);
+  min-height: 0;
+  overflow: hidden;
+}
+.activity-workspace {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px 0;
+}
+.activity-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 16px;
+  flex-shrink: 0;
+}
+.activity-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  width: 290px;
+}
+.activity-search input {
+  background: transparent;
+  min-width: 0;
+  width: 100%;
+  outline: none;
+  font-size: 12px;
+}
+.activity-search:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.activity-view-toggle {
+  display: flex;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--muted);
+}
+.activity-view-toggle button {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+}
+.activity-view-toggle button[aria-pressed="true"] {
+  color: var(--foreground);
+  background: var(--background);
+  box-shadow: 0 1px 3px #00000012;
+}
+.activity-target {
+  font-size: 12px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+}
+.activity-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  border-top: 1px solid var(--border);
+}
+.activity-event {
+  height: 100%;
+  border-bottom: 1px solid var(--border);
+}
+.activity-event-summary {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: 14px;
+  width: 100%;
+  height: 96px;
+  padding: 14px 12px;
+}
+.activity-event-summary:hover {
+  background: var(--muted);
+}
+.activity-event-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--muted);
+}
+.activity-event-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  height: 25px;
+}
+.activity-label {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.activity-event-details {
+  height: 308px;
+  overflow: auto;
+  margin: 0 16px 16px 54px;
+  border-left: 2px solid var(--border);
+  padding: 8px 16px;
+}
+.activity-detail-row {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.activity-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 72px;
+  padding: 12px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+}
+.activity-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  min-height: 48px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+.activity-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 12px;
+}
+.activity-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 24px;
+}
+.activity-workspace button:focus-visible,
+.activity-target:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+@media (max-width: 640px) {
+  .activity-workspace {
+    padding: 14px 12px 0;
+  }
+  .activity-search {
+    width: 100%;
+  }
+  .activity-event-summary {
+    gap: 8px;
+    padding: 10px 4px;
+  }
+  .activity-event-details {
+    margin-left: 32px;
+    padding: 8px 10px;
+  }
+  .activity-footer {
+    font-size: 10px;
+  }
+}

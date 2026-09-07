@@ -311,3 +311,33 @@ These files share `repository-overview-studies.css`,
 `repository-overview-studies.js`, and `mockup.css`. Open them directly in a browser;
 no build or server is needed. Desktop and phone widths, all four states, and
 preview controls were checked in Chromium.
+
+## Activity screen studies
+
+Four alternatives focus on labeling outcomes and the reason behind each decision.
+Open any HTML file directly in your browser, then use the top links to compare.
+
+| Mockup                                                     | Strategy                                                                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [13a-activity-journal.html](13a-activity-journal.html)     | A chronological journal. Read what changed, then expand an event for its reasoning.                                 |
+| [13b-activity-ledger.html](13b-activity-ledger.html)       | A compact table with a persistent, non-overlay detail pane. Best for scanning and comparing decisions.              |
+| [13c-activity-threads.html](13c-activity-threads.html)     | History grouped by issue or pull request. Shows how a label changed as descriptions and commits changed.            |
+| [13d-activity-attention.html](13d-activity-attention.html) | The latest unresolved decisions first. Separates failed label writes and insufficient evidence from completed work. |
+
+Try searching for `7908`, filtering to Issues, selecting Yesterday for an empty
+state, and switching the theme. The table's subject buttons update its detail
+pane. Journal events and subject histories expand inline. Attention first has
+Needs attention and Handled queues; an older uncertain decision is resolved by a
+newer successful evaluation of the same subject.
+
+All events, explanations, timings, and confidence values are fictional examples,
+including those associated with real GitHub numbers. No network requests, label
+writes, retries, or AI calls occur. GitHub links open the actual site. View rule
+links open an existing editor study rather than a live rule. The shared CSS and
+JavaScript work from disk without a build or external assets.
+
+These are UI proposals, not a claim that every field is already exposed by the
+activity API. Implementation would need to join reconciliation and label-action
+records with subject titles and decision diagnostics. Historical input excerpts
+would also need an explicit retention strategy; the current test-inspection TTL
+is not a durable activity archive.

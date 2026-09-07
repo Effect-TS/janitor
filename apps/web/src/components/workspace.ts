@@ -1,6 +1,6 @@
+import * as Activity from "@/components/activity"
 import * as Switch from "@foldkit/ui/switch"
 import * as Menu from "@foldkit/ui/menu"
-import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -32,14 +32,12 @@ import {
   CATALOG_ENDPOINT,
   ConfigurationView,
   configurationEndpoint,
-  describePlan,
   FactDescription,
   labelName,
   PolicyDetail,
   policyEndpoint,
   policyName,
   ReconciliationRecord,
-  reconciliationsEndpoint,
   REPOSITORIES_ENDPOINT,
   RepositoryOverview,
   ruleEndpoint,
@@ -96,6 +94,7 @@ type Mutation = typeof Mutation.Type
 const ResponseContext = { repositoryId: Schema.String, operationId: Schema.Int }
 
 export const Model = Schema.Struct({
+  activity: Activity.Model,
   nextOperationId: Schema.Int,
   pendingMutations: Schema.Array(Mutation),
   nextRequestId: Schema.Int,
@@ -122,6 +121,7 @@ export type Model = typeof Model.Type
 // MESSAGE
 
 export const Message = defineMessageUnion({
+  GotActivityMessage: { message: Activity.Message },
   UpdatedPolicySearch: { value: Schema.String },
   GotRepositories: { repositories: Schema.Array(RepositoryOverview), requestId: Schema.Int },
   FailedRepositories: { reason: Schema.String, requestId: Schema.Int },
@@ -229,10 +229,7 @@ export const FetchDetail = FoldkitCommand.define("FetchDetail", {
             Effect.succeed({ _tag: "Failed" as const, reason: describe(error) }),
           ),
         ),
-        reconciliations: getJson(
-          reconciliationsEndpoint(repositoryId),
-          Schema.Array(ReconciliationRecord),
-        ),
+        reconciliations: Effect.succeed([]),
       },
       { concurrency: 2 },
     ).pipe(
@@ -407,6 +404,7 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
 export const init = (): UpdateReturn => ({
   model: Model.make(
     {
+      activity: Activity.init(),
       nextOperationId: 1,
       pendingMutations: [],
       nextRequestId: 1,
@@ -793,6 +791,15 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }),
     }),
 
+    GotActivityMessage: ({ message }) => {
+      const result = Activity.update(model.activity, message)
+      return {
+        model: { ...model, activity: result.model },
+        commands: FoldkitCommand.mapMessages(result.commands ?? [], (message) =>
+          Message.GotActivityMessage({ message }),
+        ),
+      }
+    },
     Selected: ({ repositoryId }) =>
       Option.contains(model.dataRepositoryId, repositoryId)
         ? { model }
@@ -1229,7 +1236,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
 // SUBSCRIPTIONS
 
-export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
+const repositorySubscriptions = Subscription.make<Model, Message>()((entry) => ({
   repositoryPoll: entry(
     { hasSelection: Schema.Boolean },
     {
@@ -1242,35 +1249,20 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   ),
 }))
 
+export const subscriptions = Subscription.aggregate<Model, Message>()(
+  repositorySubscriptions,
+  Subscription.lift(Activity.subscriptions)<Model, Message>({
+    toChildModel: (model) => model.activity,
+    toParentMessage: (message) => Message.GotActivityMessage({ message }),
+  }),
+)
+
 // VIEW
 
 const badgeClass = "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
-const cellClass = "py-1.5 pr-3 align-top"
-const headClass = "py-1 pr-3 text-left text-xs font-medium"
 
 const sectionTitle = <M>(h: HtmlBuilder<M>, text: string): Html =>
   h.h2([h.Class("text-sm font-semibold tracking-tight")], [text])
-
-const table = (
-  h: HtmlBuilder<Message>,
-  heads: ReadonlyArray<string>,
-  rows: ReadonlyArray<Html>,
-): Html =>
-  h.table(
-    [h.Class("w-full text-sm")],
-    [
-      h.thead(
-        [h.Class("text-muted-foreground")],
-        [
-          h.tr(
-            [],
-            heads.map((head) => h.th([h.Class(headClass)], [head])),
-          ),
-        ],
-      ),
-      h.tbody([], rows),
-    ],
-  )
 
 const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
   const creating =
@@ -1772,73 +1764,6 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
   )
 }
 
-const reconciliationsSection = (
-  h: HtmlBuilder<Message>,
-  reconciliations: ReadonlyArray<ReconciliationRecord>,
-  view: ConfigurationView,
-): Html =>
-  h.section(
-    [h.Class("flex flex-col gap-2")],
-    [
-      sectionTitle(h, "Reconciliations"),
-      reconciliations.length === 0
-        ? h.div(
-            [h.Class("text-muted-foreground text-sm")],
-            [
-              "No qualified snapshots yet. Activate a revision and change an issue or pull request.",
-            ],
-          )
-        : table(
-            h,
-            ["#", "Snapshot", "Revision", "Outcome", "Plan", "When"],
-            reconciliations.map((row) =>
-              h.tr(
-                [h.Class("border-t"), h.DataAttribute("outcome", row.outcome ?? "pending")],
-                [
-                  h.td([h.Class(cellClass)], [String(row.number)]),
-                  h.td([h.Class(cellClass)], [row.snapshotGeneration]),
-                  h.td([h.Class(cellClass)], [String(row.rulesRevision)]),
-                  h.td(
-                    [h.Class(cellClass)],
-                    [
-                      h.div([], [row.outcome ?? "pending"]),
-                      h.div([h.Class("text-muted-foreground text-xs")], [row.detail ?? ""]),
-                    ],
-                  ),
-                  h.td(
-                    [h.Class(cellClass)],
-                    [
-                      row.plan === null
-                        ? h.empty
-                        : row.plan.actions.length === 0
-                          ? h.span([h.Class("text-muted-foreground")], ["no changes"])
-                          : h.ul(
-                              [h.Class("flex flex-col gap-0.5")],
-                              describePlan(row.plan, view, row.actions).map((line, index) =>
-                                h.li(
-                                  [
-                                    h.DataAttribute(
-                                      "action",
-                                      row.plan?.actions[index]?.action ?? "",
-                                    ),
-                                  ],
-                                  [line],
-                                ),
-                              ),
-                            ),
-                    ],
-                  ),
-                  h.td(
-                    [h.Class(cn(cellClass, "text-muted-foreground whitespace-nowrap"))],
-                    [DateTime.formatUtc(row.completedAt ?? row.createdAt)],
-                  ),
-                ],
-              ),
-            ),
-          ),
-    ],
-  )
-
 const syncSection = (h: HtmlBuilder<Message>, model: Model): Html => {
   const repository = Option.flatMap(model.repositories, (repositories) =>
     Option.fromNullishOr(
@@ -2176,9 +2101,6 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
       return h.div(
         [h.Class("flex min-w-0 flex-col gap-6 overflow-auto p-6")],
         [
-          section === "Activity"
-            ? reconciliationsSection(h, detail.reconciliations, detail.configuration)
-            : h.empty,
           section === "Settings"
             ? h.div(
                 [h.Class("flex flex-col gap-8")],
@@ -2193,8 +2115,24 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
 export const view = Submodel.defineView<Model, Message, { section: Section }>(
   (model, { section }, h) =>
     h.div(
-      [h.Class("repository-workspace")],
-      [section === "Overview" ? overview(h, model) : detailPanel(h, model, section)],
+      [h.Class(`repository-workspace ${section === "Activity" ? "repository-activity" : ""}`)],
+      [
+        section === "Overview"
+          ? overview(h, model)
+          : section === "Activity"
+            ? h.submodel({
+                slotId: "activity",
+                model: model.activity,
+                view: Activity.view,
+                viewInputs: {
+                  repository: Option.getOrElse(model.repositories, () => []).find(
+                    (repository) => repository.repositoryId === model.activity.repositoryId,
+                  ),
+                },
+                toParentMessage: (message) => Message.GotActivityMessage({ message }),
+              })
+            : detailPanel(h, model, section),
+      ],
     ),
 )
 
@@ -2237,12 +2175,24 @@ export const openRoute = (
   route: Routes.AppRoute,
   changedDocument: boolean,
 ): UpdateReturn => {
-  if (!("repositoryId" in route)) return { model: closed(model) }
+  if (!("repositoryId" in route))
+    return { model: { ...closed(model), activity: { ...model.activity, active: false } } }
   const selected = update(model, Message.Selected({ repositoryId: route.repositoryId }))
   let next = evo(changedDocument ? closed(selected.model) : selected.model, {
     policySearch: () => ("q" in route ? (route.q ?? "") : ""),
   })
-  if (Option.isNone(next.detail)) return { model: next, commands: selected.commands ?? [] }
+  const activity = update(
+    next,
+    Message.GotActivityMessage({
+      message: Activity.Message.Activated({
+        repositoryId: route.repositoryId,
+        active: route._tag === "Activity",
+      }),
+    }),
+  )
+  next = activity.model
+  const routeCommands = [...(selected.commands ?? []), ...(activity.commands ?? [])]
+  if (Option.isNone(next.detail)) return { model: next, commands: routeCommands }
   let result: UpdateReturn = { model: next }
   if (next.panel._tag === "Closed") {
     switch (route._tag) {
@@ -2289,7 +2239,7 @@ export const openRoute = (
       next = evo(next, { panel: () => ({ _tag: "PolicyEditor" as const, editor }) })
     }
   }
-  return { model: next, commands: [...(selected.commands ?? []), ...(result.commands ?? [])] }
+  return { model: next, commands: [...routeCommands, ...(result.commands ?? [])] }
 }
 
 /** Save-button visibility includes unpublished drafts; navigation warns only about unsaved input. */
