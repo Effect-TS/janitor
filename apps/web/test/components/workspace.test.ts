@@ -782,3 +782,58 @@ it("renders the minimal repository Overview with a rules link", () => {
     Scene.expect(Scene.text("Recent activity")).toBeAbsent(),
   )
 })
+
+it.each(["pending", "failed"] as const)(
+  "renders Overview while unrelated repository details are %s",
+  (state) => {
+    Scene.scene(
+      {
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Overview" })(),
+      },
+      Scene.given({
+        ...opened(),
+        detail: Option.none(),
+        detailError: state === "failed" ? Option.some("Detail request failed") : Option.none(),
+      }),
+      Scene.expect(Scene.text("Your repository is connected.")).toExist(),
+      Scene.expect(Scene.role("link", { name: "View rules" })).toExist(),
+      Scene.expect(Scene.text("Loading repository…")).toBeAbsent(),
+      Scene.expect(Scene.text("Detail request failed")).toBeAbsent(),
+    )
+  },
+)
+
+it("shows the newly selected repository before its details load", () => {
+  Scene.scene(
+    {
+      update: Workspace.update,
+      view: Scene.withViewInputs(Workspace.view, { section: "Overview" })(),
+    },
+    Scene.given({ ...opened(), dataRepositoryId: Option.some("702"), detail: Option.none() }),
+    Scene.expect(Scene.text("effect / two")).toExist(),
+    Scene.expect(Scene.text("effect / one")).toBeAbsent(),
+  )
+})
+
+it.each(["pending", "failed"] as const)(
+  "shows repository list state when the repository itself is %s",
+  (state) => {
+    Scene.scene(
+      {
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Overview" })(),
+      },
+      Scene.given({
+        ...opened(),
+        repositories: Option.none(),
+        repositoriesError:
+          state === "failed" ? Option.some("Repository list failed") : Option.none(),
+      }),
+      Scene.expect(
+        Scene.text(state === "failed" ? "Repository list failed" : "Loading repository…"),
+      ).toExist(),
+      Scene.expect(Scene.role("link", { name: "View rules" })).toBeAbsent(),
+    )
+  },
+)

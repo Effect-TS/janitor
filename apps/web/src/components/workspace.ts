@@ -2017,6 +2017,72 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
   }
 }
 
+/** Overview needs only the repository list, never editor or activity data. */
+const overview = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const repository = Option.getOrElse(model.repositories, () => []).find((repo) =>
+    Option.contains(model.dataRepositoryId, repo.repositoryId),
+  )
+  if (!repository)
+    return h.p(
+      [
+        h.Class("p-6 text-sm text-muted-foreground"),
+        h.Role(Option.isSome(model.repositoriesError) ? "alert" : "status"),
+      ],
+      [
+        Option.getOrElse(model.repositoriesError, () =>
+          Option.isNone(model.dataRepositoryId)
+            ? "Select a repository to get started."
+            : Option.isNone(model.repositories)
+              ? "Loading repository…"
+              : "This repository is unavailable or you no longer have access.",
+        ),
+      ],
+    )
+  return h.section(
+    [
+      h.Class("flex min-h-[60vh] flex-1 items-center justify-center px-6 pb-24 pt-12"),
+      h.AriaLabel("Repository overview"),
+    ],
+    [
+      h.div(
+        [h.Class("text-center")],
+        [
+          h.span(
+            [
+              h.Class(
+                "mx-auto mb-4 grid size-11 place-items-center rounded-xl border bg-card text-sm text-muted-foreground",
+              ),
+              h.AriaHidden(true),
+            ],
+            [repository.owner.slice(0, 1).toUpperCase()],
+          ),
+          h.h1(
+            [h.Class("text-base font-medium tracking-tight")],
+            [repository.owner + " / " + repository.repo],
+          ),
+          h.p(
+            [h.Class("mb-5 mt-2 text-xs text-muted-foreground")],
+            [
+              repository.access === "accessible"
+                ? "Your repository is connected."
+                : "Repository access needs attention.",
+            ],
+          ),
+          h.a(
+            [
+              h.Href(Routes.rules({ repositoryId: repository.repositoryId })),
+              h.Class(
+                "inline-flex items-center justify-center gap-3 rounded-md border px-3 py-2 text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring",
+              ),
+            ],
+            ["View rules", h.span([h.AriaHidden(true)], ["→"])],
+          ),
+        ],
+      ),
+    ],
+  )
+}
+
 const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): Html =>
   Option.match(model.detail, {
     onNone: () =>
@@ -2033,55 +2099,6 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
         ],
       ),
     onSome: (detail) => {
-      if (section === "Overview") {
-        const repository = Option.getOrElse(model.repositories, () => []).find((repo) =>
-          Option.contains(model.dataRepositoryId, repo.repositoryId),
-        )
-        if (!repository) return h.empty
-        return h.section(
-          [
-            h.Class("flex min-h-[60vh] flex-1 items-center justify-center px-6 pb-24 pt-12"),
-            h.AriaLabel("Repository overview"),
-          ],
-          [
-            h.div(
-              [h.Class("text-center")],
-              [
-                h.span(
-                  [
-                    h.Class(
-                      "mx-auto mb-4 grid size-11 place-items-center rounded-xl border bg-card text-sm text-muted-foreground",
-                    ),
-                    h.AriaHidden(true),
-                  ],
-                  [repository.owner.slice(0, 1).toUpperCase()],
-                ),
-                h.h1(
-                  [h.Class("text-base font-medium tracking-tight")],
-                  [repository.owner + " / " + repository.repo],
-                ),
-                h.p(
-                  [h.Class("mb-5 mt-2 text-xs text-muted-foreground")],
-                  [
-                    repository.access === "accessible"
-                      ? "Your repository is connected."
-                      : "Repository access needs attention.",
-                  ],
-                ),
-                h.a(
-                  [
-                    h.Href(Routes.rules({ repositoryId: repository.repositoryId })),
-                    h.Class(
-                      "inline-flex items-center justify-center gap-3 rounded-md border px-3 py-2 text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring",
-                    ),
-                  ],
-                  ["View rules", h.span([h.AriaHidden(true)], ["→"])],
-                ),
-              ],
-            ),
-          ],
-        )
-      }
       if (section === "Policies") {
         return h.div(
           [h.Class("policy-workspace")],
@@ -2175,7 +2192,10 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
 
 export const view = Submodel.defineView<Model, Message, { section: Section }>(
   (model, { section }, h) =>
-    h.div([h.Class("repository-workspace")], [detailPanel(h, model, section)]),
+    h.div(
+      [h.Class("repository-workspace")],
+      [section === "Overview" ? overview(h, model) : detailPanel(h, model, section)],
+    ),
 )
 
 /** Refresh server data after sync without replacing an open editor or its draft. */
