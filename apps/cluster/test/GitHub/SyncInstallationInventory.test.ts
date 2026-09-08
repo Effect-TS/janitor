@@ -1,6 +1,7 @@
 import { SyncIntegration } from "../../src/SyncIntegration.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -225,21 +226,25 @@ describe("SyncInstallationInventory", () => {
       const recorder = makeRecorder()
       const start = yield* DateTime.now
       const until = DateTime.addDuration(start, "30 seconds")
+      const firstRequest = yield* Deferred.make<void>()
 
       const fiber = yield* run(recorder, (request, index) => {
         if (index === 0)
-          return Effect.fail(new GitHubRateLimited({ scopeKey: "app", until, reason: "reserve" }))
+          return Deferred.succeed(firstRequest, undefined).pipe(
+            Effect.andThen(
+              Effect.fail(new GitHubRateLimited({ scopeKey: "app", until, reason: "reserve" })),
+            ),
+          )
         if (request.url.startsWith("/app/installations/"))
           return Effect.succeed(ok(installationBody))
         return Effect.succeed(ok({ total_count: 0, repositories: [] }))
       }).pipe(Effect.forkChild({ startImmediately: true }))
 
-      // Let the workflow reach the first request and park on the durable clock.
-      for (let i = 0; i < 100 && recorder.requests.length < 1; i++) {
-        yield* Effect.yieldNow
-      }
+      yield* Deferred.await(firstRequest)
+      yield* TestClock.adjust("29 seconds")
       assert.strictEqual(recorder.requests.length, 1)
-      yield* TestClock.adjust("31 seconds")
+      assert.deepStrictEqual(recorder.completed, [])
+      yield* TestClock.adjust("2 seconds")
 
       const result = yield* Fiber.join(fiber)
       assert.strictEqual(result.outcome, "verified")
