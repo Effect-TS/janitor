@@ -340,20 +340,9 @@ const searchChanges = Subscription.make<Model, Message>()((entry) => ({
     },
   ),
 }))
-const polling = Subscription.make<Model, Message>()((entry) => ({
-  activityPoll: entry(
-    { active: Schema.Boolean },
-    {
-      modelToDependencies: (model) => ({ active: model.active }),
-      dependenciesToStream: ({ active }) =>
-        active ? Stream.map(Stream.tick("10 seconds"), () => Message.Polled()) : Stream.empty,
-    },
-  ),
-}))
 export const subscriptions = Subscription.aggregate<Model, Message>()(
   { journalEvents: listSubscriptions("journal").containerEvents },
   { groupedEvents: listSubscriptions("grouped").containerEvents },
-  polling,
   searchChanges,
 )
 export const outcome = (

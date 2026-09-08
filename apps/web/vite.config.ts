@@ -2,6 +2,8 @@ import { foldkit } from "@foldkit/vite-plugin"
 import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite-plus"
 
+const apiOrigin = process.env.JANITOR_API_ORIGIN ?? "http://localhost:8787"
+
 export default defineConfig({
   root: new URL(".", import.meta.url).pathname,
   plugins: [tailwindcss(), foldkit({ devToolsMcpPort: 9988 })],
@@ -24,8 +26,30 @@ export default defineConfig({
     // rewrites the origin so writes still look same-origin to the Worker.
     proxy: {
       "/api": {
-        target: process.env.JANITOR_API_ORIGIN ?? "http://localhost:8787",
+        target: apiOrigin,
         changeOrigin: true,
+        ws: true,
+        configure(proxy) {
+          proxy.on("proxyReqWs", (proxyRequest, request, socket) => {
+            // Preserve the same-origin check before rewriting for the local API hop.
+            try {
+              if (
+                !request.headers.origin ||
+                new URL(request.headers.origin).host !==
+                  (request.headers["x-forwarded-host"] ?? request.headers.host)
+              ) {
+                socket.destroy()
+                return
+              }
+              proxyRequest.setHeader("origin", new URL(apiOrigin).origin)
+              // Alchemy forwards to an internal workerd hostname. Carry the
+              // origin check above across that extra development proxy hop.
+              proxyRequest.setHeader("sec-fetch-site", "same-origin")
+            } catch {
+              socket.destroy()
+            }
+          })
+        },
         headers:
           process.env.CF_ACCESS_TOKEN === undefined
             ? {}

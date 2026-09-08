@@ -1,3 +1,4 @@
+import { flushLive } from "./LiveUpdates.ts"
 import * as Effect from "effect/Effect"
 import * as Singleton from "effect/unstable/cluster/Singleton"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -9,6 +10,7 @@ export const WorkflowOutboxCronName = "workflow-outbox-dispatch"
 export const WorkflowOutboxCronLayer = Singleton.make(
   WorkflowOutboxCronName,
   Effect.gen(function* () {
+    yield* flushLive
     const dispatcher = yield* WorkflowDispatcher
     const sql = yield* SqlClient.SqlClient
     yield* sql`DELETE FROM labeling_rule_test WHERE expires_at<CLOCK_TIMESTAMP()`

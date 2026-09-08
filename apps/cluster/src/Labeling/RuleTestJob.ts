@@ -1,3 +1,4 @@
+import { flushLive } from "../LiveUpdates.ts"
 import * as Context from "effect/Context"
 import * as Layer from "effect/Layer"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
@@ -107,6 +108,7 @@ export const RuleTestJobLayer = TestWorkflow.toLayer(
             Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Row))),
           )
         if (!rows[0]) return
+        yield* flushLive
         const response = yield* test.run(repositoryId, rows[0].request).pipe(
           Effect.timeout(Duration.seconds(120)),
           Effect.match({
@@ -118,7 +120,10 @@ export const RuleTestJobLayer = TestWorkflow.toLayer(
           }),
         )
         yield* sql`UPDATE labeling_rule_test SET status=${response.response ? "done" : "failed"},response=${response.response ? JSON.stringify(response.response) : null}::jsonb,message=${response.message} WHERE repository_id=${repositoryId} AND test_id=${testId} AND status='running'`
-      }).pipe(Effect.mapError(() => "Unable to record test result")),
+      }).pipe(
+        Effect.mapError(() => "Unable to record test result"),
+        Effect.ensuring(flushLive),
+      ),
     })
   }),
 )

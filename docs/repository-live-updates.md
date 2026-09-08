@@ -16,7 +16,7 @@ Publish notifications after successful database commits. Notifications are hints
 
 ## Recovery
 
-Establish the socket before the initial HTTP snapshot, buffering invalidations during that read. Include a monotonic repository revision in notifications. After reconnecting, refresh the active screen and sync status to cover missed events, including deployments and hibernation. Use exponential backoff with jitter; show disconnected state and offer manual retry. Use a slow, visible-tab-only HTTP fallback while sockets are unavailable. Resume or reconnect when the tab becomes visible.
+Start the socket alongside the initial HTTP reads. On every Ready message, refresh the active screen and sync status to cover the connection gap. Buffer invalidations during reads and merge their topics before fetching again. Notifications carry a database revision; HTTP responses remain authoritative. Reconnect with exponential backoff and jitter, show disconnected state, and offer manual retry. Use a slow, visible-tab-only HTTP fallback while sockets are unavailable. Reconnect when the tab becomes visible.
 
 Implement socket lifetime and reconnect handling as a Foldkit subscription. Decode messages with schemas and dispatch ordinary Messages through update. Local mutations continue updating the initiating tab immediately.
 
@@ -45,4 +45,20 @@ The cluster entity, workflow, queue, and singleton programs do not expose browse
 
 The installed Alchemy bridge explicitly forwards `webSocketMessage` and `webSocketClose`, but does not explicitly forward `webSocketError`. If custom error-event handling is required, add and test that adapter support before relying on it. This does not remove the existing hibernation APIs.
 
-This review verifies source-level compatibility. Before replacing browser polling, run an integration check through the actual Alchemy bridge: accept a socket, persist its attachment, let the object become idle, verify instance reconstruction on a later message while the client stays connected, and broadcast through a separate request. Check automatic ping handling, close/error behavior, and that no timer, unfinished request, database connection, or background fiber keeps the liveness object active. A successful echo alone does not demonstrate hibernation.
+## Implementation and verification
+
+`apps/cluster/src/LiveHub.ts` declares `RepositoryLive`, a separate Durable Object with short native hibernation handlers. It stores session expiry in socket attachments and schedules an alarm for the nearest expiry. Automatic ping/pong responses run without activating the object. The browser uses Effect's `Socket.makeWebSocket`, scoped writer, and `runString` through a Foldkit subscription in `apps/web/src/components/live.ts`. A socket-lifetime Effect on the server would prevent hibernation, so the server uses Alchemy's native wrappers instead.
+
+Migration `0013_live_notifications.sql` adds transactional triggers and a coalescing outbox. Successful API mutations, completed sync runs, reconciliation, and rule-test transitions dispatch notifications. The existing one-minute cron retries pending rows. Delivery failures retain rows, and deletion checks the exact revision so it cannot erase a concurrent update. Sync notifications reach all connected repositories because the header shows a global sync summary. Notification dispatch has bounded timeouts.
+
+The client preflights access once per connection attempt, stops automatic retries on explicit access denial, and limits socket lifetime to the earlier of Access expiry or one hour. Hidden tabs close their connection. Disconnected visible tabs use a 60-second fallback; connected tabs make no periodic data requests. Rule tests refresh on notifications, retry temporary HTTP read failures, and have a local four-minute deadline even if no completion notification arrives.
+
+Verified locally on September 7, 2026:
+
+- An isolated Alchemy stack using the same Durable Object code kept the same socket open across an 18-second idle period. Constructor activation IDs changed before a POST notification delivered a Changed frame, proving object reconstruction while the connection survived.
+- The same integration check received automatic pong responses and closed a short-lived session with code 4001 when its attachment expiry elapsed.
+- Chromium connected through the actual website, Vite proxy, API Worker, and repository object. During a 45-second idle window it made zero API fetches and received a pong.
+- Changing a local repository setting delivered a Changed frame and refreshed the repository list and sync summary without fetching the activity table. The original setting was restored after the check.
+- Database tests cover rollback, coalescing, failed delivery, concurrent revisions, and disconnected repository access. HTTP tests check origins and session expiry. Frontend tests cover fallback timing, repository fencing, invalidation buffering, and notification-driven rule-test reads.
+
+Deploy through the normal production command so migration 0013 is applied and Alchemy registers the new Durable Object binding before the updated client is served. These checks establish local behavior; production request counts should be measured after that deployment.

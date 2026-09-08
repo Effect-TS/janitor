@@ -1,3 +1,4 @@
+import { flushLive } from "../LiveUpdates.ts"
 import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { type SyncGeneration, type SyncScope, syncScopeKey } from "@janitor/domain/GitHub/Sync"
 import * as Cause from "effect/Cause"
@@ -333,6 +334,7 @@ export const completeRun = (
           .trackVerified(scope.repositoryId)
           .pipe(Effect.mapError((error) => failure(error.message)))
       }
+      yield* flushLive
       const detail =
         outcome._tag === "Failed"
           ? outcome.error

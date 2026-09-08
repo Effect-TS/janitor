@@ -1,7 +1,6 @@
 import * as Clock from "effect/Clock"
 import { AiInputDetails } from "@/components/labeling-wire"
 import { aiInputView, InputInspection } from "@/components/ai-input-view"
-import * as Duration from "effect/Duration"
 import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReferences"
 import * as Mount from "foldkit/mount"
 import * as Stream from "effect/Stream"
@@ -87,6 +86,17 @@ export const Model = Schema.Struct({
   testCandidates: TestCandidates,
   selectedNumber: Schema.NullOr(Schema.Int),
   testGeneration: Schema.Int,
+  liveJob: Schema.NullOr(
+    Schema.Struct({
+      testId: Schema.String,
+      generation: Schema.Int,
+      polls: Schema.Int,
+      startedAt: Schema.Number,
+      status: Schema.Literals(["queued", "running"]),
+    }),
+  ),
+  jobLoading: Schema.Boolean,
+  jobRefresh: Schema.Boolean,
   testResult: Schema.Union([
     Schema.TaggedStruct("Idle", {}),
     Schema.TaggedStruct("Running", {
@@ -137,6 +147,7 @@ export const Message = defineMessageUnion({
   ToggledGroup: { isOpen: Schema.Boolean },
   SelectedTestItem: { number: Schema.Int },
   ClickedTest: {},
+  RefreshTest: {},
   QueuedTest: {
     testId: Schema.String,
     generation: Schema.Int,
@@ -403,6 +414,9 @@ const initialize = (input: {
       testCandidates: input.testCandidates ?? { _tag: "Ready", items: [] },
       selectedNumber: null,
       testGeneration: 0,
+      liveJob: null,
+      jobLoading: false,
+      jobRefresh: false,
       testResult: { _tag: "Idle" },
       inputInspection: { _tag: "Idle" },
       groupOpen: Option.exists(input.existing, (rule) => rule.group !== null),
@@ -645,12 +659,27 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ],
       }
     },
+    RefreshTest: () =>
+      model.testResult._tag !== "Running" || !model.liveJob
+        ? { model }
+        : model.jobLoading
+          ? { model: { ...model, jobRefresh: true } }
+          : {
+              model: { ...model, jobLoading: true },
+              commands: [
+                PollRuleTest({ repositoryId: model.repositoryId, ...model.liveJob, delayMs: 0 }),
+              ],
+            },
     QueuedTest: ({ testId, generation, polls, status, startedAt, elapsedSeconds, pollError }) => {
       if (generation !== model.testGeneration || model.testResult._tag !== "Running")
         return { model }
       const phase = model.testResult.status === "running" ? ("running" as const) : status
+      const fetchAgain = model.liveJob?.generation !== generation || model.jobRefresh || !!pollError
       return {
         model: evo(model, {
+          liveJob: () => ({ testId, generation, polls, startedAt, status: phase }),
+          jobLoading: () => fetchAgain,
+          jobRefresh: () => false,
           testResult: () => ({
             _tag: "Running" as const,
             status: phase,
@@ -658,16 +687,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ...(pollError ? { pollError } : {}),
           }),
         }),
-        commands: [
-          PollRuleTest({
-            repositoryId: model.repositoryId,
-            testId,
-            generation,
-            polls,
-            startedAt,
-            status: phase,
-          }),
-        ],
+        commands: fetchAgain
+          ? [
+              PollRuleTest({
+                repositoryId: model.repositoryId,
+                testId,
+                generation,
+                polls,
+                startedAt,
+                status: phase,
+                delayMs: pollError ? 10000 : 0,
+              }),
+            ]
+          : [],
       }
     },
     CompletedTest: ({ response, generation, testId }) =>
@@ -1592,6 +1624,7 @@ const testJobMessage = (
 }
 export const PollRuleTest = FoldkitCommand.define("PollRuleTest", {
   args: {
+    delayMs: Schema.Number,
     repositoryId: Schema.String,
     testId: Schema.String,
     generation: Schema.Int,
@@ -1600,11 +1633,12 @@ export const PollRuleTest = FoldkitCommand.define("PollRuleTest", {
     status: Schema.Literals(["queued", "running"]),
   },
   messages: [Message.QueuedTest, Message.CompletedTest, Message.FailedTest],
-  execute: ({ repositoryId, testId, generation, polls, startedAt, status }) =>
+  execute: ({ repositoryId, testId, generation, polls, startedAt, status, delayMs }) =>
     Effect.gen(function* () {
+      if (delayMs > 0) yield* Effect.sleep(delayMs)
       if ((yield* Clock.currentTimeMillis) - startedAt >= 240_000)
         return Message.FailedTest({ generation, reason: "The test timed out. Run it again." })
-      yield* Effect.sleep(Duration.seconds(Math.min(5, 1 + polls / 5)))
+
       const response = yield* HttpClient.get(
         testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests/") + encodeURIComponent(testId),
       ).pipe(Effect.timeout("10 seconds"))

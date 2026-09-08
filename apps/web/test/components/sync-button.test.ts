@@ -1,9 +1,7 @@
 import * as DateTime from "effect/DateTime"
-import * as Effect from "effect/Effect"
-import * as Stream from "effect/Stream"
 import * as Option from "effect/Option"
 import { Story } from "foldkit/test"
-import { describe, expect, it, vi } from "vite-plus/test"
+import { describe, expect, it } from "vite-plus/test"
 import * as SyncButton from "@/components/sync-button"
 
 const now = DateTime.makeUnsafe("2026-09-03T12:00:00.000Z")
@@ -42,57 +40,6 @@ describe("SyncButton", () => {
       "2 running · 1 queued · 100 items processed in active scans · 1 failed",
     )
   })
-  it("keeps the polling timer stable when requests start and finish", () => {
-    const running = { ...idle(), summary: Option.some(summary("syncing", 1)) }
-    const poll = SyncButton.subscriptions.poll
-    const before = poll.modelToDependencies(running)
-    const pending = SyncButton.update(running, SyncButton.Message.Polled()).model
-    expect(poll.modelToDependencies(pending)).toEqual(before)
-    const completed = SyncButton.update(
-      pending,
-      SyncButton.Message.GotSummary({
-        summary: summary("syncing", 1),
-        receivedAt: now,
-      }),
-    ).model
-    expect(poll.modelToDependencies(completed)).toEqual(before)
-  })
-
-  it.each([
-    [true, false, false, 3000],
-    [true, true, false, 60000],
-    [false, false, true, 60000],
-  ] as const)(
-    "waits before polling: syncing=%s, error=%s, retrying=%s",
-    async (isSyncing, hasError, isRetrying, delay) => {
-      vi.useFakeTimers()
-      try {
-        const messages: SyncButton.Message[] = []
-        const stream = SyncButton.subscriptions.poll.dependenciesToStream({
-          isSyncing,
-          hasError,
-          isRetrying,
-        })
-        const result = Effect.runPromise(
-          stream.pipe(
-            Stream.take(1),
-            Stream.runForEach((message) =>
-              Effect.sync(() => {
-                messages.push(message)
-              }),
-            ),
-          ),
-        )
-        await vi.advanceTimersByTimeAsync(delay - 1)
-        expect(messages).toEqual([])
-        await vi.advanceTimersByTimeAsync(1)
-        await result
-        expect(messages).toEqual([SyncButton.Message.Polled()])
-      } finally {
-        vi.useRealTimers()
-      }
-    },
-  )
   it("fetches the summary on init", () => {
     const { commands } = SyncButton.init()
     expect(commands?.map((command) => command.name)).toEqual(["FetchSyncSummary"])

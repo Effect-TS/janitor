@@ -1,3 +1,4 @@
+import { flushLive } from "../LiveUpdates.ts"
 import {
   ReconciliationIdentity,
   ReconciliationOutcome,
@@ -320,6 +321,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
       })
     }
 
+    yield* flushLive
     return { ...identity, outcome: outcome.outcome, plan: outcome.plan }
   }),
 )
@@ -532,6 +534,7 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
                 .pipe(wrapSql)
             }
           }
+          yield* flushLive
           yield* Effect.logInfo("Applied label plan").pipe(
             Effect.annotateLogs({ repositoryId, number, applied, failed }),
           )

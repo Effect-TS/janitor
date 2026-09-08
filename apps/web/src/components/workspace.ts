@@ -1,8 +1,9 @@
+import * as Live from "./live"
 import * as Activity from "@/components/activity"
 import * as Switch from "@foldkit/ui/switch"
 import * as Menu from "@foldkit/ui/menu"
-import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Clock from "effect/Clock"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
@@ -55,11 +56,6 @@ export type {
   RepositoryOverview,
 } from "@/components/labeling-wire"
 
-// CONSTANTS
-
-/** How often the selected repository is refreshed while the page is open. */
-export const POLL_INTERVAL = Duration.seconds(10)
-
 // MODEL
 
 export const RepositoryDetail = Schema.Struct({
@@ -95,6 +91,7 @@ const ResponseContext = { repositoryId: Schema.String, operationId: Schema.Int }
 
 export const Model = Schema.Struct({
   activity: Activity.Model,
+  liveTopics: Schema.Array(Live.Topic),
   nextOperationId: Schema.Int,
   pendingMutations: Schema.Array(Mutation),
   nextRequestId: Schema.Int,
@@ -128,6 +125,8 @@ export const Message = defineMessageUnion({
   GotCatalog: { catalog: Schema.Array(FactDescription) },
   Selected: { repositoryId: Schema.String },
   Polled: {},
+  LiveChanged: { topics: Schema.Array(Live.Topic), all: Schema.Boolean },
+  FlushLive: {},
   GotDetail: { repositoryId: Schema.String, detail: RepositoryDetail, requestId: Schema.Int },
   FailedDetail: { repositoryId: Schema.String, reason: Schema.String, requestId: Schema.Int },
   GotConsent: { repositoryId: Schema.String, consent: AiConsent, requestId: Schema.Int },
@@ -405,6 +404,7 @@ export const init = (): UpdateReturn => ({
   model: Model.make(
     {
       activity: Activity.init(),
+      liveTopics: [],
       nextOperationId: 1,
       pendingMutations: [],
       nextRequestId: 1,
@@ -813,6 +813,50 @@ export const update = (model: Model, message: Message): UpdateReturn =>
               consentError: () => Option.none(),
             }),
           ),
+    LiveChanged: ({ topics, all }) => ({
+      model: {
+        ...model,
+        liveTopics: [
+          ...new Set([
+            ...model.liveTopics,
+            ...(all
+              ? ([
+                  "configuration",
+                  "activity",
+                  "sync",
+                  "candidates",
+                  "consent",
+                  "test",
+                  "repository",
+                ] as const)
+              : topics),
+          ]),
+        ],
+      },
+    }),
+    FlushLive: () => {
+      const topics = model.liveTopics
+      let next: UpdateReturn = { model: { ...model, liveTopics: [] } }
+      const append = (result: UpdateReturn) => {
+        next = { ...result, commands: [...(next.commands ?? []), ...(result.commands ?? [])] }
+      }
+      if (topics.includes("repository")) append(refreshRepositories(next.model))
+      if (model.activity.active) {
+        if (topics.includes("activity")) {
+          const result = Activity.update(model.activity, Activity.Message.Polled())
+          append({
+            model: { ...next.model, activity: result.model },
+            commands: FoldkitCommand.mapMessages(result.commands ?? [], (message) =>
+              Message.GotActivityMessage({ message }),
+            ),
+          })
+        }
+      } else if (topics.some((topic) => ["configuration", "candidates", "consent"].includes(topic)))
+        append(refresh(next.model, false))
+      if (topics.includes("test") && next.model.panel._tag === "RuleEditor")
+        append(foldRuleEditor(next.model, RuleEditor.Message.RefreshTest()))
+      return next
+    },
     Polled: () => refresh(model, false),
     // A late answer for a repository that is no longer selected is dropped.
     GotDetail: ({ repositoryId, detail: received, requestId }) => {
@@ -1236,21 +1280,50 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
 // SUBSCRIPTIONS
 
-const repositorySubscriptions = Subscription.make<Model, Message>()((entry) => ({
-  repositoryPoll: entry(
-    { hasSelection: Schema.Boolean },
+const liveRefresh = Subscription.make<Model, Message>()((entry) => ({
+  ruleTestDeadline: entry(
+    { job: Schema.NullOr(Schema.Struct({ generation: Schema.Int, startedAt: Schema.Number })) },
     {
-      modelToDependencies: (model) => ({ hasSelection: Option.isSome(model.dataRepositoryId) }),
-      dependenciesToStream: ({ hasSelection }) =>
-        hasSelection
-          ? Stream.map(Stream.tick(POLL_INTERVAL), () => Message.Polled())
+      modelToDependencies: (model) => {
+        const editor = model.panel._tag === "RuleEditor" ? model.panel.editor : undefined
+        const job = editor?.testResult._tag === "Running" ? editor.liveJob : null
+        return { job: job ? { generation: job.generation, startedAt: job.startedAt } : null }
+      },
+      dependenciesToStream: ({ job }) =>
+        job
+          ? Stream.fromEffect(
+              Effect.gen(function* () {
+                const now = yield* Clock.currentTimeMillis
+                yield* Effect.sleep(Math.max(0, job.startedAt + 240_000 - now))
+                return Message.GotRuleEditorMessage({
+                  message: RuleEditor.Message.FailedTest({
+                    generation: job.generation,
+                    reason: "The test timed out. Run it again.",
+                  }),
+                })
+              }),
+            )
           : Stream.empty,
+    },
+  ),
+  liveRefresh: entry(
+    { topics: Schema.Array(Live.Topic), busy: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({
+        topics: model.liveTopics,
+        busy:
+          Option.isSome(model.maybeDetailRequest) ||
+          Option.isSome(model.maybeConsentRequest) ||
+          model.activity.loading,
+      }),
+      dependenciesToStream: ({ topics, busy }) =>
+        topics.length && !busy ? Stream.succeed(Message.FlushLive()) : Stream.empty,
     },
   ),
 }))
 
 export const subscriptions = Subscription.aggregate<Model, Message>()(
-  repositorySubscriptions,
+  liveRefresh,
   Subscription.lift(Activity.subscriptions)<Model, Message>({
     toChildModel: (model) => model.activity,
     toParentMessage: (message) => Message.GotActivityMessage({ message }),

@@ -27,7 +27,11 @@ const isSameOrigin = (request: HttpServerRequest.HttpServerRequest): boolean => 
   if (origin === undefined) {
     return false
   }
-  return new URL(origin).host === new URL(request.originalUrl).host
+  try {
+    return new URL(origin).origin === new URL(request.originalUrl).origin
+  } catch {
+    return false
+  }
 }
 
 export const SameOriginMiddleware = HttpRouter.middleware((app) =>

@@ -1,3 +1,7 @@
+import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
+import { RepositoryLive } from "./LiveHub.ts"
+import { liveUpdatesLayer, flushLive } from "./LiveUpdates.ts"
+import type { LiveNamespace } from "./LiveUpdates.ts"
 import { ActivityReader } from "./Labeling/Activity.ts"
 import * as Schema from "effect/Schema"
 import { RuleTestJobLayer, RuleTestJobRegistration, RuleTestJobs } from "./Labeling/RuleTestJob.ts"
@@ -192,6 +196,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provide(FetchHttpClient.layer),
     )
 
+    yield* RepositoryLive
+    const liveEnvironment = yield* Cloudflare.Workers.WorkerEnvironment
     let notifyOutbox: Effect.Effect<void> = Effect.void
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
@@ -237,6 +243,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         Layer.mergeAll(
           GitHubWebhookJournal.layer,
           Readiness.layer,
+          liveUpdatesLayer(liveEnvironment.RepositoryLive as LiveNamespace),
           GitHubReadModel.layer,
           SyncTargets.layer,
           ContentPurge.layer,
@@ -341,7 +348,18 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     return {
-      fetch: cluster.provide(api),
+      fetch: cluster.provide(
+        api.pipe(
+          Effect.tap((response) =>
+            Effect.gen(function* () {
+              const request = yield* HttpServerRequest.HttpServerRequest
+              if (response.status < 400 && request.method !== "GET" && request.method !== "HEAD") {
+                yield* flushLive
+              }
+            }),
+          ),
+        ),
+      ),
     }
   }).pipe(
     Effect.provide([

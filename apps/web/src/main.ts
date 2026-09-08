@@ -1,3 +1,4 @@
+import * as Live from "./components/live"
 import * as Connections from "@/components/repository-connections"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -43,6 +44,7 @@ export const Model = Schema.Struct({
   sync: SyncButton.Model,
   toast: AppToast.Model,
   workspace: Workspace.Model,
+  live: Live.Model,
   repositorySwitcher: RepositorySwitcher.Model,
 })
 export type Model = typeof Model.Type
@@ -63,6 +65,7 @@ export const Message = defineMessageUnion({
   GotToastMessage: {
     message: AppToast.Message,
   },
+  GotLiveMessage: { message: Live.Message },
   GotWorkspaceMessage: {
     message: Workspace.Message,
   },
@@ -623,6 +626,45 @@ export const update = (model: Model, message: Message) =>
         ? { model }
         : foldSyncButton(model, message),
     GotToastMessage: ({ message }) => foldToast(model, message),
+    GotLiveMessage: ({ message }) => {
+      if (message._tag === "Visibility")
+        return {
+          model: {
+            ...model,
+            live: { ...model.live, visible: message.visible, status: "connecting" },
+          },
+        }
+      if (message._tag === "Retry")
+        return {
+          model: {
+            ...model,
+            live: { ...model.live, retry: model.live.retry + 1, status: "connecting" },
+          },
+        }
+      if (!Option.contains(model.workspace.dataRepositoryId, message.repositoryId)) return { model }
+      if (message._tag === "Disconnected")
+        return {
+          model: {
+            ...model,
+            live: { ...model.live, status: message.denied ? "denied" : "disconnected" },
+          },
+        }
+      const all = message._tag === "Fallback" || message.connected
+      const topics = message._tag === "Fallback" ? [] : message.topics
+      const updated = updateWorkspace(
+        {
+          ...model,
+          live: {
+            ...model.live,
+            status: message._tag === "Fallback" ? model.live.status : "connected",
+          },
+        },
+        Workspace.Message.LiveChanged({ topics, all }),
+      )
+      if (!all && !topics.includes("sync") && !topics.includes("repository")) return updated
+      const synced = refreshSyncStatus(updated.model)
+      return { ...synced, commands: [...(updated.commands ?? []), ...(synced.commands ?? [])] }
+    },
     GotWorkspaceMessage: ({ message }) => updateWorkspace(model, message),
     GotRepositorySwitcherMessage: ({ message }) => foldRepositorySwitcher(model, message),
   })
@@ -652,6 +694,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
     sync: sync.model,
     toast,
     workspace: workspace.model,
+    live: Live.init(),
     repositorySwitcher: RepositorySwitcher.init(),
   })
   const entered = enterRoute(model, Routes.parse(url))
@@ -683,9 +726,12 @@ const themeSubscriptions = Subscription.lift(ThemeSwitcher.subscriptions)<Model,
   toParentMessage: (message) => Message.GotThemeSwitcherMessage({ message }),
 })
 
-const syncSubscriptions = Subscription.lift(SyncButton.subscriptions)<Model, Message>({
-  toChildModel: (model) => model.sync,
-  toParentMessage: (message) => Message.GotSyncButtonMessage({ message }),
+const liveSubscriptions = Subscription.lift(Live.subscriptions)<Model, Message>({
+  toChildModel: (model) => ({
+    ...model.live,
+    repositoryId: Option.getOrElse(model.workspace.dataRepositoryId, () => ""),
+  }),
+  toParentMessage: (message) => Message.GotLiveMessage({ message }),
 })
 
 const workspaceSubscriptions = Subscription.lift(Workspace.subscriptions)<Model, Message>({
@@ -720,7 +766,7 @@ const navigationSubscriptions = Subscription.make<Model, Message>()((entry) => (
 export const subscriptions = Subscription.aggregate<Model, Message, AppServices>()(
   sidebarSubscriptions,
   themeSubscriptions,
-  syncSubscriptions,
+  liveSubscriptions,
   workspaceSubscriptions,
   navigationSubscriptions,
 )
@@ -897,6 +943,21 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
           h.div(
             [h.Class("flex items-center gap-1")],
             [
+              Option.isSome(model.workspace.dataRepositoryId) &&
+              model.live.visible &&
+              (model.live.status === "disconnected" || model.live.status === "denied")
+                ? h.button(
+                    [
+                      h.Class("text-xs text-muted-foreground mr-2 underline"),
+                      h.OnClick(Message.GotLiveMessage({ message: Live.Message.Retry() })),
+                    ],
+                    [
+                      model.live.status === "denied"
+                        ? "Live updates unavailable · reconnect"
+                        : "Reconnecting · retry",
+                    ],
+                  )
+                : h.empty,
               h.submodel({
                 slotId: "sync-button",
                 model: model.sync,

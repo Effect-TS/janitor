@@ -1,3 +1,4 @@
+import { LiveRoutesLayer } from "./Live.ts"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
@@ -30,6 +31,7 @@ export const makeRoutesLayer = (
   Layer.mergeAll(
     makeGitHubWebHookRoutesLayer(secrets),
     Layer.mergeAll(
+      LiveRoutesLayer,
       SyncRoutesLayer,
       RulesRoutesLayer,
       ConnectionRoutesLayer,

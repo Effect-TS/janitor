@@ -1,11 +1,9 @@
 import * as Tooltip from "@foldkit/ui/tooltip"
 import * as DateTime from "effect/DateTime"
-import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
@@ -14,7 +12,6 @@ import type { Html } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
-import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import { RefreshCw } from "lucide"
 import { buttonSizes, buttonVariants } from "@/components/ui/button"
@@ -48,10 +45,6 @@ export const SyncSummary = Schema.Struct({
   appliedItems: Schema.optional(Schema.Int),
 })
 export type SyncSummary = typeof SyncSummary.Type
-
-/** How often the summary is refreshed while a sync is running. */
-export const POLL_INTERVAL = Duration.seconds(3)
-export const POLL_RETRY_INTERVAL = Duration.seconds(60)
 
 // MODEL
 
@@ -268,31 +261,6 @@ export const informWorkChanged = (model: Model): UpdateReturn =>
   model.isPolling || model.isRequesting
     ? { model: evo(model, { needsRefresh: () => true }) }
     : update(model, Message.Polled())
-
-// SUBSCRIPTIONS
-
-/** Keep scheduled retries visible without polling an idle page. */
-export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
-  poll: entry(
-    { isSyncing: Schema.Boolean, hasError: Schema.Boolean, isRetrying: Schema.Boolean },
-    {
-      modelToDependencies: (model) => ({
-        isSyncing: stateOf(model) === "syncing",
-        hasError: Option.isSome(model.lastError),
-        isRetrying: Option.isSome(model.summary) && (model.summary.value.retryingTargets ?? 0) > 0,
-      }),
-      dependenciesToStream: ({ isSyncing, hasError, isRetrying }) =>
-        isSyncing || isRetrying
-          ? Stream.tick(hasError || !isSyncing ? POLL_RETRY_INTERVAL : POLL_INTERVAL).pipe(
-              // tick emits immediately. Wait before the first poll, and keep
-              // this subscription alive while individual requests complete.
-              Stream.drop(1),
-              Stream.map(() => Message.Polled()),
-            )
-          : Stream.empty,
-    },
-  ),
-}))
 
 // VIEW
 

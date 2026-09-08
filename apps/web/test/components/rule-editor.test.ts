@@ -296,7 +296,12 @@ describe("rule flow testing", () => {
     const running = RuleEditor.update(queued, progress("running")).model
     const old = RuleEditor.update(running, progress("queued"))
     expect(old.model.testResult).toMatchObject({ status: "running" })
-    expect(old.commands?.[0]?.name).toBe("PollRuleTest")
+    expect(old.commands).toEqual([])
+    const refreshed = RuleEditor.update(old.model, RuleEditor.Message.RefreshTest())
+    expect(refreshed.commands?.[0]?.name).toBe("PollRuleTest")
+    const repeated = RuleEditor.update(refreshed.model, RuleEditor.Message.RefreshTest())
+    expect(repeated.commands).toBeUndefined()
+    expect(repeated.model.jobRefresh).toBe(true)
     const done = RuleEditor.update(
       old.model,
       RuleEditor.Message.CompletedTest({
