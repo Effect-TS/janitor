@@ -79,7 +79,7 @@ export class WorkflowOutbox extends Context.Service<
     const wake = yield* OutboxWake
     const notified = new WeakSet<Scope.Scope>()
     const decodeRows = Schema.decodeUnknownEffect(Schema.Array(OutboxRow))
-    const encodeJson = Schema.encodeEffect(Schema.UnknownFromJsonString)
+    const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
 
     const wrap =
       (operation: string) =>

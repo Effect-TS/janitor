@@ -24,10 +24,8 @@ export const SYNC_ENDPOINT = "/api/v1/sync"
 
 // WIRE SCHEMA
 //
-// Mirrors `SyncSummary` in `@janitor/domain/GitHub/Sync`. The web app pins
-// the published `effect` release for Foldkit while the rest of the workspace
-// links a local checkout, so a schema imported from the domain package is a
-// different `effect` here. Keep the two in step until the pins converge.
+// Mirrors the HTTP representation of `SyncSummary` in
+// `@janitor/domain/GitHub/Sync`. Keep wire changes in sync with that schema.
 
 export const SyncState = Schema.Literals(["idle", "syncing", "blocked", "failed"])
 export type SyncState = typeof SyncState.Type
@@ -154,8 +152,8 @@ export const init = (): UpdateReturn => ({
 const foldTooltipOutMessage = Match.type<Tooltip.OutMessage>().pipe(
   Match.withReturnType<Update.Step<Model, Message, HttpClient.HttpClient>>(),
   Match.tagsExhaustive({
-    Shown: () => (model) => ({ model }),
-    Hidden: () => (model) => ({ model }),
+    Shown: () => (model: Model) => ({ model }),
+    Hidden: () => (model: Model) => ({ model }),
   }),
 )
 

@@ -73,7 +73,6 @@ export default defineConfig({
         command: "vp exec tsx apps/cluster/scripts/BenchmarkSync.ts",
         cache: false,
       },
-      "vendor:effect": { command: "vp exec node scripts/vendor-effect.mjs", cache: false },
     },
   },
   test: {

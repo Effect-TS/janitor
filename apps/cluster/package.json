@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@effect/ai-openai-compat": "catalog:",
-    "@effect/platform-cloudflare": "file:../../vendor/effect-platform-cloudflare-f4143802256d135864f15314fc37385e919999b1.tgz",
+    "@effect/platform-cloudflare": "catalog:",
     "@effect/sql-pg": "catalog:",
     "@janitor/domain": "workspace:^",
     "alchemy": "catalog:",

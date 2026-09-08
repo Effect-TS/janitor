@@ -63,11 +63,12 @@ const connection = (repositoryId: string) =>
           url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
           const socket = yield* Socket.makeWebSocket(url.href, {
             openTimeout: "10 seconds",
-            closeCodeIsError: () => true,
           })
           const result = yield* Effect.scoped(
             Effect.gen(function* () {
-              const write = yield* socket.writer
+              const reader = yield* socket.reader
+              const { write } = yield* socket.writer
+              const decoder = new TextDecoder()
               let alive = true
               const heartbeat = Effect.gen(function* () {
                 while (true) {
@@ -78,28 +79,36 @@ const connection = (repositoryId: string) =>
                   if (!alive) return yield* new HeartbeatTimeout()
                 }
               })
-              return yield* socket
-                .runString((text) =>
-                  Effect.gen(function* () {
-                    if (text === "pong") {
-                      alive = true
-                      return
-                    }
-                    const frame = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Frame))(
-                      text,
-                    )
-                    attempt = 0
-                    yield* Queue.offer(
-                      queue,
-                      Message.Received({
-                        repositoryId,
-                        connected: frame._tag === "Ready",
-                        topics: frame._tag === "Ready" ? [] : frame.topics,
-                      }),
-                    )
-                  }),
-                )
-                .pipe(Effect.raceFirst(heartbeat))
+              const receive = (text: string) =>
+                Effect.gen(function* () {
+                  if (text === "pong") {
+                    alive = true
+                    return
+                  }
+                  const frame = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Frame))(
+                    text,
+                  )
+                  attempt = 0
+                  yield* Queue.offer(
+                    queue,
+                    Message.Received({
+                      repositoryId,
+                      connected: frame._tag === "Ready",
+                      topics: frame._tag === "Ready" ? [] : frame.topics,
+                    }),
+                  )
+                })
+              return yield* reader.pull.pipe(
+                Effect.flatMap((frames) =>
+                  Effect.forEach(
+                    frames,
+                    (frame) => receive(typeof frame === "string" ? frame : decoder.decode(frame)),
+                    { discard: true },
+                  ),
+                ),
+                Effect.forever,
+                Effect.raceFirst(heartbeat),
+              )
             }),
           ).pipe(Effect.result)
           if (

@@ -1478,3 +1478,33 @@ index 940a70aa7e0388ab450349c175de2702eff60ac6..8101939b1a2305d496dd1587d27dcd36
    Config.option,
  );
  
+diff --git a/src/Util/proxy-chain.ts b/src/Util/proxy-chain.ts
+--- a/src/Util/proxy-chain.ts
++++ b/src/Util/proxy-chain.ts
+@@ -133,8 +133,9 @@
+   );
+   const proxy = new Proxy(function () {}, {
+     get(_, prop) {
+-      if (Reflect.has(effect, prop)) {
+-        return Reflect.get(effect, prop);
++      if (Reflect.has(effect, prop) || prop === "~effect/Exit") {
++        const value = Reflect.get(effect, prop);
++        return typeof value === "function" ? value.bind(effect) : value;
+       }
+       return chain(cached, [...ops, { kind: "get", prop }]);
+     },
+diff --git a/lib/Util/proxy-chain.js b/lib/Util/proxy-chain.js
+--- a/lib/Util/proxy-chain.js
++++ b/lib/Util/proxy-chain.js
+@@ -99,8 +99,9 @@
+     const effect = Effect.flatMap(cached, (root) => replay(root, ops, cached));
+     const proxy = new Proxy(function () { }, {
+         get(_, prop) {
+-            if (Reflect.has(effect, prop)) {
+-                return Reflect.get(effect, prop);
++            if (Reflect.has(effect, prop) || prop === "~effect/Exit") {
++                const value = Reflect.get(effect, prop);
++                return typeof value === "function" ? value.bind(effect) : value;
+             }
+             return chain(cached, [...ops, { kind: "get", prop }]);
+         },

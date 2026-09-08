@@ -4,6 +4,11 @@ A starter for creating a Vite+ monorepo.
 
 ## Development
 
+Effect dependencies use commit-pinned CI snapshots. Install with
+`vp install --frozen-lockfile`; no local Effect checkout or build is needed.
+See [Effect snapshot dependencies](docs/effect-snapshots.md) for the pins,
+compatibility exceptions, and upgrade checks.
+
 - Check everything is ready:
 
 ```bash

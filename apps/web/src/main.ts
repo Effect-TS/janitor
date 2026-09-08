@@ -245,7 +245,7 @@ const foldThemeSwitcher = Update.foldChild({
 const foldToastOutMessage = Match.type<typeof AppToast.OutMessage.Type>().pipe(
   Match.withReturnType<Update.Step<Model, Message, AppServices>>(),
   Match.tagsExhaustive({
-    DismissedToast: () => (model) => ({ model }),
+    DismissedToast: () => (model: Model) => ({ model }),
   }),
 )
 
@@ -261,14 +261,18 @@ const foldToast = Update.foldChild({
 export const toastFor = Match.type<SyncButton.OutMessage>().pipe(
   Match.withReturnType<Toast.ShowInput<ToastPayload>>(),
   Match.tagsExhaustive({
-    SyncStarted: ({ pendingTargets }) => ({
+    SyncStarted: ({ pendingTargets }: Extract<SyncButton.OutMessage, { _tag: "SyncStarted" }>) => ({
       variant: "Info",
       payload: {
         title: "Sync started",
         description: `Refreshing ${pendingTargets} GitHub scopes.`,
       },
     }),
-    SyncFinished: ({ state, blockedTargets, failedTargets }) =>
+    SyncFinished: ({
+      state,
+      blockedTargets,
+      failedTargets,
+    }: Extract<SyncButton.OutMessage, { _tag: "SyncFinished" }>) =>
       state === "failed"
         ? {
             variant: "Error",
@@ -292,7 +296,7 @@ export const toastFor = Match.type<SyncButton.OutMessage>().pipe(
                 description: "Requested synchronization finished. Local data refreshed.",
               },
             },
-    SyncFailed: ({ reason }) => ({
+    SyncFailed: ({ reason }: Extract<SyncButton.OutMessage, { _tag: "SyncFailed" }>) => ({
       variant: "Error",
       payload: { title: "Sync request failed", description: reason },
     }),
@@ -330,8 +334,14 @@ export const workspaceToastFor = Match.type<Workspace.OutMessage>().pipe(
       variant: "Success",
       payload: { title: "Rule saved", description: "It takes effect once the revision activates." },
     }),
-    Notified: ({ title, description }) => ({ variant: "Success", payload: { title, description } }),
-    Failed: ({ title, reason }) => ({ variant: "Error", payload: { title, description: reason } }),
+    Notified: ({ title, description }: Extract<Workspace.OutMessage, { _tag: "Notified" }>) => ({
+      variant: "Success",
+      payload: { title, description },
+    }),
+    Failed: ({ title, reason }: Extract<Workspace.OutMessage, { _tag: "Failed" }>) => ({
+      variant: "Error",
+      payload: { title, description: reason },
+    }),
   }),
 )
 
@@ -498,8 +508,8 @@ const foldRepositorySwitcherOutMessage = Match.type<RepositorySwitcher.OutMessag
   Match.withReturnType<Update.Step<Model, Message, AppServices>>(),
   Match.tagsExhaustive({
     SelectedRepository:
-      ({ repositoryId }) =>
-      (model) =>
+      ({ repositoryId }: RepositorySwitcher.OutMessage) =>
+      (model: Model) =>
         requestNavigation(model, Routes.repositoryHome({ repositoryId })),
   }),
 )

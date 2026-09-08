@@ -43,7 +43,7 @@ const journaled = (
 ) =>
   Effect.gen(function* () {
     const cipher = yield* PayloadCipher.make({ key: withKey, keyId })
-    const json = yield* Schema.encodeEffect(Schema.UnknownFromJsonString)(payload)
+    const json = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(payload)
     const { encryption, ciphertext } = yield* cipher.encrypt(
       deliveryId,
       new TextEncoder().encode(json),

@@ -65,10 +65,10 @@ export const init = (): Model =>
 const foldPopoverOutMessage = Match.type<Popover.OutMessage>().pipe(
   Match.withReturnType<Update.Step<Model, Message>>(),
   Match.tagsExhaustive({
-    Opened: () => (model) => ({ model }),
+    Opened: () => (model: Model) => ({ model }),
     // Leaving the search text behind would show the last query the next time
     // the palette opens, with the full list hidden behind it.
-    Closed: () => (model) => ({ model: evo(model, { search: () => "" }) }),
+    Closed: () => (model: Model) => ({ model: evo(model, { search: () => "" }) }),
   }),
 )
 

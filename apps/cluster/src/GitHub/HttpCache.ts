@@ -71,8 +71,8 @@ export class GitHubHttpCache extends Context.Service<
     const sql = yield* SqlClient.SqlClient
     const cipher = yield* PayloadCipher
     const decodeRows = Schema.decodeUnknownEffect(Schema.Array(CacheRow))
-    const encodeJson = Schema.encodeEffect(Schema.UnknownFromJsonString)
-    const decodeJson = Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)
+    const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
+    const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
 
     const wrap =
       (operation: string) =>

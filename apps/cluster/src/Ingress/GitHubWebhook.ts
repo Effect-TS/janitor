@@ -80,7 +80,7 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
     const cipher = yield* PayloadCipher.PayloadCipher
     const verifier = yield* WebhookVerifier.WebhookVerifier
 
-    const parseJson = Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)
+    const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
     const isSupportedEventName = Schema.is(GitHubWebhookEventName)
 
     const sha256Hex = Effect.fnUntraced(function* (body: Uint8Array<ArrayBuffer>) {

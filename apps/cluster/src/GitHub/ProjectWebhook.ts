@@ -45,7 +45,7 @@ export const ProjectGitHubWebhook = Workflow.make(PROJECT_GITHUB_WEBHOOK_TAG, {
   idempotencyKey: ({ deliveryId }) => deliveryId,
 })
 
-const parseJson = Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)
+const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
 const decodeEvent = Schema.decodeUnknownEffect(GitHubWebhookEvent)
 
 /**

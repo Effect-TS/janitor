@@ -5,7 +5,14 @@ packages:
 
 catalogMode: prefer
 
+# Effect snapshots also occur in transitive dependencies. check:dependencies
+# restricts remote tarballs to the commit-pinned catalog URLs below.
+blockExoticSubdeps: false
+
 catalog:
+  vitest: 4.1.11
+  "@effect/platform-node-shared": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
+  "@effect/platform-cloudflare": https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   "@codemirror/autocomplete": 6.20.3
   "@codemirror/commands": 6.10.4
   "@codemirror/lang-yaml": 6.1.3
@@ -16,12 +23,12 @@ catalog:
   "@codemirror/view": 6.43.8
   "@lezer/common": 1.5.2
   "@uiw/codemirror-theme-github": 4.25.11
-  "@effect/ai-openai-compat": 4.0.0-rc.112
-  "@effect/platform-browser": 4.0.0-rc.112
-  "@effect/platform-node": 4.0.0-rc.112
+  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
+  "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
+  "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   "@effect/sql-pg": 4.0.0-rc.112
   "@effect/tsgo": ^0.38.0
-  "@effect/vitest": 4.0.0-rc.112
+  "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   "@foldkit/devtools": ^0.157.0
   "@foldkit/devtools-mcp": ^0.19.3
   "@foldkit/oxlint-plugin": ^0.12.0
@@ -33,7 +40,7 @@ catalog:
   "@types/node": ^24.13.3
   alchemy: 2.0.0-beta.75
   clsx: ^2.1.1
-  effect: 4.0.0-rc.112
+  effect: https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   happy-dom: ^20.0.0
   foldkit: ^0.157.0
   lucide: ^1.33.0
@@ -46,9 +53,15 @@ catalog:
   yaml: 2.9.0
 
 overrides:
-  "@effect/vitest": file:./vendor/effect-vitest-f4143802256d135864f15314fc37385e919999b1.tgz
-  "web>effect": "catalog:"
-  effect: file:./vendor/effect-f4143802256d135864f15314fc37385e919999b1.tgz
+  vitest: "catalog:"
+  "effect": "catalog:"
+  "@effect/vitest": "catalog:"
+  "@effect/platform-cloudflare": "catalog:"
+  "@effect/platform-node": "catalog:"
+  "@effect/platform-node-shared": "catalog:"
+  "@effect/platform-browser": "catalog:"
+  "@effect/sql-pg": "catalog:"
+  "@effect/ai-openai-compat": "catalog:"
   vite: "catalog:"
 
 peerDependencyRules:
