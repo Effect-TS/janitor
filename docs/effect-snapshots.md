@@ -10,8 +10,10 @@ Install with `vp install --frozen-lockfile`. No sibling Effect checkout, local c
 
 - Keep `@effect/sql-pg` at registry version `4.0.0-rc.112`. The snapshot introduces a native PostgreSQL driver with different decoded bigint/timestamp types. Adopting that driver requires a separate database compatibility review. The registry adapter uses the same snapshot Effect runtime as the application.
 - Keep Vitest at `4.1.11`, matching Vite+ 0.3.0. The snapshot `@effect/vitest` declares a Vitest 5 peer; the override makes it use Vite+'s runner instead of installing a second runner with a separate test context. Validate this pairing with the full test suite when changing either pin.
-- Keep Alchemy 2.0.0-beta.75 and the existing Alchemy, Cloudflare runtime, and Distilled patches. The snapshot still uses the capitalized Config APIs those patches support. The other patch hunks fix infrastructure behavior independently of Effect packaging.
+- Alchemy and its Cloudflare runtime use `2.0.0-beta.76`. Their patches are rebased onto that release. Keep the Distilled patches at `1.0.0-rc.8`, which Alchemy still depends on. The Effect snapshot uses capitalized Config APIs; these packages still call the older lowercase APIs without the patches.
 - Alchemy's SQL proxy also needs a compatibility patch for the snapshot's Effect iterator. Bind Effect methods to the underlying Effect and preserve its absent Exit marker. Otherwise queries after an asynchronous boundary can return proxies instead of rows. `AlchemyProxy.test.ts` covers this path.
+
+The [Alchemy beta.76 release](https://github.com/alchemy-run/alchemy/releases/tag/v2.0.0-beta.76) does not include these compatibility fixes. It also still needs our Docker patch to recognize Podman's "not known" response as a missing container during cleanup. Both the source and distributed JavaScript remain patched so development, tests, and deployed bundles use the same behavior.
 
 pnpm's `blockExoticSubdeps` is disabled because the snapshots also appear transitively. `vp run check:dependencies` checks the committed and installed lockfiles against the exact snapshot URL allowlist, requires integrity, rejects additional tarball/Git sources, and checks that installed Effect consumers resolve the same runtime inside this repository. CI runs this after its frozen installation.
 

@@ -38,7 +38,7 @@ catalog:
   "@tailwindcss/vite": ^4.3.3
   "@testcontainers/postgresql": 12.1.0
   "@types/node": ^24.13.3
-  alchemy: 2.0.0-beta.75
+  alchemy: 2.0.0-beta.76
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   happy-dom: ^20.0.0
@@ -80,9 +80,9 @@ allowBuilds:
   workerd: true
 
 minimumReleaseAgeExclude:
-  - "@alchemy.run/cloudflare-runtime@2.0.0-beta.75"
-  - "@alchemy.run/floci@2.0.0-beta.75"
-  - "@alchemy.run/node-utils@2.0.0-beta.75"
+  - "@alchemy.run/cloudflare-runtime@2.0.0-beta.76"
+  - "@alchemy.run/floci@2.0.0-beta.76"
+  - "@alchemy.run/node-utils@2.0.0-beta.76"
   - "@distilled.cloud/aws@1.0.0-rc.8"
   - "@distilled.cloud/axiom@1.0.0-rc.8"
   - "@distilled.cloud/cloudflare@1.0.0-rc.8"
@@ -94,11 +94,11 @@ minimumReleaseAgeExclude:
   - "@foldkit/devtools@0.157.0"
   - "@foldkit/ui@0.157.0"
   - "@foldkit/vite-plugin@0.20.1"
-  - alchemy@2.0.0-beta.75
+  - alchemy@2.0.0-beta.76
   - foldkit@0.157.0
 
 patchedDependencies:
-  "@alchemy.run/cloudflare-runtime@2.0.0-beta.75": patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.75.patch
+  "@alchemy.run/cloudflare-runtime@2.0.0-beta.76": patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.76.patch
   "@distilled.cloud/aws@1.0.0-rc.8": patches/@distilled.cloud__aws@1.0.0-rc.8.patch
   "@distilled.cloud/axiom@1.0.0-rc.8": patches/@distilled.cloud__axiom@1.0.0-rc.8.patch
   "@distilled.cloud/cloudflare@1.0.0-rc.8": patches/@distilled.cloud__cloudflare@1.0.0-rc.8.patch
@@ -106,4 +106,4 @@ patchedDependencies:
   "@distilled.cloud/fly-io@1.0.0-rc.8": patches/@distilled.cloud__fly-io@1.0.0-rc.8.patch
   "@distilled.cloud/hetzner@1.0.0-rc.8": patches/@distilled.cloud__hetzner@1.0.0-rc.8.patch
   "@distilled.cloud/planetscale@1.0.0-rc.8": patches/@distilled.cloud__planetscale@1.0.0-rc.8.patch
-  alchemy@2.0.0-beta.75: patches/alchemy@2.0.0-beta.75.patch
+  alchemy@2.0.0-beta.76: patches/alchemy@2.0.0-beta.76.patch
