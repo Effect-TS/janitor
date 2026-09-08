@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src", "vite.config.ts", "vitest-setup.ts"],
+  "include": ["src", "test", "vite.config.ts", "vitest-setup.ts"],
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -8,5 +8,10 @@
     "paths": {
       "@/*": ["./src/*"]
     }
-  }
+  },
+  "references": [
+    {
+      "path": "../../packages/domain"
+    }
+  ]
 }

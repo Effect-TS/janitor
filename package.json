@@ -8,15 +8,17 @@
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",
+    "@effect/sql-pg": "catalog:",
     "@effect/tsgo": "catalog:",
     "@foldkit/oxlint-plugin": "catalog:",
-    "@janitor/webhooks": "workspace:^",
+    "@janitor/cluster": "workspace:^",
     "@types/node": "catalog:",
     "alchemy": "catalog:",
     "effect": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=24"

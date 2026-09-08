@@ -1,13 +1,9 @@
 import * as Schema from "effect/Schema"
+import { GitHubWebhookHookIdFromStringOrNumber } from "../Id.ts"
 import { BaseGitHubWebhookEvent } from "./Base.ts"
 
-export const GitHubWebhookHookId = Schema.Int.check(Schema.isGreaterThan(0)).annotate({
-  identifier: "GitHubWebhookHookId",
-})
-export type GitHubWebhookHookId = typeof GitHubWebhookHookId.Type
-
 export const PingWebhookPayload = Schema.Struct({
-  hookId: GitHubWebhookHookId,
+  hookId: GitHubWebhookHookIdFromStringOrNumber,
   zen: Schema.NonEmptyString,
 })
   .pipe(Schema.encodeKeys({ hookId: "hook_id" }))

@@ -1,12 +1,23 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
 import { TestSchema } from "effect/testing"
-import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Repository"
+import {
+  GitHubCommitSha,
+  GitHubInstallationId,
+  GitHubPullRequestDatabaseId,
+  GitHubPullRequestNodeId,
+  GitHubPullRequestReviewDatabaseId,
+  GitHubPullRequestReviewNodeId,
+  GitHubRepositoryDatabaseId,
+  GitHubRepositoryNodeId,
+  GitHubUserDatabaseId,
+  GitHubWebhookDeliveryId,
+} from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
-import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/WebhookEvent/Base"
 import { PullRequestReviewWebhookPayload } from "@janitor/domain/GitHub/WebhookEvent/PullRequestReview"
 
 const submittedAt = "2026-08-28T12:00:00.000Z"
+const updatedAt = "2026-08-28T11:00:00.000Z"
 const payload = {
   pull_request: {
     id: 123,
@@ -14,8 +25,12 @@ const payload = {
     node_id: "PR_kwDOExample",
     title: "Fix repository cleanup",
     body: null,
+    state: "open",
     draft: false,
-    user: { login: "octocat" },
+    merged: false,
+    updated_at: updatedAt,
+    labels: [],
+    user: { id: 102, login: "octocat" },
     head: { sha: "a".repeat(40) },
     base: { ref: "main" },
   },
@@ -28,7 +43,7 @@ const payload = {
     submitted_at: submittedAt,
     state: "approved",
   },
-  repository: { id: 456, full_name: "effect/janitor" },
+  repository: { id: 456, node_id: "R_kgDOJanitor", full_name: "effect/janitor" },
   installation: { id: 789 },
   sender: { id: 303, login: "reviewer" },
 } as const
@@ -36,31 +51,36 @@ const payload = {
 const submittedPayload: PullRequestReviewWebhookPayload = {
   action: "submitted",
   pullRequest: {
-    id: 123,
+    id: GitHubPullRequestDatabaseId.make("123"),
     number: 42,
-    nodeId: "PR_kwDOExample",
+    nodeId: GitHubPullRequestNodeId.make("PR_kwDOExample"),
     title: "Fix repository cleanup",
     body: null,
+    state: "open",
     draft: false,
-    user: { login: "octocat" },
-    head: { sha: "a".repeat(40) },
+    merged: false,
+    updatedAt: DateTime.makeUnsafe(updatedAt),
+    labels: [],
+    user: { id: GitHubUserDatabaseId.make("102"), login: "octocat" },
+    head: { sha: GitHubCommitSha.make("a".repeat(40)) },
     base: { ref: "main" },
   },
   review: {
-    id: 202,
-    nodeId: "PRR_kwDOExample",
-    user: { id: 303, login: "reviewer" },
+    id: GitHubPullRequestReviewDatabaseId.make("202"),
+    nodeId: GitHubPullRequestReviewNodeId.make("PRR_kwDOExample"),
+    user: { id: GitHubUserDatabaseId.make("303"), login: "reviewer" },
     body: "Looks good.",
-    commitId: "a".repeat(40),
+    commitId: GitHubCommitSha.make("a".repeat(40)),
     submittedAt: DateTime.makeUnsafe(submittedAt),
     state: "approved",
   },
   repository: {
     id: GitHubRepositoryDatabaseId.make("456"),
+    nodeId: GitHubRepositoryNodeId.make("R_kgDOJanitor"),
     fullName: { owner: "effect", repo: "janitor" },
   },
   installation: { id: GitHubInstallationId.make("789") },
-  sender: { id: 303, login: "reviewer" },
+  sender: { id: GitHubUserDatabaseId.make("303"), login: "reviewer" },
 }
 
 describe("pull request review webhook payload schema", () => {

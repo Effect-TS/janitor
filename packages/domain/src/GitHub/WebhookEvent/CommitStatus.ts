@@ -1,14 +1,8 @@
 import * as Schema from "effect/Schema"
 import * as Struct from "effect/Struct"
+import { GitHubCommitSha, GitHubCommitStatusDatabaseIdFromStringOrNumber } from "../Id.ts"
 import { BaseGitHubWebhookEvent } from "./Base.ts"
 import { PullRequestWebhookPayloadBase } from "./PullRequest.ts"
-
-const PositiveInteger = Schema.Int.check(Schema.isGreaterThan(0)).annotate({
-  identifier: "PositiveInteger",
-})
-const GitCommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/i)).annotate({
-  identifier: "GitCommitSha",
-})
 
 export const CommitStatusState = Schema.Literals([
   "error",
@@ -24,8 +18,8 @@ const CommitStatusWebhookPayloadBase = PullRequestWebhookPayloadBase.mapFields(
 
 export const CommitStatusWebhookPayload = CommitStatusWebhookPayloadBase.pipe(
   Schema.fieldsAssign({
-    id: PositiveInteger,
-    sha: GitCommitSha,
+    id: GitHubCommitStatusDatabaseIdFromStringOrNumber,
+    sha: GitHubCommitSha,
     name: Schema.String,
     targetUrl: Schema.NullOr(Schema.String),
     context: Schema.String,

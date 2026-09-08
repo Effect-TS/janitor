@@ -3,12 +3,17 @@ import * as DateTime from "effect/DateTime"
 import { TestSchema } from "effect/testing"
 import {
   GitHubAccountDatabaseId,
+  GitHubInstallationId,
+  GitHubRepositoryDatabaseId,
+  GitHubRepositoryNodeId,
+  GitHubUserDatabaseId,
+  GitHubWebhookDeliveryId,
+} from "@janitor/domain/GitHub/Id"
+import {
   GitHubInstallationRepository,
   GitHubInstallationSummary,
 } from "@janitor/domain/GitHub/Installation"
-import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Repository"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
-import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/WebhookEvent/Base"
 import {
   InstallationRepositoriesWebhookPayload,
   InstallationWebhookPayload,
@@ -36,18 +41,20 @@ const normalizedInstallation: GitHubInstallationSummary = {
 
 const repository: typeof GitHubInstallationRepository.Encoded = {
   id: 789,
+  node_id: "R_kgDOJanitor",
   full_name: "effect/janitor",
   private: false,
 }
 
 const normalizedRepository: GitHubInstallationRepository = {
   id: GitHubRepositoryDatabaseId.make("789"),
+  nodeId: GitHubRepositoryNodeId.make("R_kgDOJanitor"),
   fullName: { owner: "effect", repo: "janitor" },
   isPrivate: false,
 }
 
 const sender = { id: 101, login: "octocat" }
-const normalizedSender = { id: GitHubAccountDatabaseId.make("101"), login: "octocat" }
+const normalizedSender = { id: GitHubUserDatabaseId.make("101"), login: "octocat" }
 
 describe("installation webhook payload schema", () => {
   it("decodes and normalizes a created payload", async () => {

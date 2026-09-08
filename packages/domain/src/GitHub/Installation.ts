@@ -1,44 +1,16 @@
-import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as SchemaTransformation from "effect/SchemaTransformation"
-import * as Model from "effect/unstable/schema/Model"
-import { lifecycleTimestamps } from "../Shared/Timestamps.ts"
 import {
-  GitHubInstallationId,
+  GitHubAccountDatabaseIdFromStringOrNumber,
   GitHubInstallationIdFromStringOrNumber,
-  GitHubRepositoryDatabaseId,
   GitHubRepositoryDatabaseIdFromStringOrNumber,
-  GitHubRepositoryFullName,
-  GitHubRepositoryFullNameFromString,
-} from "./Repository.ts"
-
-const GitHubAccountIdString = Schema.NonEmptyString.check(
-  Schema.isPattern(/^[1-9][0-9]*$/),
-).annotate({
-  identifier: "GitHubAccountIdString",
-})
-const GitHubAccountIdNumber = Schema.Int.check(Schema.isGreaterThan(0)).annotate({
-  identifier: "GitHubAccountIdNumber",
-})
+  GitHubRepositoryNodeId,
+  GitHubUserDatabaseIdFromStringOrNumber,
+} from "./Id.ts"
+import { GitHubRepositoryFullNameFromString } from "./Repository.ts"
 const GitHubRepositoryCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
   identifier: "GitHubRepositoryCount",
 })
-
-export const GitHubAccountDatabaseId = GitHubAccountIdString.pipe(
-  Schema.brand("GitHubAccountDatabaseId"),
-).annotate({ identifier: "GitHubAccountDatabaseId" })
-export type GitHubAccountDatabaseId = typeof GitHubAccountDatabaseId.Type
-
-export const GitHubAccountDatabaseIdFromNumber = GitHubAccountIdNumber.pipe(
-  Schema.decodeTo(GitHubAccountIdString, SchemaTransformation.numberFromString.flip()),
-  Schema.brand("GitHubAccountDatabaseId"),
-).annotate({ identifier: "GitHubAccountDatabaseIdFromNumber" })
-
-export const GitHubAccountDatabaseIdFromStringOrNumber = Schema.Union([
-  GitHubAccountDatabaseIdFromNumber,
-  GitHubAccountDatabaseId,
-]).annotate({ identifier: "GitHubAccountDatabaseIdFromStringOrNumber" })
 
 export const GitHubAccountType = Schema.Literals(["Enterprise", "Organization", "User"]).annotate({
   identifier: "GitHubAccountType",
@@ -50,35 +22,6 @@ export const GitHubInstallationRepositorySelection = Schema.Literals(["all", "se
 })
 export type GitHubInstallationRepositorySelection =
   typeof GitHubInstallationRepositorySelection.Type
-
-export const GitHubInstallationStatus = Schema.Literals(["active", "suspended"]).annotate({
-  identifier: "GitHubInstallationStatus",
-})
-export type GitHubInstallationStatus = typeof GitHubInstallationStatus.Type
-
-export const GitHubInstallationSyncStatus = Schema.Literals([
-  "pending",
-  "ready",
-  "failed",
-]).annotate({
-  identifier: "GitHubInstallationSyncStatus",
-})
-export type GitHubInstallationSyncStatus = typeof GitHubInstallationSyncStatus.Type
-
-export class GitHubInstallation extends Model.Class<GitHubInstallation>("GitHubInstallation")({
-  githubDatabaseId: Model.GeneratedByApp(GitHubInstallationId),
-  accountDatabaseId: GitHubAccountDatabaseId,
-  accountHandle: Schema.NonEmptyString,
-  accountType: GitHubAccountType,
-  repositorySelection: GitHubInstallationRepositorySelection,
-  status: GitHubInstallationStatus,
-  syncStatus: GitHubInstallationSyncStatus,
-  htmlUrl: Schema.NonEmptyString,
-  lastError: Schema.OptionFromNullOr(Schema.String).pipe(
-    Schema.withConstructorDefault(Effect.succeedNone),
-  ),
-  ...lifecycleTimestamps,
-}) {}
 
 const GitHubInstallationUserOrOrganizationAccount = Schema.Struct({
   id: GitHubAccountDatabaseIdFromStringOrNumber,
@@ -105,7 +48,7 @@ const GitHubInstallationAccount = Schema.Union([
 ]).annotate({ identifier: "GitHubInstallationAccount" })
 
 export const GitHubInstallationSuspendingUser = Schema.Struct({
-  id: GitHubAccountDatabaseIdFromStringOrNumber,
+  id: GitHubUserDatabaseIdFromStringOrNumber,
   login: Schema.NonEmptyString,
 }).annotate({ identifier: "GitHubInstallationSuspendingUser" })
 export type GitHubInstallationSuspendingUser = typeof GitHubInstallationSuspendingUser.Type
@@ -129,20 +72,13 @@ export const GitHubInstallationSummary = Schema.Struct({
   .annotate({ identifier: "GitHubInstallationSummary" })
 export type GitHubInstallationSummary = typeof GitHubInstallationSummary.Type
 
-export const GitHubDiscoveredRepository = Schema.Struct({
-  githubDatabaseId: GitHubRepositoryDatabaseId,
-  owner: GitHubRepositoryFullName.fields.owner,
-  repo: GitHubRepositoryFullName.fields.repo,
-  isPrivate: Schema.Boolean,
-}).annotate({ identifier: "GitHubDiscoveredRepository" })
-export type GitHubDiscoveredRepository = typeof GitHubDiscoveredRepository.Type
-
 export const GitHubInstallationRepository = Schema.Struct({
   id: GitHubRepositoryDatabaseIdFromStringOrNumber,
+  nodeId: Schema.optionalKey(GitHubRepositoryNodeId),
   fullName: GitHubRepositoryFullNameFromString,
   isPrivate: Schema.Boolean,
 })
-  .pipe(Schema.encodeKeys({ fullName: "full_name", isPrivate: "private" }))
+  .pipe(Schema.encodeKeys({ nodeId: "node_id", fullName: "full_name", isPrivate: "private" }))
   .annotate({ identifier: "GitHubInstallationRepository" })
 export type GitHubInstallationRepository = typeof GitHubInstallationRepository.Type
 

@@ -6,19 +6,32 @@
     "dev": "vite"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "catalog:",
+    "@codemirror/commands": "catalog:",
+    "@codemirror/lang-yaml": "catalog:",
+    "@codemirror/language": "catalog:",
+    "@codemirror/lint": "catalog:",
+    "@codemirror/search": "catalog:",
+    "@codemirror/state": "catalog:",
+    "@codemirror/view": "catalog:",
     "@effect/platform-browser": "catalog:",
     "@foldkit/ui": "catalog:",
     "@fontsource-variable/geist": "catalog:",
+    "@janitor/domain": "workspace:^",
+    "@lezer/common": "catalog:",
+    "@uiw/codemirror-theme-github": "catalog:",
     "clsx": "catalog:",
     "effect": "catalog:",
     "foldkit": "catalog:",
     "lucide": "catalog:",
-    "tailwind-merge": "catalog:"
+    "tailwind-merge": "catalog:",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "@foldkit/devtools": "catalog:",
     "@foldkit/vite-plugin": "catalog:",
     "@tailwindcss/vite": "catalog:",
+    "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
     "tw-animate-css": "catalog:",
     "vite": "catalog:",

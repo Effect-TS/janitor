@@ -1,25 +1,24 @@
 import * as Schema from "effect/Schema"
+import {
+  GitHubCommitSha,
+  GitHubPullRequestReviewDatabaseIdFromStringOrNumber,
+  GitHubPullRequestReviewNodeId,
+  GitHubUserDatabaseIdFromStringOrNumber,
+} from "../Id.ts"
 import { BaseGitHubWebhookEvent } from "./Base.ts"
 import { PullRequestWebhookPayloadBase } from "./PullRequest.ts"
 
-const PositiveInteger = Schema.Int.check(Schema.isGreaterThan(0)).annotate({
-  identifier: "PositiveInteger",
-})
-const GitCommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/i)).annotate({
-  identifier: "GitCommitSha",
-})
-
 const PullRequestReviewUser = Schema.Struct({
-  id: PositiveInteger,
+  id: GitHubUserDatabaseIdFromStringOrNumber,
   login: Schema.NonEmptyString,
 }).annotate({ identifier: "PullRequestReviewUser" })
 
 const pullRequestReviewFields = {
-  id: PositiveInteger,
-  nodeId: Schema.NonEmptyString,
+  id: GitHubPullRequestReviewDatabaseIdFromStringOrNumber,
+  nodeId: GitHubPullRequestReviewNodeId,
   user: PullRequestReviewUser,
   body: Schema.Union([Schema.String, Schema.Null]),
-  commitId: GitCommitSha,
+  commitId: GitHubCommitSha,
   submittedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   state: Schema.Literals(["commented", "changes_requested", "approved", "dismissed"]),
 }

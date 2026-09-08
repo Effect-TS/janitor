@@ -1,0 +1,22 @@
+{
+  "name": "@janitor/cluster",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": null,
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@effect/ai-openai-compat": "catalog:",
+    "@effect/platform-cloudflare": "catalog:",
+    "@effect/sql-pg": "catalog:",
+    "@janitor/domain": "workspace:^",
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@testcontainers/postgresql": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

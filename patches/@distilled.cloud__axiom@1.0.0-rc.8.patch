@@ -1,0 +1,34 @@
+diff --git a/lib/credentials.js b/lib/credentials.js
+--- a/lib/credentials.js
++++ b/lib/credentials.js
+@@ -26,8 +26,8 @@ export const fromApiKey = (config) => Layer.succeed(Credentials, Effect.succeed({
+     orgId: config.orgId,
+ }));
+ const envConfig = EffectConfig.all({
+-    apiToken: EffectConfig.option(EffectConfig.string("AXIOM_TOKEN")),
+-    apiKey: EffectConfig.option(EffectConfig.string("AXIOM_API_KEY")),
+-    apiBaseUrl: EffectConfig.string("AXIOM_URL").pipe(EffectConfig.withDefault(DEFAULT_API_BASE_URL)),
+-    orgId: EffectConfig.option(EffectConfig.string("AXIOM_ORG_ID")),
++    apiToken: EffectConfig.option(EffectConfig.String("AXIOM_TOKEN")),
++    apiKey: EffectConfig.option(EffectConfig.String("AXIOM_API_KEY")),
++    apiBaseUrl: EffectConfig.String("AXIOM_URL").pipe(EffectConfig.withDefault(DEFAULT_API_BASE_URL)),
++    orgId: EffectConfig.option(EffectConfig.String("AXIOM_ORG_ID")),
+ });
+diff --git a/src/credentials.ts b/src/credentials.ts
+--- a/src/credentials.ts
++++ b/src/credentials.ts
+@@ -51,10 +51,10 @@ export const fromApiKey = (config: {
+   );
+ 
+ const envConfig = EffectConfig.all({
+-  apiToken: EffectConfig.option(EffectConfig.string("AXIOM_TOKEN")),
+-  apiKey: EffectConfig.option(EffectConfig.string("AXIOM_API_KEY")),
+-  apiBaseUrl: EffectConfig.string("AXIOM_URL").pipe(
++  apiToken: EffectConfig.option(EffectConfig.String("AXIOM_TOKEN")),
++  apiKey: EffectConfig.option(EffectConfig.String("AXIOM_API_KEY")),
++  apiBaseUrl: EffectConfig.String("AXIOM_URL").pipe(
+     EffectConfig.withDefault(DEFAULT_API_BASE_URL),
+   ),
+-  orgId: EffectConfig.option(EffectConfig.string("AXIOM_ORG_ID")),
++  orgId: EffectConfig.option(EffectConfig.String("AXIOM_ORG_ID")),
+ });

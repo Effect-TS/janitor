@@ -18,6 +18,7 @@ dist-ssr
 
 # Env
 .env
+*.pem
 .env.*
 !.env.example
 

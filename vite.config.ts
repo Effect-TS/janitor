@@ -1,4 +1,5 @@
 import { defineConfig } from "vite-plus"
+import { recommended } from "@effect/tsgo/oxlint-presets"
 
 export default defineConfig({
   staged: {
@@ -8,7 +9,8 @@ export default defineConfig({
     semi: false,
   },
   lint: {
-    plugins: ["typescript", "effecttsgo"],
+    extends: [recommended],
+    plugins: ["typescript"],
     jsPlugins: [
       {
         name: "foldkit",
@@ -20,6 +22,15 @@ export default defineConfig({
       },
     ],
     rules: {
+      "eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+        },
+      ],
       "vite-plus/prefer-vite-plus-imports": "error",
     },
     options: {
@@ -34,6 +45,46 @@ export default defineConfig({
       dev: {
         command: "vp exec alchemy dev",
         cache: false,
+      },
+
+      seed: {
+        // Re-seeds the running dev container without restarting the stack.
+        // `alchemy dev` also runs this, but only when the fixtures change.
+        command: "vp exec node apps/cluster/seed/main.ts",
+        cache: false,
+      },
+
+      "plan:prod": {
+        command:
+          "vp exec alchemy deploy alchemy.run.ts --stage production --env-file .env.production --dry-run",
+        cache: false,
+      },
+      "deploy:prod": {
+        command:
+          "vp exec alchemy deploy alchemy.run.ts --stage production --env-file .env.production",
+        cache: false,
+      },
+    },
+  },
+  test: {
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "backend",
+          include: ["apps/cluster/test/**/*.test.ts", "packages/domain/test/**/*.test.ts"],
+        },
+      },
+      "./apps/web/vite.config.ts",
+    ],
+    exclude: [".direnv", "**/node_modules/**"],
+    server: {
+      deps: {
+        // Run these inside the vitest module graph so they share one `effect`
+        // instance with the tests. Externalized, Node would load `effect`
+        // separately and module-level state such as the Redacted registry
+        // would split across two copies.
+        inline: [/@effect\/sql-pg/, /@effect\/platform-node/],
       },
     },
   },

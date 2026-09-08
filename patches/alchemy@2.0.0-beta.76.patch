@@ -1,0 +1,1510 @@
+diff --git a/bin/exec.js b/bin/exec.js
+index 6010e2204b867f0517661c74a9e561a7ab7858fa..3b876460fb67c1e74dafef4c06aeefb1df9f1bf5 100644
+--- a/bin/exec.js
++++ b/bin/exec.js
+@@ -247,7 +247,7 @@ var init_Profile = __esmMin((() => {
+ 	init_AuthProvider$1();
+ 	rootDir = path.join(os.homedir(), ".alchemy");
+ 	configFilePath = path.join(rootDir, "profiles.json");
+-	ALCHEMY_PROFILE = Config.string("ALCHEMY_PROFILE").pipe(Config.withDefault("default"));
++	ALCHEMY_PROFILE = Config.String("ALCHEMY_PROFILE").pipe(Config.withDefault("default"));
+ 	EffectContext.Service()("Alchemy::Profiles");
+ 	emptyConfig = () => ({
+ 		version: 0,
+@@ -1134,7 +1134,7 @@ var init_RpcServerEnvironment = __esmMin((() => {
+ 	SESSION_ENV_PARAM = "alchemy-session-env";
+ 	encodeSessionEnvironment = (env) => JSON.stringify(env);
+ 	RPC_SERVER_ENVIRONMENT_KEY = "ALCHEMY_RPC_SERVER_ENVIRONMENT";
+-	Config.string(RPC_SERVER_ENVIRONMENT_KEY).pipe(Config.map((raw) => JSON.parse(raw)));
++	Config.String(RPC_SERVER_ENVIRONMENT_KEY).pipe(Config.map((raw) => JSON.parse(raw)));
+ }));
+ //#endregion
+ //#region lib/Local/RpcProviderProxy.js
+@@ -1192,7 +1192,7 @@ var init_RpcProviderProxy = __esmMin((() => {
+ 			return unwrapRpcHandlers(provider, ["tail"]);
+ 		}) });
+ 	});
+-	fromEnv = () => Layer.effect(RpcProviderProxy, Config.string(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap(make$2)));
++	fromEnv = () => Layer.effect(RpcProviderProxy, Config.String(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap(make$2)));
+ }));
+ //#endregion
+ //#region lib/Local/RpcSpawner.js
+@@ -1315,7 +1315,7 @@ const parseSidecarLogLine = (raw) => {
+ * a no-op, and if the connection drops the spawner's own fallback printing
+ * takes over.
+ */
+-const forwardSidecarLogs = Config.string(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap((spawnerUrl) => {
++const forwardSidecarLogs = Config.String(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap((spawnerUrl) => {
+ 	return Effect.gen(function* () {
+ 		yield* (yield* (yield* HttpClient.HttpClient).get(new URL(LOGS_PATH, spawnerUrl).toString())).stream.pipe(Stream.decodeText, Stream.splitLines, Stream.runForEach((raw) => Effect.suspend(() => {
+ 			const parsed = parseSidecarLogLine(raw);
+@@ -1486,7 +1486,7 @@ const demandCredentials = Effect.fn("Alchemy.demandCredentials")(function* (dema
+ 	const profile = Option.getOrUndefined(yield* Effect.serviceOption(AlchemyProfile));
+ 	if (registry === void 0 || profile === void 0) return;
+ 	const profileName = yield* ALCHEMY_PROFILE;
+-	const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++	const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 	const nonInteractive = options?.nonInteractive ?? isNonInteractive();
+ 	for (const demand of demands) {
+ 		const auth = registry[demand.provider];
+@@ -3743,10 +3743,10 @@ var getEnv, getEnvRequired, getEnvRedacted, getEnvRedactedRequired, retryOnce;
+ var init_Env = __esmMin((() => {
+ 	init_Clank();
+ 	init_AuthProvider$1();
+-	getEnv = (key) => Config.string(key).pipe(Effect.orElseSucceed(() => void 0));
+-	getEnvRequired = (key) => Config.string(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
+-	getEnvRedacted = (key) => Config.redacted(key).pipe(Effect.orElseSucceed(() => void 0));
+-	getEnvRedactedRequired = (key) => Config.redacted(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
++	getEnv = (key) => Config.String(key).pipe(Effect.orElseSucceed(() => void 0));
++	getEnvRequired = (key) => Config.String(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
++	getEnvRedacted = (key) => Config.Redacted(key).pipe(Effect.orElseSucceed(() => void 0));
++	getEnvRedactedRequired = (key) => Config.Redacted(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
+ 	retryOnce = (self) => self.pipe(Effect.retry({
+ 		times: 1,
+ 		while: (e) => e instanceof PromptCancelled
+@@ -3760,12 +3760,12 @@ var init_Env = __esmMin((() => {
+ init_AlchemyContext();
+ init_AuthProvider$1();
+ init_Profile();
+-Config.string("AWS_PROFILE").pipe(Config.withDefault("default"));
+-Config.string("AWS_REGION");
+-Config.string("AWS_ACCOUNT_ID");
+-Config.string("AWS_ACCESS_KEY_ID");
+-Config.redacted("AWS_SECRET_ACCESS_KEY");
+-Config.redacted("AWS_SESSION_TOKEN");
++Config.String("AWS_PROFILE").pipe(Config.withDefault("default"));
++Config.String("AWS_REGION");
++Config.String("AWS_ACCOUNT_ID");
++Config.String("AWS_ACCESS_KEY_ID");
++Config.Redacted("AWS_SECRET_ACCESS_KEY");
++Config.Redacted("AWS_SESSION_TOKEN");
+ Data.TaggedError("AWS::Environment::FailedToGetAccount");
+ var AWSEnvironment = class AWSEnvironment extends EffectContext.Service()("AWS::Environment") {
+ 	static current = AWSEnvironment.use((env) => env);
+@@ -3783,7 +3783,7 @@ Layer.effect(AWSEnvironment, Effect.gen(function* () {
+ 	const profile = yield* AlchemyProfile;
+ 	const auth = yield* getAuthProvider("AWS");
+ 	const profileName = yield* ALCHEMY_PROFILE;
+-	const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++	const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 	const dev = Option.match(yield* Effect.serviceOption(AlchemyContext), {
+ 		onNone: () => false,
+ 		onSome: (ctx) => ctx.dev
+@@ -5895,8 +5895,8 @@ var __rewriteRelativeImportExtension = function(path, preserveJsx) {
+ 	});
+ 	return path;
+ };
+-const USER = Config.string("USER").pipe(Config.orElse(() => Config.string("USERNAME")), Config.withDefault("unknown"));
+-const STAGE = Config.string("STAGE").pipe(Config.option, (a) => a, Effect.map(Option.getOrUndefined));
++const USER = Config.String("USER").pipe(Config.orElse(() => Config.String("USERNAME")), Config.withDefault("unknown"));
++const STAGE = Config.String("STAGE").pipe(Config.option, (a) => a, Effect.map(Option.getOrUndefined));
+ const stage = Flag.string("stage").pipe(Flag.withSchema(Schema.String.check(Schema.isPattern(/^[a-z0-9]+([-_a-z0-9]+)*$/gi))), Flag.withDescription("Stage to deploy to, defaults to dev_${USER}"), Flag.optional, Flag.map(Option.getOrUndefined), Flag.mapEffect(Effect.fn(function* (stage) {
+ 	if (stage) return stage;
+ 	return yield* STAGE.pipe(Effect.catch(() => Effect.fail(new CliError.MissingOption({ option: "stage" }))), Effect.flatMap((s) => s === void 0 ? USER.pipe(Effect.map((user) => `dev_${user}`), Effect.catch(() => Effect.succeed("unknown"))) : Effect.succeed(s)));
+diff --git a/lib/AWS/EKS/KubernetesAdapter.js b/lib/AWS/EKS/KubernetesAdapter.js
+index a1b4551de389d2971a75acfb7ae2bf51de4b4861..6edf6967283766143c6486fe9650f723f9117c01 100644
+--- a/lib/AWS/EKS/KubernetesAdapter.js
++++ b/lib/AWS/EKS/KubernetesAdapter.js
+@@ -165,8 +165,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+@@ -246,8 +246,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+diff --git a/lib/AWS/Environment.js b/lib/AWS/Environment.js
+index 9a058bc38e0ccf464a6944238066e251b6777f48..02e414610a97bd110325a810a800c1b4c4ade45c 100644
+--- a/lib/AWS/Environment.js
++++ b/lib/AWS/Environment.js
+@@ -9,12 +9,12 @@ import { AlchemyContext } from "../AlchemyContext.js";
+ import { getAuthProvider } from "../Auth/AuthProvider.js";
+ import { ALCHEMY_PROFILE, AlchemyProfile } from "../Auth/Profile.js";
+ import { AWS_AUTH_PROVIDER_NAME, LOCAL_ACCOUNT_ID, } from "./AuthProvider.js";
+-export const AWS_PROFILE = Config.string("AWS_PROFILE").pipe(Config.withDefault("default"));
+-export const AWS_REGION = Config.string("AWS_REGION");
+-export const AWS_ACCOUNT_ID = Config.string("AWS_ACCOUNT_ID");
+-export const AWS_ACCESS_KEY_ID = Config.string("AWS_ACCESS_KEY_ID");
+-export const AWS_SECRET_ACCESS_KEY = Config.redacted("AWS_SECRET_ACCESS_KEY");
+-export const AWS_SESSION_TOKEN = Config.redacted("AWS_SESSION_TOKEN");
++export const AWS_PROFILE = Config.String("AWS_PROFILE").pipe(Config.withDefault("default"));
++export const AWS_REGION = Config.String("AWS_REGION");
++export const AWS_ACCOUNT_ID = Config.String("AWS_ACCOUNT_ID");
++export const AWS_ACCESS_KEY_ID = Config.String("AWS_ACCESS_KEY_ID");
++export const AWS_SECRET_ACCESS_KEY = Config.Redacted("AWS_SECRET_ACCESS_KEY");
++export const AWS_SESSION_TOKEN = Config.Redacted("AWS_SESSION_TOKEN");
+ export class FailedToGetAccount extends Data.TaggedError("AWS::Environment::FailedToGetAccount") {
+ }
+ export class AWSEnvironment extends Context.Service()("AWS::Environment") {
+@@ -34,7 +34,7 @@ export const Default = Layer.effect(AWSEnvironment, Effect.gen(function* () {
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(AWS_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     const dev = Option.match(yield* Effect.serviceOption(AlchemyContext), {
+         onNone: () => false,
+         onSome: (ctx) => ctx.dev,
+diff --git a/lib/Auth/Demand.js b/lib/Auth/Demand.js
+index e71adec68756823eb8ea206255ccf7d47f3682bd..c545572723ce19e47aa7e4472cc7ea04f196951f 100644
+--- a/lib/Auth/Demand.js
++++ b/lib/Auth/Demand.js
+@@ -157,7 +157,7 @@ export const demandCredentials = Effect.fn("Alchemy.demandCredentials")(function
+     if (registry === undefined || profile === undefined)
+         return;
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     const nonInteractive = options?.nonInteractive ?? isNonInteractive();
+     for (const demand of demands) {
+         const auth = registry[demand.provider];
+diff --git a/lib/Auth/Env.js b/lib/Auth/Env.js
+index ad710d680b67548550ecba9c9dc72b896d26b324..d1074347afe63dea40c51c87e5fa005427b4ceb3 100644
+--- a/lib/Auth/Env.js
++++ b/lib/Auth/Env.js
+@@ -2,10 +2,10 @@ import * as Config from "effect/Config";
+ import * as Effect from "effect/Effect";
+ import * as Clank from "../Util/Clank.js";
+ import { AuthError } from "./AuthProvider.js";
+-export const getEnv = (key) => Config.string(key).pipe(Effect.orElseSucceed(() => undefined));
+-export const getEnvRequired = (key) => Config.string(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
+-export const getEnvRedacted = (key) => Config.redacted(key).pipe(Effect.orElseSucceed(() => undefined));
+-export const getEnvRedactedRequired = (key) => Config.redacted(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
++export const getEnv = (key) => Config.String(key).pipe(Effect.orElseSucceed(() => undefined));
++export const getEnvRequired = (key) => Config.String(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
++export const getEnvRedacted = (key) => Config.Redacted(key).pipe(Effect.orElseSucceed(() => undefined));
++export const getEnvRedactedRequired = (key) => Config.Redacted(key).pipe(Effect.catch(() => Effect.fail(new AuthError({ message: `Missing required env: ${key}` }))));
+ export const retryOnce = (self) => self.pipe(Effect.retry({
+     times: 1,
+     while: (e) => e instanceof Clank.PromptCancelled,
+diff --git a/lib/Auth/Profile.js b/lib/Auth/Profile.js
+index db53ff3d531f07cfda519363815d6dda12b74e60..969bcdb6393131d8575f8ae9ad71b93e220e8189 100644
+--- a/lib/Auth/Profile.js
++++ b/lib/Auth/Profile.js
+@@ -15,7 +15,7 @@ export const configFilePath = path.join(rootDir, "profiles.json");
+  * `fromEnvironment` layers to pick which named profile in
+  * `~/.alchemy/profiles.json` to use. Defaults to `"default"`.
+  */
+-export const ALCHEMY_PROFILE = Config.string("ALCHEMY_PROFILE").pipe(Config.withDefault("default"));
++export const ALCHEMY_PROFILE = Config.String("ALCHEMY_PROFILE").pipe(Config.withDefault("default"));
+ export const CONFIG_VERSION = 0;
+ export class AlchemyConfig extends Context.Service()("Alchemy::Profiles") {
+ }
+diff --git a/lib/Axiom/Credentials.js b/lib/Axiom/Credentials.js
+index db9ca9c0e956e9f17018077227c4db0d048c7f5c..bd7fe5dea6184684e9a64582ef6c6f8fa27faacd 100644
+--- a/lib/Axiom/Credentials.js
++++ b/lib/Axiom/Credentials.js
+@@ -17,7 +17,7 @@ export const fromAuthProvider = () => Layer.effect(Credentials, Effect.gen(funct
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(AXIOM_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => Match.value(creds).pipe(Match.when({ type: "apiToken" }, (c) => ({
+         apiKey: c.apiToken,
+         apiBaseUrl: c.apiBaseUrl,
+diff --git a/lib/Cli/commands/_shared.js b/lib/Cli/commands/_shared.js
+index 271cbd7ea1685aa4066bf8011e1d56f3eddf4aa7..74dccbe23a8003a8b8e6378366df4bb4dbb95266 100644
+--- a/lib/Cli/commands/_shared.js
++++ b/lib/Cli/commands/_shared.js
+@@ -36,8 +36,8 @@ import { recordCli } from "../../Telemetry/Metrics.js";
+ import { PromptCancelled } from "../../Util/Clank.js";
+ import { loadConfigProvider } from "../../Util/ConfigProvider.js";
+ import { fileLogger } from "../../Util/FileLogger.js";
+-export const USER = Config.string("USER").pipe(Config.orElse(() => Config.string("USERNAME")), Config.withDefault("unknown"));
+-export const STAGE = Config.string("STAGE").pipe(Config.option, (a) => a, Effect.map(Option.getOrUndefined));
++export const USER = Config.String("USER").pipe(Config.orElse(() => Config.String("USERNAME")), Config.withDefault("unknown"));
++export const STAGE = Config.String("STAGE").pipe(Config.option, (a) => a, Effect.map(Option.getOrUndefined));
+ /**
+  * `true` if `e` is a {@link PromptCancelled}, or an {@link AuthError} whose
+  * `cause` chain bottoms out in one. Schema-tagged errors don't always
+diff --git a/lib/Cli/commands/cloudflare.js b/lib/Cli/commands/cloudflare.js
+index d71a1f2acb82ec6d27310637626bdb22192f499e..26b3cab76ca7ac12deee6301b11e666ff3a1e8dd 100644
+--- a/lib/Cli/commands/cloudflare.js
++++ b/lib/Cli/commands/cloudflare.js
+@@ -203,13 +203,13 @@ const createTokenCommand = Command.make("create-token", {
+         // The Global API Key is a dashboard-only secret — there is no API to
+         // fetch it — so read it from the environment or prompt for it. It is
+         // used only to create the token and is never stored.
+-        const envApiKey = yield* Config.string("CLOUDFLARE_API_KEY").pipe(Config.option, Config.map(Option.getOrUndefined));
++        const envApiKey = yield* Config.String("CLOUDFLARE_API_KEY").pipe(Config.option, Config.map(Option.getOrUndefined));
+         const apiKey = envApiKey ??
+             (yield* Clank.password({
+                 message: "Paste your Global API Key (see bottom of https://dash.cloudflare.com/profile/api-tokens)",
+                 validate: (v) => (v.trim().length === 0 ? "Required" : undefined),
+             }));
+-        const envEmail = yield* Config.string("CLOUDFLARE_EMAIL").pipe(Config.option, Config.map(Option.getOrUndefined));
++        const envEmail = yield* Config.String("CLOUDFLARE_EMAIL").pipe(Config.option, Config.map(Option.getOrUndefined));
+         const email = envEmail ??
+             (yield* Clank.text({
+                 message: "Cloudflare account email",
+diff --git a/lib/Cli/commands/login.js b/lib/Cli/commands/login.js
+index 1e411939b33cbad1e20406136a6de274c633cfe3..4585b89a5081f71fea6751c54ea1915492256678 100644
+--- a/lib/Cli/commands/login.js
++++ b/lib/Cli/commands/login.js
+@@ -45,7 +45,7 @@ export const loginCommand = Command.make("login", {
+         }));
+     }
+     const profiles = yield* AlchemyProfile;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     let authProviders;
+     // Providers to actually log in with; `undefined` means all registered.
+     let selected;
+diff --git a/lib/Cloudflare/Access.js b/lib/Cloudflare/Access.js
+index 90a777e12d637d60c57a03565c9eb56459cc367c..e4ef50c024bfd5253821a023924199a63da32923 100644
+--- a/lib/Cloudflare/Access.js
++++ b/lib/Cloudflare/Access.js
+@@ -35,7 +35,7 @@ export const AccessLive = Layer.effect(Access, Effect.gen(function* () {
+                 message: "Failed to authenticate with Cloudflare Access",
+             }));
+     }), Effect.scoped);
+-    const getEnv = (name) => Config.string(name)
++    const getEnv = (name) => Config.String(name)
+         .pipe(Effect.catchTag("ConfigError", () => Effect.succeed(undefined)));
+     return Access.of({
+         getAccessHeaders: Effect.fn(function* (domain) {
+diff --git a/lib/Cloudflare/CloudflareEnvironment.js b/lib/Cloudflare/CloudflareEnvironment.js
+index 47090c0cbbec7d32c22e615fe1da295fb74ecba1..b597bbce8ca6374e29c96277188d28e33bebec8a 100644
+--- a/lib/Cloudflare/CloudflareEnvironment.js
++++ b/lib/Cloudflare/CloudflareEnvironment.js
+@@ -9,7 +9,7 @@ import { CLOUDFLARE_AUTH_PROVIDER_NAME, } from "./Auth/AuthProvider.js";
+ export class CloudflareEnvironment extends Context.Service()("Cloudflare::CloudflareEnvironment") {
+     kind = "Environment";
+ }
+-const CLOUDFLARE_ACCOUNT_ID = Config.string("CLOUDFLARE_ACCOUNT_ID");
++const CLOUDFLARE_ACCOUNT_ID = Config.String("CLOUDFLARE_ACCOUNT_ID");
+ export const fromEnv = () => Layer.effect(CloudflareEnvironment, Effect.gen(function* () {
+     const accountId = yield* CLOUDFLARE_ACCOUNT_ID.pipe(Config.option, Config.map(Option.getOrUndefined));
+     return { account: accountId };
+@@ -18,7 +18,7 @@ export const fromProfile = () => Layer.effect(CloudflareEnvironment, Effect.gen(
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(CLOUDFLARE_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     // `loadOrConfigure` reads the persisted config under the canonical
+     // provider name (`Cloudflare`); only runs `configure` (and persists the
+     // result) if no stored config exists.
+diff --git a/lib/Cloudflare/Credentials.js b/lib/Cloudflare/Credentials.js
+index 0a4b6db5927361e4cd8094f6bf1f9f063de49e82..cb32f8b46496594c086994b7b158256091568cb6 100644
+--- a/lib/Cloudflare/Credentials.js
++++ b/lib/Cloudflare/Credentials.js
+@@ -63,7 +63,7 @@ export const fromAuthProvider = () => Layer.effect(Credentials, Effect.gen(funct
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(CLOUDFLARE_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     const resolve = profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => Match.value(creds).pipe(Match.when({ type: "apiToken" }, (c) => apiTokenCredentials({
+         apiToken: Redacted.value(c.apiToken),
+     })), Match.when({ type: "apiKey" }, (c) => apiKeyCredentials({
+diff --git a/lib/Cloudflare/StateStore/State.js b/lib/Cloudflare/StateStore/State.js
+index a226ab1fa2670ca319a9b675baca73ca89c1241b..d357f10db9c72a664976f8a196e3725ca91736a2 100644
+--- a/lib/Cloudflare/StateStore/State.js
++++ b/lib/Cloudflare/StateStore/State.js
+@@ -34,7 +34,7 @@ import { EdgeSessionError, createEdgeSession } from "../EdgeSession.js";
+ import Api, { STATE_STORE_SCRIPT_NAME, STATE_STORE_VERSION } from "./Api.js";
+ import { CREDENTIALS_FILE, isStateStoreCredentialsStale, } from "./CredentialsFile.js";
+ import { AuthToken, AuthTokenSecretName, EncryptionKeySecretName, TokenValue, } from "./Token.js";
+-const CI = Config.boolean("CI").pipe(Config.withDefault(false));
++const CI = Config.Boolean("CI").pipe(Config.withDefault(false));
+ export const state = () => Layer.effect(State, Effect.gen(function* () {
+     const isCI = yield* CI;
+     const scriptName = STATE_STORE_SCRIPT_NAME;
+@@ -800,7 +800,7 @@ const annotateAccountHash = (noTrack) => Effect.gen(function* () {
+     if (noTrack === true)
+         return;
+     if (noTrack === undefined) {
+-        const fromEnv = yield* Config.boolean("NO_TRACK").pipe(Config.withDefault(false));
++        const fromEnv = yield* Config.Boolean("NO_TRACK").pipe(Config.withDefault(false));
+         if (fromEnv)
+             return;
+     }
+diff --git a/lib/Cloudflare/Workers/WorkerProvider.js b/lib/Cloudflare/Workers/WorkerProvider.js
+index 06377d115e6ce1aa9ef062d1bdfebdc312cfb51f..e758ca16fe04943e5af4bbadce05480176d9d9d8 100644
+--- a/lib/Cloudflare/Workers/WorkerProvider.js
++++ b/lib/Cloudflare/Workers/WorkerProvider.js
+@@ -670,7 +670,7 @@ export const shouldObserveWorkerCrons = (olds, output) => olds?.crons !== undefi
+  * (`<subdomain>` in `https://<script>.<subdomain>.workers.dev`). When set,
+  * Worker URL construction skips `GET /accounts/{id}/workers/subdomain`.
+  */
+-const CLOUDFLARE_WORKERS_SUBDOMAIN = Config.string("CLOUDFLARE_WORKERS_SUBDOMAIN").pipe(Config.map((value) => value.trim()), Config.option);
++const CLOUDFLARE_WORKERS_SUBDOMAIN = Config.String("CLOUDFLARE_WORKERS_SUBDOMAIN").pipe(Config.map((value) => value.trim()), Config.option);
+ const WORKERS_SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+ /**
+  * Max concurrent `GET /zones/{id}/workers/routes` calls when observing the
+diff --git a/lib/Docker/Docker.js b/lib/Docker/Docker.js
+index ebd0d8dba81a384b85ff57e86fa51326eae305f1..23351729ac8ceaa9e9e44db71263f4b7f25833af 100644
+--- a/lib/Docker/Docker.js
++++ b/lib/Docker/Docker.js
+@@ -14,7 +14,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
+ import { createPhysicalName } from "../PhysicalName.js";
+ export class Docker extends Context.Service()("@alchemy/Docker") {
+ }
+-const DockerBin = Config.string("DOCKER_BIN").pipe(Effect.orElseSucceed(() => "docker"));
++const DockerBin = Config.String("DOCKER_BIN").pipe(Effect.orElseSucceed(() => "docker"));
+ export const DockerLive = Layer.effect(Docker, Effect.gen(function* () {
+     const fs = yield* FileSystem.FileSystem;
+     const path = yield* Path.Path;
+@@ -40,7 +40,7 @@ export const DockerLive = Layer.effect(Docker, Effect.gen(function* () {
+         if (result.exitCode === 0)
+             return Effect.void;
+         const stderr = result.stderr.replace(/^Error response from daemon: /, "");
+-        if (stderr.match(/no such/i) || stderr.match(/not found/i)) {
++        if (stderr.match(/no such/i) || stderr.match(/not found/i) || stderr.match(/not known/i)) {
+             return systemError({
+                 _tag: "NotFound",
+                 args,
+diff --git a/lib/Fly/BucketBinding.js b/lib/Fly/BucketBinding.js
+index 5bc32ff51a68ebba3644e8ec5f6a2ce903ba0f64..5b91871593534c6eb865089877bb18df47d4cfc8 100644
+--- a/lib/Fly/BucketBinding.js
++++ b/lib/Fly/BucketBinding.js
+@@ -50,11 +50,11 @@ const scopeFromResource = (bucket) => Effect.gen(function* () {
+     };
+ });
+ const scopeFromEnv = Effect.gen(function* () {
+-    const bucketName = yield* Config.string("BUCKET_NAME");
+-    const accessKeyId = yield* Config.string("AWS_ACCESS_KEY_ID");
+-    const secretAccessKey = yield* Config.redacted("AWS_SECRET_ACCESS_KEY");
+-    const endpoint = yield* Config.string("AWS_ENDPOINT_URL_S3").pipe(Config.orElse(() => Config.string("AWS_ENDPOINT_URL")));
+-    const region = yield* Config.string("AWS_REGION").pipe(Config.withDefault("auto"));
++    const bucketName = yield* Config.String("BUCKET_NAME");
++    const accessKeyId = yield* Config.String("AWS_ACCESS_KEY_ID");
++    const secretAccessKey = yield* Config.Redacted("AWS_SECRET_ACCESS_KEY");
++    const endpoint = yield* Config.String("AWS_ENDPOINT_URL_S3").pipe(Config.orElse(() => Config.String("AWS_ENDPOINT_URL")));
++    const region = yield* Config.String("AWS_REGION").pipe(Config.withDefault("auto"));
+     return {
+         bucketName,
+         accessKeyId,
+diff --git a/lib/Fly/Credentials.js b/lib/Fly/Credentials.js
+index 92066e3916003c3da66fb640e422328f5a6c880c..5da851a0953cdbdcad5fa20d3acc8d156b374167 100644
+--- a/lib/Fly/Credentials.js
++++ b/lib/Fly/Credentials.js
+@@ -20,7 +20,7 @@ export const fromAuthProvider = () => Layer.effect(Credentials, Effect.gen(funct
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(FLY_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => ({
+         apiKey: creds.apiKey,
+         apiBaseUrl: creds.apiBaseUrl,
+diff --git a/lib/Fly/GetSecretHttp.js b/lib/Fly/GetSecretHttp.js
+index 3e2bf9eb0fa06594d7e5621cc3fb250894dd141a..63f0b80bb31d2cc28bcbd16d430f9872ffd9f0b8 100644
+--- a/lib/Fly/GetSecretHttp.js
++++ b/lib/Fly/GetSecretHttp.js
+@@ -32,7 +32,7 @@ export const GetSecretHttp = Layer.effect(GetSecret, Effect.suspend(() => makeHt
+             // that over getSecret — org tokens still cannot read plaintext
+             // from outside the App, and the env is already the source of
+             // truth once the secret exists.
+-            const fromEnv = yield* Config.redacted(name).pipe(Effect.map((value) => ({
++            const fromEnv = yield* Config.Redacted(name).pipe(Effect.map((value) => ({
+                 name,
+                 value: Redacted.value(value),
+             })), Effect.catch(() => Effect.succeed(undefined)));
+diff --git a/lib/Fly/RedisBinding.js b/lib/Fly/RedisBinding.js
+index c1613a5a8dea988b853e965dcff4643fc4f0508f..effcf7ad0fea8a5d422cfdc083443a67baba56ce 100644
+--- a/lib/Fly/RedisBinding.js
++++ b/lib/Fly/RedisBinding.js
+@@ -27,7 +27,7 @@ const asPlain = (value) => {
+         return asPlain(Redacted.value(value));
+     return undefined;
+ };
+-const redisUrlFromEnv = Config.redacted(REDIS_URL_ENV).pipe(Effect.map((value) => Redacted.value(value)));
++const redisUrlFromEnv = Config.Redacted(REDIS_URL_ENV).pipe(Effect.map((value) => Redacted.value(value)));
+ export const makeRedisBinding = (options) => Effect.succeed(Effect.fn(function* (redis) {
+     if (!globalThis.__ALCHEMY_RUNTIME__) {
+         const host = yield* Binding.Host;
+diff --git a/lib/Fly/SecretHttp.js b/lib/Fly/SecretHttp.js
+index 02ed3a6aced0aa1669ea2a611cb4d92fb03d6953..4ae00d3ed32216f5cdee2098942b24f37f9ac891 100644
+--- a/lib/Fly/SecretHttp.js
++++ b/lib/Fly/SecretHttp.js
+@@ -95,7 +95,7 @@ export const makeKmsAuth = (ambient) => ({
+  * during reconcile, so a missing value is a defect, not a recoverable
+  * error — keep the client's error channel free of `ConfigError`.
+  */
+-const envName = (key) => Config.string(key).pipe(Effect.orDie);
++const envName = (key) => Config.String(key).pipe(Effect.orDie);
+ const toNameEffect = (value) => {
+     if (typeof value === "string")
+         return Effect.succeed(value);
+diff --git a/lib/GitHub/Credentials.js b/lib/GitHub/Credentials.js
+index be31ec5f4faa461f7d916f3dfb7ff638b4cf0854..18dd286034c96ccfb0b2d44f5401b81509f41ceb 100644
+--- a/lib/GitHub/Credentials.js
++++ b/lib/GitHub/Credentials.js
+@@ -62,7 +62,7 @@ export const fromAuthProvider = (options) => Layer.effect(GitHubCredentials, Eff
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(GITHUB_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => make(creds.token, fixedBaseUrl !== undefined ? fixedBaseUrl.baseUrl : creds.baseUrl)), Effect.mapError((e) => new AuthError({
+         message: `Failed to resolve GitHub credentials for profile '${profileName}': ${e.message ?? String(e)}`,
+     })), Effect.orDie, Effect.cached);
+diff --git a/lib/GitHub/Env.js b/lib/GitHub/Env.js
+index 3f70c69f07995ecd81d6a977d1bb0ea5f21b2aa6..8e5b3466ba8947c61168f341c4763083e1541858 100644
+--- a/lib/GitHub/Env.js
++++ b/lib/GitHub/Env.js
+@@ -11,17 +11,17 @@ import * as String from "effect/String";
+  * `GITHUB_SHA`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_REPOSITORY`, and the optional
+  * `PULL_REQUEST` variable exported by the Alchemy GitHub Action.
+  */
+-export const GitHubEnv = Config.boolean("GITHUB_ACTIONS").pipe(Config.withDefault(false), 
++export const GitHubEnv = Config.Boolean("GITHUB_ACTIONS").pipe(Config.withDefault(false), 
+ // Config has no flatMap in Effect 4; a Config is itself an Effect, so the
+ // enabled branch returns the inner config for mapOrFail to evaluate.
+-Config.mapOrFail((enabled) => enabled
++Config.mapEffect((enabled) => enabled
+     ? Config.all({
+-        sha: Config.string("GITHUB_SHA"),
+-        owner: Config.string("GITHUB_REPOSITORY_OWNER"),
+-        repository: Config.string("GITHUB_REPOSITORY").pipe(Config.mapOrFail(flow(String.split("/"), Array.get(1), Effect.fromOption, Effect.catchTags({
++        sha: Config.String("GITHUB_SHA"),
++        owner: Config.String("GITHUB_REPOSITORY_OWNER"),
++        repository: Config.String("GITHUB_REPOSITORY").pipe(Config.mapEffect(flow(String.split("/"), Array.get(1), Effect.fromOption, Effect.catchTags({
+             NoSuchElementError: Effect.die,
+         })))),
+-        pr: Config.number("PULL_REQUEST").pipe(Config.option, Config.map(Option.getOrUndefined)),
++        pr: Config.Number("PULL_REQUEST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+     })
+     : Effect.succeed(undefined)));
+ //# sourceMappingURL=Env.js.map
+\ No newline at end of file
+diff --git a/lib/Hetzner/Credentials.js b/lib/Hetzner/Credentials.js
+index 7a490de86265d94e4c131f7c42ada37b95d16d0a..2cb714b0d0b68865f22f2ce6a5127a79578968a7 100644
+--- a/lib/Hetzner/Credentials.js
++++ b/lib/Hetzner/Credentials.js
+@@ -18,7 +18,7 @@ export const fromAuthProvider = () => Layer.effect(Credentials, Effect.gen(funct
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(HETZNER_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => ({
+         token: creds.token,
+         apiBaseUrl: creds.apiBaseUrl,
+diff --git a/lib/Http.js b/lib/Http.js
+index e7d683f5ed8535f104fd35de1f9dc7e5a7410062..a0b1b9bea8fc3e0ffcf4f4f3701aa5d2878f3740 100644
+--- a/lib/Http.js
++++ b/lib/Http.js
+@@ -61,7 +61,7 @@ const logUnreportedCause = (cause) => {
+ };
+ export const resolvePort = (options) => options?.port !== undefined
+     ? Effect.succeed(options.port)
+-    : Config.number("PORT").pipe(Config.withDefault(3000));
++    : Config.Number("PORT").pipe(Config.withDefault(3000));
+ export const BunHttpServer = (serverOptions) => Layer.effect(HttpServer, Effect.gen(function* () {
+     const BunHttpServerPlatform = yield* Effect.promise(() => import("@effect/platform-bun/BunHttpServer"));
+     return {
+diff --git a/lib/Kubernetes/internal/helm.js b/lib/Kubernetes/internal/helm.js
+index a90ecb8aa6ec6f98c85657a61647b1c885e48c2c..e532902f1844a88aa725be7f8b0692d056564e2f 100644
+--- a/lib/Kubernetes/internal/helm.js
++++ b/lib/Kubernetes/internal/helm.js
+@@ -21,7 +21,7 @@ import * as YAML from "yaml";
+ /** A Helm invocation or render failure (bad chart ref, template error, …). */
+ export class HelmError extends Data.TaggedError("HelmError") {
+ }
+-const HelmBin = Config.string("HELM_BIN").pipe(Effect.orElseSucceed(() => "helm"));
++const HelmBin = Config.String("HELM_BIN").pipe(Effect.orElseSucceed(() => "helm"));
+ /**
+  * Render a chart with `helm template --no-hooks` and parse the
+  * multi-document YAML output into object definitions. Every rendered object
+diff --git a/lib/Kubernetes/internal/kubeconfig.js b/lib/Kubernetes/internal/kubeconfig.js
+index 6ca02fb7554df752c32efc141a26ee8aa49cbca1..4804e2e4b58a018eac8e020c4a2dded6b4528c84 100644
+--- a/lib/Kubernetes/internal/kubeconfig.js
++++ b/lib/Kubernetes/internal/kubeconfig.js
+@@ -38,7 +38,7 @@ const expandHome = Effect.fn(function* (input) {
+ export const resolveKubeConfigPath = Effect.fn(function* (explicit) {
+     if (explicit)
+         return yield* expandHome(explicit);
+-    const fromEnv = yield* Config.string("KUBECONFIG").pipe(Effect.orElseSucceed(() => undefined));
++    const fromEnv = yield* Config.String("KUBECONFIG").pipe(Effect.orElseSucceed(() => undefined));
+     // $KUBECONFIG may be a path list; use the first entry like kubectl's
+     // effective-config merge order.
+     const candidate = fromEnv?.split(":")[0];
+diff --git a/lib/Kubernetes/internal/workload.js b/lib/Kubernetes/internal/workload.js
+index b0cff422c5a9c77d25701cebe21a2a4ff2587309..5f766dc55402ae61de3c3a689223cd62687edf85 100644
+--- a/lib/Kubernetes/internal/workload.js
++++ b/lib/Kubernetes/internal/workload.js
+@@ -261,8 +261,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+@@ -337,8 +337,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+diff --git a/lib/Local/RpcProviderProxy.js b/lib/Local/RpcProviderProxy.js
+index b12abf83428c42004b5020fbb6b8d935486a130f..fc72dd14559a14d3df45ed767bdeb013b2bbf788 100644
+--- a/lib/Local/RpcProviderProxy.js
++++ b/lib/Local/RpcProviderProxy.js
+@@ -88,5 +88,5 @@ const make = Effect.fn(function* (spawnerUrl) {
+     });
+ });
+ export const layer = (url) => Layer.effect(RpcProviderProxy, make(url));
+-export const fromEnv = () => Layer.effect(RpcProviderProxy, Config.string(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap(make)));
++export const fromEnv = () => Layer.effect(RpcProviderProxy, Config.String(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap(make)));
+ //# sourceMappingURL=RpcProviderProxy.js.map
+\ No newline at end of file
+diff --git a/lib/Local/RpcServerEnvironment.js b/lib/Local/RpcServerEnvironment.js
+index fc7c1df4557648ec5923fe626000919e712c1139..a845924006ba06b1acf2c5049ca0ce38ec97a8f0 100644
+--- a/lib/Local/RpcServerEnvironment.js
++++ b/lib/Local/RpcServerEnvironment.js
+@@ -23,7 +23,7 @@ export const layer = (environment) => Layer.mergeAll(ProfileLive, CredentialsSto
+ }), Layer.succeed(Stage, environment.stack.stage));
+ export const RPC_SERVER_ENVIRONMENT_KEY = "ALCHEMY_RPC_SERVER_ENVIRONMENT";
+ /** The spawn-time environment the parent baked into the child's process env. */
+-export const fromProcessEnv = Config.string(RPC_SERVER_ENVIRONMENT_KEY).pipe(Config.map((raw) => JSON.parse(raw)));
++export const fromProcessEnv = Config.String(RPC_SERVER_ENVIRONMENT_KEY).pipe(Config.map((raw) => JSON.parse(raw)));
+ /**
+  * Legacy single-stack boot: the full environment (including the stack) baked
+  * into the process env at spawn time. Used by children that serve exactly one
+diff --git a/lib/Local/RpcSpawner.js b/lib/Local/RpcSpawner.js
+index ecc2a1800dbb413bcfb3052d4975f5aac0a292a3..c1eb11d6e0a0036e9ec79ae079d0c189b50cd503 100644
+--- a/lib/Local/RpcSpawner.js
++++ b/lib/Local/RpcSpawner.js
+@@ -176,7 +176,7 @@ const parseSidecarLogLine = (raw) => {
+  * a no-op, and if the connection drops the spawner's own fallback printing
+  * takes over.
+  */
+-export const forwardSidecarLogs = Config.string(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap((spawnerUrl) => {
++export const forwardSidecarLogs = Config.String(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap((spawnerUrl) => {
+     const streamOnce = Effect.gen(function* () {
+         const client = yield* HttpClient.HttpClient;
+         const response = yield* client.get(new URL(LOGS_PATH, spawnerUrl).toString());
+diff --git a/lib/Neon/Credentials.js b/lib/Neon/Credentials.js
+index 3c494c6f2504058930fdd60d3b358d39433627f8..1fb3907f7eceb23b3bd9c795120656e2b928056a 100644
+--- a/lib/Neon/Credentials.js
++++ b/lib/Neon/Credentials.js
+@@ -12,7 +12,7 @@ export const fromAuthProvider = () => Layer.effect(Credentials, Effect.gen(funct
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(NEON_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => ({
+         apiKey: creds.apiKey,
+         apiBaseUrl: DEFAULT_BASE_URL,
+diff --git a/lib/Phase.js b/lib/Phase.js
+index 0b1550a837dba7d9a999232af80ebf6348244088..2793728dcb08536747d9c82384f6be9ee1e2c807 100644
+--- a/lib/Phase.js
++++ b/lib/Phase.js
+@@ -1,6 +1,6 @@
+ import * as Config from "effect/Config";
+ import * as Effect from "effect/Effect";
+-export const ALCHEMY_PHASE = Config.string("ALCHEMY_PHASE").pipe(Config.withDefault("plan"), Config.mapOrFail((value) => {
++export const ALCHEMY_PHASE = Config.String("ALCHEMY_PHASE").pipe(Config.withDefault("plan"), Config.mapEffect((value) => {
+     if (value !== "plan" && value !== "runtime") {
+         return Effect.die(new Error(`Invalid ALCHEMY_PHASE: ${value}`));
+     }
+@@ -27,5 +27,5 @@ export const ALCHEMY_PHASE = Config.string("ALCHEMY_PHASE").pipe(Config.withDefa
+  * });
+  * ```
+  */
+-export const ALCHEMY_DEV = Config.boolean("ALCHEMY_DEV").pipe(Config.withDefault(false));
++export const ALCHEMY_DEV = Config.Boolean("ALCHEMY_DEV").pipe(Config.withDefault(false));
+ //# sourceMappingURL=Phase.js.map
+\ No newline at end of file
+diff --git a/lib/Planetscale/Credentials.js b/lib/Planetscale/Credentials.js
+index 0b04e281c469ddb1a6c7bdc65bb533c6294389c9..02d5f660b65ce125218f6dfd8a8cc3ef340a413f 100644
+--- a/lib/Planetscale/Credentials.js
++++ b/lib/Planetscale/Credentials.js
+@@ -42,8 +42,8 @@ export const fromAuthProvider = () => Layer.effect(Credentials, Effect.gen(funct
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(PLANETSCALE_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
+-    const apiBaseUrl = yield* Config.string("PLANETSCALE_API_BASE_URL").pipe(Config.withDefault(DEFAULT_API_BASE_URL));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
++    const apiBaseUrl = yield* Config.String("PLANETSCALE_API_BASE_URL").pipe(Config.withDefault(DEFAULT_API_BASE_URL));
+     return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => creds.type === "oauth"
+         ? {
+             type: "oauth",
+diff --git a/lib/Prisma/PrismaEnvironment.js b/lib/Prisma/PrismaEnvironment.js
+index 1768b233b352af711c2e171b9752b3f05fd4a766..236e04bf7acc63b71a859ab7e57a9d3a6e041f81 100644
+--- a/lib/Prisma/PrismaEnvironment.js
++++ b/lib/Prisma/PrismaEnvironment.js
+@@ -41,8 +41,8 @@ export const fromProfile = () => Layer.effect(PrismaEnvironment, Effect.gen(func
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(PRISMA_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
+-    const baseUrl = yield* Config.string(PRISMA_API_URL_ENV).pipe(Config.orElse(() => Config.string(PRISMA_MANAGEMENT_API_URL_ENV)), Config.withDefault(DEFAULT_BASE_URL), Effect.flatMap(normalizeBaseUrl));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
++    const baseUrl = yield* Config.String(PRISMA_API_URL_ENV).pipe(Config.orElse(() => Config.String(PRISMA_MANAGEMENT_API_URL_ENV)), Config.withDefault(DEFAULT_BASE_URL), Effect.flatMap(normalizeBaseUrl));
+     const config = yield* profile.loadOrConfigure(auth, profileName, { ci });
+     const credentials = yield* auth.read(profileName, config);
+     return { ...credentials, baseUrl };
+diff --git a/lib/Railway/BucketBinding.js b/lib/Railway/BucketBinding.js
+index fa293404e1949856be18d583a44e10db01fe678b..fa9ecfac8ab5e2afbbdcea8f8e12520d86889745 100644
+--- a/lib/Railway/BucketBinding.js
++++ b/lib/Railway/BucketBinding.js
+@@ -63,11 +63,11 @@ const scopeFromResource = (bucket) => Effect.gen(function* () {
+     };
+ });
+ const scopeFromEnv = Effect.gen(function* () {
+-    const bucketName = yield* Config.string("BUCKET_NAME").pipe(Config.orElse(() => Config.string("AWS_S3_BUCKET_NAME")));
+-    const accessKeyId = yield* Config.string("AWS_ACCESS_KEY_ID");
+-    const secretAccessKey = yield* Config.redacted("AWS_SECRET_ACCESS_KEY");
+-    const endpoint = yield* Config.string("AWS_ENDPOINT_URL_S3").pipe(Config.orElse(() => Config.string("AWS_ENDPOINT_URL")));
+-    const region = yield* Config.string("AWS_REGION").pipe(Config.withDefault("auto"));
++    const bucketName = yield* Config.String("BUCKET_NAME").pipe(Config.orElse(() => Config.String("AWS_S3_BUCKET_NAME")));
++    const accessKeyId = yield* Config.String("AWS_ACCESS_KEY_ID");
++    const secretAccessKey = yield* Config.Redacted("AWS_SECRET_ACCESS_KEY");
++    const endpoint = yield* Config.String("AWS_ENDPOINT_URL_S3").pipe(Config.orElse(() => Config.String("AWS_ENDPOINT_URL")));
++    const region = yield* Config.String("AWS_REGION").pipe(Config.withDefault("auto"));
+     return {
+         bucketName,
+         accessKeyId,
+diff --git a/lib/Railway/Credentials.js b/lib/Railway/Credentials.js
+index b7885ae589b773a48e3cb464b6deb9896abd3885..6f093d001e8837675b780d754e32526fe7b98056 100644
+--- a/lib/Railway/Credentials.js
++++ b/lib/Railway/Credentials.js
+@@ -23,7 +23,7 @@ export const fromAuthProvider = () => Layer.effect(Credentials, Effect.gen(funct
+     const profile = yield* AlchemyProfile;
+     const auth = yield* getAuthProvider(RAILWAY_AUTH_PROVIDER_NAME);
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(Effect.flatMap((config) => auth.read(profileName, config)), Effect.map((creds) => toConfig({
+         token: Redacted.value(creds.token),
+         tokenKind: creds.tokenKind,
+diff --git a/lib/Railway/RedisBinding.js b/lib/Railway/RedisBinding.js
+index 956676428ad50d13c0c5e40124d9a04c7e3632bb..d720cf943d03058f54e0b15be6d19e3a4a1604b1 100644
+--- a/lib/Railway/RedisBinding.js
++++ b/lib/Railway/RedisBinding.js
+@@ -40,7 +40,7 @@ const resolveName = (redis) => Effect.gen(function* () {
+     }
+     return redis.LogicalId;
+ });
+-const redisUrlFromEnv = Config.redacted(REDIS_URL_ENV).pipe(Effect.map((value) => Redacted.value(value)));
++const redisUrlFromEnv = Config.Redacted(REDIS_URL_ENV).pipe(Effect.map((value) => Redacted.value(value)));
+ export const makeRedisBinding = (options) => Effect.succeed(Effect.fn(function* (redis) {
+     if (!globalThis.__ALCHEMY_RUNTIME__) {
+         const host = yield* Binding.Host;
+diff --git a/lib/Railway/hosted.js b/lib/Railway/hosted.js
+index 62419b4981ff652870a4eff56f4f01d1f25a5237..3d6efe4b16665ffe7cb0fdf73a59e6ac33cfe450 100644
+--- a/lib/Railway/hosted.js
++++ b/lib/Railway/hosted.js
+@@ -104,8 +104,8 @@ const platform = FetchHttpClient.layer;
+ const stack = Layer.effect(
+   Stack,
+   Effect.all([
+-    Config.string("ALCHEMY_STACK_NAME"),
+-    Config.string("ALCHEMY_STAGE")
++    Config.String("ALCHEMY_STACK_NAME"),
++    Config.String("ALCHEMY_STAGE")
+   ]).pipe(
+     Effect.map(([name, stage]) => ({
+       name,
+diff --git a/lib/Runtime/Bootstrap/Process.js b/lib/Runtime/Bootstrap/Process.js
+index 4504abe4eeb93c15f64846c9b438e083c54be875..930e7c2386b70896776ccd77a1ab0051ebf2cbb1 100644
+--- a/lib/Runtime/Bootstrap/Process.js
++++ b/lib/Runtime/Bootstrap/Process.js
+@@ -42,8 +42,8 @@ export const entrypointTag = Context.Service(Self.key);
+ export const entrypointLayer = (entrypoint) => makeEntrypointLayer(entrypointTag, entrypoint);
+ /** `Stack` from the `ALCHEMY_STACK_NAME` / `ALCHEMY_STAGE` the host injects. */
+ export const stackFromEnv = Layer.effect(Stack, Effect.all([
+-    Config.string("ALCHEMY_STACK_NAME"),
+-    Config.string("ALCHEMY_STAGE"),
++    Config.String("ALCHEMY_STACK_NAME"),
++    Config.String("ALCHEMY_STAGE"),
+ ]).pipe(Effect.map(([name, stage]) => ({
+     name,
+     stage,
+diff --git a/lib/Telemetry.js b/lib/Telemetry.js
+index 195cf121c01528c7305b10cfce641294deb855b3..8ef7e1a506de08323e34270ba4fefda27771e924 100644
+--- a/lib/Telemetry.js
++++ b/lib/Telemetry.js
+@@ -67,7 +67,7 @@ import { CurrentRuntimeContext, unpackEnvValue } from "./RuntimeContext.js";
+  * {@link unpackEnvValue} — it handles all three shapes (packed JSON,
+  * Redacted marker, and a raw string set directly in the environment).
+  */
+-const readBoundValue = (key) => Config.string(key).pipe(Config.withDefault(undefined), Effect.orElseSucceed(() => undefined), Effect.map((raw) => {
++const readBoundValue = (key) => Config.String(key).pipe(Config.withDefault(undefined), Effect.orElseSucceed(() => undefined), Effect.map((raw) => {
+     if (raw === undefined || raw === "") {
+         return undefined;
+     }
+diff --git a/lib/Test/Core.js b/lib/Test/Core.js
+index 9c9b9c54a40a6902eb78a2fda3276b260f5c2c00..0267a5a2466e3827897f9420230373d96977a734 100644
+--- a/lib/Test/Core.js
++++ b/lib/Test/Core.js
+@@ -48,7 +48,7 @@ export const sidecarProxy = (options) => Layer.unwrap(Effect.map(RpcSpawner.RpcS
+  * in place. Accepts the usual truthy/falsey strings (`true`/`1`/`yes`/`on`,
+  * `false`/`0`/`no`/`off`).
+  */
+-export const ALCHEMY_TEST_DEV = Config.boolean("ALCHEMY_TEST_DEV").pipe(Config.option);
++export const ALCHEMY_TEST_DEV = Config.Boolean("ALCHEMY_TEST_DEV").pipe(Config.option);
+ /** The `ALCHEMY_TEST_DEV` override, if the env var is set. */
+ export const alchemyTestDevOverride = () => Effect.runSync(ALCHEMY_TEST_DEV);
+ /** Resolve the effective `dev` flag: `ALCHEMY_TEST_DEV`, then options, then `ALCHEMY_DEV`. */
+diff --git a/src/AWS/EKS/KubernetesAdapter.ts b/src/AWS/EKS/KubernetesAdapter.ts
+index 8417954c4b546785d1f5076a192dfd8ba33c5fa7..aedec7846a614485684a74d352ba582c6d954ada 100644
+--- a/src/AWS/EKS/KubernetesAdapter.ts
++++ b/src/AWS/EKS/KubernetesAdapter.ts
+@@ -303,8 +303,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+@@ -388,8 +388,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+diff --git a/src/AWS/Environment.ts b/src/AWS/Environment.ts
+index 98be29633b7dad20fbec87d1409b07665fb9cc84..f0d32dad701347ddf1bfb6a8c40311eb0c3334bb 100644
+--- a/src/AWS/Environment.ts
++++ b/src/AWS/Environment.ts
+@@ -19,15 +19,15 @@ import {
+   type AwsResolvedCredentials,
+ } from "./AuthProvider.ts";
+ 
+-export const AWS_PROFILE = Config.string("AWS_PROFILE").pipe(
++export const AWS_PROFILE = Config.String("AWS_PROFILE").pipe(
+   Config.withDefault("default"),
+ );
+ 
+-export const AWS_REGION = Config.string("AWS_REGION");
+-export const AWS_ACCOUNT_ID = Config.string("AWS_ACCOUNT_ID");
+-export const AWS_ACCESS_KEY_ID = Config.string("AWS_ACCESS_KEY_ID");
+-export const AWS_SECRET_ACCESS_KEY = Config.redacted("AWS_SECRET_ACCESS_KEY");
+-export const AWS_SESSION_TOKEN = Config.redacted("AWS_SESSION_TOKEN");
++export const AWS_REGION = Config.String("AWS_REGION");
++export const AWS_ACCOUNT_ID = Config.String("AWS_ACCOUNT_ID");
++export const AWS_ACCESS_KEY_ID = Config.String("AWS_ACCESS_KEY_ID");
++export const AWS_SECRET_ACCESS_KEY = Config.Redacted("AWS_SECRET_ACCESS_KEY");
++export const AWS_SESSION_TOKEN = Config.Redacted("AWS_SESSION_TOKEN");
+ 
+ export type AccountID = string;
+ export type RegionID = string;
+@@ -86,7 +86,7 @@ export const Default = Layer.effect(
+       AWS_AUTH_PROVIDER_NAME,
+     );
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     const dev = Option.match(yield* Effect.serviceOption(AlchemyContext), {
+       onNone: () => false,
+       onSome: (ctx) => ctx.dev,
+diff --git a/src/Auth/Demand.ts b/src/Auth/Demand.ts
+index abf7ad2db0ec7cd1d564fa7097161d16cbf1714b..de6d446fa632d2cba11c9e36bb92d19c9b5b39cb 100644
+--- a/src/Auth/Demand.ts
++++ b/src/Auth/Demand.ts
+@@ -234,7 +234,7 @@ export const demandCredentials = Effect.fn("Alchemy.demandCredentials")(
+     );
+     if (registry === undefined || profile === undefined) return;
+     const profileName = yield* ALCHEMY_PROFILE;
+-    const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++    const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+     const nonInteractive = options?.nonInteractive ?? isNonInteractive();
+     for (const demand of demands) {
+       const auth = registry[demand.provider];
+diff --git a/src/Auth/Env.ts b/src/Auth/Env.ts
+index 8fff3a98319f812c4e4c7b0989d842e4920081d6..bd69701c68522698c412e7a976b0bf0a9a0808f9 100644
+--- a/src/Auth/Env.ts
++++ b/src/Auth/Env.ts
+@@ -4,20 +4,20 @@ import * as Clank from "../Util/Clank.ts";
+ import { AuthError } from "./AuthProvider.ts";
+ 
+ export const getEnv = (key: string) =>
+-  Config.string(key).pipe(Effect.orElseSucceed(() => undefined));
++  Config.String(key).pipe(Effect.orElseSucceed(() => undefined));
+ 
+ export const getEnvRequired = (key: string) =>
+-  Config.string(key).pipe(
++  Config.String(key).pipe(
+     Effect.catch(() =>
+       Effect.fail(new AuthError({ message: `Missing required env: ${key}` })),
+     ),
+   );
+ 
+ export const getEnvRedacted = (key: string) =>
+-  Config.redacted(key).pipe(Effect.orElseSucceed(() => undefined));
++  Config.Redacted(key).pipe(Effect.orElseSucceed(() => undefined));
+ 
+ export const getEnvRedactedRequired = (key: string) =>
+-  Config.redacted(key).pipe(
++  Config.Redacted(key).pipe(
+     Effect.catch(() =>
+       Effect.fail(new AuthError({ message: `Missing required env: ${key}` })),
+     ),
+diff --git a/src/Auth/Profile.ts b/src/Auth/Profile.ts
+index 412a1c515c95accd0243fe0053af8b6f49e7ae38..704a5c61b3481a38baeb1f194412af8787d2b3a1 100644
+--- a/src/Auth/Profile.ts
++++ b/src/Auth/Profile.ts
+@@ -19,7 +19,7 @@ export const configFilePath = path.join(rootDir, "profiles.json");
+  * `fromEnvironment` layers to pick which named profile in
+  * `~/.alchemy/profiles.json` to use. Defaults to `"default"`.
+  */
+-export const ALCHEMY_PROFILE = Config.string("ALCHEMY_PROFILE").pipe(
++export const ALCHEMY_PROFILE = Config.String("ALCHEMY_PROFILE").pipe(
+   Config.withDefault("default"),
+ );
+ 
+diff --git a/src/Axiom/Credentials.ts b/src/Axiom/Credentials.ts
+index 7e7a194e4966dbec63b942f8ae3a0bd2d1594f2c..4ca3e2298884a09fb99e0b1712c2fbc7b8fcfa60 100644
+--- a/src/Axiom/Credentials.ts
++++ b/src/Axiom/Credentials.ts
+@@ -33,7 +33,7 @@ export const fromAuthProvider = () =>
+         AxiomResolvedCredentials
+       >(AXIOM_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(
+         Effect.flatMap((config) =>
+diff --git a/src/Cli/commands/_shared.ts b/src/Cli/commands/_shared.ts
+index e3589e98562ea2d8fbe90c215f52eafb77af8125..eb088cd05000616c52126fe292ff467712028ddf 100644
+--- a/src/Cli/commands/_shared.ts
++++ b/src/Cli/commands/_shared.ts
+@@ -38,12 +38,12 @@ import { PromptCancelled } from "../../Util/Clank.ts";
+ import { loadConfigProvider } from "../../Util/ConfigProvider.ts";
+ import { fileLogger } from "../../Util/FileLogger.ts";
+ 
+-export const USER = Config.string("USER").pipe(
+-  Config.orElse(() => Config.string("USERNAME")),
++export const USER = Config.String("USER").pipe(
++  Config.orElse(() => Config.String("USERNAME")),
+   Config.withDefault("unknown"),
+ );
+ 
+-export const STAGE = Config.string("STAGE").pipe(
++export const STAGE = Config.String("STAGE").pipe(
+   Config.option,
+   (a) => a,
+   Effect.map(Option.getOrUndefined),
+diff --git a/src/Cli/commands/cloudflare.ts b/src/Cli/commands/cloudflare.ts
+index 8eaab97a79f01fd74513816a2b81537946bde513..bf1bf3518710706381fef8d08aba9dd255faaf07 100644
+--- a/src/Cli/commands/cloudflare.ts
++++ b/src/Cli/commands/cloudflare.ts
+@@ -329,7 +329,7 @@ const createTokenCommand = Command.make(
+         // The Global API Key is a dashboard-only secret — there is no API to
+         // fetch it — so read it from the environment or prompt for it. It is
+         // used only to create the token and is never stored.
+-        const envApiKey = yield* Config.string("CLOUDFLARE_API_KEY").pipe(
++        const envApiKey = yield* Config.String("CLOUDFLARE_API_KEY").pipe(
+           Config.option,
+           Config.map(Option.getOrUndefined),
+         );
+@@ -341,7 +341,7 @@ const createTokenCommand = Command.make(
+             validate: (v) => (v.trim().length === 0 ? "Required" : undefined),
+           }));
+ 
+-        const envEmail = yield* Config.string("CLOUDFLARE_EMAIL").pipe(
++        const envEmail = yield* Config.String("CLOUDFLARE_EMAIL").pipe(
+           Config.option,
+           Config.map(Option.getOrUndefined),
+         );
+diff --git a/src/Cli/commands/login.ts b/src/Cli/commands/login.ts
+index c2d08bd05ccb25f8926f0936e6103eddddb8cf96..f596983680e89cc471eddc5fcb1e08f3fa4de602 100644
+--- a/src/Cli/commands/login.ts
++++ b/src/Cli/commands/login.ts
+@@ -83,7 +83,7 @@ export const loginCommand = Command.make(
+       }
+ 
+       const profiles = yield* AlchemyProfile;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       let authProviders: AuthProviders["Service"];
+       // Providers to actually log in with; `undefined` means all registered.
+diff --git a/src/Cloudflare/Access.ts b/src/Cloudflare/Access.ts
+index 94193074129747bf1e9c248485d7c9a5f84a3de2..3029fe8be05e44581882b2bc5027704b7074e320 100644
+--- a/src/Cloudflare/Access.ts
++++ b/src/Cloudflare/Access.ts
+@@ -74,7 +74,7 @@ export const AccessLive = Layer.effect(
+       );
+ 
+     const getEnv = (name: string) =>
+-      Config.string(name)
++      Config.String(name)
+ 
+         .pipe(Effect.catchTag("ConfigError", () => Effect.succeed(undefined)));
+ 
+diff --git a/src/Cloudflare/CloudflareEnvironment.ts b/src/Cloudflare/CloudflareEnvironment.ts
+index 363c7973ed10b109af40fd0283b3925ca1c6553d..1b57a0bf492a9b55c8db9db9f735348895c1587e 100644
+--- a/src/Cloudflare/CloudflareEnvironment.ts
++++ b/src/Cloudflare/CloudflareEnvironment.ts
+@@ -18,7 +18,7 @@ export class CloudflareEnvironment extends Context.Service<
+   readonly kind = "Environment" as const;
+ }
+ 
+-const CLOUDFLARE_ACCOUNT_ID = Config.string("CLOUDFLARE_ACCOUNT_ID");
++const CLOUDFLARE_ACCOUNT_ID = Config.String("CLOUDFLARE_ACCOUNT_ID");
+ 
+ export const fromEnv = () =>
+   Layer.effect(
+@@ -42,7 +42,7 @@ export const fromProfile = () =>
+         CloudflareResolvedCredentials
+       >(CLOUDFLARE_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+       // `loadOrConfigure` reads the persisted config under the canonical
+       // provider name (`Cloudflare`); only runs `configure` (and persists the
+       // result) if no stored config exists.
+diff --git a/src/Cloudflare/Credentials.ts b/src/Cloudflare/Credentials.ts
+index be27de87aa2318312184afc7ec99721b15c145dd..f2e688456664a144b33e4750177fe7aeb985a500 100644
+--- a/src/Cloudflare/Credentials.ts
++++ b/src/Cloudflare/Credentials.ts
+@@ -103,7 +103,7 @@ export const fromAuthProvider = () =>
+         CloudflareResolvedCredentials
+       >(CLOUDFLARE_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       const resolve = profile.loadOrConfigure(auth, profileName, { ci }).pipe(
+         Effect.flatMap((config) =>
+diff --git a/src/Cloudflare/StateStore/State.ts b/src/Cloudflare/StateStore/State.ts
+index 2be16eb514ee165c4dc7aabf487f12719c25137a..64af9e4ef3768ce54b11a97e0dfd7fd3526258ae 100644
+--- a/src/Cloudflare/StateStore/State.ts
++++ b/src/Cloudflare/StateStore/State.ts
+@@ -52,7 +52,7 @@ import {
+   TokenValue,
+ } from "./Token.ts";
+ 
+-const CI = Config.boolean("CI").pipe(Config.withDefault(false));
++const CI = Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+ export const state = () =>
+   Layer.effect(
+@@ -1132,7 +1132,7 @@ const annotateAccountHash = (noTrack?: boolean) =>
+   Effect.gen(function* () {
+     if (noTrack === true) return;
+     if (noTrack === undefined) {
+-      const fromEnv = yield* Config.boolean("NO_TRACK").pipe(
++      const fromEnv = yield* Config.Boolean("NO_TRACK").pipe(
+         Config.withDefault(false),
+       );
+       if (fromEnv) return;
+diff --git a/src/Cloudflare/Workers/WorkerProvider.ts b/src/Cloudflare/Workers/WorkerProvider.ts
+index 9d3f746a8fa13583936384c78f53362b424bae28..65bd9adda86d9a910ce1af5c3b261c2fa6dc1ae8 100644
+--- a/src/Cloudflare/Workers/WorkerProvider.ts
++++ b/src/Cloudflare/Workers/WorkerProvider.ts
+@@ -955,7 +955,7 @@ export const shouldObserveWorkerCrons = (
+  * (`<subdomain>` in `https://<script>.<subdomain>.workers.dev`). When set,
+  * Worker URL construction skips `GET /accounts/{id}/workers/subdomain`.
+  */
+-const CLOUDFLARE_WORKERS_SUBDOMAIN = Config.string(
++const CLOUDFLARE_WORKERS_SUBDOMAIN = Config.String(
+   "CLOUDFLARE_WORKERS_SUBDOMAIN",
+ ).pipe(
+   Config.map((value) => value.trim()),
+diff --git a/src/Docker/Docker.ts b/src/Docker/Docker.ts
+index 029adf5cba36bcfdcdb073c4fb8135e28ef08041..0eab9f7b85084d72433b6d3608598dae381f5899 100644
+--- a/src/Docker/Docker.ts
++++ b/src/Docker/Docker.ts
+@@ -465,7 +465,7 @@ export interface CommandOutput {
+   stderr: string;
+ }
+ 
+-const DockerBin = Config.string("DOCKER_BIN").pipe(
++const DockerBin = Config.String("DOCKER_BIN").pipe(
+   Effect.orElseSucceed(() => "docker"),
+ );
+ 
+@@ -529,7 +529,7 @@ export const DockerLive = Layer.effect(
+             /^Error response from daemon: /,
+             "",
+           );
+-          if (stderr.match(/no such/i) || stderr.match(/not found/i)) {
++          if (stderr.match(/no such/i) || stderr.match(/not found/i) || stderr.match(/not known/i)) {
+             return systemError({
+               _tag: "NotFound",
+               args,
+diff --git a/src/Fly/BucketBinding.ts b/src/Fly/BucketBinding.ts
+index 3524bd6826614dd928df5478900ee02cbe5624e4..697508351c09a3abc84e50cdb3bf9aee08e56e69 100644
+--- a/src/Fly/BucketBinding.ts
++++ b/src/Fly/BucketBinding.ts
+@@ -85,13 +85,13 @@ const scopeFromResource = (bucket: Bucket) =>
+   });
+ 
+ const scopeFromEnv = Effect.gen(function* () {
+-  const bucketName = yield* Config.string("BUCKET_NAME");
+-  const accessKeyId = yield* Config.string("AWS_ACCESS_KEY_ID");
+-  const secretAccessKey = yield* Config.redacted("AWS_SECRET_ACCESS_KEY");
+-  const endpoint = yield* Config.string("AWS_ENDPOINT_URL_S3").pipe(
+-    Config.orElse(() => Config.string("AWS_ENDPOINT_URL")),
++  const bucketName = yield* Config.String("BUCKET_NAME");
++  const accessKeyId = yield* Config.String("AWS_ACCESS_KEY_ID");
++  const secretAccessKey = yield* Config.Redacted("AWS_SECRET_ACCESS_KEY");
++  const endpoint = yield* Config.String("AWS_ENDPOINT_URL_S3").pipe(
++    Config.orElse(() => Config.String("AWS_ENDPOINT_URL")),
+   );
+-  const region = yield* Config.string("AWS_REGION").pipe(
++  const region = yield* Config.String("AWS_REGION").pipe(
+     Config.withDefault("auto"),
+   );
+   return {
+diff --git a/src/Fly/Credentials.ts b/src/Fly/Credentials.ts
+index eb0dd333f7eab223f47c2b10702fb347bf8f8f29..f52ebf8306c68106fb88834835f0bd277e7437df 100644
+--- a/src/Fly/Credentials.ts
++++ b/src/Fly/Credentials.ts
+@@ -39,7 +39,7 @@ export const fromAuthProvider = () =>
+         FlyResolvedCredentials
+       >(FLY_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(
+         Effect.flatMap((config) =>
+diff --git a/src/Fly/GetSecretHttp.ts b/src/Fly/GetSecretHttp.ts
+index 8da1cf69cee506c425c4f7b3baa5a567aca31c14..55e3a9f9890979ae1a289efeb535f51e66e4a947 100644
+--- a/src/Fly/GetSecretHttp.ts
++++ b/src/Fly/GetSecretHttp.ts
+@@ -37,7 +37,7 @@ export const GetSecretHttp = Layer.effect(
+             // that over getSecret — org tokens still cannot read plaintext
+             // from outside the App, and the env is already the source of
+             // truth once the secret exists.
+-            const fromEnv = yield* Config.redacted(name).pipe(
++            const fromEnv = yield* Config.Redacted(name).pipe(
+               Effect.map((value) => ({
+                 name,
+                 value: Redacted.value(value),
+diff --git a/src/Fly/RedisBinding.ts b/src/Fly/RedisBinding.ts
+index 0d3cbf493e233e72b3b26ee399b5d55309638427..31f0d957cdb1df69b7c029e141c4e8bd502005df 100644
+--- a/src/Fly/RedisBinding.ts
++++ b/src/Fly/RedisBinding.ts
+@@ -35,7 +35,7 @@ const asPlain = (value: unknown): string | undefined => {
+   return undefined;
+ };
+ 
+-const redisUrlFromEnv = Config.redacted(REDIS_URL_ENV).pipe(
++const redisUrlFromEnv = Config.Redacted(REDIS_URL_ENV).pipe(
+   Effect.map((value) => Redacted.value(value)),
+ );
+ 
+diff --git a/src/Fly/SecretHttp.ts b/src/Fly/SecretHttp.ts
+index d6574c8f8238f6a24b01708fd1e636071e00a322..bf7a12947ca406399a65aa36e2601a053eda67a5 100644
+--- a/src/Fly/SecretHttp.ts
++++ b/src/Fly/SecretHttp.ts
+@@ -224,7 +224,7 @@ export const makeKmsAuth = (
+  * error — keep the client's error channel free of `ConfigError`.
+  */
+ const envName = (key: string): Effect.Effect<string> =>
+-  Config.string(key).pipe(Effect.orDie);
++  Config.String(key).pipe(Effect.orDie);
+ 
+ const toNameEffect = (value: unknown): Effect.Effect<string> => {
+   if (typeof value === "string") return Effect.succeed(value);
+diff --git a/src/GitHub/Credentials.ts b/src/GitHub/Credentials.ts
+index 44eda45004144be8a522e2c24de9585358d040a1..35d1e5e7822d00db2e26aa316bf04c618e6453a8 100644
+--- a/src/GitHub/Credentials.ts
++++ b/src/GitHub/Credentials.ts
+@@ -121,7 +121,7 @@ export const fromAuthProvider = (options?: { readonly baseUrl?: string }) =>
+         GitHubResolvedCredentials
+       >(GITHUB_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(
+         Effect.flatMap((config) =>
+diff --git a/src/GitHub/Env.ts b/src/GitHub/Env.ts
+index 1f33ed22431df71447ebfd378788bdf1fab136cb..d03800a4cbae4c97753cd555cef7d10b18180917 100644
+--- a/src/GitHub/Env.ts
++++ b/src/GitHub/Env.ts
+@@ -23,20 +23,20 @@ export interface GitHubEnv {
+  * `GITHUB_SHA`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_REPOSITORY`, and the optional
+  * `PULL_REQUEST` variable exported by the Alchemy GitHub Action.
+  */
+-export const GitHubEnv: Config.Config<GitHubEnv | undefined> = Config.boolean(
++export const GitHubEnv: Config.Config<GitHubEnv | undefined> = Config.Boolean(
+   "GITHUB_ACTIONS",
+ ).pipe(
+   Config.withDefault(false),
+   // Config has no flatMap in Effect 4; a Config is itself an Effect, so the
+   // enabled branch returns the inner config for mapOrFail to evaluate.
+-  Config.mapOrFail(
++  Config.mapEffect(
+     (enabled): Effect.Effect<GitHubEnv | undefined, Config.ConfigError> =>
+       enabled
+         ? Config.all({
+-            sha: Config.string("GITHUB_SHA"),
+-            owner: Config.string("GITHUB_REPOSITORY_OWNER"),
+-            repository: Config.string("GITHUB_REPOSITORY").pipe(
+-              Config.mapOrFail(
++            sha: Config.String("GITHUB_SHA"),
++            owner: Config.String("GITHUB_REPOSITORY_OWNER"),
++            repository: Config.String("GITHUB_REPOSITORY").pipe(
++              Config.mapEffect(
+                 flow(
+                   String.split("/"),
+                   Array.get(1),
+@@ -47,7 +47,7 @@ export const GitHubEnv: Config.Config<GitHubEnv | undefined> = Config.boolean(
+                 ),
+               ),
+             ),
+-            pr: Config.number("PULL_REQUEST").pipe(
++            pr: Config.Number("PULL_REQUEST").pipe(
+               Config.option,
+               Config.map(Option.getOrUndefined),
+             ),
+diff --git a/src/Hetzner/Credentials.ts b/src/Hetzner/Credentials.ts
+index 100adc75637bc27254392a4c6c71411ba9a0d06e..2375105813d58a1f2e5bc209f70113ada07a00b6 100644
+--- a/src/Hetzner/Credentials.ts
++++ b/src/Hetzner/Credentials.ts
+@@ -36,7 +36,7 @@ export const fromAuthProvider = () =>
+         HetznerResolvedCredentials
+       >(HETZNER_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(
+         Effect.flatMap((config) =>
+diff --git a/src/Http.ts b/src/Http.ts
+index 86c7a7f78fe93329d9b316eb39565f40f713579b..2b9d53ec94b87bd8ace89da5d0b1f438a3a45727 100644
+--- a/src/Http.ts
++++ b/src/Http.ts
+@@ -129,7 +129,7 @@ const logUnreportedCause = (cause: Cause.Cause<unknown>) => {
+ export const resolvePort = (options: { port?: number } | undefined) =>
+   options?.port !== undefined
+     ? Effect.succeed(options.port)
+-    : Config.number("PORT").pipe(Config.withDefault(3000));
++    : Config.Number("PORT").pipe(Config.withDefault(3000));
+ 
+ export interface BunHttpServerOptions {
+   /**
+diff --git a/src/Kubernetes/internal/helm.ts b/src/Kubernetes/internal/helm.ts
+index ad50522f3beaf7f33426d9c697608bde6f2f22ec..8a1042b5069a8960e638e628d36c0855dd442c16 100644
+--- a/src/Kubernetes/internal/helm.ts
++++ b/src/Kubernetes/internal/helm.ts
+@@ -26,7 +26,7 @@ export class HelmError extends Data.TaggedError("HelmError")<{
+   readonly cause?: unknown;
+ }> {}
+ 
+-const HelmBin = Config.string("HELM_BIN").pipe(
++const HelmBin = Config.String("HELM_BIN").pipe(
+   Effect.orElseSucceed(() => "helm"),
+ );
+ 
+diff --git a/src/Kubernetes/internal/kubeconfig.ts b/src/Kubernetes/internal/kubeconfig.ts
+index 75f3bb9b95a7a8186a2a056d39a95c504076de76..73b77a7660567bb5e326469ae1b6576a69a4aeb3 100644
+--- a/src/Kubernetes/internal/kubeconfig.ts
++++ b/src/Kubernetes/internal/kubeconfig.ts
+@@ -100,7 +100,7 @@ export const resolveKubeConfigPath = Effect.fn(function* (
+   explicit: string | undefined,
+ ) {
+   if (explicit) return yield* expandHome(explicit);
+-  const fromEnv = yield* Config.string("KUBECONFIG").pipe(
++  const fromEnv = yield* Config.String("KUBECONFIG").pipe(
+     Effect.orElseSucceed(() => undefined),
+   );
+   // $KUBECONFIG may be a path list; use the first entry like kubectl's
+diff --git a/src/Kubernetes/internal/workload.ts b/src/Kubernetes/internal/workload.ts
+index fb9e36240f78e72bba050b22b346e5ce6c556105..c5fd1582121c36fd0627484f3fc1b7cfbd7937ba 100644
+--- a/src/Kubernetes/internal/workload.ts
++++ b/src/Kubernetes/internal/workload.ts
+@@ -361,8 +361,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+@@ -441,8 +441,8 @@ const program = tag.pipe(
+     layer.pipe(Layer.provideMerge(Layer.effect(
+       Stack,
+       Effect.all([
+-        Config.string("ALCHEMY_STACK_NAME"),
+-        Config.string("ALCHEMY_STAGE")
++        Config.String("ALCHEMY_STACK_NAME"),
++        Config.String("ALCHEMY_STAGE")
+       ]).pipe(
+         Effect.map(([name, stage]) => ({
+           name,
+diff --git a/src/Local/RpcProviderProxy.ts b/src/Local/RpcProviderProxy.ts
+index 49dca4547341f7bd10b85887322f8416113dcb56..0ad6838031a97ae386f9d433d0ddc5a9d2fabfb0 100644
+--- a/src/Local/RpcProviderProxy.ts
++++ b/src/Local/RpcProviderProxy.ts
+@@ -150,5 +150,5 @@ export const layer = (url: string) => Layer.effect(RpcProviderProxy, make(url));
+ export const fromEnv = () =>
+   Layer.effect(
+     RpcProviderProxy,
+-    Config.string(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap(make)),
++    Config.String(SPAWNER_URL_ENV_KEY).pipe(Effect.flatMap(make)),
+   );
+diff --git a/src/Local/RpcServerEnvironment.ts b/src/Local/RpcServerEnvironment.ts
+index 04d1117350ee3ff655d7c571d29d642498d7f0c1..8b5929cfd424479ff34518b9098e6f4f61071068 100644
+--- a/src/Local/RpcServerEnvironment.ts
++++ b/src/Local/RpcServerEnvironment.ts
+@@ -81,7 +81,7 @@ export const RPC_SERVER_ENVIRONMENT_KEY =
+ 
+ /** The spawn-time environment the parent baked into the child's process env. */
+ export const fromProcessEnv: Effect.Effect<RpcServerEnvironment, unknown> =
+-  Config.string(RPC_SERVER_ENVIRONMENT_KEY).pipe(
++  Config.String(RPC_SERVER_ENVIRONMENT_KEY).pipe(
+     Config.map((raw) => JSON.parse(raw) as RpcServerEnvironment),
+   );
+ 
+diff --git a/src/Local/RpcSpawner.ts b/src/Local/RpcSpawner.ts
+index 7bfa2ab91ff95206f13db4fab30bbdecb989e107..942bcc056288d7be4fb00a1b8d4a587db10e2e29 100644
+--- a/src/Local/RpcSpawner.ts
++++ b/src/Local/RpcSpawner.ts
+@@ -276,7 +276,7 @@ export const forwardSidecarLogs: Effect.Effect<
+   void,
+   never,
+   HttpClient.HttpClient | Scope.Scope
+-> = Config.string(SPAWNER_URL_ENV_KEY).pipe(
++> = Config.String(SPAWNER_URL_ENV_KEY).pipe(
+   Effect.flatMap((spawnerUrl) => {
+     const streamOnce = Effect.gen(function* () {
+       const client = yield* HttpClient.HttpClient;
+diff --git a/src/Neon/Credentials.ts b/src/Neon/Credentials.ts
+index e5b75be58daa9acc53a57564eb2e9e6cc75705d7..5c0301c4ab3b4225cabe480dd480a5eb01c26201 100644
+--- a/src/Neon/Credentials.ts
++++ b/src/Neon/Credentials.ts
+@@ -25,7 +25,7 @@ export const fromAuthProvider = () =>
+         NeonResolvedCredentials
+       >(NEON_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(
+         Effect.flatMap((config) =>
+diff --git a/src/Phase.ts b/src/Phase.ts
+index e2ea765b3e4c0e3db931f6425f5fb6929287432e..fe24d7e28b2d22698e3fa9aa8743a14924fc342a 100644
+--- a/src/Phase.ts
++++ b/src/Phase.ts
+@@ -19,9 +19,9 @@ declare global {
+ 
+ export type AlchemyPhase = "plan" | "runtime";
+ 
+-export const ALCHEMY_PHASE = Config.string("ALCHEMY_PHASE").pipe(
++export const ALCHEMY_PHASE = Config.String("ALCHEMY_PHASE").pipe(
+   Config.withDefault("plan"),
+-  Config.mapOrFail((value) => {
++  Config.mapEffect((value) => {
+     if (value !== "plan" && value !== "runtime") {
+       return Effect.die(new Error(`Invalid ALCHEMY_PHASE: ${value}`));
+     }
+@@ -51,6 +51,6 @@ export const ALCHEMY_PHASE = Config.string("ALCHEMY_PHASE").pipe(
+  * });
+  * ```
+  */
+-export const ALCHEMY_DEV = Config.boolean("ALCHEMY_DEV").pipe(
++export const ALCHEMY_DEV = Config.Boolean("ALCHEMY_DEV").pipe(
+   Config.withDefault(false),
+ );
+diff --git a/src/Planetscale/Credentials.ts b/src/Planetscale/Credentials.ts
+index 2c95467c4f0c2e33e59c261163d74bdd372e6bba..8cbc7ff9f73598e4159da7d86deca6579c66a3ba 100644
+--- a/src/Planetscale/Credentials.ts
++++ b/src/Planetscale/Credentials.ts
+@@ -74,8 +74,8 @@ export const fromAuthProvider = () =>
+         PlanetscaleResolvedCredentials
+       >(PLANETSCALE_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
+-      const apiBaseUrl = yield* Config.string("PLANETSCALE_API_BASE_URL").pipe(
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
++      const apiBaseUrl = yield* Config.String("PLANETSCALE_API_BASE_URL").pipe(
+         Config.withDefault(DEFAULT_API_BASE_URL),
+       );
+ 
+diff --git a/src/Prisma/PrismaEnvironment.ts b/src/Prisma/PrismaEnvironment.ts
+index 07e42f69f74f0c9680422867cbeeff264a8dac08..04e4777d0b2a6e6b2f1fa3af48d8d2487e3ceb4a 100644
+--- a/src/Prisma/PrismaEnvironment.ts
++++ b/src/Prisma/PrismaEnvironment.ts
+@@ -73,9 +73,9 @@ export const fromProfile = () =>
+         PrismaResolvedCredentials
+       >(PRISMA_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
+-      const baseUrl = yield* Config.string(PRISMA_API_URL_ENV).pipe(
+-        Config.orElse(() => Config.string(PRISMA_MANAGEMENT_API_URL_ENV)),
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
++      const baseUrl = yield* Config.String(PRISMA_API_URL_ENV).pipe(
++        Config.orElse(() => Config.String(PRISMA_MANAGEMENT_API_URL_ENV)),
+         Config.withDefault(DEFAULT_BASE_URL),
+         Effect.flatMap(normalizeBaseUrl),
+       );
+diff --git a/src/Railway/BucketBinding.ts b/src/Railway/BucketBinding.ts
+index 47b2a67d458f13cd47f29a41f15edf897b175d47..9879335cdd3d657946648f2df1a6adde6be302bc 100644
+--- a/src/Railway/BucketBinding.ts
++++ b/src/Railway/BucketBinding.ts
+@@ -86,15 +86,15 @@ const scopeFromResource = (bucket: Bucket) =>
+   });
+ 
+ const scopeFromEnv = Effect.gen(function* () {
+-  const bucketName = yield* Config.string("BUCKET_NAME").pipe(
+-    Config.orElse(() => Config.string("AWS_S3_BUCKET_NAME")),
++  const bucketName = yield* Config.String("BUCKET_NAME").pipe(
++    Config.orElse(() => Config.String("AWS_S3_BUCKET_NAME")),
+   );
+-  const accessKeyId = yield* Config.string("AWS_ACCESS_KEY_ID");
+-  const secretAccessKey = yield* Config.redacted("AWS_SECRET_ACCESS_KEY");
+-  const endpoint = yield* Config.string("AWS_ENDPOINT_URL_S3").pipe(
+-    Config.orElse(() => Config.string("AWS_ENDPOINT_URL")),
++  const accessKeyId = yield* Config.String("AWS_ACCESS_KEY_ID");
++  const secretAccessKey = yield* Config.Redacted("AWS_SECRET_ACCESS_KEY");
++  const endpoint = yield* Config.String("AWS_ENDPOINT_URL_S3").pipe(
++    Config.orElse(() => Config.String("AWS_ENDPOINT_URL")),
+   );
+-  const region = yield* Config.string("AWS_REGION").pipe(
++  const region = yield* Config.String("AWS_REGION").pipe(
+     Config.withDefault("auto"),
+   );
+   return {
+diff --git a/src/Railway/Credentials.ts b/src/Railway/Credentials.ts
+index 37d76324e5abd46f2124d4a0940a2ed66b65678e..a8faecae0bf633d0fb9ee444146ad946d637c847 100644
+--- a/src/Railway/Credentials.ts
++++ b/src/Railway/Credentials.ts
+@@ -42,7 +42,7 @@ export const fromAuthProvider = () =>
+         RailwayResolvedCredentials
+       >(RAILWAY_AUTH_PROVIDER_NAME);
+       const profileName = yield* ALCHEMY_PROFILE;
+-      const ci = yield* Config.boolean("CI").pipe(Config.withDefault(false));
++      const ci = yield* Config.Boolean("CI").pipe(Config.withDefault(false));
+ 
+       return yield* profile.loadOrConfigure(auth, profileName, { ci }).pipe(
+         Effect.flatMap((config) =>
+diff --git a/src/Railway/RedisBinding.ts b/src/Railway/RedisBinding.ts
+index fc054c5857f8c973bab0d64a45af7a78d92a7eeb..94ab441188303a8f77c84816428ddff74584cc57 100644
+--- a/src/Railway/RedisBinding.ts
++++ b/src/Railway/RedisBinding.ts
+@@ -45,7 +45,7 @@ const resolveName = (redis: Redis) =>
+     return redis.LogicalId;
+   });
+ 
+-const redisUrlFromEnv = Config.redacted(REDIS_URL_ENV).pipe(
++const redisUrlFromEnv = Config.Redacted(REDIS_URL_ENV).pipe(
+   Effect.map((value) => Redacted.value(value)),
+ );
+ 
+diff --git a/src/Railway/hosted.ts b/src/Railway/hosted.ts
+index b00e466694725ff63c5a52138c3bf87eb11c9971..69840aaa7e16aa5ef08a06cc22bb3636d4f49462 100644
+--- a/src/Railway/hosted.ts
++++ b/src/Railway/hosted.ts
+@@ -208,8 +208,8 @@ const platform = FetchHttpClient.layer;
+ const stack = Layer.effect(
+   Stack,
+   Effect.all([
+-    Config.string("ALCHEMY_STACK_NAME"),
+-    Config.string("ALCHEMY_STAGE")
++    Config.String("ALCHEMY_STACK_NAME"),
++    Config.String("ALCHEMY_STAGE")
+   ]).pipe(
+     Effect.map(([name, stage]) => ({
+       name,
+diff --git a/src/Runtime/Bootstrap/Process.ts b/src/Runtime/Bootstrap/Process.ts
+index 592c8d5b37c0d2eb2d2ac15501acf2dc21c89254..0474f553de3f03e2e912d9ce3ee1ea8bb5b6922e 100644
+--- a/src/Runtime/Bootstrap/Process.ts
++++ b/src/Runtime/Bootstrap/Process.ts
+@@ -49,8 +49,8 @@ export const stackFromEnv: Layer.Layer<Stack, Config.ConfigError> =
+   Layer.effect(
+     Stack,
+     Effect.all([
+-      Config.string("ALCHEMY_STACK_NAME"),
+-      Config.string("ALCHEMY_STAGE"),
++      Config.String("ALCHEMY_STACK_NAME"),
++      Config.String("ALCHEMY_STAGE"),
+     ]).pipe(
+       Effect.map(([name, stage]) => ({
+         name,
+diff --git a/src/Telemetry.ts b/src/Telemetry.ts
+index bf69632601ca6195bf85f95d542345394c0a1018..111a31fc32b9baca8a17dd5ca9742aac8b539bbb 100644
+--- a/src/Telemetry.ts
++++ b/src/Telemetry.ts
+@@ -80,7 +80,7 @@ export type TelemetryLayer = Layer.Layer<never, any, any>;
+  * Redacted marker, and a raw string set directly in the environment).
+  */
+ const readBoundValue = (key: string): Effect.Effect<unknown> =>
+-  Config.string(key).pipe(
++  Config.String(key).pipe(
+     Config.withDefault(undefined),
+     Effect.orElseSucceed(() => undefined),
+     Effect.map((raw) => {
+diff --git a/src/Test/Core.ts b/src/Test/Core.ts
+index 940a70aa7e0388ab450349c175de2702eff60ac6..8101939b1a2305d496dd1587d27dcd36f50bf238 100644
+--- a/src/Test/Core.ts
++++ b/src/Test/Core.ts
+@@ -125,7 +125,7 @@ export const sidecarProxy = (options: { profile?: string }) =>
+  * in place. Accepts the usual truthy/falsey strings (`true`/`1`/`yes`/`on`,
+  * `false`/`0`/`no`/`off`).
+  */
+-export const ALCHEMY_TEST_DEV = Config.boolean("ALCHEMY_TEST_DEV").pipe(
++export const ALCHEMY_TEST_DEV = Config.Boolean("ALCHEMY_TEST_DEV").pipe(
+   Config.option,
+ );
+ 
+diff --git a/src/Util/proxy-chain.ts b/src/Util/proxy-chain.ts
+--- a/src/Util/proxy-chain.ts
++++ b/src/Util/proxy-chain.ts
+@@ -133,8 +133,9 @@
+   );
+   const proxy = new Proxy(function () {}, {
+     get(_, prop) {
+-      if (Reflect.has(effect, prop)) {
+-        return Reflect.get(effect, prop);
++      if (Reflect.has(effect, prop) || prop === "~effect/Exit") {
++        const value = Reflect.get(effect, prop);
++        return typeof value === "function" ? value.bind(effect) : value;
+       }
+       return chain(cached, [...ops, { kind: "get", prop }]);
+     },
+diff --git a/lib/Util/proxy-chain.js b/lib/Util/proxy-chain.js
+--- a/lib/Util/proxy-chain.js
++++ b/lib/Util/proxy-chain.js
+@@ -99,8 +99,9 @@
+     const effect = Effect.flatMap(cached, (root) => replay(root, ops, cached));
+     const proxy = new Proxy(function () { }, {
+         get(_, prop) {
+-            if (Reflect.has(effect, prop)) {
+-                return Reflect.get(effect, prop);
++            if (Reflect.has(effect, prop) || prop === "~effect/Exit") {
++                const value = Reflect.get(effect, prop);
++                return typeof value === "function" ? value.bind(effect) : value;
+             }
+             return chain(cached, [...ops, { kind: "get", prop }]);
+         },

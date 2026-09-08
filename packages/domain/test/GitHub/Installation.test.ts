@@ -1,17 +1,19 @@
 import { describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
-import * as Option from "effect/Option"
 import { TestSchema } from "effect/testing"
 import {
   GitHubAccountDatabaseId,
   GitHubAccountDatabaseIdFromNumber,
   GitHubAccountDatabaseIdFromStringOrNumber,
+  GitHubInstallationId,
+  GitHubRepositoryDatabaseId,
+  GitHubRepositoryNodeId,
+} from "@janitor/domain/GitHub/Id"
+import {
   GitHubInstallationRepositoriesResponse,
   GitHubInstallationRepository,
   GitHubInstallationSummary,
-  GitHubInstallation,
 } from "@janitor/domain/GitHub/Installation"
-import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Repository"
 
 describe("GitHub installation schemas", () => {
   it("normalizes string and number account database IDs", async () => {
@@ -82,18 +84,31 @@ describe("GitHub installation schemas", () => {
     const asserts = new TestSchema.Asserts(GitHubInstallationRepository)
     const repository = {
       id: GitHubRepositoryDatabaseId.make("789"),
+      nodeId: GitHubRepositoryNodeId.make("R_kgDOJanitor"),
       fullName: { owner: "effect", repo: "janitor" },
       isPrivate: true,
     }
 
     await asserts
       .decoding()
-      .succeed({ id: 789, full_name: "effect/janitor", private: true }, repository)
+      .succeed(
+        { id: 789, node_id: "R_kgDOJanitor", full_name: "effect/janitor", private: true },
+        repository,
+      )
     await asserts.encoding().succeed(repository, {
       id: 789,
+      node_id: "R_kgDOJanitor",
       full_name: "effect/janitor",
       private: true,
     })
+    await asserts.decoding().succeed(
+      { id: 789, full_name: "effect/janitor", private: true },
+      {
+        id: GitHubRepositoryDatabaseId.make("789"),
+        fullName: { owner: "effect", repo: "janitor" },
+        isPrivate: true,
+      },
+    )
   })
 
   it("decodes the installation repositories response", async () => {
@@ -104,7 +119,14 @@ describe("GitHub installation schemas", () => {
       {
         total_count: 1,
         repository_selection: "selected",
-        repositories: [{ id: 789, full_name: "effect/janitor", private: false }],
+        repositories: [
+          {
+            id: 789,
+            node_id: "R_kgDOJanitor",
+            full_name: "effect/janitor",
+            private: false,
+          },
+        ],
       },
       {
         totalCount: 1,
@@ -112,6 +134,7 @@ describe("GitHub installation schemas", () => {
         repositories: [
           {
             id: GitHubRepositoryDatabaseId.make("789"),
+            nodeId: GitHubRepositoryNodeId.make("R_kgDOJanitor"),
             fullName: { owner: "effect", repo: "janitor" },
             isPrivate: false,
           },
@@ -174,43 +197,5 @@ describe("GitHub installation schemas", () => {
     const making = new TestSchema.Asserts(GitHubInstallationSummary).make()
 
     await making.fail(null, "Expected GitHubInstallationSummary")
-  })
-
-  it("decodes a Postgres installation row", async () => {
-    const decoding = new TestSchema.Asserts(GitHubInstallation).decoding()
-    const createdAt = 1_725_000_000_000
-    const updatedAt = 1_725_000_100_000
-    const deletedAt = 1_725_000_200_000
-
-    await decoding.succeed(
-      {
-        githubDatabaseId: "123",
-        accountDatabaseId: "456",
-        accountHandle: "effect",
-        accountType: "Organization",
-        repositorySelection: "selected",
-        status: "active",
-        syncStatus: "ready",
-        htmlUrl: "https://github.com/settings/installations/123",
-        lastError: null,
-        createdAt,
-        updatedAt,
-        deletedAt,
-      },
-      GitHubInstallation.make({
-        githubDatabaseId: GitHubInstallationId.make("123"),
-        accountDatabaseId: GitHubAccountDatabaseId.make("456"),
-        accountHandle: "effect",
-        accountType: "Organization",
-        repositorySelection: "selected",
-        status: "active",
-        syncStatus: "ready",
-        htmlUrl: "https://github.com/settings/installations/123",
-        lastError: Option.none(),
-        createdAt: DateTime.makeUnsafe(createdAt),
-        updatedAt: DateTime.makeUnsafe(updatedAt),
-        deletedAt: Option.some(DateTime.makeUnsafe(deletedAt)),
-      }),
-    )
   })
 })

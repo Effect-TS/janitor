@@ -1,0 +1,2342 @@
+import * as Live from "./live"
+import * as Activity from "@/components/activity"
+import * as Switch from "@foldkit/ui/switch"
+import * as Menu from "@foldkit/ui/menu"
+import * as Effect from "effect/Effect"
+import * as Clock from "effect/Clock"
+import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
+import * as FoldkitCommand from "foldkit/command"
+import { childAttributes, type Html, type HtmlBuilder } from "foldkit/html"
+import { defineMessageUnion } from "foldkit/message"
+import { evo } from "foldkit/struct"
+import * as Submodel from "foldkit/submodel"
+import * as Subscription from "foldkit/subscription"
+import * as Update from "foldkit/update"
+import * as Button from "@/components/ui/button"
+import * as Icon from "@/lib/icons"
+import { Plus, Search, FileCode2, MousePointer2, Ellipsis, Pencil, Tags } from "lucide"
+import { input } from "@/components/ui/input"
+import * as PolicyEditor from "@/components/policy-editor"
+import * as RuleEditor from "@/components/rule-editor"
+import {
+  AiConsent,
+  TestCandidates,
+  TestEntity,
+  testEndpoint,
+  aiConsentEndpoint,
+  CATALOG_ENDPOINT,
+  ConfigurationView,
+  configurationEndpoint,
+  FactDescription,
+  labelName,
+  PolicyDetail,
+  policyEndpoint,
+  policyName,
+  ReconciliationRecord,
+  REPOSITORIES_ENDPOINT,
+  RepositoryOverview,
+  ruleEndpoint,
+  RuleRecord,
+} from "@/components/labeling-wire"
+import { cn } from "@/lib/utils"
+import * as Routes from "@/routes"
+import * as PolicyStatus from "@/components/policy-status"
+
+export type {
+  AiConsent,
+  ConfigurationView,
+  PolicyDetail,
+  ReconciliationRecord,
+  RepositoryOverview,
+} from "@/components/labeling-wire"
+
+// MODEL
+
+export const RepositoryDetail = Schema.Struct({
+  configuration: ConfigurationView,
+  reconciliations: Schema.Array(ReconciliationRecord),
+  testCandidates: Schema.optionalKey(TestCandidates),
+})
+export type RepositoryDetail = typeof RepositoryDetail.Type
+
+/** The open document, rule editor, or configuration test. */
+export const Panel = Schema.Union([
+  Schema.TaggedStruct("Closed", {}),
+  Schema.TaggedStruct("LoadingPolicy", { policyId: Schema.String }),
+  Schema.TaggedStruct("Unavailable", { message: Schema.String }),
+  Schema.TaggedStruct("PolicyEditor", { editor: PolicyEditor.Model }),
+  Schema.TaggedStruct("RuleEditor", { editor: RuleEditor.Model }),
+])
+export type Panel = typeof Panel.Type
+
+export const Section = Schema.Literals(["Overview", "Policies", "Rules", "Activity", "Settings"])
+export type Section = typeof Section.Type
+
+const Mutation = Schema.Struct({
+  operationId: Schema.Int,
+  repositoryId: Schema.String,
+  subjectId: Schema.String,
+  kind: Schema.Literals(["RuleToggle", "SyncToggle", "PolicyDelete", "RuleDelete", "Consent"]),
+  previousEnabled: Schema.Boolean,
+  enabled: Schema.Boolean,
+})
+type Mutation = typeof Mutation.Type
+const ResponseContext = { repositoryId: Schema.String, operationId: Schema.Int }
+
+export const Model = Schema.Struct({
+  activity: Activity.Model,
+  liveTopics: Schema.Array(Live.Topic),
+  nextOperationId: Schema.Int,
+  pendingMutations: Schema.Array(Mutation),
+  nextRequestId: Schema.Int,
+  maybeDetailRequest: Schema.Option(Schema.Int),
+  maybeConsentRequest: Schema.Option(Schema.Int),
+  maybeRepositoriesRequest: Schema.Option(Schema.Int),
+  consentError: Schema.Option(Schema.String),
+  policySearch: Schema.String,
+  ruleSearch: Schema.String,
+  ruleMenus: Schema.Record(Schema.String, Menu.Model),
+  repositories: Schema.Option(Schema.Array(RepositoryOverview)),
+  repositoriesError: Schema.Option(Schema.String),
+  catalog: Schema.Array(FactDescription),
+  /** Repository owning the cached detail and its in-flight requests. */
+  dataRepositoryId: Schema.Option(Schema.String),
+  detail: Schema.Option(RepositoryDetail),
+  detailError: Schema.Option(Schema.String),
+  maybeConsent: Schema.Option(AiConsent),
+
+  panel: Panel,
+})
+export type Model = typeof Model.Type
+
+// MESSAGE
+
+export const Message = defineMessageUnion({
+  GotActivityMessage: { message: Activity.Message },
+  UpdatedPolicySearch: { value: Schema.String },
+  GotRepositories: { repositories: Schema.Array(RepositoryOverview), requestId: Schema.Int },
+  FailedRepositories: { reason: Schema.String, requestId: Schema.Int },
+  GotCatalog: { catalog: Schema.Array(FactDescription) },
+  Selected: { repositoryId: Schema.String },
+  Polled: {},
+  LiveChanged: { topics: Schema.Array(Live.Topic), all: Schema.Boolean },
+  FlushLive: {},
+  GotDetail: { repositoryId: Schema.String, detail: RepositoryDetail, requestId: Schema.Int },
+  FailedDetail: { repositoryId: Schema.String, reason: Schema.String, requestId: Schema.Int },
+  GotConsent: { repositoryId: Schema.String, consent: AiConsent, requestId: Schema.Int },
+  FailedConsent: { repositoryId: Schema.String, reason: Schema.String, requestId: Schema.Int },
+  ClickedRetryConsent: {},
+  ClickedToggleConsent: {},
+  ClickedToggleSync: { repositoryId: Schema.String, enabled: Schema.Boolean },
+  CompletedToggleSync: ResponseContext,
+  FailedToggleSync: { ...ResponseContext, reason: Schema.String },
+  CompletedSetConsent: { ...ResponseContext, consent: AiConsent },
+  FailedSetConsent: { ...ResponseContext, reason: Schema.String },
+  ClickedNewPolicy: {},
+  ClickedEditPolicy: { policyId: Schema.String },
+  GotPolicyDetail: { detail: PolicyDetail },
+  FailedPolicyDetail: {
+    reason: Schema.String,
+    repositoryId: Schema.optionalKey(Schema.String),
+    policyId: Schema.optionalKey(Schema.String),
+  },
+  ClickedDeletePolicy: { policyId: Schema.String, version: Schema.Int },
+  ClickedNewRule: {},
+  UpdatedRuleSearch: { value: Schema.String },
+  GotRuleMenuMessage: { ruleId: Schema.String, message: Menu.Message },
+  ClickedEditRule: { ruleId: Schema.String },
+  ClickedToggleRule: { ruleId: Schema.String },
+  ClickedDeleteRule: { ruleId: Schema.String, version: Schema.Int },
+  CompletedDelete: {
+    ...ResponseContext,
+    subjectId: Schema.String,
+    what: Schema.Literals(["policy", "rule"]),
+  },
+  FailedDelete: { ...ResponseContext, subjectId: Schema.String, reason: Schema.String },
+  CompletedToggleRule: { ...ResponseContext, rule: RuleRecord },
+  FailedToggleRule: { ...ResponseContext, ruleId: Schema.String, reason: Schema.String },
+  GotPolicyEditorMessage: { message: PolicyEditor.Message },
+  GotRuleEditorMessage: { message: RuleEditor.Message },
+})
+export type Message = typeof Message.Type
+
+/** Events the shell uses for navigation, notifications, and sync status. */
+export const OutMessage = defineMessageUnion({
+  Notified: { title: Schema.String, description: Schema.String },
+  Failed: { title: Schema.String, reason: Schema.String },
+  SyncWorkChanged: {},
+  RequestedEditorClose: { section: Schema.Literals(["Policies", "Rules"]) },
+  RequestedRule: { ruleId: Schema.String },
+  SelectedPolicyTestItem: { number: Schema.Int },
+  RuleSaved: { closeEditor: Schema.Boolean },
+})
+export type OutMessage = typeof OutMessage.Type
+
+// COMMANDS
+
+const describe = (error: unknown): string =>
+  typeof error === "object" && error !== null && "message" in error
+    ? String(error.message)
+    : String(error)
+
+const getJson = <A, RD>(url: string, schema: Schema.ConstraintDecoder<A, RD>) =>
+  HttpClient.get(url).pipe(
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.flatMap(HttpIncomingMessage.schemaBodyJson(schema)),
+  )
+
+export const FetchRepositories = FoldkitCommand.define("FetchRepositories", {
+  args: { requestId: Schema.Int },
+  messages: [Message.GotRepositories, Message.FailedRepositories],
+  execute: ({ requestId }) =>
+    getJson(REPOSITORIES_ENDPOINT, Schema.Array(RepositoryOverview)).pipe(
+      Effect.map((repositories) => Message.GotRepositories({ repositories, requestId })),
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedRepositories({ reason: describe(error), requestId })),
+      ),
+    ),
+})
+
+/** The catalog is static; a failure leaves completion empty rather than blocking the page. */
+export const FetchCatalog = FoldkitCommand.define("FetchCatalog", {
+  messages: [Message.GotCatalog],
+  execute: getJson(CATALOG_ENDPOINT, Schema.Array(FactDescription)).pipe(
+    Effect.map((catalog) => Message.GotCatalog({ catalog })),
+    Effect.catch(() => Effect.succeed(Message.GotCatalog({ catalog: [] }))),
+  ),
+})
+
+export const FetchDetail = FoldkitCommand.define("FetchDetail", {
+  args: { repositoryId: Schema.String, requestId: Schema.Int },
+  messages: [Message.GotDetail, Message.FailedDetail],
+  execute: ({ repositoryId, requestId }) =>
+    Effect.all(
+      {
+        configuration: getJson(configurationEndpoint(repositoryId), ConfigurationView),
+        testCandidates: getJson(
+          `${testEndpoint(repositoryId)}/items`,
+          Schema.Array(TestEntity),
+        ).pipe(
+          Effect.map((items) => ({ _tag: "Ready" as const, items })),
+          Effect.catch((error) =>
+            Effect.succeed({ _tag: "Failed" as const, reason: describe(error) }),
+          ),
+        ),
+        reconciliations: Effect.succeed([]),
+      },
+      { concurrency: 2 },
+    ).pipe(
+      Effect.map((detail) => Message.GotDetail({ repositoryId, detail, requestId })),
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedDetail({ repositoryId, reason: describe(error), requestId })),
+      ),
+    ),
+})
+
+/** Consent is separate from the configuration so a failure here never hides the tables. */
+export const FetchConsent = FoldkitCommand.define("FetchConsent", {
+  args: { repositoryId: Schema.String, requestId: Schema.Int },
+  messages: [Message.GotConsent, Message.FailedConsent],
+  execute: ({ repositoryId, requestId }) =>
+    getJson(aiConsentEndpoint(repositoryId), AiConsent).pipe(
+      Effect.map((consent) => Message.GotConsent({ repositoryId, consent, requestId })),
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedConsent({ repositoryId, requestId, reason: describe(error) })),
+      ),
+    ),
+})
+
+export const SetRepositorySync = FoldkitCommand.define("SetRepositorySync", {
+  args: { ...ResponseContext, enabled: Schema.Boolean },
+  messages: [Message.CompletedToggleSync, Message.FailedToggleSync],
+  execute: ({ repositoryId, enabled, operationId }) =>
+    HttpClientRequest.put(`/api/v1/repositories/${encodeURIComponent(repositoryId)}/sync`).pipe(
+      HttpClientRequest.bodyJson({ enabled }),
+      Effect.flatMap(HttpClient.execute),
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.as(Message.CompletedToggleSync({ repositoryId, operationId })),
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.FailedToggleSync({ repositoryId, operationId, reason: describe(error) }),
+        ),
+      ),
+    ),
+})
+
+export const SetConsent = FoldkitCommand.define("SetConsent", {
+  args: { ...ResponseContext, enabled: Schema.Boolean },
+  messages: [Message.CompletedSetConsent, Message.FailedSetConsent],
+  execute: ({ repositoryId, enabled, operationId }) =>
+    HttpClientRequest.put(aiConsentEndpoint(repositoryId)).pipe(
+      HttpClientRequest.bodyJson({ enabled }),
+      Effect.flatMap(HttpClient.execute),
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(AiConsent)),
+      Effect.map((consent) => Message.CompletedSetConsent({ repositoryId, consent, operationId })),
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.FailedSetConsent({ repositoryId, operationId, reason: describe(error) }),
+        ),
+      ),
+    ),
+})
+
+export const FetchPolicyDetail = FoldkitCommand.define("FetchPolicyDetail", {
+  args: { repositoryId: Schema.String, policyId: Schema.String },
+  messages: [Message.GotPolicyDetail, Message.FailedPolicyDetail],
+  execute: ({ repositoryId, policyId }) =>
+    getJson(policyEndpoint(repositoryId, policyId), PolicyDetail).pipe(
+      Effect.map((detail) => Message.GotPolicyDetail({ detail })),
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.FailedPolicyDetail({ repositoryId, policyId, reason: describe(error) }),
+        ),
+      ),
+    ),
+})
+
+const MessageBody = Schema.Struct({ message: Schema.String })
+
+export const DeleteSubject = FoldkitCommand.define("DeleteSubject", {
+  args: {
+    ...ResponseContext,
+    url: Schema.String,
+    version: Schema.Int,
+    subjectId: Schema.String,
+    what: Schema.Literals(["policy", "rule"]),
+  },
+  messages: [Message.CompletedDelete, Message.FailedDelete],
+  execute: ({ url, version, what, repositoryId, operationId, subjectId }) =>
+    Effect.gen(function* () {
+      const response = yield* HttpClient.execute(
+        HttpClientRequest.make("DELETE")(`${url}?version=${version}`),
+      )
+      switch (response.status) {
+        case 204:
+          return Message.CompletedDelete({ what, repositoryId, operationId, subjectId })
+        case 409: {
+          const body = yield* HttpIncomingMessage.schemaBodyJson(
+            Schema.Union([MessageBody, PolicyDetail, RuleRecord]),
+          )(response)
+          return Message.FailedDelete({
+            repositoryId,
+            operationId,
+            subjectId,
+            reason:
+              "message" in body
+                ? body.message
+                : "This item changed meanwhile. Review the refreshed version and retry.",
+          })
+        }
+        case 422: {
+          const { message } = yield* HttpIncomingMessage.schemaBodyJson(MessageBody)(response)
+          return Message.FailedDelete({ repositoryId, operationId, subjectId, reason: message })
+        }
+        default:
+          return Message.FailedDelete({
+            repositoryId,
+            operationId,
+            subjectId,
+            reason: `Server answered ${response.status}`,
+          })
+      }
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.FailedDelete({ repositoryId, operationId, subjectId, reason: describe(error) }),
+        ),
+      ),
+    ),
+})
+
+export const ToggleRule = FoldkitCommand.define("ToggleRule", {
+  args: {
+    operationId: Schema.Int,
+    repositoryId: Schema.String,
+    ruleId: Schema.String,
+    version: Schema.Int,
+    enabled: Schema.Boolean,
+  },
+  messages: [Message.CompletedToggleRule, Message.FailedToggleRule],
+  execute: ({ repositoryId, operationId, ruleId, version, enabled }) =>
+    HttpClientRequest.patch(ruleEndpoint(repositoryId, ruleId)).pipe(
+      HttpClientRequest.bodyJson({ version, enabled }),
+      Effect.flatMap(HttpClient.execute),
+      Effect.flatMap((response) =>
+        response.status === 409
+          ? Effect.fail("This rule changed meanwhile. Review the refreshed rule and retry.")
+          : response.status === 422
+            ? HttpIncomingMessage.schemaBodyJson(
+                Schema.Struct({ issues: Schema.Array(Schema.Struct({ message: Schema.String })) }),
+              )(response).pipe(
+                Effect.flatMap((body) =>
+                  Effect.fail(body.issues.map((issue) => issue.message).join("; ")),
+                ),
+              )
+            : HttpClientResponse.filterStatusOk(response),
+      ),
+      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(RuleRecord)),
+      Effect.map((rule) => Message.CompletedToggleRule({ repositoryId, operationId, rule })),
+      Effect.catch((error) =>
+        Effect.succeed(
+          Message.FailedToggleRule({ repositoryId, operationId, ruleId, reason: describe(error) }),
+        ),
+      ),
+    ),
+})
+
+// INIT
+
+export type UpdateReturn = Update.ReturnWithOutMessage<
+  Model,
+  Message,
+  OutMessage,
+  HttpClient.HttpClient
+>
+
+export const init = (): UpdateReturn => ({
+  model: Model.make(
+    {
+      activity: Activity.init(),
+      liveTopics: [],
+      nextOperationId: 1,
+      pendingMutations: [],
+      nextRequestId: 1,
+      maybeDetailRequest: Option.none(),
+      maybeConsentRequest: Option.none(),
+      maybeRepositoriesRequest: Option.some(0),
+      consentError: Option.none(),
+      policySearch: "",
+      ruleSearch: "",
+      ruleMenus: {},
+      repositories: Option.none(),
+      repositoriesError: Option.none(),
+      catalog: [],
+      dataRepositoryId: Option.none(),
+      detail: Option.none(),
+      detailError: Option.none(),
+      maybeConsent: Option.none(),
+      panel: { _tag: "Closed" },
+    },
+    { disableChecks: true },
+  ),
+  commands: [FetchRepositories({ requestId: 0 }), FetchCatalog()],
+})
+
+// UPDATE
+
+type Step = Update.Return<Model, Message, HttpClient.HttpClient>
+
+const closed = (model: Model): Model =>
+  evo(model, {
+    panel: () => ({ _tag: "Closed" as const }),
+  })
+
+const hasMutation = (
+  model: Model,
+  repositoryId: string,
+  subjectId: string,
+  kinds: ReadonlyArray<Mutation["kind"]>,
+) =>
+  model.pendingMutations.some(
+    (mutation) =>
+      mutation.repositoryId === repositoryId &&
+      mutation.subjectId === subjectId &&
+      kinds.includes(mutation.kind),
+  )
+
+const finishMutation = (model: Model, operationId: number): Model =>
+  evo(model, {
+    pendingMutations: (mutations) =>
+      mutations.filter((mutation) => mutation.operationId !== operationId),
+  })
+
+const startMutation = (model: Model, mutation: Omit<Mutation, "operationId">): Model =>
+  evo(model, {
+    pendingMutations: (mutations) => [
+      ...mutations,
+      { ...mutation, operationId: model.nextOperationId },
+    ],
+    nextOperationId: (id) => id + 1,
+  })
+
+const refresh = (model: Model, force = true): Step => {
+  if (Option.isNone(model.dataRepositoryId)) return { model }
+  const repositoryId = model.dataRepositoryId.value
+  const detail = force || Option.isNone(model.maybeDetailRequest)
+  const consent = force || Option.isNone(model.maybeConsentRequest)
+  const requestId = model.nextRequestId
+  return {
+    model: evo(model, {
+      nextRequestId: () => requestId + 2,
+      maybeDetailRequest: (current) => (detail ? Option.some(requestId) : current),
+      maybeConsentRequest: (current) => (consent ? Option.some(requestId + 1) : current),
+    }),
+    commands: [
+      ...(detail ? [FetchDetail({ repositoryId, requestId })] : []),
+      ...(consent ? [FetchConsent({ repositoryId, requestId: requestId + 1 })] : []),
+    ],
+  }
+}
+
+export const refreshRepositories = (model: Model): Step => ({
+  model: evo(model, {
+    nextRequestId: (id) => id + 1,
+    maybeRepositoriesRequest: () => Option.some(model.nextRequestId),
+  }),
+  commands: [FetchRepositories({ requestId: model.nextRequestId })],
+})
+
+const updateConfiguration = (
+  model: Model,
+  repositoryId: string,
+  transform: (configuration: ConfigurationView) => ConfigurationView,
+): Model => {
+  if (!Option.contains(model.dataRepositoryId, repositoryId)) return model
+  const detail = Option.map(model.detail, (detail) => ({
+    ...detail,
+    configuration: transform(detail.configuration),
+  }))
+  return evo(model, {
+    detail: () => detail,
+    panel: (panel) =>
+      panel._tag === "PolicyEditor" && Option.isSome(detail)
+        ? {
+            ...panel,
+            editor: PolicyEditor.reflectConfiguration(panel.editor, detail.value.configuration),
+          }
+        : panel._tag === "RuleEditor" && Option.isSome(detail)
+          ? {
+              ...panel,
+              editor: RuleEditor.reflectConfiguration(
+                panel.editor,
+                detail.value.configuration,
+                detail.value.testCandidates,
+              ),
+            }
+          : panel,
+    repositories: Option.map((rows) =>
+      rows.map((row) =>
+        row.repositoryId === repositoryId && Option.isSome(detail)
+          ? {
+              ...row,
+              ruleCount: detail.value.configuration.rules.length,
+              policyCount: detail.value.configuration.policies.length,
+            }
+          : row,
+      ),
+    ),
+  })
+}
+
+const acceptPolicy = (model: Model, detail: PolicyDetail): Model =>
+  updateConfiguration(model, detail.policy.repositoryId, (configuration) => ({
+    ...configuration,
+    policies: configuration.policies.some((policy) => policy.policyId === detail.policy.policyId)
+      ? configuration.policies.map((policy) =>
+          policy.policyId === detail.policy.policyId
+            ? { ...detail.policy, draftDiffers: detail.draftDiffers }
+            : policy,
+        )
+      : [...configuration.policies, { ...detail.policy, draftDiffers: detail.draftDiffers }],
+  }))
+
+const acceptRule = (model: Model, rule: RuleRecord): Model =>
+  updateConfiguration(model, rule.repositoryId, (configuration) => ({
+    ...configuration,
+    rules: configuration.rules.some((current) => current.id === rule.id)
+      ? configuration.rules.map((current) => (current.id === rule.id ? rule : current))
+      : [...configuration.rules, rule],
+  }))
+
+interface Loaded {
+  readonly repositoryId: string
+  readonly detail: RepositoryDetail
+}
+
+const loaded = (model: Model): Option.Option<Loaded> =>
+  Option.flatMap(model.dataRepositoryId, (repositoryId) =>
+    Option.map(model.detail, (detail) => ({ repositoryId, detail })),
+  )
+
+const openPolicyEditor = (model: Model, existing: Option.Option<PolicyDetail>): Model =>
+  Option.match(loaded(model), {
+    onNone: () => model,
+    onSome: ({ repositoryId, detail }) =>
+      evo(model, {
+        panel: () => ({
+          _tag: "PolicyEditor" as const,
+          editor: PolicyEditor.init({
+            repositoryId,
+            configuration: detail.configuration,
+            catalog: model.catalog,
+            testCandidates: detail.testCandidates,
+            existing,
+          }),
+        }),
+      }),
+  })
+
+const openRuleEditor = (
+  model: Model,
+  existing: Option.Option<RuleEditor.Model["identity"]>,
+): Model =>
+  Option.match(loaded(model), {
+    onNone: () => model,
+    onSome: ({ repositoryId, detail }) => {
+      const rule = Option.flatMap(existing, (identity) =>
+        identity._tag === "Existing"
+          ? Option.fromNullishOr(
+              detail.configuration.rules.find((candidate) => candidate.id === identity.ruleId),
+            )
+          : Option.none(),
+      )
+      return evo(model, {
+        panel: () => ({
+          _tag: "RuleEditor" as const,
+          editor: RuleEditor.init({
+            repositoryId,
+            catalog: model.catalog,
+            labels: detail.configuration.labels,
+            policies: detail.configuration.policies,
+            existing: rule,
+            testCandidates: detail.testCandidates,
+          }),
+        }),
+      })
+    },
+  })
+
+const foldPolicyEditor = Update.foldChild({
+  update: PolicyEditor.update,
+  read: (model: Model) =>
+    model.panel._tag === "PolicyEditor" ? Option.some(model.panel.editor) : Option.none(),
+  write: (model, nextEditor) =>
+    evo(model, { panel: () => ({ _tag: "PolicyEditor" as const, editor: nextEditor }) }),
+  toParentMessage: (message) => Message.GotPolicyEditorMessage({ message }),
+  toParentOutMessage: (outMessage) =>
+    PolicyEditor.OutMessage.match<OutMessage | undefined>(outMessage, {
+      Saved: ({ detail, published }) =>
+        OutMessage.Notified({
+          title: published
+            ? `Published ${detail.policy.name}`
+            : `Saved ${detail.policy.name} as a draft`,
+          description: published
+            ? "Rules use this revision the next time a webhook or sync triggers evaluation."
+            : "Publish it to make it available to rules.",
+        }),
+      Cancelled: () => OutMessage.RequestedEditorClose({ section: "Policies" }),
+      RequestedDelete: () => undefined,
+      SaveFailed: ({ reason }) => OutMessage.Failed({ title: "The policy was not saved", reason }),
+      PersistedDraft: () => undefined,
+    }),
+  foldOutMessage: (outMessage) => (model) =>
+    PolicyEditor.OutMessage.match<Step>(outMessage, {
+      Saved: ({ detail }) => refresh(acceptPolicy(model, detail)),
+      PersistedDraft: ({ detail }) => refresh(acceptPolicy(model, detail)),
+      Cancelled: () => ({ model }),
+      RequestedDelete: ({ policyId, version }) => {
+        const next = update(model, Message.ClickedDeletePolicy({ policyId, version }))
+        return { model: next.model, commands: next.commands ?? [] }
+      },
+      SaveFailed: () => ({ model }),
+    }),
+})
+
+const foldRuleEditor = Update.foldChild({
+  update: RuleEditor.update,
+  read: (model: Model) =>
+    model.panel._tag === "RuleEditor" ? Option.some(model.panel.editor) : Option.none(),
+  write: (model, nextEditor) =>
+    evo(model, { panel: () => ({ _tag: "RuleEditor" as const, editor: nextEditor }) }),
+  toParentMessage: (message) => Message.GotRuleEditorMessage({ message }),
+  toParentOutMessage: (outMessage) =>
+    RuleEditor.OutMessage.match<OutMessage | undefined>(outMessage, {
+      Saved: ({ closeEditor }) => OutMessage.RuleSaved({ closeEditor }),
+      Cancelled: () => OutMessage.RequestedEditorClose({ section: "Rules" }),
+      RequestedDelete: () => undefined,
+      SaveFailed: ({ reason }) => OutMessage.Failed({ title: "The rule was not saved", reason }),
+    }),
+  foldOutMessage: (outMessage) => (model) =>
+    RuleEditor.OutMessage.match<Step>(outMessage, {
+      Saved: ({ rule, closeEditor }) =>
+        refresh(acceptRule(closeEditor ? closed(model) : model, rule)),
+      Cancelled: () => ({ model }),
+      RequestedDelete: ({ ruleId, version }) => {
+        const next = deleteSubject(model, "rule", ruleId, version)
+        return { model: next.model, commands: next.commands ?? [] }
+      },
+      SaveFailed: () => ({ model }),
+    }),
+})
+
+export const isViewingSubject = (
+  model: Model,
+  repositoryId: string,
+  what: "policy" | "rule",
+  subjectId: string,
+): boolean => {
+  if (!Option.contains(model.dataRepositoryId, repositoryId)) return false
+  const panel = model.panel
+  return what === "policy"
+    ? panel._tag === "PolicyEditor" &&
+        panel.editor.identity._tag === "Existing" &&
+        panel.editor.identity.policyId === subjectId
+    : panel._tag === "RuleEditor" &&
+        panel.editor.identity._tag === "Existing" &&
+        panel.editor.identity.ruleId === subjectId
+}
+
+const deleteSubject = (
+  model: Model,
+  what: "policy" | "rule",
+  subjectId: string,
+  version: number,
+): UpdateReturn => {
+  if (Option.isNone(model.dataRepositoryId)) return { model }
+  const repositoryId = model.dataRepositoryId.value
+  if (
+    hasMutation(
+      model,
+      repositoryId,
+      subjectId,
+      what === "policy" ? ["PolicyDelete"] : ["RuleDelete", "RuleToggle"],
+    ) ||
+    (isViewingSubject(model, repositoryId, what, subjectId) && isSaving(model))
+  )
+    return { model }
+  return {
+    model: startMutation(model, {
+      repositoryId,
+      subjectId,
+      kind: what === "policy" ? "PolicyDelete" : "RuleDelete",
+      previousEnabled: false,
+      enabled: false,
+    }),
+    commands: [
+      DeleteSubject({
+        repositoryId,
+        operationId: model.nextOperationId,
+        subjectId,
+        version,
+        what,
+        url:
+          what === "policy"
+            ? policyEndpoint(repositoryId, subjectId)
+            : ruleEndpoint(repositoryId, subjectId),
+      }),
+    ],
+  }
+}
+
+export const update = (model: Model, message: Message): UpdateReturn =>
+  Message.match<UpdateReturn>(message, {
+    UpdatedPolicySearch: ({ value }) => ({ model: evo(model, { policySearch: () => value }) }),
+    GotRepositories: ({ repositories, requestId }) => {
+      if (!Option.contains(model.maybeRepositoriesRequest, requestId)) return { model }
+      const next = evo(model, {
+        repositories: () =>
+          Option.some(
+            repositories.map((row) => {
+              const pending = model.pendingMutations.find(
+                (mutation) =>
+                  mutation.kind === "SyncToggle" && mutation.repositoryId === row.repositoryId,
+              )
+              const counted =
+                Option.contains(model.dataRepositoryId, row.repositoryId) &&
+                Option.isSome(model.detail)
+                  ? {
+                      ...row,
+                      policyCount: model.detail.value.configuration.policies.length,
+                      ruleCount: model.detail.value.configuration.rules.length,
+                    }
+                  : row
+              return pending ? { ...counted, syncEnabled: pending.enabled } : counted
+            }),
+          ),
+        maybeRepositoriesRequest: () => Option.none(),
+        repositoriesError: () => Option.none<string>(),
+      })
+      return { model: next }
+    },
+    FailedRepositories: ({ reason, requestId }) =>
+      !Option.contains(model.maybeRepositoriesRequest, requestId)
+        ? { model }
+        : {
+            model: evo(model, {
+              repositoriesError: () => Option.some(reason),
+              maybeRepositoriesRequest: () => Option.none(),
+            }),
+          },
+    GotCatalog: ({ catalog }) => ({
+      model: evo(model, {
+        catalog: () => catalog,
+        panel: (panel) =>
+          panel._tag === "PolicyEditor"
+            ? {
+                ...panel,
+                editor: evo(panel.editor, {
+                  source: (source) => evo(source, { catalog: () => catalog }),
+                }),
+              }
+            : panel._tag === "RuleEditor"
+              ? { ...panel, editor: evo(panel.editor, { catalog: () => catalog }) }
+              : panel,
+      }),
+    }),
+
+    GotActivityMessage: ({ message }) => {
+      const result = Activity.update(model.activity, message)
+      return {
+        model: { ...model, activity: result.model },
+        commands: FoldkitCommand.mapMessages(result.commands ?? [], (message) =>
+          Message.GotActivityMessage({ message }),
+        ),
+      }
+    },
+    Selected: ({ repositoryId }) =>
+      Option.contains(model.dataRepositoryId, repositoryId)
+        ? { model }
+        : refresh(
+            evo(closed(model), {
+              dataRepositoryId: () => Option.some(repositoryId),
+              policySearch: () => "",
+              detail: () => Option.none(),
+              detailError: () => Option.none(),
+              maybeConsent: () => Option.none(),
+              consentError: () => Option.none(),
+            }),
+          ),
+    LiveChanged: ({ topics, all }) => ({
+      model: {
+        ...model,
+        liveTopics: [
+          ...new Set([
+            ...model.liveTopics,
+            ...(all
+              ? ([
+                  "configuration",
+                  "activity",
+                  "sync",
+                  "candidates",
+                  "consent",
+                  "test",
+                  "repository",
+                ] as const)
+              : topics),
+          ]),
+        ],
+      },
+    }),
+    FlushLive: () => {
+      const topics = model.liveTopics
+      let next: UpdateReturn = { model: { ...model, liveTopics: [] } }
+      const append = (result: UpdateReturn) => {
+        next = { ...result, commands: [...(next.commands ?? []), ...(result.commands ?? [])] }
+      }
+      if (topics.includes("repository")) append(refreshRepositories(next.model))
+      if (model.activity.active) {
+        if (topics.includes("activity")) {
+          const result = Activity.update(model.activity, Activity.Message.Polled())
+          append({
+            model: { ...next.model, activity: result.model },
+            commands: FoldkitCommand.mapMessages(result.commands ?? [], (message) =>
+              Message.GotActivityMessage({ message }),
+            ),
+          })
+        }
+      } else if (topics.some((topic) => ["configuration", "candidates", "consent"].includes(topic)))
+        append(refresh(next.model, false))
+      if (topics.includes("test") && next.model.panel._tag === "RuleEditor")
+        append(foldRuleEditor(next.model, RuleEditor.Message.RefreshTest()))
+      return next
+    },
+    Polled: () => refresh(model, false),
+    // A late answer for a repository that is no longer selected is dropped.
+    GotDetail: ({ repositoryId, detail: received, requestId }) => {
+      const detail = {
+        ...received,
+        configuration: {
+          ...received.configuration,
+          rules: received.configuration.rules.map((rule) => {
+            const pending = model.pendingMutations.find(
+              (mutation) =>
+                mutation.kind === "RuleToggle" &&
+                mutation.repositoryId === repositoryId &&
+                mutation.subjectId === rule.id,
+            )
+            return pending ? { ...rule, enabled: pending.enabled } : rule
+          }),
+        },
+      }
+      return Option.contains(model.dataRepositoryId, repositoryId) &&
+        Option.contains(model.maybeDetailRequest, requestId)
+        ? {
+            model: evo(model, {
+              detail: () => Option.some(detail),
+              maybeDetailRequest: () => Option.none(),
+              detailError: () => Option.none<string>(),
+              repositories: Option.map((repositories) =>
+                repositories.map((repository) =>
+                  repository.repositoryId === repositoryId
+                    ? {
+                        ...repository,
+                        ruleCount: detail.configuration.rules.length,
+                        policyCount: detail.configuration.policies.length,
+                      }
+                    : repository,
+                ),
+              ),
+              panel: (panel) =>
+                panel._tag === "PolicyEditor"
+                  ? {
+                      ...panel,
+                      editor: PolicyEditor.reflectConfiguration(
+                        PolicyEditor.withTestCandidates(
+                          panel.editor,
+                          detail.testCandidates ?? panel.editor.testCandidates,
+                        ),
+                        detail.configuration,
+                      ),
+                    }
+                  : panel._tag === "RuleEditor"
+                    ? {
+                        ...panel,
+                        editor: RuleEditor.reflectConfiguration(
+                          panel.editor,
+                          detail.configuration,
+                          detail.testCandidates,
+                        ),
+                      }
+                    : panel,
+            }),
+          }
+        : { model }
+    },
+    FailedDetail: ({ repositoryId, reason, requestId }) =>
+      Option.contains(model.dataRepositoryId, repositoryId) &&
+      Option.contains(model.maybeDetailRequest, requestId)
+        ? {
+            model: evo(model, {
+              detailError: () => Option.some(reason),
+              maybeDetailRequest: () => Option.none(),
+            }),
+          }
+        : { model },
+    GotConsent: ({ repositoryId, consent, requestId }) =>
+      Option.contains(model.dataRepositoryId, repositoryId) &&
+      Option.contains(model.maybeConsentRequest, requestId)
+        ? {
+            model: evo(model, {
+              maybeConsent: () => Option.some(consent),
+              consentError: () => Option.none(),
+              maybeConsentRequest: () => Option.none(),
+            }),
+          }
+        : { model },
+    FailedConsent: ({ repositoryId, reason, requestId }) =>
+      Option.contains(model.dataRepositoryId, repositoryId) &&
+      Option.contains(model.maybeConsentRequest, requestId)
+        ? {
+            model: evo(model, {
+              consentError: () => Option.some(reason),
+              maybeConsentRequest: () => Option.none(),
+            }),
+          }
+        : { model },
+    ClickedRetryConsent: () => refresh(model, false),
+    ClickedToggleSync: ({ repositoryId, enabled }) => {
+      const row = Option.getOrElse(model.repositories, () => []).find(
+        (row) => row.repositoryId === repositoryId,
+      )
+      if (!row || hasMutation(model, repositoryId, repositoryId, ["SyncToggle"])) return { model }
+      return {
+        model: evo(
+          startMutation(model, {
+            repositoryId,
+            subjectId: repositoryId,
+            kind: "SyncToggle",
+            previousEnabled: row.syncEnabled !== false,
+            enabled,
+          }),
+          {
+            repositories: Option.map((rows) =>
+              rows.map((row) =>
+                row.repositoryId === repositoryId ? { ...row, syncEnabled: enabled } : row,
+              ),
+            ),
+          },
+        ),
+        commands: [
+          SetRepositorySync({ repositoryId, enabled, operationId: model.nextOperationId }),
+        ],
+      }
+    },
+    CompletedToggleSync: ({ repositoryId, operationId }) => {
+      if (
+        !model.pendingMutations.some(
+          (mutation) =>
+            mutation.operationId === operationId &&
+            mutation.repositoryId === repositoryId &&
+            mutation.kind === "SyncToggle",
+        )
+      )
+        return { model }
+      return {
+        ...refreshRepositories(finishMutation(model, operationId)),
+        outMessage: OutMessage.SyncWorkChanged(),
+      }
+    },
+    FailedToggleSync: ({ repositoryId, operationId, reason }) => {
+      const pending = model.pendingMutations.find(
+        (mutation) =>
+          mutation.operationId === operationId &&
+          mutation.repositoryId === repositoryId &&
+          mutation.kind === "SyncToggle",
+      )
+      if (!pending) return { model }
+      const restored = evo(finishMutation(model, operationId), {
+        repositories: Option.map((rows) =>
+          rows.map((row) =>
+            row.repositoryId === repositoryId
+              ? { ...row, syncEnabled: pending.previousEnabled }
+              : row,
+          ),
+        ),
+      })
+      return {
+        ...refreshRepositories(restored),
+        outMessage: OutMessage.Failed({ title: "Sync setting could not be confirmed", reason }),
+      }
+    },
+    ClickedToggleConsent: () => {
+      if (Option.isNone(model.dataRepositoryId) || Option.isNone(model.maybeConsent))
+        return { model }
+      const repositoryId = model.dataRepositoryId.value
+      if (
+        hasMutation(model, repositoryId, repositoryId, ["Consent"]) ||
+        model.maybeConsent.value.state === "draining"
+      )
+        return { model }
+      const enabled = model.maybeConsent.value.state !== "enabled"
+      return {
+        model: startMutation(model, {
+          repositoryId,
+          subjectId: repositoryId,
+          kind: "Consent",
+          previousEnabled: !enabled,
+          enabled,
+        }),
+        commands: [SetConsent({ repositoryId, enabled, operationId: model.nextOperationId })],
+      }
+    },
+    CompletedSetConsent: ({ repositoryId, consent, operationId }) => {
+      if (
+        !model.pendingMutations.some(
+          (mutation) =>
+            mutation.operationId === operationId &&
+            mutation.repositoryId === repositoryId &&
+            mutation.kind === "Consent",
+        )
+      )
+        return { model }
+      const next = evo(finishMutation(model, operationId), {
+        maybeConsent: (current) =>
+          Option.contains(model.dataRepositoryId, repositoryId) ? Option.some(consent) : current,
+      })
+      return {
+        ...refresh(next),
+        outMessage: OutMessage.Notified({
+          title:
+            consent.state === "enabled"
+              ? "AI classification enabled"
+              : consent.state === "draining"
+                ? "AI classification draining"
+                : "AI classification disabled",
+          description:
+            consent.state === "draining"
+              ? String(consent.activeLeases) + " calls still in flight; no new ones start."
+              : consent.state === "enabled"
+                ? "Classifier policies may send their named evidence to " +
+                  consent.provider +
+                  " " +
+                  consent.model +
+                  "."
+                : "Classifier policies evaluate as unknown and never remove labels.",
+        }),
+      }
+    },
+    FailedSetConsent: ({ repositoryId, operationId, reason }) => {
+      if (
+        !model.pendingMutations.some(
+          (mutation) =>
+            mutation.operationId === operationId &&
+            mutation.repositoryId === repositoryId &&
+            mutation.kind === "Consent",
+        )
+      )
+        return { model }
+      return {
+        ...refresh(finishMutation(model, operationId)),
+        outMessage: OutMessage.Failed({
+          title: "AI consent change could not be confirmed",
+          reason,
+        }),
+      }
+    },
+
+    ClickedNewPolicy: () => ({
+      model:
+        model.panel._tag === "PolicyEditor" && model.panel.editor.identity._tag === "New"
+          ? model
+          : openPolicyEditor(model, Option.none()),
+    }),
+    ClickedEditPolicy: ({ policyId }) =>
+      model.panel._tag === "PolicyEditor" &&
+      model.panel.editor.identity._tag === "Existing" &&
+      model.panel.editor.identity.policyId === policyId
+        ? { model }
+        : Option.match(model.dataRepositoryId, {
+            onNone: () => ({ model }),
+            onSome: (repositoryId) => ({
+              model: evo(model, { panel: () => ({ _tag: "LoadingPolicy" as const, policyId }) }),
+              commands: [FetchPolicyDetail({ repositoryId, policyId })],
+            }),
+          }),
+    GotPolicyDetail: ({ detail }) =>
+      model.panel._tag === "LoadingPolicy" &&
+      model.panel.policyId === detail.policy.policyId &&
+      Option.contains(model.dataRepositoryId, detail.policy.repositoryId)
+        ? { model: openPolicyEditor(model, Option.some(detail)) }
+        : { model },
+    FailedPolicyDetail: ({ reason, repositoryId, policyId }) =>
+      model.panel._tag === "LoadingPolicy" &&
+      (repositoryId === undefined || Option.contains(model.dataRepositoryId, repositoryId)) &&
+      (policyId === undefined || model.panel.policyId === policyId)
+        ? {
+            model: evo(model, {
+              panel: () => ({
+                _tag: "Unavailable" as const,
+                message: `This policy could not be opened. It may have been deleted or you may no longer have access. ${reason}`,
+              }),
+            }),
+          }
+        : { model },
+    ClickedDeletePolicy: ({ policyId, version }) =>
+      deleteSubject(model, "policy", policyId, version),
+    UpdatedRuleSearch: ({ value }) => ({ model: evo(model, { ruleSearch: () => value }) }),
+    GotRuleMenuMessage: ({ ruleId, message }) => foldRuleMenu(ruleId)(model, message),
+    ClickedNewRule: () => ({ model: openRuleEditor(model, Option.none()) }),
+    ClickedEditRule: ({ ruleId }) =>
+      Option.isSome(model.dataRepositoryId) &&
+      hasMutation(model, model.dataRepositoryId.value, ruleId, ["RuleToggle", "RuleDelete"])
+        ? { model }
+        : { model: openRuleEditor(model, Option.some({ _tag: "Existing", ruleId, version: 0 })) },
+    ClickedToggleRule: ({ ruleId }) => {
+      if (Option.isNone(model.dataRepositoryId) || Option.isNone(model.detail)) return { model }
+      const repositoryId = model.dataRepositoryId.value
+      const rule = model.detail.value.configuration.rules.find((rule) => rule.id === ruleId)
+      if (!rule || hasMutation(model, repositoryId, ruleId, ["RuleToggle", "RuleDelete"]))
+        return { model }
+      const next = startMutation(model, {
+        repositoryId,
+        subjectId: ruleId,
+        kind: "RuleToggle",
+        previousEnabled: rule.enabled,
+        enabled: !rule.enabled,
+      })
+      return {
+        model: acceptRule(next, { ...rule, enabled: !rule.enabled }),
+        commands: [
+          ToggleRule({
+            repositoryId,
+            operationId: model.nextOperationId,
+            ruleId,
+            version: rule.version,
+            enabled: !rule.enabled,
+          }),
+        ],
+      }
+    },
+    ClickedDeleteRule: ({ ruleId, version }) => deleteSubject(model, "rule", ruleId, version),
+    CompletedDelete: ({ repositoryId, subjectId, what, operationId }) => {
+      if (
+        !model.pendingMutations.some(
+          (mutation) =>
+            mutation.operationId === operationId &&
+            mutation.repositoryId === repositoryId &&
+            mutation.subjectId === subjectId &&
+            mutation.kind === (what === "policy" ? "PolicyDelete" : "RuleDelete"),
+        )
+      )
+        return { model }
+      let next = updateConfiguration(
+        finishMutation(model, operationId),
+        repositoryId,
+        (configuration) => ({
+          ...configuration,
+          policies:
+            what === "policy"
+              ? configuration.policies.filter((policy) => policy.policyId !== subjectId)
+              : configuration.policies,
+          rules:
+            what === "rule"
+              ? configuration.rules.filter((rule) => rule.id !== subjectId)
+              : configuration.rules,
+        }),
+      )
+      if (isViewingSubject(next, repositoryId, what, subjectId)) next = closed(next)
+      return {
+        ...refresh(next),
+        outMessage: OutMessage.Notified({
+          title: "Deleted the " + what,
+          description: "The list has been updated.",
+        }),
+      }
+    },
+    FailedDelete: ({ repositoryId, operationId, subjectId, reason }) => {
+      if (
+        !model.pendingMutations.some(
+          (mutation) =>
+            mutation.operationId === operationId &&
+            mutation.repositoryId === repositoryId &&
+            mutation.subjectId === subjectId,
+        )
+      )
+        return { model }
+      return {
+        ...refresh(finishMutation(model, operationId)),
+        outMessage: OutMessage.Failed({ title: "Deletion could not be confirmed", reason }),
+      }
+    },
+    CompletedToggleRule: ({ repositoryId, operationId, rule }) => {
+      if (
+        !model.pendingMutations.some(
+          (mutation) =>
+            mutation.operationId === operationId &&
+            mutation.repositoryId === repositoryId &&
+            mutation.kind === "RuleToggle" &&
+            mutation.subjectId === rule.id,
+        )
+      )
+        return { model }
+      return {
+        ...refresh(acceptRule(finishMutation(model, operationId), rule)),
+        outMessage: OutMessage.SyncWorkChanged(),
+      }
+    },
+    FailedToggleRule: ({ repositoryId, operationId, ruleId, reason }) => {
+      const pending = model.pendingMutations.find(
+        (mutation) =>
+          mutation.operationId === operationId &&
+          mutation.repositoryId === repositoryId &&
+          mutation.subjectId === ruleId &&
+          mutation.kind === "RuleToggle",
+      )
+      if (!pending) return { model }
+      const next = updateConfiguration(
+        finishMutation(model, operationId),
+        repositoryId,
+        (configuration) => ({
+          ...configuration,
+          rules: configuration.rules.map((rule) =>
+            rule.id === ruleId ? { ...rule, enabled: pending.previousEnabled } : rule,
+          ),
+        }),
+      )
+      return {
+        ...refresh(next),
+        outMessage: OutMessage.Failed({ title: "Rule change could not be confirmed", reason }),
+      }
+    },
+
+    GotPolicyEditorMessage: ({ message }) => {
+      if (model.panel._tag !== "PolicyEditor") return { model }
+      const editor = model.panel.editor
+      if (
+        editor.identity._tag === "Existing" &&
+        hasMutation(model, editor.repositoryId, editor.identity.policyId, ["PolicyDelete"])
+      )
+        return { model }
+      if (message._tag === "SelectedTestItem")
+        return { model, outMessage: OutMessage.SelectedPolicyTestItem({ number: message.number }) }
+      return foldPolicyEditor(model, message)
+    },
+    GotRuleEditorMessage: ({ message }) =>
+      model.panel._tag === "RuleEditor" &&
+      model.panel.editor.identity._tag === "Existing" &&
+      hasMutation(model, model.panel.editor.repositoryId, model.panel.editor.identity.ruleId, [
+        "RuleDelete",
+      ])
+        ? { model }
+        : foldRuleEditor(model, message),
+  })
+
+// SUBSCRIPTIONS
+
+const liveRefresh = Subscription.make<Model, Message>()((entry) => ({
+  ruleTestDeadline: entry(
+    { job: Schema.NullOr(Schema.Struct({ generation: Schema.Int, startedAt: Schema.Number })) },
+    {
+      modelToDependencies: (model) => {
+        const editor = model.panel._tag === "RuleEditor" ? model.panel.editor : undefined
+        const job = editor?.testResult._tag === "Running" ? editor.liveJob : null
+        return { job: job ? { generation: job.generation, startedAt: job.startedAt } : null }
+      },
+      dependenciesToStream: ({ job }) =>
+        job
+          ? Stream.fromEffect(
+              Effect.gen(function* () {
+                const now = yield* Clock.currentTimeMillis
+                yield* Effect.sleep(Math.max(0, job.startedAt + 240_000 - now))
+                return Message.GotRuleEditorMessage({
+                  message: RuleEditor.Message.FailedTest({
+                    generation: job.generation,
+                    reason: "The test timed out. Run it again.",
+                  }),
+                })
+              }),
+            )
+          : Stream.empty,
+    },
+  ),
+  liveRefresh: entry(
+    { topics: Schema.Array(Live.Topic), busy: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({
+        topics: model.liveTopics,
+        busy:
+          Option.isSome(model.maybeDetailRequest) ||
+          Option.isSome(model.maybeConsentRequest) ||
+          model.activity.loading,
+      }),
+      dependenciesToStream: ({ topics, busy }) =>
+        topics.length && !busy ? Stream.succeed(Message.FlushLive()) : Stream.empty,
+    },
+  ),
+}))
+
+export const subscriptions = Subscription.aggregate<Model, Message>()(
+  liveRefresh,
+  Subscription.lift(Activity.subscriptions)<Model, Message>({
+    toChildModel: (model) => model.activity,
+    toParentMessage: (message) => Message.GotActivityMessage({ message }),
+  }),
+)
+
+// VIEW
+
+const badgeClass = "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
+
+const sectionTitle = <M>(h: HtmlBuilder<M>, text: string): Html =>
+  h.h2([h.Class("text-sm font-semibold tracking-tight")], [text])
+
+const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
+  const creating =
+    model.panel._tag === "PolicyEditor" && model.panel.editor.identity._tag === "New"
+      ? model.panel.editor
+      : undefined
+  const query = model.policySearch.trim().toLowerCase()
+  const policies = view.policies.filter((policy) =>
+    `${policy.name} ${policy.description}`.toLowerCase().includes(query),
+  )
+  const selectedId =
+    model.panel._tag === "LoadingPolicy"
+      ? model.panel.policyId
+      : model.panel._tag === "PolicyEditor" && model.panel.editor.identity._tag === "Existing"
+        ? model.panel.editor.identity.policyId
+        : undefined
+  return h.aside(
+    [h.Class("policy-library"), h.AriaLabel("Policy library")],
+    [
+      h.div(
+        [h.Class("policy-library-header")],
+        [
+          h.div(
+            [h.Class("flex items-center justify-between gap-2")],
+            [
+              h.h2(
+                [h.Class("text-xs font-semibold")],
+                [
+                  "All policies",
+                  h.span(
+                    [h.Class("ml-2 font-normal text-muted-foreground")],
+                    [String(view.policies.length + (creating ? 1 : 0))],
+                  ),
+                ],
+              ),
+              Button.view(h, {
+                variant: "ghost",
+                size: "icon-sm",
+                label: Icon.view(h, Plus, "size-4"),
+                onClick: Message.ClickedNewPolicy(),
+                attributes: [
+                  h.AriaLabel("New policy"),
+                  h.Title("New policy"),
+                  h.DataAttribute("action", "new-policy"),
+                ],
+              }),
+            ],
+          ),
+          h.div(
+            [h.Class("policy-search-field")],
+            [
+              Icon.view(h, Search, "size-3.5"),
+              input(h, {
+                id: "policy-search",
+                label: "Search policies",
+                labelClass: "sr-only",
+                placeholder: "Find a policy…",
+                value: model.policySearch,
+                onInput: (value) => Message.UpdatedPolicySearch({ value }),
+              }),
+            ],
+          ),
+        ],
+      ),
+      h.ul(
+        [h.Class("policy-library-list")],
+        [
+          ...(creating
+            ? [
+                h.li(
+                  [h.DataAttribute("policy-id", "new")],
+                  [
+                    h.div(
+                      [h.Class("policy-library-item is-selected"), h.AriaCurrent("page")],
+                      [
+                        h.span(
+                          [h.Class("policy-library-name")],
+                          [
+                            (creating.metadataEdits.name ?? creating.name).trim() ||
+                              "Untitled policy",
+                          ],
+                        ),
+                        h.span(
+                          [h.Class("policy-library-summary")],
+                          [
+                            (creating.metadataEdits.description ?? creating.description) ||
+                              "No description",
+                          ],
+                        ),
+                        h.span(
+                          [h.Class("policy-library-meta")],
+                          [
+                            Option.match(PolicyEditor.parsedSource(creating), {
+                              onNone: () => "Policy",
+                              onSome: (source) =>
+                                source.target === "pull_request" ? "Pull requests" : "Issues",
+                            }),
+                            h.span([h.Class("text-muted-foreground")], ["Unsaved"]),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ]
+            : []),
+          ...policies.map((policy) => {
+            const deleting = hasMutation(model, view.repositoryId, policy.policyId, [
+              "PolicyDelete",
+            ])
+            const panel = model.panel
+            const editor =
+              panel._tag === "PolicyEditor" &&
+              panel.editor.identity._tag === "Existing" &&
+              panel.editor.identity.policyId === policy.policyId
+                ? panel.editor
+                : undefined
+            const status =
+              editor === undefined
+                ? {
+                    published: policy.publishedRevision !== null,
+                    revision: policy.publishedRevision,
+                    changes: policy.draftDiffers ?? false,
+                  }
+                : PolicyEditor.publicationStatus(editor)
+            return h.li(
+              [h.DataAttribute("policy-id", policy.policyId)],
+              [
+                h.a(
+                  [
+                    h.Href(
+                      Routes.policy({
+                        repositoryId: view.repositoryId,
+                        policyId: policy.policyId,
+                        ...(model.policySearch ? { q: model.policySearch } : {}),
+                      }),
+                    ),
+                    h.Class(
+                      cn(
+                        "policy-library-item",
+                        selectedId === policy.policyId && "is-selected",
+                        deleting && "pointer-events-none opacity-60",
+                      ),
+                    ),
+                    h.AriaCurrent(selectedId === policy.policyId ? "page" : "false"),
+                    h.DataAttribute("action", "edit-policy"),
+                    h.AriaDisabled(deleting),
+                    ...(deleting ? [h.Tabindex(-1)] : []),
+                  ],
+                  [
+                    h.span(
+                      [h.Class("policy-library-name flex items-center gap-1.5")],
+                      [
+                        policy.name,
+                        deleting ? h.span([h.Role("status")], ["Deleting…"]) : h.empty,
+                        editor !== undefined && PolicyEditor.hasUnsavedInput(editor)
+                          ? h.span(
+                              [
+                                h.Class("policy-unsaved-dot"),
+                                h.Role("img"),
+                                h.AriaLabel("Unsaved changes"),
+                                h.Title("Unsaved changes"),
+                              ],
+                              [],
+                            )
+                          : h.empty,
+                      ],
+                    ),
+                    h.span(
+                      [h.Class("policy-library-summary")],
+                      [policy.description || "No description"],
+                    ),
+                    h.span(
+                      [h.Class("policy-library-meta")],
+                      [
+                        policy.target === "pull_request" ? "Pull requests" : "Issues",
+                        PolicyStatus.view(h, status),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            )
+          }),
+        ],
+      ),
+      policies.length === 0 && view.policies.length > 0
+        ? h.p([h.Class("p-4 text-xs text-muted-foreground")], ["No policies match your search."])
+        : h.empty,
+    ],
+  )
+}
+
+const RuleMenu = Menu.create<"Edit">()
+const ruleMenuModel = (model: Model, ruleId: string) =>
+  model.ruleMenus[ruleId] ?? Menu.init({ id: `rule-menu-${ruleId}`, isModal: false })
+const foldRuleMenu = (ruleId: string) =>
+  Update.foldChild({
+    update: RuleMenu.update,
+    read: (model: Model) => Option.some(ruleMenuModel(model, ruleId)),
+    write: (model, menu) => evo(model, { ruleMenus: (menus) => ({ ...menus, [ruleId]: menu }) }),
+    toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId, message }),
+    toParentOutMessage: () => OutMessage.RequestedRule({ ruleId }),
+  })
+
+export const ruleBehavior = (view: ConfigurationView, rule: RuleRecord): string =>
+  rule.ai
+    ? (rule.ai.prompt.split("\n")[0] ?? "AI classification")
+    : `Add ${labelName(view.labels, rule.labelId)} when ${policyName(view.policies, rule.policyId)} matches. Otherwise, ${rule.onNoMatch === "preserve" ? "leave it unchanged" : "remove the label"}.`
+
+const ruleType = (view: ConfigurationView, rule: RuleRecord): string =>
+  rule.ai ||
+  view.policies.find((policy) => policy.policyId === rule.policyId)?.publishedEvaluator ===
+    "Classifier"
+    ? "AI"
+    : "Policy"
+
+export const labelBadgeStyle = (color: string | null | undefined): Record<string, string> => {
+  if (!color || !/^[0-9a-f]{6}$/i.test(color)) return {}
+  const channels = [0, 2, 4].map((offset) => {
+    const value = parseInt(color.slice(offset, offset + 2), 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+  return {
+    backgroundColor: `#${color}`,
+    borderColor: `#${color}`,
+    color: luminance > 0.179 ? "#111111" : "#ffffff",
+  }
+}
+
+const ruleRow = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  view: ConfigurationView,
+  rule: RuleRecord,
+): Html => {
+  const name = labelName(view.labels, rule.labelId)
+  const label = view.labels.find((label) => label.labelId === rule.labelId)
+  const pending = model.pendingMutations.find(
+    (mutation) =>
+      mutation.repositoryId === rule.repositoryId &&
+      mutation.subjectId === rule.id &&
+      (mutation.kind === "RuleToggle" || mutation.kind === "RuleDelete"),
+  )
+  return h.tr(
+    [h.DataAttribute("rule-id", rule.id)],
+    [
+      h.td(
+        [],
+        [
+          Switch.view(
+            {
+              id: `rule-toggle-${rule.id}`,
+              isChecked: rule.enabled,
+              isDisabled: pending !== undefined,
+              onToggle: () => Message.ClickedToggleRule({ ruleId: rule.id }),
+              toView: (attributes) =>
+                h.div(
+                  [],
+                  [
+                    h.span([...attributes.label, h.Class("sr-only")], [`Enable ${name}`]),
+                    h.button(
+                      [
+                        ...attributes.button,
+                        h.Class("rule-enable-switch rule-table-switch"),
+                        h.AriaBusy(pending !== undefined),
+                      ],
+                      [h.span([h.AriaHidden(true)], [])],
+                    ),
+                    pending
+                      ? h.span(
+                          [h.Class("sr-only"), h.Role("status")],
+                          [
+                            pending.kind === "RuleDelete"
+                              ? "Deleting…"
+                              : rule.enabled
+                                ? "Enabling…"
+                                : "Disabling…",
+                          ],
+                        )
+                      : h.empty,
+                  ],
+                ),
+            },
+            h,
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.span(
+            [h.Class("inline-flex items-center gap-1.5 text-xs text-muted-foreground")],
+            [Icon.view(h, FileCode2, "size-3.5"), ruleType(view, rule)],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.span(
+            [
+              h.Class(cn(badgeClass, rule.labelStatus === "missing" && "line-through")),
+              h.Style(labelBadgeStyle(label?.color)),
+            ],
+            [name],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.span(
+            [
+              h.Class("block truncate text-xs text-muted-foreground"),
+              h.Title(rule.group ?? "No exclusive group"),
+            ],
+            [rule.group ? `${rule.group} / ${rule.priority}` : "—"],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.p(
+            [h.Class("truncate text-xs"), h.Title(ruleBehavior(view, rule))],
+            [ruleBehavior(view, rule)],
+          ),
+          h.p(
+            [h.Class("mt-1 truncate text-xs text-muted-foreground")],
+            [
+              view.policies.find((policy) => policy.policyId === rule.policyId)?.description ||
+                policyName(view.policies, rule.policyId),
+            ],
+          ),
+        ],
+      ),
+      h.td(
+        [],
+        [
+          h.submodel({
+            slotId: `rule-menu-${rule.id}`,
+            model: ruleMenuModel(model, rule.id),
+            view: RuleMenu.view,
+            viewInputs: {
+              items: ["Edit"],
+              ariaLabel: `Actions for ${name}`,
+              isButtonDisabled: hasMutation(model, rule.repositoryId, rule.id, [
+                "RuleDelete",
+                "RuleToggle",
+              ]),
+              buttonContent: Icon.view(h, Ellipsis, "size-4"),
+              buttonClassName: "rule-row-menu-button",
+              buttonAttributes: childAttributes([
+                h.AriaLabel(`Actions for ${name}`),
+                h.Title("Rule actions"),
+              ]),
+              itemsClassName: "z-50 min-w-36 rounded-lg border bg-popover p-1 shadow-md",
+              anchor: { placement: "bottom-end", gap: 4 },
+              itemToConfig: (_item, { isActive }) => ({
+                className: cn(
+                  "flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-xs",
+                  isActive && "bg-accent",
+                ),
+                content: h.span(
+                  [h.Class("flex items-center gap-2"), h.DataAttribute("action", "edit-rule")],
+                  [Icon.view(h, Pencil, "size-3"), "Edit rule"],
+                ),
+              }),
+            },
+            toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId: rule.id, message }),
+          }),
+        ],
+      ),
+    ],
+  )
+}
+const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
+  const query = model.ruleSearch.trim().toLowerCase()
+  const rules = view.rules.filter((rule) =>
+    `${labelName(view.labels, rule.labelId)} ${ruleBehavior(view, rule)} ${rule.group ?? ""} ${view.policies.find((policy) => policy.policyId === rule.policyId)?.description ?? ""} ${ruleType(view, rule)}`
+      .toLowerCase()
+      .includes(query),
+  )
+  return h.section(
+    [h.Class("rules-library")],
+    [
+      h.header(
+        [h.Class("flex items-center justify-between gap-4")],
+        [
+          h.div(
+            [],
+            [
+              h.h1([h.Class("text-xl font-semibold tracking-tight")], ["Labeling rules"]),
+              h.p(
+                [h.Class("mt-1 text-xs text-muted-foreground")],
+                ["Connect policies to the labels they manage."],
+              ),
+            ],
+          ),
+          Button.view(h, {
+            variant: "outline",
+            size: "sm",
+            onClick: Message.ClickedNewRule(),
+            label: h.span(
+              [h.Class("flex items-center gap-2")],
+              [Icon.view(h, Plus, "size-3.5"), "New rule"],
+            ),
+            attributes: [h.DataAttribute("action", "new-rule")],
+          }),
+        ],
+      ),
+      h.div(
+        [h.Class("my-5 flex items-center justify-between gap-3")],
+        [
+          h.div(
+            [h.Class("relative w-72 max-w-full")],
+            [
+              Icon.view(
+                h,
+                Search,
+                "pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground",
+              ),
+              input(h, {
+                id: "rule-search",
+                label: "Search rules",
+                labelClass: "sr-only",
+                value: model.ruleSearch,
+                placeholder: "Find a rule…",
+                onInput: (value) => Message.UpdatedRuleSearch({ value }),
+                className: "h-8 pl-8",
+                attributes: [h.AriaLabel("Search rules")],
+              }),
+            ],
+          ),
+          h.span([h.Class("text-xs text-muted-foreground")], [`${view.rules.length} rules`]),
+        ],
+      ),
+      view.rules.length === 0
+        ? h.div(
+            [
+              h.Class(
+                "flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center",
+              ),
+            ],
+            [
+              Icon.view(h, Tags, "size-8 text-muted-foreground"),
+              h.h2([h.Class("text-sm font-semibold")], ["Create your first labeling rule"]),
+              h.p(
+                [h.Class("max-w-sm text-xs text-muted-foreground")],
+                [
+                  "Choose a published policy, select a label, and decide what happens when it doesn't match.",
+                ],
+              ),
+              Button.view(h, {
+                size: "sm",
+                label: "Create rule",
+                onClick: Message.ClickedNewRule(),
+              }),
+            ],
+          )
+        : h.div(
+            [h.Class("overflow-x-auto")],
+            [
+              h.table(
+                [h.Class("rules-table")],
+                [
+                  h.thead(
+                    [],
+                    [
+                      h.tr(
+                        [],
+                        ["Enabled", "Type", "Label", "Exclusive group", "Behavior", ""].map(
+                          (title) =>
+                            h.th(
+                              [h.Scope("col")],
+                              [title || h.span([h.Class("sr-only")], ["Actions"])],
+                            ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  h.tbody(
+                    [],
+                    rules.map((rule) => ruleRow(h, model, view, rule)),
+                  ),
+                ],
+              ),
+              rules.length === 0
+                ? h.p(
+                    [h.Class("p-6 text-center text-xs text-muted-foreground")],
+                    ["No rules match your search."],
+                  )
+                : h.empty,
+            ],
+          ),
+    ],
+  )
+}
+
+const syncSection = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const repository = Option.flatMap(model.repositories, (repositories) =>
+    Option.fromNullishOr(
+      repositories.find((row) => Option.contains(model.dataRepositoryId, row.repositoryId)),
+    ),
+  )
+  return Option.match(repository, {
+    onNone: () => h.empty,
+    onSome: (row) =>
+      h.section(
+        [h.Class("flex flex-col gap-3")],
+        [
+          sectionTitle(h, "GitHub sync"),
+          h.p(
+            [h.Class("text-sm text-muted-foreground")],
+            [
+              "Keep local data up to date with GitHub. Turning sync off retains cached data and leaves auto-labeling settings unchanged.",
+            ],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Role("switch"),
+              h.AriaChecked(row.syncEnabled !== false),
+              h.AriaLabel("GitHub sync"),
+              h.Disabled(hasMutation(model, row.repositoryId, row.repositoryId, ["SyncToggle"])),
+              h.AriaBusy(hasMutation(model, row.repositoryId, row.repositoryId, ["SyncToggle"])),
+              h.OnClick(
+                Message.ClickedToggleSync({
+                  repositoryId: row.repositoryId,
+                  enabled: row.syncEnabled === false,
+                }),
+              ),
+              h.Class("w-fit rounded-md border px-3 py-2 text-sm hover:bg-accent"),
+            ],
+            [
+              hasMutation(model, row.repositoryId, row.repositoryId, ["SyncToggle"])
+                ? row.syncEnabled === false
+                  ? "Turning sync off…"
+                  : "Turning sync on…"
+                : row.syncEnabled === false
+                  ? "Sync off"
+                  : "Sync on",
+            ],
+          ),
+        ],
+      ),
+  })
+}
+
+const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
+  h.section(
+    [
+      h.Class("flex flex-col gap-2"),
+      h.DataAttribute(
+        "consent",
+        Option.map(model.maybeConsent, (consent) => consent.state).pipe(
+          Option.getOrElse(() => "unknown"),
+        ),
+      ),
+    ],
+    [
+      h.div(
+        [h.Class("flex items-center justify-between gap-2")],
+        [
+          sectionTitle(h, "AI classification"),
+          Option.match(model.maybeConsent, {
+            onNone: () => h.empty,
+            onSome: (consent) =>
+              Button.view(h, {
+                variant: consent.state === "enabled" ? "destructive" : "outline",
+                size: "xs",
+                onClick: Message.ClickedToggleConsent(),
+                isDisabled:
+                  hasMutation(model, consent.repositoryId, consent.repositoryId, ["Consent"]) ||
+                  consent.state === "draining",
+                label: hasMutation(model, consent.repositoryId, consent.repositoryId, ["Consent"])
+                  ? consent.state === "enabled"
+                    ? "Revoking…"
+                    : "Enabling…"
+                  : consent.state === "enabled"
+                    ? "Revoke"
+                    : consent.state === "draining"
+                      ? "Draining"
+                      : "Enable",
+                attributes: [h.DataAttribute("action", "toggle-consent")],
+              }),
+          }),
+        ],
+      ),
+      Option.isSome(model.consentError)
+        ? h.div(
+            [h.Role("alert"), h.Class("text-sm text-destructive")],
+            [
+              model.consentError.value,
+              Button.view(h, {
+                label: "Retry AI consent",
+                variant: "outline",
+                size: "xs",
+                onClick: Message.ClickedRetryConsent(),
+                isDisabled: Option.isSome(model.maybeConsentRequest),
+              }),
+            ],
+          )
+        : h.empty,
+      Option.match(model.maybeConsent, {
+        onNone: () =>
+          Option.isSome(model.consentError)
+            ? h.empty
+            : h.div([h.Class("text-muted-foreground text-xs")], ["Loading"]),
+        onSome: (consent) =>
+          h.div(
+            [h.Class("text-muted-foreground flex flex-col gap-1 text-xs")],
+            [
+              h.span(
+                [],
+                [
+                  consent.state === "enabled"
+                    ? `Enabled for ${consent.provider} ${consent.model}. Classifier policies send only the evidence facts they name, with no credentials or repository access, and their answers can only add labels.`
+                    : consent.state === "draining"
+                      ? `Revoked. ${consent.activeLeases} call${consent.activeLeases === 1 ? "" : "s"} already in flight cannot be recalled; no new ones start, and this becomes disabled when they finish.`
+                      : `Disabled. Classifier policies evaluate as unknown, which preserves labels. Enabling sends the evidence facts a classifier names to ${consent.provider === "none" ? "the configured provider" : `${consent.provider} ${consent.model}`}.`,
+                ],
+              ),
+              consent.provider === "none" && consent.state !== "enabled"
+                ? h.span(
+                    [],
+                    ["No provider key is configured on the server, so enabling has no effect yet."],
+                  )
+                : h.empty,
+            ],
+          ),
+      }),
+    ],
+  )
+
+const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
+  switch (model.panel._tag) {
+    case "Closed":
+      return h.empty
+    case "Unavailable":
+      return h.p([h.Class("p-6 text-sm text-destructive"), h.Role("alert")], [model.panel.message])
+    case "LoadingPolicy":
+      return h.div([h.Class("text-muted-foreground text-sm")], ["Loading the policy"])
+    case "PolicyEditor": {
+      const editor = model.panel.editor
+      return h.submodel({
+        slotId: "policy-editor",
+        model: editor,
+        view: PolicyEditor.view,
+        viewInputs: {
+          isDeleting:
+            editor.identity._tag === "Existing" &&
+            hasMutation(model, editor.repositoryId, editor.identity.policyId, ["PolicyDelete"]),
+        },
+        toParentMessage: (message) => Message.GotPolicyEditorMessage({ message }),
+      })
+    }
+    case "RuleEditor":
+      return h.submodel({
+        slotId: "rule-editor",
+        model: model.panel.editor,
+        view: RuleEditor.view,
+        viewInputs: {
+          isDeleting:
+            model.panel.editor.identity._tag === "Existing" &&
+            hasMutation(
+              model,
+              model.panel.editor.repositoryId,
+              model.panel.editor.identity.ruleId,
+              ["RuleDelete"],
+            ),
+        },
+        toParentMessage: (message) => Message.GotRuleEditorMessage({ message }),
+      })
+  }
+}
+
+/** Overview needs only the repository list, never editor or activity data. */
+const overview = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const repository = Option.getOrElse(model.repositories, () => []).find((repo) =>
+    Option.contains(model.dataRepositoryId, repo.repositoryId),
+  )
+  if (!repository)
+    return h.p(
+      [
+        h.Class("p-6 text-sm text-muted-foreground"),
+        h.Role(Option.isSome(model.repositoriesError) ? "alert" : "status"),
+      ],
+      [
+        Option.getOrElse(model.repositoriesError, () =>
+          Option.isNone(model.dataRepositoryId)
+            ? "Select a repository to get started."
+            : Option.isNone(model.repositories)
+              ? "Loading repository…"
+              : "This repository is unavailable or you no longer have access.",
+        ),
+      ],
+    )
+  return h.section(
+    [
+      h.Class("flex min-h-[60vh] flex-1 items-center justify-center px-6 pb-24 pt-12"),
+      h.AriaLabel("Repository overview"),
+    ],
+    [
+      h.div(
+        [h.Class("text-center")],
+        [
+          h.span(
+            [
+              h.Class(
+                "mx-auto mb-4 grid size-11 place-items-center rounded-xl border bg-card text-sm text-muted-foreground",
+              ),
+              h.AriaHidden(true),
+            ],
+            [repository.owner.slice(0, 1).toUpperCase()],
+          ),
+          h.h1(
+            [h.Class("text-base font-medium tracking-tight")],
+            [repository.owner + " / " + repository.repo],
+          ),
+          h.p(
+            [h.Class("mb-5 mt-2 text-xs text-muted-foreground")],
+            [
+              repository.access === "accessible"
+                ? "Your repository is connected."
+                : "Repository access needs attention.",
+            ],
+          ),
+          h.a(
+            [
+              h.Href(Routes.rules({ repositoryId: repository.repositoryId })),
+              h.Class(
+                "inline-flex items-center justify-center gap-3 rounded-md border px-3 py-2 text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring",
+              ),
+            ],
+            ["View rules", h.span([h.AriaHidden(true)], ["→"])],
+          ),
+        ],
+      ),
+    ],
+  )
+}
+
+const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): Html =>
+  Option.match(model.detail, {
+    onNone: () =>
+      h.div(
+        [h.Class("p-6 text-sm text-muted-foreground")],
+        [
+          Option.getOrElse(model.detailError, () =>
+            Option.getOrElse(model.repositoriesError, () =>
+              Option.isNone(model.dataRepositoryId)
+                ? "Select a repository to get started."
+                : "Loading repository…",
+            ),
+          ),
+        ],
+      ),
+    onSome: (detail) => {
+      if (section === "Policies") {
+        return h.div(
+          [h.Class("policy-workspace")],
+          [
+            policiesSection(h, model, detail.configuration),
+            h.div(
+              [h.Class("policy-workspace-main")],
+              [
+                Option.match(model.detailError, {
+                  onNone: () => h.empty,
+                  onSome: (reason) =>
+                    h.p(
+                      [h.Class("p-3 text-xs text-destructive"), h.Role("alert")],
+                      [`Refresh failed: ${reason}`],
+                    ),
+                }),
+                model.panel._tag === "PolicyEditor" ||
+                model.panel._tag === "LoadingPolicy" ||
+                model.panel._tag === "Unavailable"
+                  ? panelView(h, model)
+                  : h.div(
+                      [h.Class("policy-empty")],
+                      [
+                        h.div(
+                          [h.Class("policy-empty-icon")],
+                          [
+                            Icon.view(
+                              h,
+                              detail.configuration.policies.length === 0
+                                ? FileCode2
+                                : MousePointer2,
+                              "size-6",
+                            ),
+                          ],
+                        ),
+                        h.h2(
+                          [h.Class("text-lg font-semibold")],
+                          [
+                            detail.configuration.policies.length === 0
+                              ? "Create your first policy"
+                              : "Select a policy",
+                          ],
+                        ),
+                        h.p(
+                          [h.Class("max-w-sm text-sm text-muted-foreground")],
+                          [
+                            detail.configuration.policies.length === 0
+                              ? "Define when an issue or pull request matches, then test it against your repository."
+                              : "Choose a policy from the list to edit its conditions and test your changes.",
+                          ],
+                        ),
+                        detail.configuration.policies.length === 0
+                          ? Button.view(h, {
+                              size: "sm",
+                              label: "Create policy",
+                              onClick: Message.ClickedNewPolicy(),
+                            })
+                          : h.empty,
+                      ],
+                    ),
+              ],
+            ),
+          ],
+        )
+      }
+      if (section === "Rules")
+        return h.div(
+          [h.Class("rules-workspace")],
+          [
+            model.panel._tag === "RuleEditor" || model.panel._tag === "Unavailable"
+              ? panelView(h, model)
+              : rulesSection(h, model, detail.configuration),
+          ],
+        )
+      return h.div(
+        [h.Class("flex min-w-0 flex-col gap-6 overflow-auto p-6")],
+        [
+          section === "Settings"
+            ? h.div(
+                [h.Class("flex flex-col gap-8")],
+                [syncSection(h, model), consentSection(h, model)],
+              )
+            : h.empty,
+        ],
+      )
+    },
+  })
+
+export const view = Submodel.defineView<Model, Message, { section: Section }>(
+  (model, { section }, h) =>
+    h.div(
+      [h.Class(`repository-workspace ${section === "Activity" ? "repository-activity" : ""}`)],
+      [
+        section === "Overview"
+          ? overview(h, model)
+          : section === "Activity"
+            ? h.submodel({
+                slotId: "activity",
+                model: model.activity,
+                view: Activity.view,
+                viewInputs: {
+                  configuration: Option.getOrUndefined(
+                    Option.map(model.detail, (detail) => detail.configuration),
+                  ),
+                  repository: Option.getOrElse(model.repositories, () => []).find(
+                    (repository) => repository.repositoryId === model.activity.repositoryId,
+                  ),
+                },
+                toParentMessage: (message) => Message.GotActivityMessage({ message }),
+              })
+            : detailPanel(h, model, section),
+      ],
+    ),
+)
+
+/** Refresh server data after sync without replacing an open editor or its draft. */
+export const refreshAfterSync = (model: Model): UpdateReturn => {
+  const list = refreshRepositories(model)
+  const detail = refresh(list.model)
+  return {
+    model: detail.model,
+    commands: [...(list.commands ?? []), ...(detail.commands ?? []), FetchCatalog()],
+  }
+}
+
+/** Apply a confirmed connection result without clearing unrelated repositories. */
+export const informConnectionChanged = (
+  model: Model,
+  repositoryId: string,
+  action: string,
+): UpdateReturn => {
+  const next = evo(model, {
+    repositories: Option.map((rows) =>
+      action === "disconnect"
+        ? rows.filter((row) => row.repositoryId !== repositoryId)
+        : rows.map((row) =>
+            row.repositoryId === repositoryId
+              ? {
+                  ...row,
+                  enabled: action === "resume" ? true : action === "pause" ? false : row.enabled,
+                }
+              : row,
+          ),
+    ),
+  })
+  return refreshAfterSync(next)
+}
+
+/** Materialize a route after navigation, or after its repository finishes loading. */
+export const openRoute = (
+  model: Model,
+  route: Routes.AppRoute,
+  changedDocument: boolean,
+): UpdateReturn => {
+  if (!("repositoryId" in route))
+    return { model: { ...closed(model), activity: { ...model.activity, active: false } } }
+  const selected = update(model, Message.Selected({ repositoryId: route.repositoryId }))
+  let next = evo(changedDocument ? closed(selected.model) : selected.model, {
+    policySearch: () => ("q" in route ? (route.q ?? "") : ""),
+  })
+  const activity = update(
+    next,
+    Message.GotActivityMessage({
+      message: Activity.Message.Activated({
+        repositoryId: route.repositoryId,
+        active: route._tag === "Activity",
+      }),
+    }),
+  )
+  next = activity.model
+  const routeCommands = [...(selected.commands ?? []), ...(activity.commands ?? [])]
+  if (Option.isNone(next.detail)) return { model: next, commands: routeCommands }
+  let result: UpdateReturn = { model: next }
+  if (next.panel._tag === "Closed") {
+    switch (route._tag) {
+      case "NewPolicy":
+        result = update(next, Message.ClickedNewPolicy())
+        break
+      case "Policy":
+        result = update(next, Message.ClickedEditPolicy({ policyId: route.policyId }))
+        break
+      case "NewRule":
+        result = update(next, Message.ClickedNewRule())
+        break
+      case "Rule":
+        result = Option.exists(next.detail, (detail) =>
+          detail.configuration.rules.some((rule) => rule.id === route.ruleId),
+        )
+          ? update(next, Message.ClickedEditRule({ ruleId: route.ruleId }))
+          : {
+              model: evo(next, {
+                panel: () => ({
+                  _tag: "Unavailable" as const,
+                  message: "This rule was not found in this repository.",
+                }),
+              }),
+            }
+        break
+    }
+  }
+  next = result.model
+  if (next.panel._tag === "PolicyEditor") {
+    const number =
+      "item" in route &&
+      route.item !== undefined &&
+      /^[1-9]\d*$/.test(route.item) &&
+      Number.isSafeInteger(Number(route.item))
+        ? Number(route.item)
+        : null
+    if (next.panel.editor.testNumber !== number) {
+      const editor = evo(next.panel.editor, {
+        testNumber: () => number,
+        maybeTestBench: () => Option.none(),
+        testGeneration: (generation) => generation + 1,
+      })
+      next = evo(next, { panel: () => ({ _tag: "PolicyEditor" as const, editor }) })
+    }
+  }
+  return { model: next, commands: [...routeCommands, ...(result.commands ?? [])] }
+}
+
+/** Save-button visibility includes unpublished drafts; navigation warns only about unsaved input. */
+export const hasUnsavedChanges = (model: Model): boolean => {
+  const panel = model.panel
+  if (panel._tag === "PolicyEditor") {
+    const editor = panel.editor
+    return (
+      editor.submission._tag === "Submitting" ||
+      editor.name !== editor.savedFields.name ||
+      editor.description !== editor.savedFields.description ||
+      editor.source.source !== editor.savedFields.sourceText ||
+      (editor.metadataEdits.name !== null && editor.metadataEdits.name !== editor.name) ||
+      (editor.metadataEdits.description !== null &&
+        editor.metadataEdits.description !== editor.description)
+    )
+  }
+  if (panel._tag === "RuleEditor") return RuleEditor.hasUnsavedChanges(panel.editor)
+  return false
+}
+
+export const isSaving = (model: Model): boolean =>
+  (model.panel._tag === "PolicyEditor" || model.panel._tag === "RuleEditor") &&
+  model.panel.editor.submission._tag === "Submitting"

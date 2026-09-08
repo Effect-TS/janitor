@@ -139,8 +139,8 @@ const foldMenuOutMessage = Match.type<Menu.OutMessage<ThemePreference>>().pipe(
   Match.withReturnType<Update.Step<Model, Message, KeyValueStore.KeyValueStore>>(),
   Match.tagsExhaustive({
     Selected:
-      ({ value }) =>
-      (model) => {
+      ({ value }: Extract<Menu.OutMessage<ThemePreference>, { _tag: "Selected" }>) =>
+      (model: Model) => {
         const resolvedTheme = resolveTheme({
           preferredTheme: value,
           systemTheme: model.systemTheme,

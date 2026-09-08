@@ -1,7 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { TestSchema } from "effect/testing"
+import { GitHubWebhookDeliveryId, GitHubWebhookHookId } from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
-import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/WebhookEvent/Base"
 import { PingWebhookPayload } from "@janitor/domain/GitHub/WebhookEvent/Ping"
 
 describe("ping webhook schemas", () => {
@@ -10,7 +10,7 @@ describe("ping webhook schemas", () => {
 
     await decoding.succeed(
       { hook_id: 123, zen: "Keep it logically awesome." },
-      { hookId: 123, zen: "Keep it logically awesome." },
+      { hookId: GitHubWebhookHookId.make("123"), zen: "Keep it logically awesome." },
     )
     await decoding.fail(
       { hook_id: -1, zen: "Keep it logically awesome." },
@@ -30,7 +30,10 @@ describe("ping webhook schemas", () => {
       {
         id: GitHubWebhookDeliveryId.make("delivery-789"),
         name: "ping",
-        payload: { hookId: 123, zen: "Keep it logically awesome." },
+        payload: {
+          hookId: GitHubWebhookHookId.make("123"),
+          zen: "Keep it logically awesome.",
+        },
       },
     )
   })

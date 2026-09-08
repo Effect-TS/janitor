@@ -2,9 +2,16 @@ import { describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
 import * as Struct from "effect/Struct"
 import { TestSchema } from "effect/testing"
-import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Repository"
+import {
+  GitHubCommitSha,
+  GitHubCommitStatusDatabaseId,
+  GitHubInstallationId,
+  GitHubRepositoryDatabaseId,
+  GitHubRepositoryNodeId,
+  GitHubUserDatabaseId,
+  GitHubWebhookDeliveryId,
+} from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
-import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/WebhookEvent/Base"
 import { CommitStatusWebhookPayload } from "@janitor/domain/GitHub/WebhookEvent/CommitStatus"
 
 const createdAt = "2026-08-28T12:00:00.000Z"
@@ -19,14 +26,14 @@ const payload = {
   state: "success",
   created_at: createdAt,
   updated_at: updatedAt,
-  repository: { id: 456, full_name: "effect/janitor" },
+  repository: { id: 456, node_id: "R_kgDOJanitor", full_name: "effect/janitor" },
   installation: { id: 789 },
   sender: { id: 101, login: "janitor-app" },
 } as const
 
 const decodedPayload: CommitStatusWebhookPayload = {
-  id: 123,
-  sha: "a".repeat(40),
+  id: GitHubCommitStatusDatabaseId.make("123"),
+  sha: GitHubCommitSha.make("a".repeat(40)),
   name: "continuous-integration/janitor",
   targetUrl: "https://example.com/builds/123",
   context: "continuous-integration/janitor",
@@ -36,10 +43,11 @@ const decodedPayload: CommitStatusWebhookPayload = {
   updatedAt: DateTime.makeUnsafe(updatedAt),
   repository: {
     id: GitHubRepositoryDatabaseId.make("456"),
+    nodeId: GitHubRepositoryNodeId.make("R_kgDOJanitor"),
     fullName: { owner: "effect", repo: "janitor" },
   },
   installation: { id: GitHubInstallationId.make("789") },
-  sender: { id: 101, login: "janitor-app" },
+  sender: { id: GitHubUserDatabaseId.make("101"), login: "janitor-app" },
 }
 
 describe("commit status webhook payload schema", () => {

@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema"
+import { GitHubUserDatabaseIdFromStringOrNumber } from "../Id.ts"
 import {
-  GitHubAccountDatabaseIdFromStringOrNumber,
   GitHubInstallationRepository,
   GitHubInstallationRepositorySelection,
   GitHubInstallationSummary,
@@ -8,7 +8,7 @@ import {
 import { BaseGitHubWebhookEvent } from "./Base.ts"
 
 const InstallationWebhookActor = Schema.Struct({
-  id: GitHubAccountDatabaseIdFromStringOrNumber,
+  id: GitHubUserDatabaseIdFromStringOrNumber,
   login: Schema.NonEmptyString,
 }).annotate({ identifier: "InstallationWebhookActor" })
 
