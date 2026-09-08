@@ -1,6 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "subagent_depth": 2,
   "mcp": {
     "foldkit": {
       "enabled": true,
