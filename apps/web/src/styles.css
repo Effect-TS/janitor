@@ -1203,6 +1203,7 @@
   border-bottom: 1px solid var(--border);
 }
 .activity-event-summary {
+  cursor: pointer;
   display: flex;
   align-items: center;
   text-align: left;
@@ -1255,6 +1256,7 @@
   padding: 8px 16px;
 }
 .activity-group {
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 12px;

@@ -52,7 +52,7 @@ export const Model = Schema.Struct({
   error: Schema.NullOr(Schema.String),
   generation: Schema.Int,
   expanded: Schema.Array(Schema.String),
-  collapsed: Schema.Array(Schema.Int),
+  expandedGroups: Schema.Array(Schema.Int),
   journal: VirtualList.Model,
   grouped: VirtualList.Model,
 })
@@ -77,7 +77,7 @@ export type Message = typeof Message.Type
 export const init = (): Model => ({
   repositoryId: "",
   active: false,
-  mode: "journal",
+  mode: "grouped",
   search: "",
   target: "all",
   entries: [],
@@ -90,7 +90,7 @@ export const init = (): Model => ({
   error: null,
   generation: 0,
   expanded: [],
-  collapsed: [],
+  expandedGroups: [],
   journal: VirtualList.init({ id: "activity-journal", rowHeightPx: 96 }),
   grouped: VirtualList.init({ id: "activity-grouped", rowHeightPx: 96 }),
 })
@@ -159,7 +159,7 @@ const reset = (model: Model): Model => ({
   pending: null,
   cursor: null,
   expanded: [],
-  collapsed: [],
+  expandedGroups: [],
   searchPending: false,
   loading: false,
   initialized: false,
@@ -191,7 +191,7 @@ export const rows = (model: Model): ReadonlyArray<Row> => {
       title: entries[0]!.title ?? `Subject #${number}`,
       count: entries.length,
     },
-    ...(model.collapsed.includes(number) ? [] : entries.map(event)),
+    ...(model.expandedGroups.includes(number) ? entries.map(event) : []),
   ])
 }
 export const rowHeight = (row: Row) => (row.kind === "group" ? 72 : row.expanded ? 420 : 96)
@@ -287,7 +287,7 @@ export const update = (model: Model, message: Message): Return =>
             cursor: model.pending.cursor,
             pending: null,
             expanded: [],
-            collapsed: [],
+            expandedGroups: [],
           })
         : { model },
     ToggledEvent: ({ id }) => ({
@@ -301,9 +301,9 @@ export const update = (model: Model, message: Message): Return =>
     ToggledGroup: ({ number }) => ({
       model: {
         ...model,
-        collapsed: model.collapsed.includes(number)
-          ? model.collapsed.filter((value) => value !== number)
-          : [...model.collapsed, number],
+        expandedGroups: model.expandedGroups.includes(number)
+          ? model.expandedGroups.filter((value) => value !== number)
+          : [...model.expandedGroups, number],
       },
     }),
     GotList: ({ mode, message }) => {
@@ -487,7 +487,9 @@ const evaluationCards = (
             ),
           ],
         ),
-        evaluation?.reason ? h.p([h.Class("activity-rule-reason")], [evaluation.reason]) : h.empty,
+        rule?.ai && !skipped && evaluation?.reason
+          ? h.p([h.Class("activity-rule-reason")], [evaluation.reason])
+          : h.empty,
         decision?.selected
           ? h.p([h.Class("activity-selection")], ["Selected for the label plan"])
           : h.empty,
@@ -786,7 +788,7 @@ export const view = Submodel.defineView<
                       [
                         h.Class("activity-group"),
                         h.OnClick(Message.ToggledGroup({ number: row.number })),
-                        h.AriaExpanded(!model.collapsed.includes(row.number)),
+                        h.AriaExpanded(model.expandedGroups.includes(row.number)),
                       ],
                       [
                         Icon.view(h, GitPullRequest, "size-4 shrink-0"),
@@ -803,7 +805,7 @@ export const view = Submodel.defineView<
                         Icon.view(
                           h,
                           ChevronRight,
-                          `size-4 ${model.collapsed.includes(row.number) ? "" : "rotate-90"}`,
+                          `size-4 ${model.expandedGroups.includes(row.number) ? "rotate-90" : ""}`,
                         ),
                       ],
                     ),

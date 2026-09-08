@@ -31,26 +31,32 @@ const loaded = () => {
   ).model
 }
 describe("Activity", () => {
-  it("defaults to journal and flattens expanded subject histories into virtual rows", () => {
+  it("defaults to collapsed groups and only expands selected histories", () => {
     const model = { ...loaded(), entries: [entry("a"), entry("b", 6), entry("c")] }
-    expect(model.mode).toBe("journal")
-    expect(Activity.rows(model)).toHaveLength(3)
-    const grouped = Activity.update(model, Activity.Message.ChangedMode({ mode: "grouped" })).model
+    expect(model.mode).toBe("grouped")
+    expect(Activity.rows(model).map((row) => row.kind)).toEqual(["group", "group"])
+    const grouped = Activity.update(model, Activity.Message.ToggledGroup({ number: 5 })).model
     expect(Activity.rows(grouped).map((row) => row.kind)).toEqual([
       "group",
       "event",
       "event",
       "group",
-      "event",
     ])
     expect(
       Activity.rows(Activity.update(grouped, Activity.Message.ToggledGroup({ number: 5 })).model),
-    ).toHaveLength(3)
-    const expanded = Activity.update(model, Activity.Message.ToggledEvent({ id: "a" })).model
+    ).toHaveLength(2)
+    const withNewSubject = { ...grouped, entries: [...grouped.entries, entry("d", 7)] }
+    expect(Activity.rows(withNewSubject).at(-1)?.kind).toBe("group")
+    const journal = Activity.update(model, Activity.Message.ChangedMode({ mode: "journal" })).model
+    const expanded = Activity.update(journal, Activity.Message.ToggledEvent({ id: "a" })).model
     expect(Activity.rowHeight(Activity.rows(expanded)[0]!)).toBe(420)
   })
   it("stages new activity without moving the current list and accepts it explicitly", () => {
-    const model = { ...loaded(), journal: { ...loaded().journal, scrollTop: 960 } }
+    const model = {
+      ...loaded(),
+      mode: "journal" as const,
+      journal: { ...loaded().journal, scrollTop: 960 },
+    }
     const next = Activity.update(
       model,
       Activity.Message.Loaded({
