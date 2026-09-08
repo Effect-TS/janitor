@@ -1248,17 +1248,11 @@
 .activity-event-details {
   height: 308px;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
   margin: 0 16px 16px 54px;
   border-left: 2px solid var(--border);
   padding: 8px 16px;
-}
-.activity-detail-row {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
 }
 .activity-group {
   display: flex;
@@ -1321,4 +1315,108 @@
   .activity-footer {
     font-size: 10px;
   }
+}
+
+.activity-evaluation-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--muted);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.activity-rule-cards {
+  display: grid;
+  gap: 8px;
+}
+.activity-rule-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--background);
+  min-width: 0;
+}
+.activity-rule-heading,
+.activity-rule-badges,
+.activity-rule-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.activity-rule-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.activity-rule-link {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+}
+.activity-rule-link:hover {
+  text-decoration: underline;
+}
+.activity-rule-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+.activity-rule-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  flex-shrink: 0;
+}
+.activity-decision {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.activity-decision-neutral {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.activity-decision-match {
+  background: color-mix(in srgb, #10b981 12%, transparent);
+  color: #047857;
+}
+.activity-decision-unknown {
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  color: #92400e;
+}
+.dark .activity-decision-match {
+  color: #6ee7b7;
+}
+.dark .activity-decision-unknown {
+  color: #fcd34d;
+}
+.activity-rule-reason {
+  max-width: 95ch;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.activity-selection {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.activity-rule-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 10px;
+  font-size: 11px;
 }

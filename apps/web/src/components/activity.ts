@@ -17,12 +17,14 @@ import {
   ActivityEntry,
   ActivityPage,
   type RepositoryOverview,
+  type ConfigurationView,
 } from "./labeling-wire"
 import * as Button from "./ui/button"
 import * as Icon from "@/lib/icons"
 import {
   Activity as ActivityIcon,
   Check,
+  Minus,
   CircleAlert,
   Clock,
   ChevronRight,
@@ -389,12 +391,157 @@ const label = (h: HtmlBuilder<Message>, action: ActivityEntry["actions"][number]
     ],
     [action.name ?? `Label ${action.labelId}`],
   )
+const evaluationCards = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  entry: ActivityEntry,
+  configuration: ConfigurationView | undefined,
+) => {
+  const ids = [
+    ...new Set([
+      ...(entry.plan?.rules.map((rule) => rule.ruleId) ?? []),
+      ...(entry.evaluations?.map((rule) => rule.ruleId) ?? []),
+      ...entry.actions.map((action) => action.ruleId),
+    ]),
+  ]
+  return ids.map((id) => {
+    const decision = entry.plan?.rules.find((rule) => rule.ruleId === id)
+    const evaluation = entry.evaluations?.find((rule) => rule.ruleId === id)
+    const actions = entry.actions.filter((action) => action.ruleId === id)
+    const rule = configuration?.rules.find((rule) => rule.id === id)
+    const currentLabel = configuration?.labels.find((label) => label.labelId === rule?.labelId)
+    const name =
+      currentLabel?.name ?? actions.find((action) => action.name)?.name ?? `Rule ${id.slice(0, 8)}`
+    const color = currentLabel?.color ?? actions.find((action) => action.color)?.color
+    const skipped = evaluation?.reason.startsWith("Skipped by gate:")
+    const result = decision?.outcome ?? evaluation?.outcome
+    const status = skipped
+      ? "Skipped by gate"
+      : result === "match"
+        ? "Matched"
+        : result === "no-match"
+          ? "No match"
+          : result === "unknown"
+            ? "Undecided"
+            : "Pending"
+    const tone =
+      skipped || result === "no-match"
+        ? "neutral"
+        : result === "match"
+          ? "match"
+          : result === "unknown"
+            ? "unknown"
+            : "neutral"
+    return h.div(
+      [h.Class("activity-rule-card")],
+      [
+        h.div(
+          [h.Class("activity-rule-heading")],
+          [
+            h.a(
+              [
+                h.Href(Routes.rule({ repositoryId: model.repositoryId, ruleId: id })),
+                h.Class("activity-rule-link"),
+              ],
+              [
+                h.span(
+                  [
+                    h.Class("activity-rule-dot"),
+                    ...(color && /^[0-9a-f]{6}$/i.test(color)
+                      ? [h.Style({ backgroundColor: `#${color}` })]
+                      : []),
+                  ],
+                  [],
+                ),
+                h.span([h.Class("truncate")], [name]),
+                Icon.view(h, ChevronRight, "size-3 shrink-0 text-muted-foreground"),
+              ],
+            ),
+            h.div(
+              [h.Class("activity-rule-badges")],
+              [
+                rule
+                  ? h.span(
+                      [h.Class("text-[10px] text-muted-foreground")],
+                      [rule.ai ? "AI rule" : "Policy rule"],
+                    )
+                  : h.empty,
+                h.span(
+                  [h.Class(`activity-decision activity-decision-${tone}`)],
+                  [
+                    Icon.view(
+                      h,
+                      result === "unknown"
+                        ? CircleAlert
+                        : result === "match"
+                          ? Check
+                          : result === "no-match"
+                            ? Minus
+                            : Clock,
+                      "size-3",
+                    ),
+                    status,
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+        evaluation?.reason ? h.p([h.Class("activity-rule-reason")], [evaluation.reason]) : h.empty,
+        decision?.selected
+          ? h.p([h.Class("activity-selection")], ["Selected for the label plan"])
+          : h.empty,
+        ...actions.map((action) =>
+          h.div(
+            [
+              h.Class(
+                `activity-rule-action ${action.status === "failed" ? "text-destructive" : ""}`,
+              ),
+            ],
+            [
+              Icon.view(
+                h,
+                action.status === "failed"
+                  ? CircleAlert
+                  : action.status === "applied"
+                    ? Check
+                    : Clock,
+                "size-3 shrink-0",
+              ),
+              h.span(
+                [],
+                [
+                  action.status === "applied"
+                    ? action.action === "add"
+                      ? "Label added"
+                      : "Label removed"
+                    : action.status === "failed"
+                      ? action.action === "add"
+                        ? "Could not add label"
+                        : "Could not remove label"
+                      : action.action === "add"
+                        ? "Waiting to add label"
+                        : "Waiting to remove label",
+                ],
+              ),
+              label(h, action),
+              ...(action.detail
+                ? [h.p([h.Class("basis-full text-muted-foreground")], [action.detail])]
+                : []),
+            ],
+          ),
+        ),
+      ],
+    )
+  })
+}
 const eventView = (
   h: HtmlBuilder<Message>,
   model: Model,
   entry: ActivityEntry,
   expanded: boolean,
   repository: RepositoryOverview | undefined,
+  configuration: ConfigurationView | undefined,
 ) => {
   const result = outcome(entry)
   return h.article(
@@ -485,104 +632,25 @@ const eventView = (
                     [entry.detail],
                   )
                 : h.empty,
-              ...(entry.evaluations ?? []).map((evaluation) =>
-                h.div(
-                  [h.Class("activity-detail-row")],
-                  [
-                    h.div(
-                      [],
-                      [
-                        h.p(
-                          [h.Class("text-xs font-medium")],
-                          [
-                            evaluation.reason.startsWith("Skipped by gate:")
-                              ? "Skipped by gate"
-                              : evaluation.outcome,
-                          ],
-                        ),
-                        h.p([h.Class("text-xs text-muted-foreground mt-1")], [evaluation.reason]),
-                      ],
-                    ),
-                    h.a(
-                      [
-                        h.Href(
-                          Routes.rule({
-                            repositoryId: model.repositoryId,
-                            ruleId: evaluation.ruleId,
-                          }),
-                        ),
-                        h.Class("text-xs underline"),
-                      ],
-                      ["View rule"],
-                    ),
-                  ],
-                ),
+              h.div(
+                [h.Class("activity-evaluation-summary")],
+                [
+                  Icon.view(h, result.icon, `size-4 shrink-0 ${result.tone}`),
+                  h.span([h.Class(result.tone)], [result.label]),
+                  h.span(
+                    [h.Class("ml-auto text-muted-foreground")],
+                    [`${entry.plan?.rules.length ?? entry.evaluations?.length ?? 0} rules`],
+                  ),
+                ],
               ),
-              ...entry.actions.map((action) =>
-                h.div(
-                  [h.Class("activity-detail-row")],
-                  [
-                    h.div(
-                      [],
-                      [
-                        label(h, action),
-                        h.p(
-                          [h.Class("text-xs mt-1")],
-                          [
-                            `${action.action === "add" ? "Add" : "Remove"} label · ${action.status}`,
-                          ],
-                        ),
-                        action.detail
-                          ? h.p([h.Class("text-xs text-muted-foreground mt-1")], [action.detail])
-                          : h.empty,
-                      ],
-                    ),
-                    h.a(
-                      [
-                        h.Href(
-                          Routes.rule({ repositoryId: model.repositoryId, ruleId: action.ruleId }),
-                        ),
-                        h.Class("text-xs underline"),
-                      ],
-                      ["View rule"],
-                    ),
-                  ],
-                ),
+              h.div(
+                [h.Class("activity-rule-cards")],
+                evaluationCards(h, model, entry, configuration),
               ),
-              ...(entry.plan?.rules.map((rule) =>
-                h.div(
-                  [h.Class("activity-detail-row text-xs")],
-                  [
-                    h.a(
-                      [
-                        h.Href(
-                          Routes.rule({ repositoryId: model.repositoryId, ruleId: rule.ruleId }),
-                        ),
-                        h.Class("underline"),
-                      ],
-                      ["Rule " + rule.ruleId.slice(0, 8)],
-                    ),
-                    h.span(
-                      [h.Class("text-muted-foreground")],
-                      [rule.outcome + (rule.selected ? " · selected" : "")],
-                    ),
-                  ],
-                ),
-              ) ?? []),
-              !entry.actions.length
-                ? h.p(
-                    [h.Class("text-xs text-muted-foreground mb-3")],
-                    [
-                      entry.plan?.rules.some((rule) => rule.outcome === "unknown")
-                        ? "Unresolved rules preserved existing labels."
-                        : "No label writes were recorded for this evaluation.",
-                    ],
-                  )
-                : h.empty,
               h.p(
                 [h.Class("text-[10px] text-muted-foreground mt-3")],
                 [
-                  `Rules revision ${entry.revision} · ${stamp(entry)}. Titles and label names reflect current repository data.`,
+                  `Rules revision ${entry.revision} · Rule names and types reflect current configuration.`,
                 ],
               ),
             ],
@@ -594,8 +662,8 @@ const eventView = (
 export const view = Submodel.defineView<
   Model,
   Message,
-  { repository: RepositoryOverview | undefined }
->((model, { repository }, h) => {
+  { repository: RepositoryOverview | undefined; configuration?: ConfigurationView | undefined }
+>((model, { repository, configuration }, h) => {
   const items = rows(model)
   return h.section(
     [h.Class("activity-workspace"), h.AriaLabel("Repository activity")],
@@ -713,7 +781,7 @@ export const view = Submodel.defineView<
               containerClassName: "activity-list",
               itemToView: (row) =>
                 row.kind === "event"
-                  ? eventView(h, model, row.entry, row.expanded, repository)
+                  ? eventView(h, model, row.entry, row.expanded, repository, configuration)
                   : h.button(
                       [
                         h.Class("activity-group"),

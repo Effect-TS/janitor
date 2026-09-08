@@ -2198,6 +2198,9 @@ export const view = Submodel.defineView<Model, Message, { section: Section }>(
                 model: model.activity,
                 view: Activity.view,
                 viewInputs: {
+                  configuration: Option.getOrUndefined(
+                    Option.map(model.detail, (detail) => detail.configuration),
+                  ),
                   repository: Option.getOrElse(model.repositories, () => []).find(
                     (repository) => repository.repositoryId === model.activity.repositoryId,
                   ),
