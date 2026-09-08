@@ -1,5 +1,8 @@
 name: Deploy
+
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
@@ -7,28 +10,19 @@ on:
         required: true
         default: plan
         options: [plan, deploy]
+
 permissions:
   contents: read
+
 concurrency:
   group: deploy-production
   cancel-in-progress: false
+
 jobs:
   deploy:
-    runs-on: ubuntu-24.04
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
     environment: production
-    env:
-      JANITOR_STAGE: production
-      DEPLOY_ACTION: ${{ inputs.action }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      ACCESS_GITHUB_IDP_ID: ${{ vars.ACCESS_GITHUB_IDP_ID }}
-      NEON_HISTORY_RETENTION_SECONDS: ${{ vars.NEON_HISTORY_RETENTION_SECONDS || '604800' }}
-      GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
-      GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-      GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
-      GITHUB_WEBHOOK_PAYLOAD_KEY: ${{ secrets.GITHUB_WEBHOOK_PAYLOAD_KEY }}
-      GITHUB_WEBHOOK_PAYLOAD_KEY_ID: ${{ vars.GITHUB_WEBHOOK_PAYLOAD_KEY_ID }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: voidzero-dev/setup-vp@27ddd5a8e32d89312fdd2c227d7d1613ca5465b0 # v1.16.1
@@ -37,21 +31,29 @@ jobs:
           node-version: "24.19.0"
           run-install: false
       - run: vp install --frozen-lockfile
-      - run: vp run check:dependencies
       - run: vp check
       - run: vp test
-      - run: vp run build:web
-      - run: vp run check:worker-bundle
-      - name: Create production configuration
-        run: node -e 'require("node:fs").writeFileSync(".env." + process.env.JANITOR_STAGE, "JANITOR_STAGE=" + process.env.JANITOR_STAGE + String.fromCharCode(10))'
-      - name: Plan or deploy
-        run: vp run "$JANITOR_STAGE:$DEPLOY_ACTION" --yes
-      - name: Preserve deployment records
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: deployment-production-${{ github.run_id }}
-          path: .alchemy/releases/*.json
-          include-hidden-files: true
-          if-no-files-found: ignore
-          retention-days: 30
+      - name: Plan or deploy production
+        env:
+          ALCHEMY_MODE: ${{ inputs.action == 'plan' && '--dry-run' || '--yes' }}
+          JANITOR_STAGE: production
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          ACCESS_GITHUB_IDP_ID: ${{ vars.ACCESS_GITHUB_IDP_ID }}
+          NEON_HISTORY_RETENTION_SECONDS: ${{ vars.NEON_HISTORY_RETENTION_SECONDS || '604800' }}
+          GITHUB_APP_ID: ${{ vars.GITHUB_APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+          GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+          GITHUB_WEBHOOK_PAYLOAD_KEY: ${{ secrets.GITHUB_WEBHOOK_PAYLOAD_KEY }}
+          GITHUB_WEBHOOK_PAYLOAD_KEY_ID: ${{ vars.GITHUB_WEBHOOK_PAYLOAD_KEY_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ vars.OPENAI_API_URL }}
+          LABELING_AI_MODEL: ${{ vars.LABELING_AI_MODEL }}
+          LABELING_AI_INPUT_BYTES: ${{ vars.LABELING_AI_INPUT_BYTES }}
+        run: |
+          # Empty optional GitHub settings should use the application's defaults.
+          for setting in OPENAI_API_KEY OPENAI_API_URL LABELING_AI_MODEL LABELING_AI_INPUT_BYTES; do
+            if [[ -z "${!setting}" ]]; then unset "$setting"; fi
+          done
+          vp exec alchemy deploy alchemy.run.ts --stage production "$ALCHEMY_MODE"

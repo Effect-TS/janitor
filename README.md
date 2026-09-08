@@ -33,10 +33,7 @@ vp run -r build
 vp run dev
 ```
 
-`vp run dev` checks that ports 1337, 8787, and 9988 are free, then starts
-Alchemy with Node's trusted CA bundle so local workerd can verify outbound
-HTTPS on Nix. Stop the previous dev session before starting another; overlapping
-sessions can contend for the same local Durable Object SQLite files.
+`vp run dev` runs `vp exec alchemy dev` directly.
 
 `alchemy dev` starts both Workers: the API on port 8787, and the web app's own
 Vite dev server, with hot reload and the foldkit devtools port, on 1337. Open

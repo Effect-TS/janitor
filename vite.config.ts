@@ -43,34 +43,25 @@ export default defineConfig({
 
     tasks: {
       dev: {
-        command: "vp exec node scripts/dev.mjs",
+        command: "vp exec alchemy dev",
         cache: false,
       },
+
       seed: {
         // Re-seeds the running dev container without restarting the stack.
         // `alchemy dev` also runs this, but only when the fixtures change.
         command: "vp exec node apps/cluster/seed/main.ts",
         cache: false,
       },
-      "production:plan": {
-        command: "vp exec node scripts/deploy.ts production plan",
+
+      "plan:prod": {
+        command:
+          "vp exec alchemy deploy alchemy.run.ts --stage production --env-file .env.production --dry-run",
         cache: false,
       },
-      "production:deploy": {
-        command: "vp exec node scripts/deploy.ts production deploy",
-        cache: false,
-      },
-      "build:web": { command: "vp build --config apps/web/vite.config.ts" },
-      "check:dependencies": {
-        command: "vp exec node scripts/check-dependencies.mjs",
-        cache: false,
-      },
-      "check:worker-bundle": {
-        command: "vp exec node scripts/check-worker-bundle.ts",
-        cache: false,
-      },
-      "benchmark:sync": {
-        command: "vp exec tsx apps/cluster/scripts/BenchmarkSync.ts",
+      "deploy:prod": {
+        command:
+          "vp exec alchemy deploy alchemy.run.ts --stage production --env-file .env.production",
         cache: false,
       },
     },

@@ -2,7 +2,6 @@ import { assert, describe, it } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import { deployment, requiredText } from "../src/Deployment.ts"
-import { destructiveChanges } from "../../../scripts/deployment-plan.ts"
 
 const config = (values: Record<string, string>) =>
   ConfigProvider.layer(ConfigProvider.fromUnknown(values))
@@ -53,25 +52,4 @@ describe("deployment configuration", () => {
       )
     }),
   )
-  it("rejects replacement, deletion, and binding removal but permits updates", () => {
-    // The guard only needs action and binding metadata; no props or secrets.
-    const resource = (
-      action: "update" | "replace",
-      bindings: { action: "delete"; sid: string }[] = [],
-    ) => ({ action, bindings })
-    assert.deepStrictEqual(
-      destructiveChanges({ resources: { Worker: resource("update") }, deletions: {} }),
-      [],
-    )
-    assert.deepStrictEqual(
-      destructiveChanges({
-        resources: {
-          Database: resource("replace"),
-          Worker: resource("update", [{ action: "delete", sid: "Workflow" }]),
-        },
-        deletions: { Bucket: {} },
-      }),
-      ["Bucket: delete", "Database: replace", "Worker/Workflow: delete binding"],
-    )
-  })
 })

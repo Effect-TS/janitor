@@ -5,8 +5,7 @@ packages:
 
 catalogMode: prefer
 
-# Effect snapshots also occur in transitive dependencies. check:dependencies
-# restricts remote tarballs to the commit-pinned catalog URLs below.
+# Allow the commit-pinned Effect snapshot URLs in transitive dependencies.
 blockExoticSubdeps: false
 
 catalog:

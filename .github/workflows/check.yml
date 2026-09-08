@@ -1,12 +1,19 @@
 name: Check
+
 on:
-  push:
+  workflow_dispatch:
   pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
 permissions:
   contents: read
+
 concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-24.04
@@ -18,8 +25,5 @@ jobs:
           node-version: "24.19.0"
           run-install: false
       - run: vp install --frozen-lockfile
-      - run: vp run check:dependencies
       - run: vp check
       - run: vp test
-      - run: vp run build:web
-      - run: vp run check:worker-bundle

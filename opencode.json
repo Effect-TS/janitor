@@ -15,7 +15,7 @@
     },
     "effect": {
       "repository": "Effect-TS/effect",
-      "branch": "eff-988-alchemy-cloudflare-cluster",
+      "branch": "eff-698-cloudflare-cluster",
       "description": "Use for understanding how to use Effect. Always read the LLMS.md."
     },
     "foldkit": {
