@@ -27,7 +27,7 @@ A particular edition of a policy, which can be a draft being edited or a publish
 The published version of a policy that its labeling rules automatically use; multiple rules in the same repository can share that policy. Publishing a replacement updates which version all those rules use without requiring edits to the rules.
 
 **Labeling rule**:
-A configuration governing a GitHub label on an issue or pull request, based on either a policy or AI classification. Match and non-match results each independently specify whether to ensure the label is present, ensure it is absent, or leave it unchanged.
+A configuration governing a GitHub label on an issue or pull request, based on either a policy or AI classification. Match and non-match results each independently specify whether to ensure the label is present, ensure it is absent, or take no action.
 
 **Gate policy**:
 A policy that determines whether an AI labeling rule should run its classification for an issue or pull request.
@@ -48,7 +48,7 @@ The AI service and model shared by all AI labeling rules in a Janitor deployment
 The confidence threshold an AI classification must meet for Janitor to accept a match. Below that threshold, the result is a non-match.
 
 **Cached AI result**:
-A previous successful AI classification reusable for a deployment-wide lifetime, defaulting to 24 hours, while the AI rule's parameters, referenced facts, and AI model remain unchanged. Expiration or a parameter change, including minimum confidence, requires a fresh AI request on the next evaluation rather than triggering one immediately.
+A previous successful AI classification reusable for a deployment-wide lifetime, defaulting to 24 hours, while the AI rule's parameters, referenced facts, and AI model remain unchanged. Expiration or any parameter change, including minimum confidence, label actions, or priority, requires a fresh AI request on the next evaluation rather than triggering one immediately.
 
 **Unknown result**:
 An evaluation result indicating that Janitor cannot determine whether an issue or pull request matches because required facts are missing. Missing facts produce an unknown result rather than a non-match, preserving the existing label.
@@ -64,7 +64,7 @@ A limited automatic reattempt of an evaluation after a temporary failure, with i
 An evaluation result indicating that an issue or pull request is outside a policy's scope. It is distinct from a non-match: the rule requests no label change and does not prevent other rules in its labeling group from acting.
 
 **Labeling group**:
-A named group of labeling rules belonging to one repository and targeting either issues or pull requests, whose labels are mutually exclusive, with priority selecting the winner among rules requesting that their labels be present. When every rule has a known result, only the winner's label remains, or none if no rule requests its label be present; an unknown result leaves all of the group's labels unchanged.
+A named group of labeling rules belonging to one repository and targeting either issues or pull requests, with priority selecting the sole label to retain among applicable rules requesting presence, or no label when applicable rules request none. All group labels remain unchanged if no enabled rule applies or any enabled rule has an unknown result or failed evaluation.
 _Avoid_: Rule group
 
 **Priority**:
@@ -72,6 +72,9 @@ A labeling rule's unique rank within its labeling group, with larger numbers tak
 
 **Disabled labeling rule**:
 A labeling rule that does not participate in evaluation while retaining its label ownership and any reserved group priority. Disabling it leaves existing labels in place, but its labeling group may later remove its label to enforce exclusivity.
+
+**Labeling group reordering**:
+A single change to the priorities of rules in a labeling group, allowing swaps while requiring all resulting priorities to be unique.
 
 **Labeling rule deletion**:
 Removal of a labeling rule, releasing its label ownership and any reserved group priority. Deleting a rule leaves its existing labels on issues and pull requests.
@@ -82,8 +85,9 @@ A label action requiring the label to be present after evaluation. A manual remo
 **Ensure absent**:
 A label action requiring the label to be absent after evaluation, including when someone added it manually. It applies only when the rule requests removal for the evaluation's result.
 
-**Leave unchanged**:
-A label action that preserves whether the label is currently present or absent, including manual changes. A labeling group's exclusivity decision can still require its removal.
+**Take no action**:
+The rule makes no request to add or remove its label. Its labeling group may still remove the label when choosing which label remains.
+_Avoid_: Leave unchanged
 
 ### Repository connections and synchronization
 
@@ -116,6 +120,9 @@ The re-enabling of a paused repository, requiring successful synchronization aga
 
 **Repository disconnection**:
 Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Labels already present on GitHub remain unchanged.
+
+**Repository reconnection**:
+A fresh connection of a previously disconnected repository, starting without its former policies, labeling rules, or stored data. Successful synchronization is required before automation becomes ready, and existing GitHub labels remain unchanged.
 
 **Access unavailable**:
 A repository state in which Janitor lacks the GitHub access needed to operate, stopping automation and synchronization while retaining configuration and stored data. Restoring access leaves deliberately paused repositories paused; otherwise, fresh synchronization is required before automation resumes.
