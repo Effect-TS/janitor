@@ -169,11 +169,16 @@ export const ProgramFromSource = (names: PolicyNames) =>
 /**
  * Three-valued logic plus scope. `unknown` means a fact the snapshot
  * cannot supply was needed; `not-applicable` means `appliesWhen` said no.
- * Only `no-match` may remove a label.
+ * `failed` is an operational evaluation error, distinct from missing facts.
+ * Unknown and failed preserve labels, including all labels in their group.
  */
-export const Outcome = Schema.Literals(["match", "no-match", "unknown", "not-applicable"]).annotate(
-  { identifier: "Outcome" },
-)
+export const Outcome = Schema.Literals([
+  "match",
+  "no-match",
+  "unknown",
+  "not-applicable",
+  "failed",
+]).annotate({ identifier: "Outcome" })
 export type Outcome = typeof Outcome.Type
 
 /** A condition's outcome, before applicability is considered. */

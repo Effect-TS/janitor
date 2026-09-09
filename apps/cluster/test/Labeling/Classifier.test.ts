@@ -39,7 +39,7 @@ const ProviderStub = Layer.succeed(ClassifierProvider, {
       return failing
         ? Effect.fail(new ClassifierProviderError({ message: "down", cause: null }))
         : Effect.succeed({
-            matches: prompt.includes("Change 5"),
+            matches: prompt.includes("inconclusive") ? null : prompt.includes("Change 5"),
             confidence: prompt.includes("Change 5") ? 0.95 : 0.6,
             reason: prompt.includes("Change 5") ? "looks like it" : "unsure",
           })
@@ -158,7 +158,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
           : after._tag,
         [
           [5, "match"],
-          [6, "unknown"],
+          [6, "no-match"],
         ],
       )
       assert.strictEqual(calls, 2)
@@ -173,7 +173,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       `
       assert.deepStrictEqual(decisions, [
         { outcome: "match", provider: "stub" },
-        { outcome: "unknown", provider: "stub" },
+        { outcome: "no-match", provider: "stub" },
       ])
       const leases = yield* sql<{ released: boolean }>`
         SELECT released_at IS NOT NULL AS released FROM labeling_ai_lease WHERE repository_id = ${repositoryId}
@@ -183,7 +183,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
         [true, true],
       )
 
-      // A provider failure is unknown, never a miss.
+      // A provider failure is distinct from missing evidence and never a miss.
       failing = true
       const failed = yield* test.run(repositoryId, {
         subject: {
@@ -197,7 +197,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       })
       assert.strictEqual(
         failed._tag === "Evaluated" ? failed.entities[0]?.evaluation?.outcome : failed._tag,
-        "unknown",
+        "failed",
       )
       failing = false
 
@@ -273,7 +273,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       assert.strictEqual(calls, callsBeforeScope + 3)
       assert.strictEqual(
         stricter._tag === "Evaluated" ? stricter.entities[0]?.evaluation?.outcome : stricter._tag,
-        "unknown",
+        "no-match",
       )
 
       // Revoking with no live lease disables at once; the configuration still evaluates.
@@ -404,6 +404,62 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       assert.strictEqual(cleared.ai?.gatePolicyId, null)
     }),
   )
+  it.effect(
+    "keeps missing or inconclusive evidence unknown and distinguishes an unconfigured provider",
+    () =>
+      Effect.gen(function* () {
+        yield* seed
+        failing = false
+        yield* (yield* AiConsentService).set(repositoryId, true, actor)
+        const evaluator = {
+          _tag: "Classifier" as const,
+          prompt: "Read {{fact:title}}",
+          evidence: ["title"] as const,
+          minimumConfidence: 0.8,
+        }
+        const input = {
+          repositoryId,
+          number: 5,
+          policyVersionId: PolicyVersionId.make("draft"),
+          evaluator,
+          program: { target: "pull_request" as const, appliesWhen: null, evaluator },
+          snapshot: { kind: "pull_request" as const, facts: {} },
+          resolve: () => undefined,
+        }
+        const classifier = yield* AiClassifier
+        const missing = yield* classifier.classify(input)
+        assert.strictEqual(missing.outcome, "unknown")
+        assert.strictEqual(missing.reasonCode, "missing-evidence")
+        const legacyEvaluator = { ...evaluator, prompt: "Classify this change" }
+        const legacyMissing = yield* classifier.classify({
+          ...input,
+          evaluator: legacyEvaluator,
+          program: { ...input.program, evaluator: legacyEvaluator },
+        })
+        assert.strictEqual(legacyMissing.outcome, "unknown")
+        assert.strictEqual(legacyMissing.reasonCode, "missing-evidence")
+        const available = {
+          ...input,
+          snapshot: {
+            kind: "pull_request" as const,
+            facts: { title: { _tag: "Text" as const, value: "inconclusive" } },
+          },
+        }
+        const inconclusive = yield* classifier.classify(available)
+        assert.strictEqual(inconclusive.outcome, "unknown")
+        assert.strictEqual(inconclusive.reasonCode, "insufficient-evidence")
+        const unavailable = yield* Effect.gen(function* () {
+          return yield* (yield* AiClassifier).classify(available)
+        }).pipe(
+          Effect.provide(
+            Layer.fresh(AiClassifier.layer.pipe(Layer.provide(ClassifierProvider.unavailable))),
+          ),
+        )
+        assert.strictEqual(unavailable.outcome, "failed")
+        assert.strictEqual(unavailable.reasonCode, "provider-unavailable")
+        assert.include(unavailable.reason, "OPENAI_API_KEY")
+      }),
+  )
   it.effect("retains input reports on cache hits and failures, and hashes omitted evidence", () =>
     Effect.gen(function* () {
       yield* seed
@@ -456,7 +512,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
           }),
         ),
       )
-      assert.strictEqual(failed.outcome, "unknown")
+      assert.strictEqual(failed.outcome, "failed")
       assert.strictEqual(failed.reasonCode, "provider-failed")
       assert.strictEqual(failed.inputReport?.status, "shortened")
       assert.isDefined(failed.inputDetails)

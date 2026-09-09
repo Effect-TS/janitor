@@ -1,5 +1,8 @@
 import { assert, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Deferred from "effect/Deferred"
+import * as Fiber from "effect/Fiber"
+import { TestClock } from "effect/testing"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/unstable/http/HttpClient"
@@ -57,5 +60,61 @@ it.effect("keeps the serialized provider request within the prepared byte budget
     assert.isAbove(requestBytes, 0)
     assert.isAtMost(requestBytes, prepared.report.suppliedBytes)
     assert.isAtMost(requestBytes, prepared.report.budgetBytes)
+  }),
+)
+
+const failingProvider = (http: HttpClient.HttpClient) =>
+  ClassifierProvider.fromLanguageModel({ provider: "openai", model: "test-model" }).pipe(
+    Layer.provide(OpenAiLanguageModel.layer({ model: "test-model" })),
+    Layer.provide(OpenAiClient.layer({ apiKey: Redacted.make("test") })),
+    Layer.provide(Layer.succeed(HttpClient.HttpClient, http)),
+  )
+
+it.effect("reports actionable provider errors without exposing response bodies", () =>
+  Effect.gen(function* () {
+    for (const [status, guidance] of [
+      [401, "API key"],
+      [400, "model"],
+      [429, "rate limit"],
+      [500, "Try again"],
+    ] as const) {
+      const provider = failingProvider(
+        HttpClient.make((request) =>
+          Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(JSON.stringify({ error: { message: "sensitive provider detail" } }), {
+                status,
+                headers: { "content-type": "application/json" },
+              }),
+            ),
+          ),
+        ),
+      )
+      const error = yield* Effect.gen(function* () {
+        return yield* (yield* ClassifierProvider).ask("test").pipe(Effect.flip)
+      }).pipe(Effect.provide(provider))
+      assert.include(error.message, guidance)
+      assert.notInclude(error.message, "sensitive provider detail")
+    }
+  }),
+)
+
+it.effect("times out a stalled provider request with actionable guidance", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>()
+    const provider = failingProvider(
+      HttpClient.make(() =>
+        Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+      ),
+    )
+    const fiber = yield* Effect.gen(function* () {
+      return yield* (yield* ClassifierProvider).ask("test").pipe(Effect.flip)
+    }).pipe(Effect.provide(provider), Effect.forkChild)
+    yield* Deferred.await(started)
+    yield* TestClock.adjust("61 seconds")
+    const error = yield* Fiber.join(fiber)
+    assert.include(error.message, "timed out")
+    assert.include(error.message, "Try again")
   }),
 )

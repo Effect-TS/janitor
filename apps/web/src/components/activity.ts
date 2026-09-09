@@ -350,8 +350,26 @@ export const subscriptions = Subscription.aggregate<Model, Message>()(
 export const outcome = (
   entry: ActivityEntry,
 ): { label: string; tone: string; icon: typeof Check } => {
-  if (entry.outcome === "failed" || entry.actions.some((action) => action.status === "failed"))
-    return { label: "Labeling failed", tone: "text-destructive", icon: CircleAlert }
+  const evaluationFailed =
+    entry.outcome === "failed" ||
+    entry.plan?.rules.some((rule) => rule.outcome === "failed") ||
+    entry.evaluations?.some((rule) => rule.outcome === "failed")
+  if (entry.actions.some((action) => action.status === "failed"))
+    return {
+      label: evaluationFailed ? "Evaluation and label update failed" : "Label update failed",
+      tone: "text-destructive",
+      icon: CircleAlert,
+    }
+  if (evaluationFailed)
+    return {
+      label: entry.actions.some((action) => action.status === "applied")
+        ? "Labels updated · evaluation failed"
+        : entry.actions.some((action) => action.status === "planned")
+          ? "Evaluation failed · label updates pending"
+          : "Evaluation failed · labels unchanged",
+      tone: "text-destructive",
+      icon: CircleAlert,
+    }
   if (!entry.outcome || entry.actions.some((action) => action.status === "planned"))
     return { label: "Pending", tone: "text-muted-foreground", icon: Clock }
   if (entry.outcome === "superseded")
@@ -421,17 +439,21 @@ const evaluationCards = (
         ? "Matched"
         : result === "no-match"
           ? "No match"
-          : result === "unknown"
-            ? "Undecided"
-            : "Pending"
+          : result === "failed"
+            ? "Evaluation failed"
+            : result === "unknown"
+              ? "Undecided"
+              : "Pending"
     const tone =
       skipped || result === "no-match"
         ? "neutral"
         : result === "match"
           ? "match"
-          : result === "unknown"
-            ? "unknown"
-            : "neutral"
+          : result === "failed"
+            ? "failed"
+            : result === "unknown"
+              ? "unknown"
+              : "neutral"
     return h.div(
       [h.Class("activity-rule-card")],
       [
@@ -471,7 +493,7 @@ const evaluationCards = (
                   [
                     Icon.view(
                       h,
-                      result === "unknown"
+                      result === "unknown" || result === "failed"
                         ? CircleAlert
                         : result === "match"
                           ? Check

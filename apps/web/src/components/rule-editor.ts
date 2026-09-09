@@ -851,6 +851,7 @@ export const previewAction = (
   if (outcome === "not-applicable")
     return "Policy does not apply to this item; labels stay unchanged."
   if (outcome === "unknown") return "Could not determine a match; labels stay unchanged."
+  if (outcome === "failed") return "Evaluation failed; labels stay unchanged."
   const present = Option.exists(model.maybeLabelId, (id) => labels.includes(id))
   const name = labelName(
     model.labels,
@@ -910,7 +911,9 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
                   "text-xs",
                   outcome === "match"
                     ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-muted-foreground",
+                    : outcome === "failed"
+                      ? "text-destructive"
+                      : "text-muted-foreground",
                 ),
               ),
             ],
