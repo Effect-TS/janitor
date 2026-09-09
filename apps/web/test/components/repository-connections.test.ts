@@ -19,6 +19,23 @@ const candidate = {
 }
 const settings = { repositoryId: "701", state: "" }
 describe("Repository connections", () => {
+  it("offers one repository pause covering automation and synchronization", () => {
+    Scene.scene(
+      { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
+      Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [candidate] }) }),
+      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Command.resolve(
+        Connections.Load,
+        Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [candidate] } }),
+      ),
+      Scene.expect(Scene.role("button", { name: "Pause repository" })).toExist(),
+      Scene.expect(
+        Scene.text(
+          "Pausing stops automation and synchronization. Configuration, stored facts and GitHub labels are kept.",
+        ),
+      ).toExist(),
+    )
+  })
   it("requires confirmation before disconnecting and allows cancellation", () => {
     const initial = { ...Connections.init(), inventory: Option.some({ repositories: [candidate] }) }
     const confirming = Connections.update(initial, Connections.Message.ClickedDisconnect())

@@ -1,3 +1,5 @@
+import { RepositoryActivity } from "../RepositoryActivity.ts"
+import * as DateTime from "effect/DateTime"
 import { GitHubWebhookDeliveryId, type GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
 import {
@@ -229,7 +231,7 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
 
   // Mirror writes and the status change commit together, so a retry after a
   // lost activity result sees either both or neither.
-  yield* readModel
+  const projection = readModel
     .withTransaction(
       Effect.gen(function* () {
         yield* applyEvent(decoded.success, row.sequence)
@@ -242,6 +244,27 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
       }),
     )
     .pipe(Effect.mapError((error) => fail(error.message)))
+  if (decoded.success.name === "pull_request") {
+    const activity = yield* RepositoryActivity
+    const projected = yield* activity
+      .run(
+        decoded.success.payload.repository.id,
+        projection,
+        row.receivedAt === undefined ? undefined : DateTime.toDateUtc(row.receivedAt),
+      )
+      .pipe(Effect.mapError((error) => fail(error.message)))
+    if (Option.isNone(projected)) {
+      yield* journal
+        .markProjection(
+          deliveryId,
+          "unsupported",
+          Option.some("Repository paused; event discarded"),
+        )
+        .pipe(Effect.mapError((error) => fail(error.message)))
+      yield* record("unsupported", "Repository paused; event discarded")
+      return "unsupported" as const
+    }
+  } else yield* projection
   yield* record("projected")
   return "projected" as const
 })

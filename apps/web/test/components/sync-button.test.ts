@@ -1,3 +1,6 @@
+import * as Effect from "effect/Effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import { Story } from "foldkit/test"
@@ -49,7 +52,7 @@ describe("SyncButton", () => {
     Story.story(
       SyncButton.update,
       Story.given(idle()),
-      Story.message(SyncButton.Message.PressedSync()),
+      Story.message(SyncButton.Message.PressedSync({})),
       Story.model((model) => expect(model.isRequesting).toBe(true)),
       Story.Command.expectExact(SyncButton.RequestSync),
       Story.Command.resolve(
@@ -72,7 +75,7 @@ describe("SyncButton", () => {
     Story.story(
       SyncButton.update,
       Story.given(running),
-      Story.message(SyncButton.Message.PressedSync()),
+      Story.message(SyncButton.Message.PressedSync({})),
       Story.Command.expectNone(),
       Story.expectNoOutMessage(),
     )
@@ -109,7 +112,7 @@ describe("SyncButton", () => {
     Story.story(
       SyncButton.update,
       Story.given(idle()),
-      Story.message(SyncButton.Message.PressedSync()),
+      Story.message(SyncButton.Message.PressedSync({})),
       Story.Command.resolve(
         SyncButton.RequestSync,
         SyncButton.Message.FailedRequest({ reason: "503" }),
@@ -147,11 +150,11 @@ describe("SyncButton", () => {
   })
 
   it("does not overlap polling with a POST or another poll", () => {
-    const posting = SyncButton.update(idle(), SyncButton.Message.PressedSync()).model
+    const posting = SyncButton.update(idle(), SyncButton.Message.PressedSync({})).model
     expect(SyncButton.update(posting, SyncButton.Message.Polled()).commands).toBeUndefined()
     const polling = SyncButton.update(idle(), SyncButton.Message.Polled()).model
     expect(SyncButton.update(polling, SyncButton.Message.Polled()).commands).toBeUndefined()
-    expect(SyncButton.update(polling, SyncButton.Message.PressedSync()).commands).toBeUndefined()
+    expect(SyncButton.update(polling, SyncButton.Message.PressedSync({})).commands).toBeUndefined()
     const received = SyncButton.update(
       posting,
       SyncButton.Message.GotSummary({ summary: summary("idle"), receivedAt: now }),
@@ -202,5 +205,29 @@ describe("sync work invalidation", () => {
     expect(failed.model.isPolling).toBe(true)
     expect(failed.model.needsRefresh).toBe(false)
     expect(failed.commands?.[0]?.name).toBe("FetchSyncSummary")
+  })
+})
+
+describe("repository manual sync", () => {
+  it("targets the selected repository and preserves the server resume instruction", async () => {
+    const reason = "Repository paused. Resume it in repository settings before syncing."
+    const client = HttpClient.make((request) => {
+      expect(request.method).toBe("POST")
+      expect(request.url).toBe("/api/v1/repositories/701/sync")
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(request, new Response(reason, { status: 409 })),
+      )
+    })
+    const requested = SyncButton.update(
+      idle(),
+      SyncButton.Message.PressedSync({ repositoryId: "701" }),
+    )
+    expect(requested.commands?.[0]?.args).toEqual({ repositoryId: "701" })
+    const result = await Effect.runPromise(
+      SyncButton.RequestSync({ repositoryId: "701" }).effect.pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+      ),
+    )
+    expect(result).toEqual(SyncButton.Message.FailedRequest({ reason }))
   })
 })

@@ -1,3 +1,4 @@
+import { requireCurrentRun } from "./SyncSupport.ts"
 import * as DateTime from "effect/DateTime"
 import {
   GitHubCheckRunsApi,
@@ -92,6 +93,7 @@ const fetchCollections = (
   request: {
     scope: { _tag: "Installation"; installationId: typeof GitHubInstallationId.Type }
     priority: "background"
+    beforeRequest: Effect.Effect<void, SyncActivityError>
   },
   required: ReadonlyArray<CollectionTrack>,
 ) =>
@@ -235,7 +237,9 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
     const { generation } = begun
     const sequence = begun.sequence ?? GitHubWebhookJournalSequenceZero
     const path = `/repos/${encodeURIComponent(begun.owner)}/${encodeURIComponent(begun.repo)}`
+    const targets = yield* SyncTargets
     const request = {
+      beforeRequest: requireCurrentRun(targets, scope, generation),
       scope: { _tag: "Installation" as const, installationId: begun.installationId },
       priority: "background" as const,
     }

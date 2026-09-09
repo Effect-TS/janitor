@@ -1,3 +1,4 @@
+import { RepositoryActivity } from "./RepositoryActivity.ts"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import { RepositoryLive } from "./LiveHub.ts"
 import { liveUpdatesLayer, flushLive } from "./LiveUpdates.ts"
@@ -247,6 +248,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(GitHubTransportLayer),
       Layer.provideMerge(
         Layer.mergeAll(
+          RepositoryActivity.layer,
           GitHubWebhookJournal.layer,
           Readiness.layer,
           liveUpdatesLayer(liveEnvironment.RepositoryLive as LiveNamespace),

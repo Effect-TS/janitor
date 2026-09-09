@@ -81,20 +81,45 @@ export const RepositorySyncRoute = HttpRouter.add(
     const { repositoryId } = yield* HttpRouter.schemaPathParams(
       Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId }),
     )
-    const { enabled } = yield* HttpServerRequest.schemaBodyJson(
-      Schema.Struct({ enabled: Schema.Boolean }),
+    yield* HttpServerRequest.schemaBodyJson(Schema.Struct({ enabled: Schema.Boolean }))
+    return HttpServerResponse.text(
+      `Use PATCH /api/v1/repositories/${repositoryId}/connection to pause or resume the repository. Separate sync settings are no longer supported.`,
+      { status: 409 },
     )
-    const status = yield* SyncStatus
-    const found = yield* status.setRepositorySyncEnabled(repositoryId, enabled)
-    if (!found) return HttpServerResponse.empty({ status: 404 })
-    return HttpServerResponse.empty({ status: 204 })
   }).pipe(
     Effect.catchTag("SchemaError", () => Effect.succeed(HttpServerResponse.empty({ status: 400 }))),
     Effect.catchCause(unavailable("repository setting")),
   ),
 ).pipe(Layer.provide(SameOriginMiddleware))
 
+export const RepositorySyncRequestRoute = HttpRouter.add(
+  "POST",
+  "/repositories/:repositoryId/sync",
+  Effect.gen(function* () {
+    const { repositoryId } = yield* HttpRouter.schemaPathParams(
+      Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId }),
+    )
+    const result = yield* (yield* SyncStatus).requestRepository(repositoryId)
+    yield* (yield* WorkflowDispatcher)
+      .dispatchDue()
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Immediate repository sync dispatch failed", cause),
+        ),
+      )
+    return yield* respondSummary(result.summary, { status: 202 })
+  }).pipe(
+    Effect.catchTag("SyncStatusError", (error) =>
+      error.operation === "repositoryUnavailable"
+        ? Effect.succeed(HttpServerResponse.text(error.message, { status: 409 }))
+        : unavailable("repository request")(error),
+    ),
+    Effect.catchCause(unavailable("repository request")),
+  ),
+).pipe(Layer.provide(SameOriginMiddleware))
+
 export const SyncRoutesLayer = Layer.mergeAll(
+  RepositorySyncRequestRoute,
   SyncSummaryRoute,
   SyncRequestRoute,
   RepositorySyncRoute,

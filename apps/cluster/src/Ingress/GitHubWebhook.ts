@@ -1,3 +1,5 @@
+import { RepositoryActivity } from "../RepositoryActivity.ts"
+import * as Option from "effect/Option"
 import { GitHubWebhookEventName } from "@janitor/domain/GitHub/WebhookEvent"
 import {
   GitHubWebhookBodyV1,
@@ -15,12 +17,14 @@ import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import * as HttpServerError from "effect/unstable/http/HttpServerError"
-import { constFalse } from "effect/Function"
 import * as PayloadCipher from "../PayloadCipher.ts"
 import * as WebhookVerifier from "./WebhookVerifier.ts"
 import * as GitHubEventQueue from "../GitHub/EventQueue.ts"
 import * as GitHubPayloadStore from "../GitHub/PayloadStore.ts"
-import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
+import {
+  GitHubWebhookDeliveryId,
+  GitHubRepositoryDatabaseIdFromStringOrNumber,
+} from "@janitor/domain/GitHub/Id"
 import * as Encoding from "effect/Encoding"
 import * as Redacted from "effect/Redacted"
 import * as DateTime from "effect/DateTime"
@@ -125,6 +129,7 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
       "POST",
       "/webhooks/github",
       Effect.gen(function* () {
+        const receivedAt = yield* DateTime.now
         const request = yield* HttpServerRequest.HttpServerRequest
 
         const headers = yield* HttpServerRequest.schemaHeaders(GitHubHeaders).pipe(
@@ -178,12 +183,9 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           return invalidWebhookSignatureResponse
         }
 
-        const isJson = yield* parseJson(new TextDecoder().decode(body)).pipe(
-          Effect.as(true),
-          Effect.orElseSucceed(constFalse),
-        )
+        const parsed = yield* parseJson(new TextDecoder().decode(body)).pipe(Effect.option)
 
-        if (!isJson) {
+        if (Option.isNone(parsed)) {
           return yield* drop("Body is not JSON")
         }
 
@@ -191,82 +193,107 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           return yield* drop("Unsupported event name")
         }
 
-        const payloadSha256 = yield* sha256Hex(body)
+        const repository = Schema.decodeUnknownOption(
+          Schema.Struct({
+            repository: Schema.Struct({ id: GitHubRepositoryDatabaseIdFromStringOrNumber }),
+          }),
+        )(parsed.value)
+        const accept = Effect.gen(function* () {
+          const payloadSha256 = yield* sha256Hex(body)
 
-        const encrypted = yield* cipher.encrypt(deliveryId, body).pipe(
-          Effect.catchCause(
-            Effect.fnUntraced(function* (cause) {
-              yield* Effect.logError("Failed to encrypt GitHub webhook payload", cause).pipe(
-                Effect.annotateLogs({ id: deliveryId, event: eventName }),
-              )
-              return undefined
-            }),
-          ),
-        )
-
-        if (encrypted === undefined) {
-          return serviceUnavailableResponse
-        }
-
-        const { ciphertext, encryption } = encrypted
-
-        const envelopeBody: GitHubWebhookBodyV1 | undefined =
-          ciphertext.byteLength <= MAX_INLINE_WEBHOOK_BODY_BYTES
-            ? GitHubWebhookBodyV1.cases.Inline.make({ payload: ciphertext })
-            : yield* Effect.flatMap(sha256Hex(ciphertext), (sha256) =>
-                store.put({ deliveryId, body: ciphertext, sha256 }),
-              ).pipe(
-                Effect.map((key) => GitHubWebhookBodyV1.cases.R2.make({ key })),
-                Effect.catchCause(
-                  Effect.fnUntraced(function* (cause) {
-                    yield* Effect.logError("Failed to store GitHub webhook payload", cause).pipe(
-                      Effect.annotateLogs({ id: deliveryId, event: eventName }),
-                    )
-                    return undefined
-                  }),
-                ),
-              )
-
-        if (envelopeBody === undefined) {
-          return serviceUnavailableResponse
-        }
-
-        const envelope: GitHubWebhookEnvelopeV1 = {
-          schemaVersion: 1,
-          deliveryId,
-          eventName,
-          receivedAt: yield* DateTime.now,
-          payloadSha256,
-          encryption,
-          body: envelopeBody,
-        }
-
-        const enqueued = yield* queue.enqueue(envelope).pipe(
-          Effect.as(true),
-          Effect.catchCause(
-            Effect.fnUntraced(function* (cause) {
-              yield* Effect.logError("Failed to enqueue GitHub webhook envelope", cause).pipe(
-                Effect.annotateLogs({ id: deliveryId, event: eventName }),
-              )
-              return false
-            }),
-          ),
-        )
-
-        if (!enqueued && envelopeBody._tag === "R2") {
-          // Best effort: the lifecycle rule removes anything this misses.
-          yield* store.delete(envelopeBody.key).pipe(
+          const encrypted = yield* cipher.encrypt(deliveryId, body).pipe(
             Effect.catchCause(
               Effect.fnUntraced(function* (cause) {
-                yield* Effect.logWarning("Failed to delete orphaned webhook payload", cause).pipe(
-                  Effect.annotateLogs({ id: deliveryId, key: envelopeBody.key }),
+                yield* Effect.logError("Failed to encrypt GitHub webhook payload", cause).pipe(
+                  Effect.annotateLogs({ id: deliveryId, event: eventName }),
                 )
+                return undefined
               }),
             ),
           )
-        }
 
-        return enqueued ? acceptedResponse : serviceUnavailableResponse
+          if (encrypted === undefined) {
+            return serviceUnavailableResponse
+          }
+
+          const { ciphertext, encryption } = encrypted
+
+          const envelopeBody: GitHubWebhookBodyV1 | undefined =
+            ciphertext.byteLength <= MAX_INLINE_WEBHOOK_BODY_BYTES
+              ? GitHubWebhookBodyV1.cases.Inline.make({ payload: ciphertext })
+              : yield* Effect.flatMap(sha256Hex(ciphertext), (sha256) =>
+                  store.put({ deliveryId, body: ciphertext, sha256 }),
+                ).pipe(
+                  Effect.map((key) => GitHubWebhookBodyV1.cases.R2.make({ key })),
+                  Effect.catchCause(
+                    Effect.fnUntraced(function* (cause) {
+                      yield* Effect.logError("Failed to store GitHub webhook payload", cause).pipe(
+                        Effect.annotateLogs({ id: deliveryId, event: eventName }),
+                      )
+                      return undefined
+                    }),
+                  ),
+                )
+
+          if (envelopeBody === undefined) {
+            return serviceUnavailableResponse
+          }
+
+          const envelope: GitHubWebhookEnvelopeV1 = {
+            schemaVersion: 1,
+            deliveryId,
+            eventName,
+            receivedAt,
+            payloadSha256,
+            encryption,
+            body: envelopeBody,
+          }
+
+          const enqueued = yield* queue.enqueue(envelope).pipe(
+            Effect.as(true),
+            Effect.catchCause(
+              Effect.fnUntraced(function* (cause) {
+                yield* Effect.logError("Failed to enqueue GitHub webhook envelope", cause).pipe(
+                  Effect.annotateLogs({ id: deliveryId, event: eventName }),
+                )
+                return false
+              }),
+            ),
+          )
+
+          if (!enqueued && envelopeBody._tag === "R2") {
+            // Best effort: the lifecycle rule removes anything this misses.
+            yield* store.delete(envelopeBody.key).pipe(
+              Effect.catchCause(
+                Effect.fnUntraced(function* (cause) {
+                  yield* Effect.logWarning("Failed to delete orphaned webhook payload", cause).pipe(
+                    Effect.annotateLogs({ id: deliveryId, key: envelopeBody.key }),
+                  )
+                }),
+              ),
+            )
+          }
+
+          return enqueued ? acceptedResponse : serviceUnavailableResponse
+        })
+        // Installation inventory still discovers access, even when repositories are paused.
+        if (
+          eventName === "installation" ||
+          eventName === "installation_repositories" ||
+          Option.isNone(repository)
+        )
+          return yield* accept
+        const activity = yield* RepositoryActivity
+        return yield* activity
+          .run(String(repository.value.repository.id), accept, DateTime.toDateUtc(receivedAt))
+          .pipe(
+            Effect.map(Option.getOrElse(() => acceptedResponse)),
+            Effect.catchCause((cause) =>
+              Effect.logError("Repository webhook fence failed", cause).pipe(
+                Effect.as(serviceUnavailableResponse),
+              ),
+            ),
+          )
       }),
     )
   }),

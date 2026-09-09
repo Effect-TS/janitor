@@ -386,7 +386,7 @@ export const view = Submodel.defineView<
               h.p(
                 [h.Class("text-sm")],
                 [
-                  `${current.owner}/${current.repo} · ${!current.connected ? "Disconnected" : current.access !== "accessible" || current.installationStatus !== "active" ? "Access lost" : !current.enabled ? "Paused" : current.syncState === "paused" ? "GitHub sync paused" : current.syncState === "failed" ? "Sync failed" : current.syncState === "syncing" ? "Syncing repository…" : "Connected"}`,
+                  `${current.owner}/${current.repo} · ${!current.connected ? "Disconnected" : current.access !== "accessible" || current.installationStatus !== "active" ? "Access lost" : !current.enabled ? "Paused" : current.syncState === "failed" ? "Sync failed" : current.syncState === "syncing" ? "Syncing repository…" : "Connected"}`,
                 ],
               ),
               h.div(
@@ -398,9 +398,15 @@ export const view = Submodel.defineView<
                         Message.ClickedChange({ id: current.repositoryId, action: "resume" }),
                       )
                     : h.empty,
+                  h.p(
+                    [h.Class("text-sm text-muted-foreground")],
+                    [
+                      "Pausing stops automation and synchronization. Configuration, stored facts and GitHub labels are kept.",
+                    ],
+                  ),
                   current.connected
                     ? button(
-                        current.enabled ? "Pause automation" : "Resume automation",
+                        current.enabled ? "Pause repository" : "Resume repository",
                         Message.ClickedChange({
                           id: current.repositoryId,
                           action: current.enabled ? "pause" : "resume",

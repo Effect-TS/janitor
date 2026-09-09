@@ -83,7 +83,7 @@ const Mutation = Schema.Struct({
   operationId: Schema.Int,
   repositoryId: Schema.String,
   subjectId: Schema.String,
-  kind: Schema.Literals(["RuleToggle", "SyncToggle", "PolicyDelete", "RuleDelete", "Consent"]),
+  kind: Schema.Literals(["RuleToggle", "PolicyDelete", "RuleDelete", "Consent"]),
   previousEnabled: Schema.Boolean,
   enabled: Schema.Boolean,
 })
@@ -134,9 +134,6 @@ export const Message = defineMessageUnion({
   FailedConsent: { repositoryId: Schema.String, reason: Schema.String, requestId: Schema.Int },
   ClickedRetryConsent: {},
   ClickedToggleConsent: {},
-  ClickedToggleSync: { repositoryId: Schema.String, enabled: Schema.Boolean },
-  CompletedToggleSync: ResponseContext,
-  FailedToggleSync: { ...ResponseContext, reason: Schema.String },
   CompletedSetConsent: { ...ResponseContext, consent: AiConsent },
   FailedSetConsent: { ...ResponseContext, reason: Schema.String },
   ClickedNewPolicy: {},
@@ -249,23 +246,6 @@ export const FetchConsent = FoldkitCommand.define("FetchConsent", {
       Effect.map((consent) => Message.GotConsent({ repositoryId, consent, requestId })),
       Effect.catch((error) =>
         Effect.succeed(Message.FailedConsent({ repositoryId, requestId, reason: describe(error) })),
-      ),
-    ),
-})
-
-export const SetRepositorySync = FoldkitCommand.define("SetRepositorySync", {
-  args: { ...ResponseContext, enabled: Schema.Boolean },
-  messages: [Message.CompletedToggleSync, Message.FailedToggleSync],
-  execute: ({ repositoryId, enabled, operationId }) =>
-    HttpClientRequest.put(`/api/v1/repositories/${encodeURIComponent(repositoryId)}/sync`).pipe(
-      HttpClientRequest.bodyJson({ enabled }),
-      Effect.flatMap(HttpClient.execute),
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.as(Message.CompletedToggleSync({ repositoryId, operationId })),
-      Effect.catch((error) =>
-        Effect.succeed(
-          Message.FailedToggleSync({ repositoryId, operationId, reason: describe(error) }),
-        ),
       ),
     ),
 })
@@ -746,10 +726,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         repositories: () =>
           Option.some(
             repositories.map((row) => {
-              const pending = model.pendingMutations.find(
-                (mutation) =>
-                  mutation.kind === "SyncToggle" && mutation.repositoryId === row.repositoryId,
-              )
               const counted =
                 Option.contains(model.dataRepositoryId, row.repositoryId) &&
                 Option.isSome(model.detail)
@@ -759,7 +735,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                       ruleCount: model.detail.value.configuration.rules.length,
                     }
                   : row
-              return pending ? { ...counted, syncEnabled: pending.enabled } : counted
+              return counted
             }),
           ),
         maybeRepositoriesRequest: () => Option.none(),
@@ -953,70 +929,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           }
         : { model },
     ClickedRetryConsent: () => refresh(model, false),
-    ClickedToggleSync: ({ repositoryId, enabled }) => {
-      const row = Option.getOrElse(model.repositories, () => []).find(
-        (row) => row.repositoryId === repositoryId,
-      )
-      if (!row || hasMutation(model, repositoryId, repositoryId, ["SyncToggle"])) return { model }
-      return {
-        model: evo(
-          startMutation(model, {
-            repositoryId,
-            subjectId: repositoryId,
-            kind: "SyncToggle",
-            previousEnabled: row.syncEnabled !== false,
-            enabled,
-          }),
-          {
-            repositories: Option.map((rows) =>
-              rows.map((row) =>
-                row.repositoryId === repositoryId ? { ...row, syncEnabled: enabled } : row,
-              ),
-            ),
-          },
-        ),
-        commands: [
-          SetRepositorySync({ repositoryId, enabled, operationId: model.nextOperationId }),
-        ],
-      }
-    },
-    CompletedToggleSync: ({ repositoryId, operationId }) => {
-      if (
-        !model.pendingMutations.some(
-          (mutation) =>
-            mutation.operationId === operationId &&
-            mutation.repositoryId === repositoryId &&
-            mutation.kind === "SyncToggle",
-        )
-      )
-        return { model }
-      return {
-        ...refreshRepositories(finishMutation(model, operationId)),
-        outMessage: OutMessage.SyncWorkChanged(),
-      }
-    },
-    FailedToggleSync: ({ repositoryId, operationId, reason }) => {
-      const pending = model.pendingMutations.find(
-        (mutation) =>
-          mutation.operationId === operationId &&
-          mutation.repositoryId === repositoryId &&
-          mutation.kind === "SyncToggle",
-      )
-      if (!pending) return { model }
-      const restored = evo(finishMutation(model, operationId), {
-        repositories: Option.map((rows) =>
-          rows.map((row) =>
-            row.repositoryId === repositoryId
-              ? { ...row, syncEnabled: pending.previousEnabled }
-              : row,
-          ),
-        ),
-      })
-      return {
-        ...refreshRepositories(restored),
-        outMessage: OutMessage.Failed({ title: "Sync setting could not be confirmed", reason }),
-      }
-    },
     ClickedToggleConsent: () => {
       if (Option.isNone(model.dataRepositoryId) || Option.isNone(model.maybeConsent))
         return { model }
@@ -1837,56 +1749,6 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
   )
 }
 
-const syncSection = (h: HtmlBuilder<Message>, model: Model): Html => {
-  const repository = Option.flatMap(model.repositories, (repositories) =>
-    Option.fromNullishOr(
-      repositories.find((row) => Option.contains(model.dataRepositoryId, row.repositoryId)),
-    ),
-  )
-  return Option.match(repository, {
-    onNone: () => h.empty,
-    onSome: (row) =>
-      h.section(
-        [h.Class("flex flex-col gap-3")],
-        [
-          sectionTitle(h, "GitHub sync"),
-          h.p(
-            [h.Class("text-sm text-muted-foreground")],
-            [
-              "Keep local data up to date with GitHub. Turning sync off retains cached data and leaves auto-labeling settings unchanged.",
-            ],
-          ),
-          h.button(
-            [
-              h.Type("button"),
-              h.Role("switch"),
-              h.AriaChecked(row.syncEnabled !== false),
-              h.AriaLabel("GitHub sync"),
-              h.Disabled(hasMutation(model, row.repositoryId, row.repositoryId, ["SyncToggle"])),
-              h.AriaBusy(hasMutation(model, row.repositoryId, row.repositoryId, ["SyncToggle"])),
-              h.OnClick(
-                Message.ClickedToggleSync({
-                  repositoryId: row.repositoryId,
-                  enabled: row.syncEnabled === false,
-                }),
-              ),
-              h.Class("w-fit rounded-md border px-3 py-2 text-sm hover:bg-accent"),
-            ],
-            [
-              hasMutation(model, row.repositoryId, row.repositoryId, ["SyncToggle"])
-                ? row.syncEnabled === false
-                  ? "Turning sync off…"
-                  : "Turning sync on…"
-                : row.syncEnabled === false
-                  ? "Sync off"
-                  : "Sync on",
-            ],
-          ),
-        ],
-      ),
-  })
-}
-
 const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.section(
     [
@@ -2175,10 +2037,7 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
         [h.Class("flex min-w-0 flex-col gap-6 overflow-auto p-6")],
         [
           section === "Settings"
-            ? h.div(
-                [h.Class("flex flex-col gap-8")],
-                [syncSection(h, model), consentSection(h, model)],
-              )
+            ? h.div([h.Class("flex flex-col gap-8")], [consentSection(h, model)])
             : h.empty,
         ],
       )
@@ -2237,6 +2096,8 @@ export const informConnectionChanged = (
               ? {
                   ...row,
                   enabled: action === "resume" ? true : action === "pause" ? false : row.enabled,
+                  syncEnabled:
+                    action === "resume" ? true : action === "pause" ? false : row.enabled,
                 }
               : row,
           ),

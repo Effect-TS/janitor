@@ -99,3 +99,29 @@ and final priority to `POST /repositories/:repositoryId/rules/reorder`. The serv
 rejects changed membership or versions with 409 and duplicate priorities with 422,
 then applies accepted changes with one audit per member and one new revision.
 Direct SQL writers must follow the same lock and validation protocol.
+
+## Repository pause
+
+`0018_repository_pause.sql` replaces the two repository controls with `enabled`.
+`sync_enabled` remains a generated, read-only compatibility column. A paused
+repository retains configuration, facts and labels. Installation discovery keeps
+running so operators can manage access.
+
+Stop old workers before applying the migration. It reports every connected
+repository whose old `enabled` and `sync_enabled` values disagree, then stops
+without choosing a setting. For each reported repository, an operator must choose
+running or paused and set both old flags to that value before retrying. Disconnected
+repositories retain their automation flag. Start the new release after migration
+succeeds. The retired PUT sync-settings endpoint returns 409 with the replacement
+connection endpoint.
+
+Pause holds the repository row lock until earlier fact publications, webhook
+storage and GitHub label-write attempts finish. It then invalidates pending sync
+and evaluation generations. Sync publication and label writes acquire this lock
+before sync-target locks. Future repository automations must use the same fence
+and hold it through external writes. Pause takes effect when its transaction
+commits and the API acknowledges it. Resume requests fresh synchronization;
+webhooks received before resumption cannot replay into facts or automation.
+
+Local fixtures use the installation sync setting to stay offline. Their repository
+pause setting still controls both automation and synchronization.

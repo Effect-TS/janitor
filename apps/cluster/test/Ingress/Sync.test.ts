@@ -39,7 +39,7 @@ const withHandler = <A, E, R>(
 const stub = (
   requestAll: Effect.Effect<number, SyncStatusError> = Effect.succeed(4),
 ): SyncStatus["Service"] => ({
-  setRepositorySyncEnabled: () => Effect.succeed(true),
+  requestRepository: () => Effect.succeed({ summary, requested: 3 }),
   summary: Effect.succeed(summary),
   requestAll: Effect.map(requestAll, (requested) => ({
     summary: { ...summary, state: "syncing" as const, pendingTargets: requested },
@@ -51,30 +51,48 @@ const request = (method: string, headers: Record<string, string> = {}) =>
   new Request("https://janitor.example/sync", { method, headers })
 
 describe("SyncRoutes", () => {
-  it.effect("saves a repository sync switch without changing the labeling setting", () =>
+  it.effect("returns actionable 409 for manual synchronization of a paused repository", () =>
     withHandler(
       {
         ...stub(),
-        setRepositorySyncEnabled: (id, enabled) =>
-          Effect.sync(() => {
-            assert.strictEqual(id, "701")
-            assert.isFalse(enabled)
-            return true
-          }),
+        requestRepository: () =>
+          Effect.fail(
+            new SyncStatusError({
+              operation: "repositoryUnavailable",
+              message: "Repository paused. Resume it in repository settings before syncing.",
+            }),
+          ),
       },
       (handler) =>
         Effect.gen(function* () {
           const response = yield* Effect.promise(() =>
             handler(
               new Request("https://janitor.example/repositories/701/sync", {
-                method: "PUT",
-                headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
-                body: JSON.stringify({ enabled: false }),
+                method: "POST",
+                headers: { "sec-fetch-site": "same-origin" },
               }),
             ),
           )
-          assert.strictEqual(response.status, 204)
+          assert.strictEqual(response.status, 409)
+          assert.include(yield* Effect.promise(() => response.text()), "Resume")
         }),
+    ),
+  )
+  it.effect("rejects the retired separate sync control with repository pause guidance", () =>
+    withHandler(stub(), (handler) =>
+      Effect.gen(function* () {
+        const response = yield* Effect.promise(() =>
+          handler(
+            new Request("https://janitor.example/repositories/701/sync", {
+              method: "PUT",
+              headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+              body: JSON.stringify({ enabled: false }),
+            }),
+          ),
+        )
+        assert.strictEqual(response.status, 409)
+        assert.include(yield* Effect.promise(() => response.text()), "connection")
+      }),
     ),
   )
 

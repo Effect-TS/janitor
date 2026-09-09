@@ -18,7 +18,7 @@ const Services = Layer.mergeAll(SyncStatus.layer, SyncPlanner.layer).pipe(
 )
 
 layer(Services, { timeout: "2 minutes" })("Repository sync controls", (it) => {
-  it.effect("pauses sync independently, fences stale results, and bootstraps on re-enable", () =>
+  it.effect("pauses all repository work, fences stale results, and bootstraps on resume", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
       const targets = yield* SyncTargets
@@ -31,10 +31,10 @@ layer(Services, { timeout: "2 minutes" })("Repository sync controls", (it) => {
         VALUES (${repositoryId}, '77', 'test', 'offline', 'accessible', TRUE, 1)`
       const old = yield* targets.invalidate({ scope, sequence: Option.none() })
       yield* targets.begin(scope, old.generation)
-      assert.isTrue(yield* status.setRepositorySyncEnabled(repositoryId, false))
+      yield* planner.setRepositoryEnabled(repositoryId, false)
       assert.deepStrictEqual(
         yield* sql`SELECT enabled, sync_enabled, repo FROM github_repository`,
-        [{ enabled: true, sync_enabled: false, repo: "offline" }],
+        [{ enabled: false, sync_enabled: false, repo: "offline" }],
       )
       assert.isTrue(
         Option.isNone(yield* targets.withRun(scope, old.generation, Effect.succeed("stale"))),
@@ -59,17 +59,14 @@ layer(Services, { timeout: "2 minutes" })("Repository sync controls", (it) => {
       assert.deepStrictEqual(yield* sql`SELECT execution_key FROM workflow_outbox`, [
         { execution_key: "app:installations:1" },
       ])
-      assert.isTrue(yield* status.setRepositorySyncEnabled(repositoryId, true))
+      yield* planner.setRepositoryEnabled(repositoryId, true)
       const before = Option.getOrThrow(yield* targets.get(scope)).requestedGeneration
-      assert.isTrue(yield* status.setRepositorySyncEnabled(repositoryId, true))
+      yield* planner.setRepositoryEnabled(repositoryId, true)
       assert.strictEqual(Option.getOrThrow(yield* targets.get(scope)).requestedGeneration, before)
       assert.strictEqual(
         (yield* sql`SELECT * FROM workflow_outbox WHERE payload->'scope'->>'repositoryId' = ${repositoryId}`)
           .length,
-        4,
-      )
-      assert.isFalse(
-        yield* status.setRepositorySyncEnabled(GitHubRepositoryDatabaseId.make("99999"), false),
+        3,
       )
     }),
   )

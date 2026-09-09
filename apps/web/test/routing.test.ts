@@ -99,7 +99,7 @@ describe("application routing", () => {
     expect(initial(Routes.connect()).model.connections.returnPath).toBe("/")
   })
 
-  it("does not request sync when the selected repository has sync disabled", () => {
+  it("does not request sync when the selected repository is paused", () => {
     const model = loaded("/repositories/701/policies").model
     const disabled: Main.Model = {
       ...model,
@@ -112,7 +112,7 @@ describe("application routing", () => {
             owner: "Example",
             repo: "project",
             access: "accessible",
-            enabled: true,
+            enabled: false,
             syncEnabled: false,
             ruleCount: 0,
             policyCount: 1,
@@ -125,7 +125,7 @@ describe("application routing", () => {
     expect(
       Main.update(
         disabled,
-        Main.Message.GotSyncButtonMessage({ message: SyncButton.Message.PressedSync() }),
+        Main.Message.GotSyncButtonMessage({ message: SyncButton.Message.PressedSync({}) }),
       ).commands ?? [],
     ).toEqual([])
     const enabled = {
@@ -133,14 +133,14 @@ describe("application routing", () => {
       workspace: {
         ...disabled.workspace,
         repositories: Option.map(disabled.workspace.repositories, (rows) =>
-          rows.map((row) => ({ ...row, syncEnabled: true })),
+          rows.map((row) => ({ ...row, enabled: true, syncEnabled: true })),
         ),
       },
     }
     expect(
       Main.update(
         enabled,
-        Main.Message.GotSyncButtonMessage({ message: SyncButton.Message.PressedSync() }),
+        Main.Message.GotSyncButtonMessage({ message: SyncButton.Message.PressedSync({}) }),
       ).commands,
     ).toHaveLength(1)
   })
@@ -376,42 +376,6 @@ describe("mutation navigation", () => {
     expect(result.model.navigation.pendingDestination).toEqual(
       Option.some("/repositories/701/policies"),
     )
-  })
-
-  it("wakes sync monitoring after changing the sync setting", () => {
-    const initial = loaded("/repositories/701/settings").model
-    let model: Main.Model = {
-      ...initial,
-      sync: { ...initial.sync, isPolling: false },
-      workspace: {
-        ...initial.workspace,
-        repositories: Option.some([
-          {
-            repositoryId: "701",
-            owner: "test",
-            repo: "repo",
-            access: "accessible",
-            enabled: true,
-            syncEnabled: true,
-            policyCount: 1,
-            ruleCount: 0,
-            configuredRevision: 1,
-            activeRevision: 1,
-          },
-        ]),
-      },
-    }
-    model = send(
-      model,
-      Workspace.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
-    ).model
-    expect(Option.getOrThrow(model.workspace.repositories)[0]?.syncEnabled).toBe(false)
-    const saved = send(
-      model,
-      Workspace.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
-    )
-    expect(saved.model.sync.isPolling).toBe(true)
-    expect(saved.commands?.some((command) => command.name === "FetchSyncSummary")).toBe(true)
   })
 })
 

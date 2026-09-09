@@ -218,23 +218,6 @@ describe("Repositories", () => {
     )
   })
 
-  it("changes sync independently and refreshes the repository list after saving", () => {
-    const model = opened()
-    const clicked = Workspace.update(
-      model,
-      Workspace.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
-    )
-    expect(Option.getOrThrow(clicked.model.repositories)[0]?.syncEnabled).toBe(false)
-    expect(clicked.commands).toMatchObject([
-      { name: "SetRepositorySync", args: { repositoryId: "701", enabled: false } },
-    ])
-    const completed = Workspace.update(
-      clicked.model,
-      Workspace.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
-    )
-    expect(completed.commands?.map((command) => command.name)).toEqual(["FetchRepositories"])
-  })
-
   it("fetches the list and catalog, then loads the repository selected by navigation", () => {
     const { model, commands } = Workspace.init()
     expect(commands?.map((command) => command.name)).toEqual(["FetchRepositories", "FetchCatalog"])
@@ -438,35 +421,6 @@ describe("mutation reconciliation", () => {
         (command) => command.name === "FetchDetail",
       ),
     ).toHaveLength(0)
-  })
-
-  it("makes sync settings visible immediately and rejects obsolete list results", () => {
-    const polling = Workspace.refreshRepositories(ready())
-    const clicked = Workspace.update(
-      polling.model,
-      Workspace.Message.ClickedToggleSync({ repositoryId: "701", enabled: false }),
-    )
-    expect(Option.getOrThrow(clicked.model.repositories)[0]?.syncEnabled).toBe(false)
-    const pendingList = Workspace.update(
-      clicked.model,
-      Workspace.Message.GotRepositories({
-        requestId: Option.getOrThrow(polling.model.maybeRepositoriesRequest),
-        repositories: [one, two],
-      }),
-    )
-    expect(Option.getOrThrow(pendingList.model.repositories)[0]?.syncEnabled).toBe(false)
-    const saved = Workspace.update(
-      pendingList.model,
-      Workspace.Message.CompletedToggleSync({ repositoryId: "701", operationId: 1 }),
-    )
-    const oldList = Workspace.update(
-      saved.model,
-      Workspace.Message.GotRepositories({
-        requestId: Option.getOrThrow(polling.model.maybeRepositoriesRequest),
-        repositories: [one, two],
-      }),
-    )
-    expect(oldList.model).toBe(saved.model)
   })
 
   it("removes a deleted policy immediately without closing another policy", () => {
