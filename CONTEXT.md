@@ -39,7 +39,7 @@ Within a repository, at most one labeling rule may control a given label for a g
 A labeling rule that uses an AI prompt to evaluate an issue or pull request, subject to a minimum confidence threshold and an optional gate policy. Its label behavior is configurable for match and non-match results.
 
 **Unknown result**:
-An evaluation result indicating that Janitor cannot determine whether an issue or pull request matches, because required information is unavailable or AI classification is inconclusive. An unknown result preserves the existing label.
+An evaluation result indicating that Janitor cannot determine whether an issue or pull request matches, because required facts are missing or AI classification is inconclusive. Missing facts produce an unknown result rather than a non-match, preserving the existing label.
 _Avoid_: Unknown outcome
 
 **Not-applicable result**:
@@ -66,3 +66,44 @@ A label action requiring the label to be absent after evaluation, including when
 
 **Leave unchanged**:
 A label action that preserves whether the label is currently present or absent, including manual changes. A labeling group's exclusivity decision can still require its removal.
+
+### Repository connections and synchronization
+
+**Connected repository**:
+A GitHub repository explicitly selected for management in Janitor, with successful initial synchronization required before automation runs. GitHub App access makes a repository available to connect, but does not itself connect it.
+
+**Repository automation**:
+All Janitor automations operating on a repository, currently automatic labeling and including any automation types added in the future.
+
+**Paused repository**:
+A connected repository whose automations and synchronization pipeline are stopped, retaining its configuration and existing labels. Incoming webhook requests are acknowledged without saving their events, updating stored facts, or triggering automation.
+
+**Repository resumption**:
+The re-enabling of a paused repository, requiring successful synchronization against GitHub's current state before automation runs again. Events received while paused are not replayed.
+
+**Repository disconnection**:
+Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Labels already present on GitHub remain unchanged.
+
+**Access unavailable**:
+A repository state in which Janitor lacks the GitHub access needed to operate, stopping automation and synchronization while retaining configuration and stored data. Restoring access leaves deliberately paused repositories paused; otherwise, fresh synchronization is required before automation resumes.
+
+**Synchronization**:
+Janitor requesting current information from GitHub to refresh its stored facts, separately from updates received through webhook events.
+
+**Manual synchronization**:
+A user-requested synchronization that refreshes a repository's stored facts without triggering automation. It is unavailable while the repository is paused; the user must resume the repository first.
+
+**Automation blocked by synchronization failure**:
+A repository state in which a failed synchronization prevents all automation while configuration, stored facts, and existing labels are retained. Janitor retries synchronization automatically and resumes automation after successful synchronization unless the repository has been manually paused.
+
+**Automation readiness**:
+The state after successful initial synchronization or synchronization following repository resumption, in which new incoming webhook events may trigger automation. Becoming ready does not itself run automation on existing issues or pull requests.
+
+**Automatic labeling**:
+Evaluation of labeling rules for the open issue or pull request concerned by a new incoming webhook event, rather than every open item in the repository. Publishing a policy or changing a labeling rule affects future evaluations without triggering an immediate labeling run.
+
+**Automation recovery**:
+The clearing of a synchronization-failure block after successful synchronization, allowing future incoming webhook events to trigger automation. Recovery does not run catch-up automation or replay events received while blocked.
+
+**Webhook updates**:
+Changes to Janitor's stored facts from incoming GitHub webhook events. They continue while automation is blocked by synchronization failure, without running automation or clearing the block, but stop when the repository is manually paused.
