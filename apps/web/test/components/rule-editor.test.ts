@@ -43,6 +43,135 @@ const rule: RuleRecord = {
 }
 
 describe("RuleEditor", () => {
+  it("validates group membership and reserved priorities in the editor", () => {
+    const other = { ...rule, id: "r2", labelId: "12", priority: 7, enabled: false }
+    const model = RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      rules: [rule, other],
+      existing: Option.some(rule),
+    })
+    const collision = RuleEditor.update(
+      model,
+      RuleEditor.Message.UpdatedPriority({ value: "7" }),
+    ).model
+    expect(RuleEditor.draftIssues(collision)).toContain(
+      "Priority 7 is reserved by another group member, including disabled rules. Use reordering to swap priorities.",
+    )
+    const aiModel = RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      rules: [other],
+      existing: Option.some({
+        ...rule,
+        ai: { target: "issue", prompt: "Review {{fact:title}}", minimumConfidence: 0.8 },
+      }),
+    })
+    expect(RuleEditor.draftIssues(aiModel)).toContain(
+      "This labeling group targets pull_request. Choose another group for this target.",
+    )
+    Scene.scene(
+      { update: RuleEditor.update, view: Scene.withViewInputs(RuleEditor.view, {})() },
+      Scene.given(model),
+      Scene.expect(Scene.text("Move up")).toExist(),
+    )
+  })
+  it("accepts the reordered priority while preserving unrelated edits made during the request", () => {
+    const other = { ...rule, id: "r2", labelId: "12", priority: 7, enabled: false }
+    const model = RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      rules: [rule, other],
+      existing: Option.some(rule),
+    })
+    const pending = RuleEditor.update(
+      model,
+      RuleEditor.Message.MovedGroupRule({ ruleId: "r1", direction: "up" }),
+    ).model
+    const edited = RuleEditor.update(
+      pending,
+      RuleEditor.Message.ToggledEnabled({ isChecked: false }),
+    ).model
+    const result = RuleEditor.update(
+      edited,
+      RuleEditor.Message.SucceededReorderGroup({
+        operationId: 1,
+        rules: [
+          { ...other, priority: 3, version: 2 },
+          { ...rule, priority: 7, version: 2 },
+        ],
+      }),
+    )
+    expect(result.model.priority).toBe("7")
+    expect(result.model.enabled).toBe(false)
+    expect(RuleEditor.draftIssues(result.model)).toEqual([])
+    expect(RuleEditor.hasUnsavedChanges(result.model)).toBe(true)
+    const saving = RuleEditor.update(result.model, RuleEditor.Message.ClickedSave())
+    expect(saving.model.submission._tag).toBe("Submitting")
+    const priorityEdit = RuleEditor.update(
+      pending,
+      RuleEditor.Message.UpdatedPriority({ value: "9" }),
+    ).model
+    const preserved = RuleEditor.update(
+      priorityEdit,
+      RuleEditor.Message.SucceededReorderGroup({
+        operationId: 1,
+        rules: [
+          { ...other, priority: 3, version: 2 },
+          { ...rule, priority: 7, version: 2 },
+        ],
+      }),
+    )
+    expect(preserved.model.priority).toBe("9")
+  })
+  it("reorders a group including disabled members with one versioned request", () => {
+    const other = { ...rule, id: "r2", labelId: "12", priority: 7, enabled: false }
+    const model = RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      rules: [rule, other],
+      existing: Option.some(rule),
+    })
+    Story.story(
+      RuleEditor.update,
+      Story.given(model),
+      Story.message(RuleEditor.Message.MovedGroupRule({ ruleId: "r1", direction: "up" })),
+      Story.Command.resolve(
+        RuleEditor.ReorderGroup({
+          repositoryId: "701",
+          group: "size",
+          operationId: 1,
+          rules: [
+            { id: "r2", version: 1, priority: 3 },
+            { id: "r1", version: 1, priority: 7 },
+          ],
+        }),
+        RuleEditor.Message.SucceededReorderGroup({
+          operationId: 1,
+          rules: [
+            { ...other, priority: 3, version: 2 },
+            { ...rule, priority: 7, version: 2 },
+          ],
+        }),
+      ),
+      Story.model((next) => {
+        expect(next.priority).toBe("7")
+        expect(next.identity).toEqual({ _tag: "Existing", ruleId: "r1", version: 2 })
+        expect(RuleEditor.hasUnsavedChanges(next)).toBe(false)
+      }),
+      Story.expectOutMessage(
+        RuleEditor.OutMessage.Saved({
+          rule: { ...rule, priority: 7, version: 2 },
+          closeEditor: false,
+        }),
+      ),
+    )
+  })
+
   it("identifies the label owner after a rejected save and retains the draft", () => {
     const model = RuleEditor.init({
       repositoryId: "701",

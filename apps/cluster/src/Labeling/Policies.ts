@@ -30,6 +30,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 import { recordAudit } from "./Audit.ts"
+import { groupIssues } from "./Groups.ts"
 import { labelOwnershipConflict } from "./Ownership.ts"
 import {
   LabelingConfiguration,
@@ -408,7 +409,7 @@ export class Policies extends Context.Service<
       target: Program["target"],
     ) {
       const rules = yield* sql`
-        SELECT rule_id, label_id FROM labeling_rule
+        SELECT rule_id, label_id, rule_group, priority FROM labeling_rule
         WHERE repository_id = ${repositoryId} AND policy_id = ${policyId}
       `.pipe(
         Effect.flatMap(
@@ -416,6 +417,8 @@ export class Policies extends Context.Service<
             Schema.Array(
               Schema.Struct({
                 rule_id: RuleId,
+                rule_group: Schema.NullOr(Schema.String),
+                priority: Schema.Int,
                 label_id: GitHubLabelDatabaseId,
               }),
             ),
@@ -432,6 +435,19 @@ export class Policies extends Context.Service<
           rule.rule_id,
         ).pipe(wrap("ownership"))
         if (conflict) return yield* new PolicyInvalid({ message: conflict })
+        const issues = yield* groupIssues(
+          sql,
+          repositoryId,
+          rule.rule_group,
+          target,
+          rule.priority,
+          rule.rule_id,
+          policyId,
+        ).pipe(wrap("group"))
+        if (issues.length)
+          return yield* new PolicyInvalid({
+            message: issues.map((issue) => issue.message).join("; "),
+          })
       }
     })
 

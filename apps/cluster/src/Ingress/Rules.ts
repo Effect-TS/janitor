@@ -13,6 +13,7 @@ import {
   CreatePolicyRequest,
   CreateRuleRequest,
   PatchRuleRequest,
+  ReorderGroupRequest,
   PolicyDetail,
   PolicyRecord,
   PolicyVersionRecord,
@@ -50,6 +51,7 @@ import {
 import {
   LabelingRules,
   type RuleConflict,
+  type GroupConflict,
   type RuleInvalid,
   type RuleNotFound,
 } from "../Labeling/Rules.ts"
@@ -106,6 +108,7 @@ type Handled =
   | PolicyInUse
   | RuleNotFound
   | RuleConflict
+  | GroupConflict
   | RuleInvalid
 
 const handledTags: ReadonlySet<string> = new Set([
@@ -119,6 +122,7 @@ const handledTags: ReadonlySet<string> = new Set([
   "PolicyInUse",
   "RuleNotFound",
   "RuleConflict",
+  "GroupConflict",
   "RuleInvalid",
 ])
 
@@ -154,6 +158,8 @@ const respond = (error: Handled) => {
         },
         { status: 409 },
       )
+    case "GroupConflict":
+      return respondMessage({ message: error.message }, { status: 409 })
     case "RuleConflict":
       return json(RuleRecord)(error.current, { status: 409 })
     case "RuleInvalid":
@@ -343,6 +349,17 @@ const reads = HttpRouter.addAll([
 ])
 
 const writes = HttpRouter.addAll([
+  HttpRouter.route(
+    "POST",
+    "/repositories/:repositoryId/rules/reorder",
+    Effect.gen(function* () {
+      const { repositoryId } = yield* repositoryPath
+      const request = yield* body(ReorderGroupRequest)
+      return yield* json(Schema.Array(RuleRecord))(
+        yield* (yield* LabelingRules).reorder(repositoryId, request, yield* actor),
+      )
+    }).pipe(handled("reorderGroup")),
+  ),
   HttpRouter.route(
     "POST",
     "/repositories/:repositoryId/rules/validate",

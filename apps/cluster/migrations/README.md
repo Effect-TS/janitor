@@ -73,3 +73,29 @@ PostgreSQL repository-row lock. Ownership follows the published target until a
 replacement is published. Publication rechecks ownership because a label may
 have been claimed since the draft was saved. Direct SQL writers must use the same
 lock and checks; the lookup index is not a uniqueness constraint.
+
+## Labeling groups
+
+`0017_labeling_groups.sql` checks mixed published targets and duplicate priorities
+within each repository's named group, including disabled rules. It aborts with
+repository, group, rule IDs, targets, and priorities. Resolve these conflicts using
+the previous release, splitting mixed-target groups and choosing unique priorities.
+The old release still gives smaller numbers precedence during resolution.
+
+Stop old workers before applying the migration. It converts grouped priorities
+using `-priority - 1`, preserving the old winner order across the full PostgreSQL
+integer range. Ungrouped priorities stay unchanged. Grouped rule versions advance
+so stale editor saves fail. Each affected repository receives a new configuration
+revision with the converted priorities and disabled members, fencing pending
+legacy evaluations. Existing fact preparation carries forward. Historical
+configurations, recorded decisions, and GitHub labels remain unchanged. Start the
+new release after migration succeeds; this does not schedule labeling runs.
+
+Groups are identified by repository and name. Their members' current published
+targets must agree. Removing the last member releases the name and target.
+Rule writes and policy target changes check membership and priority under
+`withRepositoryMutation`. Reordering sends every member's ID, observed version,
+and final priority to `POST /repositories/:repositoryId/rules/reorder`. The server
+rejects changed membership or versions with 409 and duplicate priorities with 422,
+then applies accepted changes with one audit per member and one new revision.
+Direct SQL writers must follow the same lock and validation protocol.
