@@ -111,15 +111,15 @@ describe("PayloadCipher", () => {
       Effect.provide(
         PayloadCipher.layer(
           PayloadCipher.config({
-            key: "GITHUB_WEBHOOK_PAYLOAD_KEY",
-            keyId: "GITHUB_WEBHOOK_PAYLOAD_KEY_ID",
+            key: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY",
+            keyId: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID",
           }),
         ).pipe(
           Layer.provide(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                GITHUB_WEBHOOK_PAYLOAD_KEY: Encoding.encodeBase64(key),
-                GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "config-key",
+                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: Encoding.encodeBase64(key),
+                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "config-key",
               }),
             ),
           ),
@@ -133,15 +133,15 @@ describe("PayloadCipher", () => {
       const exit = yield* Layer.build(
         PayloadCipher.layer(
           PayloadCipher.config({
-            key: "GITHUB_WEBHOOK_PAYLOAD_KEY",
-            keyId: "GITHUB_WEBHOOK_PAYLOAD_KEY_ID",
+            key: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY",
+            keyId: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID",
           }),
         ).pipe(
           Layer.provide(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                GITHUB_WEBHOOK_PAYLOAD_KEY: Encoding.encodeBase64(new Uint8Array(16)),
-                GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "key",
+                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: Encoding.encodeBase64(new Uint8Array(16)),
+                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "key",
               }),
             ),
           ),

@@ -61,7 +61,7 @@ export const declare = Effect.fnUntraced(function* (options: {
   readonly stage: string
 }) {
   if (options.dev || (yield* ALCHEMY_PHASE) === "runtime") return undefined
-  const identityProviderId = yield* requiredText("ACCESS_GITHUB_IDP_ID")
+  const identityProviderId = yield* requiredText("CLOUDFLARE_ACCESS_GITHUB_IDP_ID")
   const app = yield* application(options.domain, options.stage, identityProviderId)
   yield* webhookBypass(options.domain, options.stage)
   return app

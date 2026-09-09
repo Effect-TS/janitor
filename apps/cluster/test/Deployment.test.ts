@@ -9,15 +9,17 @@ describe("deployment configuration", () => {
   it.effect("requires an identity provider ID rather than the example placeholder", () =>
     Effect.gen(function* () {
       assert.strictEqual(
-        yield* requiredText("ACCESS_GITHUB_IDP_ID").pipe(
-          Effect.provide(config({ ACCESS_GITHUB_IDP_ID: "01234567-89ab-cdef-0123-456789abcdef" })),
+        yield* requiredText("CLOUDFLARE_ACCESS_GITHUB_IDP_ID").pipe(
+          Effect.provide(
+            config({ CLOUDFLARE_ACCESS_GITHUB_IDP_ID: "01234567-89ab-cdef-0123-456789abcdef" }),
+          ),
         ),
         "01234567-89ab-cdef-0123-456789abcdef",
       )
       assert.strictEqual(
         (yield* Effect.flip(
-          requiredText("ACCESS_GITHUB_IDP_ID").pipe(
-            Effect.provide(config({ ACCESS_GITHUB_IDP_ID: "CHANGE_ME" })),
+          requiredText("CLOUDFLARE_ACCESS_GITHUB_IDP_ID").pipe(
+            Effect.provide(config({ CLOUDFLARE_ACCESS_GITHUB_IDP_ID: "CHANGE_ME" })),
           ),
         ))._tag,
         "ConfigError",
