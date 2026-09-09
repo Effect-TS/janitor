@@ -119,7 +119,8 @@ layer(services, { timeout: "2 minutes" })("AI evaluation results", (it) => {
           {
             ai: { target: "pull_request", prompt: "Read {{fact:title}}", minimumConfidence: 0.8 },
             labelId: bug,
-            onNoMatch: "preserve",
+            onMatch: "ensure-present",
+            onNoMatch: "no-action",
             group: "kind",
             priority: 0,
             enabled: true,
@@ -152,6 +153,7 @@ layer(services, { timeout: "2 minutes" })("AI evaluation results", (it) => {
               {
                 policyId: policy.policy.policyId,
                 labelId,
+                onMatch: "ensure-present",
                 onNoMatch: "ensure-absent",
                 group,
                 priority: 1,

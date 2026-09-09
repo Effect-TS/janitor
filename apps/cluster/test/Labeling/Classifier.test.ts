@@ -100,31 +100,13 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       assert.include(bad.message, "not listed as evidence")
       const published = yield* policies.publish(repositoryId, created.policy.policyId, 1, actor)
 
-      // Bound rules may only preserve on a miss.
-      const rejected = yield* Effect.flip(
-        rules.create(
-          repositoryId,
-          {
-            labelId: bug,
-            policyId: created.policy.policyId,
-            onNoMatch: "ensure-absent",
-            group: null,
-            priority: 0,
-            enabled: true,
-          },
-          actor,
-        ),
-      )
-      assert.strictEqual(
-        rejected._tag === "RuleInvalid" ? rejected.issues[0]?.code : rejected._tag,
-        "classifier-preserve-only",
-      )
       yield* rules.create(
         repositoryId,
         {
           labelId: bug,
           policyId: created.policy.policyId,
-          onNoMatch: "preserve",
+          onMatch: "ensure-present" as const,
+          onNoMatch: "ensure-absent",
           group: null,
           priority: 0,
           enabled: true,
@@ -330,7 +312,8 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       const request = {
         ai,
         labelId: bug,
-        onNoMatch: "preserve" as const,
+        onMatch: "ensure-present" as const,
+        onNoMatch: "no-action" as const,
         group: null,
         priority: 0,
         enabled: true,

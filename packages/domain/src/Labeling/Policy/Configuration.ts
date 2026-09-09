@@ -7,7 +7,7 @@ import { SyncFreshness, SyncGeneration } from "../../GitHub/Sync.ts"
 import { Manifest } from "./Compile.ts"
 import { PolicyId } from "./Condition.ts"
 import { FactTrack } from "./Facts.ts"
-import { OnNoMatch, RuleBinding, RuleGroup, RuleId } from "./Plan.ts"
+import { ResultAction, RuleBinding, RuleGroup, RuleId } from "./Plan.ts"
 import { PolicyTarget, Program, ProgramSource } from "./Program.ts"
 
 /**
@@ -138,7 +138,8 @@ export const CreateRuleRequest = Schema.Struct({
   ai: Schema.optionalKey(AiRuleDefinition),
   labelId: GitHubLabelDatabaseId,
   policyId: Schema.optionalKey(PolicyId),
-  onNoMatch: OnNoMatch.pipe(Schema.withDecodingDefaultKey(Effect.succeed("preserve"))),
+  onMatch: RuleBinding.fields.onMatch,
+  onNoMatch: ResultAction.pipe(Schema.withDecodingDefaultKey(Effect.succeed("no-action"))),
   group: Schema.NullOr(RuleGroup).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   priority: Schema.Int.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
@@ -150,7 +151,8 @@ export const PatchRuleRequest = Schema.Struct({
   version: Schema.Int,
   labelId: Schema.optionalKey(GitHubLabelDatabaseId),
   policyId: Schema.optionalKey(PolicyId),
-  onNoMatch: Schema.optionalKey(OnNoMatch),
+  onMatch: Schema.optionalKey(ResultAction),
+  onNoMatch: Schema.optionalKey(ResultAction),
   group: Schema.optionalKey(Schema.NullOr(RuleGroup)),
   priority: Schema.optionalKey(Schema.Int),
   enabled: Schema.optionalKey(Schema.Boolean),
@@ -163,7 +165,6 @@ export const RuleIssueCode = Schema.Literals([
   "duplicate-label",
   "policy-not-published",
   "policy-target-mismatch",
-  "classifier-preserve-only",
   "invalid-ai-rule",
 ]).annotate({ identifier: "RuleIssueCode" })
 export type RuleIssueCode = typeof RuleIssueCode.Type

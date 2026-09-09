@@ -155,7 +155,8 @@ layer(Services, { timeout: "2 minutes" })("Event-driven labeling", (it) => {
           {
             labelId: bug,
             policyId: policy.policy.policyId,
-            onNoMatch: "preserve",
+            onMatch: "ensure-present",
+            onNoMatch: "no-action",
             group: null,
             priority: 0,
             enabled: true,

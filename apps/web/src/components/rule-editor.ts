@@ -1,3 +1,4 @@
+import { resultAction, describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Clock from "effect/Clock"
 import { AiInputDetails } from "@/components/labeling-wire"
 import { aiInputView, InputInspection } from "@/components/ai-input-view"
@@ -27,7 +28,8 @@ import * as Button from "@/components/ui/button"
 import { input, inputClass } from "@/components/ui/input"
 import {
   ConfigurationView,
-  OnNoMatch,
+  ResultAction,
+  type Outcome,
   PolicyRecord,
   RuleIssue,
   RuleRecord,
@@ -74,7 +76,8 @@ export const Model = Schema.Struct({
   identity: Identity,
   maybeLabelId: Schema.Option(Schema.String),
   maybePolicyId: Schema.Option(Schema.String),
-  onNoMatch: OnNoMatch,
+  onMatch: ResultAction,
+  onNoMatch: ResultAction,
   group: Schema.String,
   priority: Schema.String,
   enabled: Schema.Boolean,
@@ -130,6 +133,7 @@ export const Message = defineMessageUnion({
   FailedPromptEditor: { reason: Schema.String },
   SelectedLabel: { labelId: Schema.String },
   UpdatedPolicy: { value: Schema.String },
+  UpdatedOnMatch: { value: Schema.String },
   UpdatedOnNoMatch: { value: Schema.String },
   UpdatedGroup: { value: Schema.String },
   UpdatedPriority: { value: Schema.String },
@@ -232,7 +236,8 @@ const Payload = {
   identity: Identity,
   labelId: Schema.String,
   policyId: Schema.String,
-  onNoMatch: OnNoMatch,
+  onMatch: ResultAction,
+  onNoMatch: ResultAction,
   group: Schema.NullOr(Schema.String),
   priority: Schema.Int,
   enabled: Schema.Boolean,
@@ -254,6 +259,7 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
     identity,
     labelId,
     policyId,
+    onMatch,
     onNoMatch,
     group,
     priority,
@@ -264,7 +270,8 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
         requestId,
         labelId,
         ...(ai ? { ai } : { policyId }),
-        onNoMatch: ai ? "preserve" : onNoMatch,
+        onMatch,
+        onNoMatch,
         group,
         priority,
         enabled,
@@ -394,8 +401,11 @@ const initialize = (input: {
       }),
       maybeLabelId: Option.map(input.existing, (rule) => rule.labelId),
       maybePolicyId: Option.map(input.existing, (rule) => rule.policyId),
+      onMatch: Option.map(input.existing, (rule) => rule.onMatch).pipe(
+        Option.getOrElse((): ResultAction => "ensure-present"),
+      ),
       onNoMatch: Option.map(input.existing, (rule) => rule.onNoMatch).pipe(
-        Option.getOrElse((): OnNoMatch => "ensure-absent"),
+        Option.getOrElse((): ResultAction => "ensure-absent"),
       ),
       group: Option.flatMap(input.existing, (rule) => Option.fromNullishOr(rule.group)).pipe(
         Option.getOrElse(() => ""),
@@ -430,6 +440,7 @@ const snapshot = (model: Model): string =>
   JSON.stringify([
     Option.getOrNull(model.maybeLabelId),
     Option.getOrNull(model.maybePolicyId),
+    model.onMatch,
     model.onNoMatch,
     model.group,
     model.priority,
@@ -481,7 +492,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         minimumConfidence: 0.8,
                       }
                     : null,
-                onNoMatch: () => "preserve" as const,
               }),
             ),
           },
@@ -530,10 +540,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         evo(model, { maybePolicyId: () => (value === "" ? Option.none() : Option.some(value)) }),
       ),
     }),
+    UpdatedOnMatch: ({ value }) => ({
+      model: Schema.is(ResultAction)(value) ? edited(evo(model, { onMatch: () => value })) : model,
+    }),
     UpdatedOnNoMatch: ({ value }) => ({
-      model: edited(
-        evo(model, { onNoMatch: () => (value === "preserve" ? "preserve" : "ensure-absent") }),
-      ),
+      model: Schema.is(ResultAction)(value)
+        ? edited(evo(model, { onNoMatch: () => value }))
+        : model,
     }),
     UpdatedGroup: ({ value }) => ({ model: edited(evo(model, { group: () => value })) }),
     UpdatedPriority: ({ value }) => ({ model: edited(evo(model, { priority: () => value })) }),
@@ -569,6 +582,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     .references,
                 }
               : {}),
+            onMatch: model.onMatch,
             onNoMatch: model.onNoMatch,
             group: model.group.trim() === "" ? null : model.group.trim(),
             priority: Number(model.priority.trim() === "" ? "0" : model.priority.trim()),
@@ -844,7 +858,7 @@ const step = (
 /** A single-rule preview uses a real published policy evaluation, never changes labels. */
 export const previewAction = (
   model: Model,
-  outcome: string,
+  outcome: Outcome,
   labels: ReadonlyArray<string>,
 ): string => {
   if (!model.enabled) return "Rule is disabled; labels stay unchanged."
@@ -857,12 +871,17 @@ export const previewAction = (
     model.labels,
     Option.getOrElse(model.maybeLabelId, () => ""),
   )
-  if (outcome === "match") return present ? `${name} is already applied.` : `Add ${name}`
-  return model.onNoMatch === "preserve"
-    ? "Leave labels unchanged"
-    : present
-      ? `Remove ${name}`
-      : `${name} is already absent.`
+  const action = resultAction(model, outcome)
+  if (action === "no-action") return describeResultAction(action)
+  const change =
+    action === "ensure-present"
+      ? present
+        ? "Already present"
+        : "Add label"
+      : present
+        ? "Remove label"
+        : "Already absent"
+  return `${describeResultAction(action)}: ${name} · ${change}`
 }
 
 const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
@@ -1063,7 +1082,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                         model.ai
                           ? "Use the referenced facts to decide whether this label applies."
                           : policy && label
-                            ? `Apply ${label.name} to ${policy.target === "issue" ? "issues" : "pull requests"} that match ${policy.name}.`
+                            ? `Manage ${label.name} on ${policy.target === "issue" ? "issues" : "pull requests"} using ${policy.name}.`
                             : "Choose a published policy and the label it manages.",
                       ],
                     ),
@@ -1128,7 +1147,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                           step(h, "2", "Then", [
                             selectField(h, {
                               id: "rule-label",
-                              label: "Add a GitHub label",
+                              label: "GitHub label",
                               value: Option.getOrElse(model.maybeLabelId, () => ""),
                               options: [
                                 ["", "Choose a label…"],
@@ -1152,32 +1171,34 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                               [h.Class("mt-3 text-xs text-muted-foreground")],
                               [
                                 model.labels.length
-                                  ? "Already present? Leave it in place."
+                                  ? "Choose what happens to this label for each result below."
                                   : "No labels synchronized yet.",
                               ],
                             ),
                           ]),
-                          step(h, "3", "Otherwise", [
-                            selectField(h, {
-                              id: "rule-on-no-match",
-                              label: "When it does not match",
-                              value: model.onNoMatch,
-                              options: [
-                                ["ensure-absent", "Remove the label"],
-                                ["preserve", "Leave unchanged"],
-                              ],
-                              onChange: (value) => Message.UpdatedOnNoMatch({ value }),
-                            }),
-                            h.p(
-                              [h.Class("mt-3 text-xs text-muted-foreground")],
-                              [
-                                model.onNoMatch === "preserve"
-                                  ? "Keep the current label state if the policy does not match."
-                                  : "Remove this label if the policy stops matching.",
-                              ],
-                            ),
-                          ]),
                         ]),
+                    step(h, "3", "Result actions", [
+                      ...(["match", "no-match"] as const).map((outcome) =>
+                        selectField(h, {
+                          id: outcome === "match" ? "rule-on-match" : "rule-on-no-match",
+                          label: outcome === "match" ? "When it matches" : "When it does not match",
+                          value: outcome === "match" ? model.onMatch : model.onNoMatch,
+                          options: ResultAction.literals.map(
+                            (action) => [action, describeResultAction(action)] as const,
+                          ),
+                          onChange: (value) =>
+                            outcome === "match"
+                              ? Message.UpdatedOnMatch({ value })
+                              : Message.UpdatedOnNoMatch({ value }),
+                        }),
+                      ),
+                      h.p(
+                        [h.Class("mt-3 text-xs text-muted-foreground")],
+                        [
+                          "Ensure present restores manually removed labels. Ensure absent removes manually added labels. Take no action makes no label request.",
+                        ],
+                      ),
+                    ]),
                     Disclosure.view(
                       {
                         id: "rule-grouping",
@@ -1557,7 +1578,7 @@ const aiFields = (h: HtmlBuilder<Message>, model: Model): Html => {
                   ),
                   h.p(
                     [h.Class("text-xs text-muted-foreground mt-1")],
-                    ["Leave labels unchanged below this model-reported score."],
+                    ["Below this score, use the non-match action."],
                   ),
                 ],
               ),

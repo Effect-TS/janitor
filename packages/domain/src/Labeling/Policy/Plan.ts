@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { GitHubLabelDatabaseId } from "../../GitHub/Id.ts"
 import { PolicyId } from "./Condition.ts"
@@ -5,7 +6,7 @@ import { Outcome } from "./Program.ts"
 
 /**
  * Rules and the planner (plan: "Rules", "Plan"). A rule binds one label to
- * one policy and says what a miss means. The planner turns outcomes into
+ * one policy and configures an action for each conclusive result. The planner turns outcomes into
  * label changes without knowing how any outcome was produced.
  */
 
@@ -16,10 +17,32 @@ export const RuleId = Schema.String.check(Schema.isMinLength(1))
   })
 export type RuleId = typeof RuleId.Type
 
-export const OnNoMatch = Schema.Literals(["ensure-absent", "preserve"]).annotate({
-  identifier: "OnNoMatch",
+export const ResultAction = Schema.Literals([
+  "ensure-present",
+  "ensure-absent",
+  "no-action",
+]).annotate({
+  identifier: "ResultAction",
 })
-export type OnNoMatch = typeof OnNoMatch.Type
+export type ResultAction = typeof ResultAction.Type
+
+/** Unknown, failed, and not-applicable results never request a label change. */
+export const resultAction = (
+  rule: { readonly onMatch: ResultAction; readonly onNoMatch: ResultAction },
+  outcome: Outcome,
+): ResultAction =>
+  outcome === "match" ? rule.onMatch : outcome === "no-match" ? rule.onNoMatch : "no-action"
+
+export const describeResultAction = (action: ResultAction): string => {
+  switch (action) {
+    case "ensure-present":
+      return "Ensure present"
+    case "ensure-absent":
+      return "Ensure absent"
+    case "no-action":
+      return "Take no action"
+  }
+}
 
 export const RuleGroup = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))
 
@@ -28,7 +51,8 @@ export const RuleBinding = Schema.Struct({
   id: RuleId,
   labelId: GitHubLabelDatabaseId,
   policyId: PolicyId,
-  onNoMatch: OnNoMatch,
+  onMatch: ResultAction.pipe(Schema.withDecodingDefaultKey(Effect.succeed("ensure-present"))),
+  onNoMatch: ResultAction,
   /** Rules in one group are exclusive: the matching rule with the lowest priority wins. */
   group: Schema.NullOr(RuleGroup),
   priority: Schema.Int,
@@ -39,8 +63,10 @@ export type RuleBinding = typeof RuleBinding.Type
 export const RuleOutcome = Schema.Struct({
   ruleId: RuleId,
   outcome: Outcome,
-  /** True when the rule matched and won its group, or has no group. */
+  /** True when the rule requests presence and won its group, or has no group. */
   selected: Schema.Boolean,
+  /** Absent in activity recorded before configurable result actions. */
+  requestedAction: Schema.optionalKey(ResultAction),
 }).annotate({ identifier: "RuleOutcome" })
 export type RuleOutcome = typeof RuleOutcome.Type
 
@@ -65,10 +91,10 @@ export interface PlanInput {
 }
 
 /**
- * 1. Matching rules are candidates; within a group the lowest priority wins
- *    and the rest are treated as misses.
+ * 1. Rules requesting presence are candidates; the lowest group priority wins.
  * 2. A selected rule wants its label present.
- * 3. A missing rule with ensure-absent wants its label absent.
+ * 3. Each conclusive result uses its configured action. Losing presence requests
+ *    retain the legacy group removal behavior until group exclusivity is migrated.
  * 4. Unknown and failed preserve the label and block their entire group.
  *    Not-applicable wants nothing without blocking its group.
  * 5. Per label, present beats absent.
@@ -101,7 +127,7 @@ export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
     if (
       rule.group === null ||
       protectedLabels.has(rule.labelId) ||
-      outcomes.get(rule.id) !== "match"
+      resultAction(rule, outcomes.get(rule.id) ?? "unknown") !== "ensure-present"
     )
       continue
     const current = winners.get(rule.group)
@@ -122,18 +148,27 @@ export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
   for (const rule of enabled) {
     const outcome = outcomes.get(rule.id) ?? "unknown"
     if (protectedLabels.has(rule.labelId)) {
-      ruleOutcomes.push({ ruleId: rule.id, outcome, selected: false })
+      ruleOutcomes.push({ ruleId: rule.id, outcome, selected: false, requestedAction: "no-action" })
       continue
     }
     const won = rule.group === null || winners.get(rule.group) === rule.id
-    const selected = outcome === "match" && won
-    ruleOutcomes.push({ ruleId: rule.id, outcome, selected })
+    const action = resultAction(rule, outcome)
+    const selected = action === "ensure-present" && won
     if (selected) {
+      ruleOutcomes.push({ ruleId: rule.id, outcome, selected, requestedAction: "ensure-present" })
       if (!wantPresent.has(rule.labelId)) wantPresent.set(rule.labelId, rule.id)
       continue
     }
-    const missed = outcome === "no-match" || (outcome === "match" && !won)
-    if (missed && rule.onNoMatch === "ensure-absent" && !wantAbsent.has(rule.labelId)) {
+    const remove =
+      action === "ensure-absent" ||
+      (action === "ensure-present" && !won && rule.onNoMatch === "ensure-absent")
+    ruleOutcomes.push({
+      ruleId: rule.id,
+      outcome,
+      selected,
+      requestedAction: remove ? "ensure-absent" : "no-action",
+    })
+    if (remove && !wantAbsent.has(rule.labelId)) {
       wantAbsent.set(rule.labelId, rule.id)
     }
   }

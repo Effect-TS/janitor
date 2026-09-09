@@ -58,6 +58,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
           {
             labelId: bug,
             policyId: created.policy.policyId,
+            onMatch: "ensure-present",
             onNoMatch: "ensure-absent",
             group: null,
             priority: 0,
@@ -90,6 +91,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         {
           labelId: bug,
           policyId: created.policy.policyId,
+          onMatch: "ensure-present",
           onNoMatch: "ensure-absent",
           group: null,
           priority: 0,
@@ -458,7 +460,8 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         {
           labelId: bug,
           policyId: consumer.policy.policyId,
-          onNoMatch: "preserve",
+          onMatch: "ensure-present",
+          onNoMatch: "no-action",
           group: null,
           priority: 0,
           enabled: true,
@@ -558,7 +561,8 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         {
           labelId: bug,
           policyId: base.policyId,
-          onNoMatch: "preserve",
+          onMatch: "ensure-present",
+          onNoMatch: "no-action",
           group: null,
           priority: 0,
           enabled: true,
@@ -576,7 +580,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       assert.deepStrictEqual([...outcomes].sort(), ["RuleConflict", "Saved"])
     }),
   )
-  it.effect("prevents classifier conversion while a rule removes labels on no match", () =>
+  it.effect("allows classifier conversion without changing configured result actions", () =>
     Effect.gen(function* () {
       const policies = yield* Policies
       const rules = yield* LabelingRules
@@ -591,6 +595,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         {
           labelId: bug,
           policyId: created.policy.policyId,
+          onMatch: "ensure-present",
           onNoMatch: "ensure-absent",
           group: null,
           priority: 0,
@@ -611,21 +616,11 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         source,
         Option.some(created.policy.policyId),
       )
-      assert.strictEqual(validation._tag, "Invalid")
+      assert.strictEqual(validation._tag, "Valid")
       const edited = yield* policies.save(
         repositoryId,
         created.policy.policyId,
         { version: published.policy.version, source },
-        actor,
-      )
-      const blocked = yield* Effect.flip(
-        policies.publish(repositoryId, created.policy.policyId, edited.policy.version, actor),
-      )
-      assert.strictEqual(blocked._tag, "PolicyInvalid")
-      yield* rules.patch(
-        repositoryId,
-        rule.id,
-        { version: rule.version, onNoMatch: "preserve" },
         actor,
       )
       const converted = yield* policies.publish(
@@ -635,6 +630,10 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         actor,
       )
       assert.strictEqual(converted.published?.program.evaluator._tag, "Classifier")
+      assert.strictEqual(
+        (yield* rules.list(repositoryId)).find((entry) => entry.id === rule.id)?.onNoMatch,
+        "ensure-absent",
+      )
     }),
   )
   it.effect("retains an unbound policy's versions when configuration history uses them", () =>
@@ -653,7 +652,8 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         {
           labelId: bug,
           policyId: created.policy.policyId,
-          onNoMatch: "preserve",
+          onMatch: "ensure-present",
+          onNoMatch: "no-action",
           group: null,
           priority: 0,
           enabled: true,

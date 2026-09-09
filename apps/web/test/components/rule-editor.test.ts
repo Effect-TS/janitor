@@ -31,7 +31,8 @@ const rule: RuleRecord = {
   repositoryId: "701",
   labelId: "11",
   policyId: "p1",
-  onNoMatch: "preserve",
+  onMatch: "ensure-present",
+  onNoMatch: "no-action",
   group: "size",
   priority: 3,
   enabled: true,
@@ -69,6 +70,7 @@ describe("RuleEditor", () => {
           identity: { _tag: "New" },
           labelId: "11",
           policyId: "p1",
+          onMatch: "ensure-present",
           onNoMatch: "ensure-absent",
           group: "size",
           priority: 3,
@@ -395,8 +397,8 @@ describe("rule flow testing", () => {
     )
     expect(
       RuleEditor.previewAction({ ...fresh(), onNoMatch: "ensure-absent" }, "no-match", ["11"]),
-    ).toBe("Remove bug")
-    expect(RuleEditor.previewAction(fresh(), "match", [])).toBe("Add bug")
+    ).toBe("Ensure absent: bug · Remove label")
+    expect(RuleEditor.previewAction(fresh(), "match", [])).toBe("Ensure present: bug · Add label")
   })
 })
 
@@ -486,4 +488,74 @@ it("requires confirmation before deleting a rule and supports cancellation", () 
   const confirmed = RuleEditor.update(opened.model, RuleEditor.Message.ConfirmedDelete())
   expect(confirmed.outMessage).toEqual({ _tag: "RequestedDelete", ruleId: "r1", version: 1 })
   expect(confirmed.model.deleteDialog.isOpen).toBe(false)
+})
+
+it("previews both configured AI result actions", () => {
+  const model = RuleEditor.init({
+    repositoryId: "701",
+    labels,
+    policies: [],
+    existing: Option.some({
+      ...rule,
+      ai: { target: "pull_request", prompt: "Read {{fact:title}}", minimumConfidence: 0.8 },
+      onMatch: "ensure-absent",
+      onNoMatch: "ensure-present",
+    }),
+  })
+  expect(RuleEditor.previewAction(model, "match", ["11"])).toBe("Ensure absent: bug · Remove label")
+  expect(RuleEditor.previewAction(model, "no-match", [])).toBe("Ensure present: bug · Add label")
+})
+
+it("edits either AI result action without resetting it when choosing the rule type", () => {
+  let model = RuleEditor.init({
+    repositoryId: "701",
+    labels,
+    policies: [published],
+    existing: Option.none(),
+    catalog: ["title", "body"].map((name) => ({
+      name,
+      type: "Text",
+      kinds: ["issue", "pull_request"],
+      track: "entities",
+      description: name,
+      fields: [],
+      operators: [],
+    })),
+  })
+  model = RuleEditor.update(
+    model,
+    RuleEditor.Message.UpdatedOnMatch({ value: "ensure-absent" }),
+  ).model
+  model = RuleEditor.update(
+    model,
+    RuleEditor.Message.UpdatedOnNoMatch({ value: "ensure-present" }),
+  ).model
+  model = RuleEditor.update(model, RuleEditor.Message.SelectedType({ value: "ai" })).model
+  model = RuleEditor.update(model, RuleEditor.Message.SelectedLabel({ labelId: "11" })).model
+  expect(
+    RuleEditor.update(model, RuleEditor.Message.ClickedSave()).commands?.[0]?.args,
+  ).toMatchObject({
+    onMatch: "ensure-absent",
+    onNoMatch: "ensure-present",
+  })
+  model = RuleEditor.update(model, RuleEditor.Message.UpdatedOnMatch({ value: "no-action" })).model
+  expect(RuleEditor.previewAction(model, "match", ["11"])).toBe("Take no action")
+  model = RuleEditor.update(
+    model,
+    RuleEditor.Message.UpdatedOnNoMatch({ value: "no-action" }),
+  ).model
+  expect(RuleEditor.previewAction(model, "no-match", [])).toBe("Take no action")
+  Scene.scene(
+    { update: RuleEditor.update, view: Scene.withViewInputs(RuleEditor.view, {})() },
+    Scene.given(
+      RuleEditor.init({
+        repositoryId: "701",
+        labels,
+        policies: [published],
+        existing: Option.some(rule),
+      }),
+    ),
+    Scene.expect(Scene.role("combobox", { name: "When it matches" })).toExist(),
+    Scene.expect(Scene.role("combobox", { name: "When it does not match" })).toExist(),
+  )
 })

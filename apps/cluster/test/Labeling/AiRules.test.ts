@@ -7,6 +7,42 @@ import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { actor, bug, repositoryId, seed, Services } from "./support.ts"
 layer(Services, { timeout: "2 minutes" })("Owned AI rules", (it) => {
+  it.effect("saves independent AI result actions", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const rules = yield* LabelingRules
+      const config = yield* LabelingConfiguration
+      const created = yield* rules.create(
+        repositoryId,
+        {
+          ai: { target: "pull_request", prompt: "Read {{fact:title}}", minimumConfidence: 0.8 },
+          labelId: bug,
+          onMatch: "ensure-absent",
+          onNoMatch: "ensure-present",
+          group: null,
+          priority: 0,
+          enabled: true,
+        },
+        actor,
+      )
+      assert.strictEqual(created.onMatch, "ensure-absent")
+      assert.strictEqual(created.onNoMatch, "ensure-present")
+      const changed = yield* rules.patch(
+        repositoryId,
+        created.id,
+        {
+          version: created.version,
+          onMatch: "no-action",
+          onNoMatch: "no-action",
+        },
+        actor,
+      )
+      assert.strictEqual(changed.onMatch, "no-action")
+      assert.strictEqual(changed.onNoMatch, "no-action")
+      assert.strictEqual((yield* config.view(repositoryId)).rules[0]?.onMatch, "no-action")
+      yield* rules.remove(repositoryId, created.id, changed.version, actor)
+    }),
+  )
   it.effect(
     "creates and edits atomically, hides owned policies, preserves history and rejects foreign bindings",
     () =>
@@ -27,7 +63,8 @@ layer(Services, { timeout: "2 minutes" })("Owned AI rules", (it) => {
             requestId: "create-once",
             ai,
             labelId: bug,
-            onNoMatch: "preserve",
+            onMatch: "ensure-present",
+            onNoMatch: "no-action",
             group: null,
             priority: 0,
             enabled: true,
@@ -40,7 +77,8 @@ layer(Services, { timeout: "2 minutes" })("Owned AI rules", (it) => {
             requestId: "create-once",
             ai,
             labelId: bug,
-            onNoMatch: "preserve",
+            onMatch: "ensure-present",
+            onNoMatch: "no-action",
             group: null,
             priority: 0,
             enabled: true,
@@ -63,7 +101,8 @@ layer(Services, { timeout: "2 minutes" })("Owned AI rules", (it) => {
               {
                 policyId: created.policyId,
                 labelId: bug,
-                onNoMatch: "preserve",
+                onMatch: "ensure-present",
+                onNoMatch: "no-action",
                 group: null,
                 priority: 0,
                 enabled: true,
@@ -108,7 +147,8 @@ layer(Services, { timeout: "2 minutes" })("Owned AI rules", (it) => {
               {
                 ai,
                 labelId: GitHubLabelDatabaseId.make("999"),
-                onNoMatch: "preserve",
+                onMatch: "ensure-present",
+                onNoMatch: "no-action",
                 group: null,
                 priority: 0,
                 enabled: true,
@@ -126,7 +166,8 @@ layer(Services, { timeout: "2 minutes" })("Owned AI rules", (it) => {
               {
                 ai: { ...ai, prompt: "{{fact:diff}}" },
                 labelId: bug,
-                onNoMatch: "preserve",
+                onMatch: "ensure-present",
+                onNoMatch: "no-action",
                 group: null,
                 priority: 0,
                 enabled: true,

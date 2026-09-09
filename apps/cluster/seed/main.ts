@@ -191,6 +191,7 @@ const seedPolicies = Effect.fnUntraced(function* (
       {
         labelId,
         policyId: created.policy.policyId,
+        onMatch: "ensure-present",
         onNoMatch: "ensure-absent",
         group: null,
         priority,

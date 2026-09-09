@@ -54,6 +54,7 @@ const configuration: Workspace.ConfigurationView = {
       repositoryId: "701",
       labelId: "11",
       policyId: "p1",
+      onMatch: "ensure-present",
       onNoMatch: "ensure-absent",
       group: null,
       priority: 0,

@@ -1,3 +1,4 @@
+import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -1292,15 +1293,8 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                   ),
                                 ],
                               ),
-                              h.p([], ["On match: add label"]),
-                              h.p(
-                                [],
-                                [
-                                  rule.onNoMatch === "ensure-absent"
-                                    ? "On no match: remove label"
-                                    : "On no match: leave label unchanged",
-                                ],
-                              ),
+                              h.p([], [`On match: ${describeResultAction(rule.onMatch)}`]),
+                              h.p([], [`On non-match: ${describeResultAction(rule.onNoMatch)}`]),
                               rule.group === null
                                 ? h.empty
                                 : h.p([], [`Group: ${rule.group} · Priority ${rule.priority}`]),
