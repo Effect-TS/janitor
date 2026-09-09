@@ -139,3 +139,19 @@ export const verifyTrack = (track: "labels" | "entities" | "pull_requests") =>
       outcome: { _tag: "Verified", watermark: Option.none() },
     })
   })
+
+/** A connected repository whose initial synchronization has completed. */
+export const seedReady = seed.pipe(
+  Effect.andThen(
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      for (const track of ["labels", "entities", "pull_requests"] as const) {
+        yield* targets.invalidate({
+          scope: { _tag: "RepositoryTrack", repositoryId, track },
+          sequence: Option.none(),
+        })
+        yield* verifyTrack(track)
+      }
+    }),
+  ),
+)

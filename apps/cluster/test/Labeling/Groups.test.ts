@@ -27,7 +27,7 @@ import {
   feature,
   LabelingLayer,
   repositoryId,
-  seed,
+  seedReady as seed,
   seedPullRequests,
 } from "./support.ts"
 
@@ -178,6 +178,7 @@ layer(services, { timeout: "2 minutes" })("Labeling group decisions", (it) => {
             const { generation } = yield* targets.invalidate({
               scope,
               sequence: Option.some(sequence),
+              webhookReceivedAt: new Date(),
             })
             yield* targets.begin(scope, generation)
             yield* targets.complete({

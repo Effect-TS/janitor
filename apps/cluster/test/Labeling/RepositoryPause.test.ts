@@ -20,9 +20,10 @@ import {
   bug,
   LabelingLayer,
   repositoryId,
-  seed,
+  seedReady as seed,
   seedPullRequests,
   seq,
+  verifyTrack,
 } from "./support.ts"
 
 class WriteControl extends Context.Service<
@@ -38,7 +39,11 @@ const Services = Layer.mergeAll(ReconcileEntityLayer, RepositoryConnections.laye
 const ready = Effect.gen(function* () {
   const targets = yield* SyncTargets
   const scope = { _tag: "Entity", repositoryId, number: 5 } as const
-  const { generation } = yield* targets.invalidate({ scope, sequence: Option.some(seq) })
+  const { generation } = yield* targets.invalidate({
+    scope,
+    sequence: Option.some(seq),
+    webhookReceivedAt: new Date(),
+  })
   yield* targets.begin(scope, generation)
   yield* targets.complete({
     scope,
@@ -129,6 +134,8 @@ layer(
         yield* ReconcileEntity.execute(queued)
         assert.deepStrictEqual(control.order, [])
 
+        for (const track of ["labels", "entities", "pull_requests"] as const)
+          yield* verifyTrack(track)
         const current = yield* ready
         const applying = yield* ReconcileEntity.execute(current).pipe(Effect.forkChild)
         yield* Deferred.await(control.started)

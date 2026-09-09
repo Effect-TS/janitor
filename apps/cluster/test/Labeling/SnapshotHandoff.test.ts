@@ -20,7 +20,7 @@ import {
   bug,
   LabelingLayer,
   repositoryId,
-  seed,
+  seedReady as seed,
   seedPullRequests,
   seq,
   verifyTrack,
@@ -56,7 +56,11 @@ const number = 5
 const verifyEntity = Effect.gen(function* () {
   const targets = yield* SyncTargets
   const scope = { _tag: "Entity", repositoryId, number } as const
-  const { generation } = yield* targets.invalidate({ scope, sequence: Option.some(seq) })
+  const { generation } = yield* targets.invalidate({
+    scope,
+    sequence: Option.some(seq),
+    webhookReceivedAt: new Date(),
+  })
   yield* targets.begin(scope, generation)
   yield* targets.complete({
     scope,
@@ -199,7 +203,11 @@ layer(Services, { timeout: "2 minutes" })("SnapshotHandoff against Postgres", (i
       // A later sync verification hands off only that entity.
       const targets = yield* SyncTargets
       const scope6 = { _tag: "Entity", repositoryId, number: 6 } as const
-      const six = yield* targets.invalidate({ scope: scope6, sequence: Option.some(seq) })
+      const six = yield* targets.invalidate({
+        scope: scope6,
+        sequence: Option.some(seq),
+        webhookReceivedAt: new Date(),
+      })
       yield* targets.begin(scope6, six.generation)
       yield* targets.complete({
         scope: scope6,

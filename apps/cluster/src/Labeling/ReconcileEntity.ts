@@ -115,7 +115,8 @@ const evaluationIsCurrent = (identity: ReconciliationIdentity) =>
       return false
     const rows =
       yield* sql`SELECT 1 FROM github_repository r JOIN labeling_repository_rules c USING(repository_id)
-    WHERE r.repository_id=${identity.repositoryId} AND r.connected AND c.configured_revision=${identity.rulesRevision}`
+    WHERE r.repository_id=${identity.repositoryId} AND r.connected AND c.configured_revision=${identity.rulesRevision}
+      AND entity_automation_eligible(${identity.repositoryId}, ${identity.number}, ${identity.snapshotGeneration}::bigint)`
     if (!rows.length) return false
     const target = yield* targets.get({
       _tag: "Entity",
@@ -181,6 +182,16 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
             detail: `snapshot generation ${target.value.verifiedGeneration} replaced ${identity.snapshotGeneration}`,
           }
         }
+        const [eligible] = yield* sql<{
+          allowed: boolean
+        }>`SELECT entity_automation_eligible(${repositoryId}, ${number}, ${identity.snapshotGeneration}::bigint) AS allowed`
+        if (!eligible?.allowed)
+          return {
+            _tag: "Disqualified" as const,
+            outcome: "not-qualified" as const,
+            detail:
+              "Automation requires a new event after successful synchronization of an open item",
+          }
         const freshness = freshnessOf(target, yield* DateTime.now, EVALUATION_MAX_AGE)
         if (freshness !== "verified") {
           return {

@@ -29,7 +29,7 @@ import {
   feature,
   LabelingLayer,
   repositoryId,
-  seed,
+  seedReady as seed,
   seedPullRequests,
 } from "./support.ts"
 
@@ -182,7 +182,11 @@ layer(services, { timeout: "2 minutes" })("AI evaluation results", (it) => {
 
         const targets = yield* SyncTargets
         const scope = { _tag: "Entity" as const, repositoryId, number: 5 }
-        const { generation } = yield* targets.invalidate({ scope, sequence: Option.some(sequence) })
+        const { generation } = yield* targets.invalidate({
+          scope,
+          sequence: Option.some(sequence),
+          webhookReceivedAt: new Date(),
+        })
         yield* targets.begin(scope, generation)
         yield* targets.complete({
           scope,

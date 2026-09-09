@@ -104,6 +104,7 @@ const run = (
           Layer.succeed(SyncTargets, {
             withRun: (_scope, _generation, effect) => Effect.map(effect, Option.some),
             retryDue: Effect.succeed(0),
+            retryFailedEntities: () => Effect.succeed(0),
             recoverTerminal: () => Effect.void,
             invalidate: () => Effect.die("unused"),
             begin: () => Effect.succeed(begin),

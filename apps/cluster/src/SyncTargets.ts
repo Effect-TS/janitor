@@ -1,4 +1,5 @@
 import { withRepositoryActivity } from "./RepositoryActivity.ts"
+import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import {
   SyncGeneration,
   SyncGenerationFromStringOrNumber,
@@ -41,6 +42,8 @@ export interface InvalidateRequest {
   /** Ask the next run to ignore its watermark and scan from scratch. */
   readonly full?: boolean | undefined
   readonly immediate?: boolean | undefined
+  /** Present only for the item concerned by a new webhook event. */
+  readonly webhookReceivedAt?: Date | undefined
 }
 
 export interface InvalidateResult {
@@ -138,6 +141,9 @@ export class SyncTargets extends Context.Service<
       progress?: { readonly page: number; readonly items: number },
     ) => Effect.Effect<Option.Option<A>, E | SyncTargetError, R>
     readonly retryDue: Effect.Effect<number, SyncTargetError>
+    readonly retryFailedEntities: (
+      repositoryId: GitHubRepositoryDatabaseId,
+    ) => Effect.Effect<number, SyncTargetError>
     /** Replace a terminal engine execution only if it still owns the target. */
     readonly recoverTerminal: (
       scope: SyncScope,
@@ -200,6 +206,14 @@ export class SyncTargets extends Context.Service<
           RETURNING *
         `.pipe(Effect.flatMap(decodeRows))
             const row = rows[0]!
+            if (request.scope._tag === "Entity") {
+              yield* sql`UPDATE sync_target SET automation_event_at = CASE
+                WHEN repository_automation_ready(${request.scope.repositoryId})
+                  AND ${request.webhookReceivedAt ?? null}::timestamptz >
+                    (SELECT automation_ready_at FROM github_repository WHERE repository_id = ${request.scope.repositoryId})
+                THEN ${request.webhookReceivedAt ?? null}::timestamptz ELSE NULL END
+                WHERE scope_key = ${scopeKey}`
+            }
             if (gt(row.dispatched_generation, row.completed_generation)) {
               // A manual request may accelerate an unsubmitted debounced run.
               if (request.immediate) {
@@ -259,11 +273,32 @@ export class SyncTargets extends Context.Service<
           }
     })
 
+    // Called under the repository lock, after recording the target outcome.
+    const updateReadiness = (repositoryId: string, verified: boolean) =>
+      verified
+        ? sql`UPDATE github_repository r SET automation_ready_at = CLOCK_TIMESTAMP()
+            WHERE repository_id = ${repositoryId} AND automation_ready_at IS NULL
+              AND connected AND enabled AND access = 'accessible'
+              AND NOT EXISTS (SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId' = r.repository_id
+                AND (t.last_error IS NOT NULL OR t.health = 'blocked'
+                  OR t.requested_generation > t.completed_generation))
+              AND (SELECT count(DISTINCT t.scope->>'track') FROM sync_target t
+                WHERE t.scope->>'repositoryId' = r.repository_id AND t.scope->>'_tag' = 'RepositoryTrack'
+                  AND t.scope->>'track' IN ('labels','entities','pull_requests')
+                  AND t.verified_at > r.synchronization_required_after) = 3`
+        : sql`UPDATE github_repository SET automation_ready_at = NULL WHERE repository_id = ${repositoryId}`
+
     const complete = Effect.fn("SyncTargets.complete")(function* (request: CompleteRequest) {
       return yield* sql
         .withTransaction(
           Effect.gen(function* () {
             const { outcome } = request
+            const repositoryId =
+              request.scope._tag === "RepositoryTrack" || request.scope._tag === "Entity"
+                ? request.scope.repositoryId
+                : null
+            if (repositoryId !== null)
+              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
             const verified = outcome._tag === "Verified"
             const watermark = verified
               ? Option.getOrNull(Option.map(outcome.watermark, DateTime.toDateUtc))
@@ -288,6 +323,7 @@ export class SyncTargets extends Context.Service<
         `.pipe(Effect.flatMap(decodeRows))
             const row = rows[0]
             if (row === undefined) return false
+            if (repositoryId !== null) yield* updateReadiness(repositoryId, verified)
             if (gt(row.requested_generation, request.generation)) {
               yield* enqueueRun(request.scope, row.requested_generation)
             }
@@ -372,6 +408,12 @@ export class SyncTargets extends Context.Service<
       sql
         .withTransaction(
           Effect.gen(function* () {
+            const repositoryId =
+              scope._tag === "RepositoryTrack" || scope._tag === "Entity"
+                ? scope.repositoryId
+                : null
+            if (repositoryId !== null)
+              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
             const rows = yield* sql`
           UPDATE sync_target SET completed_generation = dispatched_generation,
             active_generation = NULL, active_sequence = NULL,
@@ -382,6 +424,8 @@ export class SyncTargets extends Context.Service<
             AND dispatched_generation > completed_generation RETURNING *
         `.pipe(Effect.flatMap(decodeRows))
             const row = rows[0]
+            if (row !== undefined && repositoryId !== null)
+              yield* updateReadiness(repositoryId, false)
             if (row !== undefined && gt(row.requested_generation, row.completed_generation)) {
               yield* enqueueRun(scope, row.requested_generation)
             }
@@ -396,7 +440,37 @@ export class SyncTargets extends Context.Service<
       return Option.map(Option.fromNullishOr(rows[0]), toRecord)
     })
 
-    return { invalidate, begin, complete, get, withRun, retryDue, recoverTerminal }
+    const retryFailedEntities = (repositoryId: GitHubRepositoryDatabaseId) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
+            const failed = yield* sql<{
+              number: number
+            }>`SELECT (scope->>'number')::int AS number FROM sync_target
+        WHERE scope->>'repositoryId' = ${repositoryId} AND scope->>'_tag' = 'Entity'
+          AND (last_error IS NOT NULL OR health = 'blocked')`
+            for (const { number } of failed)
+              yield* invalidate({
+                scope: { _tag: "Entity", repositoryId, number },
+                sequence: Option.none(),
+                immediate: true,
+              })
+            return failed.length
+          }),
+        )
+        .pipe(wrap("retryFailedEntities"))
+
+    return {
+      invalidate,
+      begin,
+      complete,
+      get,
+      withRun,
+      retryDue,
+      retryFailedEntities,
+      recoverTerminal,
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
