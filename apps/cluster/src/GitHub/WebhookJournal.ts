@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import { projectGitHubWebhookRequest } from "./ProjectWebhookRequest.ts"
+import { withRepositoryActivity } from "../RepositoryActivity.ts"
 
 export class GitHubWebhookJournalError extends Schema.TaggedError<GitHubWebhookJournalError>()(
   "@janitor/cluster/GitHub/WebhookJournal/GitHubWebhookJournalError",
@@ -28,6 +29,7 @@ export class GitHubWebhookJournalError extends Schema.TaggedError<GitHubWebhookJ
 ) {}
 
 export interface GitHubWebhookJournalEntry {
+  readonly repositoryId?: string | undefined
   readonly deliveryId: GitHubWebhookDeliveryId
   readonly eventName: GitHubWebhookName
   readonly receivedAt: DateTime.Utc
@@ -93,6 +95,7 @@ export class GitHubWebhookJournal extends Context.Service<
       entry: GitHubWebhookJournalEntry,
     ) {
       const row = {
+        repository_id: entry.repositoryId ?? null,
         delivery_id: entry.deliveryId,
         event_name: entry.eventName,
         received_at: DateTime.toDateUtc(entry.receivedAt),
@@ -103,58 +106,74 @@ export class GitHubWebhookJournal extends Context.Service<
         payload: entry.payload,
       }
 
-      return yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const inserted = yield* sql`
+      const write = sql.withTransaction(
+        Effect.gen(function* () {
+          const inserted = yield* sql`
               INSERT INTO github_webhook_delivery ${sql.insert(row)}
               ON CONFLICT (delivery_id) DO NOTHING
               RETURNING sequence
             `.pipe(Effect.flatMap(decodeRows))
 
-            // Same transaction as the journal row, so a committed delivery
-            // always has a projection request. Idempotent on duplicates.
+          // Same transaction as the journal row, so a committed delivery
+          // always has a projection request. Idempotent on duplicates.
+          if (inserted.length > 0)
             yield* outbox.enqueue(projectGitHubWebhookRequest(entry.deliveryId))
 
-            const first = inserted[0]
-            if (first !== undefined) {
-              return { sequence: first.sequence, duplicate: false }
-            }
+          const first = inserted[0]
+          if (first !== undefined) {
+            return { sequence: first.sequence, duplicate: false }
+          }
 
-            const existing = yield* sql`
+          const existing = yield* sql`
               SELECT sequence FROM github_webhook_delivery
               WHERE delivery_id = ${entry.deliveryId}
             `.pipe(Effect.flatMap(decodeRows))
 
-            const found = existing[0]
-            if (found === undefined) {
-              return yield* new GitHubWebhookJournalError({
-                deliveryId: entry.deliveryId,
-                message: "Delivery conflicted on insert but could not be read back",
-              })
-            }
-            return { sequence: found.sequence, duplicate: true }
-          }),
-        )
-        .pipe(
-          Effect.catchTags({
-            SqlError: (error) =>
-              new GitHubWebhookJournalError({
-                deliveryId: entry.deliveryId,
-                message: error.message,
-              }),
-            SchemaError: (error) =>
-              new GitHubWebhookJournalError({
-                deliveryId: entry.deliveryId,
-                message: `Journal returned an invalid sequence: ${error.message}`,
-              }),
-            "@janitor/cluster/WorkflowOutbox/WorkflowOutboxError": (error) =>
-              new GitHubWebhookJournalError({
-                deliveryId: entry.deliveryId,
-                message: `Outbox request failed: ${error.message}`,
-              }),
-          }),
-        )
+          const found = existing[0]
+          if (found === undefined) {
+            return yield* new GitHubWebhookJournalError({
+              deliveryId: entry.deliveryId,
+              message: "Delivery conflicted on insert but could not be read back",
+            })
+          }
+          return { sequence: found.sequence, duplicate: true }
+        }),
+      )
+      return yield* (
+        entry.repositoryId === undefined
+          ? write
+          : withRepositoryActivity(
+              sql,
+              entry.repositoryId,
+              write,
+              DateTime.toDateUtc(entry.receivedAt),
+            ).pipe(
+              Effect.map(
+                Option.getOrElse(() => ({
+                  sequence: GitHubWebhookJournalSequence.make("0"),
+                  duplicate: true,
+                })),
+              ),
+            )
+      ).pipe(
+        Effect.catchTags({
+          SqlError: (error) =>
+            new GitHubWebhookJournalError({
+              deliveryId: entry.deliveryId,
+              message: error.message,
+            }),
+          SchemaError: (error) =>
+            new GitHubWebhookJournalError({
+              deliveryId: entry.deliveryId,
+              message: `Journal returned an invalid sequence: ${error.message}`,
+            }),
+          "@janitor/cluster/WorkflowOutbox/WorkflowOutboxError": (error) =>
+            new GitHubWebhookJournalError({
+              deliveryId: entry.deliveryId,
+              message: `Outbox request failed: ${error.message}`,
+            }),
+        }),
+      )
     })
 
     const DeliveryRow = Schema.Struct({

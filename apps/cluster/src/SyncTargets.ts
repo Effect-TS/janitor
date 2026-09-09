@@ -192,13 +192,24 @@ export class SyncTargets extends Context.Service<
       return yield* sql
         .withTransaction(
           Effect.gen(function* () {
-            if (request.scope._tag === "RepositoryTrack" || request.scope._tag === "Entity")
-              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${request.scope.repositoryId} FOR NO KEY UPDATE`
+            if (request.scope._tag === "RepositoryTrack" || request.scope._tag === "Entity") {
+              const [repository] = yield* sql<{
+                connected: boolean
+                generation_floor: string
+              }>`SELECT connected, generation_floor::text FROM github_repository WHERE repository_id = ${request.scope.repositoryId} FOR NO KEY UPDATE`
+              if (repository && !repository.connected)
+                return {
+                  generation: SyncGeneration.make(repository.generation_floor),
+                  dispatched: false,
+                }
+            }
             const scopeKey = syncScopeKey(request.scope)
             const scopeJson = yield* encodeScope(request.scope)
             const rows = yield* sql`
           INSERT INTO sync_target (scope_key, scope, requested_generation, requested_sequence, full_requested)
-          VALUES (${scopeKey}, ${scopeJson}::jsonb, 1, ${Option.getOrNull(request.sequence)}, ${request.full === true})
+          VALUES (${scopeKey}, ${scopeJson}::jsonb,
+            COALESCE((SELECT generation_floor FROM github_repository WHERE repository_id = ${scopeJson}::jsonb->>'repositoryId'), 0) + 1,
+            ${Option.getOrNull(request.sequence)}, ${request.full === true})
           ON CONFLICT (scope_key) DO UPDATE SET
             requested_generation = sync_target.requested_generation + 1,
             requested_sequence = GREATEST(sync_target.requested_sequence, EXCLUDED.requested_sequence),

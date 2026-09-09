@@ -183,22 +183,13 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
       scope: { _tag: "Installation" as const, installationId: begun.installationId },
       priority: "background" as const,
     }
-    const applyPage = (
-      name: string,
-      ordinal: number,
-      count: number,
-      execute: Effect.Effect<unknown, Error>,
-    ) =>
-      Activity.make({
-        name: `SyncRepositoryTrack/${name}/${ordinal}`,
-        error: SyncActivityError,
-        execute: targets.withRun(scope, generation, execute, { page: ordinal, items: count }).pipe(
-          Effect.flatMap((applied) =>
-            Option.isSome(applied) ? Effect.void : Effect.fail(failure("Run superseded")),
-          ),
-          Effect.mapError((error) => failure(error.message)),
+    const applyPage = (ordinal: number, count: number, execute: Effect.Effect<unknown, Error>) =>
+      targets.withRun(scope, generation, execute, { page: ordinal, items: count }).pipe(
+        Effect.flatMap((applied) =>
+          Option.isSome(applied) ? Effect.void : Effect.fail(failure("Run superseded")),
         ),
-      })
+        Effect.mapError((error) => failure(error.message)),
+      )
 
     switch (track) {
       case "labels": {
@@ -208,7 +199,6 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
           request,
           page: Schema.Array(GitHubLabelApi),
           items: (labels) => labels,
-          itemSchema: GitHubLabelApi,
           onFailed: blockedOn404,
           cache: { repositoryId: Option.some(repositoryId) },
         })
@@ -238,13 +228,11 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
           request,
           page: Schema.Array(GitHubIssueApi),
           items: (issues) => issues,
-          itemSchema: GitHubIssueApi,
           onFailed: blockedOn404,
           // A changing since parameter is not a reusable representation.
           collect: false,
           onPage: (issues, ordinal) =>
             applyPage(
-              "ApplyIssues",
               ordinal,
               issues.length,
               readModel.applyIssues({ repositoryId, issues, sequence }),
@@ -290,14 +278,12 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
               onSome: (floor) =>
                 pulls.filter((pull) => !DateTime.isLessThan(pull.updatedAt, floor)),
             }),
-          itemSchema: GitHubPullRequestApi,
           stopAfter: (pulls) =>
             Option.isSome(since) &&
             pulls.some((pull) => DateTime.isLessThan(pull.updatedAt, since.value)),
           collect: false,
           onPage: (pulls, ordinal) =>
             applyPage(
-              "ApplyPullRequests",
               ordinal,
               pulls.length,
               Effect.gen(function* () {

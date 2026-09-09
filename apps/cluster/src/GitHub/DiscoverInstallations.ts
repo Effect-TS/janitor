@@ -54,7 +54,6 @@ export const DiscoverInstallationsLayer = DiscoverInstallations.toLayer(
       request: { scope: { _tag: "App" }, priority: "background" },
       page: Schema.Array(GitHubInstallationSummary),
       items: (items) => items,
-      itemSchema: GitHubInstallationSummary,
       collect: false,
       onPage: (installations, ordinal) =>
         Activity.make({

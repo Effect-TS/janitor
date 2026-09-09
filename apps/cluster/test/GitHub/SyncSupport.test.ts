@@ -46,7 +46,6 @@ const runPaginate = (
           request: { scope: { _tag: "App" }, priority: "background" },
           page: Schema.Array(Item),
           items: (items) => items,
-          itemSchema: Item,
           cache: { repositoryId: Option.none() },
         }).pipe(
           Effect.flatMap((result) =>

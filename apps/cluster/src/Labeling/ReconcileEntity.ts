@@ -142,147 +142,144 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
   Effect.fnUntraced(function* (identity) {
     const { repositoryId, number } = identity
 
-    const evaluated = yield* Activity.make({
-      name: "ReconcileEntity/Evaluate",
-      success: EvaluateResult,
-      error: ReconcileActivityError,
-      execute: Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient
-        const targets = yield* SyncTargets
-        const readModel = yield* GitHubReadModel
-        const configuration = yield* LabelingConfiguration
-        const configured = yield* sql`
+    // Evaluation traces belong to deletable repository storage. Keeping them in
+    // workflow activity results would preserve facts after disconnection.
+    const evaluated: typeof EvaluateResult.Type = yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const targets = yield* SyncTargets
+      const readModel = yield* GitHubReadModel
+      const configuration = yield* LabelingConfiguration
+      const configured = yield* sql`
           SELECT configured_revision::text FROM labeling_repository_rules
           WHERE repository_id = ${repositoryId}
         `.pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ConfiguredRow))),
-          Effect.mapError((error) => new EvaluateFailure({ message: describeError(error) })),
+        Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ConfiguredRow))),
+        Effect.mapError((error) => new EvaluateFailure({ message: describeError(error) })),
+      )
+      const configuredRevision = configured[0]?.configured_revision ?? null
+      if (configuredRevision !== identity.rulesRevision) {
+        yield* handoffLatest(identity).pipe(
+          Effect.mapError((error) => new EvaluateFailure({ message: error.message })),
         )
-        const configuredRevision = configured[0]?.configured_revision ?? null
-        if (configuredRevision !== identity.rulesRevision) {
-          yield* handoffLatest(identity).pipe(
-            Effect.mapError((error) => new EvaluateFailure({ message: error.message })),
-          )
-          return {
-            _tag: "Disqualified" as const,
-            outcome: "superseded" as const,
-            detail: `rules revision ${identity.rulesRevision} was superseded; handed off to the latest configuration`,
-          }
+        return {
+          _tag: "Disqualified" as const,
+          outcome: "superseded" as const,
+          detail: `rules revision ${identity.rulesRevision} was superseded; handed off to the latest configuration`,
         }
-        const target = yield* targets
-          .get({ _tag: "Entity", repositoryId, number })
-          .pipe(Effect.mapError((error) => new EvaluateFailure({ message: error.message })))
-        if (
-          Option.isSome(target) &&
-          BigInt(target.value.verifiedGeneration) > BigInt(identity.snapshotGeneration)
-        ) {
-          return {
-            _tag: "Disqualified" as const,
-            outcome: "superseded" as const,
-            detail: `snapshot generation ${target.value.verifiedGeneration} replaced ${identity.snapshotGeneration}`,
-          }
+      }
+      const target = yield* targets
+        .get({ _tag: "Entity", repositoryId, number })
+        .pipe(Effect.mapError((error) => new EvaluateFailure({ message: error.message })))
+      if (
+        Option.isSome(target) &&
+        BigInt(target.value.verifiedGeneration) > BigInt(identity.snapshotGeneration)
+      ) {
+        return {
+          _tag: "Disqualified" as const,
+          outcome: "superseded" as const,
+          detail: `snapshot generation ${target.value.verifiedGeneration} replaced ${identity.snapshotGeneration}`,
         }
-        const [eligible] = yield* sql<{
-          allowed: boolean
-        }>`SELECT entity_automation_eligible(${repositoryId}, ${number}, ${identity.snapshotGeneration}::bigint) AS allowed`
-        if (!eligible?.allowed)
-          return {
-            _tag: "Disqualified" as const,
-            outcome: "not-qualified" as const,
-            detail:
-              "Automation requires a new event after successful synchronization of an open item",
-          }
-        const freshness = freshnessOf(target, yield* DateTime.now, EVALUATION_MAX_AGE)
-        if (freshness !== "verified") {
-          return {
-            _tag: "Disqualified" as const,
-            outcome: "not-qualified" as const,
-            detail: `snapshot is ${freshness}`,
-          }
+      }
+      const [eligible] = yield* sql<{
+        allowed: boolean
+      }>`SELECT entity_automation_eligible(${repositoryId}, ${number}, ${identity.snapshotGeneration}::bigint) AS allowed`
+      if (!eligible?.allowed)
+        return {
+          _tag: "Disqualified" as const,
+          outcome: "not-qualified" as const,
+          detail:
+            "Automation requires a new event after successful synchronization of an open item",
         }
-        const snapshot = yield* configuration
-          .load(repositoryId, identity.rulesRevision)
-          .pipe(Effect.mapError((error) => new EvaluateFailure({ message: error.message })))
-        if (Option.isNone(snapshot)) {
-          return yield* new EvaluateFailure({
-            message: `configuration revision ${identity.rulesRevision} does not exist`,
-          })
+      const freshness = freshnessOf(target, yield* DateTime.now, EVALUATION_MAX_AGE)
+      if (freshness !== "verified") {
+        return {
+          _tag: "Disqualified" as const,
+          outcome: "not-qualified" as const,
+          detail: `snapshot is ${freshness}`,
         }
-        const entity = yield* readModel
-          .getEntity(repositoryId, number)
-          .pipe(Effect.mapError((error) => new EvaluateFailure({ message: error.message })))
-        if (Option.isNone(entity)) {
-          return {
-            _tag: "Disqualified" as const,
-            outcome: "not-qualified" as const,
-            detail: "entity is no longer in the read model",
-          }
+      }
+      const snapshot = yield* configuration
+        .load(repositoryId, identity.rulesRevision)
+        .pipe(Effect.mapError((error) => new EvaluateFailure({ message: error.message })))
+      if (Option.isNone(snapshot)) {
+        return yield* new EvaluateFailure({
+          message: `configuration revision ${identity.rulesRevision} does not exist`,
+        })
+      }
+      const entity = yield* readModel
+        .getEntity(repositoryId, number)
+        .pipe(Effect.mapError((error) => new EvaluateFailure({ message: error.message })))
+      if (Option.isNone(entity)) {
+        return {
+          _tag: "Disqualified" as const,
+          outcome: "not-qualified" as const,
+          detail: "entity is no longer in the read model",
         }
-        const facts = entityFacts(entity.value)
-        const versions = new Map(
-          snapshot.value.versions.map((version) => [version.versionId, version]),
-        )
-        const byPolicy = new Map(
-          snapshot.value.versions.map((version) => [version.policyId, version]),
-        )
-        const resolve: Resolver = (policyId) => byPolicy.get(policyId)
-        const outcomes = new Map<RuleId, Evaluation["outcome"]>()
-        const evaluations: Array<typeof RuleEvaluationRecord.Type> = []
-        for (const rule of snapshot.value.rules) {
-          if (!rule.enabled) continue
-          const version = versions.get(rule.policyVersionId)
-          const evaluation: Evaluation =
-            version === undefined
-              ? { outcome: "unknown", reason: "policy version is missing", trace: [] }
-              : version.program.evaluator._tag === "Classifier"
-                ? yield* classifyAi({
-                    repositoryId,
-                    number,
-                    policyVersionId: version.versionId,
-                    rule,
-                    program: version.program,
-                    evaluator: version.program.evaluator,
-                    snapshot: facts,
-                    resolve,
-                  }).pipe(
-                    Effect.provideService(EvaluationRetry, {
-                      claimKey: `${identity.snapshotGeneration}:${identity.rulesRevision}`,
-                      isCurrent: evaluationIsCurrent(identity).pipe(
-                        Effect.provideService(SqlClient.SqlClient, sql),
-                        Effect.provideService(GitHubReadModel, readModel),
-                        Effect.provideService(SyncTargets, targets),
+      }
+      const facts = entityFacts(entity.value)
+      const versions = new Map(
+        snapshot.value.versions.map((version) => [version.versionId, version]),
+      )
+      const byPolicy = new Map(
+        snapshot.value.versions.map((version) => [version.policyId, version]),
+      )
+      const resolve: Resolver = (policyId) => byPolicy.get(policyId)
+      const outcomes = new Map<RuleId, Evaluation["outcome"]>()
+      const evaluations: Array<typeof RuleEvaluationRecord.Type> = []
+      for (const rule of snapshot.value.rules) {
+        if (!rule.enabled) continue
+        const version = versions.get(rule.policyVersionId)
+        const evaluation: Evaluation =
+          version === undefined
+            ? { outcome: "unknown", reason: "policy version is missing", trace: [] }
+            : version.program.evaluator._tag === "Classifier"
+              ? yield* classifyAi({
+                  repositoryId,
+                  number,
+                  policyVersionId: version.versionId,
+                  rule,
+                  program: version.program,
+                  evaluator: version.program.evaluator,
+                  snapshot: facts,
+                  resolve,
+                }).pipe(
+                  Effect.provideService(EvaluationRetry, {
+                    claimKey: `${identity.snapshotGeneration}:${identity.rulesRevision}`,
+                    isCurrent: evaluationIsCurrent(identity).pipe(
+                      Effect.provideService(SqlClient.SqlClient, sql),
+                      Effect.provideService(GitHubReadModel, readModel),
+                      Effect.provideService(SyncTargets, targets),
+                      Effect.mapError(
+                        (error) =>
+                          new ClassifierError({ operation: "qualify", message: error.message }),
+                      ),
+                    ),
+                    report: (message) =>
+                      sql`UPDATE labeling_reconciliation SET detail=${message}
+                      WHERE repository_id=${repositoryId} AND number=${number} AND snapshot_generation=${identity.snapshotGeneration} AND rules_revision=${identity.rulesRevision}`.pipe(
+                        Effect.asVoid,
+                        Effect.andThen(flushLive),
                         Effect.mapError(
                           (error) =>
-                            new ClassifierError({ operation: "qualify", message: error.message }),
+                            new ClassifierError({
+                              operation: "retry status",
+                              message: error.message,
+                            }),
                         ),
                       ),
-                      report: (message) =>
-                        sql`UPDATE labeling_reconciliation SET detail=${message}
-                      WHERE repository_id=${repositoryId} AND number=${number} AND snapshot_generation=${identity.snapshotGeneration} AND rules_revision=${identity.rulesRevision}`.pipe(
-                          Effect.asVoid,
-                          Effect.andThen(flushLive),
-                          Effect.mapError(
-                            (error) =>
-                              new ClassifierError({
-                                operation: "retry status",
-                                message: error.message,
-                              }),
-                          ),
-                        ),
-                    }),
-                  )
-                : evaluate({ program: version.program, snapshot: facts, resolve })
-          outcomes.set(rule.id, evaluation.outcome)
-          evaluations.push({ ruleId: rule.id, policyVersionId: rule.policyVersionId, evaluation })
-        }
-        const planned = plan({
-          rules: snapshot.value.rules,
-          outcomes,
-          currentLabels: new Set(entity.value.labels.map((label) => label.labelId)),
-        })
-        return { _tag: "Evaluated" as const, plan: planned, evaluations }
-      }).pipe(Effect.mapError((error) => failure(error.message))),
-    })
+                  }),
+                )
+              : evaluate({ program: version.program, snapshot: facts, resolve })
+        outcomes.set(rule.id, evaluation.outcome)
+        evaluations.push({ ruleId: rule.id, policyVersionId: rule.policyVersionId, evaluation })
+      }
+      const planned = plan({
+        rules: snapshot.value.rules,
+        outcomes,
+        currentLabels: new Set(entity.value.labels.map((label) => label.labelId)),
+      })
+      return { _tag: "Evaluated" as const, plan: planned, evaluations }
+    }).pipe(Effect.mapError((error) => failure(error.message)))
 
     // A slow evaluation (for example a classifier) may overlap a publication.
     // Check even empty plans so a former no-match cannot swallow the event.
@@ -333,15 +330,16 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
         yield* sql
           .withTransaction(
             Effect.gen(function* () {
-              yield* sql`
+              const recorded = yield* sql`
                 UPDATE labeling_reconciliation
                 SET outcome = ${outcome.outcome}, detail = ${outcome.detail},
                     plan = ${encoded}::jsonb, completed_at = CLOCK_TIMESTAMP()
                 WHERE repository_id = ${repositoryId} AND number = ${number}
                   AND snapshot_generation = ${identity.snapshotGeneration}
                   AND rules_revision = ${identity.rulesRevision}
+                RETURNING repository_id
               `
-              if (evaluated._tag !== "Evaluated" || !current) return
+              if (!recorded.length || evaluated._tag !== "Evaluated" || !current) return
               const selected = new Set(
                 evaluated.plan.rules.filter((rule) => rule.selected).map((rule) => rule.ruleId),
               )
@@ -392,7 +390,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
     }
 
     yield* flushLive
-    return { ...identity, outcome: outcome.outcome, plan: outcome.plan }
+    return { ...identity, outcome: outcome.outcome, plan: null }
   }),
 )
 

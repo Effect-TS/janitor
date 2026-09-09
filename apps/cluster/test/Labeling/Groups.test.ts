@@ -1,3 +1,4 @@
+import { executeAndReadActivity } from "./support.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -17,7 +18,7 @@ import {
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
-import { ReconcileEntity, ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
+import { ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
 import { SnapshotHandoff } from "../../src/Labeling/SnapshotHandoff.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
@@ -194,7 +195,7 @@ layer(services, { timeout: "2 minutes" })("Labeling group decisions", (it) => {
             })
             assert.strictEqual(published._tag, "Published")
             if (published._tag !== "Published") return
-            const result = yield* ReconcileEntity.execute(published.identity)
+            const result = yield* executeAndReadActivity(published.identity)
             assert.deepStrictEqual(result.plan, preview.entities[0]?.plan)
             assert.strictEqual(writes.length, expected.length)
           })

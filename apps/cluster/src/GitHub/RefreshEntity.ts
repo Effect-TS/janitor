@@ -2,7 +2,6 @@ import { requireCurrentRun } from "./SyncSupport.ts"
 import * as DateTime from "effect/DateTime"
 import {
   GitHubCheckRunsApi,
-  GitHubCheckRunApi,
   GitHubIssueApi,
   GitHubPullRequestApi,
   GitHubPullRequestFileApi,
@@ -29,7 +28,7 @@ import {
   SyncRunOutcome,
   completeRun,
   failure,
-  fetchInActivity,
+  fetchWithRateLimitWaits,
   paginate,
   logWorkflowFailure,
   resolveRepository,
@@ -113,7 +112,6 @@ const fetchCollections = (
         request,
         page: Schema.Array(GitHubPullRequestFileApi),
         items: (items) => items,
-        itemSchema: GitHubPullRequestFileApi,
         maxPages: MAX_CHANGED_FILES / PAGE,
         allowTruncate: true,
       })
@@ -148,7 +146,6 @@ const fetchCollections = (
         request,
         page: GitHubCheckRunsApi,
         items: (body) => body.checkRuns,
-        itemSchema: GitHubCheckRunApi,
       })
       if (checks._tag !== "Complete")
         return yield* failure(checks._tag === "Failed" ? checks.message : checks.reason)
@@ -167,7 +164,6 @@ const fetchCollections = (
         request,
         page: Schema.Array(GitHubPullRequestReviewApi),
         items: (items) => items,
-        itemSchema: GitHubPullRequestReviewApi,
       })
       if (reviews._tag !== "Complete")
         return yield* failure(reviews._tag === "Failed" ? reviews.message : reviews.reason)
@@ -246,7 +242,7 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
 
     const integration = yield* SyncIntegration
     const fetched = yield* Effect.gen(function* () {
-      const issue = yield* fetchInActivity(
+      const issue = yield* fetchWithRateLimitWaits(
         "RefreshEntity/Issue",
         { ...request, method: "GET", url: `${path}/issues/${number}` },
         GitHubIssueApi,
@@ -258,7 +254,7 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
       }
       if (issue.body.pullRequest === undefined)
         return { _tag: "Found" as const, issue: issue.body, pullRequest: null, collections: null }
-      const pull = yield* fetchInActivity(
+      const pull = yield* fetchWithRateLimitWaits(
         "RefreshEntity/Pull",
         { ...request, method: "GET", url: `${path}/pulls/${number}` },
         GitHubPullRequestApi,
@@ -288,7 +284,7 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
               required,
             )
       if (collections !== null) {
-        const verified = yield* fetchInActivity(
+        const verified = yield* fetchWithRateLimitWaits(
           "RefreshEntity/VerifyPull",
           { ...request, method: "GET", url: `${path}/pulls/${number}` },
           GitHubPullRequestApi,

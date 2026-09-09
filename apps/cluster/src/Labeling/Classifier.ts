@@ -299,9 +299,15 @@ export class AiConsentService extends Context.Service<
 
     const set = Effect.fn("AiConsentService.set")(
       function* (repositoryId: GitHubRepositoryDatabaseId, enabled: boolean, actor: Actor) {
-        yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} FOR UPDATE`.pipe(
-          wrap("set"),
-        )
+        const membership =
+          yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected FOR UPDATE`.pipe(
+            wrap("set"),
+          )
+        if (!membership.length)
+          return yield* new AiConsentError({
+            operation: "set",
+            message: "Repository is disconnected",
+          })
         const current = yield* read(repositoryId).pipe(wrap("set"))
         // Disabling with live leases drains first; the settle pass finishes it.
         const state: AiConsent["state"] = enabled
@@ -544,7 +550,18 @@ export class AiClassifier extends Context.Service<
           "Evaluation stopped because newer work superseded it or repository access changed.",
           "provider-failed",
         )
+      const [connection] = yield* sql<{
+        generation_floor: string
+      }>`SELECT generation_floor::text FROM github_repository WHERE repository_id=${input.repositoryId} AND connected`.pipe(
+        wrap("connection"),
+      )
+      if (!connection) return stopped()
       const eligible = Effect.gen(function* () {
+        const rows =
+          yield* sql`SELECT 1 FROM github_repository WHERE repository_id=${input.repositoryId} AND connected AND generation_floor=${connection.generation_floor}`.pipe(
+            wrap("connection"),
+          )
+        if (!rows.length) return false
         if (!(yield* retry.isCurrent)) return false
         const currentConsent = yield* consent.get(input.repositoryId).pipe(wrap("consent"))
         return (
@@ -553,6 +570,20 @@ export class AiClassifier extends Context.Service<
           currentConsent.model === provider.identity.model
         )
       })
+      const whileCurrent = <A, E extends { readonly message: string }, R>(
+        effect: Effect.Effect<A, E, R>,
+      ) =>
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${input.repositoryId} FOR NO KEY UPDATE`.pipe(
+                wrap("connection"),
+              )
+              if (!(yield* eligible)) return Option.none<A>()
+              return Option.some(yield* effect)
+            }),
+          )
+          .pipe(wrap("connection"))
       if (!(yield* eligible)) return stopped()
 
       const requestHash = yield* sha256Hex(
@@ -574,11 +605,13 @@ export class AiClassifier extends Context.Service<
         `.pipe(Effect.flatMap(decodeDecisions), wrap("cache"))
       })
       const owner = crypto.randomUUID()
-      const claim = yield* sql`INSERT INTO labeling_ai_claim(request_hash,owner,expires_at)
-        VALUES (${requestHash},${owner},CLOCK_TIMESTAMP()+INTERVAL '75 seconds')
+      const claim =
+        yield* whileCurrent(sql`INSERT INTO labeling_ai_claim(request_hash,owner,repository_id,expires_at)
+        VALUES (${requestHash},${owner},${input.repositoryId},CLOCK_TIMESTAMP()+INTERVAL '75 seconds')
         ON CONFLICT(request_hash) DO UPDATE SET owner=EXCLUDED.owner,expires_at=EXCLUDED.expires_at
-        WHERE labeling_ai_claim.expires_at < CLOCK_TIMESTAMP() RETURNING owner`.pipe(wrap("claim"))
-      if (!claim.length) {
+        WHERE labeling_ai_claim.expires_at < CLOCK_TIMESTAMP() RETURNING owner`).pipe(wrap("claim"))
+      if (Option.isNone(claim)) return stopped()
+      if (!claim.value.length) {
         // Join a concurrent request by waiting for its decision, without a second paid call.
         for (let attempt = 0; attempt < 30; attempt++) {
           yield* Effect.sleep(Duration.seconds(2))
@@ -605,7 +638,10 @@ export class AiClassifier extends Context.Service<
         let attempts = 0
         let previousDelay = 1000
         const ask = Effect.gen(function* () {
-          const lease = yield* acquireLease(input.repositoryId).pipe(wrap("lease"))
+          const lease = yield* whileCurrent(acquireLease(input.repositoryId)).pipe(
+            Effect.map(Option.flatten),
+            wrap("lease"),
+          )
           if (Option.isNone(lease))
             return Result.fail(
               new ClassifierError({
@@ -684,7 +720,7 @@ export class AiClassifier extends Context.Service<
               ? ("low-confidence" as const)
               : undefined
         const completedAt = new Date(yield* Clock.currentTimeMillis)
-        yield* sql`
+        yield* whileCurrent(sql`
         INSERT INTO labeling_ai_decision
           (repository_id, policy_version_id, number, evidence_hash, provider, model, outcome, confidence, reason, latency_ms, input_report, reason_code, created_at)
         VALUES (${input.repositoryId}, ${input.policyVersionId}, ${input.number}, ${evidenceHash},
@@ -695,7 +731,7 @@ export class AiClassifier extends Context.Service<
           latency_ms = EXCLUDED.latency_ms, input_report = EXCLUDED.input_report,
           reason_code = EXCLUDED.reason_code, created_at = EXCLUDED.created_at
         WHERE labeling_ai_decision.created_at <= EXCLUDED.created_at
-      `.pipe(wrap("record"))
+      `).pipe(wrap("record"))
         return {
           outcome,
           reason,

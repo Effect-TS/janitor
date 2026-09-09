@@ -65,8 +65,8 @@ const MAX_RATE_LIMIT_WAITS = 24
 
 /**
  * Runs `make(attempt)` and, when GitHub rate limits it, sleeps on a uniquely
- * named durable clock until the budget says to try again. Each attempt is its
- * own activity so a replay after eviction resumes at the right step.
+ * named durable clock until the budget says to try again. Replays may repeat
+ * requests; callers must make publication idempotent and recheck ownership.
  */
 export const withRateLimitWaits = <A, R>(
   name: string,
@@ -218,8 +218,8 @@ export const PAGE_SIZE = 100
 export const MAX_PAGES = 200
 
 /**
- * Follows `Link: rel="next"` from `firstUrl`, running one uniquely named
- * activity per page. Returns every item, or a failure describing the page.
+ * Follows `Link: rel="next"` from `firstUrl`. Repository content stays in
+ * memory and the deletable HTTP cache, never in durable workflow results.
  */
 export const paginate = <A, S extends Schema.Top, E = never, R = never>(options: {
   readonly name: string
@@ -227,7 +227,6 @@ export const paginate = <A, S extends Schema.Top, E = never, R = never>(options:
   readonly request: Omit<SyncRequest, "url" | "method">
   readonly page: S
   readonly items: (body: S["Type"]) => ReadonlyArray<A>
-  readonly itemSchema: Schema.Codec<A, unknown>
   readonly onFailed?: ((status: number) => SyncRunOutcome | undefined) | undefined
   readonly cache?: CacheOptions | undefined
   /** Stop only after inspecting the unfiltered page. */
@@ -241,10 +240,6 @@ export const paginate = <A, S extends Schema.Top, E = never, R = never>(options:
     const collected: Array<A> = []
     let count = 0
     let next: string | null = options.firstUrl
-    const pageSchema = Schema.Struct({
-      items: Schema.Array(options.itemSchema),
-      next: Schema.NullOr(Schema.String),
-    })
     const limit = options.maxPages ?? MAX_PAGES
     type Stop = { _tag: "Failed"; message: string } | { _tag: "Blocked"; reason: string }
     let stopped:
@@ -253,40 +248,32 @@ export const paginate = <A, S extends Schema.Top, E = never, R = never>(options:
       | undefined
     yield* Stream.paginate({ url: options.firstUrl, ordinal: 0 }, ({ url, ordinal }) =>
       Effect.gen(function* () {
-        const result = yield* withRateLimitWaits(`${options.name}/${ordinal}`, (attempt) =>
-          Activity.make({
-            name: `${options.name}/${ordinal}/${attempt}`,
-            success: Schema.Union([
-              Schema.TaggedStruct("Page", pageSchema.fields),
-              Schema.TaggedStruct("Failed", { status: Schema.Int, message: Schema.String }),
-            ]),
-            error: SyncActivityFailure,
-            execute: Effect.gen(function* () {
-              const response = yield* fetchJson(
-                { ...options.request, method: "GET", url },
-                options.page,
-                options.cache,
-              )
-              if (response._tag === "Failed") {
-                return {
-                  _tag: "Failed" as const,
-                  status: response.status,
-                  message: response.message,
-                }
-              }
-              const items = options.items(response.body)
-              // A 304 on a page that was full when stored proves nothing about
-              // pages after it, so probe one further rather than trust the cached end.
-              const next =
-                response.fromCache && Option.isNone(response.next) && items.length >= PAGE_SIZE
-                  ? Option.some(probeUrl(url))
-                  : response.next
+        const result = yield* withRateLimitWaits(`${options.name}/${ordinal}`, () =>
+          Effect.gen(function* () {
+            const response = yield* fetchJson(
+              { ...options.request, method: "GET", url },
+              options.page,
+              options.cache,
+            )
+            if (response._tag === "Failed") {
               return {
-                _tag: "Page" as const,
-                items,
-                next: options.stopAfter?.(response.body) ? null : Option.getOrNull(next),
+                _tag: "Failed" as const,
+                status: response.status,
+                message: response.message,
               }
-            }),
+            }
+            const items = options.items(response.body)
+            // A 304 on a page that was full when stored proves nothing about
+            // pages after it, so probe one further rather than trust the cached end.
+            const next =
+              response.fromCache && Option.isNone(response.next) && items.length >= PAGE_SIZE
+                ? Option.some(probeUrl(url))
+                : response.next
+            return {
+              _tag: "Page" as const,
+              items,
+              next: options.stopAfter?.(response.body) ? null : Option.getOrNull(next),
+            }
           }),
         ).pipe(Effect.result)
         if (result._tag === "Failure") {
@@ -412,24 +399,16 @@ export const resolveRepository = (repositoryId: GitHubRepositoryDatabaseId) =>
     return { _tag: "Found" as const, repository: repository.value }
   })
 
-/** Each HTTP request has its own durable result; later rate limits do not repeat it. */
-export const fetchInActivity = <S extends Schema.Top>(
+/** Retrying a workflow may refetch; response bodies never become durable workflow results. */
+export const fetchWithRateLimitWaits = <S extends Schema.Top>(
   name: string,
   request: GitHubRequest,
   schema: S,
 ) =>
-  withRateLimitWaits(name, (attempt) =>
-    Activity.make({
-      name: `${name}/${attempt}`,
-      success: Schema.Union([
-        Schema.TaggedStruct("Ok", { body: schema }),
-        Schema.TaggedStruct("Failed", { status: Schema.Int, message: Schema.String }),
-      ]),
-      error: SyncActivityFailure,
-      execute: fetchJson(request, schema).pipe(
-        Effect.map((response) =>
-          response._tag === "Failed" ? response : { _tag: "Ok" as const, body: response.body },
-        ),
+  withRateLimitWaits(name, () =>
+    fetchJson(request, schema).pipe(
+      Effect.map((response) =>
+        response._tag === "Failed" ? response : { _tag: "Ok" as const, body: response.body },
       ),
-    }),
+    ),
   )

@@ -1,6 +1,5 @@
 import {
   GitHubInstallationRepositoriesResponse,
-  GitHubInstallationRepository,
   GitHubInstallationSummary,
 } from "@janitor/domain/GitHub/Installation"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
@@ -184,7 +183,6 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
       request: { scope: { _tag: "Installation", installationId }, priority: "foreground" },
       page: GitHubInstallationRepositoriesResponse,
       items: (body) => body.repositories,
-      itemSchema: GitHubInstallationRepository,
       cache: { repositoryId: Option.none() },
     })
     if (pages._tag === "Failed") {

@@ -1,3 +1,4 @@
+import { PayloadCipher } from "../../src/PayloadCipher.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as RuntimeContext from "alchemy/RuntimeContext"
 import * as Effect from "effect/Effect"
@@ -100,6 +101,10 @@ const run = (recorder: Recorder, body: unknown, stubs: Stubs = {}) =>
   handleMessage(message(recorder, body)).pipe(
     Effect.provide(
       Layer.mergeAll(
+        Layer.succeed(PayloadCipher, {
+          encrypt: () => Effect.die("unused"),
+          decrypt: () => Effect.succeed(new TextEncoder().encode("{}")),
+        }),
         Layer.succeed(GitHubWebhookJournal, {
           record:
             stubs.record ??

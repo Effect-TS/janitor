@@ -80,7 +80,7 @@ describe("Repository connections", () => {
       ).commands,
     ).toBeUndefined()
   })
-  it("explains retention and the rules affected by disconnecting", () => {
+  it("explains permanent deletion, fresh reconnection and retained GitHub labels", () => {
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
       Scene.given({
@@ -94,7 +94,7 @@ describe("Repository connections", () => {
       ),
       Scene.expect(
         Scene.text(
-          "Janitor will stop syncing and applying 3 enabled rules. GitHub labels stay unchanged. Policies, rules and history are kept for reconnection.",
+          "Disconnect permanently deletes all policies, drafts, published history, labeling rules and groups, stored facts, event history and cached evaluations. GitHub labels stay unchanged. Reconnecting starts empty and requires synchronization. Pause and access loss retain your configuration.",
         ),
       ).toExist(),
       Scene.expect(Scene.role("button", { name: "Cancel" })).toExist(),
@@ -156,7 +156,7 @@ describe("connection result handling", () => {
     expect(failedRefresh.model.loadError).toEqual(Option.some("Offline"))
   })
 
-  it("reconnects a repository with retained configuration in the paused state", () => {
+  it("reconnects a repository with synchronization enabled", () => {
     const initial = {
       ...Connections.init(),
       inventory: Option.some({
@@ -173,7 +173,7 @@ describe("connection result handling", () => {
     )
     expect(Option.getOrThrow(completed.model.inventory).repositories[0]).toMatchObject({
       connected: true,
-      enabled: false,
+      enabled: true,
     })
     expect(
       Connections.update(

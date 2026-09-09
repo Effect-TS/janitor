@@ -43,6 +43,9 @@ export const enqueueRuleTest = Effect.fn("enqueueRuleTest")(function* (
   const testId = crypto.randomUUID()
   yield* sql.withTransaction(
     Effect.gen(function* () {
+      const membership =
+        yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected FOR NO KEY UPDATE`
+      if (!membership.length) return yield* new RepositoryNotFound({ repositoryId })
       yield* sql`DELETE FROM labeling_rule_test WHERE repository_id=${repositoryId} AND expires_at<CLOCK_TIMESTAMP()`
       yield* sql`INSERT INTO labeling_rule_test(test_id,repository_id,request) VALUES(${testId},${repositoryId},${JSON.stringify(request)}::jsonb)`
       yield* outbox.enqueue({
