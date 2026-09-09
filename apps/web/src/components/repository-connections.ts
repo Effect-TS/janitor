@@ -287,8 +287,12 @@ export const update = (model: Model, message: Message) =>
                 : {
                     ...row,
                     connected: action !== "disconnect",
-                    enabled: action === "resume" || (action === "connect" && !row.reconnect),
+                    enabled: action === "resume" || action === "connect",
                     reconnect: row.reconnect || action === "disconnect",
+                    policyCount: action === "disconnect" ? 0 : row.policyCount,
+                    ruleCount: action === "disconnect" ? 0 : row.ruleCount,
+                    syncState: action === "connect" || action === "resume" ? "syncing" : "paused",
+                    syncError: null,
                   },
             ),
           })),
@@ -438,7 +442,7 @@ export const view = Submodel.defineView<
                 ? h.p(
                     [h.Class("text-sm text-muted-foreground")],
                     [
-                      "Your policies and rules are retained. Review them before resuming automation.",
+                      "Pausing retains your configuration and stored data. Resume to synchronize before automation runs.",
                     ],
                   )
                 : h.empty,
@@ -474,7 +478,7 @@ export const view = Submodel.defineView<
                                 h.p(
                                   [...render.description, h.Class("text-sm text-muted-foreground")],
                                   [
-                                    `Janitor will stop syncing and applying ${current.ruleCount} enabled rules. GitHub labels stay unchanged. Policies, rules and history are kept for reconnection.`,
+                                    `Disconnect permanently deletes all policies, drafts, published history, labeling rules and groups, stored facts, event history and cached evaluations. GitHub labels stay unchanged. Reconnecting starts empty and requires synchronization. Pause and access loss retain your configuration.`,
                                   ],
                                 ),
                                 Option.isSome(model.error)
@@ -570,7 +574,7 @@ export const view = Submodel.defineView<
                               h.p(
                                 [h.Class("text-xs text-muted-foreground")],
                                 [
-                                  `${row.isPrivate === null ? "Visibility unknown" : row.isPrivate ? "Private" : "Public"} · ${row.connected ? "Connected" : row.access !== "accessible" || row.installationStatus !== "active" ? "Access unavailable" : row.reconnect ? "Saved configuration · reconnect paused" : "Available"}`,
+                                  `${row.isPrivate === null ? "Visibility unknown" : row.isPrivate ? "Private" : "Public"} · ${row.connected ? "Connected" : row.access !== "accessible" || row.installationStatus !== "active" ? "Access unavailable" : row.reconnect ? "Previously disconnected · reconnect fresh" : "Available"}`,
                                 ],
                               ),
                             ],

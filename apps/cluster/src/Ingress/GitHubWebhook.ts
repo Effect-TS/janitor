@@ -1,4 +1,5 @@
 import { RepositoryActivity } from "../RepositoryActivity.ts"
+import { GitHubWebhookJournal } from "../GitHub/WebhookJournal.ts"
 import * as Option from "effect/Option"
 import { GitHubWebhookEventName } from "@janitor/domain/GitHub/WebhookEvent"
 import {
@@ -217,6 +218,34 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           }
 
           const { ciphertext, encryption } = encrypted
+
+          // Repository payloads live in the database transaction protected by
+          // disconnect. The outbox schedules projection without queue/R2 copies.
+          if (
+            Option.isSome(repository) &&
+            eventName !== "installation" &&
+            eventName !== "installation_repositories"
+          ) {
+            const journal = yield* GitHubWebhookJournal
+            return yield* journal
+              .record({
+                repositoryId: repository.value.repository.id,
+                deliveryId,
+                eventName,
+                receivedAt,
+                payloadSha256,
+                encryption,
+                payload: ciphertext,
+              })
+              .pipe(
+                Effect.as(acceptedResponse),
+                Effect.catchCause((cause) =>
+                  Effect.logError("Failed to journal repository webhook", cause).pipe(
+                    Effect.as(serviceUnavailableResponse),
+                  ),
+                ),
+              )
+          }
 
           const envelopeBody: GitHubWebhookBodyV1 | undefined =
             ciphertext.byteLength <= MAX_INLINE_WEBHOOK_BODY_BYTES

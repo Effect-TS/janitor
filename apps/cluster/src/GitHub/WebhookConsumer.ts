@@ -19,6 +19,8 @@ import * as Schema from "effect/Schema"
 import { WorkflowDispatcher } from "../WorkflowDispatcher.ts"
 import { projectGitHubWebhookRequest } from "./ProjectWebhookRequest.ts"
 import { GitHubWebhookJournal } from "./WebhookJournal.ts"
+import { PayloadCipher } from "../PayloadCipher.ts"
+import { repositoryOfPayload } from "./RepositoryPayload.ts"
 
 export class PayloadReadError extends Data.TaggedError("PayloadReadError")<{
   readonly key: GitHubWebhookR2ObjectKey
@@ -181,8 +183,17 @@ export const handleMessage = Effect.fn("GitHubWebhookConsumer.handleMessage")(fu
     payload = stored.success.value
   }
 
+  // Legacy repository envelopes may still be in the queue at deployment.
+  const cipher = yield* PayloadCipher
+  const plaintext = yield* cipher
+    .decrypt(deliveryId, envelope.success.encryption, payload)
+    .pipe(Effect.result)
+  if (Result.isFailure(plaintext))
+    return yield* retry("Payload attribution failed", plaintext.failure)
+  const repositoryId = Option.getOrUndefined(repositoryOfPayload(plaintext.success))
   const receipt = yield* journal
     .record({
+      repositoryId,
       deliveryId,
       eventName,
       receivedAt: envelope.success.receivedAt,

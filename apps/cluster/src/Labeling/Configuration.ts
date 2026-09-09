@@ -40,9 +40,17 @@ export const withRepositoryMutation = <A, E, R>(
 ) =>
   sql
     .withTransaction(
-      sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`.pipe(
-        Effect.andThen(effect),
-      ),
+      Effect.gen(function* () {
+        const [repository] = yield* sql<{
+          connected: boolean
+        }>`SELECT connected FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
+        if (!repository?.connected)
+          return yield* new LabelingConfigurationError({
+            operation: "mutation",
+            message: "Repository is disconnected",
+          })
+        return yield* effect
+      }),
     )
     .pipe(
       Effect.mapError((error) =>

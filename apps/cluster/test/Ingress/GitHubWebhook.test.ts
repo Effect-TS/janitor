@@ -1,4 +1,6 @@
 import { RepositoryActivity } from "../../src/RepositoryActivity.ts"
+import { GitHubWebhookJournal } from "../../src/GitHub/WebhookJournal.ts"
+import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as Option from "effect/Option"
 import { assert, describe, it } from "@effect/vitest"
 import * as RuntimeContext from "alchemy/RuntimeContext"
@@ -87,6 +89,15 @@ const makeHandler = (
               Effect.provideService(RepositoryActivity, {
                 run: (_id, effect) =>
                   paused ? Effect.succeedNone : Effect.map(effect, Option.some),
+              }),
+              Effect.provideService(GitHubWebhookJournal, {
+                record: () =>
+                  Effect.succeed({
+                    sequence: GitHubWebhookJournalSequence.make("1"),
+                    duplicate: false,
+                  }),
+                load: () => Effect.succeedNone,
+                markProjection: () => Effect.void,
               }),
               Effect.orDie,
               Effect.provideService(RuntimeContext.RuntimeContext, runtimeContext),

@@ -1,3 +1,4 @@
+import { executeAndReadActivity } from "./support.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -13,7 +14,7 @@ import {
 } from "../../src/Labeling/Configuration.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
-import { ReconcileEntity, ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
+import { ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
 import { SnapshotHandoff, RECONCILE_ENTITY_TAG } from "../../src/Labeling/SnapshotHandoff.ts"
 import { LabelingSyncIntegrationLayer } from "../../src/Labeling/SyncIntegration.ts"
 import { SyncIntegration } from "../../src/SyncIntegration.ts"
@@ -227,10 +228,10 @@ layer(Services, { timeout: "2 minutes" })("Event-driven labeling", (it) => {
         actor,
       )
       assert.deepStrictEqual(yield* work, before)
-      assert.strictEqual((yield* ReconcileEntity.execute(queued)).outcome, "superseded")
+      assert.strictEqual((yield* executeAndReadActivity(queued)).outcome, "superseded")
       const current = yield* latestQueued
       assert.isAbove(current.rulesRevision, queued.rulesRevision)
-      const result = yield* ReconcileEntity.execute(current)
+      const result = yield* executeAndReadActivity(current)
       assert.strictEqual(result.outcome, "evaluated")
       assert.deepStrictEqual(
         result.plan?.rules.map((rule) => rule.outcome),
@@ -277,11 +278,11 @@ layer(Services, { timeout: "2 minutes" })("Event-driven labeling", (it) => {
         )
         yield* policies.publish(repositoryId, policy.policyId, saved.policy.version, actor)
         assert.strictEqual(
-          (yield* ReconcileEntity.execute(queuedWhileDisabled)).outcome,
+          (yield* executeAndReadActivity(queuedWhileDisabled)).outcome,
           "superseded",
         )
         const latest = yield* latestQueued
-        const result = yield* ReconcileEntity.execute(latest)
+        const result = yield* executeAndReadActivity(latest)
         assert.deepStrictEqual(
           result.plan?.actions.map((action) => [action.labelId, action.action]),
           [[bug, "add"]],
@@ -297,7 +298,7 @@ layer(Services, { timeout: "2 minutes" })("Event-driven labeling", (it) => {
         const background = yield* latestQueued
         assert.strictEqual(background.rulesRevision, latest.rulesRevision)
         assert.strictEqual(background.snapshotGeneration, generation)
-        assert.strictEqual((yield* ReconcileEntity.execute(background)).outcome, "evaluated")
+        assert.strictEqual((yield* executeAndReadActivity(background)).outcome, "evaluated")
         const targets = yield* SyncTargets
         assert.strictEqual(
           Option.getOrThrow(yield* targets.get({ _tag: "Entity", repositoryId, number }))
@@ -316,8 +317,8 @@ layer(Services, { timeout: "2 minutes" })("Event-driven labeling", (it) => {
       yield* rules.patch(repositoryId, rule.id, { version: rule.version, enabled: false }, actor)
       assert.deepStrictEqual(yield* work, before)
       const writesBefore = writes.length
-      assert.strictEqual((yield* ReconcileEntity.execute(queued)).outcome, "superseded")
-      const result = yield* ReconcileEntity.execute(yield* latestQueued)
+      assert.strictEqual((yield* executeAndReadActivity(queued)).outcome, "superseded")
+      const result = yield* executeAndReadActivity(yield* latestQueued)
       assert.deepStrictEqual(result.plan?.rules, [])
       assert.strictEqual(writes.length, writesBefore)
     }),
@@ -359,13 +360,13 @@ layer(Services, { timeout: "2 minutes" })("Event-driven labeling", (it) => {
               new LabelingConfigurationError({ operation: "testPublish", message: String(error) }),
           ),
         )
-      const old = yield* ReconcileEntity.execute(queued).pipe(
+      const old = yield* executeAndReadActivity(queued).pipe(
         Effect.provide(EvaluationConfiguration),
       )
       assert.strictEqual(old.outcome, "superseded")
       assert.isNull(old.plan)
       assert.strictEqual(writes.length, writesBefore)
-      const current = yield* ReconcileEntity.execute(yield* latestQueued)
+      const current = yield* executeAndReadActivity(yield* latestQueued)
       assert.deepStrictEqual(
         current.plan?.actions.map((action) => action.action),
         ["add"],

@@ -34,7 +34,7 @@ Run `vp check` and `vp test run` from the workspace root. Database tests require
 
 `0006_repository_connections.sql` adds explicit connection membership, disconnect timestamps, operator audit records, and expiring GitHub setup attempts. Existing repository rows remain connected, including paused rows. Discovery explicitly inserts new repositories as disconnected; inventory refreshes never overwrite membership. Seeds and the operator enable command explicitly connect repositories.
 
-Repository sync eligibility now requires connection membership. Disconnect retains policies, rules, mirror data, and history.
+Repository sync eligibility requires connection membership. Migration `0020` replaces the original retention behavior with deletion on explicit disconnection.
 
 ## GitHub label colors
 
@@ -146,3 +146,36 @@ readiness boundary and entity generation. Closed issues and closed or merged pul
 requests are ineligible. Recovery does not replay blocked events or label existing
 items. Future repository automations must check repository readiness and retain
 an event's admission boundary through their external-write fence.
+
+## Repository disconnection
+
+`0020_repository_disconnection.sql` adds repository attribution for webhook
+payloads and AI claims, and the deletion function used by explicit disconnection.
+It removes repository configuration, policy versions and drafts, labeling groups,
+facts, evaluations, caches, event history, pending notifications and outbox work.
+The repository identity, access information and a generation counter remain.
+Reconnection requests all three synchronization tracks with generations above
+the deleted work and becomes ready only after synchronization succeeds.
+
+Stop old workers before applying this migration. Drain the legacy webhook queue
+into the journal and remove its consumed R2 payloads before enabling disconnection
+in the new release. Clear retained legacy workflow activity results during this
+development deployment, since the previous workflows stored fetched GitHub pages,
+evaluation traces and label plans outside Postgres. New workflows keep these only
+in memory and deletable repository tables or HTTP cache entries. Replayed workflows
+may refetch GitHub pages; they recheck their generation before publishing facts.
+The migration does not disconnect existing repositories or delete their
+configuration. Transient AI claims are reset.
+
+New repository webhook requests journal ciphertext directly within the repository
+lock. Their outbox payloads contain delivery IDs only; queue and R2 storage remain
+for installation discovery. The legacy queue consumer attributes decrypted
+repository payloads before journaling and discards deliveries older than the
+repository's admission cutoff, including after reconnection. Disconnection
+decrypts unattributed legacy journal entries to identify the repository before
+deletion. If a required encryption key is unavailable, disconnection fails and
+rolls back instead of leaving unidentifiable ciphertext behind.
+
+GitHub label writes share the repository lock with disconnection. AI cache writes
+recheck the connection generation under that lock. Reconnection never restores
+configuration, AI consent or old facts, and does not trigger catch-up labeling.

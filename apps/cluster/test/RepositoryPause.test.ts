@@ -93,6 +93,7 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
         const connections = yield* RepositoryConnections
         const activity = yield* RepositoryActivity
         const cipher = yield* PayloadCipher
+        const ingressJournal = yield* GitHubWebhookJournal
         const envelopes: Array<GitHubWebhookEnvelopeV1> = []
         let stored = 0
         let verification: Effect.Effect<boolean> = Effect.succeed(true)
@@ -123,6 +124,7 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
                 middleware: (app) =>
                   app.pipe(
                     Effect.provideService(RepositoryActivity, activity),
+                    Effect.provideService(GitHubWebhookJournal, ingressJournal),
                     Effect.provideService(
                       RuntimeContext.RuntimeContext,
                       RuntimeContext.RuntimeContext.of({
@@ -154,14 +156,17 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
             ),
           )
         assert.strictEqual((yield* post("pull_request", 0)).status, 202)
-        assert.strictEqual(envelopes.length, 1)
+        assert.strictEqual(envelopes.length, 0)
+        assert.isTrue(
+          Option.isSome(yield* ingressJournal.load(GitHubWebhookDeliveryId.make("test"))),
+        )
         yield* connections.change(repositoryId, "pause", actor)
         for (const padding of [0, 70000])
           assert.strictEqual((yield* post("pull_request", padding)).status, 202)
-        assert.strictEqual(envelopes.length, 1)
+        assert.strictEqual(envelopes.length, 0)
         assert.strictEqual(stored, 0)
         assert.strictEqual((yield* post("installation_repositories", 0)).status, 202)
-        assert.strictEqual(envelopes.length, 2)
+        assert.strictEqual(envelopes.length, 1)
         assert.isFalse((yield* connections.inventory).repositories[0]!.enabled)
         const denied = yield* Effect.flip((yield* SyncStatus).requestRepository(repositoryId))
         assert.include(denied.message, "Resume")
@@ -176,7 +181,7 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
         yield* connections.change(repositoryId, "resume", actor)
         yield* Deferred.succeed(verified, undefined)
         assert.strictEqual((yield* Fiber.join(arrivingWhilePaused)).status, 202)
-        assert.strictEqual(envelopes.length, 2)
+        assert.strictEqual(envelopes.length, 1)
         assert.strictEqual(stored, 0)
       }),
   )

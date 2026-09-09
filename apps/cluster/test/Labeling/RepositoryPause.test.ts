@@ -1,3 +1,4 @@
+import { TestPayloadCipher } from "../support/PayloadCipher.ts"
 import * as Context from "effect/Context"
 import { assert, layer } from "@effect/vitest"
 import * as Deferred from "effect/Deferred"
@@ -32,6 +33,7 @@ class WriteControl extends Context.Service<
 >()("WriteControl") {}
 
 const Services = Layer.mergeAll(ReconcileEntityLayer, RepositoryConnections.layer).pipe(
+  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(LabelingLayer),
   Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provideMerge(MigratedPostgresLayer),

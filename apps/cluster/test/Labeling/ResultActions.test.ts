@@ -1,3 +1,4 @@
+import { executeAndReadActivity } from "./support.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -16,7 +17,7 @@ import {
 import { activityPage } from "../../src/Labeling/Activity.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
-import { ReconcileEntity, ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
+import { ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
 import { SnapshotHandoff } from "../../src/Labeling/SnapshotHandoff.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
@@ -155,7 +156,7 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
             })
             assert.strictEqual(published._tag, "Published")
             if (published._tag !== "Published") return null
-            return yield* ReconcileEntity.execute(published.identity)
+            return yield* executeAndReadActivity(published.identity)
           })
         for (const entity of preview.entities) {
           const result = yield* reconcile(entity.number)

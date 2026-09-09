@@ -1,4 +1,27 @@
 import * as DateTime from "effect/DateTime"
+import { assert } from "@effect/vitest"
+import type { ReconciliationIdentity } from "@janitor/domain/Labeling/Reconciliation"
+import { ReconcileEntity } from "../../src/Labeling/ReconcileEntity.ts"
+import { activityPage } from "../../src/Labeling/Activity.ts"
+
+/** Plans are read through repository activity, never retained by the workflow engine. */
+export const executeAndReadActivity = (identity: ReconciliationIdentity) =>
+  Effect.gen(function* () {
+    const result = yield* ReconcileEntity.execute(identity)
+    assert.isNull(result.plan)
+    const page = yield* activityPage(identity.repositoryId, {
+      search: "",
+      target: "all",
+      cursor: null,
+    })
+    const entry = page.entries.find(
+      (entry) =>
+        entry.number === identity.number &&
+        entry.generation === identity.snapshotGeneration &&
+        entry.revision === identity.rulesRevision,
+    )
+    return { ...result, plan: entry?.plan ?? null }
+  })
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
