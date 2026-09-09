@@ -211,6 +211,7 @@ const seed = Effect.gen(function* () {
       account: { id: Fixtures.accountId, login: "Effectful-Tech", type: "Organization" },
       repositorySelection: "all",
       htmlUrl: `https://github.com/settings/installations/${Fixtures.installationId}`,
+      permissions: { metadata: "read", issues: "write", pull_requests: "read", checks: "read" },
       suspendedAt: null,
     },
     status: "active",

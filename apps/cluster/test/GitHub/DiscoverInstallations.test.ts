@@ -63,6 +63,12 @@ layer(DataLayer, { timeout: "2 minutes" })("Installation discovery", (it) => {
                           account: { id: 1, login: "org", type: "Organization" },
                           repository_selection: "all",
                           html_url: "https://github.com/settings/installations/901",
+                          permissions: {
+                            metadata: "read",
+                            issues: "write",
+                            pull_requests: "read",
+                            checks: "read",
+                          },
                           suspended_at: null,
                         },
                       ],

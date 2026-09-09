@@ -1,3 +1,4 @@
+import { requiredGitHubAccessError } from "@janitor/domain/GitHub/Installation"
 import type { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type {
   GitHubInstallationRepository,
@@ -225,6 +226,15 @@ export class GitHubReadModel extends Context.Service<
     readonly applyInstallation: (
       observation: InstallationObservation,
     ) => Effect.Effect<void, GitHubReadModelError>
+    readonly markInstallationLost: (
+      installationId: GitHubInstallationId,
+      sequence: GitHubWebhookJournalSequence,
+    ) => Effect.Effect<void, GitHubReadModelError>
+    readonly updateRepositoryIdentity: (
+      repository: GitHubInstallationRepository,
+      sequence: GitHubWebhookJournalSequence,
+      transferred: boolean,
+    ) => Effect.Effect<void, GitHubReadModelError>
     readonly applyRepositories: (
       observation: RepositoriesObservation,
     ) => Effect.Effect<void, GitHubReadModelError>
@@ -316,6 +326,7 @@ export class GitHubReadModel extends Context.Service<
           account_type: account.type,
           repository_selection: installation.repositorySelection,
           status,
+          access_error: requiredGitHubAccessError(installation),
           html_url: installation.htmlUrl,
           projected_sequence: sequence,
         })}
@@ -325,6 +336,7 @@ export class GitHubReadModel extends Context.Service<
           account_type = EXCLUDED.account_type,
           repository_selection = EXCLUDED.repository_selection,
           status = EXCLUDED.status,
+          access_error = EXCLUDED.access_error,
           html_url = EXCLUDED.html_url,
           projected_sequence = EXCLUDED.projected_sequence,
           observed_at = CLOCK_TIMESTAMP()
@@ -898,6 +910,18 @@ export class GitHubReadModel extends Context.Service<
       )
 
     return {
+      updateRepositoryIdentity: (repository, sequence, transferred) =>
+        sql`
+        UPDATE github_repository SET owner = ${repository.fullName.owner}, repo = ${repository.fullName.repo},
+          is_private = ${repository.isPrivate}, projected_sequence = ${sequence}, observed_at = CLOCK_TIMESTAMP(),
+          access = CASE WHEN ${transferred} THEN 'suspect' ELSE access END
+        WHERE repository_id = ${repository.id} AND projected_sequence < ${sequence}
+      `.pipe(Effect.asVoid, wrap("updateRepositoryIdentity")),
+      markInstallationLost: (installationId, sequence) =>
+        sql`
+        UPDATE github_installation SET status = 'deleted', projected_sequence = ${sequence}, observed_at = CLOCK_TIMESTAMP()
+        WHERE installation_id = ${installationId} AND projected_sequence <= ${sequence}
+      `.pipe(Effect.asVoid, wrap("markInstallationLost")),
       listOpenEntityNumbersBefore,
       withTransaction,
       applyInstallation,

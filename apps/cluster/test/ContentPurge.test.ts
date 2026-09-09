@@ -54,6 +54,7 @@ layer(PurgeLayer, { timeout: "2 minutes" })("ContentPurge against Postgres", (it
           account: { id: GitHubAccountDatabaseId.make("1"), login: "effect", type: "Organization" },
           repositorySelection: "all",
           htmlUrl: "https://github.com/settings/installations/900",
+          permissions: { metadata: "read", issues: "write", pull_requests: "read", checks: "read" },
           suspendedAt: null,
         },
         status: "active",

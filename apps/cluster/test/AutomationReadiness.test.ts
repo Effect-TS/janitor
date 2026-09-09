@@ -14,11 +14,25 @@ const services = RepositoryConnections.layer.pipe(
   Layer.provideMerge(Services),
   Layer.provide(
     Layer.succeed(GitHubTransport, {
-      request: () =>
+      request: (request) =>
         Effect.succeed({
           _tag: "Ok",
           status: 200,
-          body: { id: 701 },
+          body: request.url.startsWith("/app/installations/")
+            ? {
+                id: 77,
+                account: { id: 1, login: "test", type: "Organization" },
+                repository_selection: "selected",
+                html_url: "https://github.com/settings/installations/77",
+                suspended_at: null,
+                permissions: {
+                  metadata: "read",
+                  issues: "write",
+                  pull_requests: "read",
+                  checks: "read",
+                },
+              }
+            : { id: 701 },
           etag: Option.none(),
           link: Option.none(),
           requestId: Option.none(),

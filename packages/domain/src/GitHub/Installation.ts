@@ -59,6 +59,7 @@ export const GitHubInstallationSummary = Schema.Struct({
   repositorySelection: GitHubInstallationRepositorySelection,
   htmlUrl: Schema.NonEmptyString,
   suspendedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  permissions: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   suspendedBy: Schema.optionalKey(Schema.NullOr(GitHubInstallationSuspendingUser)),
 })
   .pipe(
@@ -71,6 +72,22 @@ export const GitHubInstallationSummary = Schema.Struct({
   )
   .annotate({ identifier: "GitHubInstallationSummary" })
 export type GitHubInstallationSummary = typeof GitHubInstallationSummary.Type
+
+/** Permissions used by issue, PR, changed-file, review and check-run requests. */
+export const requiredGitHubAccessError = (
+  installation: Pick<GitHubInstallationSummary, "permissions">,
+): string | null => {
+  const permissions = installation.permissions ?? {}
+  const missing = [
+    ...(["metadata", "pull_requests", "checks"] as const)
+      .filter((name) => permissions[name] !== "read" && permissions[name] !== "write")
+      .map((name) => `${name}: read`),
+    ...(permissions.issues === "write" ? [] : ["issues: write"]),
+  ]
+  return missing.length === 0
+    ? null
+    : `Grant the GitHub App these repository permissions: ${missing.join(", ")}. Approve the changes in installation settings, then refresh repositories.`
+}
 
 export const GitHubInstallationRepository = Schema.Struct({
   id: GitHubRepositoryDatabaseIdFromStringOrNumber,

@@ -14,15 +14,17 @@ export const withRepositoryActivity = <A, E, R>(
   sql.withTransaction(
     Effect.gen(function* () {
       const [row] = yield* sql<{
+        operational: boolean
         enabled: boolean
         connected: boolean
         webhooks_after: Date | null
       }>`
-        SELECT enabled, connected, webhooks_after FROM github_repository
+        SELECT enabled, connected, webhooks_after, repository_access_available(repository_id) AS operational FROM github_repository
         WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
       if (
         row &&
-        (!row.enabled ||
+        (!row.operational ||
+          !row.enabled ||
           !row.connected ||
           (receivedAt !== undefined &&
             row.webhooks_after !== null &&

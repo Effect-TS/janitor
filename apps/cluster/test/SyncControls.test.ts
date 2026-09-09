@@ -26,6 +26,8 @@ layer(Services, { timeout: "2 minutes" })("Repository sync controls", (it) => {
       const planner = yield* SyncPlanner
       const repositoryId = GitHubRepositoryDatabaseId.make("9901")
       const scope = { _tag: "RepositoryTrack", repositoryId, track: "labels" } as const
+      yield* sql`INSERT INTO github_installation(installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence,access_error)
+        VALUES('77','1','test','Organization','all','active','https://github.com/settings/installations/77',1,NULL)`
       yield* sql`INSERT INTO github_repository
         (repository_id, installation_id, owner, repo, access, enabled, projected_sequence)
         VALUES (${repositoryId}, '77', 'test', 'offline', 'accessible', TRUE, 1)`
@@ -54,10 +56,11 @@ layer(Services, { timeout: "2 minutes" })("Repository sync controls", (it) => {
         retry_at = CLOCK_TIMESTAMP() - INTERVAL '1 hour', completed_generation = requested_generation`
       assert.strictEqual(yield* targets.retryDue, 0)
       assert.strictEqual((yield* status.summary).state, "idle")
-      assert.strictEqual((yield* status.requestAll).requested, 1)
+      assert.strictEqual((yield* status.requestAll).requested, 2)
       yield* planner.plan(yield* DateTime.now)
       assert.deepStrictEqual(yield* sql`SELECT execution_key FROM workflow_outbox`, [
         { execution_key: "app:installations:1" },
+        { execution_key: "installation:77:1" },
       ])
       yield* planner.setRepositoryEnabled(repositoryId, true)
       const before = Option.getOrThrow(yield* targets.get(scope)).requestedGeneration

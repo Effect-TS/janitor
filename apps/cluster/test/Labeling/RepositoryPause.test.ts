@@ -83,7 +83,21 @@ layer(
                 return {
                   _tag: "Ok" as const,
                   status: 200,
-                  body: { id: 701 },
+                  body: request.url.startsWith("/app/installations/")
+                    ? {
+                        id: 77,
+                        account: { id: 1, login: "effect", type: "Organization" },
+                        repository_selection: "all",
+                        html_url: "https://github.com/settings/installations/77",
+                        suspended_at: null,
+                        permissions: {
+                          metadata: "read",
+                          issues: "write",
+                          pull_requests: "read",
+                          checks: "read",
+                        },
+                      }
+                    : { id: 701 },
                   etag: Option.none(),
                   link: Option.none(),
                   requestId: Option.none(),

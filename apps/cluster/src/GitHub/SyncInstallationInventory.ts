@@ -1,6 +1,7 @@
 import {
   GitHubInstallationRepositoriesResponse,
   GitHubInstallationSummary,
+  requiredGitHubAccessError,
 } from "@janitor/domain/GitHub/Installation"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { SyncGeneration, type SyncScope } from "@janitor/domain/GitHub/Sync"
@@ -141,6 +142,17 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
       return result("failed", 0)
     }
     if (fetched.success._tag === "Blocked") {
+      yield* Activity.make({
+        name: `${name}/ApplyMissing`,
+        error: SyncActivityError,
+        execute: Effect.gen(function* () {
+          const readModel = yield* GitHubReadModel
+          const targets = yield* SyncTargets
+          yield* targets
+            .withRun(scope, generation, readModel.markInstallationLost(installationId, sequence))
+            .pipe(Effect.mapError((error) => failure(error.message)))
+        }),
+      })
       yield* completeRun(name, scope, generation, {
         _tag: "Blocked",
         reason: fetched.success.reason,
@@ -149,7 +161,8 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
     }
     const installation = fetched.success.installation
 
-    if (installation.suspendedAt !== null) {
+    const accessError = requiredGitHubAccessError(installation)
+    if (installation.suspendedAt !== null || accessError !== null) {
       yield* Activity.make({
         name: `${name}/ApplySuspended`,
         error: SyncActivityError,
@@ -162,7 +175,7 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
               generation,
               readModel.applyInstallation({
                 installation,
-                status: "suspended",
+                status: installation.suspendedAt === null ? "active" : "suspended",
                 sequence,
                 authoritative: true,
               }),
@@ -172,7 +185,7 @@ export const SyncInstallationInventoryLayer = SyncInstallationInventory.toLayer(
       })
       yield* completeRun(name, scope, generation, {
         _tag: "Blocked",
-        reason: "installation-suspended",
+        reason: accessError ?? "installation-suspended",
       })
       return result("blocked", 0)
     }

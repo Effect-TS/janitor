@@ -65,14 +65,12 @@ export const DiscoverInstallationsLayer = DiscoverInstallations.toLayer(
               begun.generation,
               Effect.gen(function* () {
                 for (const installation of installations) {
-                  const existing = yield* readModel.getInstallation(installation.id)
-                  if (Option.isNone(existing))
-                    yield* readModel.applyInstallation({
-                      installation,
-                      status: installation.suspendedAt === null ? "active" : "suspended",
-                      sequence: begun.sequence ?? GitHubWebhookJournalSequenceZero,
-                      authoritative: true,
-                    })
+                  yield* readModel.applyInstallation({
+                    installation,
+                    status: installation.suspendedAt === null ? "active" : "suspended",
+                    sequence: begun.sequence ?? GitHubWebhookJournalSequenceZero,
+                    authoritative: true,
+                  })
                   yield* targets.invalidate({
                     scope: { _tag: "InstallationInventory", installationId: installation.id },
                     sequence: Option.none(),

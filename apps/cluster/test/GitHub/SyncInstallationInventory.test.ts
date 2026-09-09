@@ -53,6 +53,7 @@ const installationBody = {
   account: { id: 1, login: "effect", type: "Organization" },
   repository_selection: "selected",
   html_url: "https://github.com/settings/installations/789",
+  permissions: { metadata: "read", issues: "write", pull_requests: "read", checks: "read" },
   suspended_at: null,
 }
 
@@ -120,6 +121,8 @@ const run = (
           Layer.succeed(GitHubReadModel, {
             listOpenEntityNumbersBefore: () => Effect.succeed([]),
             withTransaction: (effect) => effect,
+            updateRepositoryIdentity: () => Effect.void,
+            markInstallationLost: () => Effect.void,
             applyInstallation: (observation) =>
               Effect.sync(() => void recorder.installations.push(observation.status)),
             applyRepositories: (observation) =>

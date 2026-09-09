@@ -10,6 +10,17 @@ import { CheckRunWebhookEvent } from "./WebhookEvent/CheckRun.ts"
 import { CheckSuiteWebhookEvent } from "./WebhookEvent/CheckSuite.ts"
 import { CommitStatusWebhookEvent } from "./WebhookEvent/CommitStatus.ts"
 import { IssueWebhookEvent } from "./WebhookEvent/Issue.ts"
+import { GitHubInstallationRepository } from "./Installation.ts"
+import { BaseGitHubWebhookEvent } from "./WebhookEvent/Base.ts"
+
+const RepositoryWebhookEvent = Schema.Struct({
+  ...BaseGitHubWebhookEvent.fields,
+  name: Schema.Literal("repository"),
+  payload: Schema.Struct({
+    action: Schema.Literals(["renamed", "transferred", "publicized", "privatized"]),
+    repository: GitHubInstallationRepository,
+  }),
+})
 
 export const GitHubWebhookEvent = Schema.Union([
   PingWebhookEvent,
@@ -21,6 +32,7 @@ export const GitHubWebhookEvent = Schema.Union([
   CheckRunWebhookEvent,
   CheckSuiteWebhookEvent,
   CommitStatusWebhookEvent,
+  RepositoryWebhookEvent,
 ])
   .annotate({ identifier: "GitHubWebhookEvent" })
   .pipe(Schema.toTaggedUnion("name"))
