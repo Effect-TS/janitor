@@ -94,6 +94,7 @@ it.effect("reports actionable provider errors without exposing response bodies",
       const error = yield* Effect.gen(function* () {
         return yield* (yield* ClassifierProvider).ask("test").pipe(Effect.flip)
       }).pipe(Effect.provide(provider))
+      assert.strictEqual(error.retryable, status === 429 || status === 500)
       assert.include(error.message, guidance)
       assert.notInclude(error.message, "sensitive provider detail")
     }
@@ -114,7 +115,35 @@ it.effect("times out a stalled provider request with actionable guidance", () =>
     yield* Deferred.await(started)
     yield* TestClock.adjust("61 seconds")
     const error = yield* Fiber.join(fiber)
+    assert.strictEqual(error.retryable, true)
     assert.include(error.message, "timed out")
     assert.include(error.message, "Try again")
+  }),
+)
+
+it.effect("honors Retry-After seconds and dates on rate limits and server errors", () =>
+  Effect.gen(function* () {
+    yield* TestClock.setTime(0)
+    for (const status of [429, 503])
+      for (const value of ["7", "Thu, 01 Jan 1970 00:00:07 GMT"]) {
+        const provider = failingProvider(
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response(JSON.stringify({ error: { message: "unavailable" } }), {
+                  status,
+                  headers: { "content-type": "application/json", "retry-after": value },
+                }),
+              ),
+            ),
+          ),
+        )
+        const error = yield* Effect.gen(function* () {
+          return yield* (yield* ClassifierProvider).ask("test").pipe(Effect.flip)
+        }).pipe(Effect.provide(provider))
+        assert.strictEqual(error.retryable, true)
+        assert.strictEqual(error.retryAfterMs, 7000)
+      }
   }),
 )

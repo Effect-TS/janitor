@@ -12,6 +12,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { LabelingConfiguration, RepositoryNotFound } from "./Configuration.ts"
+import { ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingTest } from "./Test.ts"
 
 export const RuleTestJob = Schema.Struct({
@@ -110,7 +111,27 @@ export const RuleTestJobLayer = TestWorkflow.toLayer(
         if (!rows[0]) return
         yield* flushLive
         const response = yield* test.run(repositoryId, rows[0].request).pipe(
-          Effect.timeout(Duration.seconds(120)),
+          Effect.provideService(EvaluationRetry, {
+            isCurrent:
+              sql`SELECT 1 FROM labeling_rule_test t JOIN github_repository r USING(repository_id)
+              WHERE t.test_id=${testId} AND r.connected AND t.status='running' AND t.expires_at>CLOCK_TIMESTAMP()`.pipe(
+                Effect.map((rows) => rows.length > 0),
+                Effect.mapError(
+                  (error) =>
+                    new ClassifierError({ operation: "test status", message: error.message }),
+                ),
+              ),
+            report: (message) =>
+              sql`UPDATE labeling_rule_test SET message=${message} WHERE test_id=${testId} AND status='running'`.pipe(
+                Effect.asVoid,
+                Effect.andThen(flushLive),
+                Effect.mapError(
+                  (error) =>
+                    new ClassifierError({ operation: "retry status", message: error.message }),
+                ),
+              ),
+          }),
+          Effect.timeout(Duration.seconds(270)),
           Effect.match({
             onSuccess: (response) => ({ response, message: null }),
             onFailure: () => ({

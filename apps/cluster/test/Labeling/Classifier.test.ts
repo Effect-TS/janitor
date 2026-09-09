@@ -3,11 +3,15 @@ import { PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import { snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
 import { MAX_TRACE } from "@janitor/domain/Labeling/Policy/Program"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
+import * as Deferred from "effect/Deferred"
+import { TestClock } from "effect/testing"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import {
   AiClassifier,
+  EvaluationRetry,
   AiConsentService,
   ClassifierProvider,
   ClassifierProviderError,
@@ -32,11 +36,21 @@ import {
 /** Answers by title: bumps match, everything else does not; can be made to fail. */
 let failing = false
 let calls = 0
+let temporaryFailures = 0
 const ProviderStub = Layer.succeed(ClassifierProvider, {
   identity: { provider: "stub", model: "stub-1" },
   ask: (prompt) =>
     Effect.suspend(() => {
       calls++
+      if (temporaryFailures-- > 0)
+        return Effect.fail(
+          new ClassifierProviderError({
+            message: "Temporarily unavailable",
+            cause: null,
+            retryable: true,
+            retryAfterMs: 5000,
+          }),
+        )
       return failing
         ? Effect.fail(new ClassifierProviderError({ message: "down", cause: null }))
         : Effect.succeed({
@@ -57,6 +71,7 @@ const Services = LabelingLayer.pipe(
 layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) => {
   it.effect("evaluates unknown without consent, then classifies under a lease and caches", () =>
     Effect.gen(function* () {
+      calls = 0
       yield* seed
       yield* seedPullRequests
       const policies = yield* Policies
@@ -501,6 +516,50 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       assert.strictEqual(failed.inputReport?.status, "shortened")
       assert.isDefined(failed.inputDetails)
       assert.strictEqual(calls, 3)
+    }),
+  )
+  it.effect("recovers a temporary failure after the provider delay and caches the result", () =>
+    Effect.gen(function* () {
+      yield* seed
+      yield* seedPullRequests
+      failing = false
+      calls = 0
+      temporaryFailures = 1
+      yield* (yield* AiConsentService).set(repositoryId, true, actor)
+      const test = yield* LabelingTest
+      const request = {
+        subject: {
+          _tag: "Draft" as const,
+          source: {
+            target: "pull_request" as const,
+            classify: {
+              prompt: "Read {{fact:title}}",
+              evidence: ["title"] as const,
+              minimumConfidence: 0.8,
+            },
+          },
+        },
+        numbers: [5],
+      }
+      const waiting = yield* Deferred.make<void>()
+      const fiber = yield* test.run(repositoryId, request).pipe(
+        Effect.provideService(EvaluationRetry, {
+          isCurrent: Effect.succeed(true),
+          report: () => Deferred.succeed(waiting, undefined).pipe(Effect.asVoid),
+        }),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(waiting)
+      yield* TestClock.adjust("4 seconds")
+      assert.strictEqual(calls, 1)
+      yield* TestClock.adjust("1 second")
+      const result = yield* Fiber.join(fiber)
+      assert.strictEqual(result._tag, "Evaluated")
+      if (result._tag !== "Evaluated") return
+      assert.strictEqual(result.entities[0]?.evaluation?.outcome, "match")
+      assert.include(result.entities[0]!.evaluation!.reason, "2 attempts")
+      yield* test.run(repositoryId, request)
+      assert.strictEqual(calls, 2)
     }),
   )
 })

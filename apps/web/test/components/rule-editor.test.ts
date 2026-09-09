@@ -436,6 +436,7 @@ describe("rule flow testing", () => {
     )
   })
   it("keeps progress monotonic and ignores updates after completion", () => {
+    const scene = { update: RuleEditor.update, view: Scene.withViewInputs(RuleEditor.view, {})() }
     const started = RuleEditor.update(fresh(), RuleEditor.Message.ClickedTest()).model
     expect(started.testResult).toMatchObject({ status: "submitting" })
     const progress = (status: "queued" | "running") =>
@@ -449,7 +450,15 @@ describe("rule flow testing", () => {
       })
     const queued = RuleEditor.update(started, progress("queued")).model
     expect(queued.testResult).toMatchObject({ status: "queued" })
-    const running = RuleEditor.update(queued, progress("running")).model
+    const running = RuleEditor.update(queued, {
+      ...progress("running"),
+      progress: "Retrying attempt 2 of 3 in 2 seconds.",
+    }).model
+    Scene.scene(
+      scene,
+      Scene.given(running),
+      Scene.expect(Scene.text("Retrying attempt 2 of 3 in 2 seconds.")).toExist(),
+    )
     const old = RuleEditor.update(running, progress("queued"))
     expect(old.model.testResult).toMatchObject({ status: "running" })
     expect(old.commands).toEqual([])

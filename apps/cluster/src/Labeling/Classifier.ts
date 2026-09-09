@@ -56,11 +56,35 @@ export type ClassifierAnswer = typeof ClassifierAnswer.Type
 export class ClassifierProviderError extends Data.TaggedError("ClassifierProviderError")<{
   readonly message: string
   readonly cause: unknown
+  readonly retryable?: boolean
+  readonly retryAfterMs?: number
 }> {}
 
 export interface ProviderIdentity {
   readonly provider: string
   readonly model: string
+}
+
+const providerRetry = (cause: unknown, now: number) => {
+  if (Cause.isTimeoutError(cause)) return { retryable: true }
+  if (!AiError.isAiError(cause)) return { retryable: false }
+  const reason = cause.reason
+  const headers = "http" in reason ? reason.http?.response?.headers : undefined
+  const header = headers?.["retry-after"]
+  const seconds = typeof header === "string" && header.trim() !== "" ? Number(header) : NaN
+  const date = typeof header === "string" ? Date.parse(header) : NaN
+  const guidance = Number.isFinite(seconds)
+    ? Math.max(0, seconds * 1000)
+    : Number.isFinite(date)
+      ? Math.max(0, date - now)
+      : 0
+  const retryAfterMs = Math.max(
+    guidance,
+    reason._tag === "RateLimitError" && reason.retryAfter
+      ? Duration.toMillis(reason.retryAfter)
+      : 0,
+  )
+  return { retryable: reason.isRetryable, retryAfterMs }
 }
 
 // Provider payloads may echo prompts or credentials. Return guidance, never raw bodies.
@@ -130,9 +154,16 @@ export class ClassifierProvider extends Context.Service<
                   ),
                 ),
                 Effect.map((response) => response.value),
-                Effect.mapError(
-                  (cause) =>
-                    new ClassifierProviderError({ message: providerErrorMessage(cause), cause }),
+                Effect.catch((cause) =>
+                  Effect.flatMap(Clock.currentTimeMillis, (now) =>
+                    Effect.fail(
+                      new ClassifierProviderError({
+                        message: providerErrorMessage(cause),
+                        cause,
+                        ...providerRetry(cause, now),
+                      }),
+                    ),
+                  ),
                 ),
               ),
         }
@@ -311,6 +342,16 @@ export class ClassifierError extends Data.TaggedError("ClassifierError")<{
   readonly message: string
 }> {}
 
+/** Workflow-owned freshness checks and progress persistence, evaluated on every attempt. */
+export const EvaluationRetry = Context.Reference<{
+  /** Newer snapshots must not wait on a request owned by superseded work. */
+  readonly claimKey?: string
+  readonly isCurrent: Effect.Effect<boolean, ClassifierError>
+  readonly report: (message: string) => Effect.Effect<void, ClassifierError>
+}>("@janitor/EvaluationRetry", {
+  defaultValue: () => ({ isCurrent: Effect.succeed(true), report: () => Effect.void }),
+})
+
 export interface ClassifyInput {
   readonly inspectInput?: boolean
   readonly repositoryId: GitHubRepositoryDatabaseId
@@ -400,6 +441,7 @@ export class AiClassifier extends Context.Service<
       )
 
     const classify = Effect.fn("AiClassifier.classify")(function* (input: ClassifyInput) {
+      const retry = yield* EvaluationRetry
       // Applicability and target are decided purely; only the question needs a provider.
       const scoped = evaluateApplicability({
         program: input.program,
@@ -483,7 +525,13 @@ export class AiClassifier extends Context.Service<
       )
 
       const requestHash = yield* sha256Hex(
-        JSON.stringify([input.repositoryId, input.policyVersionId, input.number, evidenceHash]),
+        JSON.stringify([
+          input.repositoryId,
+          input.policyVersionId,
+          input.number,
+          evidenceHash,
+          retry.claimKey ?? null,
+        ]),
       )
       const owner = crypto.randomUUID()
       const claim = yield* sql`INSERT INTO labeling_ai_claim(request_hash,owner,expires_at)
@@ -527,29 +575,81 @@ export class AiClassifier extends Context.Service<
         const hit = cached[0]
         if (hit !== undefined) return fromDecision(hit)
 
-        const lease = yield* acquireLease(input.repositoryId).pipe(wrap("lease"))
-        if (Option.isNone(lease))
-          return failed(
-            "AI access is disabled or the evaluation budget is exhausted; retry later.",
-            "budget-exhausted",
-          )
-
         const started = yield* Clock.currentTimeMillis
-        const answer = yield* provider.ask(rendered.text).pipe(
-          Effect.tapError((_error) =>
-            Effect.logWarning("Classifier provider failed").pipe(
-              Effect.annotateLogs({ repositoryId: input.repositoryId, number: input.number }),
-            ),
-          ),
-          Effect.result,
-          Effect.ensuring(releaseLease(lease.value)),
-        )
-        const latency = (yield* Clock.currentTimeMillis) - started
-        if (Result.isFailure(answer))
-          return failed(
-            answer.failure.message + " Try the evaluation again after resolving the error.",
+        let attempts = 0
+        let previousDelay = 1000
+        const stopped = () =>
+          failed(
+            "Evaluation stopped because newer work superseded it or repository access changed.",
             "provider-failed",
           )
+        const eligible = Effect.gen(function* () {
+          if (!(yield* retry.isCurrent)) return false
+          const currentConsent = yield* consent.get(input.repositoryId).pipe(wrap("consent"))
+          return (
+            currentConsent.state === "enabled" &&
+            currentConsent.provider === provider.identity.provider &&
+            currentConsent.model === provider.identity.model
+          )
+        })
+        const ask = Effect.gen(function* () {
+          const lease = yield* acquireLease(input.repositoryId).pipe(wrap("lease"))
+          if (Option.isNone(lease))
+            return Result.fail(
+              new ClassifierError({
+                operation: "lease",
+                message:
+                  "AI access is disabled or the evaluation budget is exhausted; retry later.",
+              }),
+            )
+          attempts++
+          return yield* provider
+            .ask(rendered.text)
+            .pipe(Effect.result, Effect.ensuring(releaseLease(lease.value)))
+        })
+        if (!(yield* eligible)) return stopped()
+        let answer: Result.Result<ClassifierAnswer, ClassifierProviderError | ClassifierError> =
+          yield* ask
+        while (Result.isFailure(answer)) {
+          const error = answer.failure
+          if (error._tag === "ClassifierError") return failed(error.message, "budget-exhausted")
+          if (!error.retryable)
+            return failed(
+              error.message + " Try the evaluation again after resolving the error.",
+              "provider-failed",
+            )
+          const delay = Math.max(previousDelay * 2, error.retryAfterMs ?? 0)
+          if (
+            attempts >= 3 ||
+            !Number.isFinite(delay) ||
+            (yield* Clock.currentTimeMillis) - started + delay + 60000 > 240000
+          )
+            return failed(
+              error.message +
+                " Automatic retries exhausted after " +
+                attempts +
+                " attempts. Waiting for a new webhook event; tests can be run again.",
+              "provider-failed",
+            )
+          if (!(yield* eligible)) return stopped()
+          // Keep the claim valid while sleeping, without holding a consent lease or budget slot.
+          yield* sql`UPDATE labeling_ai_claim SET expires_at=CLOCK_TIMESTAMP()+${delay + 75000} * INTERVAL '1 millisecond' WHERE request_hash=${requestHash} AND owner=${owner}`.pipe(
+            wrap("claim"),
+          )
+          yield* retry.report(
+            "AI request failed temporarily. Retrying attempt " +
+              (attempts + 1) +
+              " of 3 in " +
+              Math.ceil(delay / 1000) +
+              " seconds. Labels remain unchanged.",
+          )
+          previousDelay = delay
+          yield* Effect.sleep(Duration.millis(delay))
+          if (!(yield* eligible)) return stopped()
+          answer = yield* ask
+        }
+        if (!(yield* eligible)) return stopped()
+        const latency = (yield* Clock.currentTimeMillis) - started
 
         const outcome: Evaluation["outcome"] =
           answer.success.matches === null
@@ -559,11 +659,12 @@ export class AiClassifier extends Context.Service<
               ? "match"
               : "no-match"
         const reason =
-          answer.success.matches === null
+          (attempts > 1 ? "Recovered after " + attempts + " attempts. " : "") +
+          (answer.success.matches === null
             ? `Insufficient evidence: ${answer.success.reason}`
             : answer.success.confidence < input.evaluator.minimumConfidence
               ? `confidence ${answer.success.confidence.toFixed(2)} below ${input.evaluator.minimumConfidence}: ${answer.success.reason}`
-              : answer.success.reason
+              : answer.success.reason)
         const reasonCode =
           answer.success.matches === null
             ? ("insufficient-evidence" as const)
