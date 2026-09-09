@@ -43,6 +43,31 @@ const rule: RuleRecord = {
 }
 
 describe("RuleEditor", () => {
+  it("identifies the label owner after a rejected save and retains the draft", () => {
+    const model = RuleEditor.init({
+      repositoryId: "701",
+      labels,
+      policies: [published],
+      existing: Option.some(rule),
+    })
+    const saving = RuleEditor.update(model, RuleEditor.Message.ClickedSave()).model
+    const message =
+      "Label 11 is already owned for pull requests by disabled rule r2. Edit or delete that rule, or choose another label. Disabling a rule retains ownership."
+    const rejected = RuleEditor.update(
+      saving,
+      RuleEditor.Message.RejectedSaveRule({
+        operationId: 1,
+        issues: [{ code: "duplicate-label", message }],
+      }),
+    )
+    expect(rejected.model.maybeLabelId).toEqual(Option.some("11"))
+    expect(rejected.outMessage).toBeUndefined()
+    Scene.scene(
+      { update: RuleEditor.update, view: Scene.withViewInputs(RuleEditor.view, {})() },
+      Scene.given(rejected.model),
+      Scene.expect(Scene.text(message)).toExist(),
+    )
+  })
   it("needs a label and a published policy, then saves the binding", () => {
     const model = RuleEditor.init({
       repositoryId: "701",

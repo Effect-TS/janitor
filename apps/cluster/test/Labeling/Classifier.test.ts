@@ -21,6 +21,7 @@ import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
   bug,
+  feature,
   LabelingLayer,
   repositoryId,
   seed,
@@ -311,7 +312,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       }
       const request = {
         ai,
-        labelId: bug,
+        labelId: feature,
         onMatch: "ensure-present" as const,
         onNoMatch: "no-action" as const,
         group: null,

@@ -1,4 +1,5 @@
-import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { compile, CompileIssue } from "@janitor/domain/Labeling/Policy/Compile"
 import { PolicyId, type PolicyNames } from "@janitor/domain/Labeling/Policy/Condition"
 import {
@@ -29,6 +30,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 import { recordAudit } from "./Audit.ts"
+import { labelOwnershipConflict } from "./Ownership.ts"
 import {
   LabelingConfiguration,
   LabelingConfigurationError,
@@ -400,6 +402,39 @@ export class Policies extends Context.Service<
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
     )
 
+    const validateOwnership = Effect.fn("Policies.validateOwnership")(function* (
+      repositoryId: GitHubRepositoryDatabaseId,
+      policyId: PolicyId,
+      target: Program["target"],
+    ) {
+      const rules = yield* sql`
+        SELECT rule_id, label_id FROM labeling_rule
+        WHERE repository_id = ${repositoryId} AND policy_id = ${policyId}
+      `.pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(
+            Schema.Array(
+              Schema.Struct({
+                rule_id: RuleId,
+                label_id: GitHubLabelDatabaseId,
+              }),
+            ),
+          ),
+        ),
+        wrap("ownership"),
+      )
+      for (const rule of rules) {
+        const conflict = yield* labelOwnershipConflict(
+          sql,
+          repositoryId,
+          rule.label_id,
+          target,
+          rule.rule_id,
+        ).pipe(wrap("ownership"))
+        if (conflict) return yield* new PolicyInvalid({ message: conflict })
+      }
+    })
+
     const save = Effect.fn("Policies.save")(
       function* (
         repositoryId: GitHubRepositoryDatabaseId,
@@ -423,6 +458,7 @@ export class Policies extends Context.Service<
           request.source === undefined
             ? yield* draftOf(policyId)
             : yield* decodeSource(repositoryId, request.source)
+        yield* validateOwnership(repositoryId, policyId, program.target)
         const description = request.description ?? current.policy.description
         const encoded = yield* encodeProgram(program).pipe(wrap("save"))
         yield* Effect.gen(function* () {
@@ -465,6 +501,7 @@ export class Policies extends Context.Service<
         const current = yield* detail(repositoryId, policyId)
         if (current.policy.version !== version) return yield* new PolicyConflict({ current })
         const program = yield* draftOf(policyId)
+        yield* validateOwnership(repositoryId, policyId, program.target)
         const result = yield* compiled(repositoryId, program, Option.some(policyId))
         if (result._tag === "Rejected")
           return yield* new PolicyInvalid({ message: result.issue.message })

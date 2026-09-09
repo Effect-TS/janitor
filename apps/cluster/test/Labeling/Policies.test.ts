@@ -13,6 +13,7 @@ import {
   actor,
   baseMain,
   bug,
+  feature,
   repositoryId,
   seed,
   seedPullRequests,
@@ -455,10 +456,10 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         actor,
       )
       yield* policies.publish(repositoryId, consumer.policy.policyId, 1, actor)
-      yield* rules.create(
+      const rule = yield* rules.create(
         repositoryId,
         {
-          labelId: bug,
+          labelId: feature,
           policyId: consumer.policy.policyId,
           onMatch: "ensure-present",
           onNoMatch: "no-action",
@@ -491,6 +492,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       )
       assert.notInclude(snapshot.requiredTracks, "labels")
       assert.include(snapshot.requiredTracks, "pull_requests")
+      yield* rules.remove(repositoryId, rule.id, rule.version, actor)
     }),
   )
   it.effect(
@@ -559,7 +561,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       const created = yield* rules.create(
         repositoryId,
         {
-          labelId: bug,
+          labelId: feature,
           policyId: base.policyId,
           onMatch: "ensure-present",
           onNoMatch: "no-action",
@@ -578,6 +580,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         { concurrency: "unbounded" },
       )
       assert.deepStrictEqual([...outcomes].sort(), ["RuleConflict", "Saved"])
+      yield* rules.remove(repositoryId, created.id, created.version + 1, actor)
     }),
   )
   it.effect("allows classifier conversion without changing configured result actions", () =>
@@ -593,7 +596,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       const rule = yield* rules.create(
         repositoryId,
         {
-          labelId: bug,
+          labelId: feature,
           policyId: created.policy.policyId,
           onMatch: "ensure-present",
           onNoMatch: "ensure-absent",
@@ -634,6 +637,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         (yield* rules.list(repositoryId)).find((entry) => entry.id === rule.id)?.onNoMatch,
         "ensure-absent",
       )
+      yield* rules.remove(repositoryId, rule.id, rule.version, actor)
     }),
   )
   it.effect("retains an unbound policy's versions when configuration history uses them", () =>
@@ -650,7 +654,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       const rule = yield* rules.create(
         repositoryId,
         {
-          labelId: bug,
+          labelId: feature,
           policyId: created.policy.policyId,
           onMatch: "ensure-present",
           onNoMatch: "no-action",
