@@ -59,11 +59,25 @@ const Services = Layer.mergeAll(
   ),
   Layer.provide(
     Layer.succeed(GitHubTransport, {
-      request: () =>
+      request: (request) =>
         Effect.succeed({
           _tag: "Ok",
           status: 200,
-          body: { id: 9100 },
+          body: request.url.startsWith("/app/installations/")
+            ? {
+                id: 77,
+                account: { id: 1, login: "test", type: "Organization" },
+                repository_selection: "selected",
+                html_url: "https://github.com/settings/installations/77",
+                suspended_at: null,
+                permissions: {
+                  metadata: "read",
+                  issues: "write",
+                  pull_requests: "read",
+                  checks: "read",
+                },
+              }
+            : { id: 9100 },
           etag: Option.none(),
           link: Option.none(),
           requestId: Option.none(),
@@ -79,7 +93,7 @@ const label = {
 }
 const initialize = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
-  yield* sql`INSERT INTO github_installation(installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES('77','1','test','Organization','selected','active','https://github.com/settings/installations/77',1) ON CONFLICT DO NOTHING`
+  yield* sql`INSERT INTO github_installation(access_error,installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES(NULL,'77','1','test','Organization','selected','active','https://github.com/settings/installations/77',1) ON CONFLICT DO NOTHING`
   yield* sql`UPDATE github_repository SET enabled=FALSE WHERE repository_id=${repositoryId}`
   yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence) VALUES(${repositoryId},'77','test','example',TRUE,TRUE,'accessible',1) ON CONFLICT (repository_id) DO UPDATE SET enabled=TRUE`
 })

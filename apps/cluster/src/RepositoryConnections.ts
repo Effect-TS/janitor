@@ -13,6 +13,7 @@ import { nextLink } from "./GitHub/Link.ts"
 import type { GitHubApiScope } from "@janitor/domain/GitHub/Api"
 import {
   GitHubInstallationSummary,
+  requiredGitHubAccessError,
   GitHubInstallationRepositoriesResponse,
 } from "@janitor/domain/GitHub/Installation"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
@@ -53,13 +54,14 @@ export class RepositoryConnections extends Context.Service<
     const inventory = sql`
     SELECT r.repository_id AS "repositoryId", r.installation_id AS "installationId", r.owner, r.repo,
       r.is_private AS "isPrivate", r.connected, r.enabled, (r.disconnected_at IS NOT NULL) AS reconnect,
-      r.access, i.status AS "installationStatus",
+      CASE WHEN i.access_error IS NOT NULL THEN 'lost' ELSE r.access END AS access,
+      i.access_error AS "accessError", i.status AS "installationStatus",
       (SELECT count(*)::int FROM labeling_policy p WHERE p.repository_id=r.repository_id) AS "policyCount",
       (SELECT count(*)::int FROM labeling_rule p WHERE p.repository_id=r.repository_id AND p.enabled) AS "ruleCount",
       (SELECT COALESCE(t.last_error,t.blocked_reason) FROM sync_target t
         WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health='blocked')
         ORDER BY t.updated_at DESC LIMIT 1) AS "syncError",
-      CASE WHEN NOT r.sync_enabled THEN 'paused' WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health = 'blocked')) THEN 'failed'
+      CASE WHEN NOT repository_access_available(r.repository_id) THEN 'access-unavailable' WHEN NOT r.sync_enabled THEN 'paused' WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health = 'blocked')) THEN 'failed'
         WHEN r.automation_ready_at IS NULL THEN 'syncing'
         ELSE 'ready' END AS "syncState"
     FROM github_repository r JOIN github_installation i USING(installation_id) ORDER BY r.owner,r.repo
@@ -108,36 +110,39 @@ export class RepositoryConnections extends Context.Service<
         "/app/installations?per_page=100",
         Schema.Array(GitHubInstallationSummary),
       )).flat()
+      const absent =
+        installations.length === 0
+          ? sql``
+          : sql`AND installation_id NOT IN ${sql.in(installations.map((installation) => installation.id))}`
+      yield* sql`UPDATE github_installation SET status = 'deleted', projected_sequence = ${sequence}
+        WHERE projected_sequence <= ${sequence} ${absent}`
       for (const installation of installations) {
-        const repositories =
-          installation.suspendedAt === null
-            ? (yield* pages(
-                { _tag: "Installation", installationId: installation.id },
-                "/installation/repositories?per_page=100",
-                GitHubInstallationRepositoriesResponse,
-              )).flatMap((page) => page.repositories)
-            : []
+        yield* readModel.applyInstallation({
+          installation,
+          status: installation.suspendedAt === null ? "active" : "suspended",
+          sequence,
+          authoritative: true,
+        })
+        if (installation.suspendedAt !== null || requiredGitHubAccessError(installation) !== null)
+          continue
+        const repositories = (yield* pages(
+          { _tag: "Installation", installationId: installation.id },
+          "/installation/repositories?per_page=100",
+          GitHubInstallationRepositoriesResponse,
+        )).flatMap((page) => page.repositories)
         yield* readModel.withTransaction(
           Effect.gen(function* () {
-            yield* readModel.applyInstallation({
-              installation,
-              status: installation.suspendedAt === null ? "active" : "suspended",
+            yield* readModel.applyRepositories({
+              installationId: installation.id,
+              repositories,
               sequence,
               authoritative: true,
             })
-            if (installation.suspendedAt === null) {
-              yield* readModel.applyRepositories({
-                installationId: installation.id,
-                repositories,
-                sequence,
-                authoritative: true,
-              })
-              yield* readModel.markRepositoriesSuspect({
-                installationId: installation.id,
-                present: repositories.map((repo) => repo.id),
-                sequence,
-              })
-            }
+            yield* readModel.markRepositoriesSuspect({
+              installationId: installation.id,
+              present: repositories.map((repo) => repo.id),
+              sequence,
+            })
           }),
         )
       }
@@ -160,8 +165,9 @@ export class RepositoryConnections extends Context.Service<
               disconnected_at: Date | null
               access: string
               status: string
+              access_error: string | null
             }>`
-      SELECT r.*,i.status FROM github_repository r JOIN github_installation i USING(installation_id)
+      SELECT r.*,i.status,i.access_error FROM github_repository r JOIN github_installation i USING(installation_id)
       WHERE repository_id=${id} FOR UPDATE OF r`
             if (!row)
               return yield* new ConnectionError({
@@ -174,9 +180,39 @@ export class RepositoryConnections extends Context.Service<
             if (action === "connect" && row.connected) return
             const enabling = action === "resume" || action === "connect"
             if (enabling) {
-              if (row.access !== "accessible" || row.status !== "active")
+              if (
+                row.access !== "accessible" ||
+                row.status !== "active" ||
+                row.access_error !== null
+              )
                 return yield* new ConnectionError({
-                  message: "Restore GitHub access before connecting or resuming.",
+                  message:
+                    row.access_error ?? "Restore GitHub access before connecting or resuming.",
+                })
+              const authorization = yield* transport.request({
+                scope: { _tag: "App" },
+                priority: "foreground",
+                method: "GET",
+                url: `/app/installations/${row.installation_id}`,
+              })
+              if (authorization._tag !== "Ok")
+                return yield* new ConnectionError({
+                  message:
+                    "Cannot verify GitHub installation access. Refresh repositories and retry.",
+                })
+              const installation = yield* Schema.decodeUnknownEffect(GitHubInstallationSummary)(
+                authorization.body,
+              )
+              const accessError = requiredGitHubAccessError(installation)
+              if (
+                installation.id !== row.installation_id ||
+                installation.suspendedAt !== null ||
+                accessError !== null
+              )
+                return yield* new ConnectionError({
+                  message:
+                    accessError ??
+                    "Restore GitHub installation access before connecting or resuming.",
                 })
               const response = yield* transport.request({
                 scope: {

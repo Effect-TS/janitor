@@ -43,6 +43,7 @@ const seed = Effect.gen(function* () {
       account: { id: GitHubAccountDatabaseId.make("1"), login: "effect", type: "Organization" },
       repositorySelection: "all",
       htmlUrl: "https://github.com/settings/installations/77",
+      permissions: { metadata: "read", issues: "write", pull_requests: "read", checks: "read" },
       suspendedAt: null,
     },
     status: "active",

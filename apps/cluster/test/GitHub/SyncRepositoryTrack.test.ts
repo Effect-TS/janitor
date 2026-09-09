@@ -133,6 +133,8 @@ const services = (
     Layer.succeed(GitHubReadModel, {
       listOpenEntityNumbersBefore: () => Effect.succeed(recorder.missingOpen),
       withTransaction: (effect) => effect,
+      updateRepositoryIdentity: () => Effect.void,
+      markInstallationLost: () => Effect.void,
       applyInstallation: () => Effect.void,
       applyRepositories: () => Effect.void,
       markRepositoriesLost: () => Effect.void,

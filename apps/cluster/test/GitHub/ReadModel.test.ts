@@ -35,6 +35,7 @@ const installation: GitHubInstallationSummary = {
   account: { id: GitHubAccountDatabaseId.make("1"), login: "effect", type: "Organization" },
   repositorySelection: "selected",
   htmlUrl: "https://github.com/settings/installations/789",
+  permissions: { metadata: "read", issues: "write", pull_requests: "read", checks: "read" },
   suspendedAt: null,
 }
 

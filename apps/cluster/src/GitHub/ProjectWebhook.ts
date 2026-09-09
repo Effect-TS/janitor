@@ -87,6 +87,20 @@ export const applyEvent = (
         sequence: Option.some(sequence),
       })
     switch (event.name) {
+      case "repository": {
+        yield* readModel.updateRepositoryIdentity(
+          event.payload.repository,
+          sequence,
+          event.payload.action === "transferred",
+        )
+        if (event.payload.action === "transferred")
+          yield* targets.invalidate({
+            scope: { _tag: "AppInventory" },
+            sequence: Option.some(sequence),
+            immediate: true,
+          })
+        return
+      }
       case "installation": {
         const { payload } = event
         const status =
@@ -103,10 +117,6 @@ export const applyEvent = (
             repositories,
             sequence,
           })
-          yield* purge.schedule(
-            { _tag: "installation", installationId: payload.installation.id },
-            "installation-deleted",
-          )
           return
         }
         // Access is back (created, unsuspended, permissions accepted): keep content.
@@ -123,6 +133,11 @@ export const applyEvent = (
       case "installation_repositories": {
         const { payload } = event
         const installationId = payload.installation.id
+        yield* readModel.applyInstallation({
+          installation: payload.installation,
+          status: payload.installation.suspendedAt === null ? "active" : "suspended",
+          sequence,
+        })
         yield* readModel.applyRepositories({
           installationId,
           repositories: payload.repositoriesAdded,
@@ -133,12 +148,6 @@ export const applyEvent = (
           repositories: payload.repositoriesRemoved,
           sequence,
         })
-        for (const repository of payload.repositoriesRemoved) {
-          yield* purge.schedule(
-            { _tag: "repository", repositoryId: repository.id },
-            "repository-removed",
-          )
-        }
         for (const repository of payload.repositoriesAdded) {
           yield* purge.cancel({ _tag: "repository", repositoryId: repository.id })
         }
@@ -272,7 +281,11 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
       }),
     )
     .pipe(Effect.mapError((error) => fail(error.message)))
-  if (decoded.success.name === "pull_request" || decoded.success.name === "issues") {
+  if (
+    decoded.success.name === "pull_request" ||
+    decoded.success.name === "issues" ||
+    decoded.success.name === "repository"
+  ) {
     const activity = yield* RepositoryActivity
     const projected = yield* activity
       .run(

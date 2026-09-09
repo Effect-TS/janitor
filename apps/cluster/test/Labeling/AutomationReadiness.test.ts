@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
+import { GitHubInstallationSummary } from "@janitor/domain/GitHub/Installation"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { applyEvent } from "../../src/GitHub/ProjectWebhook.ts"
 import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
@@ -269,6 +270,44 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
       if (beforeMerge._tag === "Published") yield* ReconcileEntity.execute(beforeMerge.identity)
       assert.strictEqual((yield* refresh(new Date()))._tag, "Skipped")
       assert.strictEqual(writes.length, 2)
+      const access = (issues: string, sequence: string) =>
+        Effect.gen(function* () {
+          const installation = yield* Schema.decodeUnknownEffect(GitHubInstallationSummary)({
+            id: 77,
+            account: { id: 1, login: "effect", type: "Organization" },
+            repository_selection: "all",
+            html_url: "https://github.com/settings/installations/77",
+            suspended_at: null,
+            permissions: { metadata: "read", issues, pull_requests: "read", checks: "read" },
+          })
+          yield* (yield* GitHubReadModel).applyInstallation({
+            installation,
+            status: "active",
+            sequence: GitHubWebhookJournalSequence.make(sequence),
+          })
+        })
+      const oldAccess = yield* refresh(new Date(), 16)
+      assert.strictEqual(oldAccess._tag, "Published")
+      yield* access("read", "30")
+      if (oldAccess._tag === "Published") yield* ReconcileEntity.execute(oldAccess.identity)
+      assert.strictEqual(writes.length, 2)
+      const duringLoss = new Date()
+      yield* access("write", "31")
+      for (const track of ["labels", "entities", "pull_requests"] as const) {
+        yield* targets.invalidate({
+          scope: { _tag: "RepositoryTrack", repositoryId, track },
+          sequence: Option.none(),
+          full: true,
+        })
+        yield* verifyTrack(track)
+      }
+      assert.strictEqual((yield* refresh(duringLoss, 16))._tag, "Skipped")
+      assert.strictEqual((yield* refresh(undefined, 16))._tag, "Skipped")
+      assert.strictEqual(writes.length, 2)
+      const afterAccess = yield* refresh(new Date(), 16)
+      assert.strictEqual(afterAccess._tag, "Published")
+      if (afterAccess._tag === "Published") yield* ReconcileEntity.execute(afterAccess.identity)
+      assert.strictEqual(writes.length, 3)
     }),
   )
 })

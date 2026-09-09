@@ -272,6 +272,10 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
     Effect.gen(function* () {
       const targets = yield* SyncTargets
       const sql = yield* SqlClient.SqlClient
+      yield* sql`INSERT INTO github_installation(installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence,access_error)
+        VALUES('77','1','test','Organization','all','active','https://github.com/settings/installations/77',1,NULL)`
+      yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence)
+        VALUES('77','77','test','example',TRUE,TRUE,'accessible',1)`
       const s: SyncScope = {
         _tag: "Entity",
         repositoryId: GitHubRepositoryDatabaseId.make("77"),

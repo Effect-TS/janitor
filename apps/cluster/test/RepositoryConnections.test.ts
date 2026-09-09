@@ -57,6 +57,12 @@ const Services = RepositoryConnections.layer.pipe(
                         account: { id: 2, login: "new-org", type: "Organization" },
                         repository_selection: "selected",
                         html_url: "https://github.com/settings/installations/88",
+                        permissions: {
+                          metadata: "read",
+                          issues: "write",
+                          pull_requests: "read",
+                          checks: "read",
+                        },
                         suspended_at: null,
                       },
                     ]
@@ -65,7 +71,21 @@ const Services = RepositoryConnections.layer.pipe(
                         total_count: 1,
                         repositories: [{ id: 9002, full_name: "new-org/new-repo", private: false }],
                       }
-                    : { id: 9001 },
+                    : request.url.startsWith("/app/installations/")
+                      ? {
+                          id: 77,
+                          account: { id: 1, login: "test", type: "Organization" },
+                          repository_selection: "selected",
+                          html_url: "https://github.com/settings/installations/77",
+                          suspended_at: null,
+                          permissions: {
+                            metadata: "read",
+                            issues: "write",
+                            pull_requests: "read",
+                            checks: "read",
+                          },
+                        }
+                      : { id: 9001 },
             etag: Option.none(),
             link: Option.none(),
             requestId: Option.none(),
@@ -82,7 +102,7 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient
         const connections = yield* RepositoryConnections
-        yield* sql`INSERT INTO github_installation(installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES('77','1','test','Organization','selected','active','https://github.com/settings/installations/77',1)`
+        yield* sql`INSERT INTO github_installation(access_error,installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES(NULL,'77','1','test','Organization','selected','active','https://github.com/settings/installations/77',1)`
         yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,access,projected_sequence) VALUES('9001','77','test','example',FALSE,'accessible',1)`
         assert.isFalse((yield* connections.inventory).repositories[0]!.connected)
         yield* connections.change("9001", "connect", actor)

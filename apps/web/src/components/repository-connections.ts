@@ -1,3 +1,4 @@
+import { ConnectionInventory as Inventory } from "@janitor/domain/GitHub/Connection"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Option from "effect/Option"
@@ -18,23 +19,6 @@ import * as Icon from "@/lib/icons"
 import { FolderGit2 } from "lucide"
 import * as Routes from "@/routes"
 
-const Candidate = Schema.Struct({
-  repositoryId: Schema.String,
-  installationId: Schema.String,
-  owner: Schema.String,
-  repo: Schema.String,
-  isPrivate: Schema.NullOr(Schema.Boolean),
-  connected: Schema.Boolean,
-  enabled: Schema.Boolean,
-  reconnect: Schema.Boolean,
-  access: Schema.String,
-  installationStatus: Schema.String,
-  policyCount: Schema.Int,
-  ruleCount: Schema.Int,
-  syncState: Schema.String,
-  syncError: Schema.optionalKey(Schema.NullOr(Schema.String)),
-})
-const Inventory = Schema.Struct({ repositories: Schema.Array(Candidate) })
 export const Model = Schema.Struct({
   returnPath: Schema.String,
   inventory: Schema.Option(Inventory),
@@ -397,6 +381,12 @@ export const view = Submodel.defineView<
               h.div(
                 [h.Class("flex flex-wrap gap-2")],
                 [
+                  current.accessError
+                    ? h.p(
+                        [h.Role("status"), h.Class("text-sm text-muted-foreground")],
+                        [current.accessError],
+                      )
+                    : h.empty,
                   current.connected && current.enabled && current.syncState === "failed"
                     ? button(
                         "Retry sync",
@@ -571,6 +561,9 @@ export const view = Submodel.defineView<
                                 [h.Class("text-sm font-medium truncate")],
                                 [`${row.owner}/${row.repo}`],
                               ),
+                              row.accessError
+                                ? h.p([h.Class("text-xs text-muted-foreground")], [row.accessError])
+                                : h.empty,
                               h.p(
                                 [h.Class("text-xs text-muted-foreground")],
                                 [

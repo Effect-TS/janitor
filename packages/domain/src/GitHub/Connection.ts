@@ -9,6 +9,7 @@ export const ConnectionCandidate = Schema.Struct({
   enabled: Schema.Boolean,
   reconnect: Schema.Boolean,
   access: Schema.String,
+  accessError: Schema.optionalKey(Schema.NullOr(Schema.String)),
   installationStatus: Schema.String,
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
