@@ -562,4 +562,38 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
       assert.strictEqual(calls, 2)
     }),
   )
+  it.effect("reuses an AI result before 24 hours and refreshes it at expiry", () =>
+    Effect.gen(function* () {
+      yield* seed
+      yield* seedPullRequests
+      yield* (yield* AiConsentService).set(repositoryId, true, actor)
+      const test = yield* LabelingTest
+      const run = test
+        .run(repositoryId, {
+          subject: {
+            _tag: "Draft",
+            source: {
+              target: "pull_request",
+              classify: {
+                prompt: "Cache lifetime: {{fact:title}}",
+                evidence: ["title"],
+                minimumConfidence: 0.8,
+              },
+            },
+          },
+          numbers: [5],
+        })
+        .pipe(
+          Effect.map((result) =>
+            result._tag === "Evaluated" ? result.entities[0]?.evaluation : null,
+          ),
+        )
+      assert.strictEqual((yield* run)?.cached, false)
+      yield* TestClock.adjust("23 hours")
+      assert.strictEqual((yield* run)?.cached, true)
+      yield* TestClock.adjust("1 hour")
+      assert.strictEqual((yield* run)?.cached, false)
+      assert.strictEqual((yield* run)?.cached, true)
+    }),
+  )
 })

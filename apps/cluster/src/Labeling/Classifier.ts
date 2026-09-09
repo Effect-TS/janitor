@@ -2,6 +2,7 @@ import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import {
   type Actor,
   type AiConsent,
+  type ConfiguredRule,
   AiConsentState,
   PolicyVersionId,
 } from "@janitor/domain/Labeling/Policy/Configuration"
@@ -198,6 +199,16 @@ export const providerConfig: Config.Wrap<ProviderConfig> = {
   model: Config.String("LABELING_AI_MODEL").pipe(Config.withDefault(DEFAULT_MODEL)),
 }
 
+/** Deployment-wide lifetime, in whole seconds. */
+export const aiCacheTtlConfig = Config.schema(
+  Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 2147483647 })),
+  "LABELING_AI_CACHE_TTL_SECONDS",
+).pipe(Config.withDefault(86400))
+
+export const AiCacheTtl = Context.Reference<number>("@janitor/AiCacheTtl", {
+  defaultValue: () => 86400,
+})
+
 // CONSENT
 
 export class AiConsentError extends Data.TaggedError("AiConsentError")<{
@@ -353,6 +364,7 @@ export const EvaluationRetry = Context.Reference<{
 })
 
 export interface ClassifyInput {
+  readonly rule?: Omit<ConfiguredRule, "policyVersionId">
   readonly inspectInput?: boolean
   readonly repositoryId: GitHubRepositoryDatabaseId
   readonly number: number
@@ -394,6 +406,7 @@ export class AiClassifier extends Context.Service<
 >()("@janitor/cluster/Labeling/Classifier/AiClassifier", {
   make: Effect.gen(function* () {
     const inputBudget = yield* AiInputBudget
+    const cacheTtl = yield* AiCacheTtl
     const sql = yield* SqlClient.SqlClient
     const provider = yield* ClassifierProvider
     const consent = yield* AiConsentService
@@ -517,12 +530,30 @@ export class AiClassifier extends Context.Service<
           evidence: rendered.details.facts,
           budget: inputBudget,
           prompt: rendered.text,
+          program: input.program,
+          rule: input.rule ?? null,
           minimumConfidence: input.evaluator.minimumConfidence,
           provider: provider.identity,
           renderingVersion: rendered.report.version,
-          decisionVersion: 2,
+          decisionVersion: 3,
         }),
       )
+
+      const stopped = () =>
+        failed(
+          "Evaluation stopped because newer work superseded it or repository access changed.",
+          "provider-failed",
+        )
+      const eligible = Effect.gen(function* () {
+        if (!(yield* retry.isCurrent)) return false
+        const currentConsent = yield* consent.get(input.repositoryId).pipe(wrap("consent"))
+        return (
+          currentConsent.state === "enabled" &&
+          currentConsent.provider === provider.identity.provider &&
+          currentConsent.model === provider.identity.model
+        )
+      })
+      if (!(yield* eligible)) return stopped()
 
       const requestHash = yield* sha256Hex(
         JSON.stringify([
@@ -533,6 +564,15 @@ export class AiClassifier extends Context.Service<
           retry.claimKey ?? null,
         ]),
       )
+      const readDecision = Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis
+        return yield* sql`
+          SELECT outcome, confidence, reason, input_report, reason_code FROM labeling_ai_decision
+          WHERE repository_id = ${input.repositoryId} AND policy_version_id = ${input.policyVersionId}
+            AND number = ${input.number} AND evidence_hash = ${evidenceHash}
+            AND created_at > ${new Date(now - cacheTtl * 1000)}
+        `.pipe(Effect.flatMap(decodeDecisions), wrap("cache"))
+      })
       const owner = crypto.randomUUID()
       const claim = yield* sql`INSERT INTO labeling_ai_claim(request_hash,owner,expires_at)
         VALUES (${requestHash},${owner},CLOCK_TIMESTAMP()+INTERVAL '75 seconds')
@@ -542,22 +582,11 @@ export class AiClassifier extends Context.Service<
         // Join a concurrent request by waiting for its decision, without a second paid call.
         for (let attempt = 0; attempt < 30; attempt++) {
           yield* Effect.sleep(Duration.seconds(2))
-          const decisions =
-            yield* sql`SELECT outcome,confidence,reason,input_report,reason_code FROM labeling_ai_decision WHERE repository_id=${input.repositoryId} AND policy_version_id=${input.policyVersionId} AND number=${input.number} AND evidence_hash=${evidenceHash}`.pipe(
-              Effect.flatMap(decodeDecisions),
-              wrap("join"),
-            )
+          if (!(yield* eligible)) return stopped()
+          const decisions = yield* readDecision
           const decision = decisions[0]
           if (decision) {
-            if ((yield* consent.get(input.repositoryId).pipe(wrap("consent"))).state !== "enabled")
-              return {
-                ...unknown(
-                  "AI access was disabled. Enable it in repository settings.",
-                  trace,
-                  "access-disabled",
-                ),
-                ...diagnostics,
-              }
+            if (!(yield* eligible)) return stopped()
             return fromDecision(decision)
           }
         }
@@ -567,31 +596,14 @@ export class AiClassifier extends Context.Service<
         )
       }
       return yield* Effect.gen(function* () {
-        const cached = yield* sql`
-        SELECT outcome, confidence, reason, input_report, reason_code FROM labeling_ai_decision
-        WHERE repository_id = ${input.repositoryId} AND policy_version_id = ${input.policyVersionId}
-          AND number = ${input.number} AND evidence_hash = ${evidenceHash}
-      `.pipe(Effect.flatMap(decodeDecisions), wrap("cache"))
+        const cached = yield* readDecision
+        if (!(yield* eligible)) return stopped()
         const hit = cached[0]
         if (hit !== undefined) return fromDecision(hit)
 
         const started = yield* Clock.currentTimeMillis
         let attempts = 0
         let previousDelay = 1000
-        const stopped = () =>
-          failed(
-            "Evaluation stopped because newer work superseded it or repository access changed.",
-            "provider-failed",
-          )
-        const eligible = Effect.gen(function* () {
-          if (!(yield* retry.isCurrent)) return false
-          const currentConsent = yield* consent.get(input.repositoryId).pipe(wrap("consent"))
-          return (
-            currentConsent.state === "enabled" &&
-            currentConsent.provider === provider.identity.provider &&
-            currentConsent.model === provider.identity.model
-          )
-        })
         const ask = Effect.gen(function* () {
           const lease = yield* acquireLease(input.repositoryId).pipe(wrap("lease"))
           if (Option.isNone(lease))
@@ -671,13 +683,18 @@ export class AiClassifier extends Context.Service<
             : answer.success.confidence < input.evaluator.minimumConfidence
               ? ("low-confidence" as const)
               : undefined
+        const completedAt = new Date(yield* Clock.currentTimeMillis)
         yield* sql`
         INSERT INTO labeling_ai_decision
-          (repository_id, policy_version_id, number, evidence_hash, provider, model, outcome, confidence, reason, latency_ms, input_report, reason_code)
+          (repository_id, policy_version_id, number, evidence_hash, provider, model, outcome, confidence, reason, latency_ms, input_report, reason_code, created_at)
         VALUES (${input.repositoryId}, ${input.policyVersionId}, ${input.number}, ${evidenceHash},
                 ${provider.identity.provider}, ${provider.identity.model}, ${outcome},
-                ${answer.success.confidence}, ${reason.slice(0, 1_000)}, ${Math.round(latency)}, ${JSON.stringify(rendered.report)}::jsonb, ${reasonCode ?? null})
-        ON CONFLICT DO NOTHING
+                ${answer.success.confidence}, ${reason.slice(0, 1_000)}, ${Math.round(latency)}, ${JSON.stringify(rendered.report)}::jsonb, ${reasonCode ?? null}, ${completedAt})
+        ON CONFLICT (repository_id, policy_version_id, number, evidence_hash) DO UPDATE SET
+          outcome = EXCLUDED.outcome, confidence = EXCLUDED.confidence, reason = EXCLUDED.reason,
+          latency_ms = EXCLUDED.latency_ms, input_report = EXCLUDED.input_report,
+          reason_code = EXCLUDED.reason_code, created_at = EXCLUDED.created_at
+        WHERE labeling_ai_decision.created_at <= EXCLUDED.created_at
       `.pipe(wrap("record"))
         return {
           outcome,
