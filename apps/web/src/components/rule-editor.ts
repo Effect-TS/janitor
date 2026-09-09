@@ -111,6 +111,7 @@ export const Model = Schema.Struct({
       status: Schema.Literals(["submitting", "queued", "running"]),
       elapsedSeconds: Schema.Int,
       pollError: Schema.optionalKey(Schema.String),
+      progress: Schema.optionalKey(Schema.String),
     }),
     Schema.TaggedStruct("Done", {
       response: TestResponse,
@@ -166,6 +167,7 @@ export const Message = defineMessageUnion({
     startedAt: Schema.Number,
     elapsedSeconds: Schema.Int,
     pollError: Schema.optionalKey(Schema.String),
+    progress: Schema.optionalKey(Schema.String),
     polls: Schema.Int,
   },
   CompletedTest: {
@@ -844,7 +846,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 PollRuleTest({ repositoryId: model.repositoryId, ...model.liveJob, delayMs: 0 }),
               ],
             },
-    QueuedTest: ({ testId, generation, polls, status, startedAt, elapsedSeconds, pollError }) => {
+    QueuedTest: ({
+      testId,
+      generation,
+      polls,
+      status,
+      startedAt,
+      elapsedSeconds,
+      pollError,
+      progress,
+    }) => {
       if (generation !== model.testGeneration || model.testResult._tag !== "Running")
         return { model }
       const phase = model.testResult.status === "running" ? ("running" as const) : status
@@ -859,6 +870,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             status: phase,
             elapsedSeconds,
             ...(pollError ? { pollError } : {}),
+            ...(progress ? { progress } : {}),
           }),
         }),
         commands: fetchAgain
@@ -1111,6 +1123,7 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
               (result.elapsedSeconds >= 5 ? ` · ${result.elapsedSeconds}s` : ""),
           ],
         ),
+        result.progress ? h.span([h.Class("block mt-1")], [result.progress]) : h.empty,
         result.pollError
           ? h.span([h.Class("block mt-1")], ["Unable to check progress. Retrying the same test…"])
           : result.status === "queued" && result.elapsedSeconds >= 5
@@ -1858,6 +1871,7 @@ const testJobMessage = (
     startedAt,
     polls,
     elapsedSeconds: Math.floor((now - startedAt) / 1000),
+    ...(job.message ? { progress: job.message } : {}),
   })
 }
 export const PollRuleTest = FoldkitCommand.define("PollRuleTest", {

@@ -4,6 +4,7 @@ import {
   ReconciliationOutcome,
 } from "@janitor/domain/Labeling/Reconciliation"
 import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
+import { syncScopeKey } from "@janitor/domain/GitHub/Sync"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { evaluate, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
 import { type Evaluation } from "@janitor/domain/Labeling/Policy/Program"
@@ -23,7 +24,7 @@ import { freshnessOf } from "../SyncFreshness.ts"
 import { SyncTargets } from "../SyncTargets.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { recordAudit } from "./Audit.ts"
-import { classifyAi } from "./Classifier.ts"
+import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
 import { EVALUATION_MAX_AGE, RECONCILE_ENTITY_TAG, SnapshotHandoff } from "./SnapshotHandoff.ts"
 import { entityFacts } from "./Test.ts"
@@ -99,6 +100,35 @@ const handoffLatest = (identity: ReconciliationIdentity) =>
 class EvaluateFailure extends Data.TaggedError("EvaluateFailure")<{ readonly message: string }> {}
 
 const failure = (message: string) => new ReconcileActivityError({ message })
+
+const evaluationIsCurrent = (identity: ReconciliationIdentity) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient
+    const readModel = yield* GitHubReadModel
+    const targets = yield* SyncTargets
+    const repository = yield* readModel.getRepository(identity.repositoryId)
+    if (
+      Option.isNone(repository) ||
+      !repository.value.enabled ||
+      repository.value.access !== "accessible"
+    )
+      return false
+    const rows =
+      yield* sql`SELECT 1 FROM github_repository r JOIN labeling_repository_rules c USING(repository_id)
+    WHERE r.repository_id=${identity.repositoryId} AND r.connected AND c.configured_revision=${identity.rulesRevision}`
+    if (!rows.length) return false
+    const target = yield* targets.get({
+      _tag: "Entity",
+      repositoryId: identity.repositoryId,
+      number: identity.number,
+    })
+    return (
+      Option.isSome(target) &&
+      target.value.requestedGeneration === identity.snapshotGeneration &&
+      target.value.verifiedGeneration === identity.snapshotGeneration &&
+      freshnessOf(target, yield* DateTime.now, EVALUATION_MAX_AGE) === "verified"
+    )
+  })
 
 const encodePlan = Schema.encodeEffect(Schema.fromJsonString(Plan))
 
@@ -202,7 +232,33 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
                     evaluator: version.program.evaluator,
                     snapshot: facts,
                     resolve,
-                  })
+                  }).pipe(
+                    Effect.provideService(EvaluationRetry, {
+                      claimKey: `${identity.snapshotGeneration}:${identity.rulesRevision}`,
+                      isCurrent: evaluationIsCurrent(identity).pipe(
+                        Effect.provideService(SqlClient.SqlClient, sql),
+                        Effect.provideService(GitHubReadModel, readModel),
+                        Effect.provideService(SyncTargets, targets),
+                        Effect.mapError(
+                          (error) =>
+                            new ClassifierError({ operation: "qualify", message: error.message }),
+                        ),
+                      ),
+                      report: (message) =>
+                        sql`UPDATE labeling_reconciliation SET detail=${message}
+                      WHERE repository_id=${repositoryId} AND number=${number} AND snapshot_generation=${identity.snapshotGeneration} AND rules_revision=${identity.rulesRevision}`.pipe(
+                          Effect.asVoid,
+                          Effect.andThen(flushLive),
+                          Effect.mapError(
+                            (error) =>
+                              new ClassifierError({
+                                operation: "retry status",
+                                message: error.message,
+                              }),
+                          ),
+                        ),
+                    }),
+                  )
                 : evaluate({ program: version.program, snapshot: facts, resolve })
           outcomes.set(rule.id, evaluation.outcome)
           evaluations.push({ ruleId: rule.id, policyVersionId: rule.policyVersionId, evaluation })
@@ -230,7 +286,8 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
           SELECT configured_revision::text FROM labeling_repository_rules
           WHERE repository_id = ${repositoryId}
         `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ConfiguredRow))))
-          if (rows[0]?.configured_revision === identity.rulesRevision) return true
+          if (rows[0]?.configured_revision === identity.rulesRevision)
+            return yield* evaluationIsCurrent(identity)
           yield* handoffLatest(identity)
           return false
         }).pipe(Effect.mapError((error) => failure(describeError(error)))),
@@ -239,7 +296,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
     const outcome = !current
       ? {
           outcome: "superseded" as const,
-          detail: "configuration changed during evaluation; handed off to the latest configuration",
+          detail: "evaluation was superseded or repository automation became unavailable",
           plan: null,
         }
       : evaluated._tag === "Evaluated"
@@ -392,10 +449,15 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
           // Serialize disconnect against the complete external-write attempt.
           const [membership] = yield* sql<{
             connected: boolean
-          }>`SELECT connected FROM github_repository WHERE repository_id=${repositoryId} FOR UPDATE`.pipe(
+          }>`SELECT connected FROM github_repository WHERE repository_id=${repositoryId} FOR NO KEY UPDATE`.pipe(
             wrapSql,
           )
           if (!membership?.connected) return yield* skip("repository is disconnected")
+          // Serialize newer invalidations with the freshness check and external writes.
+          // The repository lock allows foreign-key checks by a refresh holding this target.
+          yield* sql`SELECT scope_key FROM sync_target WHERE scope_key=${syncScopeKey({ _tag: "Entity", repositoryId, number })} FOR UPDATE`.pipe(
+            wrapSql,
+          )
           // Fences: repository still enabled, revision still active, snapshot not superseded.
           const repository = yield* readModel.getRepository(repositoryId).pipe(wrapSql)
           if (Option.isNone(repository)) return yield* skip("repository is gone")
@@ -411,6 +473,8 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
               `rules revision ${identity.rulesRevision} was superseded; handed off to the latest configuration`,
             )
           }
+          if (!(yield* evaluationIsCurrent(identity).pipe(wrapSql)))
+            return yield* skip("evaluation is superseded or no longer qualified")
           const entity = yield* readModel.getEntity(repositoryId, number).pipe(wrapSql)
           if (Option.isNone(entity)) return yield* skip("entity is gone")
           const labels = yield* readModel.listLabels(repositoryId).pipe(wrapSql)
