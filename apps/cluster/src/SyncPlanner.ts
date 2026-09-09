@@ -58,6 +58,7 @@ const TrackRow = Schema.Struct({
   verified_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
   last_full_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
   pending: Schema.Boolean,
+  readiness_sync: Schema.Boolean,
 })
 
 const StateRow = Schema.Struct({ last_planned_at: Schema.DateTimeUtcFromDate })
@@ -175,6 +176,7 @@ export class SyncPlanner extends Context.Service<
 
       const tracks = yield* sql`
         SELECT r.repository_id, r.installation_id, track.name AS track,
+               COALESCE(t.verified_at <= r.synchronization_required_after, TRUE) AS readiness_sync,
                t.verified_at,
                t.last_full_at,
                COALESCE(
@@ -197,8 +199,12 @@ export class SyncPlanner extends Context.Service<
         }
         const fullDue =
           row.track !== "labels" && isDue(row.last_full_at, RepairPolicy.fullEntities, offset, now)
-        if (fullDue || isDue(row.verified_at, trackInterval(row.track), offset, now)) {
-          const result = yield* invalidate(scope, fullDue)
+        if (
+          row.readiness_sync ||
+          fullDue ||
+          isDue(row.verified_at, trackInterval(row.track), offset, now)
+        ) {
+          const result = yield* invalidate(scope, row.readiness_sync || fullDue)
           if (result.dispatched) created++
         }
       }

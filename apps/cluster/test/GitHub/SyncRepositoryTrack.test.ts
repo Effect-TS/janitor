@@ -114,6 +114,7 @@ const services = (
     }),
     Layer.succeed(SyncTargets, {
       withRun: (_scope, _generation, effect) => Effect.map(effect, Option.some),
+      retryFailedEntities: () => Effect.succeed(0),
       retryDue: Effect.succeed(0),
       recoverTerminal: () => Effect.void,
       invalidate: (request) =>

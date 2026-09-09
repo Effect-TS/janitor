@@ -20,7 +20,14 @@ import { ReconcileEntity, ReconcileEntityLayer } from "../../src/Labeling/Reconc
 import { SnapshotHandoff } from "../../src/Labeling/SnapshotHandoff.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
-import { actor, bug, LabelingLayer, repositoryId, seed, seedPullRequests } from "./support.ts"
+import {
+  actor,
+  bug,
+  LabelingLayer,
+  repositoryId,
+  seedReady as seed,
+  seedPullRequests,
+} from "./support.ts"
 
 const writes: Array<GitHubRequest> = []
 const services = ReconcileEntityLayer.pipe(
@@ -132,6 +139,7 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
             const { generation } = yield* targets.invalidate({
               scope,
               sequence: Option.some(sequence),
+              webhookReceivedAt: new Date(),
             })
             yield* targets.begin(scope, generation)
             yield* targets.complete({

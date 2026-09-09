@@ -181,7 +181,8 @@ export class SyncStatus extends Context.Service<
                 sequence: Option.none(),
                 immediate: true,
               })
-            return { summary: yield* summary, requested: 3 }
+            const failed = yield* targets.retryFailedEntities(repositoryId)
+            return { summary: yield* summary, requested: 3 + failed }
           }),
         )
         .pipe(wrap("requestRepository"))

@@ -21,6 +21,7 @@ import { describeError } from "../SqlErrors.ts"
 import { freshnessOf } from "../SyncFreshness.ts"
 import { SyncTargets } from "../SyncTargets.ts"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
+import { withRepositoryActivity } from "../RepositoryActivity.ts"
 
 export const RECONCILE_ENTITY_TAG = "Janitor/ReconcileEntityV1"
 
@@ -44,7 +45,11 @@ export type HandoffResult =
   | { readonly _tag: "Published"; readonly identity: ReconciliationIdentity }
   | {
       readonly _tag: "Skipped"
-      readonly reason: "no-active-revision" | "no-entity" | "not-verified"
+      readonly reason:
+        | "no-active-revision"
+        | "no-entity"
+        | "not-verified"
+        | "automation-not-eligible"
     }
 
 const ConfiguredRow = Schema.Struct({
@@ -110,6 +115,12 @@ export class SnapshotHandoff extends Context.Service<
       if (!verified) {
         return { _tag: "Skipped", reason: "not-verified" } as const
       }
+      const [eligible] = yield* sql<{
+        allowed: boolean
+      }>`SELECT entity_automation_eligible(${repositoryId}, ${number}, ${request.generation}::bigint) AS allowed`.pipe(
+        wrap("automationEligibility"),
+      )
+      if (!eligible?.allowed) return { _tag: "Skipped", reason: "automation-not-eligible" } as const
 
       // Only what concrete rules read, in a stable order.
       const { entity: record, pullRequest, labels } = entity.value
@@ -159,7 +170,18 @@ export class SnapshotHandoff extends Context.Service<
       return { _tag: "Published", identity } as const
     })
 
-    return { publish }
+    return {
+      publish: (request: HandoffRequest) =>
+        withRepositoryActivity(sql, request.repositoryId, publish(request)).pipe(
+          Effect.map(
+            Option.getOrElse((): HandoffResult => ({
+              _tag: "Skipped",
+              reason: "automation-not-eligible",
+            })),
+          ),
+          wrap("publish"),
+        ),
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

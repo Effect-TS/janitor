@@ -9,12 +9,14 @@ import { PullRequestReviewWebhookEvent } from "./WebhookEvent/PullRequestReview.
 import { CheckRunWebhookEvent } from "./WebhookEvent/CheckRun.ts"
 import { CheckSuiteWebhookEvent } from "./WebhookEvent/CheckSuite.ts"
 import { CommitStatusWebhookEvent } from "./WebhookEvent/CommitStatus.ts"
+import { IssueWebhookEvent } from "./WebhookEvent/Issue.ts"
 
 export const GitHubWebhookEvent = Schema.Union([
   PingWebhookEvent,
   InstallationWebhookEvent,
   InstallationRepositoriesWebhookEvent,
   PullRequestWebhookEvent,
+  IssueWebhookEvent,
   PullRequestReviewWebhookEvent,
   CheckRunWebhookEvent,
   CheckSuiteWebhookEvent,

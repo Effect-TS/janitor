@@ -35,7 +35,7 @@ import {
   feature,
   LabelingLayer,
   repositoryId,
-  seed,
+  seedReady as seed,
   seedPullRequests,
 } from "./support.ts"
 
@@ -108,7 +108,11 @@ const prepare = Effect.gen(function* () {
   const targets = yield* SyncTargets
   const scope = { _tag: "Entity" as const, repositoryId, number: 5 }
   const sequence = GitHubWebhookJournalSequence.make("2")
-  const { generation } = yield* targets.invalidate({ scope, sequence: Option.some(sequence) })
+  const { generation } = yield* targets.invalidate({
+    scope,
+    sequence: Option.some(sequence),
+    webhookReceivedAt: new Date(),
+  })
   yield* targets.begin(scope, generation)
   yield* targets.complete({
     scope,
@@ -138,6 +142,7 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
       yield* targets.invalidate({
         scope,
         sequence: Option.some(GitHubWebhookJournalSequence.make("3")),
+        webhookReceivedAt: new Date(),
       })
       yield* Deferred.succeed(answer, { matches: true, confidence: 1, reason: "Matches old facts" })
       yield* Fiber.join(fiber)
@@ -295,7 +300,11 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
       const old = yield* ReconcileEntity.execute(identity).pipe(Effect.forkChild)
       while (!(yield* page()).entries[0]?.detail?.includes("Retrying")) yield* Effect.yieldNow
       const sequence = GitHubWebhookJournalSequence.make("4")
-      const { generation } = yield* targets.invalidate({ scope, sequence: Option.some(sequence) })
+      const { generation } = yield* targets.invalidate({
+        scope,
+        sequence: Option.some(sequence),
+        webhookReceivedAt: new Date(),
+      })
       yield* targets.begin(scope, generation)
       yield* targets.complete({
         scope,
@@ -342,6 +351,7 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
           yield* targets.invalidate({
             scope,
             sequence: Option.some(GitHubWebhookJournalSequence.make("4")),
+            webhookReceivedAt: new Date(),
           })
         else if (change === "lost access")
           yield* (yield* GitHubReadModel).markRepositoriesLost({

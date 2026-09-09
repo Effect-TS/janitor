@@ -32,6 +32,7 @@ const Candidate = Schema.Struct({
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
   syncState: Schema.String,
+  syncError: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })
 const Inventory = Schema.Struct({ repositories: Schema.Array(Candidate) })
 export const Model = Schema.Struct({
@@ -386,7 +387,7 @@ export const view = Submodel.defineView<
               h.p(
                 [h.Class("text-sm")],
                 [
-                  `${current.owner}/${current.repo} · ${!current.connected ? "Disconnected" : current.access !== "accessible" || current.installationStatus !== "active" ? "Access lost" : !current.enabled ? "Paused" : current.syncState === "failed" ? "Sync failed" : current.syncState === "syncing" ? "Syncing repository…" : "Connected"}`,
+                  `${current.owner}/${current.repo} · ${!current.connected ? "Disconnected" : current.access !== "accessible" || current.installationStatus !== "active" ? "Access lost" : !current.enabled ? "Paused" : current.syncState === "failed" ? "Automation blocked by synchronization failure" : current.syncState === "syncing" ? "Synchronizing before automation becomes ready…" : "Automation ready"}`,
                 ],
               ),
               h.div(
@@ -396,6 +397,14 @@ export const view = Submodel.defineView<
                     ? button(
                         "Retry sync",
                         Message.ClickedChange({ id: current.repositoryId, action: "resume" }),
+                      )
+                    : h.empty,
+                  current.connected && current.enabled && current.syncState === "failed"
+                    ? h.p(
+                        [h.Role("status"), h.Class("text-sm text-muted-foreground")],
+                        [
+                          `${current.syncError ?? "Synchronization could not complete."} Automatic retries continue. Retry sync to refresh facts now. Recovery waits for new webhook events before labeling.`,
+                        ],
                       )
                     : h.empty,
                   h.p(

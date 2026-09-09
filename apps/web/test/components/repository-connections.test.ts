@@ -19,6 +19,27 @@ const candidate = {
 }
 const settings = { repositoryId: "701", state: "" }
 describe("Repository connections", () => {
+  it("explains the synchronization block and offers recovery", () => {
+    const failed = { ...candidate, syncState: "failed", syncError: "GitHub timeout" }
+    Scene.scene(
+      { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
+      Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [failed] }) }),
+      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Command.resolve(
+        Connections.Load,
+        Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [failed] } }),
+      ),
+      Scene.expect(
+        Scene.text("test/example · Automation blocked by synchronization failure"),
+      ).toExist(),
+      Scene.expect(Scene.role("button", { name: "Retry sync" })).toExist(),
+      Scene.expect(
+        Scene.text(
+          "GitHub timeout Automatic retries continue. Retry sync to refresh facts now. Recovery waits for new webhook events before labeling.",
+        ),
+      ).toExist(),
+    )
+  })
   it("offers one repository pause covering automation and synchronization", () => {
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },

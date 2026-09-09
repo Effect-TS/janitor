@@ -26,7 +26,7 @@ import {
   bug,
   LabelingLayer,
   repositoryId,
-  seed,
+  seedReady as seed,
   seedPullRequests,
   seq,
 } from "./support.ts"
@@ -79,7 +79,11 @@ const number = 5
 const verifyEntity = Effect.gen(function* () {
   const targets = yield* SyncTargets
   const scope = { _tag: "Entity", repositoryId, number } as const
-  const { generation } = yield* targets.invalidate({ scope, sequence: Option.some(seq) })
+  const { generation } = yield* targets.invalidate({
+    scope,
+    sequence: Option.some(seq),
+    webhookReceivedAt: new Date(),
+  })
   yield* targets.begin(scope, generation)
   yield* targets.complete({
     scope,

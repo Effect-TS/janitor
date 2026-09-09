@@ -61,6 +61,7 @@ export const installationOf = (event: GitHubWebhookEvent): Option.Option<GitHubI
     case "installation":
     case "installation_repositories":
     case "pull_request":
+    case "issues":
       return Option.some(event.payload.installation.id)
     default:
       return Option.none()
@@ -70,6 +71,7 @@ export const installationOf = (event: GitHubWebhookEvent): Option.Option<GitHubI
 export const applyEvent = (
   event: GitHubWebhookEvent,
   sequence: GitHubWebhookJournalSequence,
+  receivedAt?: Date,
 ): Effect.Effect<
   void,
   GitHubReadModelError | SyncTargetError | ContentPurgeError,
@@ -143,6 +145,27 @@ export const applyEvent = (
         yield* invalidateInventory(installationId)
         return
       }
+      case "issues": {
+        const { payload } = event
+        const repository = yield* readModel.getRepository(payload.repository.id)
+        if (Option.isNone(repository)) return
+        yield* readModel.applyIssue({
+          repositoryId: payload.repository.id,
+          issue: payload.issue,
+          sequence,
+        })
+        if (repository.value.enabled)
+          yield* targets.invalidate({
+            scope: {
+              _tag: "Entity",
+              repositoryId: payload.repository.id,
+              number: payload.issue.number,
+            },
+            sequence: Option.some(sequence),
+            webhookReceivedAt: receivedAt,
+          })
+        return
+      }
       case "pull_request": {
         const { payload } = event
         yield* readModel.applyPullRequest({
@@ -162,6 +185,7 @@ export const applyEvent = (
               number: payload.pullRequest.number,
             },
             sequence: Option.some(sequence),
+            webhookReceivedAt: receivedAt,
           })
         }
         return
@@ -234,7 +258,11 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
   const projection = readModel
     .withTransaction(
       Effect.gen(function* () {
-        yield* applyEvent(decoded.success, row.sequence)
+        yield* applyEvent(
+          decoded.success,
+          row.sequence,
+          row.receivedAt === undefined ? undefined : DateTime.toDateUtc(row.receivedAt),
+        )
         yield* journal.markProjection(
           deliveryId,
           "projected",
@@ -244,7 +272,7 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
       }),
     )
     .pipe(Effect.mapError((error) => fail(error.message)))
-  if (decoded.success.name === "pull_request") {
+  if (decoded.success.name === "pull_request" || decoded.success.name === "issues") {
     const activity = yield* RepositoryActivity
     const projected = yield* activity
       .run(

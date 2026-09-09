@@ -125,3 +125,24 @@ webhooks received before resumption cannot replay into facts or automation.
 
 Local fixtures use the installation sync setting to stay offline. Their repository
 pause setting still controls both automation and synchronization.
+
+## Automation readiness
+
+`0019_automation_readiness.sql` starts connected repositories awaiting fresh
+synchronization. The repair planner schedules the three repository tracks even
+when their usual refresh interval has not elapsed. Connection, resumption and
+restored access reset this requirement. Pause remains a separate operator choice.
+
+Any failed repository or entity synchronization clears readiness under the same
+repository lock used by label writes. Recovery requires all failed and unfinished
+work to complete, and initial synchronization requires all three repository
+tracks. Automatic retries continue while blocked. Manual retry also requests
+failed entity targets.
+
+An entity refresh carries labeling eligibility only when a webhook received after
+readiness requested it. Manual sync and scans cannot grant that eligibility.
+Snapshot publication, evaluation retries and external writes check the current
+readiness boundary and entity generation. Closed issues and closed or merged pull
+requests are ineligible. Recovery does not replay blocked events or label existing
+items. Future repository automations must check repository readiness and retain
+an event's admission boundary through their external-write fence.

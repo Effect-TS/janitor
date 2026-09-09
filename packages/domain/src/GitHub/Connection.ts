@@ -13,6 +13,7 @@ export const ConnectionCandidate = Schema.Struct({
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
   syncState: Schema.String,
+  syncError: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })
 export type ConnectionCandidate = typeof ConnectionCandidate.Type
 export const ConnectionInventory = Schema.Struct({

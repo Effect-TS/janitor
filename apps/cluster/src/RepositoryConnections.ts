@@ -51,8 +51,11 @@ export class RepositoryConnections extends Context.Service<
       r.access, i.status AS "installationStatus",
       (SELECT count(*)::int FROM labeling_policy p WHERE p.repository_id=r.repository_id) AS "policyCount",
       (SELECT count(*)::int FROM labeling_rule p WHERE p.repository_id=r.repository_id AND p.enabled) AS "ruleCount",
-      CASE WHEN NOT r.sync_enabled THEN 'paused' WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id AND t.last_error IS NOT NULL) THEN 'failed'
-        WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id AND t.requested_generation>t.completed_generation) THEN 'syncing'
+      (SELECT COALESCE(t.last_error,t.blocked_reason) FROM sync_target t
+        WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health='blocked')
+        ORDER BY t.updated_at DESC LIMIT 1) AS "syncError",
+      CASE WHEN NOT r.sync_enabled THEN 'paused' WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health = 'blocked')) THEN 'failed'
+        WHEN r.automation_ready_at IS NULL THEN 'syncing'
         ELSE 'ready' END AS "syncState"
     FROM github_repository r JOIN github_installation i USING(installation_id) ORDER BY r.owner,r.repo
   `.pipe(
@@ -202,7 +205,7 @@ export class RepositoryConnections extends Context.Service<
       disconnected_at=CASE WHEN ${action === "disconnect"} THEN now() ELSE disconnected_at END,
       observed_at=now() WHERE repository_id=${id}`
             yield* sql`INSERT INTO repository_connection_audit(repository_id,action,issuer,subject) VALUES(${id},${action},${actor.issuer},${actor.subject})`
-            if (enabled)
+            if (enabled) {
               for (const track of ["labels", "entities", "pull_requests"] as const)
                 yield* targets.invalidate({
                   scope: {
@@ -214,6 +217,8 @@ export class RepositoryConnections extends Context.Service<
                   immediate: true,
                   full: true,
                 })
+              yield* targets.retryFailedEntities(GitHubRepositoryDatabaseId.make(id))
+            }
           }),
         )
         .pipe(wrap)

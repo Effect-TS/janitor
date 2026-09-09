@@ -9,8 +9,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 export const readiness = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   // Resolve required tables and columns even on an empty database.
-  yield* sql`SELECT r.connected, r.sync_enabled, r.disconnected_at,
-    p.published_version_id, t.completed_generation
+  yield* sql`SELECT r.connected, r.sync_enabled, r.disconnected_at, r.automation_ready_at,
+    p.published_version_id, t.completed_generation, t.automation_event_at
     FROM github_repository r
     LEFT JOIN labeling_policy p ON p.repository_id = r.repository_id
     LEFT JOIN sync_target t ON t.scope->>'repositoryId' = r.repository_id
