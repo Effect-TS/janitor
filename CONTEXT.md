@@ -38,9 +38,27 @@ Within a repository, at most one labeling rule may control a given label for a g
 **AI labeling rule**:
 A labeling rule that uses an AI prompt to evaluate an issue or pull request, subject to a minimum confidence threshold and an optional gate policy. Its label behavior is configurable for match and non-match results.
 
+**AI prompt**:
+Instructions describing what an AI labeling rule should determine about an issue or pull request. Only facts explicitly referenced in the prompt are supplied for classification.
+
+**AI provider and model**:
+The AI service and model shared by all AI labeling rules in a Janitor deployment. They are deployment-wide choices rather than per-rule settings.
+
+**Minimum confidence**:
+The confidence threshold an AI classification must meet for Janitor to accept a match. Below that threshold, the result is a non-match.
+
+**Cached AI result**:
+A previous successful AI classification reusable for a deployment-wide lifetime, defaulting to 24 hours, while the AI rule's parameters, referenced facts, and AI model remain unchanged. Expiration or a parameter change, including minimum confidence, requires a fresh AI request on the next evaluation rather than triggering one immediately.
+
 **Unknown result**:
-An evaluation result indicating that Janitor cannot determine whether an issue or pull request matches, because required facts are missing or AI classification is inconclusive. Missing facts produce an unknown result rather than a non-match, preserving the existing label.
+An evaluation result indicating that Janitor cannot determine whether an issue or pull request matches because required facts are missing. Missing facts produce an unknown result rather than a non-match, preserving the existing label.
 _Avoid_: Unknown outcome
+
+**Failed evaluation**:
+An evaluation that could not complete because of an operational error, such as an AI request timeout or provider error, with an actionable error explaining the failure. It leaves the rule's label unchanged, or all labels in its labeling group unchanged, while unrelated rules may still apply their label actions.
+
+**Evaluation retry**:
+A limited automatic reattempt of an evaluation after a temporary failure, with increasing delays and respect for provider retry guidance; configuration errors fail immediately, and exhausted retries leave a failed evaluation awaiting a new webhook event. Labels remain unchanged during retries, and newer webhook events supersede retries of outdated evaluations.
 
 **Not-applicable result**:
 An evaluation result indicating that an issue or pull request is outside a policy's scope. It is distinct from a non-match: the rule requests no label change and does not prevent other rules in its labeling group from acting.
