@@ -69,8 +69,23 @@ A label action that preserves whether the label is currently present or absent, 
 
 ### Repository connections and synchronization
 
+**Repository visibility**:
+A GitHub repository's public or private status. Both follow the same connection, permission, and automation rules in Janitor.
+
+**Repository identity**:
+The identity of a GitHub repository independent of its name or owner. Renaming or transferring it preserves its Janitor connection, policies, and labeling rules, with operation after a transfer subject to the required GitHub access under the new owner.
+
+**GitHub App installation**:
+An authorization for Janitor's GitHub App to access repositories belonging to a GitHub account. It determines which repositories are available to connect to Janitor.
+
 **Connected repository**:
 A GitHub repository explicitly selected for management in Janitor, with successful initial synchronization required before automation runs. GitHub App access makes a repository available to connect, but does not itself connect it.
+
+**Available repository**:
+A GitHub repository that Janitor's GitHub App can access but that has not been connected to Janitor. Newly granted access makes it available; someone must explicitly connect it before Janitor manages it.
+
+**Required GitHub permissions**:
+The permissions Janitor needs to read a repository's facts and change its labels. Both are required before connection, and losing either puts a connected repository into the access-unavailable state.
 
 **Repository automation**:
 All Janitor automations operating on a repository, currently automatic labeling and including any automation types added in the future.
