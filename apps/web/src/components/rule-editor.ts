@@ -60,7 +60,11 @@ export type Identity = typeof Identity.Type
 
 export const Submission = Schema.Union([
   Schema.TaggedStruct("NotSubmitted", {}),
-  Schema.TaggedStruct("Submitting", { operationId: Schema.Int, snapshot: Schema.String }),
+  Schema.TaggedStruct("Submitting", {
+    operationId: Schema.Int,
+    snapshot: Schema.String,
+    submittedPriority: Schema.optionalKey(Schema.String),
+  }),
   Schema.TaggedStruct("Conflicted", {}),
   Schema.TaggedStruct("Rejected", { issues: Schema.Array(RuleIssue) }),
   Schema.TaggedStruct("SubmitError", { message: Schema.String }),
@@ -83,6 +87,7 @@ export const Model = Schema.Struct({
   enabled: Schema.Boolean,
   labels: Schema.Array(SynchronizedLabel),
   policies: Schema.Array(PolicyRecord),
+  rules: Schema.Array(RuleRecord),
   submission: Submission,
   nextOperationId: Schema.Int,
   savedSnapshot: Schema.String,
@@ -138,6 +143,8 @@ export const Message = defineMessageUnion({
   UpdatedGroup: { value: Schema.String },
   UpdatedPriority: { value: Schema.String },
   ToggledEnabled: { isChecked: Schema.Boolean },
+  MovedGroupRule: { ruleId: Schema.String, direction: Schema.Literals(["up", "down"]) },
+  SucceededReorderGroup: { rules: Schema.Array(RuleRecord), operationId: Schema.Int },
   ClickedSave: {},
   SucceededSaveRule: { rule: RuleRecord, operationId: Schema.Int },
   ConflictedSaveRule: { rule: RuleRecord, operationId: Schema.Int },
@@ -181,6 +188,7 @@ export type OutMessage = typeof OutMessage.Type
 // DOMAIN
 
 export const draftIssues = (model: Model): ReadonlyArray<string> => [
+  ...groupDraftIssues(model),
   ...(model.ai?.gatePolicyId &&
   !model.policies.some(
     (p) =>
@@ -211,10 +219,46 @@ export const draftIssues = (model: Model): ReadonlyArray<string> => [
     ? ["Choose an available label"]
     : []),
   ...(model.priority.trim() !== "" &&
-  (!/^-?\d+$/.test(model.priority.trim()) || !Number.isSafeInteger(Number(model.priority)))
+  (!/^-?\d+$/.test(model.priority.trim()) ||
+    !Number.isSafeInteger(Number(model.priority)) ||
+    Number(model.priority) < -2147483648 ||
+    Number(model.priority) > 2147483647)
     ? ["Priority must be a whole number"]
     : []),
 ]
+
+const groupMembers = (model: Model) =>
+  model.rules
+    .filter((rule) => rule.group !== null && rule.group === model.group.trim())
+    .sort((a, b) => b.priority - a.priority)
+
+const groupDraftIssues = (model: Model): ReadonlyArray<string> => {
+  const identity = model.identity
+  const others = groupMembers(model).filter(
+    (rule) => identity._tag === "New" || rule.id !== identity.ruleId,
+  )
+  const issues: Array<string> = []
+  if (others.some((rule) => rule.priority === Number(model.priority)))
+    issues.push(
+      "Priority " +
+        Number(model.priority) +
+        " is reserved by another group member, including disabled rules. Use reordering to swap priorities.",
+    )
+  const publishedTarget = (policyId: string | null) => {
+    const policy = model.policies.find((policy) => policy.policyId === policyId)
+    // A draft target may differ from the published target. The API validates that case.
+    return policy?.draftDiffers ? undefined : policy?.target
+  }
+  const target = model.ai?.target ?? publishedTarget(Option.getOrNull(model.maybePolicyId))
+  const otherTarget = others
+    .map((rule) => rule.ai?.target ?? publishedTarget(rule.policyId))
+    .find((other) => other !== undefined && other !== target)
+  if (target && otherTarget)
+    issues.push(
+      "This labeling group targets " + otherTarget + ". Choose another group for this target.",
+    )
+  return issues
+}
 
 const publishedPolicies = (model: Model) =>
   model.policies.filter((policy) => policy.publishedVersionId !== null)
@@ -242,6 +286,41 @@ const Payload = {
   priority: Schema.Int,
   enabled: Schema.Boolean,
 }
+
+export const ReorderGroup = FoldkitCommand.define("ReorderGroup", {
+  args: {
+    repositoryId: Schema.String,
+    group: Schema.String,
+    operationId: Schema.Int,
+    rules: Schema.Array(
+      Schema.Struct({ id: Schema.String, version: Schema.Int, priority: Schema.Int }),
+    ),
+  },
+  messages: [Message.SucceededReorderGroup, Message.FailedSaveRule],
+  execute: ({ repositoryId, group, rules, operationId }) =>
+    Effect.gen(function* () {
+      const response = yield* HttpClientRequest.post(rulesEndpoint(repositoryId) + "/reorder").pipe(
+        HttpClientRequest.bodyJson({ group, rules }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      if (response.status === 200)
+        return Message.SucceededReorderGroup({
+          operationId,
+          rules: yield* HttpIncomingMessage.schemaBodyJson(Schema.Array(RuleRecord))(response),
+        })
+      return Message.FailedSaveRule({
+        operationId,
+        reason:
+          response.status === 409
+            ? "This labeling group changed. Reload the page before reordering."
+            : "Could not reorder the labeling group. Reload its members and try again.",
+      })
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(Message.FailedSaveRule({ operationId, reason: describe(error) })),
+      ),
+    ),
+})
 
 export const SaveRule = FoldkitCommand.define("SaveRule", {
   args: Payload,
@@ -384,6 +463,7 @@ const initialize = (input: {
   readonly repositoryId: string
   readonly catalog?: ReadonlyArray<FactDescription>
   readonly labels: ReadonlyArray<SynchronizedLabel>
+  readonly rules?: ReadonlyArray<RuleRecord>
   readonly policies: ReadonlyArray<PolicyRecord>
   readonly testCandidates?: TestCandidates | undefined
   readonly existing: Option.Option<RuleRecord>
@@ -418,6 +498,7 @@ const initialize = (input: {
       ),
       labels: input.labels,
       policies: input.policies,
+      rules: input.rules ?? Option.toArray(input.existing),
       submission: { _tag: "NotSubmitted" },
       nextOperationId: 1,
       savedSnapshot: "",
@@ -554,6 +635,85 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: edited(evo(model, { enabled: () => isChecked })),
     }),
 
+    MovedGroupRule: ({ ruleId, direction }) => {
+      if (
+        model.submission._tag === "Submitting" ||
+        hasUnsavedChanges(model) ||
+        model.identity._tag !== "Existing"
+      )
+        return { model }
+      const members = groupMembers(model)
+      const index = members.findIndex((rule) => rule.id === ruleId)
+      const neighbor = members[index + (direction === "up" ? -1 : 1)]
+      const moving = members[index]
+      if (!moving || !neighbor) return { model }
+      const operationId = model.nextOperationId
+      return {
+        model: evo(model, {
+          nextOperationId: (id) => id + 1,
+          submission: () => ({
+            _tag: "Submitting" as const,
+            operationId,
+            snapshot: snapshot(model),
+            submittedPriority: model.priority,
+          }),
+        }),
+        commands: [
+          ReorderGroup({
+            repositoryId: model.repositoryId,
+            group: model.group.trim(),
+            operationId,
+            rules: members.map((rule) => ({
+              id: rule.id,
+              version: rule.version,
+              priority:
+                rule.id === moving.id
+                  ? neighbor.priority
+                  : rule.id === neighbor.id
+                    ? moving.priority
+                    : rule.priority,
+            })),
+          }),
+        ],
+      }
+    },
+    SucceededReorderGroup: ({ rules, operationId }) => {
+      if (
+        model.submission._tag !== "Submitting" ||
+        model.submission.operationId !== operationId ||
+        model.identity._tag !== "Existing"
+      )
+        return { model }
+      const identity = model.identity
+      const current = rules.find((rule) => rule.id === identity.ruleId)
+      if (!current) return { model }
+      const clean = snapshot(model) === model.submission.snapshot
+      const next = evo(model, {
+        rules: (existing) =>
+          existing.map((rule) => rules.find((updated) => updated.id === rule.id) ?? rule),
+        identity: () => ({ ...identity, version: current.version }),
+        priority: () =>
+          model.submission._tag === "Submitting" &&
+          model.priority === model.submission.submittedPriority
+            ? String(current.priority)
+            : model.priority,
+        submission: () => ({ _tag: "NotSubmitted" as const }),
+      })
+      const saved = clean
+        ? snapshot(next)
+        : snapshot(
+            initialize({
+              repositoryId: model.repositoryId,
+              labels: model.labels,
+              policies: model.policies,
+              existing: Option.some(current),
+            }),
+          )
+      return {
+        model: evo(next, { savedSnapshot: () => saved }),
+        outMessage: OutMessage.Saved({ rule: current, closeEditor: false }),
+      }
+    },
     ClickedSave: () => {
       if (model.submission._tag === "Submitting" || draftIssues(model).length > 0) return { model }
       if (Option.isNone(model.maybeLabelId) || (!model.ai && Option.isNone(model.maybePolicyId)))
@@ -782,6 +942,58 @@ export const update = (model: Model, message: Message): UpdateReturn =>
   })
 
 // VIEW
+
+const groupOrderView = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const members = groupMembers(model)
+  if (members.length < 2) return h.empty
+  const busy =
+    model.submission._tag === "Submitting" ||
+    hasUnsavedChanges(model) ||
+    model.identity._tag !== "Existing"
+  return h.div(
+    [h.Class("flex flex-col gap-2")],
+    [
+      h.p(
+        [h.Class("text-xs text-muted-foreground")],
+        ["Reorder the saved group. Save any edits first."],
+      ),
+      ...members.map((rule, index) =>
+        h.div(
+          [h.Class("flex items-center gap-2 text-xs")],
+          [
+            h.span(
+              [],
+              [
+                labelName(model.labels, rule.labelId) +
+                  " · " +
+                  rule.priority +
+                  (rule.enabled ? "" : " · Disabled"),
+              ],
+            ),
+            h.button(
+              [
+                h.Type("button"),
+                h.Disabled(busy || index === 0),
+                h.AriaLabel("Move " + labelName(model.labels, rule.labelId) + " up"),
+                h.OnClick(Message.MovedGroupRule({ ruleId: rule.id, direction: "up" })),
+              ],
+              ["Move up"],
+            ),
+            h.button(
+              [
+                h.Type("button"),
+                h.Disabled(busy || index === members.length - 1),
+                h.AriaLabel("Move " + labelName(model.labels, rule.labelId) + " down"),
+                h.OnClick(Message.MovedGroupRule({ ruleId: rule.id, direction: "down" })),
+              ],
+              ["Move down"],
+            ),
+          ],
+        ),
+      ),
+    ],
+  )
+}
 
 const labelClass = "text-muted-foreground text-xs font-medium"
 const selectClass = cn(inputClass, "h-8 appearance-none pr-6 text-sm")
@@ -1235,6 +1447,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                         onInput: (value) => Message.UpdatedGroup({ value }),
                                         labelClass,
                                       }),
+                                      groupOrderView(h, model),
                                       input(h, {
                                         id: "rule-priority",
                                         label: "Priority",
@@ -1246,7 +1459,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                       h.p(
                                         [h.Class("text-xs text-muted-foreground")],
                                         [
-                                          "The matching rule with the lowest priority wins. Other labels follow their rules’ no-match behavior.",
+                                          "Larger priorities take precedence. The group keeps only the highest-priority label requesting presence and removes all other group labels, including disabled rules.",
                                         ],
                                       ),
                                     ],
@@ -1447,6 +1660,7 @@ export const reflectConfiguration = (
   const next = evo(model, {
     labels: () => configuration.labels,
     policies: () => configuration.policies,
+    rules: () => configuration.rules,
     testCandidates: () => testCandidates ?? model.testCandidates,
   })
   const changed =

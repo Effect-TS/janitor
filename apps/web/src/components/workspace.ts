@@ -606,6 +606,7 @@ const openRuleEditor = (
             catalog: model.catalog,
             labels: detail.configuration.labels,
             policies: detail.configuration.policies,
+            rules: detail.configuration.rules,
             existing: rule,
             testCandidates: detail.testCandidates,
           }),

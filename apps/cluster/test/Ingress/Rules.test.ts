@@ -121,6 +121,7 @@ const policies: Policies["Service"] = {
 }
 
 const rules: LabelingRules["Service"] = {
+  reorder: () => Effect.succeed([]),
   list: () => Effect.succeed([rule]),
   create: (_, request) =>
     request.labelId === rule.labelId

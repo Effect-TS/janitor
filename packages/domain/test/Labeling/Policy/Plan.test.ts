@@ -132,10 +132,10 @@ describe("Plan", () => {
     )
   })
 
-  it("resolves a group by lowest priority and removes the losers' labels", () => {
+  it("resolves a group by highest priority and removes the losers' labels", () => {
     const rules = [
-      rule("high", { group: "size", priority: 10, labelId: bug }),
-      rule("low", { group: "size", priority: 1, labelId: feature }),
+      rule("high", { group: "size", priority: 1, labelId: bug }),
+      rule("low", { group: "size", priority: 10, labelId: feature }),
     ]
     const result = run(rules, { high: "match", low: "match" }, ["11"])
     assert.deepStrictEqual(result.rules, [
@@ -156,7 +156,7 @@ describe("Plan", () => {
       { labelId: bug, action: "remove", ruleId: RuleId.make("high") },
       { labelId: feature, action: "add", ruleId: RuleId.make("low") },
     ])
-    // A losing rule that preserves keeps its label.
+    // A losing presence request removes its label regardless of its non-match action.
     const preserved = run(
       [
         rules[0]!,

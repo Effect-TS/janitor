@@ -188,7 +188,7 @@ const PendingTrackRow = Schema.Struct({ track: Schema.String })
 const ZERO = LabelingRevision.make(0)
 
 /**
- * Snapshots the enabled rules and their latest published dependencies in the
+ * Snapshots enabled rules, disabled group members, and published dependencies in the
  * caller's transaction. The new revision is immediately available to event
  * and sync evaluations. Publishing never schedules entity scans or backfill.
  */
@@ -340,7 +340,7 @@ export class LabelingConfiguration extends Context.Service<
       `.pipe(Effect.flatMap(decodePointers), wrap("advance"))
       const next = LabelingRevision.make((pointer[0]?.configured_revision ?? ZERO) + 1)
 
-      // Enabled rules bound to a published policy. A rule whose policy is
+      // Include disabled group members so later decisions can remove their labels. A rule whose policy is
       // unpublished or whose label is missing is not live.
       const bound = yield* sql`
         SELECT r.rule_id, r.repository_id, r.label_id, r.policy_id, r.on_match, r.on_no_match, r.rule_group,
@@ -348,7 +348,7 @@ export class LabelingConfiguration extends Context.Service<
                p.published_version_id
         FROM labeling_rule r
         JOIN labeling_policy p ON p.policy_id = r.policy_id
-        WHERE r.repository_id = ${repositoryId} AND r.enabled AND r.label_status = 'valid'
+        WHERE r.repository_id = ${repositoryId} AND (r.enabled OR r.rule_group IS NOT NULL) AND r.label_status = 'valid'
           AND p.published_version_id IS NOT NULL
         ORDER BY r.created_at, r.rule_id
       `.pipe(
@@ -369,7 +369,7 @@ export class LabelingConfiguration extends Context.Service<
         onNoMatch: row.on_no_match,
         group: row.rule_group,
         priority: row.priority,
-        enabled: true,
+        enabled: row.enabled,
         policyVersionId: row.published_version_id,
       }))
       const versions = yield* closeVersions(rules.map((rule) => rule.policyVersionId)).pipe(
@@ -378,6 +378,7 @@ export class LabelingConfiguration extends Context.Service<
       const byPolicy = new Map(versions.map((version) => [version.policyId, version]))
       const manifests = []
       for (const rule of rules) {
+        if (!rule.enabled) continue
         const version = byPolicy.get(rule.policyId)
         if (version === undefined) continue
         const result = compile({

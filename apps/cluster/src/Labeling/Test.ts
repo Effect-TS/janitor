@@ -227,6 +227,7 @@ export class LabelingTest extends Context.Service<
               const facts = entityFacts(view)
               const outcomes = new Map<RuleBinding["id"], Outcome>()
               for (const rule of snapshot.value.rules) {
+                if (!rule.enabled) continue
                 const version = versions.get(rule.policyVersionId)
                 const outcome: Outcome =
                   version === undefined

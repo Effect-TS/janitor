@@ -13,6 +13,7 @@ import {
   type AuditEntry,
   type CreateRuleRequest,
   type PatchRuleRequest,
+  type ReorderGroupRequest,
   type RuleIssue,
   type RuleRecord,
 } from "@janitor/domain/Labeling/Policy/Configuration"
@@ -25,6 +26,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 import { listAudit, recordAudit } from "./Audit.ts"
+import { groupIssues } from "./Groups.ts"
 import { labelOwnershipConflict } from "./Ownership.ts"
 import {
   LabelingConfiguration,
@@ -50,6 +52,10 @@ export class RuleConflict extends Data.TaggedError("RuleConflict")<{
   readonly current: RuleRecord
 }> {}
 
+export class GroupConflict extends Data.TaggedError("GroupConflict")<{
+  readonly message: string
+}> {}
+
 export class RuleInvalid extends Data.TaggedError("RuleInvalid")<{
   readonly issues: ReadonlyArray<RuleIssue>
 }> {}
@@ -58,6 +64,7 @@ export type RulesFailure =
   | RepositoryNotFound
   | RuleNotFound
   | RuleConflict
+  | GroupConflict
   | RuleInvalid
   | RulesError
   | LabelingConfigurationError
@@ -89,6 +96,11 @@ export class LabelingRules extends Context.Service<
       request: PatchRuleRequest,
       actor: Actor,
     ) => Effect.Effect<RuleRecord, RulesFailure>
+    readonly reorder: (
+      repositoryId: GitHubRepositoryDatabaseId,
+      request: ReorderGroupRequest,
+      actor: Actor,
+    ) => Effect.Effect<ReadonlyArray<RuleRecord>, RulesFailure>
     readonly remove: (
       repositoryId: GitHubRepositoryDatabaseId,
       ruleId: RuleId,
@@ -133,6 +145,8 @@ export class LabelingRules extends Context.Service<
       repositoryId: GitHubRepositoryDatabaseId,
       labelId: RuleRecord["labelId"],
       policyId: PolicyId,
+      group: string | null,
+      priority: number,
       ownerRuleId?: RuleId,
     ) {
       const issues: Array<RuleIssue> = []
@@ -171,6 +185,16 @@ export class LabelingRules extends Context.Service<
           ownerRuleId,
         ).pipe(wrap("ownership"))
         if (conflict) issues.push({ code: "duplicate-label", message: conflict })
+        issues.push(
+          ...(yield* groupIssues(
+            sql,
+            repositoryId,
+            group,
+            policy.published_program.target,
+            priority,
+            ownerRuleId,
+          ).pipe(wrap("group"))),
+        )
       }
       if (issues.length > 0) return yield* new RuleInvalid({ issues })
     })
@@ -284,7 +308,14 @@ export class LabelingRules extends Context.Service<
           : request.policyId
         if (!policyId)
           return yield* invalidAi("Choose a published policy or supply an AI definition")
-        yield* validate(repositoryId, request.labelId, policyId, ruleId)
+        yield* validate(
+          repositoryId,
+          request.labelId,
+          policyId,
+          request.group,
+          request.priority,
+          ruleId,
+        )
         yield* Effect.gen(function* () {
           yield* sql`
               INSERT INTO labeling_rule
@@ -336,7 +367,14 @@ export class LabelingRules extends Context.Service<
           priority: request.priority ?? current.priority,
           enabled: request.enabled ?? current.enabled,
         }
-        yield* validate(repositoryId, next.labelId, next.policyId, ruleId)
+        yield* validate(
+          repositoryId,
+          next.labelId,
+          next.policyId,
+          next.group,
+          next.priority,
+          ruleId,
+        )
         // A label that came back, or a new label, is valid again.
         const labelStatus = next.labelId === current.labelId ? current.labelStatus : "valid"
         yield* Effect.gen(function* () {
@@ -358,6 +396,60 @@ export class LabelingRules extends Context.Service<
           yield* configuration.advance(repositoryId, actor)
         }).pipe(wrap("patch"))
         return yield* find(repositoryId, ruleId)
+      },
+      (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
+    )
+
+    const reorder = Effect.fn("LabelingRules.reorder")(
+      function* (
+        repositoryId: GitHubRepositoryDatabaseId,
+        request: ReorderGroupRequest,
+        actor: Actor,
+      ) {
+        const members = (yield* list(repositoryId)).filter((rule) => rule.group === request.group)
+        if (
+          request.rules.length === 0 ||
+          new Set(request.rules.map((rule) => rule.id)).size !== request.rules.length ||
+          new Set(request.rules.map((rule) => rule.priority)).size !== request.rules.length
+        )
+          return yield* new RuleInvalid({
+            issues: [
+              {
+                code: "invalid-reorder",
+                message:
+                  "Supply each group member once with a unique final priority, including disabled rules.",
+              },
+            ],
+          })
+        if (
+          members.length !== request.rules.length ||
+          members.some(
+            (member) =>
+              !request.rules.some(
+                (rule) => rule.id === member.id && rule.version === member.version,
+              ),
+          )
+        )
+          return yield* new GroupConflict({
+            message: "This labeling group changed. Reload its members before reordering.",
+          })
+        yield* Effect.gen(function* () {
+          for (const member of members) {
+            const next = request.rules.find((rule) => rule.id === member.id)!
+            yield* sql`UPDATE labeling_rule SET priority = ${next.priority}, version = version + 1,
+              updated_at = CLOCK_TIMESTAMP() WHERE rule_id = ${member.id}`
+            yield* recordAudit(sql, {
+              repositoryId,
+              subject: { _tag: "Rule", ruleId: member.id },
+              actor,
+              operation: "update",
+              before: member,
+              after: { ...member, priority: next.priority, version: member.version + 1 },
+            })
+          }
+          yield* configuration.advance(repositoryId, actor)
+        }).pipe(wrap("reorder"))
+        return (yield* list(repositoryId)).filter((rule) => rule.group === request.group)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
     )
@@ -401,6 +493,7 @@ export class LabelingRules extends Context.Service<
       create,
       patch,
       remove,
+      reorder,
     }
   }),
 }) {

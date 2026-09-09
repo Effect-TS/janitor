@@ -53,9 +53,9 @@ export const RuleBinding = Schema.Struct({
   policyId: PolicyId,
   onMatch: ResultAction.pipe(Schema.withDecodingDefaultKey(Effect.succeed("ensure-present"))),
   onNoMatch: ResultAction,
-  /** Rules in one group are exclusive: the matching rule with the lowest priority wins. */
+  /** Rules in one group are exclusive: the highest-priority presence request wins. */
   group: Schema.NullOr(RuleGroup),
-  priority: Schema.Int,
+  priority: Schema.Int.check(Schema.isBetween({ minimum: -2147483648, maximum: 2147483647 })),
   enabled: Schema.Boolean,
 }).annotate({ identifier: "RuleBinding" })
 export type RuleBinding = typeof RuleBinding.Type
@@ -91,10 +91,9 @@ export interface PlanInput {
 }
 
 /**
- * 1. Rules requesting presence are candidates; the lowest group priority wins.
+ * 1. Rules requesting presence are candidates; the highest group priority wins.
  * 2. A selected rule wants its label present.
- * 3. Each conclusive result uses its configured action. Losing presence requests
- *    retain the legacy group removal behavior until group exclusivity is migrated.
+ * 3. An applicable group removes every other member's label, including disabled members.
  * 4. Unknown and failed preserve the label and block their entire group.
  *    Not-applicable wants nothing without blocking its group.
  * 5. Per label, present beats absent.
@@ -122,6 +121,18 @@ export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
       })
       .map((rule) => rule.labelId),
   )
+  const activeGroups = new Set(
+    enabled
+      .filter((rule) => {
+        const outcome = outcomes.get(rule.id)
+        return (
+          rule.group !== null &&
+          !blockedGroups.has(rule.group) &&
+          (outcome === "match" || outcome === "no-match")
+        )
+      })
+      .map((rule) => rule.group),
+  )
   const winners = new Map<string, RuleId>()
   for (const rule of enabled) {
     if (
@@ -135,7 +146,7 @@ export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
       current === undefined ? undefined : enabled.find((entry) => entry.id === current)
     if (
       incumbent === undefined ||
-      rule.priority < incumbent.priority ||
+      rule.priority > incumbent.priority ||
       (rule.priority === incumbent.priority && rule.id < incumbent.id)
     ) {
       winners.set(rule.group, rule.id)
@@ -160,8 +171,7 @@ export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
       continue
     }
     const remove =
-      action === "ensure-absent" ||
-      (action === "ensure-present" && !won && rule.onNoMatch === "ensure-absent")
+      rule.group === null ? action === "ensure-absent" : activeGroups.has(rule.group) && !won
     ruleOutcomes.push({
       ruleId: rule.id,
       outcome,
@@ -171,6 +181,16 @@ export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
     if (remove && !wantAbsent.has(rule.labelId)) {
       wantAbsent.set(rule.labelId, rule.id)
     }
+  }
+
+  for (const rule of rules) {
+    if (
+      !rule.enabled &&
+      rule.group !== null &&
+      activeGroups.has(rule.group) &&
+      !protectedLabels.has(rule.labelId)
+    )
+      wantAbsent.set(rule.labelId, rule.id)
   }
 
   const actions: Array<LabelAction> = []

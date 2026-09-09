@@ -188,6 +188,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
         const outcomes = new Map<RuleId, Evaluation["outcome"]>()
         const evaluations: Array<typeof RuleEvaluationRecord.Type> = []
         for (const rule of snapshot.value.rules) {
+          if (!rule.enabled) continue
           const version = versions.get(rule.policyVersionId)
           const evaluation: Evaluation =
             version === undefined

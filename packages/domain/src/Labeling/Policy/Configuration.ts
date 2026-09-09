@@ -14,7 +14,7 @@ import { PolicyTarget, Program, ProgramSource } from "./Program.ts"
  * Persisted records and API shapes (plan: "Configuration revision"). The
  * repository's labeling revision is the one fence: it advances when a
  * policy publishes or a rule changes, and each advance snapshots the
- * enabled rules with the policy versions they bind, so a reconciliation
+ * rules with the policy versions they bind, so a reconciliation
  * can reload exactly what was live.
  */
 
@@ -141,7 +141,7 @@ export const CreateRuleRequest = Schema.Struct({
   onMatch: RuleBinding.fields.onMatch,
   onNoMatch: ResultAction.pipe(Schema.withDecodingDefaultKey(Effect.succeed("no-action"))),
   group: Schema.NullOr(RuleGroup).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-  priority: Schema.Int.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
+  priority: RuleBinding.fields.priority.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
 }).annotate({ identifier: "CreateRuleRequest" })
 export type CreateRuleRequest = typeof CreateRuleRequest.Type
@@ -154,15 +154,27 @@ export const PatchRuleRequest = Schema.Struct({
   onMatch: Schema.optionalKey(ResultAction),
   onNoMatch: Schema.optionalKey(ResultAction),
   group: Schema.optionalKey(Schema.NullOr(RuleGroup)),
-  priority: Schema.optionalKey(Schema.Int),
+  priority: Schema.optionalKey(RuleBinding.fields.priority),
   enabled: Schema.optionalKey(Schema.Boolean),
 }).annotate({ identifier: "PatchRuleRequest" })
 export type PatchRuleRequest = typeof PatchRuleRequest.Type
+
+export const ReorderGroupRequest = Schema.Struct({
+  group: RuleGroup,
+  /** Complete membership and observed versions detect concurrent edits and membership changes. */
+  rules: Schema.Array(
+    Schema.Struct({ id: RuleId, version: Schema.Int, priority: RuleBinding.fields.priority }),
+  ).check(Schema.isMinLength(1)),
+}).annotate({ identifier: "ReorderGroupRequest" })
+export type ReorderGroupRequest = typeof ReorderGroupRequest.Type
 
 export const RuleIssueCode = Schema.Literals([
   "unresolved-label",
   "unavailable-label",
   "duplicate-label",
+  "duplicate-priority",
+  "group-target-mismatch",
+  "invalid-reorder",
   "policy-not-published",
   "policy-target-mismatch",
   "invalid-ai-rule",
@@ -176,7 +188,7 @@ export type RuleIssue = typeof RuleIssue.Type
 
 // CONFIGURATION
 
-/** One enabled rule as snapshotted at a revision, bound to a published version. */
+/** One rule as snapshotted at a revision, bound to a published version. */
 export const ConfiguredRule = Schema.Struct({
   ...RuleBinding.fields,
   policyVersionId: PolicyVersionId,
