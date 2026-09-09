@@ -56,3 +56,20 @@ rules and shared classifier policies remain compatible.
 Label-write status remains separate. Historical results are unchanged; the classifier
 uses a new decision cache key so earlier low-confidence `unknown` decisions are not
 reused under the new non-match behavior.
+
+## Label ownership
+
+`0016_label_ownership.sql` checks existing rules, including disabled rules, for
+multiple owners of the same repository, label, and current published target. It
+aborts with every conflicting repository, label, target, and rule ID. It does not
+change rule configuration or GitHub labels. Resolve conflicts by editing or
+deleting the named rules and retry the migration. Disabling does not release
+ownership.
+
+Stop old workers before applying this migration and start the new release only
+after it passes. Rule creates and edits, policy draft saves, and policy publication
+check ownership inside `withRepositoryMutation`, which serializes requests with a
+PostgreSQL repository-row lock. Ownership follows the published target until a
+replacement is published. Publication rechecks ownership because a label may
+have been claimed since the draft was saved. Direct SQL writers must use the same
+lock and checks; the lookup index is not a uniqueness constraint.

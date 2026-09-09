@@ -105,12 +105,29 @@ layer(ApiServices, { timeout: "2 minutes" })("Rule action API", (it) => {
           assert.strictEqual(next.onMatch, "no-action")
           assert.strictEqual(next.onNoMatch, "no-action")
           const defaults = yield* Effect.promise(() =>
-            handler(request("POST", `${base}/rules`, { labelId: "11", policyId })),
+            handler(request("POST", `${base}/rules`, { labelId: "12", policyId })),
           )
           assert.strictEqual(defaults.status, 201)
           const defaultBody = yield* Effect.promise(() => defaults.json())
           assert.strictEqual(defaultBody.onMatch, "ensure-present")
           assert.strictEqual(defaultBody.onNoMatch, "no-action")
+          const duplicate = yield* Effect.promise(() =>
+            handler(request("POST", `${base}/rules`, { labelId: "11", policyId, enabled: false })),
+          )
+          assert.strictEqual(duplicate.status, 422)
+          const conflict = yield* Effect.promise(() => duplicate.json())
+          assert.strictEqual(conflict.issues[0].code, "duplicate-label")
+          assert.include(conflict.issues[0].message, body.id)
+          const conflictingEdit = yield* Effect.promise(() =>
+            handler(
+              request("PATCH", `${base}/rules/${defaultBody.id}`, {
+                version: defaultBody.version,
+                labelId: "11",
+              }),
+            ),
+          )
+          assert.strictEqual(conflictingEdit.status, 422)
+          assert.deepStrictEqual(yield* Effect.promise(() => conflictingEdit.json()), conflict)
           for (const field of ["onMatch", "onNoMatch"]) {
             const invalid = yield* Effect.promise(() =>
               handler(

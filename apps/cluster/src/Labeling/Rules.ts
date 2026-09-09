@@ -25,6 +25,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 import { listAudit, recordAudit } from "./Audit.ts"
+import { labelOwnershipConflict } from "./Ownership.ts"
 import {
   LabelingConfiguration,
   LabelingConfigurationError,
@@ -160,6 +161,16 @@ export class LabelingRules extends Context.Service<
           code: "policy-not-published",
           message: `Policy ${policyId} is not published in this repository`,
         })
+      }
+      if (policy?.published_program) {
+        const conflict = yield* labelOwnershipConflict(
+          sql,
+          repositoryId,
+          labelId,
+          policy.published_program.target,
+          ownerRuleId,
+        ).pipe(wrap("ownership"))
+        if (conflict) issues.push({ code: "duplicate-label", message: conflict })
       }
       if (issues.length > 0) return yield* new RuleInvalid({ issues })
     })
