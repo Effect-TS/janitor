@@ -46,6 +46,7 @@ export interface GitHubWebhookJournalReceipt {
 const Uint8ArrayFromBytea = Schema.instanceOf(Uint8Array)
 
 export const GitHubWebhookJournaledDelivery = Schema.Struct({
+  receivedAt: Schema.optionalKey(Schema.DateTimeUtc),
   deliveryId: Schema.String,
   sequence: GitHubWebhookJournalSequence,
   eventName: GitHubWebhookName,
@@ -162,6 +163,7 @@ export class GitHubWebhookJournal extends Context.Service<
       event_name: GitHubWebhookName,
       encryption_algorithm: GitHubWebhookEncryptionV1.fields.algorithm,
       encryption_key_id: GitHubWebhookEncryptionV1.fields.keyId,
+      received_at: Schema.DateTimeUtcFromDate,
       encryption_iv: Uint8ArrayFromBytea,
       payload: Uint8ArrayFromBytea,
       projection_status: GitHubWebhookProjectionStatus,
@@ -173,7 +175,7 @@ export class GitHubWebhookJournal extends Context.Service<
     ) {
       const rows = yield* sql`
         SELECT delivery_id, sequence, event_name, encryption_algorithm, encryption_key_id,
-               encryption_iv, payload, projection_status
+               received_at, encryption_iv, payload, projection_status
         FROM github_webhook_delivery
         WHERE delivery_id = ${deliveryId}
       `.pipe(
@@ -193,6 +195,7 @@ export class GitHubWebhookJournal extends Context.Service<
         return Option.none()
       }
       return Option.some({
+        receivedAt: row.received_at,
         deliveryId: row.delivery_id,
         sequence: row.sequence,
         eventName: row.event_name,

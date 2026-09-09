@@ -1,3 +1,4 @@
+import { requireCurrentRun } from "./SyncSupport.ts"
 import { GitHubIssueApi, GitHubLabelApi, GitHubPullRequestApi } from "@janitor/domain/GitHub/Api"
 import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { GitHubRepositoryRecord } from "@janitor/domain/GitHub/ReadModel"
@@ -178,6 +179,7 @@ export const SyncRepositoryTrackLayer = SyncRepositoryTrack.toLayer(
     const readModel = yield* GitHubReadModel
     const targets = yield* SyncTargets
     const request = {
+      beforeRequest: requireCurrentRun(targets, scope, generation),
       scope: { _tag: "Installation" as const, installationId: begun.installationId },
       priority: "background" as const,
     }

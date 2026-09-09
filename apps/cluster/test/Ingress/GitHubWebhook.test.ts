@@ -1,3 +1,5 @@
+import { RepositoryActivity } from "../../src/RepositoryActivity.ts"
+import * as Option from "effect/Option"
 import { assert, describe, it } from "@effect/vitest"
 import * as RuntimeContext from "alchemy/RuntimeContext"
 import * as DateTime from "effect/DateTime"
@@ -62,6 +64,7 @@ interface StoreStub {
 const makeHandler = (
   enqueue: (envelope: GitHubWebhookEnvelopeV1) => Effect.Effect<void, EnqueueError>,
   store: StoreStub = {},
+  paused = false,
 ) =>
   Effect.acquireRelease(
     Effect.sync(() =>
@@ -81,6 +84,10 @@ const makeHandler = (
           disableLogger: true,
           middleware: (app) =>
             app.pipe(
+              Effect.provideService(RepositoryActivity, {
+                run: (_id, effect) =>
+                  paused ? Effect.succeedNone : Effect.map(effect, Option.some),
+              }),
               Effect.orDie,
               Effect.provideService(RuntimeContext.RuntimeContext, runtimeContext),
             ),
@@ -113,6 +120,25 @@ const sha256 = (bytes: Uint8Array<ArrayBuffer>) =>
   )
 
 describe("GitHubWebhookRoutes", () => {
+  it.effect("acknowledges paused repository payloads without queue or overflow storage", () =>
+    Effect.gen(function* () {
+      const handler = yield* makeHandler(
+        () => Effect.die("must not enqueue"),
+        {
+          put: () => Effect.die("must not store"),
+        },
+        true,
+      )
+      for (const padding of [0, 70000]) {
+        const response = yield* post(handler, {
+          headers: headers(),
+          body: JSON.stringify({ repository: { id: 456 }, padding: "x".repeat(padding) }),
+        })
+        assert.strictEqual(response.status, 202)
+      }
+    }),
+  )
+
   it.effect("enqueues a versioned envelope with the exact payload bytes", () =>
     Effect.gen(function* () {
       const envelopes: Array<GitHubWebhookEnvelopeV1> = []

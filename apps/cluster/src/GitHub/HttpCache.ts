@@ -1,3 +1,5 @@
+import * as DateTime from "effect/DateTime"
+import { withRepositoryActivity } from "../RepositoryActivity.ts"
 import { GITHUB_API_VERSION } from "@janitor/domain/GitHub/Api"
 import { GitHubWebhookDeliveryId, type GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEncryptionKeyId } from "@janitor/domain/GitHub/WebhookEnvelope"
@@ -32,6 +34,7 @@ export interface CachedPage {
 }
 
 export interface PutRequest extends CacheKey {
+  readonly requestedAt?: DateTime.Utc
   readonly etag: string
   readonly body: unknown
   readonly next: Option.Option<string>
@@ -110,7 +113,7 @@ export class GitHubHttpCache extends Context.Service<
       const { encryption, ciphertext } = yield* cipher
         .encrypt(aad(key), new TextEncoder().encode(json))
         .pipe(wrap("put"))
-      yield* sql`
+      const write = sql`
         INSERT INTO github_http_cache ${sql.insert({
           scope_key: request.scopeKey,
           request_key: key,
@@ -130,6 +133,14 @@ export class GitHubHttpCache extends Context.Service<
           body = EXCLUDED.body,
           observed_at = CLOCK_TIMESTAMP()
       `.pipe(wrap("put"))
+      yield* Option.isSome(request.repositoryId)
+        ? withRepositoryActivity(
+            sql,
+            request.repositoryId.value,
+            write,
+            request.requestedAt === undefined ? undefined : DateTime.toDateUtc(request.requestedAt),
+          ).pipe(wrap("put"))
+        : write
     })
 
     const purgeScope = Effect.fn("GitHubHttpCache.purgeScope")(function* (scopeKey: string) {

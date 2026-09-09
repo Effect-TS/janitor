@@ -100,6 +100,25 @@ export const withRateLimitWaits = <A, R>(
     return yield* failure(`Rate limited ${MAX_RATE_LIMIT_WAITS} times while running ${name}`)
   })
 
+/** Checked before each fresh HTTP attempt, including pagination and retries. */
+export type SyncRequest = GitHubRequest & {
+  readonly beforeRequest?: Effect.Effect<void, SyncActivityError>
+}
+
+export const requireCurrentRun = (
+  targets: SyncTargets["Service"],
+  scope: SyncScope,
+  generation: SyncGeneration,
+) =>
+  targets.withRun(scope, generation, Effect.void).pipe(
+    Effect.mapError((error) => failure(error.message)),
+    Effect.flatMap((current) =>
+      Option.isSome(current)
+        ? Effect.void
+        : Effect.fail(failure("Repository work is paused or superseded")),
+    ),
+  )
+
 export interface CacheOptions {
   /** Lets access-loss purges remove pages holding this repository's content. */
   readonly repositoryId: Option.Option<GitHubRepositoryDatabaseId>
@@ -115,11 +134,14 @@ const absoluteUrl = (url: string) =>
  * exact page.
  */
 export const fetchJson = <S extends Schema.Top>(
-  request: GitHubRequest,
+  request: SyncRequest,
   schema: S,
   cache?: CacheOptions,
 ) =>
   Effect.gen(function* () {
+    const { beforeRequest, ...httpRequest } = request
+    if (beforeRequest !== undefined) yield* beforeRequest
+    const requestedAt = yield* DateTime.now
     const transport = yield* GitHubTransport
     const httpCache = yield* GitHubHttpCache
     const key = {
@@ -133,7 +155,7 @@ export const fetchJson = <S extends Schema.Top>(
         : yield* httpCache.get(key).pipe(Effect.mapError((error) => failure(error.message)))
     const response = yield* transport
       .request({
-        ...request,
+        ...httpRequest,
         etag: Option.getOrUndefined(Option.map(cached, (entry) => entry.etag)),
       })
       .pipe(rateLimitedOrFailure)
@@ -151,6 +173,7 @@ export const fetchJson = <S extends Schema.Top>(
               body: response.body,
               next,
               repositoryId: cache.repositoryId,
+              requestedAt,
             })
             .pipe(Effect.mapError((error) => failure(error.message)))
         }
@@ -201,7 +224,7 @@ export const MAX_PAGES = 200
 export const paginate = <A, S extends Schema.Top, E = never, R = never>(options: {
   readonly name: string
   readonly firstUrl: string
-  readonly request: Omit<GitHubRequest, "url" | "method">
+  readonly request: Omit<SyncRequest, "url" | "method">
   readonly page: S
   readonly items: (body: S["Type"]) => ReadonlyArray<A>
   readonly itemSchema: Schema.Codec<A, unknown>

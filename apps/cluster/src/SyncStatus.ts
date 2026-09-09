@@ -49,10 +49,9 @@ export interface RequestAllResult {
 export class SyncStatus extends Context.Service<
   SyncStatus,
   {
-    readonly setRepositorySyncEnabled: (
+    readonly requestRepository: (
       repositoryId: GitHubRepositoryDatabaseId,
-      enabled: boolean,
-    ) => Effect.Effect<boolean, SyncStatusError>
+    ) => Effect.Effect<RequestAllResult, SyncStatusError>
     readonly summary: Effect.Effect<SyncSummary, SyncStatusError>
     readonly requestAll: Effect.Effect<RequestAllResult, SyncStatusError>
   }
@@ -67,9 +66,10 @@ export class SyncStatus extends Context.Service<
     const wrap =
       (operation: string) =>
       <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
-        Effect.mapError(
-          effect,
-          (error) => new SyncStatusError({ operation, message: describeError(error) }),
+        Effect.mapError(effect, (error) =>
+          error instanceof SyncStatusError
+            ? error
+            : new SyncStatusError({ operation, message: describeError(error) }),
         )
 
     const summary = Effect.gen(function* () {
@@ -156,53 +156,37 @@ export class SyncStatus extends Context.Service<
       return { summary: yield* summary, requested }
     }).pipe(Effect.withSpan("SyncStatus.requestAll"))
 
-    const setRepositorySyncEnabled = (repositoryId: GitHubRepositoryDatabaseId, enabled: boolean) =>
+    const requestRepository = (repositoryId: GitHubRepositoryDatabaseId) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
-            const rows = yield* sql<{
-              sync_enabled: boolean
+            const [repository] = yield* sql<{
               enabled: boolean
-            }>`SELECT sync_enabled, enabled FROM github_repository
-              WHERE repository_id = ${repositoryId} FOR UPDATE`
-            if (rows.length === 0) return false
-            if (rows[0]!.sync_enabled === enabled) return true
-            yield* sql`UPDATE github_repository SET sync_enabled = ${enabled} WHERE repository_id = ${repositoryId}`
-            if (!enabled) {
-              // Fence old results and release old claims without deleting local data.
-              yield* sql`UPDATE sync_target SET completed_generation = requested_generation,
-            dispatched_generation = requested_generation, execution_generation = NULL,
-            active_generation = NULL, active_sequence = NULL, active_full = FALSE, retry_at = NULL
-            WHERE scope->>'repositoryId' = ${repositoryId}`
-              yield* sql`DELETE FROM workflow_outbox WHERE accepted_at IS NULL
-            AND payload->'scope'->>'repositoryId' = ${repositoryId}`
-            } else if (rows[0]!.enabled) {
-              for (const track of ["labels", "entities", "pull_requests"] as const) {
-                yield* targets.invalidate({
-                  scope: { _tag: "RepositoryTrack", repositoryId, track },
-                  sequence: Option.none(),
-                  immediate: true,
-                  full: true,
-                })
-              }
-              const entities = yield* sql`SELECT scope FROM sync_target
-                WHERE scope->>'repositoryId' = ${repositoryId} AND scope->>'_tag' = 'Entity'`.pipe(
-                Effect.flatMap(
-                  Schema.decodeUnknownEffect(
-                    Schema.Array(Schema.Struct({ scope: SyncScopeSchema })),
-                  ),
-                ),
-              )
-              for (const { scope } of entities) {
-                yield* targets.invalidate({ scope, sequence: Option.none(), immediate: true })
-              }
-            }
-            return true
+              connected: boolean
+              eligible: boolean
+            }>`SELECT enabled, connected, sync_scope_enabled(jsonb_build_object('_tag','RepositoryTrack','repositoryId',repository_id)) AND access = 'accessible' AS eligible
+          FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
+            if (!repository?.connected || !repository.enabled || !repository.eligible)
+              return yield* new SyncStatusError({
+                operation: "repositoryUnavailable",
+                message: !repository?.connected
+                  ? "Connect this repository before syncing."
+                  : !repository.enabled
+                    ? "Repository paused. Resume it in repository settings before syncing."
+                    : "Restore GitHub access before syncing this repository.",
+              })
+            for (const track of ["labels", "entities", "pull_requests"] as const)
+              yield* targets.invalidate({
+                scope: { _tag: "RepositoryTrack", repositoryId, track },
+                sequence: Option.none(),
+                immediate: true,
+              })
+            return { summary: yield* summary, requested: 3 }
           }),
         )
-        .pipe(wrap("setRepositorySyncEnabled"))
+        .pipe(wrap("requestRepository"))
 
-    return { summary, requestAll, setRepositorySyncEnabled }
+    return { summary, requestAll, requestRepository }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

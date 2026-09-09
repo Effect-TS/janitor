@@ -1,3 +1,4 @@
+import { withRepositoryActivity } from "./RepositoryActivity.ts"
 import {
   SyncGeneration,
   SyncGenerationFromStringOrNumber,
@@ -185,6 +186,8 @@ export class SyncTargets extends Context.Service<
       return yield* sql
         .withTransaction(
           Effect.gen(function* () {
+            if (request.scope._tag === "RepositoryTrack" || request.scope._tag === "Entity")
+              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${request.scope.repositoryId} FOR NO KEY UPDATE`
             const scopeKey = syncScopeKey(request.scope)
             const scopeJson = yield* encodeScope(request.scope)
             const rows = yield* sql`
@@ -299,8 +302,8 @@ export class SyncTargets extends Context.Service<
       generation: SyncGeneration,
       effect: Effect.Effect<A, E, R>,
       progress?: { readonly page: number; readonly items: number },
-    ) =>
-      sql
+    ) => {
+      const run = sql
         .withTransaction(
           Effect.gen(function* () {
             const rows = yield* sql`
@@ -324,20 +327,46 @@ export class SyncTargets extends Context.Service<
               : error,
           ),
         )
+      return scope._tag === "RepositoryTrack" || scope._tag === "Entity"
+        ? withRepositoryActivity(sql, scope.repositoryId, run).pipe(
+            Effect.map(Option.flatten),
+            Effect.mapError((error) =>
+              SqlError.isSqlError(error)
+                ? new SyncTargetError({ operation: "withRun", message: error.message })
+                : error,
+            ),
+          )
+        : run
+    }
 
-    const retryDue = sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const rows = yield* sql`
+    const retryDue = Effect.gen(function* () {
+      // Discover candidates without retaining target locks across repositories.
+      const candidates = yield* sql`
         SELECT * FROM sync_target WHERE retry_at <= CLOCK_TIMESTAMP() AND sync_scope_enabled(scope)
-          AND requested_generation = completed_generation FOR UPDATE SKIP LOCKED
+          AND requested_generation = completed_generation
       `.pipe(Effect.flatMap(decodeRows))
-          for (const row of rows)
-            yield* invalidate({ scope: row.scope, sequence: Option.none(), immediate: true })
-          return rows.length
-        }),
-      )
-      .pipe(wrap("retryDue"))
+      let requested = 0
+      for (const candidate of candidates) {
+        const dispatched = yield* sql.withTransaction(
+          Effect.gen(function* () {
+            if (candidate.scope._tag === "RepositoryTrack" || candidate.scope._tag === "Entity")
+              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${candidate.scope.repositoryId} FOR NO KEY UPDATE`
+            const rows = yield* sql`SELECT scope_key FROM sync_target
+            WHERE scope_key = ${syncScopeKey(candidate.scope)} AND retry_at <= CLOCK_TIMESTAMP()
+              AND requested_generation = completed_generation AND sync_scope_enabled(scope)
+            FOR UPDATE SKIP LOCKED`
+            if (rows.length === 0) return false
+            return (yield* invalidate({
+              scope: candidate.scope,
+              sequence: Option.none(),
+              immediate: true,
+            })).dispatched
+          }),
+        )
+        if (dispatched) requested++
+      }
+      return requested
+    }).pipe(wrap("retryDue"))
 
     const recoverTerminal = (scope: SyncScope, executionGeneration: SyncGeneration) =>
       sql

@@ -67,7 +67,7 @@ export const isSyncing = (model: Model): boolean =>
 
 export const Message = defineMessageUnion({
   GotTooltipMessage: { message: Tooltip.Message },
-  PressedSync: {},
+  PressedSync: { repositoryId: Schema.optionalKey(Schema.String) },
   Polled: {},
   GotSummary: { summary: SyncSummary, receivedAt: Schema.DateTimeUtc },
   FailedSummary: { reason: Schema.String },
@@ -110,15 +110,25 @@ export const FetchSyncSummary = FoldkitCommand.define("FetchSyncSummary", {
 })
 
 export const RequestSync = FoldkitCommand.define("RequestSync", {
+  args: { repositoryId: Schema.optionalKey(Schema.String) },
   messages: [Message.GotRequestResult, Message.FailedRequest],
-  execute: HttpClient.post(SYNC_ENDPOINT).pipe(
-    Effect.flatMap(HttpClientResponse.filterStatusOk),
-    Effect.flatMap(decodeSummary),
-    Effect.flatMap((summary) =>
-      Effect.map(DateTime.now, (receivedAt) => Message.GotRequestResult({ summary, receivedAt })),
+  execute: ({ repositoryId }) =>
+    HttpClient.post(
+      repositoryId === undefined
+        ? SYNC_ENDPOINT
+        : `/api/v1/repositories/${encodeURIComponent(repositoryId)}/sync`,
+    ).pipe(
+      Effect.flatMap((response) =>
+        response.status === 409
+          ? response.text.pipe(Effect.flatMap((reason) => Effect.fail({ message: reason })))
+          : HttpClientResponse.filterStatusOk(response),
+      ),
+      Effect.flatMap(decodeSummary),
+      Effect.flatMap((summary) =>
+        Effect.map(DateTime.now, (receivedAt) => Message.GotRequestResult({ summary, receivedAt })),
+      ),
+      Effect.catch((error) => Effect.succeed(Message.FailedRequest({ reason: describe(error) }))),
     ),
-    Effect.catch((error) => Effect.succeed(Message.FailedRequest({ reason: describe(error) }))),
-  ),
 })
 
 // INIT
@@ -202,12 +212,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     GotTooltipMessage: ({ message }) => foldTooltip(model, message),
 
-    PressedSync: () =>
+    PressedSync: ({ repositoryId }) =>
       isSyncing(model) || model.isPolling
         ? { model }
         : {
             model: evo(model, { isRequesting: () => true, lastError: () => Option.none<string>() }),
-            commands: [RequestSync()],
+            commands: [RequestSync(repositoryId === undefined ? {} : { repositoryId })],
           },
 
     Polled: () =>
@@ -316,71 +326,76 @@ export const tooltipText = (model: Model): string =>
     },
   })
 
-export const view = Submodel.defineView<Model, Message, { syncDisabled: boolean }>(
-  (model, { syncDisabled }, h) => {
-    const syncing = !syncDisabled && isSyncing(model)
-    const disabled = syncDisabled || syncing || model.isPolling
-    return h.submodel({
-      slotId: "sync-tooltip",
-      model: model.tooltip,
-      view: Tooltip.view,
-      toParentMessage: (message) => Message.GotTooltipMessage({ message }),
-      viewInputs: {
-        anchor: { placement: "bottom-end", gap: 4, padding: 8 },
-        ariaLabel: "Re-sync GitHub",
-        toView: (render): Html =>
-          h.div(
-            [h.Class("relative")],
-            [
-              h.button(
-                [
-                  ...render.trigger,
-                  h.Type("button"),
-                  h.AriaLabel("Re-sync GitHub"),
-                  h.AriaDisabled(disabled),
-                  h.DataAttribute(
-                    "state",
-                    syncDisabled ? "disabled" : syncing ? "syncing" : "idle",
+export const view = Submodel.defineView<
+  Model,
+  Message,
+  { syncDisabled: boolean; repositoryId?: string }
+>((model, { syncDisabled, repositoryId }, h) => {
+  const syncing = !syncDisabled && isSyncing(model)
+  const disabled = syncDisabled || syncing || model.isPolling
+  return h.submodel({
+    slotId: "sync-tooltip",
+    model: model.tooltip,
+    view: Tooltip.view,
+    toParentMessage: (message) => Message.GotTooltipMessage({ message }),
+    viewInputs: {
+      anchor: { placement: "bottom-end", gap: 4, padding: 8 },
+      ariaLabel: "Re-sync GitHub",
+      toView: (render): Html =>
+        h.div(
+          [h.Class("relative")],
+          [
+            h.button(
+              [
+                ...render.trigger,
+                h.Type("button"),
+                h.AriaLabel("Re-sync GitHub"),
+                h.AriaDisabled(disabled),
+                h.DataAttribute("state", syncDisabled ? "disabled" : syncing ? "syncing" : "idle"),
+                ...(disabled
+                  ? []
+                  : [
+                      h.OnClick(
+                        Message.PressedSync(repositoryId === undefined ? {} : { repositoryId }),
+                      ),
+                    ]),
+                h.Class(
+                  cn(
+                    "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+                    buttonVariants.ghost,
+                    buttonSizes["icon-sm"],
+                    disabled && "opacity-50 cursor-default",
+                    Option.isSome(model.summary) &&
+                      model.summary.value.failedTargets > 0 &&
+                      "text-amber-500",
                   ),
-                  ...(disabled ? [] : [h.OnClick(Message.PressedSync())]),
-                  h.Class(
-                    cn(
-                      "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
-                      buttonVariants.ghost,
-                      buttonSizes["icon-sm"],
-                      disabled && "opacity-50 cursor-default",
-                      Option.isSome(model.summary) &&
-                        model.summary.value.failedTargets > 0 &&
-                        "text-amber-500",
+                ),
+              ],
+              [Icon.view(h, RefreshCw, cn("size-4 shrink-0", syncing && "animate-spin"))],
+            ),
+            render.isVisible
+              ? h.div(
+                  [
+                    ...render.panel,
+                    h.Class(
+                      "z-50 rounded-md bg-card px-3 py-2 text-xs text-foreground shadow-md ring ring-border whitespace-nowrap",
                     ),
-                  ),
-                ],
-                [Icon.view(h, RefreshCw, cn("size-4 shrink-0", syncing && "animate-spin"))],
-              ),
-              render.isVisible
-                ? h.div(
-                    [
-                      ...render.panel,
-                      h.Class(
-                        "z-50 rounded-md bg-card px-3 py-2 text-xs text-foreground shadow-md ring ring-border whitespace-nowrap",
-                      ),
-                    ],
-                    [
-                      h.div([h.Class("font-medium")], ["Re-sync GitHub"]),
-                      h.div(
-                        [h.Class("text-muted-foreground")],
-                        [
-                          syncDisabled
-                            ? "Sync is disabled for this repository"
-                            : tooltipText(model),
-                        ],
-                      ),
-                    ],
-                  )
-                : h.empty,
-            ],
-          ),
-      },
-    })
-  },
-)
+                  ],
+                  [
+                    h.div([h.Class("font-medium")], ["Re-sync GitHub"]),
+                    h.div(
+                      [h.Class("text-muted-foreground")],
+                      [
+                        syncDisabled
+                          ? "Repository paused. Resume it in repository settings before syncing."
+                          : tooltipText(model),
+                      ],
+                    ),
+                  ],
+                )
+              : h.empty,
+          ],
+        ),
+    },
+  })
+})

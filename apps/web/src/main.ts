@@ -581,8 +581,8 @@ export const update = (model: Model, message: Message) =>
                 : action === "connect"
                   ? "Repository connected"
                   : action === "pause"
-                    ? "Automation paused"
-                    : "Automation resumed",
+                    ? "Repository paused"
+                    : "Repository resumed",
             description:
               action === "disconnect"
                 ? "Policies, rules and history are retained. Reconnect from the repository switcher."
@@ -911,7 +911,7 @@ const repositorySyncDisabled = (model: Model): boolean =>
       (repository) =>
         "repositoryId" in model.navigation.route &&
         repository.repositoryId === model.navigation.route.repositoryId &&
-        repository.syncEnabled === false,
+        repository.enabled === false,
     ),
   )
 
@@ -972,7 +972,12 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                 slotId: "sync-button",
                 model: model.sync,
                 view: SyncButton.view,
-                viewInputs: { syncDisabled: repositorySyncDisabled(model) },
+                viewInputs: {
+                  syncDisabled: repositorySyncDisabled(model),
+                  ...("repositoryId" in model.navigation.route
+                    ? { repositoryId: model.navigation.route.repositoryId }
+                    : {}),
+                },
                 toParentMessage: (message) => Message.GotSyncButtonMessage({ message }),
               }),
               h.submodel({

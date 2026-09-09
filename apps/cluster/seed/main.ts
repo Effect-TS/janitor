@@ -154,7 +154,7 @@ const seedRepository = Effect.fnUntraced(function* (repository: Fixtures.SeedRep
   }
 
   yield* seedPolicies(repository, repositoryId)
-  yield* sql`UPDATE github_repository SET sync_enabled = FALSE WHERE repository_id = ${repositoryId}`
+  // Installation synchronization is disabled below for offline fixtures.
 })
 
 const seedPolicies = Effect.fnUntraced(function* (
