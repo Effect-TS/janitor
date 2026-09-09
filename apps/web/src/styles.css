@@ -1393,6 +1393,10 @@
   background: color-mix(in srgb, #f59e0b 12%, transparent);
   color: #92400e;
 }
+.activity-decision-failed {
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
 .dark .activity-decision-match {
   color: #6ee7b7;
 }

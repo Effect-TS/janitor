@@ -283,7 +283,7 @@ const runEvaluation = (
     appliesLocation: NodeLocation,
     matchesLocation: NodeLocation,
     evaluateMatches = true,
-  ): Evaluation["outcome"] => {
+  ): Truth | "not-applicable" => {
     if (current.target !== snapshot.kind) return "not-applicable"
     if (current.appliesWhen !== null) {
       const applies = condition(current.appliesWhen, appliesLocation)

@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import { type Condition } from "@janitor/domain/Labeling/Policy/Condition"
-import { AiClassifier, classifyOrUnknown } from "../../src/Labeling/Classifier.ts"
+import { AiClassifier, classifyAi } from "../../src/Labeling/Classifier.ts"
 
 it.effect("stops rejected and unresolved gates before classifier lookup or calls", () =>
   Effect.gen(function* () {
@@ -42,9 +42,9 @@ it.effect("stops rejected and unresolved gates before classifier lookup or calls
         resolve: () => undefined,
       }
       const expected = appliesWhen === rejected ? "not-applicable" : "unknown"
-      const missingService = yield* classifyOrUnknown(input)
+      const missingService = yield* classifyAi(input)
       assert.strictEqual(missingService.outcome, expected)
-      const providedService = yield* classifyOrUnknown(input).pipe(
+      const providedService = yield* classifyAi(input).pipe(
         Effect.provideService(AiClassifier, {
           classify: () =>
             Effect.sync(() => {

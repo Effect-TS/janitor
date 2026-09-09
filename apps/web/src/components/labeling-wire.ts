@@ -207,7 +207,7 @@ export type AiConsent = typeof AiConsent.Type
 
 // EVALUATION
 
-export const Outcome = Schema.Literals(["match", "no-match", "unknown", "not-applicable"])
+export const Outcome = Schema.Literals(["match", "no-match", "unknown", "not-applicable", "failed"])
 export type Outcome = typeof Outcome.Type
 
 export const NodeSegment = Schema.Union([
@@ -407,6 +407,8 @@ export const describeOutcome = (outcome: Outcome): string => {
       return "No match"
     case "unknown":
       return "Unknown"
+    case "failed":
+      return "Evaluation failed"
     case "not-applicable":
       return "Not applicable"
   }

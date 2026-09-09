@@ -386,6 +386,9 @@ describe("rule flow testing", () => {
   })
   it("preserves labels for unknown, inapplicable, and disabled evaluations", () => {
     expect(RuleEditor.previewAction(fresh(), "unknown", ["11"])).toContain("unchanged")
+    expect(
+      RuleEditor.previewAction({ ...fresh(), onNoMatch: "ensure-absent" }, "failed", ["11"]),
+    ).toContain("unchanged")
     expect(RuleEditor.previewAction(fresh(), "not-applicable", ["11"])).toContain("unchanged")
     expect(RuleEditor.previewAction({ ...fresh(), enabled: false }, "match", [])).toContain(
       "disabled",

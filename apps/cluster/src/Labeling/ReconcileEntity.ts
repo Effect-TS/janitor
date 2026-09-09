@@ -23,7 +23,7 @@ import { freshnessOf } from "../SyncFreshness.ts"
 import { SyncTargets } from "../SyncTargets.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { recordAudit } from "./Audit.ts"
-import { classifyOrUnknown } from "./Classifier.ts"
+import { classifyAi } from "./Classifier.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
 import { EVALUATION_MAX_AGE, RECONCILE_ENTITY_TAG, SnapshotHandoff } from "./SnapshotHandoff.ts"
 import { entityFacts } from "./Test.ts"
@@ -57,7 +57,7 @@ const RuleEvaluationRecord = Schema.Struct({
   ruleId: RuleId,
   policyVersionId: Schema.String,
   evaluation: Schema.Struct({
-    outcome: Schema.Literals(["match", "no-match", "unknown", "not-applicable"]),
+    outcome: Schema.Literals(["match", "no-match", "unknown", "not-applicable", "failed"]),
     reason: Schema.String,
     trace: Schema.Unknown,
   }),
@@ -193,7 +193,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
             version === undefined
               ? { outcome: "unknown", reason: "policy version is missing", trace: [] }
               : version.program.evaluator._tag === "Classifier"
-                ? yield* classifyOrUnknown({
+                ? yield* classifyAi({
                     repositoryId,
                     number,
                     policyVersionId: version.versionId,

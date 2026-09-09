@@ -25,7 +25,7 @@ import {
   type LabelingConfigurationError,
   type RepositoryNotFound,
 } from "./Configuration.ts"
-import { classifyOrUnknown } from "./Classifier.ts"
+import { classifyAi } from "./Classifier.ts"
 import { Policies } from "./Policies.ts"
 
 export class LabelingTestError extends Data.TaggedError("LabelingTestError")<{
@@ -187,7 +187,7 @@ export class LabelingTest extends Context.Service<
           const entities = yield* Effect.forEach(views, (view) =>
             Effect.map(
               program.evaluator._tag === "Classifier"
-                ? classifyOrUnknown({
+                ? classifyAi({
                     inspectInput: true,
                     repositoryId,
                     number: view.entity.number,
@@ -232,7 +232,7 @@ export class LabelingTest extends Context.Service<
                   version === undefined
                     ? "unknown"
                     : version.program.evaluator._tag === "Classifier"
-                      ? (yield* classifyOrUnknown({
+                      ? (yield* classifyAi({
                           inspectInput: true,
                           repositoryId,
                           number: view.entity.number,

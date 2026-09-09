@@ -49,3 +49,10 @@ It also records whether check/review collections were actually fetched. Existing
 collection rows default to incomplete and become usable after their next refresh.
 Historical classifier versions remain after a rule is deleted. Existing policy
 rules and shared classifier policies remain compatible.
+
+## Failed AI evaluations
+
+`0014_failed_evaluations.sql` adds `failed` to stored per-rule evaluation results.
+Label-write status remains separate. Historical results are unchanged; the classifier
+uses a new decision cache key so earlier low-confidence `unknown` decisions are not
+reused under the new non-match behavior.

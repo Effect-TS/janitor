@@ -20,6 +20,7 @@ import {
   AiReasonCode,
 } from "@janitor/domain/Labeling/Policy/AiInput"
 import * as Clock from "effect/Clock"
+import * as Cause from "effect/Cause"
 import * as Config from "effect/Config"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
@@ -30,8 +31,10 @@ import * as Encoding from "effect/Encoding"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
+import * as AiError from "effect/unstable/ai/AiError"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 
@@ -58,6 +61,32 @@ export class ClassifierProviderError extends Data.TaggedError("ClassifierProvide
 export interface ProviderIdentity {
   readonly provider: string
   readonly model: string
+}
+
+// Provider payloads may echo prompts or credentials. Return guidance, never raw bodies.
+const providerErrorMessage = (cause: unknown): string => {
+  if (Cause.isTimeoutError(cause)) return "The AI provider timed out after 60 seconds. Try again."
+  if (AiError.isAiError(cause)) {
+    switch (cause.reason._tag) {
+      case "AuthenticationError":
+        return "The AI provider rejected authentication. Check the server's API key (OPENAI_API_KEY) and provider permissions."
+      case "InvalidRequestError":
+      case "UnsupportedSchemaError":
+        return "The AI provider rejected the request. Check OPENAI_API_URL and LABELING_AI_MODEL and confirm the model supports structured responses."
+      case "QuotaExhaustedError":
+        return "The AI provider quota is exhausted. Check the provider's billing and usage limits."
+      case "RateLimitError":
+        return "The AI provider rate limit was reached. Wait and try again."
+      case "InvalidOutputError":
+      case "StructuredOutputError":
+        return "The AI provider returned an invalid classification. Try again or configure a model that supports structured responses."
+      case "ContentPolicyError":
+        return "The AI provider rejected the content. Review the rule prompt and referenced facts."
+      case "NetworkError":
+        return "Could not reach the AI provider. Check OPENAI_API_URL and connectivity, then try again."
+    }
+  }
+  return "The AI provider could not complete the request. Try again; if it persists, check the provider's status and server configuration."
 }
 
 export class ClassifierProvider extends Context.Service<
@@ -103,14 +132,14 @@ export class ClassifierProvider extends Context.Service<
                 Effect.map((response) => response.value),
                 Effect.mapError(
                   (cause) =>
-                    new ClassifierProviderError({ message: "The classifier call failed", cause }),
+                    new ClassifierProviderError({ message: providerErrorMessage(cause), cause }),
                 ),
               ),
         }
       }),
     )
 
-  /** What runs when no API key is configured: every classifier evaluates unknown. */
+  /** What runs when no API key is configured: classification fails without sending data. */
   static readonly unavailable = Layer.succeed(this, {
     identity: { provider: "none", model: "none" },
     ask: () =>
@@ -309,8 +338,8 @@ const sha256Hex = (text: string) =>
 /**
  * Evaluates a classifier policy for one snapshot: applicability purely,
  * then consent, a lease, the decision cache, and finally the provider.
- * Anything short of a confident answer is `unknown`, and a classifier's
- * `unknown` preserves labels, so a provider outage removes nothing.
+ * Missing evidence remains unknown; a completed answer below the confidence
+ * threshold is a non-match. Operational failures preserve labels.
  */
 export const AiInputBudget = Context.Reference<number>("@janitor/AiInputBudget", {
   defaultValue: () => DEFAULT_INPUT_BYTES,
@@ -339,7 +368,7 @@ export class AiClassifier extends Context.Service<
     const unknown = (
       reason: string,
       trace: Evaluation["trace"],
-      reasonCode: AiReasonCode = "provider-failed",
+      reasonCode: AiReasonCode,
     ): Evaluation => ({
       reasonCode,
       outcome: "unknown",
@@ -381,9 +410,7 @@ export class AiClassifier extends Context.Service<
       const trace = scoped.trace
 
       const missing = input.evaluator.evidence.filter(
-        (fact) =>
-          input.evaluator.prompt.includes(`{{fact:${fact}}}`) &&
-          input.snapshot.facts[fact] === undefined,
+        (fact) => input.snapshot.facts[fact] === undefined,
       )
       if (missing.length)
         return unknown(
@@ -399,11 +426,12 @@ export class AiClassifier extends Context.Service<
           "access-disabled",
         )
       if (provider.identity.provider === "none")
-        return unknown(
-          "No AI provider is configured. Configure a provider on the server.",
+        return {
+          outcome: "failed",
+          reason: "No AI provider is configured. Set OPENAI_API_KEY on the server.",
+          reasonCode: "provider-unavailable",
           trace,
-          "provider-unavailable",
-        )
+        } satisfies Evaluation
       if (state.provider !== provider.identity.provider || state.model !== provider.identity.model)
         return unknown(
           "AI provider changed. Enable AI access again in repository settings.",
@@ -425,8 +453,11 @@ export class AiClassifier extends Context.Service<
         inputReport: rendered.report,
         ...(input.inspectInput ? { inputDetails: rendered.details } : {}),
       }
-      const unable = (reason: string, code: AiReasonCode): Evaluation => ({
-        ...unknown(reason, trace, code),
+      const failed = (reason: string, reasonCode: AiReasonCode): Evaluation => ({
+        outcome: "failed",
+        reason,
+        reasonCode,
+        trace,
         ...diagnostics,
       })
       const fromDecision = (decision: typeof DecisionRow.Type): Evaluation => ({
@@ -447,6 +478,7 @@ export class AiClassifier extends Context.Service<
           minimumConfidence: input.evaluator.minimumConfidence,
           provider: provider.identity,
           renderingVersion: rendered.report.version,
+          decisionVersion: 2,
         }),
       )
 
@@ -470,11 +502,18 @@ export class AiClassifier extends Context.Service<
           const decision = decisions[0]
           if (decision) {
             if ((yield* consent.get(input.repositoryId).pipe(wrap("consent"))).state !== "enabled")
-              return unable("AI access was disabled.", "access-disabled")
+              return {
+                ...unknown(
+                  "AI access was disabled. Enable it in repository settings.",
+                  trace,
+                  "access-disabled",
+                ),
+                ...diagnostics,
+              }
             return fromDecision(decision)
           }
         }
-        return unable(
+        return failed(
           "The concurrent evaluation did not finish; retry shortly.",
           "concurrent-timeout",
         )
@@ -490,43 +529,45 @@ export class AiClassifier extends Context.Service<
 
         const lease = yield* acquireLease(input.repositoryId).pipe(wrap("lease"))
         if (Option.isNone(lease))
-          return unable(
+          return failed(
             "AI access is disabled or the evaluation budget is exhausted; retry later.",
             "budget-exhausted",
           )
 
         const started = yield* Clock.currentTimeMillis
         const answer = yield* provider.ask(rendered.text).pipe(
-          Effect.map(Option.some),
-          Effect.catch((_error) =>
+          Effect.tapError((_error) =>
             Effect.logWarning("Classifier provider failed").pipe(
               Effect.annotateLogs({ repositoryId: input.repositoryId, number: input.number }),
-              Effect.as(Option.none<ClassifierAnswer>()),
             ),
           ),
+          Effect.result,
           Effect.ensuring(releaseLease(lease.value)),
         )
         const latency = (yield* Clock.currentTimeMillis) - started
-        if (Option.isNone(answer))
-          return unable("The AI provider could not finish. Try again.", "provider-failed")
+        if (Result.isFailure(answer))
+          return failed(
+            answer.failure.message + " Try the evaluation again after resolving the error.",
+            "provider-failed",
+          )
 
         const outcome: Evaluation["outcome"] =
-          answer.value.matches === null ||
-          answer.value.confidence < input.evaluator.minimumConfidence
+          answer.success.matches === null
             ? "unknown"
-            : answer.value.matches
+            : answer.success.matches &&
+                answer.success.confidence >= input.evaluator.minimumConfidence
               ? "match"
               : "no-match"
         const reason =
-          answer.value.matches === null
-            ? `Insufficient evidence: ${answer.value.reason}`
-            : outcome === "unknown"
-              ? `confidence ${answer.value.confidence.toFixed(2)} below ${input.evaluator.minimumConfidence}: ${answer.value.reason}`
-              : answer.value.reason
+          answer.success.matches === null
+            ? `Insufficient evidence: ${answer.success.reason}`
+            : answer.success.confidence < input.evaluator.minimumConfidence
+              ? `confidence ${answer.success.confidence.toFixed(2)} below ${input.evaluator.minimumConfidence}: ${answer.success.reason}`
+              : answer.success.reason
         const reasonCode =
-          answer.value.matches === null
+          answer.success.matches === null
             ? ("insufficient-evidence" as const)
-            : outcome === "unknown"
+            : answer.success.confidence < input.evaluator.minimumConfidence
               ? ("low-confidence" as const)
               : undefined
         yield* sql`
@@ -534,14 +575,14 @@ export class AiClassifier extends Context.Service<
           (repository_id, policy_version_id, number, evidence_hash, provider, model, outcome, confidence, reason, latency_ms, input_report, reason_code)
         VALUES (${input.repositoryId}, ${input.policyVersionId}, ${input.number}, ${evidenceHash},
                 ${provider.identity.provider}, ${provider.identity.model}, ${outcome},
-                ${answer.value.confidence}, ${reason.slice(0, 1_000)}, ${Math.round(latency)}, ${JSON.stringify(rendered.report)}::jsonb, ${reasonCode ?? null})
+                ${answer.success.confidence}, ${reason.slice(0, 1_000)}, ${Math.round(latency)}, ${JSON.stringify(rendered.report)}::jsonb, ${reasonCode ?? null})
         ON CONFLICT DO NOTHING
       `.pipe(wrap("record"))
         return {
           outcome,
           reason,
           trace,
-          confidence: answer.value.confidence,
+          confidence: answer.success.confidence,
           cached: false,
           ...diagnostics,
           ...(reasonCode ? { reasonCode } : {}),
@@ -562,7 +603,7 @@ export class AiClassifier extends Context.Service<
 }
 
 /** Present when the worker configured a provider; tests provide their own. */
-export const classifyOrUnknown = (input: ClassifyInput) => {
+export const classifyAi = (input: ClassifyInput) => {
   const gate = evaluateApplicability({
     program: input.program,
     snapshot: input.snapshot,
@@ -573,19 +614,25 @@ export const classifyOrUnknown = (input: ClassifyInput) => {
     Effect.flatMap((classifier) =>
       Option.isNone(classifier)
         ? Effect.succeed<Evaluation>({
-            outcome: "unknown",
-            reason: "no classifier service",
-            trace: [],
+            outcome: "failed",
+            reason:
+              "The AI classifier service is unavailable. Check the server's AI configuration.",
+            reasonCode: "provider-unavailable",
+            trace: gate.trace,
           })
-        : classifier.value
-            .classify(input)
-            .pipe(
-              Effect.catch((error) =>
-                Effect.logError("Classifier evaluation failed", error).pipe(
-                  Effect.as<Evaluation>({ outcome: "unknown", reason: error.message, trace: [] }),
-                ),
+        : classifier.value.classify(input).pipe(
+            Effect.catch((error) =>
+              Effect.logError("Classifier evaluation failed", error).pipe(
+                Effect.as<Evaluation>({
+                  outcome: "failed",
+                  reason:
+                    "The AI evaluation could not complete. Try again; if it persists, check server logs and database connectivity.",
+                  reasonCode: "provider-failed",
+                  trace: gate.trace,
+                }),
               ),
             ),
+          ),
     ),
   )
 }

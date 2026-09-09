@@ -128,6 +128,31 @@ describe("Activity", () => {
     ).model
     expect(more.entries.map((entry) => entry.id)).toEqual(["a", "b"])
   })
+  it("distinguishes failed evaluations from label writes, including partial success", () => {
+    const failed = {
+      ...entry("a"),
+      evaluations: [
+        { ruleId: "ai", outcome: "failed", reason: "Provider unavailable. Try again." },
+      ],
+    }
+    expect(Activity.outcome(failed).label).toBe("Evaluation failed · labels unchanged")
+    expect(
+      Activity.outcome({
+        ...failed,
+        actions: [
+          {
+            ruleId: "other",
+            labelId: "1",
+            name: "review",
+            color: null,
+            action: "add",
+            status: "applied",
+            detail: null,
+          },
+        ],
+      }).label,
+    ).toBe("Labels updated · evaluation failed")
+  })
   it("never calls a planned or failed write an applied label change", () => {
     const action = {
       labelId: "1",
@@ -141,7 +166,7 @@ describe("Activity", () => {
     expect(Activity.outcome({ ...entry("a"), actions: [action] }).label).toBe("Pending")
     expect(
       Activity.outcome({ ...entry("a"), actions: [{ ...action, status: "failed" }] }).label,
-    ).toBe("Labeling failed")
+    ).toBe("Label update failed")
     expect(
       Activity.outcome({ ...entry("a"), actions: [{ ...action, status: "applied" }] }).label,
     ).toBe("Labels updated")

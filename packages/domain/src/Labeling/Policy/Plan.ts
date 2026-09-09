@@ -69,14 +69,41 @@ export interface PlanInput {
  *    and the rest are treated as misses.
  * 2. A selected rule wants its label present.
  * 3. A missing rule with ensure-absent wants its label absent.
- * 4. Unknown and not-applicable want nothing.
+ * 4. Unknown and failed preserve the label and block their entire group.
+ *    Not-applicable wants nothing without blocking its group.
  * 5. Per label, present beats absent.
  */
 export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
   const enabled = rules.filter((rule) => rule.enabled)
+  const blockedGroups = new Set(
+    enabled
+      .filter((rule) => {
+        const outcome = outcomes.get(rule.id) ?? "unknown"
+        return rule.group !== null && (outcome === "unknown" || outcome === "failed")
+      })
+      .map((rule) => rule.group),
+  )
+  // Legacy configurations can share label ownership. Protect the label itself,
+  // including disabled members' labels in a blocked group, from every rule.
+  const protectedLabels = new Set(
+    rules
+      .filter((rule) => {
+        const outcome = outcomes.get(rule.id) ?? "unknown"
+        return (
+          (rule.group !== null && blockedGroups.has(rule.group)) ||
+          (rule.enabled && (outcome === "unknown" || outcome === "failed"))
+        )
+      })
+      .map((rule) => rule.labelId),
+  )
   const winners = new Map<string, RuleId>()
   for (const rule of enabled) {
-    if (rule.group === null || outcomes.get(rule.id) !== "match") continue
+    if (
+      rule.group === null ||
+      protectedLabels.has(rule.labelId) ||
+      outcomes.get(rule.id) !== "match"
+    )
+      continue
     const current = winners.get(rule.group)
     const incumbent =
       current === undefined ? undefined : enabled.find((entry) => entry.id === current)
@@ -94,6 +121,10 @@ export const plan = ({ rules, outcomes, currentLabels }: PlanInput): Plan => {
   const wantAbsent = new Map<GitHubLabelDatabaseId, RuleId>()
   for (const rule of enabled) {
     const outcome = outcomes.get(rule.id) ?? "unknown"
+    if (protectedLabels.has(rule.labelId)) {
+      ruleOutcomes.push({ ruleId: rule.id, outcome, selected: false })
+      continue
+    }
     const won = rule.group === null || winners.get(rule.group) === rule.id
     const selected = outcome === "match" && won
     ruleOutcomes.push({ ruleId: rule.id, outcome, selected })

@@ -29,6 +29,42 @@ const run = (
   })
 
 describe("Plan", () => {
+  it("preserves affected labels even when legacy rules share ownership", () => {
+    for (const unresolved of ["unknown", "failed"] as const) {
+      assert.deepStrictEqual(
+        run([rule("a"), rule("b")], { a: unresolved, b: "no-match" }, ["11"]).actions,
+        [],
+      )
+      assert.deepStrictEqual(run([rule("a"), rule("b")], { a: unresolved, b: "match" }).actions, [])
+    }
+  })
+  it("preserves a labeling group with an unknown or failed evaluation while unrelated rules act", () => {
+    for (const unresolved of ["unknown", "failed"] as const) {
+      const result = run(
+        [
+          rule("unresolved", { group: "kind", labelId: bug }),
+          rule("match", { group: "kind", labelId: feature }),
+          rule("miss", { group: "kind", labelId: GitHubLabelDatabaseId.make("13") }),
+          rule("independent", { labelId: GitHubLabelDatabaseId.make("14") }),
+        ],
+        { unresolved, match: "match", miss: "no-match", independent: "match" },
+        ["11", "13"],
+      )
+      assert.deepStrictEqual(result.actions, [
+        {
+          labelId: GitHubLabelDatabaseId.make("14"),
+          action: "add",
+          ruleId: RuleId.make("independent"),
+        },
+      ])
+      assert.deepStrictEqual(
+        result.rules.map((rule) => rule.selected),
+        [false, false, false, true],
+      )
+      assert.deepStrictEqual(run([rule("a")], { a: unresolved }, ["11"]).actions, [])
+    }
+  })
+
   it("adds on match, removes on miss with ensure-absent, and leaves unknown alone", () => {
     assert.deepStrictEqual(run([rule("a")], { a: "match" }).actions, [
       { labelId: bug, action: "add", ruleId: RuleId.make("a") },
