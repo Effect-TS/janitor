@@ -68,6 +68,8 @@ import {
   ClassifierProvider,
   providerConfig,
   AiInputBudget,
+  AiCacheTtl,
+  aiCacheTtlConfig,
 } from "./Labeling/Classifier.ts"
 import { LabelingConfiguration } from "./Labeling/Configuration.ts"
 import { Policies } from "./Labeling/Policies.ts"
@@ -165,6 +167,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // The classifier provider is optional: without a key every classifier
     // policy evaluates unknown, which preserves labels.
     const ai = yield* Config.unwrap(providerConfig)
+    const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
       "LABELING_AI_INPUT_BYTES",
@@ -260,6 +263,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(WorkflowOutbox.layer),
       Layer.provide(DatabaseLayer),
       Layer.provide(Layer.succeed(AiInputBudget, inputBudget)),
+      Layer.provide(Layer.succeed(AiCacheTtl, cacheTtl)),
       Layer.provide(
         Layer.succeed(
           OutboxWake,

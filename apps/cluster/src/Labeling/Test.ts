@@ -25,7 +25,7 @@ import {
   type LabelingConfigurationError,
   type RepositoryNotFound,
 } from "./Configuration.ts"
-import { classifyAi } from "./Classifier.ts"
+import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { Policies } from "./Policies.ts"
 
 export class LabelingTestError extends Data.TaggedError("LabelingTestError")<{
@@ -215,6 +215,13 @@ export class LabelingTest extends Context.Service<
           if (Option.isNone(snapshot)) {
             return { _tag: "Rejected", message: "Nothing is configured yet" } as const
           }
+          const isCurrent = sql`
+            SELECT configured_revision::text FROM labeling_repository_rules WHERE repository_id = ${repositoryId}
+          `.pipe(
+            Effect.flatMap(decodePointers),
+            Effect.map((rows) => rows[0]?.configured_revision === revision),
+            wrap("current configuration"),
+          )
           const versions = new Map(
             snapshot.value.versions.map((version) => [version.versionId, version]),
           )
@@ -238,11 +245,25 @@ export class LabelingTest extends Context.Service<
                           repositoryId,
                           number: view.entity.number,
                           policyVersionId: version.versionId,
+                          rule,
                           program: version.program,
                           evaluator: version.program.evaluator,
                           snapshot: facts,
                           resolve,
-                        })).outcome
+                        }).pipe(
+                          Effect.provideService(EvaluationRetry, {
+                            isCurrent: isCurrent.pipe(
+                              Effect.mapError(
+                                (error) =>
+                                  new ClassifierError({
+                                    operation: "current configuration",
+                                    message: error.message,
+                                  }),
+                              ),
+                            ),
+                            report: () => Effect.void,
+                          }),
+                        )).outcome
                       : evaluate({ program: version.program, snapshot: facts, resolve }).outcome
                 outcomes.set(rule.id, outcome)
               }
@@ -259,6 +280,12 @@ export class LabelingTest extends Context.Service<
               )
             }),
           )
+          if (!(yield* isCurrent)) {
+            return {
+              _tag: "Rejected",
+              message: "Configuration changed during evaluation. Run the test again.",
+            } as const
+          }
           return { _tag: "Evaluated", entities } as const
         }
       }

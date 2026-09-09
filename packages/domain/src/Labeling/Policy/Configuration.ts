@@ -191,6 +191,8 @@ export type RuleIssue = typeof RuleIssue.Type
 /** One rule as snapshotted at a revision, bound to a published version. */
 export const ConfiguredRule = Schema.Struct({
   ...RuleBinding.fields,
+  /** Historical snapshots predate rule revisions in cache identities. */
+  version: Schema.optionalKey(Schema.Int),
   policyVersionId: PolicyVersionId,
 }).annotate({ identifier: "ConfiguredRule" })
 export type ConfiguredRule = typeof ConfiguredRule.Type

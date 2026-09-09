@@ -363,6 +363,7 @@ export class LabelingConfiguration extends Context.Service<
       )
       const rules: ReadonlyArray<ConfiguredRule> = bound.map((row) => ({
         id: row.rule_id,
+        version: row.version,
         labelId: row.label_id,
         policyId: row.policy_id,
         onMatch: row.on_match,

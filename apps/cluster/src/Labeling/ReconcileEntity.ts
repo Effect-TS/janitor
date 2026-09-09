@@ -228,6 +228,7 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
                     repositoryId,
                     number,
                     policyVersionId: version.versionId,
+                    rule,
                     program: version.program,
                     evaluator: version.program.evaluator,
                     snapshot: facts,

@@ -2,10 +2,30 @@ import { assert, describe, it } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import { deployment, requiredText } from "../src/Deployment.ts"
+import { aiCacheTtlConfig } from "../src/Labeling/Classifier.ts"
 
 const config = (values: Record<string, string>) =>
   ConfigProvider.layer(ConfigProvider.fromUnknown(values))
 describe("deployment configuration", () => {
+  it.effect("defaults the AI cache to 24 hours and validates whole positive seconds", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(yield* aiCacheTtlConfig.pipe(Effect.provide(config({}))), 86400)
+      assert.strictEqual(
+        yield* aiCacheTtlConfig.pipe(
+          Effect.provide(config({ LABELING_AI_CACHE_TTL_SECONDS: "60" })),
+        ),
+        60,
+      )
+      for (const value of ["0", "-1", "1.5", "forever", "Infinity", "2147483648"]) {
+        assert.strictEqual(
+          (yield* Effect.flip(
+            aiCacheTtlConfig.pipe(Effect.provide(config({ LABELING_AI_CACHE_TTL_SECONDS: value }))),
+          ))._tag,
+          "ConfigError",
+        )
+      }
+    }),
+  )
   it.effect("requires an identity provider ID rather than the example placeholder", () =>
     Effect.gen(function* () {
       assert.strictEqual(
