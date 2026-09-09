@@ -140,6 +140,7 @@ export const RuleRow = Schema.Struct({
   repository_id: GitHubRepositoryDatabaseId,
   label_id: RuleRecord.fields.labelId,
   policy_id: PolicyId,
+  on_match: RuleRecord.fields.onMatch,
   on_no_match: RuleRecord.fields.onNoMatch,
   rule_group: Schema.NullOr(Schema.String),
   priority: Schema.Int,
@@ -156,6 +157,7 @@ export const toRuleRecord = (row: typeof RuleRow.Type): RuleRecord => ({
   repositoryId: row.repository_id,
   labelId: row.label_id,
   policyId: row.policy_id,
+  onMatch: row.on_match,
   onNoMatch: row.on_no_match,
   group: row.rule_group,
   priority: row.priority,
@@ -341,7 +343,7 @@ export class LabelingConfiguration extends Context.Service<
       // Enabled rules bound to a published policy. A rule whose policy is
       // unpublished or whose label is missing is not live.
       const bound = yield* sql`
-        SELECT r.rule_id, r.repository_id, r.label_id, r.policy_id, r.on_no_match, r.rule_group,
+        SELECT r.rule_id, r.repository_id, r.label_id, r.policy_id, r.on_match, r.on_no_match, r.rule_group,
                r.priority, r.enabled, r.label_status, r.version, r.created_at, r.updated_at,
                p.published_version_id
         FROM labeling_rule r
@@ -363,6 +365,7 @@ export class LabelingConfiguration extends Context.Service<
         id: row.rule_id,
         labelId: row.label_id,
         policyId: row.policy_id,
+        onMatch: row.on_match,
         onNoMatch: row.on_no_match,
         group: row.rule_group,
         priority: row.priority,
@@ -456,7 +459,7 @@ export class LabelingConfiguration extends Context.Service<
             WHERE p.repository_id = ${repositoryId} AND p.owner_rule_id IS NULL ORDER BY p.name
           `.pipe(Effect.flatMap(decodePolicies), wrap("view")),
           sql`
-            SELECT rule_id, repository_id, label_id, policy_id, on_no_match, rule_group, priority,
+            SELECT rule_id, repository_id, label_id, policy_id, on_match, on_no_match, rule_group, priority,
                    enabled, label_status, version, created_at, updated_at, ai_definition
             FROM labeling_rule WHERE repository_id = ${repositoryId} ORDER BY created_at, rule_id
           `.pipe(Effect.flatMap(decodeRules), wrap("view")),

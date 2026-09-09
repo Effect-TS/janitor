@@ -1,3 +1,4 @@
+import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Render from "foldkit/render"
 import * as VirtualList from "@foldkit/ui/virtualList"
 import * as DateTime from "effect/DateTime"
@@ -511,6 +512,9 @@ const evaluationCards = (
         ),
         rule?.ai && !skipped && evaluation?.reason
           ? h.p([h.Class("activity-rule-reason")], [evaluation.reason])
+          : h.empty,
+        decision?.requestedAction
+          ? h.p([h.Class("activity-selection")], [describeResultAction(decision.requestedAction)])
           : h.empty,
         decision?.selected
           ? h.p([h.Class("activity-selection")], ["Selected for the label plan"])

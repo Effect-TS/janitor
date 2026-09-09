@@ -295,19 +295,6 @@ export class Policies extends Context.Service<
         ...(Option.isSome(policyId) ? { policyId: policyId.value } : {}),
       })
       if (result._tag === "Rejected" || Option.isNone(policyId)) return result
-      if (program.evaluator._tag === "Classifier") {
-        const bindings =
-          yield* sql`SELECT count(*)::text AS count FROM labeling_rule WHERE policy_id = ${policyId.value} AND on_no_match = 'ensure-absent'`.pipe(
-            Effect.flatMap(decodeCounts),
-            wrap("compile"),
-          )
-        if ((bindings[0]?.count ?? 0) > 0) {
-          return yield* new PolicyInvalid({
-            message:
-              "Rules using this policy must preserve labels on no match before publishing a classifier",
-          })
-        }
-      }
       // References follow the current published version. Check consumers too.
       for (const policy of yield* listRows(repositoryId, true)) {
         if (policy.policy_id === policyId.value) continue
@@ -344,11 +331,7 @@ export class Policies extends Context.Service<
       if (program instanceof PolicyInvalid) {
         return { _tag: "Invalid", message: program.message } as const
       }
-      const result = yield* compiled(repositoryId, program, policyId).pipe(
-        Effect.catchTag("PolicyInvalid", (error) => Effect.succeed(error)),
-      )
-      if (result instanceof PolicyInvalid)
-        return { _tag: "Invalid", message: result.message } as const
+      const result = yield* compiled(repositoryId, program, policyId)
       return result._tag === "Compiled"
         ? ({ _tag: "Valid", manifest: result.manifest } as const)
         : ({ _tag: "Invalid", message: result.issue.message } as const)

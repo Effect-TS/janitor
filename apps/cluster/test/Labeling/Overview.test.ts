@@ -40,6 +40,7 @@ layer(OverviewServices, { timeout: "2 minutes" })("Repository overview counts", 
           {
             labelId,
             policyId: first.policy.policyId,
+            onMatch: "ensure-present",
             onNoMatch: "ensure-absent",
             group: null,
             priority: 0,

@@ -101,6 +101,7 @@ layer(Services, { timeout: "2 minutes" })("SnapshotHandoff against Postgres", (i
         {
           labelId: bug,
           policyId: policy.policy.policyId,
+          onMatch: "ensure-present",
           onNoMatch: "ensure-absent",
           group: null,
           priority: 0,

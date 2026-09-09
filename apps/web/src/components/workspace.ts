@@ -1,3 +1,4 @@
+import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Live from "./live"
 import * as Activity from "@/components/activity"
 import * as Switch from "@foldkit/ui/switch"
@@ -1542,9 +1543,7 @@ const foldRuleMenu = (ruleId: string) =>
   })
 
 export const ruleBehavior = (view: ConfigurationView, rule: RuleRecord): string =>
-  rule.ai
-    ? (rule.ai.prompt.split("\n")[0] ?? "AI classification")
-    : `Add ${labelName(view.labels, rule.labelId)} when ${policyName(view.policies, rule.policyId)} matches. Otherwise, ${rule.onNoMatch === "preserve" ? "leave it unchanged" : "remove the label"}.`
+  `${rule.ai ? (rule.ai.prompt.split("\n")[0] ?? "AI classification") : policyName(view.policies, rule.policyId)} · Match: ${describeResultAction(rule.onMatch)} · Non-match: ${describeResultAction(rule.onNoMatch)}`
 
 const ruleType = (view: ConfigurationView, rule: RuleRecord): string =>
   rule.ai ||
@@ -1955,7 +1954,7 @@ const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
                 [],
                 [
                   consent.state === "enabled"
-                    ? `Enabled for ${consent.provider} ${consent.model}. Classifier policies send only the evidence facts they name, with no credentials or repository access, and their answers can only add labels.`
+                    ? `Enabled for ${consent.provider} ${consent.model}. Classifier policies send only the evidence facts they name, with no credentials or repository access, and their answers use each rule's configured match and non-match actions.`
                     : consent.state === "draining"
                       ? `Revoked. ${consent.activeLeases} call${consent.activeLeases === 1 ? "" : "s"} already in flight cannot be recalled; no new ones start, and this becomes disabled when they finish.`
                       : `Disabled. Classifier policies evaluate as unknown, which preserves labels. Enabling sends the evidence facts a classifier names to ${consent.provider === "none" ? "the configured provider" : `${consent.provider} ${consent.model}`}.`,

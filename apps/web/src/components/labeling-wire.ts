@@ -131,10 +131,11 @@ export const ValidatePolicyResponse = Schema.Union([
 ])
 export type ValidatePolicyResponse = typeof ValidatePolicyResponse.Type
 
+import { ResultAction } from "@janitor/domain/Labeling/Policy/Plan"
+
 // RULES
 
-export const OnNoMatch = Schema.Literals(["ensure-absent", "preserve"])
-export type OnNoMatch = typeof OnNoMatch.Type
+export { ResultAction, describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 
 export const AiRuleDefinition = Schema.Struct({
   gatePolicyId: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -149,7 +150,8 @@ export const RuleRecord = Schema.Struct({
   repositoryId: Schema.String,
   labelId: Schema.String,
   policyId: Schema.String,
-  onNoMatch: OnNoMatch,
+  onMatch: ResultAction,
+  onNoMatch: ResultAction,
   group: Schema.NullOr(Schema.String),
   priority: Schema.Int,
   enabled: Schema.Boolean,
@@ -275,7 +277,12 @@ export type Evaluation = typeof Evaluation.Type
 
 export const Plan = Schema.Struct({
   rules: Schema.Array(
-    Schema.Struct({ ruleId: Schema.String, outcome: Outcome, selected: Schema.Boolean }),
+    Schema.Struct({
+      ruleId: Schema.String,
+      outcome: Outcome,
+      selected: Schema.Boolean,
+      requestedAction: Schema.optionalKey(ResultAction),
+    }),
   ),
   actions: Schema.Array(
     Schema.Struct({

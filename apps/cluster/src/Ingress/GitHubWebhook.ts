@@ -66,10 +66,10 @@ export interface IngressSecrets {
 }
 
 export const ingressSecrets: Config.Wrap<IngressSecrets> = {
-  webhookSecret: Config.Redacted("GITHUB_WEBHOOK_SECRET"),
+  webhookSecret: Config.Redacted("JANITOR_GITHUB_WEBHOOK_SECRET"),
   cipher: PayloadCipher.config({
-    key: "GITHUB_WEBHOOK_PAYLOAD_KEY",
-    keyId: "GITHUB_WEBHOOK_PAYLOAD_KEY_ID",
+    key: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY",
+    keyId: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID",
   }),
 }
 

@@ -186,7 +186,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ),
     })
     const appCredentials = yield* Config.unwrap(
-      GitHubAppAuth.config({ appId: "GITHUB_APP_ID", privateKey: "GITHUB_APP_PRIVATE_KEY" }),
+      GitHubAppAuth.config({
+        appId: "JANITOR_GITHUB_APP_ID",
+        privateKey: "JANITOR_GITHUB_APP_PRIVATE_KEY",
+      }),
     )
     const GitHubPayloadCipherLayer = PayloadCipher.layerFrom(secrets.cipher)
 

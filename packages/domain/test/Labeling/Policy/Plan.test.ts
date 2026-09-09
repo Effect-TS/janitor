@@ -11,6 +11,7 @@ const rule = (id: string, overrides: Partial<RuleBinding> = {}): RuleBinding => 
   id: RuleId.make(id),
   labelId: bug,
   policyId: policy,
+  onMatch: "ensure-present",
   onNoMatch: "ensure-absent",
   group: null,
   priority: 0,
@@ -29,6 +30,42 @@ const run = (
   })
 
 describe("Plan", () => {
+  it("independently removes on match and restores on non-match", () => {
+    const inverted = rule("inverted", { onMatch: "ensure-absent", onNoMatch: "ensure-present" })
+    assert.deepStrictEqual(run([inverted], { inverted: "match" }, ["11"]).actions, [
+      { labelId: bug, action: "remove", ruleId: RuleId.make("inverted") },
+    ])
+    assert.deepStrictEqual(run([inverted], { inverted: "no-match" }).actions, [
+      { labelId: bug, action: "add", ruleId: RuleId.make("inverted") },
+    ])
+  })
+  it("takes no action independently for either result and ignores inconclusive results", () => {
+    for (const outcome of ["match", "no-match"] as const) {
+      const inactive = rule(
+        "a",
+        outcome === "match"
+          ? { onMatch: "no-action", onNoMatch: "ensure-absent" }
+          : { onMatch: "ensure-absent", onNoMatch: "no-action" },
+      )
+      assert.deepStrictEqual(run([inactive], { a: outcome }, ["11"]).actions, [])
+      assert.deepStrictEqual(run([inactive], { a: outcome }).actions, [])
+    }
+    for (const outcome of ["unknown", "failed", "not-applicable"] as const) {
+      const inverted = rule("a", { onMatch: "ensure-absent", onNoMatch: "ensure-present" })
+      assert.deepStrictEqual(run([inverted], { a: outcome }, ["11"]).actions, [])
+      assert.deepStrictEqual(run([inverted], { a: outcome }).actions, [])
+    }
+  })
+  it("records the requested action even when the label already has the desired state", () => {
+    assert.strictEqual(
+      run([rule("a")], { a: "match" }, ["11"]).rules[0]?.requestedAction,
+      "ensure-present",
+    )
+    assert.strictEqual(
+      run([rule("a", { onMatch: "no-action" })], { a: "match" }, ["11"]).rules[0]?.requestedAction,
+      "no-action",
+    )
+  })
   it("preserves affected labels even when legacy rules share ownership", () => {
     for (const unresolved of ["unknown", "failed"] as const) {
       assert.deepStrictEqual(
@@ -74,7 +111,7 @@ describe("Plan", () => {
       { labelId: bug, action: "remove", ruleId: RuleId.make("a") },
     ])
     assert.deepStrictEqual(
-      run([rule("a", { onNoMatch: "preserve" })], { a: "no-match" }, ["11"]).actions,
+      run([rule("a", { onNoMatch: "no-action" })], { a: "no-match" }, ["11"]).actions,
       [],
     )
     assert.deepStrictEqual(run([rule("a")], { a: "unknown" }, ["11"]).actions, [])
@@ -102,8 +139,18 @@ describe("Plan", () => {
     ]
     const result = run(rules, { high: "match", low: "match" }, ["11"])
     assert.deepStrictEqual(result.rules, [
-      { ruleId: RuleId.make("high"), outcome: "match", selected: false },
-      { ruleId: RuleId.make("low"), outcome: "match", selected: true },
+      {
+        ruleId: RuleId.make("high"),
+        outcome: "match",
+        selected: false,
+        requestedAction: "ensure-absent",
+      },
+      {
+        ruleId: RuleId.make("low"),
+        outcome: "match",
+        selected: true,
+        requestedAction: "ensure-present",
+      },
     ])
     assert.deepStrictEqual(result.actions, [
       { labelId: bug, action: "remove", ruleId: RuleId.make("high") },
@@ -116,7 +163,7 @@ describe("Plan", () => {
         {
           ...rules[0]!,
           id: RuleId.make("keep"),
-          onNoMatch: "preserve",
+          onNoMatch: "no-action",
           priority: 5,
           labelId: feature,
         },

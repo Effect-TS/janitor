@@ -65,6 +65,7 @@ const rule: RuleRecord = {
   repositoryId,
   labelId: GitHubLabelDatabaseId.make("11"),
   policyId,
+  onMatch: "ensure-present",
   onNoMatch: "ensure-absent",
   group: null,
   priority: 0,
@@ -282,13 +283,13 @@ describe("RulesRoutes", () => {
 
         const ruleInvalid = yield* Effect.promise(() =>
           handler(
-            request("POST", `${base}/rules`, { labelId: "404", policyId, onNoMatch: "preserve" }),
+            request("POST", `${base}/rules`, { labelId: "404", policyId, onNoMatch: "no-action" }),
           ),
         )
         assert.strictEqual(ruleInvalid.status, 422)
         const ruleCreated = yield* Effect.promise(() =>
           handler(
-            request("POST", `${base}/rules`, { labelId: "11", policyId, onNoMatch: "preserve" }),
+            request("POST", `${base}/rules`, { labelId: "11", policyId, onNoMatch: "no-action" }),
           ),
         )
         assert.strictEqual(ruleCreated.status, 201)
@@ -310,7 +311,7 @@ describe("RulesRoutes", () => {
             request(
               "POST",
               `${base}/rules`,
-              { labelId: "11", policyId, onNoMatch: "preserve" },
+              { labelId: "11", policyId, onNoMatch: "no-action" },
               "cross-site",
             ),
           ),

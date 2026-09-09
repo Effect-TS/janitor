@@ -62,7 +62,7 @@ export type RulesFailure =
   | LabelingConfigurationError
 
 const ruleColumns = (sql: SqlClient.SqlClient) => sql`
-  rule_id, repository_id, label_id, policy_id, on_no_match, rule_group, priority,
+  rule_id, repository_id, label_id, policy_id, on_match, on_no_match, rule_group, priority,
   enabled, label_status, version, created_at, updated_at, ai_definition
 `
 
@@ -132,7 +132,6 @@ export class LabelingRules extends Context.Service<
       repositoryId: GitHubRepositoryDatabaseId,
       labelId: RuleRecord["labelId"],
       policyId: PolicyId,
-      onNoMatch: RuleRecord["onNoMatch"],
       ownerRuleId?: RuleId,
     ) {
       const issues: Array<RuleIssue> = []
@@ -161,24 +160,6 @@ export class LabelingRules extends Context.Service<
           code: "policy-not-published",
           message: `Policy ${policyId} is not published in this repository`,
         })
-      } else if (onNoMatch === "ensure-absent") {
-        // A classifier can only add: its misses are never conclusive.
-        const published = yield* sql`
-          SELECT program->'evaluator'->>'_tag' AS evaluator FROM labeling_policy_version
-          WHERE version_id = ${policy.published_version_id}
-        `.pipe(
-          Effect.flatMap(
-            Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ evaluator: Schema.String }))),
-          ),
-          wrap("validate"),
-        )
-        if (published[0]?.evaluator === "Classifier") {
-          issues.push({
-            code: "classifier-preserve-only",
-            message:
-              "A rule bound to a classifier must leave the label alone when it does not match",
-          })
-        }
       }
       if (issues.length > 0) return yield* new RuleInvalid({ issues })
     })
@@ -272,6 +253,7 @@ export class LabelingRules extends Context.Service<
             const current = yield* find(repositoryId, RuleId.make(prior[0].rule_id))
             if (
               current.labelId !== request.labelId ||
+              current.onMatch !== request.onMatch ||
               current.onNoMatch !== request.onNoMatch ||
               current.enabled !== request.enabled ||
               current.group !== request.group ||
@@ -284,20 +266,20 @@ export class LabelingRules extends Context.Service<
           }
         }
         const ruleId = RuleId.make(crypto.randomUUID())
-        if (request.ai && (request.policyId || request.onNoMatch !== "preserve"))
-          return yield* invalidAi("AI rules must preserve labels and cannot bind a shared policy")
+        if (request.ai && request.policyId)
+          return yield* invalidAi("AI rules cannot bind a shared policy")
         const policyId = request.ai
           ? yield* saveClassifier(repositoryId, ruleId, request.ai)
           : request.policyId
         if (!policyId)
           return yield* invalidAi("Choose a published policy or supply an AI definition")
-        yield* validate(repositoryId, request.labelId, policyId, request.onNoMatch, ruleId)
+        yield* validate(repositoryId, request.labelId, policyId, ruleId)
         yield* Effect.gen(function* () {
           yield* sql`
               INSERT INTO labeling_rule
-                (rule_id, repository_id, label_id, policy_id, on_no_match, rule_group, priority, enabled, version, ai_definition, creation_key)
+                (rule_id, repository_id, label_id, policy_id, on_match, on_no_match, rule_group, priority, enabled, version, ai_definition, creation_key)
               VALUES (${ruleId}, ${repositoryId}, ${request.labelId}, ${policyId},
-                      ${request.onNoMatch}, ${request.group}, ${request.priority}, ${request.enabled}, 1, ${request.ai ? JSON.stringify(request.ai) : null}::jsonb, ${request.requestId ?? null})
+                      ${request.onMatch}, ${request.onNoMatch}, ${request.group}, ${request.priority}, ${request.enabled}, 1, ${request.ai ? JSON.stringify(request.ai) : null}::jsonb, ${request.requestId ?? null})
             `
           yield* recordAudit(sql, {
             repositoryId,
@@ -326,12 +308,8 @@ export class LabelingRules extends Context.Service<
         if (current.version !== request.version) return yield* new RuleConflict({ current })
         if (request.ai && !current.ai)
           return yield* invalidAi("Create a new AI rule instead of changing a policy rule's type")
-        if (
-          current.ai &&
-          ((request.policyId !== undefined && request.policyId !== current.policyId) ||
-            request.onNoMatch === "ensure-absent")
-        )
-          return yield* invalidAi("AI rules must retain their owned classifier and preserve labels")
+        if (current.ai && request.policyId !== undefined && request.policyId !== current.policyId)
+          return yield* invalidAi("AI rules must retain their owned classifier")
         const ai = request.ai ?? current.ai ?? null
         const aiPolicyId =
           request.ai && JSON.stringify(request.ai) !== JSON.stringify(current.ai)
@@ -341,18 +319,19 @@ export class LabelingRules extends Context.Service<
           ai,
           labelId: request.labelId ?? current.labelId,
           policyId: current.ai ? aiPolicyId : (request.policyId ?? current.policyId),
+          onMatch: request.onMatch ?? current.onMatch,
           onNoMatch: request.onNoMatch ?? current.onNoMatch,
           group: request.group === undefined ? current.group : request.group,
           priority: request.priority ?? current.priority,
           enabled: request.enabled ?? current.enabled,
         }
-        yield* validate(repositoryId, next.labelId, next.policyId, next.onNoMatch, ruleId)
+        yield* validate(repositoryId, next.labelId, next.policyId, ruleId)
         // A label that came back, or a new label, is valid again.
         const labelStatus = next.labelId === current.labelId ? current.labelStatus : "valid"
         yield* Effect.gen(function* () {
           yield* sql`
               UPDATE labeling_rule
-              SET ai_definition = ${ai ? JSON.stringify(ai) : null}::jsonb, label_id = ${next.labelId}, policy_id = ${next.policyId}, on_no_match = ${next.onNoMatch},
+              SET ai_definition = ${ai ? JSON.stringify(ai) : null}::jsonb, label_id = ${next.labelId}, policy_id = ${next.policyId}, on_match = ${next.onMatch}, on_no_match = ${next.onNoMatch},
                   rule_group = ${next.group}, priority = ${next.priority}, enabled = ${next.enabled},
                   label_status = ${labelStatus}, version = version + 1, updated_at = CLOCK_TIMESTAMP()
               WHERE rule_id = ${ruleId} AND version = ${request.version}
