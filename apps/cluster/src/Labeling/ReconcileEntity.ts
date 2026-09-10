@@ -6,9 +6,7 @@ import {
 import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
 import { syncScopeKey } from "@janitor/domain/GitHub/Sync"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
-import { evaluate, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
-import { type Evaluation } from "@janitor/domain/Labeling/Policy/Program"
-import { Plan, plan, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
+import { Plan, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -24,8 +22,9 @@ import { freshnessOf } from "../SyncFreshness.ts"
 import { SyncTargets } from "../SyncTargets.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { recordAudit } from "./Audit.ts"
-import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
+import { ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
+import { evaluateLabeling } from "./Evaluation.ts"
 import { EVALUATION_MAX_AGE, RECONCILE_ENTITY_TAG, SnapshotHandoff } from "./SnapshotHandoff.ts"
 import { entityFacts } from "./Test.ts"
 
@@ -216,69 +215,38 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
           detail: "entity is no longer in the read model",
         }
       }
-      const facts = entityFacts(entity.value)
-      const versions = new Map(
-        snapshot.value.versions.map((version) => [version.versionId, version]),
-      )
-      const byPolicy = new Map(
-        snapshot.value.versions.map((version) => [version.policyId, version]),
-      )
-      const resolve: Resolver = (policyId) => byPolicy.get(policyId)
-      const outcomes = new Map<RuleId, Evaluation["outcome"]>()
-      const evaluations: Array<typeof RuleEvaluationRecord.Type> = []
-      for (const rule of snapshot.value.rules) {
-        if (!rule.enabled) continue
-        const version = versions.get(rule.policyVersionId)
-        const evaluation: Evaluation =
-          version === undefined
-            ? { outcome: "unknown", reason: "policy version is missing", trace: [] }
-            : version.program.evaluator._tag === "Classifier"
-              ? yield* classifyAi({
-                  repositoryId,
-                  number,
-                  policyVersionId: version.versionId,
-                  rule,
-                  program: version.program,
-                  evaluator: version.program.evaluator,
-                  snapshot: facts,
-                  resolve,
-                }).pipe(
-                  Effect.provideService(EvaluationRetry, {
-                    claimKey: `${identity.snapshotGeneration}:${identity.rulesRevision}`,
-                    isCurrent: evaluationIsCurrent(identity).pipe(
-                      Effect.provideService(SqlClient.SqlClient, sql),
-                      Effect.provideService(GitHubReadModel, readModel),
-                      Effect.provideService(SyncTargets, targets),
-                      Effect.mapError(
-                        (error) =>
-                          new ClassifierError({ operation: "qualify", message: error.message }),
-                      ),
-                    ),
-                    report: (message) =>
-                      sql`UPDATE labeling_reconciliation SET detail=${message}
-                      WHERE repository_id=${repositoryId} AND number=${number} AND snapshot_generation=${identity.snapshotGeneration} AND rules_revision=${identity.rulesRevision}`.pipe(
-                        Effect.asVoid,
-                        Effect.andThen(flushLive),
-                        Effect.mapError(
-                          (error) =>
-                            new ClassifierError({
-                              operation: "retry status",
-                              message: error.message,
-                            }),
-                        ),
-                      ),
-                  }),
-                )
-              : evaluate({ program: version.program, snapshot: facts, resolve })
-        outcomes.set(rule.id, evaluation.outcome)
-        evaluations.push({ ruleId: rule.id, policyVersionId: rule.policyVersionId, evaluation })
-      }
-      const planned = plan({
-        rules: snapshot.value.rules,
-        outcomes,
+      const result = yield* evaluateLabeling({
+        configuration: snapshot.value,
+        number,
+        facts: entityFacts(entity.value),
         currentLabels: new Set(entity.value.labels.map((label) => label.labelId)),
-      })
-      return { _tag: "Evaluated" as const, plan: planned, evaluations }
+      }).pipe(
+        Effect.provideService(EvaluationRetry, {
+          claimKey: `${identity.snapshotGeneration}:${identity.rulesRevision}`,
+          isCurrent: evaluationIsCurrent(identity).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+            Effect.provideService(GitHubReadModel, readModel),
+            Effect.provideService(SyncTargets, targets),
+            Effect.mapError(
+              (error) => new ClassifierError({ operation: "qualify", message: error.message }),
+            ),
+          ),
+          report: (message) =>
+            sql`UPDATE labeling_reconciliation SET detail=${message}
+            WHERE repository_id=${repositoryId} AND number=${number} AND snapshot_generation=${identity.snapshotGeneration} AND rules_revision=${identity.rulesRevision}`.pipe(
+              Effect.asVoid,
+              Effect.andThen(flushLive),
+              Effect.mapError(
+                (error) =>
+                  new ClassifierError({
+                    operation: "retry status",
+                    message: error.message,
+                  }),
+              ),
+            ),
+        }),
+      )
+      return { _tag: "Evaluated" as const, ...result }
     }).pipe(Effect.mapError((error) => failure(error.message)))
 
     // A slow evaluation (for example a classifier) may overlap a publication.
