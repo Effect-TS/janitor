@@ -308,7 +308,10 @@ layer(services, { timeout: "2 minutes" })("Shared labeling with the real classif
         ])
         assert.strictEqual(result.evaluations[0]?.evaluation.reason, "First answer matches")
         assert.isUndefined(result.evaluations[0]?.evaluation.inputDetails)
-        const cached = yield* evaluateLabeling(input)
+        const inspectedInput = { ...input, inspectInput: true }
+        const cached = yield* evaluateLabeling(inspectedInput)
+        assert.isDefined(cached.evaluations[0]?.evaluation.inputDetails)
+        assert.isDefined(cached.evaluations[2]?.evaluation.inputDetails)
         assert.isTrue(cached.evaluations[0]?.evaluation.cached)
         assert.isTrue(cached.evaluations[2]?.evaluation.cached)
         assert.deepStrictEqual(cached.plan, result.plan)
