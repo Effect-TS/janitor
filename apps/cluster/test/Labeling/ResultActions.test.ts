@@ -31,6 +31,7 @@ import {
 } from "./support.ts"
 
 const writes: Array<GitHubRequest> = []
+let requests = 0
 const services = ReconcileEntityLayer.pipe(
   Layer.provideMerge(LabelingLayer),
   Layer.provideMerge(AiClassifier.layer),
@@ -39,10 +40,13 @@ const services = ReconcileEntityLayer.pipe(
     Layer.succeed(ClassifierProvider, {
       identity: { provider: "test", model: "test" },
       ask: (prompt) =>
-        Effect.succeed({
-          matches: prompt.includes("Change 5"),
-          confidence: 0.95,
-          reason: "Accepted answer",
+        Effect.sync(() => {
+          requests++
+          return {
+            matches: prompt.includes("Change 5"),
+            confidence: 0.95,
+            reason: "Accepted answer",
+          }
         }),
     }),
   ),
@@ -74,6 +78,7 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
         yield* seed
         yield* seedPullRequests
         writes.length = 0
+        requests = 0
         const readModel = yield* GitHubReadModel
         const sequence = GitHubWebhookJournalSequence.make("2")
         yield* readModel.applyIssue({
@@ -125,6 +130,8 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
         })
         assert.strictEqual(preview._tag, "Evaluated")
         if (preview._tag !== "Evaluated") return
+        assert.isTrue(preview.entities.every((entity) => entity.evaluation === null))
+        assert.strictEqual(requests, 2)
         assert.deepStrictEqual(
           preview.entities.map((entity) => entity.plan?.actions),
           [
@@ -162,6 +169,8 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
           const result = yield* reconcile(entity.number)
           assert.deepStrictEqual(result?.plan, entity.plan)
         }
+        // Automatic labeling reuses the configured answers populated by the preview.
+        assert.strictEqual(requests, 2)
         assert.deepStrictEqual(
           writes.map((request) => request.method),
           ["DELETE", "POST"],

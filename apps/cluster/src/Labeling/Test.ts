@@ -1,9 +1,8 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { LabelingRevision, PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
-import { evaluate, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
+import { evaluate } from "@janitor/domain/Labeling/Policy/Evaluate"
 import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
-import { plan, type RuleBinding } from "@janitor/domain/Labeling/Policy/Plan"
-import type { Outcome, Program } from "@janitor/domain/Labeling/Policy/Program"
+import type { Program } from "@janitor/domain/Labeling/Policy/Program"
 import { programFromSource, UnknownPolicyName } from "@janitor/domain/Labeling/Policy/Program"
 import {
   MAX_TEST_ENTITIES,
@@ -26,6 +25,7 @@ import {
   type RepositoryNotFound,
 } from "./Configuration.ts"
 import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
+import { evaluateLabeling } from "./Evaluation.ts"
 import { Policies } from "./Policies.ts"
 
 export class LabelingTestError extends Data.TaggedError("LabelingTestError")<{
@@ -222,62 +222,32 @@ export class LabelingTest extends Context.Service<
             Effect.map((rows) => rows[0]?.configured_revision === revision),
             wrap("current configuration"),
           )
-          const versions = new Map(
-            snapshot.value.versions.map((version) => [version.versionId, version]),
-          )
-          const byPolicy = new Map(
-            snapshot.value.versions.map((version) => [version.policyId, version]),
-          )
-          const resolve: Resolver = (policyId) => byPolicy.get(policyId)
           const entities = yield* Effect.forEach(views, (view) =>
             Effect.gen(function* () {
               const facts = entityFacts(view)
-              const outcomes = new Map<RuleBinding["id"], Outcome>()
-              for (const rule of snapshot.value.rules) {
-                if (!rule.enabled) continue
-                const version = versions.get(rule.policyVersionId)
-                const outcome: Outcome =
-                  version === undefined
-                    ? "unknown"
-                    : version.program.evaluator._tag === "Classifier"
-                      ? (yield* classifyAi({
-                          inspectInput: true,
-                          repositoryId,
-                          number: view.entity.number,
-                          policyVersionId: version.versionId,
-                          rule,
-                          program: version.program,
-                          evaluator: version.program.evaluator,
-                          snapshot: facts,
-                          resolve,
-                        }).pipe(
-                          Effect.provideService(EvaluationRetry, {
-                            isCurrent: isCurrent.pipe(
-                              Effect.mapError(
-                                (error) =>
-                                  new ClassifierError({
-                                    operation: "current configuration",
-                                    message: error.message,
-                                  }),
-                              ),
-                            ),
-                            report: () => Effect.void,
-                          }),
-                        )).outcome
-                      : evaluate({ program: version.program, snapshot: facts, resolve }).outcome
-                outcomes.set(rule.id, outcome)
-              }
-              return describe(
-                view,
-                null,
-                plan({
-                  rules: snapshot.value.rules,
-                  outcomes,
-                  currentLabels: new Set(
-                    facts.facts.labels?._tag === "LabelSet" ? facts.facts.labels.value : [],
+              const result = yield* evaluateLabeling({
+                configuration: snapshot.value,
+                number: view.entity.number,
+                facts,
+                currentLabels: new Set(
+                  facts.facts.labels?._tag === "LabelSet" ? facts.facts.labels.value : [],
+                ),
+                inspectInput: true,
+              }).pipe(
+                Effect.provideService(EvaluationRetry, {
+                  isCurrent: isCurrent.pipe(
+                    Effect.mapError(
+                      (error) =>
+                        new ClassifierError({
+                          operation: "current configuration",
+                          message: error.message,
+                        }),
+                    ),
                   ),
+                  report: () => Effect.void,
                 }),
               )
+              return describe(view, null, result.plan)
             }),
           )
           if (!(yield* isCurrent)) {

@@ -22,6 +22,7 @@ export const evaluateLabeling = Effect.fn("Labeling.evaluateLabeling")(function*
   readonly number: number
   readonly facts: FactSnapshot
   readonly currentLabels: ReadonlySet<GitHubLabelDatabaseId>
+  readonly inspectInput?: boolean
 }) {
   const { configuration, number, facts, currentLabels } = input
   const versions = new Map(configuration.versions.map((version) => [version.versionId, version]))
@@ -37,6 +38,7 @@ export const evaluateLabeling = Effect.fn("Labeling.evaluateLabeling")(function*
         ? { outcome: "unknown", reason: "policy version is missing", trace: [] }
         : version.program.evaluator._tag === "Classifier"
           ? yield* classifyAi({
+              inspectInput: input.inspectInput ?? false,
               repositoryId: configuration.repositoryId,
               number,
               policyVersionId: version.versionId,
