@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Janitor · Shared work walkthrough</title>
+    <style>
+      :root {
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        color: #182b2b;
+        background: #f2f5f3;
+        --accent: #116b57;
+        --line: #d4dfd9;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 1320px;
+        margin: auto;
+        padding: 28px;
+      }
+      h1 {
+        font-size: 30px;
+        letter-spacing: -1px;
+        margin: 6px 0;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 0 0 12px;
+      }
+      h3 {
+        font-size: 15px;
+        margin: 16px 0 8px;
+      }
+      p {
+        margin: 6px 0 14px;
+      }
+      .muted,
+      small {
+        color: #536662;
+      }
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 16px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .spread {
+        justify-content: space-between;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+      .stat span {
+        display: block;
+        font-size: 12px;
+        color: #536662;
+      }
+      .stat strong {
+        font-size: 16px;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+      button,
+      select {
+        border: 1px solid var(--line);
+        background: white;
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      button:focus-visible,
+      a:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 3px solid #49af94;
+        outline-offset: 3px;
+      }
+      button.primary,
+      button[aria-selected="true"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+      }
+      .steps {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .steps button {
+        font-size: 13px;
+        text-align: left;
+      }
+      .notice {
+        border-left: 3px solid var(--accent);
+        padding: 8px 14px;
+        background: #eaf4ee;
+        margin-top: 14px;
+      }
+      .badge {
+        border-radius: 20px;
+        padding: 3px 10px;
+        background: #e7f0eb;
+        font-size: 12px;
+      }
+      .badge.failed {
+        background: #fbe9df;
+        color: #843d21;
+      }
+      .message {
+        border-bottom: 1px solid #edf0ed;
+        padding: 10px 0;
+      }
+      .message:last-child {
+        border: 0;
+      }
+      .message b {
+        font-size: 13px;
+      }
+      .message p {
+        margin: 4px 0;
+        white-space: pre-wrap;
+      }
+      .message small {
+        font-size: 11px;
+      }
+      .private {
+        background: #f0f5fc;
+        padding: 10px;
+        border-radius: 6px;
+      }
+      .feed {
+        max-height: 370px;
+        overflow: auto;
+        min-height: 90px;
+      }
+      .queue {
+        background: #f6f4e9;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        margin-top: 12px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      td,
+      th {
+        text-align: left;
+        padding: 10px 6px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: #536662;
+        font-weight: 500;
+      }
+      .table-wrap {
+        overflow: auto;
+      }
+      a {
+        color: var(--accent);
+      }
+      input {
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        min-width: 100px;
+        flex: 1;
+      }
+      .excerpt {
+        background: #f5f7f5;
+        border-radius: 6px;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+      .detail {
+        background: #f6f8f6;
+        padding: 14px;
+        border-radius: 8px;
+        margin-top: 14px;
+      }
+      summary {
+        cursor: pointer;
+      }
+      .freeplay button {
+        font-size: 13px;
+      }
+      .hint {
+        font-size: 12px;
+      }
+      .dot {
+        color: var(--accent);
+      }
+      @media (max-width: 850px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .stats {
+          grid-template-columns: 1fr 1fr;
+        }
+        main {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="eyebrow">Throwaway prototype · Simulated data</div>
+      <h1>One thread. Shared work.</h1>
+      <p class="muted">
+        Can Mike and two teammates revise a blog-post PR without relaying feedback between separate
+        agent conversations?
+      </p>
+      <p class="hint">
+        This explores the interaction flow, not final visual design. Buttons simulate people and
+        agent turns. Responses are scripted, token counts are illustrative, and nothing connects to
+        Slack, Discord, GitHub, or an agent.
+      </p>
+      <section class="card" aria-label="Current state">
+        <div class="stats" id="state"></div>
+        <div class="notice" id="change" aria-live="polite"></div>
+      </section>
+      <section class="card freeplay">
+        <div class="row spread">
+          <h2>Try an action</h2>
+          <button id="reset">Reset this scenario</button>
+        </div>
+        <div class="row" id="actions"></div>
+        <form id="compose" class="row" style="margin-top: 12px">
+          <label for="author">Send as</label
+          ><select id="author">
+            <option>Max</option>
+            <option>Mike</option>
+            <option>Alex</option>
+            <option>Visitor</option>
+          </select>
+          <label for="text">Message</label
+          ><input id="text" value="Keep the concrete example, but shorten the opening." required />
+          <button type="submit">Send to home thread</button>
+        </form>
+        <p class="hint" style="margin: 8px 0 0">
+          Actions can be tried in any order. “Agent finishes turn” advances the simulation; it is
+          not a product command.
+        </p>
+      </section>
+      <section class="card">
+        <h2>Guided walkthroughs</h2>
+        <div class="tabs" role="tablist" aria-label="Scenarios" id="tabs"></div>
+        <div role="tabpanel" id="guide" style="margin-top: 16px"></div>
+      </section>
+      <div class="grid">
+        <section class="card" id="home">
+          <div class="row spread">
+            <h2 id="home-title"></h2>
+            <span class="badge" id="working"></span>
+          </div>
+          <p class="hint">Private team channel · Blog-post thread</p>
+          <div class="feed" id="chat"></div>
+          <div id="queue"></div>
+        </section>
+        <section class="card" id="pr">
+          <div class="row spread">
+            <h2>GitHub · Blog-post PR</h2>
+            <span class="badge" id="pr-status"></span>
+          </div>
+          <p class="hint">effect.website · Mike’s existing branch · Mock PR</p>
+          <div class="excerpt" id="excerpt"></div>
+          <h3>Review discussion</h3>
+          <div class="feed" id="reviews"></div>
+          <p class="hint" id="revision"></p>
+        </section>
+      </div>
+      <section class="card" id="accounts">
+        <h2>Janitor · Connected accounts</h2>
+        <div id="account-state"></div>
+        <p class="hint">
+          The sign-in and identity checks are simulated. How the existing Cloudflare Access sign-in
+          supplies a verified GitHub identity remains a technical question. Disconnecting preserves
+          shared sessions and past contributions.
+        </p>
+      </section>
+      <section class="card" id="dashboard">
+        <div class="row spread">
+          <h2>Janitor · Sessions</h2>
+          <div>
+            <label for="period">Usage period </label
+            ><select id="period">
+              <option value="today">Today</option>
+              <option value="week">Last 7 days</option>
+            </select>
+          </div>
+        </div>
+        <p class="muted" id="totals"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Repository</th>
+                <th>State</th>
+                <th>Latest activity</th>
+                <th>Input / output tokens</th>
+                <th>Links</th>
+              </tr>
+            </thead>
+            <tbody id="sessions"></tbody>
+          </table>
+        </div>
+        <div id="detail"></div>
+        <p class="hint">
+          All authorized teammates can observe these sessions. A thread link does not grant channel
+          membership. No conversation viewer or detailed execution logs are included here.
+        </p>
+      </section>
+      <footer class="card">
+        <h2>What to evaluate</h2>
+        <p>
+          Can you follow who is contributing and what the agent will handle next? Does direct PR
+          review handling remove the companion-PR step? Where would you still have to repeat
+          context?
+        </p>
+        <p class="muted">
+          Queue grouping, sample tool messages, response wording, and screen layout are
+          illustrative. This prototype makes no promise about OpenCode V2 hosting, queue APIs, or
+          storage.
+        </p>
+      </footer>
+    </main>
+    <script>
+      // Pure simulation. No DOM or persistence in this module.
+      const Demo = (() => {
+        const initial = (platform = "Slack", connected = true) => ({
+          platform,
+          connected,
+          signedIn: connected,
+          session: false,
+          status: "Not started",
+          chat: [
+            {
+              who: "Mike",
+              text: "I opened the release blog-post PR. Can you both help improve the introduction?",
+            },
+            {
+              who: "Alex",
+              text: "The API example is useful. The opening takes too long to get there.",
+            },
+          ],
+          reviews: [],
+          queue: [],
+          active: null,
+          notice: "Choose a guided step or try an action.",
+          privatePrompt: "",
+          error: "",
+          latest: "Not started",
+          clock: 0,
+          input: 0,
+          output: 0,
+          revision: 1,
+          merged: false,
+          humanEdit: false,
+          ambiguous: false,
+          intro:
+            "This release brings several improvements. This post describes them before showing a practical example.",
+          api: "The release includes a complete API example.",
+          selected: "main",
+        })
+        const reduce = (previous, action) => {
+          const s = structuredClone(previous)
+          s.clock++
+          s.latest = `09:${String(s.clock).padStart(2, "0")}`
+          const say = (who, text) => s.chat.push({ who, text })
+          const review = (who, text) => s.reviews.push({ who, text })
+          const start = (task) => {
+            s.active = task
+            s.status = "Working"
+            s.error = ""
+          }
+          const enqueue = (task) => {
+            if (s.status === "Working") {
+              s.queue.push(task)
+              s.notice = "The new input is queued for the next agent turn."
+            } else {
+              start(task)
+              s.notice = "The message starts the next turn in the same session."
+            }
+          }
+          const reject = () => {
+            s.notice = "This account is not connected. Connect it, then send the request again."
+            if (s.platform === "Slack")
+              s.privatePrompt =
+                "Only visible to Max: Sign in to Janitor and connect your Slack account. Then send your request again."
+            else {
+              say(
+                "Janitor",
+                "Connect your Discord account in Janitor, then send your request again.",
+              )
+              s.notice +=
+                " This ordinary Discord message uses the short thread fallback, not an ephemeral reply."
+            }
+          }
+          switch (action.type) {
+            case "START":
+              if (!s.connected) {
+                reject()
+                break
+              }
+              if (s.session) {
+                s.notice =
+                  "This thread already has a session. Send an ordinary message to continue."
+                break
+              }
+              s.session = true
+              say(
+                "Max",
+                "@janitor revise the introduction using the feedback above. Here is Mike’s PR.",
+              )
+              start({ kind: "edit", who: "Max", text: "Revise introduction" })
+              say(
+                "Janitor",
+                "I’ll read the PR and the feedback in this thread, then revise the introduction.",
+              )
+              s.notice =
+                "The existing thread is now the session’s home. Earlier thread messages are included."
+              break
+            case "MESSAGE": {
+              const who = action.who || "Max",
+                text = action.text || "Keep the concrete example, but shorten the opening."
+              if (who === "Visitor") {
+                say(who, text)
+                s.notice =
+                  "Visitor is not an authorized teammate. This message does not direct the agent."
+                break
+              }
+              if (who === "Max" && !s.connected) {
+                reject()
+                break
+              }
+              say(who, text)
+              if (!s.session) {
+                s.notice =
+                  "Mention Janitor to create the session before continuing with ordinary messages."
+                break
+              }
+              enqueue({ kind: "message", who, text })
+              break
+            }
+            case "REVIEW":
+              if (!s.session || s.merged) {
+                s.notice = "Start work on the open PR before simulating review handling."
+                break
+              }
+              review("Alex", "Please use a complete API example in the opening, not a fragment.")
+              enqueue({ kind: "review", who: "Alex", text: "Use a complete API example" })
+              s.notice += " Alex is an authorized teammate; no chat prompt is needed."
+              break
+            case "OUTSIDE_REVIEW":
+              review("Outside contributor", "Can you also rewrite the deployment guide?")
+              s.notice =
+                "Outside feedback does not trigger work. An authorized teammate can ask the agent to address it."
+              break
+            case "HUMAN_EDIT":
+              s.humanEdit = true
+              s.api =
+                "Mike’s new example includes cleanup and a comment explaining resource release."
+              s.revision++
+              s.notice = "Mike pushed an edit to the same PR while the session remains available."
+              break
+            case "AMBIGUITY":
+              s.ambiguous = true
+              s.notice =
+                "Scenario setup: Mike’s edit and the requested review change have incompatible meanings."
+              break
+            case "CLARIFY":
+              if (s.status !== "Needs clarification") {
+                s.notice = "There is no outstanding clarification in this scenario."
+                break
+              }
+              review("Mike", "Keep my cleanup example and use it in the opening.")
+              s.ambiguous = false
+              enqueue({ kind: "review", who: "Mike", text: "Keep cleanup example" })
+              break
+            case "FINISH": {
+              if (s.status !== "Working") {
+                s.notice = "There is no active turn to finish."
+                break
+              }
+              const task = s.active
+              s.input += 1800
+              s.output += 420
+              s.active = null
+              if (task.kind === "review" && s.ambiguous) {
+                review(
+                  "Janitor",
+                  "Your latest edit and the review request describe different behavior. Which should the example demonstrate?",
+                )
+                s.status = "Needs clarification"
+                s.notice =
+                  "The agent asks on the PR because the requested changes conflict in meaning."
+                break
+              }
+              if (task.kind === "review") {
+                s.revision++
+                review(
+                  "Janitor",
+                  s.humanEdit
+                    ? "Updated the opening with the complete example, preserving Mike’s cleanup changes."
+                    : "Updated the opening with a complete API example.",
+                )
+                s.intro =
+                  "Start with a complete example, then explain what changed in this release."
+              } else if (task.kind === "edit") {
+                s.revision++
+                s.intro = "Start with the concrete example, then explain the release improvements."
+                say(
+                  "Janitor",
+                  "I shortened the introduction and updated Mike’s existing PR. The API example is still included.",
+                )
+              } else {
+                say("Janitor", "I have the follow-up in this conversation: “" + task.text + "”")
+                say(
+                  "Demo note",
+                  "This response is illustrative. A real agent handles the instruction using the existing conversation; Janitor adds no special conflict arbitration.",
+                )
+              }
+              if (s.queue.length) {
+                start(s.queue.shift())
+                s.notice =
+                  "Turn finished. The next queued message is now being handled in the same session."
+              } else {
+                s.status = "Idle"
+                s.notice =
+                  task.kind === "review"
+                    ? "Review changes and reply are on GitHub. No Slack or Discord completion post is required."
+                    : "Turn finished. The same thread is ready for another ordinary message."
+              }
+              break
+            }
+            case "FAIL":
+              if (s.status !== "Working") {
+                s.notice = "Start a turn before simulating a failure."
+                break
+              }
+              s.status = "Failed"
+              s.error = "Could not fetch the latest PR. This turn failed."
+              s.active = null
+              say("Janitor", s.error)
+              s.notice =
+                "The error is visible in the home thread and dashboard. Recovery mechanics are not modeled."
+              break
+            case "SIGN_IN":
+              s.signedIn = true
+              s.notice =
+                "Simulated Cloudflare Access sign-in. Max is an eligible teammate; chat connection is separate."
+              break
+            case "CONNECT":
+              if (!s.signedIn) {
+                s.notice = "Sign in to Janitor before connecting an account."
+                break
+              }
+              s.connected = true
+              s.privatePrompt = ""
+              s.notice =
+                "Chat account connected. Earlier requests are not replayed; send the request again."
+              break
+            case "DISCONNECT":
+              s.connected = false
+              s.notice =
+                "Max disconnected this chat account. Shared sessions and past contributions remain."
+              break
+            case "MERGE":
+              if (s.status === "Working" || s.status === "Needs clarification" || !s.session) {
+                s.notice = "This example reaches human merging after the review work is finished."
+                break
+              }
+              s.merged = true
+              s.notice =
+                "Mike merged the PR on GitHub. This action is performed by a human, not the agent."
+              break
+          }
+          return s
+        }
+        return { initial, reduce }
+      })()
+    </script>
+    <script>
+      const scenarios = [
+        {
+          name: "Revise together",
+          description:
+            "Mike has already opened the PR. Max starts the agent; Alex and Max add ordinary messages while it works. Watch the queue and the same PR branch.",
+          steps: [
+            ["Start in the existing thread", { type: "START" }],
+            [
+              "Alex adds detail while it works",
+              {
+                type: "MESSAGE",
+                who: "Alex",
+                text: "Keep the full API example and move it nearer the opening.",
+              },
+            ],
+            [
+              "Max adds a different preference",
+              {
+                type: "MESSAGE",
+                who: "Max",
+                text: "Actually, I prefer a short excerpt in the opening.",
+              },
+            ],
+            ["Agent finishes its first turn", { type: "FINISH" }],
+            ["Agent handles Alex’s message", { type: "FINISH" }],
+            ["Agent handles Max’s message", { type: "FINISH" }],
+          ],
+        },
+        {
+          name: "Review on GitHub",
+          description:
+            "A teammate reviews the PR, and the agent addresses it without another chat prompt. Mike’s concurrent edit is preserved. An outside review does not trigger work.",
+          steps: [
+            ["Start the session", { type: "START" }],
+            ["Finish the initial rewrite", { type: "FINISH" }],
+            ["Alex reviews on GitHub", { type: "REVIEW" }],
+            ["Mike pushes his own edit", { type: "HUMAN_EDIT" }],
+            ["Agent implements and replies", { type: "FINISH" }],
+            ["An outside contributor reviews", { type: "OUTSIDE_REVIEW" }],
+            ["Mike merges on GitHub", { type: "MERGE" }],
+          ],
+        },
+        {
+          name: "Ambiguous review",
+          description:
+            "The requested change conflicts with Mike’s new edit. The agent asks for clarification on the PR through its normal conversation behavior.",
+          steps: [
+            ["Start", { type: "START" }],
+            ["Finish rewrite", { type: "FINISH" }],
+            ["Alex reviews", { type: "REVIEW" }],
+            ["Mike edits", { type: "HUMAN_EDIT" }],
+            ["Set up incompatible meanings", { type: "AMBIGUITY" }],
+            ["Agent asks on GitHub", { type: "FINISH" }],
+            ["Mike clarifies on GitHub", { type: "CLARIFY" }],
+            ["Agent updates the PR", { type: "FINISH" }],
+          ],
+        },
+        {
+          name: "Connect Slack",
+          connected: false,
+          description:
+            "Max has not connected Slack. The prompt is private where supported. Signing in and connecting never executes the old request.",
+          steps: [
+            ["Max tries to start", { type: "START" }],
+            ["Sign in through Access", { type: "SIGN_IN" }],
+            ["Connect Slack", { type: "CONNECT" }],
+            ["Max sends the request again", { type: "START" }],
+            ["Agent finishes", { type: "FINISH" }],
+            ["Disconnect Max’s account", { type: "DISCONNECT" }],
+            ["Max tries another message", { type: "MESSAGE" }],
+          ],
+        },
+        {
+          name: "Discord alternative",
+          platform: "Discord",
+          connected: false,
+          description:
+            "This is a separate scenario whose home is Discord, not a mirror of the Slack session. Ordinary Discord message events do not support ephemeral responses; this example uses a short fallback. An interaction-based entry could respond privately, but is not required here.",
+          steps: [
+            ["Try an ordinary mention", { type: "START" }],
+            ["Sign in through Access", { type: "SIGN_IN" }],
+            ["Connect Discord", { type: "CONNECT" }],
+            ["Send the request again", { type: "START" }],
+            [
+              "Alex sends an ordinary reply",
+              { type: "MESSAGE", who: "Alex", text: "Keep the API example intact." },
+            ],
+            ["Agent finishes initial turn", { type: "FINISH" }],
+            ["Agent handles the queued reply", { type: "FINISH" }],
+          ],
+        },
+        {
+          name: "A turn fails",
+          description:
+            "The agent fails to fetch the PR. The error appears in the thread and Janitor. This demonstrates reporting only; retry and recovery policy remains outside this prototype.",
+          steps: [
+            ["Start work", { type: "START" }],
+            ["Simulate a fetch failure", { type: "FAIL" }],
+          ],
+        },
+      ]
+      const actions = [
+        ["Mention Janitor to start", "START"],
+        ["Agent finishes turn", "FINISH"],
+        ["Teammate reviews on GitHub", "REVIEW"],
+        ["Mike edits the PR", "HUMAN_EDIT"],
+        ["Outside contributor reviews", "OUTSIDE_REVIEW"],
+        ["Simulate failure", "FAIL"],
+        ["Sign in to Janitor", "SIGN_IN"],
+        ["Connect chat account", "CONNECT"],
+        ["Disconnect chat account", "DISCONNECT"],
+        ["Mike merges PR", "MERGE"],
+      ]
+      let scenario = 0,
+        step = 0,
+        state = Demo.initial(),
+        period = "today"
+      const $ = (id) => document.getElementById(id),
+        esc = (x) =>
+          String(x).replace(
+            /[&<>"']/g,
+            (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+          )
+      function dispatch(action) {
+        state = Demo.reduce(state, action)
+        render()
+      }
+      function reset(index = scenario) {
+        scenario = index
+        step = 0
+        const s = scenarios[index]
+        state = Demo.initial(s.platform || "Slack", s.connected !== false)
+        render()
+      }
+      function messages(list) {
+        return (
+          list
+            .map((m) => `<div class="message"><b>${esc(m.who)}</b><p>${esc(m.text)}</p></div>`)
+            .join("") || '<p class="muted">No review feedback yet.</p>'
+        )
+      }
+      function render() {
+        const s = state,
+          guide = scenarios[scenario]
+        $("state").innerHTML =
+          `<div class="stat"><span>Home</span><strong>${esc(s.platform)} · private thread</strong></div><div class="stat"><span>Session</span><strong>${esc(s.status)}</strong></div><div class="stat"><span>Current input / waiting inputs</span><strong>${s.active ? esc(s.active.who + " · " + s.active.kind) : "None"} / ${s.queue.length}</strong></div><div class="stat"><span>PR / Max’s chat account</span><strong>${s.merged ? "Merged" : "Open"} · ${s.connected ? "Connected" : "Not connected"}</strong></div>`
+        $("change").textContent = s.notice
+        $("tabs").innerHTML = scenarios
+          .map(
+            (x, i) =>
+              `<button role="tab" aria-selected="${scenario === i}" data-scenario="${i}">${esc(x.name)}</button>`,
+          )
+          .join("")
+        $("guide").innerHTML =
+          `<p>${esc(guide.description)}</p><div class="steps">${guide.steps.map(([label], i) => `<button data-step="${i}" ${i === step ? 'class="primary"' : ""} ${i !== step ? "disabled" : ""}>${i < step ? "✓ " : `${i + 1}. `}${esc(label)}</button>`).join("")}</div><p class="hint">${step === guide.steps.length ? "Walkthrough finished. Try free-play actions or reset." : `Step ${step + 1} of ${guide.steps.length}. Free-play does not advance the guided steps.`}</p>`
+        $("home-title").textContent = s.platform + " · Home thread"
+        $("working").textContent = s.status
+        $("working").className = "badge " + (s.status === "Failed" ? "failed" : "")
+        $("chat").innerHTML =
+          messages(s.chat) +
+          (s.privatePrompt
+            ? `<div class="private"><small>Private onboarding response</small><p>${esc(s.privatePrompt)} <a href="#accounts">Connected accounts</a></p></div>`
+            : "")
+        $("queue").innerHTML =
+          `${s.status === "Working" ? '<p class="hint"><span class="dot">●</span> Working · ' + esc(s.active?.kind === "review" ? "Reading review feedback and current PR changes" : "Reading the thread and editing the post") + "</p>" : ""}<div class="queue"><b>Simulation queue</b>${s.queue.length ? "<ol>" + s.queue.map((q) => `<li>${esc(q.who)}: ${esc(q.text)}</li>`).join("") + "</ol>" : " · No waiting inputs"}<div class="hint">Shown to explain the model; not a proposed Slack control.</div></div>`
+        $("pr-status").textContent = s.merged ? "Merged by Mike" : "Open"
+        $("excerpt").textContent = s.intro + "\n\n" + s.api
+        $("reviews").innerHTML = messages(s.reviews)
+        $("revision").textContent =
+          `Illustrative branch revision ${s.revision}. ${s.humanEdit ? "Mike’s latest example is retained." : ""}`
+        $("account-state").innerHTML =
+          `<div class="row"><span class="badge">${s.signedIn ? "Signed in as Max" : "Not signed in"}</span><span>${esc(s.platform)}: ${s.connected ? "Max connected" : "Not connected"}</span><span>GitHub: ${s.signedIn ? "Max recognized in this simulation" : "Not shown before sign-in"}</span><span>${s.platform === "Slack" ? "Discord" : "Slack"}: Not connected</span></div>`
+        const other = [
+          {
+            id: "docs",
+            title: "Clarify setup guide",
+            repo: "effect.website",
+            status: "Idle",
+            time: "Yesterday",
+            input: 3400,
+            output: 800,
+          },
+          {
+            id: "bug",
+            title: "Investigate build failure",
+            repo: "effect",
+            status: "Failed",
+            time: "Yesterday",
+            input: 1200,
+            output: 150,
+          },
+        ]
+        const rows = s.session
+          ? [
+              {
+                id: "main",
+                title: "Revise the release blog post",
+                repo: "effect.website",
+                status: s.status,
+                time: s.latest,
+                input: s.input,
+                output: s.output,
+              },
+              ...other,
+            ]
+          : other
+        rows.sort((a, b) => Number(b.status === "Working") - Number(a.status === "Working"))
+        const totalInput = s.input + (period === "week" ? 4600 : 0),
+          totalOutput = s.output + (period === "week" ? 950 : 0)
+        $("totals").textContent =
+          `${period === "week" ? "Last 7 days" : "Today"} · ${totalInput.toLocaleString()} input tokens · ${totalOutput.toLocaleString()} output tokens. Illustrative usage.`
+        $("sessions").innerHTML = rows
+          .map(
+            (r) =>
+              `<tr><td><button data-detail="${r.id}">${esc(r.title)}</button></td><td>${esc(r.repo)}</td><td><span class="badge ${r.status === "Failed" ? "failed" : ""}">${esc(r.status)}</span></td><td>${esc(r.time)}</td><td>${r.input.toLocaleString()} / ${r.output.toLocaleString()}</td><td>${r.id === "main" ? '<a href="#home">Home thread</a> · <a href="#pr">PR</a>' : '<span class="muted">Illustrative session</span>'}</td></tr>`,
+          )
+          .join("")
+        const detail = rows.find((r) => r.id === s.selected)
+        $("detail").innerHTML = detail
+          ? `<div class="detail"><b>${esc(detail.title)}</b><p>${esc(detail.status)} · ${esc(detail.repo)} · ${esc(detail.time)}</p><p>${detail.id === "main" ? esc(s.error || (s.status === "Working" ? "Working on " + s.active.text : s.merged ? "PR merged by Mike" : "Last agent turn finished")) : detail.status === "Failed" ? "Repository fetch failed." : "Setup guide clarification finished."}</p><p>${detail.input.toLocaleString()} input / ${detail.output.toLocaleString()} output tokens</p>${detail.id === "main" ? '<a href="#home">Open home thread</a> · <a href="#pr">Open PR</a>' : ""}</div>`
+          : ""
+      }
+      $("actions").innerHTML = actions
+        .map(([label, type]) => `<button data-action="${type}">${esc(label)}</button>`)
+        .join("")
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("button")
+        if (!b) return
+        if (b.dataset.action) dispatch({ type: b.dataset.action })
+        if (b.dataset.scenario !== undefined) reset(Number(b.dataset.scenario))
+        if (b.dataset.step !== undefined) {
+          const i = Number(b.dataset.step)
+          if (i === step) {
+            step++
+            dispatch(scenarios[scenario].steps[i][1])
+          }
+        }
+        if (b.dataset.detail) {
+          state.selected = b.dataset.detail
+          render()
+        }
+      })
+      $("reset").onclick = () => reset()
+      $("period").onchange = (e) => {
+        period = e.target.value
+        render()
+      }
+      $("compose").onsubmit = (e) => {
+        e.preventDefault()
+        dispatch({ type: "MESSAGE", who: $("author").value, text: $("text").value })
+      }
+      render()
+    </script>
+  </body>
+</html>

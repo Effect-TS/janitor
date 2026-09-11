@@ -89,6 +89,29 @@ A label action requiring the label to be absent after evaluation, including when
 The rule makes no request to add or remove its label. Its labeling group may still remove the label when choosing which label remains.
 _Avoid_: Leave unchanged
 
+### Shared collaboration
+
+**Shared work**:
+An ongoing team effort with Janitor-run agents that teammates can join and steer. It may begin before an issue or pull request exists and later link to those artifacts.
+
+**Agent session**:
+An ongoing conversation with a Janitor-run agent that teammates can join and steer in its home thread, working within one repository. After creation, ordinary messages from authorized teammates are agent inputs; messages arriving during active work queue for the next turn.
+
+**Home thread**:
+The single private-channel thread where teammates participate in an agent session. The MVP uses Slack; Discord is planned for a later release.
+
+**Authorized team member**:
+A teammate admitted through Janitor's existing team sign-in who may direct Janitor through a connected chat account or authorized PR review feedback. Authorized team members have equivalent control of sessions they can participate in; starting a session does not grant exclusive control.
+
+**Connected chat account**:
+A Slack or Discord account associated with an authorized team member after sign-in to Janitor.
+
+**Automatic PR review handling**:
+Agent work prompted by an authorized teammate's PR review feedback, with changes and replies made on GitHub without another request in the session's home thread. Outside contributors' feedback requires an authorized teammate's request before the agent acts on it.
+
+**Janitor dashboard**:
+The team-wide observation view of agent sessions and their usage, including token usage, independent of home-channel membership. Collaboration with agents takes place in their home threads.
+
 ### Repository connections and synchronization
 
 **Repository visibility**:
