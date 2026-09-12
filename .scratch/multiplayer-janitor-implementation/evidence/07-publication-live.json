@@ -77,9 +77,7 @@
       "error": "Error: Timed out waiting for condition",
       "branchAbsent": true,
       "defaultBranchUnchanged": true,
-      "cleanupErrors": [
-        "PR cleanup or verification failed"
-      ],
+      "cleanupErrors": ["PR cleanup or verification failed"],
       "tokensRevoked": true,
       "passed": false,
       "finishedAt": "2026-09-12T23:00:52.276Z",
@@ -194,9 +192,7 @@
       "credentialsExcluded": true,
       "revokedCredentialRejected": true,
       "closedWithoutMerge": "https://github.com/Effect-TS/slopcop-sandbox/pull/10",
-      "cleanupErrors": [
-        "Branch cleanup or verification failed"
-      ],
+      "cleanupErrors": ["Branch cleanup or verification failed"],
       "tokensRevoked": true,
       "passed": false,
       "finishedAt": "2026-09-12T23:07:12.113Z",
