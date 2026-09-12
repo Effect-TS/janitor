@@ -121,6 +121,13 @@ export class RunnerStorage {
     this.write("intendedGeneration", generation)
   }
 
+  get intendedRepositoryId(): string | null | undefined {
+    return this.read<string | null>("intendedRepositoryId")
+  }
+  set intendedRepositoryId(repositoryId: string | null) {
+    this.write("intendedRepositoryId", repositoryId)
+  }
+
   get supervision(): Supervision {
     return this.read<Supervision>("supervision") ?? { revision: 0, obligation: false, dueAt: null }
   }

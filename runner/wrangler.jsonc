@@ -7,8 +7,17 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "durable_objects": {
-    "bindings": [{ "name": "SESSIONS", "class_name": "SessionRunner" }],
+    "bindings": [
+      { "name": "SESSIONS", "class_name": "SessionRunner" },
+      { "name": "SANDBOXES", "class_name": "Sandbox" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionRunner"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SessionRunner"] },
+    { "tag": "v2", "new_sqlite_classes": ["Sandbox"] },
+  ],
+  "containers": [{ "class_name": "Sandbox", "image": "./bridge/Dockerfile", "max_instances": 10 }],
+  // Set the stage-specific Janitor service and matching secret before deployment.
+  "services": [{ "binding": "REPOSITORY_AUTHORITY", "service": "janitor" }],
   "observability": { "enabled": true },
 }

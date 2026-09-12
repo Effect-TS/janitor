@@ -46,7 +46,7 @@ Use `JANITOR_AGENT_RUNNER_MODEL_API_KEY` for the provider secret and set the mod
 
 ## Command boundary
 
-All routes require the bearer token and `x-janitor-runner-protocol: 1`.
+All routes require the bearer token and `x-janitor-runner-protocol: 2`.
 
 | Route                                       | Command                                                                                   |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -66,3 +66,34 @@ Admission persists the wake obligation and arms the alarm before native admissio
 ## Deployment
 
 `wrangler.jsonc` packages `dist/worker.mjs` with the `SESSIONS` SQLite Durable Object class. Provisioning bindings and secrets per stage, and validating a real provider, belong to the deployment tickets; nothing here deploys.
+
+## Repository inspection
+
+Creation accepts an optional `repositoryId`, the numeric GitHub identity selected in Janitor. Selection is immutable. Janitor stores it on `agent_session` and includes it in the ordered creation handoff. Sessions without a selection have no tools. Selected sessions expose native `read`, `glob`, and `grep`; both shell and the SDK's synthetic `execute` tool are disabled.
+
+The runner protocol is now **2**, including on the existing `/v1/` routes. An older runner must reject the new caller instead of silently dropping repository selection. Existing protocol-1 compatibility records remain held for the guarded upgrade procedure; this change does not rewrite them or reset sessions.
+
+Provision `SANDBOXES` with the exported `Sandbox` class and a private `REPOSITORY_AUTHORITY` service binding to the stage's Janitor Worker. Set the same `REPOSITORY_SERVICE_TOKEN` secret on both Workers. The authority checks session generation, selected repository, connection, access and synchronization readiness. It issues a fresh token for one numeric repository with Contents read permission only. The GitHub App key stays in Janitor.
+
+`RepositoryWorkspace` derives the resource name from the session, generation and repository, saves its identity before allocation, and adopts the existing bridge process on reconnect. It authenticates `containerFetch` requests on port 8788 and checks the running bridge's protocol, capabilities, generation and epoch before dispatch. No preview port or public bridge route is configured.
+
+Runner SQLite saves immutable operation admission before dispatch. The bridge commits admission before spawn, records sequenced binary stdin and output, and contains each process in a PID namespace. Lost responses retry the same identity within the same epoch. Changed epochs and unresolved admissions hold recovery for reconciliation. Bridge journals survive process restart; runner admission records survive container loss. Workspace restoration and checkpoint commits belong to ticket 06.
+
+Clone credentials exist only in the controlled Git process environment. Credential helper configuration is per invocation, clone URLs contain no credentials, and clone output is discarded. The operation journal records repository identity and outcome without the token. Cleanup fences the workspace before container destruction and can retry after a failed destruction.
+
+## Repository checks and image provenance
+
+Run commands from `runner/` through Vite+:
+
+```sh
+vp install
+vp run typecheck
+vp run test:bridge
+vp run test
+vp run build
+vp run build:bridge --record
+```
+
+Runner tests build the local image and require Docker or a compatible Podman CLI. The repository acceptance driver supplies preloaded repositories and a controlled credential authority at service boundaries, then runs the production bridge image, runner SQLite and native tools. It covers two sessions, lost creation and process responses, stale generations, readiness, incompatible image capabilities and repeated cleanup. The bridge tests also clone through real Git against a local authenticated HTTP repository and check credential exclusion, binary stdin replay, output cursors and cancellation. These are local checks, not a deployed Cloudflare or live GitHub acceptance claim.
+
+`bridge/release.json` records the built image manifest digest, image ID, base image, bridge/Sandbox versions and installed tools. `vp run build:bridge --record` deliberately updates that manifest for a release candidate. Publishing that exact image and binding production services remain deployment work. Changing the Dockerfile or bridge requires rebuilding and recording a new digest.

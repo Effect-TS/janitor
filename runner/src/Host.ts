@@ -17,16 +17,20 @@ import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { makeMemoryDriver } from "@opencode/core/environment/index"
 import { migrations } from "@opencode/core/database/migration.gen"
 import { resolverLayer, type ModelConfigurations, type SecretReader } from "./ModelConfiguration.ts"
+import type { RepositoryWorkspace } from "./RepositoryWorkspace.ts"
+import { Tool as NativeTool } from "@opencode/core/tool"
+import { RipgrepBinary } from "@opencode/core/ripgrep/binary"
 
 /** Native migration ids this release's pinned SDK applies. Newer ids in storage mean newer code wrote it. */
 export const SUPPORTED_NATIVE_MIGRATIONS: ReadonlyArray<string> = migrations.map(
   (migration) => migration.id,
 )
 
-/** The workspace provider name used until repository execution lands. */
+/** The provider shared by repository-backed and conversation-only workspaces. */
 export const WORKSPACE_PROVIDER = "janitor"
 
 export interface HostDependencies {
+  readonly repository?: RepositoryWorkspace
   readonly storage: DurableObjectStorage
   readonly configurations: ModelConfigurations
   /** The session's persisted model configuration id. */
@@ -64,12 +68,30 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
     Layer.provide(Layer.succeed(HttpClient.HttpClient, deps.httpClient)),
   )
   const client = LLMClient.layer.pipe(Layer.provide(executor))
-  const driver = WorkspaceDriver.make({
-    create: ({ workspaceID }) => Effect.succeed({ binding: { workspaceID } }),
-    connect: () => Effect.succeed(makeMemoryDriver()),
-    suspendForIdle: () => Effect.void,
-    destroy: () => Effect.void,
-  })
+  const inspectionTools = NativeTool.node.mapLayer((layer) =>
+    Layer.effect(
+      NativeTool.Service,
+      Effect.gen(function* () {
+        const native = yield* NativeTool.Service
+        return {
+          ...native,
+          snapshot: (rules) =>
+            native.snapshot([
+              ...(rules ?? []),
+              { action: "execute", resource: "*", effect: "deny" },
+            ]),
+        }
+      }),
+    ).pipe(Layer.provide(layer)),
+  )
+  const driver =
+    deps.repository?.driver() ??
+    WorkspaceDriver.make({
+      create: ({ workspaceID }) => Effect.succeed({ binding: { workspaceID } }),
+      connect: () => Effect.succeed(makeMemoryDriver()),
+      suspendForIdle: () => Effect.void,
+      destroy: () => Effect.void,
+    })
   const options = {
     storage: deps.storage,
     models: { fetch: false },
@@ -87,6 +109,10 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
           {
             overrides: [
               ...ServerWorkerd.replacements(options),
+              NativeTool.node.replace(inspectionTools),
+              RipgrepBinary.node.replace(
+                Layer.succeed(RipgrepBinary.Service, { filepath: Effect.succeed("/usr/bin/rg") }),
+              ),
               SessionExecution.node.replace(execution),
               llmClient.replace(client),
               SessionRunnerModel.node.replace(
@@ -96,6 +122,36 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
           },
         )
         // Ordinary conversational questions: the structured form tool is not advertised.
+        yield* sdk.plugin({
+          id: "janitor-repository-inspection",
+          effect: (context) =>
+            Effect.gen(function* () {
+              yield* context.tool.transform((editor) => {
+                for (const tool of editor.list())
+                  if (!deps.repository || !["read", "glob", "grep"].includes(tool.id))
+                    editor.remove(tool.id)
+              })
+              yield* context.tool.hook("execute.before", (event) => {
+                const input = event.input as { path?: string } | undefined
+                if (!deps.repository)
+                  return Effect.fail(
+                    new Tool.Error({ message: "Select a ready repository before using tools" }),
+                  )
+                return Effect.tryPromise({
+                  try: () =>
+                    deps.repository!.rpc("/resolve", {
+                      path: input?.path?.startsWith("/")
+                        ? input.path
+                        : `/workspace/repository/${input?.path ?? "."}`,
+                    }),
+                  catch: () =>
+                    new Tool.Error({
+                      message: "Repository path is unavailable or outside the workspace",
+                    }),
+                }).pipe(Effect.asVoid)
+              })
+            }),
+        })
         yield* sdk.plugin({
           id: "janitor-plain-questions",
           effect: (context) => context.tool.transform((editor) => editor.remove("question")),

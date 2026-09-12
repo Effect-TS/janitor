@@ -5,7 +5,7 @@
 // declarations carry the protocol version; the runner rejects mismatches.
 import * as Schema from "effect/Schema"
 
-export const RUNNER_PROTOCOL_VERSION = 1
+export const RUNNER_PROTOCOL_VERSION = 2
 export const RUNNER_PROTOCOL_HEADER = "x-janitor-runner-protocol"
 
 export const AgentSessionId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,120}$/))
@@ -28,6 +28,7 @@ export type InputAttribution = typeof InputAttribution.Type
 export const CreateSessionRequest = Schema.Struct({
   generation: Schema.Int,
   title: Schema.String,
+  repositoryId: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9]+$/))),
   modelConfigurationId: Schema.optionalKey(Schema.String),
 })
 export type CreateSessionRequest = typeof CreateSessionRequest.Type

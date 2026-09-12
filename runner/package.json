@@ -10,9 +10,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "serve": "node scripts/serve.mjs",
-    "check": "npm run typecheck && npm run build && npm run test"
+    "check": "npm run typecheck && npm run build && npm run test",
+    "test:bridge": "node --test bridge/*.test.mjs",
+    "build:bridge": "node scripts/build-image.mjs"
   },
   "dependencies": {
+    "@cloudflare/sandbox": "0.12.9",
     "@opencode/ai": "2.0.2",
     "@opencode/core": "2.0.2",
     "@opencode/schema": "2.0.2",
@@ -30,5 +33,6 @@
   },
   "engines": {
     "node": ">=24"
-  }
+  },
+  "packageManager": "pnpm@11.20.0"
 }
