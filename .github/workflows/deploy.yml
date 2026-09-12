@@ -51,9 +51,17 @@ jobs:
           OPENAI_API_URL: ${{ vars.OPENAI_API_URL }}
           LABELING_AI_MODEL: ${{ vars.LABELING_AI_MODEL }}
           LABELING_AI_INPUT_BYTES: ${{ vars.LABELING_AI_INPUT_BYTES }}
+          JANITOR_INITIAL_ADMIN_SUBJECT: ${{ vars.JANITOR_INITIAL_ADMIN_SUBJECT }}
+          JANITOR_SLACK_CLIENT_ID: ${{ vars.JANITOR_SLACK_CLIENT_ID }}
+          JANITOR_SLACK_CLIENT_SECRET: ${{ secrets.JANITOR_SLACK_CLIENT_SECRET }}
+          JANITOR_SLACK_WORKSPACE_IDS: ${{ vars.JANITOR_SLACK_WORKSPACE_IDS }}
+          JANITOR_GITHUB_OAUTH_CLIENT_ID: ${{ vars.JANITOR_GITHUB_OAUTH_CLIENT_ID }}
+          JANITOR_GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.JANITOR_GITHUB_OAUTH_CLIENT_SECRET }}
         run: |
           # Empty optional GitHub settings should use the application's defaults.
-          for setting in OPENAI_API_KEY OPENAI_API_URL LABELING_AI_MODEL LABELING_AI_INPUT_BYTES; do
+          for setting in OPENAI_API_KEY OPENAI_API_URL LABELING_AI_MODEL LABELING_AI_INPUT_BYTES \
+            JANITOR_INITIAL_ADMIN_SUBJECT JANITOR_SLACK_CLIENT_ID JANITOR_SLACK_CLIENT_SECRET \
+            JANITOR_SLACK_WORKSPACE_IDS JANITOR_GITHUB_OAUTH_CLIENT_ID JANITOR_GITHUB_OAUTH_CLIENT_SECRET; do
             if [[ -z "${!setting}" ]]; then unset "$setting"; fi
           done
           vp exec alchemy deploy alchemy.run.ts --stage production "$ALCHEMY_MODE"
