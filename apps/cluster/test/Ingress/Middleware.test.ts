@@ -16,11 +16,15 @@ import {
 } from "../../src/Ingress/AccessJwt.ts"
 import {
   AccessMiddlewareLayer,
+  AuthenticatedMiddlewareLayer,
   CurrentAccessIdentity,
+  CurrentTeammate,
   LOCAL_DEV_ISSUER,
   makeAccessMiddlewareLayer,
   RateLimitMiddlewareLayer,
 } from "../../src/Ingress/Middleware.ts"
+import { Teammates } from "../../src/Teammates.ts"
+import { TeammateId, type TeammateSummary } from "@janitor/domain/Team/Account"
 
 const runtimeContext = RuntimeContext.RuntimeContext.of({
   Type: "Test",
@@ -440,4 +444,135 @@ describe("AccessMiddleware", () => {
       }),
     )
   })
+})
+
+describe("MembershipMiddleware", () => {
+  const identityFor = (subject: string): AccessIdentity => ({
+    issuer: "https://team.cloudflareaccess.test",
+    subject,
+    email: undefined,
+    expiresAt: DateTime.makeUnsafe("2026-09-03T12:00:00.000Z"),
+  })
+
+  const summaryFor = (subject: string, status: "active" | "removed"): TeammateSummary => ({
+    teammateId: TeammateId.make(`teammate-${subject}`),
+    issuer: "https://team.cloudflareaccess.test",
+    subject,
+    email: null,
+    role: "member",
+    status,
+    createdAt: DateTime.makeUnsafe("2026-09-01T00:00:00.000Z"),
+    removedAt: null,
+  })
+
+  /** Admits everyone except `removed`, and refuses nothing else. */
+  const teammatesStub = Teammates.of({
+    admit: (identity) =>
+      Effect.succeed(
+        identity.subject === "removed"
+          ? { _tag: "Removed", teammate: summaryFor(identity.subject, "removed") }
+          : { _tag: "Admitted", teammate: summaryFor(identity.subject, "active") },
+      ),
+    account: () => Effect.die("unused"),
+    roster: Effect.die("unused"),
+    setRole: () => Effect.die("unused"),
+    remove: () => Effect.die("unused"),
+    restore: () => Effect.die("unused"),
+    disconnect: () => Effect.die("unused"),
+    beginLink: () => Effect.die("unused"),
+    consumeLinkAttempt: () => Effect.die("unused"),
+    link: () => Effect.die("unused"),
+    authorize: () => Effect.die("unused"),
+  })
+
+  const makeLayer = (verify: AccessVerifier["Service"]["verify"]) =>
+    HttpRouter.add(
+      "GET",
+      "/whoami",
+      Effect.map(CurrentTeammate, (teammate) =>
+        HttpServerResponse.text(`${teammate.teammateId} ${teammate.status}`),
+      ),
+    ).pipe(
+      Layer.provide(AuthenticatedMiddlewareLayer),
+      Layer.provide(Layer.succeed(AccessVerifier, { verify })),
+      Layer.provide(
+        Layer.succeed(Cloudflare.Workers.WorkerExecutionContext, executionContext(undefined)),
+      ),
+    )
+
+  const respond = (
+    subject: string | undefined,
+    headers: Record<string, string>,
+    withTeammates = true,
+  ) =>
+    Effect.acquireUseRelease(
+      Effect.sync(() =>
+        HttpRouter.toWebHandler(
+          makeLayer(() =>
+            subject === undefined
+              ? Effect.fail(new AccessAssertionRejected({ reason: "expired" }))
+              : Effect.succeed(identityFor(subject)),
+          ),
+          {
+            disableLogger: true,
+            middleware: (app) =>
+              withTeammates ? app.pipe(Effect.provideService(Teammates, teammatesStub)) : app,
+          },
+        ),
+      ),
+      ({ handler }) =>
+        Effect.promise(() => handler(new Request("https://example.com/whoami", { headers }))),
+      ({ dispose }) => Effect.promise(dispose),
+    )
+
+  const executionContext = (
+    access: { aud: string; email?: string } | undefined,
+  ): Cloudflare.Workers.WorkerExecutionContext["Service"] => ({
+    raw: {} as never,
+    waitUntil: () => Effect.void,
+    passThroughOnException: () => Effect.void,
+    cache: { purge: () => Effect.die("unused") },
+    access: Effect.succeed(
+      access === undefined
+        ? undefined
+        : {
+            aud: access.aud,
+            getIdentity: () =>
+              Effect.succeed(access.email === undefined ? undefined : { email: access.email }),
+          },
+    ),
+  })
+
+  it.effect("gives the route the admitted teammate behind a verified assertion", () =>
+    Effect.gen(function* () {
+      const response = yield* respond("person", { "cf-access-jwt-assertion": "h.p.s" })
+      assert.strictEqual(response.status, 200)
+      assert.strictEqual(yield* Effect.promise(() => response.text()), "teammate-person active")
+    }),
+  )
+
+  it.effect("answers 403 with an explanation for a removed teammate", () =>
+    Effect.gen(function* () {
+      const response = yield* respond("removed", { "cf-access-jwt-assertion": "h.p.s" })
+      assert.strictEqual(response.status, 403)
+      const body = yield* Effect.promise(() => response.json())
+      assert.deepStrictEqual(body, {
+        message: "Your Janitor membership was removed. Ask an admin to restore it.",
+      })
+    }),
+  )
+
+  it.effect("still answers 401 for an expired browser session whatever the membership", () =>
+    Effect.gen(function* () {
+      const response = yield* respond(undefined, { "cf-access-jwt-assertion": "h.p.s" })
+      assert.strictEqual(response.status, 401)
+    }),
+  )
+
+  it.effect("fails closed with 503 when membership cannot be checked", () =>
+    Effect.gen(function* () {
+      const response = yield* respond("person", { "cf-access-jwt-assertion": "h.p.s" }, false)
+      assert.strictEqual(response.status, 503)
+    }),
+  )
 })

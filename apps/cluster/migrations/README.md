@@ -179,3 +179,21 @@ rolls back instead of leaving unidentifiable ciphertext behind.
 GitHub label writes share the repository lock with disconnection. AI cache writes
 recheck the connection generation under that lock. Reconnection never restores
 configuration, AI consent or old facts, and does not trigger catch-up labeling.
+
+## Teammates
+
+`0022_teammates.sql` adds the stable teammate identity behind Access sign-in,
+verified Slack and GitHub links, single-use link attempts and an administrative
+audit. A teammate is keyed by the verified Access issuer and subject; email is
+display only. Links are never deleted: `active` may direct Janitor, `disconnected`
+was released by the teammate, `disabled` was switched off by removal and still
+owns the account, and `replaced` gave way to a newer proof in the same workspace.
+Partial unique indexes keep one owner per platform account and one current link
+per teammate and workspace.
+
+Role and status changes serialize on the `teammate-roles` advisory lock and the
+target's row lock, so the last-admin check and the write are one step. Input
+acceptance must call `Teammates.authorize` inside its own transaction: it takes
+a share lock on the link and teammate rows, so removal waits for the acceptance
+to commit and a later evaluation sees the removal. The migration creates no
+rows; the first admin is admitted from `JANITOR_INITIAL_ADMIN_SUBJECT` on sign-in.

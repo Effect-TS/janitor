@@ -7,8 +7,10 @@ import { type IngressSecrets, makeGitHubWebHookRoutesLayer } from "./GitHubWebho
 import {
   type AccessMiddlewareOptions,
   makeAccessMiddlewareLayer,
+  makeAuthenticatedMiddlewareLayer,
   RateLimitMiddlewareLayer,
 } from "./Middleware.ts"
+import { AccountRoutesLayer } from "./Account.ts"
 import { RulesRoutesLayer } from "./Rules.ts"
 import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncRoutesLayer } from "./Sync.ts"
@@ -21,7 +23,9 @@ const ApiRouterLayer = Layer.effect(
 
 /**
  * The webhook route stays outside Access and relies on the GitHub signature.
- * Every human route sits behind the Access assertion check.
+ * Every human route sits behind the Access assertion check and requires an
+ * active Janitor membership. The readiness probe needs Access only: a probe
+ * is not a person, and must not be admitted as a teammate.
  */
 export const makeRoutesLayer = (
   secrets: IngressSecrets,
@@ -35,9 +39,9 @@ export const makeRoutesLayer = (
       SyncRoutesLayer,
       RulesRoutesLayer,
       ConnectionRoutesLayer,
-      ReadinessRoutesLayer,
-    ).pipe(
-      Layer.provide(makeAccessMiddlewareLayer(middleware)),
-      Layer.provide(AccessJwt.layerFrom(access)),
-    ),
-  ).pipe(Layer.provide(RateLimitMiddlewareLayer), Layer.provide(ApiRouterLayer))
+      AccountRoutesLayer,
+    ).pipe(Layer.provide(makeAuthenticatedMiddlewareLayer(middleware))),
+    ReadinessRoutesLayer.pipe(Layer.provide(makeAccessMiddlewareLayer(middleware))),
+  )
+    .pipe(Layer.provide(AccessJwt.layerFrom(access)))
+    .pipe(Layer.provide(RateLimitMiddlewareLayer), Layer.provide(ApiRouterLayer))

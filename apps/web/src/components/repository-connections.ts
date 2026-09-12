@@ -4,7 +4,6 @@ import * as Schema from "effect/Schema"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import * as Mount from "foldkit/mount"
@@ -17,6 +16,7 @@ import * as Button from "@/components/ui/button"
 import { input } from "@/components/ui/input"
 import * as Icon from "@/lib/icons"
 import { FolderGit2 } from "lucide"
+import { reasonOf, request } from "@/lib/api"
 import * as Routes from "@/routes"
 
 export const Model = Schema.Struct({
@@ -83,24 +83,8 @@ export const OutMessage = defineMessageUnion({
   OpenGithub: { url: Schema.String },
 })
 const base = "/api/v1/repository-connections"
-const request = (method: "POST" | "PUT" | "DELETE" | "PATCH", url: string, body: unknown) =>
-  Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient
-    const req = yield* HttpClientRequest.make(method)(url).pipe(HttpClientRequest.bodyJson(body))
-    const response = yield* client.execute(req)
-    if (response.status >= 400) {
-      const data = yield* HttpIncomingMessage.schemaBodyJson(
-        Schema.Struct({ message: Schema.String }),
-      )(response)
-      return yield* Effect.fail(new Error(data.message))
-    }
-    return response
-  })
 const failed = (error: unknown, operationId: number) =>
-  Message.Failed({
-    operationId,
-    reason: error instanceof Error ? error.message : "The request failed. Please retry.",
-  })
+  Message.Failed({ operationId, reason: reasonOf(error) })
 const load = (requestId: number) =>
   HttpClient.get(`${base}/available`).pipe(
     Effect.flatMap((response) =>

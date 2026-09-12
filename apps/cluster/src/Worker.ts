@@ -89,6 +89,9 @@ import {
 import { WorkflowDispatcher } from "./WorkflowDispatcher.ts"
 import { WorkflowOutbox, OutboxWake } from "./WorkflowOutbox.ts"
 import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutboxCron.ts"
+import * as AccountLinking from "./AccountLinking.ts"
+import { Teammates, TeammatesConfig } from "./Teammates.ts"
+import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
 const ZONE = "effectful.co"
@@ -99,6 +102,8 @@ const ZONE = "effectful.co"
 const LOCAL_DEV_AUDIENCE = "local-dev"
 const LOCAL_DEV_EMAIL = "dev@janitor.local"
 const LOCAL_DEV_PORT = 8787
+/** Where the browser lives locally: the web app's own Vite dev server. */
+const LOCAL_WEB_ORIGIN = "http://localhost:1337"
 
 export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
   "ClusterWorker",
@@ -135,6 +140,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       env: {
         ACCESS_AUD: access?.aud ?? "",
         LOCAL_DEV_AUDIENCE: localDev?.audience ?? "",
+        // Platform callbacks return to the browser at this origin.
+        PUBLIC_ORIGIN: dev ? LOCAL_WEB_ORIGIN : `https://${target.domain}`,
       },
       dev: {
         port: LOCAL_DEV_PORT,
@@ -196,6 +203,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       }),
     )
     const GitHubPayloadCipherLayer = PayloadCipher.layerFrom(secrets.cipher)
+    // Account linking is optional per platform; the account page says which
+    // platforms this deployment can connect.
+    const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)
 
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
       Layer.provideMerge(GitHubAppAuth.layerFrom(appCredentials)),
@@ -205,6 +215,30 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
 
     yield* RepositoryLive
     const liveEnvironment = yield* Cloudflare.Workers.WorkerEnvironment
+    // Empty everywhere except under `alchemy dev`; see the bind phase.
+    const localDevAudience =
+      typeof liveEnvironment.LOCAL_DEV_AUDIENCE === "string" &&
+      liveEnvironment.LOCAL_DEV_AUDIENCE.length > 0
+        ? liveEnvironment.LOCAL_DEV_AUDIENCE
+        : undefined
+    const publicOrigin =
+      typeof liveEnvironment.PUBLIC_ORIGIN === "string" ? liveEnvironment.PUBLIC_ORIGIN : ""
+    // The simulated local identity is the initial admin under `alchemy dev`;
+    // a deploy names its first admin by Access subject.
+    const TeammatesConfigLayer = Layer.succeed(TeammatesConfig, {
+      initialAdmin:
+        localDevAudience === undefined
+          ? Option.map(linking.initialAdminSubject, (subject) => ({
+              issuer: `https://${Access.TEAM_DOMAIN}`,
+              subject,
+            }))
+          : Option.some({ issuer: LOCAL_DEV_ISSUER, subject: LOCAL_DEV_EMAIL }),
+    })
+    if (localDevAudience === undefined && Option.isNone(linking.initialAdminSubject)) {
+      yield* Effect.logError(
+        "JANITOR_INITIAL_ADMIN_SUBJECT is not set: every teammate is admitted as a member and nobody can manage the team",
+      )
+    }
     let notifyOutbox: Effect.Effect<void> = Effect.void
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
@@ -223,6 +257,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           SyncPlanner.layer,
           SyncStatus.layer,
           RepositoryConnections.layer,
+          AccountLinking.AccountLinking.layer.pipe(
+            Layer.provide(AccountLinking.configLayer(linking, publicOrigin)),
+            Layer.provide(FetchHttpClient.layer),
+          ),
           LabelingRules.layer,
           LabelingTest.layer,
           RuleTestJobs.layer,
@@ -246,6 +284,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
+      Layer.provideMerge(Teammates.layer.pipe(Layer.provide(TeammatesConfigLayer))),
       Layer.provideMerge(
         Layer.mergeAll(
           RepositoryActivity.layer,
@@ -323,11 +362,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // At runtime an empty audience matches no assertion, so a missing binding
     // fails closed rather than open.
     const accessAudience = typeof env.ACCESS_AUD === "string" ? env.ACCESS_AUD : ""
-    // Empty everywhere except under `alchemy dev`; see the bind phase.
-    const localDevAudience =
-      typeof env.LOCAL_DEV_AUDIENCE === "string" && env.LOCAL_DEV_AUDIENCE.length > 0
-        ? env.LOCAL_DEV_AUDIENCE
-        : undefined
     const apiRoutes = yield* HttpRouter.toHttpEffect(
       makeRoutesLayer(
         secrets,

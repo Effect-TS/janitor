@@ -20,6 +20,8 @@ describe("SPA routes", () => {
     ["/repositories/701/rules/r1", "Rule"],
     ["/repositories/701/activity", "Activity"],
     ["/repositories/701/settings", "Settings"],
+    ["/account", "Account"],
+    ["/account/slack/return?code=abc&state=xyz", "AccountReturn"],
   ])("round-trips %s without confusing reserved paths with IDs", (path, tag) => {
     const route = parse(path)
     expect(route._tag).toBe(tag)
@@ -38,9 +40,24 @@ describe("SPA routes", () => {
     expect(Routes.documentPath(route)).toBe(Routes.policy({ repositoryId: "701", policyId: "p 1" }))
   })
 
+  it("keeps the platform and callback parameters of an account return", () => {
+    expect(parse("/account/github/return?code=abc&state=xyz")).toMatchObject({
+      _tag: "AccountReturn",
+      platform: "github",
+      code: "abc",
+      state: "xyz",
+    })
+    expect(parse("/account/slack/return?error=access_denied")).toMatchObject({
+      _tag: "AccountReturn",
+      platform: "slack",
+      error: "access_denied",
+    })
+  })
+
   it.each([
     "/unknown",
     "/repositories",
+    "/account/slack",
     "/repositories/701/unknown",
     "/repositories/701/policies/p1/extra",
   ])("shows not found for %s", (path) => {
