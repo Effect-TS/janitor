@@ -6,9 +6,10 @@ import * as AccessJwt from "./AccessJwt.ts"
 import { type IngressSecrets, makeGitHubWebHookRoutesLayer } from "./GitHubWebhook.ts"
 import {
   type AccessMiddlewareOptions,
-  makeAccessMiddlewareLayer,
+  makeAuthenticatedMiddlewareLayer,
   RateLimitMiddlewareLayer,
 } from "./Middleware.ts"
+import { AccountRoutesLayer } from "./Account.ts"
 import { RulesRoutesLayer } from "./Rules.ts"
 import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncRoutesLayer } from "./Sync.ts"
@@ -21,7 +22,8 @@ const ApiRouterLayer = Layer.effect(
 
 /**
  * The webhook route stays outside Access and relies on the GitHub signature.
- * Every human route sits behind the Access assertion check.
+ * Every human route sits behind the Access assertion check and requires an
+ * active Janitor membership.
  */
 export const makeRoutesLayer = (
   secrets: IngressSecrets,
@@ -36,8 +38,9 @@ export const makeRoutesLayer = (
       RulesRoutesLayer,
       ConnectionRoutesLayer,
       ReadinessRoutesLayer,
+      AccountRoutesLayer,
     ).pipe(
-      Layer.provide(makeAccessMiddlewareLayer(middleware)),
+      Layer.provide(makeAuthenticatedMiddlewareLayer(middleware)),
       Layer.provide(AccessJwt.layerFrom(access)),
     ),
   ).pipe(Layer.provide(RateLimitMiddlewareLayer), Layer.provide(ApiRouterLayer))

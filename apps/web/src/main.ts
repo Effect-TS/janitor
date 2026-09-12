@@ -1,5 +1,6 @@
 import * as Live from "./components/live"
 import * as Connections from "@/components/repository-connections"
+import * as Account from "@/components/account"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -17,7 +18,7 @@ import * as RepositorySwitcher from "@/components/repository-switcher"
 import * as Sidebar from "@/components/ui/sidebar"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
-import { House, FileCode2, Tags, Activity, Settings } from "lucide"
+import { House, FileCode2, Tags, Activity, Settings, UserRound } from "lucide"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
@@ -37,6 +38,7 @@ export const AppToast = Toast.make(ToastPayload)
 
 export const Model = Schema.Struct({
   connections: Connections.Model,
+  account: Account.Model,
   navigation: Navigation.Model,
   lastRepositoryId: Schema.Option(Schema.String),
   sidebar: Sidebar.Model,
@@ -51,6 +53,7 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   GotConnectionsMessage: { message: Connections.Message },
+  GotAccountMessage: { message: Account.Message },
   GotNavigationMessage: { message: Navigation.Message },
   PersistedRepository: {},
   GotSidebarMessage: {
@@ -141,7 +144,45 @@ export const requestNavigation = (
   }
 }
 
+/** A platform callback with both parameters completes the link; anything else just opens the page. */
+const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
+  const entered =
+    route._tag === "AccountReturn" &&
+    (route.platform === "slack" || route.platform === "github") &&
+    route.code !== undefined &&
+    route.state !== undefined
+      ? Account.returned(model.account, {
+          platform: route.platform,
+          code: route.code,
+          state: route.state,
+        })
+      : {
+          model:
+            route._tag === "AccountReturn"
+              ? evo(model.account, {
+                  error: () =>
+                    Option.some(
+                      route.error === undefined
+                        ? "The platform did not return an authorization. Start again."
+                        : `The platform declined the authorization (${route.error}).`,
+                    ),
+                })
+              : model.account,
+        }
+  return {
+    model: evo(model, {
+      navigation: (navigation) => Navigation.enter(navigation, route),
+      account: () => entered.model,
+      workspace: () => evo(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
+    }),
+    commands: Command.mapMessages(entered.commands, (message) =>
+      Message.GotAccountMessage({ message }),
+    ),
+  }
+}
+
 const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
+  if (route._tag === "Account" || route._tag === "AccountReturn") return enterAccount(model, route)
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return {
       model: evo(model, {
@@ -227,6 +268,22 @@ const updateNavigation = (model: Model, message: Navigation.Message): Step => {
     commands: [...navigationCommands(next.commands ?? []), ...(entered.commands ?? [])],
   }
 }
+
+const foldAccountOutMessage =
+  (outMessage: Account.OutMessage): Update.Step<Model, Message, AppServices> =>
+  (model) =>
+    Account.OutMessage.match(outMessage, {
+      OpenPlatform: ({ url }) => requestNavigation(model, url, false, false, true),
+      FinishedReturn: () => requestNavigation(model, Routes.account(), true, false),
+    })
+
+const foldAccount = Update.foldChild({
+  update: Account.update,
+  read: (model: Model) => Option.some(model.account),
+  write: (model, next) => evo(model, { account: () => next }),
+  toParentMessage: (message) => Message.GotAccountMessage({ message }),
+  foldOutMessage: foldAccountOutMessage,
+})
 
 const foldSidebar = Update.foldChild({
   update: Sidebar.update,
@@ -627,6 +684,7 @@ export const update = (model: Model, message: Message) =>
       }
       return { model: updated, commands }
     },
+    GotAccountMessage: ({ message }) => foldAccount(model, message),
     GotNavigationMessage: ({ message }) => updateNavigation(model, message),
     PersistedRepository: () => ({ model }),
     GotSidebarMessage: ({ message }) => foldSidebar(model, message),
@@ -697,6 +755,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
         onSome: (repositoryId) => Routes.repositoryHome({ repositoryId }),
       }),
     ),
+    account: Account.init(),
     navigation: Navigation.init(flags.historyIndex ?? 0),
     lastRepositoryId: flags.lastRepositoryId ?? Option.none(),
     sidebar,
@@ -900,9 +959,36 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
         ],
       )
 
+const isAccountRoute = (route: Routes.AppRoute): boolean =>
+  route._tag === "Account" || route._tag === "AccountReturn"
+
+const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
+  Sidebar.menu(h, {
+    children: [
+      Sidebar.menuItem(h, {
+        children: [
+          h.a(
+            [
+              h.Href(Routes.account()),
+              h.Class(
+                cn(
+                  Sidebar.sidebarMenuButtonClass,
+                  isAccountRoute(model.navigation.route) && "bg-sidebar-accent font-medium",
+                ),
+              ),
+              h.AriaCurrent(isAccountRoute(model.navigation.route) ? "page" : "false"),
+            ],
+            [Icon.view(h, UserRound, "size-4 shrink-0"), h.span([], ["Account"])],
+          ),
+        ],
+      }),
+    ],
+  })
+
 const sidebarPanel = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> => [
   Sidebar.header(h, { children: [sidebarMenu(h, model)] }),
   Sidebar.content(h, { children: [navMain(h, model)] }),
+  Sidebar.footer(h, { children: [accountLink(h, model)] }),
 ]
 
 const repositorySyncDisabled = (model: Model): boolean =>
@@ -941,11 +1027,13 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                   model.navigation.route._tag === "Connect" ||
                   model.navigation.route._tag === "ConnectReturn"
                     ? "Connect repository"
-                    : model.navigation.route._tag === "Home"
-                      ? "Repositories"
-                      : model.navigation.route._tag === "NotFound"
-                        ? "Page not found"
-                        : Routes.section(model.navigation.route),
+                    : isAccountRoute(model.navigation.route)
+                      ? "Account"
+                      : model.navigation.route._tag === "Home"
+                        ? "Repositories"
+                        : model.navigation.route._tag === "NotFound"
+                          ? "Page not found"
+                          : Routes.section(model.navigation.route),
                 ],
               ),
             ],
@@ -1045,9 +1133,18 @@ const connectionView = (h: HtmlBuilder<Message>, model: Model, repositoryId: str
         model.navigation.route._tag === "ConnectReturn" ? (model.navigation.route.state ?? "") : "",
     },
   })
+const accountView = (h: HtmlBuilder<Message>, model: Model) =>
+  h.submodel({
+    slotId: "account",
+    model: model.account,
+    view: Account.view,
+    toParentMessage: (message) => Message.GotAccountMessage({ message }),
+    viewInputs: {},
+  })
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.navigation.route
   const repositories = Option.getOrElse(model.workspace.repositories, () => [])
+  if (route._tag === "Account" || route._tag === "AccountReturn") return accountView(h, model)
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")
@@ -1156,7 +1253,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
+  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

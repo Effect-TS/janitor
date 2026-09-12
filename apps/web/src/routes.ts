@@ -25,6 +25,13 @@ export const AppRoute = Route.defineRouteUnion({
   Rule: { ...repository, ruleId: Schema.String },
   Activity: repository,
   Settings: repository,
+  Account: {},
+  AccountReturn: {
+    platform: Schema.String,
+    code: Schema.optionalKey(Schema.String),
+    state: Schema.optionalKey(Schema.String),
+    error: Schema.optionalKey(Schema.String),
+  },
   NotFound: { path: Schema.String },
 })
 export type AppRoute = typeof AppRoute.Type
@@ -98,6 +105,21 @@ export const settings = pipe(
   Route.slash(Route.literal("settings")),
   Route.mapTo(AppRoute.Settings),
 )
+export const account = pipe(Route.literal("account"), Route.mapTo(AppRoute.Account))
+// Platforms send the browser back here with `code` and `state`, or `error`.
+export const accountReturn = pipe(
+  Route.literal("account"),
+  Route.slash(idSegment("platform")),
+  Route.slash(Route.literal("return")),
+  Route.query(
+    Schema.Struct({
+      code: Schema.optionalKey(Schema.String),
+      state: Schema.optionalKey(Schema.String),
+      error: Schema.optionalKey(Schema.String),
+    }),
+  ),
+  Route.mapTo(AppRoute.AccountReturn),
+)
 export const parse = Route.parseUrlWithFallback(
   Route.oneOf(
     home,
@@ -113,6 +135,8 @@ export const parse = Route.parseUrlWithFallback(
     rule,
     activity,
     settings,
+    accountReturn,
+    account,
   ),
   AppRoute.NotFound,
 )
@@ -130,6 +154,8 @@ export const path = (route: AppRoute): string =>
     Rule: rule,
     Activity: activity,
     Settings: settings,
+    Account: account,
+    AccountReturn: accountReturn,
     NotFound: ({ path }) => path,
   })
 export const section = (

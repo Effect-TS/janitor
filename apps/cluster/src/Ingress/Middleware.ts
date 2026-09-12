@@ -7,10 +7,13 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import type * as Types from "effect/Types"
 import * as HttpRouter from "effect/unstable/http/HttpRouter"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import type { TeammateSummary } from "@janitor/domain/Team/Account"
 import { type AccessIdentity, AccessVerifier } from "./AccessJwt.ts"
+import { Teammates } from "../Teammates.ts"
 
 const RateLimitHeaders = Schema.Struct({
   "cf-connecting-ip": Schema.OptionFromOptional(Schema.String),
@@ -160,3 +163,65 @@ export const makeAccessMiddlewareLayer = (options: AccessMiddlewareOptions) =>
 
 /** The production shape: no local audience, so a missing header is a 401. */
 export const AccessMiddlewareLayer = makeAccessMiddlewareLayer({ localDevAudience: undefined })
+
+/** The active teammate behind the current request. */
+export class CurrentTeammate extends Context.Service<CurrentTeammate, TeammateSummary>()(
+  "@janitor/cluster/Ingress/Middleware/CurrentTeammate",
+) {}
+
+const removedResponse = HttpServerResponse.schemaJson(Schema.Struct({ message: Schema.String }))(
+  { message: "Your Janitor membership was removed. Ask an admin to restore it." },
+  { status: 403 },
+)
+const membershipUnavailableResponse = HttpServerResponse.empty({ status: 503 })
+
+/**
+ * A valid Access assertion is necessary but not sufficient: the person must
+ * also be an active teammate. First sign-in admits a member (or the
+ * configured initial admin); a removed teammate stays out until an admin
+ * restores them, however many times they sign in. Runs inside
+ * `AccessMiddleware`, so the identity is already verified. `Teammates` comes
+ * from the request context because the routes are built before the cluster
+ * services exist; a request without it answers 503 rather than admitting.
+ */
+export const MembershipMiddleware = HttpRouter.middleware<{ provides: CurrentTeammate }>()(
+  // The parameter is spelled out: contextual typing through the middleware
+  // overloads loses it, which erases the required and provided services.
+  Effect.fnUntraced(function* (
+    app: Effect.Effect<HttpServerResponse.HttpServerResponse, Types.unhandled, CurrentTeammate>,
+  ) {
+    const identity = yield* CurrentAccessIdentity
+    const teammates = yield* Effect.serviceOption(Teammates)
+    if (Option.isNone(teammates)) {
+      yield* Effect.logError("Teammates service missing from the request context")
+      return membershipUnavailableResponse
+    }
+    const admission = yield* teammates.value
+      .admit(identity)
+      .pipe(
+        Effect.catchTag("TeammateError", (error) =>
+          Effect.logError("Teammate admission failed", error.message).pipe(Effect.as(undefined)),
+        ),
+      )
+    if (admission === undefined) {
+      return membershipUnavailableResponse
+    }
+    if (admission._tag === "Removed") {
+      return yield* removedResponse
+    }
+    return yield* app.pipe(
+      Effect.provideService(CurrentTeammate, admission.teammate),
+      Effect.annotateLogs({ teammateId: admission.teammate.teammateId }),
+    )
+  }),
+)
+
+/** Access verification with membership inside it: what every human route sits behind. */
+export const makeAuthenticatedMiddlewareLayer = (options: AccessMiddlewareOptions) =>
+  MembershipMiddleware.combine(AccessMiddleware).layer.pipe(
+    Layer.provide(Layer.succeed(AccessMiddlewareConfig, options)),
+  )
+
+export const AuthenticatedMiddlewareLayer = makeAuthenticatedMiddlewareLayer({
+  localDevAudience: undefined,
+})
