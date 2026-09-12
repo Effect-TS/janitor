@@ -1,7 +1,6 @@
 {
-  // The vendored OpenCode source is type-checked alongside the runner, so the
-  // flags match upstream's `@tsconfig/bun` baseline; stricter optional-property
-  // and unused checks would report upstream code, not runner defects.
+  // Module settings follow the published OpenCode packages (bundler resolution,
+  // workerd/browser export conditions); `skipLibCheck` covers their declarations.
   "compilerOptions": {
     "target": "ESNext",
     "module": "Preserve",
@@ -12,6 +11,8 @@
     "types": ["@cloudflare/workers-types/experimental", "node"],
     "strict": true,
     "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,

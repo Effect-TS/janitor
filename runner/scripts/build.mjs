@@ -1,8 +1,8 @@
 // Bundles the runner Worker with the isolated OpenCode dependency graph.
 //
-// OpenCode imports Markdown/text prompt files, selects `workerd`/`browser`
-// export conditions, and some transitive CommonJS modules need `require` for
-// Node builtins under nodejs_compat. `--test` bundles the test entry, which
+// OpenCode selects `workerd`/`browser` export conditions, some packages import
+// Markdown/text prompt files, and some transitive CommonJS modules need
+// `require` for Node builtins under nodejs_compat. `--test` bundles the test entry, which
 // wraps the production runner with fault injection and a scripted model.
 import { build } from "vite-plus"
 import { builtinModules } from "node:module"

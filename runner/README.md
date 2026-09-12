@@ -1,25 +1,24 @@
 # Janitor session runner
 
-The runner is a separately built Cloudflare Worker with one SQLite Durable Object per agent session. Each object hosts the pinned OpenCode Workerd SDK (`@opencode/sdk/workerd/effect` at revision `2df00955cb933e977427535d2505e50cbc689c69`) and owns the native conversation, inbox, execution claims, durable events and usage. Janitor talks to it only through the versioned JSON command boundary in `src/Protocol.ts`.
+The runner is a separately built Cloudflare Worker with one SQLite Durable Object per agent session. Each object hosts the pinned OpenCode Workerd SDK (`@opencode/sdk/workerd/effect`, published packages `@opencode/*` 2.0.2) and owns the native conversation, inbox, execution claims, durable events and usage. Janitor talks to it only through the versioned JSON command boundary in `src/Protocol.ts`.
 
 ## Why a separate workspace
 
-The pinned SDK was verified against the registry Effect `4.0.0-rc.112` graph. Janitor's root workspace pins a pkg.pr.new Effect snapshot with global overrides, and the two graphs are not interchangeable. This directory is its own pnpm workspace (`pnpm-workspace.yaml`, `pnpm-lock.yaml`) so neither side's overrides can silently replace the other's dependencies. The root `vp` checks ignore this directory; run the runner's own checks from here.
+The published SDK depends on the registry Effect `4.0.0-rc.112` graph. Janitor's root workspace pins a pkg.pr.new Effect snapshot with global overrides, and the two graphs are not interchangeable. This directory is its own pnpm workspace (`pnpm-workspace.yaml`, `pnpm-lock.yaml`) so neither side's overrides can silently replace the other's dependencies. The root `vp` checks ignore this directory; run the runner's own checks from here.
 
 ## Setup
 
 ```sh
 cd runner
-node scripts/vendor-opencode.mjs   # extracts the pinned OpenCode packages into vendor/
 pnpm install
 ```
 
-`vendor/` is not committed. `scripts/vendor-opencode.mjs` fetches the revision recorded in `opencode.json` (a blob-less clone, or `OPENCODE_SOURCE=/path/to/clone` to reuse a local checkout) and writes `vendor/SOURCE.json` with the extracted packages and a content hash. Upstream manifests lose scripts, devDependencies, optional UI peers and test directories; runtime source is unchanged.
+The OpenCode packages are exact registry versions in `package.json`; upgrading them is a release decision (see the upgrade contract) because the native migration set and protocol may change.
 
 ## Checks
 
 ```sh
-pnpm typecheck   # runner sources; upstream diagnostics under vendor/ are reported, not counted
+pnpm typecheck   # runner sources against the published declarations
 pnpm build       # dist/worker.mjs, the deployable bundle
 pnpm test        # builds dist-test/worker.mjs and runs the Miniflare scenarios
 ```
