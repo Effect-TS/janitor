@@ -1,0 +1,34 @@
+{
+  "name": "@janitor/runner",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Janitor agent session runner: one Durable Object per session hosting the pinned OpenCode Workerd SDK.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:test": "node scripts/build.mjs --test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "serve": "node scripts/serve.mjs",
+    "check": "npm run typecheck && npm run build && npm run test"
+  },
+  "dependencies": {
+    "@opencode/ai": "2.0.2",
+    "@opencode/core": "2.0.2",
+    "@opencode/schema": "2.0.2",
+    "@opencode/sdk": "2.0.2",
+    "@opencode/server": "2.0.2",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260702.1",
+    "@types/node": "24.13.3",
+    "miniflare": "4.20260708.0",
+    "typescript": "5.9.3",
+    "vite-plus": "0.3.0",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -131,6 +131,13 @@ A Slack or Discord account associated with an authorized team member after sign-
 
 In the MVP, a teammate connects one Slack account per workspace, and each Slack account belongs to one teammate at a time.
 
+**Runner handoff**:
+Janitor's durable record that an accepted agent input has been sent to the session runner but not yet confirmed as natively admitted. Inputs are delivered in acceptance order; an earlier input whose receipt is uncertain is retried with its same runner message id before any later input can overtake it.
+_Avoid_: Delivery retry queue
+
+**Catch-up obligation**:
+The persisted promise, kept per agent session, to read the runner's durable events after the consumer's cursor at a due time. The next obligation is written before the current read is released, so a final event cannot be stranded on a missed notification.
+
 **Automatic PR review handling**:
 Agent work prompted by an authorized teammate's PR review feedback, with changes and replies made on GitHub without another request in the session's home thread. Outside contributors' feedback requires an authorized teammate's request before the agent acts on it.
 
