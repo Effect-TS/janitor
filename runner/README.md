@@ -69,17 +69,40 @@ Admission persists the wake obligation and arms the alarm before native admissio
 
 ## Repository execution
 
-Creation accepts an optional `repositoryId`, the numeric GitHub identity selected in Janitor. Selection is immutable. Janitor stores it on `agent_session` and includes it in the ordered creation handoff. Sessions without a selection have no tools. Selected sessions expose native `read`, `glob`, `grep`, `write`, `edit`, and foreground `shell`. The synthetic `execute` tool, structured questions, and direct session-shell/background entry points remain disabled.
+Creation accepts an optional `repositoryId`, the numeric GitHub identity selected in Janitor. Selection is immutable. Janitor stores it on `agent_session` and includes it in the ordered creation handoff. Sessions without a selection have no tools. Selected sessions expose native `read`, `glob`, `grep`, `write`, `edit`, foreground `shell`, and Janitor's `publish` tool. The synthetic `execute` tool, structured questions, and direct session-shell/background entry points remain disabled.
 
 The runner protocol is now **2**, including on the existing `/v1/` routes. An older runner must reject the new caller instead of silently dropping repository selection. Existing protocol-1 compatibility records remain held for the guarded upgrade procedure; this change does not rewrite them or reset sessions.
 
-Provision `SANDBOXES` with the exported `Sandbox` class and a private `REPOSITORY_AUTHORITY` service binding to the stage's Janitor Worker. Set the same `REPOSITORY_SERVICE_TOKEN` secret on both Workers. The authority checks session generation, selected repository, connection, access and synchronization readiness. It issues a fresh token for one numeric repository with Contents read permission only. The GitHub App key stays in Janitor.
+Provision `SANDBOXES` with the exported `Sandbox` class and a private `REPOSITORY_AUTHORITY` service binding to the stage's Janitor Worker. Set the same `REPOSITORY_SERVICE_TOKEN` secret on both Workers. The authority checks session generation, selected repository, connection, access and synchronization readiness on every request, including cache hits. It caches tokens by installation, numeric repository and permission set, refreshing within one minute of expiry or after invalidation. Clone and fetch use Contents read, push uses Contents write, and PR API calls use Contents read plus Pull requests write. The GitHub App installation must grant those permissions. Its private key stays in Janitor.
 
 `RepositoryWorkspace` derives the resource name from the session, generation and repository, saves its identity before allocation, and adopts the existing bridge process on reconnect. It authenticates `containerFetch` requests on port 8788 and checks the running bridge's protocol, capabilities, generation and epoch before dispatch. No preview port or public bridge route is configured.
 
 Runner SQLite saves immutable operation admission before dispatch. The bridge commits admission before spawn, records sequenced binary stdin and output, and contains each process in a PID namespace under a separate workspace user. This user cannot read the bridge process environment or write its journal. Lost responses retry the same identity within the same epoch. Changed epochs and unresolved admissions hold recovery for reconciliation. Bridge journals survive process restart; runner admission records survive container loss. Tool admission also precedes native execution. A tool result is released only after its workspace archive and saved result commit together in runner SQLite. A changed bridge epoch restores the last committed archive only when no operation is uncertain.
 
 Clone credentials exist only in the controlled Git process environment. Credential helper configuration is per invocation, clone URLs contain no credentials, and clone output is discarded. The operation journal records repository identity and outcome without the token. Cleanup fences the workspace before container destruction and can retry after a failed destruction.
+
+## New-work publication
+
+After committing and testing changes, the agent calls `publish` with a title, a substantive body including validation, and an optional base branch. The default base comes from GitHub. The session, generation and repository determine one stable `janitor/<sha256>` branch. Slack conversations already associated with a PR cannot use this new-work path; existing-PR updates belong to the next implementation slice. Repeated calls after completion return the recorded PR.
+
+Publication stops workspace processes and copies regular Git object files into a private temporary repository. It ignores workspace Git config, hooks, replacement refs and alternates. Credentials reach only controlled network Git commands, and push uses an explicit repository URL and branch refspec without force. A private worktree merge supports the image's Git 2.34, incorporates fetched human commits, and reports conflicts without changing the agent's work. The designated local branch and merged commit are checkpointed before push.
+
+Runner SQLite records the preparation identity and intended commit, head and base before remote writes. The bridge journals preparation receipts without credentials, allowing a lost response or interrupted checkpoint upload to recover the same result. Remote refs establish whether a push landed; matching PRs use a stable marker and numeric head/base repository identities. PR head SHA may lag the ref. An uncertain PR creation never triggers another POST. Pending publication blocks ordinary repository tools until reconciliation. Confirmed denied or invalid writes preserve work and permit a retry on the same branch.
+
+The durable native tool result includes the PR association and summary. Slack consumes that result, saves `slack_thread.pr_number` and queues the summary and link even if the model never produces a final answer. Tool failures also reach the thread. Publication does not merge PRs.
+
+The native publication test uses local Workerd, SQLite, R2 and the production bridge image with real Git repositories. It exercises divergent human commits on the pinned image, lost preparation/push/PR responses, checkpoint interruption, readiness loss, denied and invalid PR writes, credential exclusion and duplicate prevention. GitHub responses are controlled fixtures. Live GitHub permissions, branch protection and deployed service bindings require separate acceptance evidence.
+
+`test/Publication.live.test.ts` is skipped by default. After authorization for bounded writes in `Effect-TS/slopcop-sandbox`, run it from `runner/` with these environment variables:
+
+```sh
+FIXTURE_ALLOW_PUBLICATION=Effect-TS/slopcop-sandbox \
+FIXTURE_APP_ENV_FILE=/absolute/path/to/.env.production \
+FIXTURE_REPORT_PATH=/absolute/path/to/publication-result.json \
+vp run test test/Publication.live.test.ts
+```
+
+The environment file must contain `JANITOR_GITHUB_APP_ID` and `JANITOR_GITHUB_APP_PRIVATE_KEY`. The driver mints repository-scoped installation tokens, uses a scripted model with local durable execution and the production bridge, and permits one branch push and one PR creation. It discards successful push and PR responses, restarts the runner, and reconciles the existing PR. Cleanup stops execution, closes the PR without merging, deletes its branch, verifies the default branch, and revokes tokens. The evidence file records identities before writes and cleanup outcomes without credentials. Any unresolved cleanup must be reconciled using that file before another live run. This does not exercise deployed service bindings, production credential-authority readiness checks, or Slack delivery.
 
 ## Repository checks and image provenance
 

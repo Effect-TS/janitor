@@ -23,6 +23,24 @@ export interface Output {
 const Fields = Schema.Struct({
   text: Schema.optionalKey(Schema.String),
   error: Schema.optionalKey(Schema.Struct({ message: Schema.optionalKey(Schema.String) })),
+  metadata: Schema.optionalKey(
+    Schema.Struct({
+      publication: Schema.optionalKey(
+        Schema.Struct({
+          operationId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+          repositoryId: Schema.String,
+          number: Schema.Int.check(Schema.isGreaterThan(0)),
+          url: Schema.String.check(
+            Schema.isPattern(
+              /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[0-9]+$/,
+            ),
+          ),
+          title: Schema.String,
+          body: Schema.String,
+        }),
+      ),
+    }),
+  ),
 })
 
 export class SlackDelivery extends Context.Service<
@@ -57,11 +75,16 @@ export class SlackDelivery extends Context.Service<
                 yield* sql<Thread>`SELECT * FROM slack_thread WHERE session_id=${sessionId} FOR UPDATE`
               if (!current) return
               let cursor = Number(current.publication_cursor)
+              let publishedPr = current.pr_number
               for (const event of page.events) {
                 if (event.seq <= cursor) continue
                 const decoded = Schema.decodeUnknownOption(Fields)(event.data)
                 const fields = decoded._tag === "Some" ? decoded.value : {}
                 switch (event.type) {
+                  case "session.tool.failed":
+                    if (fields.error?.message)
+                      yield* enqueueOutput(sql, sessionId, "error", fields.error.message)
+                    break
                   case "session.text.ended":
                     if (fields.text) yield* enqueueOutput(sql, sessionId, "response", fields.text)
                     break
@@ -83,6 +106,19 @@ export class SlackDelivery extends Context.Service<
                     yield* enqueueOutput(sql, sessionId, "progress", "Working on your request.")
                     break
                   case "session.tool.success":
+                    if (fields.metadata?.publication) {
+                      const pr = fields.metadata.publication
+                      if (pr.repositoryId === current.repository_id && publishedPr === null) {
+                        yield* sql`UPDATE slack_thread SET pr_number=${String(pr.number)} WHERE session_id=${sessionId} AND pr_number IS NULL`
+                        publishedPr = String(pr.number)
+                        yield* enqueueOutput(
+                          sql,
+                          sessionId,
+                          "response",
+                          `${pr.title}\n\n${pr.body}\n\nReview: ${pr.url}\nA teammate can review and merge this PR.`,
+                        )
+                      }
+                    }
                     yield* enqueueOutput(
                       sql,
                       sessionId,

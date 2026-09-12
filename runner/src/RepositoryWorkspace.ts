@@ -5,6 +5,7 @@ import { makeRemoteSpawner, type BridgeRpc } from "./RemoteProcess.ts"
 import { ProtocolError } from "./Protocol.ts"
 import { RunnerStorage } from "./Storage.ts"
 import { WorkspaceCheckpoints, type Archive } from "./WorkspaceCheckpoints.ts"
+import { Publication, type CredentialPermission } from "./Publication.ts"
 
 export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "read",
@@ -13,6 +14,7 @@ export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "edit",
   "write",
   "shell",
+  "publish",
 ]
 const payloadHash = async (value: unknown) => {
   const digest = await crypto.subtle.digest(
@@ -38,6 +40,7 @@ export interface WorkspaceEnvironment {
   readonly SANDBOXES?: DurableObjectNamespace<Sandbox>
   readonly REPOSITORY_AUTHORITY?: RepositoryAuthority
   readonly REPOSITORY_SERVICE_TOKEN?: string
+  readonly GITHUB_PUBLICATION_API?: RepositoryAuthority
 }
 export interface Binding {
   resource: string
@@ -74,6 +77,7 @@ const required = [
   "pid-namespace-v1",
   "workspace-user-v1",
   "checkpoint-stream-v2",
+  "publication-v1",
 ]
 export const checkBridge = (meta: Meta, generation: number) => {
   if (
@@ -88,6 +92,7 @@ export const checkBridge = (meta: Meta, generation: number) => {
 /** Runner-owned provisioning identity and admission evidence survive container loss. */
 export class RepositoryWorkspace {
   readonly checkpoints: WorkspaceCheckpoints
+  readonly publication: Publication
   private toolTimeout = 120000
   private activeTool: string | undefined
   private connecting: Promise<Binding> | undefined
@@ -103,11 +108,42 @@ export class RepositoryWorkspace {
     readonly selected: RepositorySelection,
   ) {
     this.checkpoints = new WorkspaceCheckpoints(storage, env.WORKSPACE_CHECKPOINTS)
+    this.publication = new Publication(storage, selected, {
+      authorize: (token, permission, refresh) => this.authority(token, permission, refresh, true),
+      fetch: (request) => env.GITHUB_PUBLICATION_API?.fetch(request) ?? fetch(request),
+      fence: async () => {
+        if (
+          new RunnerStorage(storage).disconnection !== undefined ||
+          (await storage.get<Binding>("_janitor_workspace"))?.destroyed
+        )
+          throw new ProtocolError("stale_generation", "Late publication completion fenced")
+      },
+      git: async <A>(action: string, input: unknown): Promise<A> => {
+        const binding = await storage.get<Binding>("_janitor_workspace")
+        if (!binding?.epoch) throw new ProtocolError("blocked", "Workspace is unavailable")
+        const meta = (await this.raw(binding, "/meta")) as Meta
+        checkBridge(meta, selected.generation)
+        if (meta.epoch !== binding.epoch)
+          throw new ProtocolError("blocked", "Bridge changed during publication")
+        // Credentials never enter the ordinary process operation journal.
+        return (await this.raw(binding, `/git/${action}`, input)) as A
+      },
+      checkpoint: async () => {
+        const binding = await storage.get<Binding>("_janitor_workspace")
+        if (!binding?.epoch) throw new ProtocolError("blocked", "Workspace is unavailable")
+        await this.checkpoints.commit(await this.snapshot(binding), binding.resource)
+      },
+    })
     storage.sql.exec(`CREATE TABLE IF NOT EXISTS _janitor_operation (
       id TEXT PRIMARY KEY, epoch TEXT NOT NULL, payload_hash TEXT NOT NULL,
       payload TEXT NOT NULL, state TEXT NOT NULL, result TEXT)`)
   }
-  private async authority(token: boolean) {
+  private async authority(
+    token: boolean,
+    permission: CredentialPermission = "read",
+    refresh = false,
+    publication = false,
+  ) {
     if (!this.env.REPOSITORY_AUTHORITY || !this.env.REPOSITORY_SERVICE_TOKEN)
       throw new ProtocolError("blocked", "Repository credential authority is not configured")
     const response = await this.env.REPOSITORY_AUTHORITY.fetch(
@@ -117,7 +153,8 @@ export class RepositoryWorkspace {
           authorization: `Bearer ${this.env.REPOSITORY_SERVICE_TOKEN}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ ...this.selected, token }),
+        body: JSON.stringify({ ...this.selected, token, permission, refresh, publication }),
+        signal: AbortSignal.timeout(20000),
       }),
     )
     if (!response.ok)
@@ -134,7 +171,11 @@ export class RepositoryWorkspace {
   }
   private async request(binding: Binding, path: string, input?: unknown, archive?: Archive) {
     const current = await this.storage.get<Binding>("_janitor_workspace")
-    if (current?.destroyed) throw new ProtocolError("stale_generation", "Workspace was destroyed")
+    if (
+      current?.destroyed ||
+      (path.startsWith("/git/") && new RunnerStorage(this.storage).disconnection !== undefined)
+    )
+      throw new ProtocolError("stale_generation", "Workspace was destroyed")
     const response = await this.sandbox(binding).containerFetch(
       `http://bridge${path}`,
       {
@@ -156,7 +197,10 @@ export class RepositoryWorkspace {
       },
       8788,
     )
-    if ((await this.storage.get<Binding>("_janitor_workspace"))?.destroyed)
+    if (
+      (await this.storage.get<Binding>("_janitor_workspace"))?.destroyed ||
+      (path.startsWith("/git/") && new RunnerStorage(this.storage).disconnection !== undefined)
+    )
       throw new ProtocolError("stale_generation", "Late workspace response fenced")
     if (!response.ok)
       throw new ProtocolError(
@@ -356,6 +400,7 @@ export class RepositoryWorkspace {
     }
   }
   async admitTool(id: string, input: unknown, timeout = 120000) {
+    await this.publication.guard()
     await this.authority(false)
     const result = await this.checkpoints.admit(id, input)
     this.toolTimeout = timeout
@@ -381,6 +426,10 @@ export class RepositoryWorkspace {
   }
   releaseTool() {
     this.activeTool = undefined
+  }
+  async thaw() {
+    const binding = await this.storage.get<Binding>("_janitor_workspace")
+    if (binding?.epoch && !binding.destroyed) await this.raw(binding, "/thaw", {})
   }
   async destroy() {
     let binding = await this.storage.get<Binding>("_janitor_workspace")
