@@ -6,7 +6,7 @@
 // graph; the protocol version guards drift between the two declarations.
 import { Schema } from "effect"
 
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 export const PROTOCOL_HEADER = "x-janitor-runner-protocol"
 
 /** Stable identity of one Janitor agent session; also the Durable Object name. */
@@ -24,6 +24,7 @@ export type InputId = typeof InputId.Type
 export const CreateSession = Schema.Struct({
   generation: Generation,
   title: Schema.String,
+  repositoryId: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9]+$/))),
   /** Omitted selects the deployment default for a new session; existing sessions keep their record. */
   modelConfigurationId: Schema.optionalKey(Schema.String),
 })

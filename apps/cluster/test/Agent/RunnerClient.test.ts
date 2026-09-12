@@ -77,7 +77,7 @@ describe("RunnerClient", () => {
           const events = yield* runner.readEvents("s1", 0)
           assert.deepStrictEqual(events.events, [])
           assert.strictEqual(recorded[0]?.url, "http://runner.test/v1/sessions/s1")
-          assert.strictEqual(recorded[0]?.headers[RUNNER_PROTOCOL_HEADER], "1")
+          assert.strictEqual(recorded[0]?.headers[RUNNER_PROTOCOL_HEADER], "2")
           assert.strictEqual(recorded[0]?.headers.authorization, "Bearer secret-token")
           assert.deepStrictEqual(JSON.parse(recorded[0]!.body), { generation: 1, title: "t" })
           assert.strictEqual(

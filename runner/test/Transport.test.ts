@@ -97,7 +97,7 @@ describe("model transport", () => {
     expect(failed).toHaveLength(1)
   })
 
-  it("rejects background and unlimited commands before the shell boundary", async () => {
+  it("does not advertise or execute shell commands before repository mutation support", async () => {
     const session = harness.session(uniqueSessionId("shell"))
     await session.faults({ intervalMs: 500 })
     await session.model({ mode: "shell-policy", answers: ["policy checked"] })
@@ -107,7 +107,11 @@ describe("model transport", () => {
     expect(done.execution).toBe("idle")
     const state = await session.state()
     expect(state.modelCalls).toBe(3)
-    expect(state.journal.filter((entry: any) => entry.kind === "shell-rejected")).toHaveLength(2)
+    expect(
+      state.journal
+        .filter((entry: any) => entry.kind === "model-call")
+        .every((entry: any) => entry.data.tools.length === 0),
+    ).toBe(true)
     const events = (await session.allEvents()).events
     expect(events.filter((event) => event.type === "session.tool.failed")).toHaveLength(2)
     expect(events.filter((event) => event.type === "session.tool.success")).toHaveLength(0)

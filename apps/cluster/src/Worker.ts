@@ -97,6 +97,7 @@ import { AgentCatchUpWake, AgentEventProjection } from "./Agent/EventProjection.
 import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
 import { RunnerClient } from "./Agent/RunnerClient.ts"
 import { AgentSessions } from "./Agent/Sessions.ts"
+import { RepositoryAccess } from "./Agent/RepositoryAccess.ts"
 import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
 import { SlackConversation } from "./Slack/Conversation.ts"
@@ -326,6 +327,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
       AgentLayers,
+      RepositoryAccess.layer,
     ).pipe(
       Layer.provideMerge(LabelingSyncIntegrationLayer),
       Layer.provideMerge(

@@ -36,6 +36,7 @@ export const testConfigurations = {
 }
 
 export interface HarnessOptions {
+  readonly serviceBindings?: Record<string, (request: Request) => Promise<Response>>
   readonly persist?: string
   readonly secret?: string | undefined
   readonly bindings?: Record<string, string>
@@ -58,6 +59,7 @@ export const makeMiniflare = (options: HarnessOptions = {}) =>
       ...options.bindings,
     },
     durableObjects: { SESSIONS: { className: "SessionRunner", useSQLite: true } },
+    serviceBindings: options.serviceBindings,
     ...(options.persist === undefined ? {} : { durableObjectsPersist: options.persist }),
   })
 
@@ -148,7 +150,12 @@ export class SessionDriver {
     return this.harness.call("GET", `/__test/sessions/${this.id}/state`)
   }
   create(
-    body: { generation?: number; title?: string; modelConfigurationId?: string } = {},
+    body: {
+      generation?: number
+      title?: string
+      modelConfigurationId?: string
+      repositoryId?: string
+    } = {},
     expected = 200,
   ) {
     return this.harness.call(
@@ -158,6 +165,7 @@ export class SessionDriver {
         generation: body.generation ?? 1,
         title: body.title ?? "test session",
         ...(body.modelConfigurationId ? { modelConfigurationId: body.modelConfigurationId } : {}),
+        ...(body.repositoryId ? { repositoryId: body.repositoryId } : {}),
       },
       expected,
     )

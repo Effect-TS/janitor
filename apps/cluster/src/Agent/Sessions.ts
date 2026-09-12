@@ -112,6 +112,7 @@ export class AgentSessions extends Context.Service<
     readonly start: (input: {
       readonly sessionId: AgentSessionId
       readonly title: string
+      readonly repositoryId?: string
     }) => Effect.Effect<AgentSessionRow, AgentSessionError | WorkflowOutboxError>
     /**
      * Accepts an authorized input: assigns its sequence, freezes its content and
@@ -165,12 +166,18 @@ export class AgentSessions extends Context.Service<
       const start = Effect.fn("AgentSessions.start")(function* (input: {
         readonly sessionId: AgentSessionId
         readonly title: string
+        readonly repositoryId?: string
       }) {
+        if (input.repositoryId !== undefined && !/^[0-9]+$/.test(input.repositoryId))
+          return yield* new AgentSessionError({
+            operation: "start",
+            message: "Invalid repository identity",
+          })
         return yield* sql
           .withTransaction(
             Effect.gen(function* () {
               const rows = yield* sql`
-              INSERT INTO agent_session (session_id, title) VALUES (${input.sessionId}, ${input.title})
+              INSERT INTO agent_session (session_id, title, repository_id) VALUES (${input.sessionId}, ${input.title}, ${input.repositoryId ?? null})
               ON CONFLICT (session_id) DO NOTHING
               RETURNING ${sessionColumns}
             `.pipe(Effect.flatMap(decodeSessions), wrap("start"))
@@ -189,6 +196,16 @@ export class AgentSessions extends Context.Service<
                   Effect.flatMap(decodeSessions),
                   wrap("start"),
                 )
+              const selection = yield* sql<{
+                repository_id: string | null
+              }>`SELECT repository_id FROM agent_session WHERE session_id = ${input.sessionId}`.pipe(
+                wrap("start"),
+              )
+              if (selection[0]?.repository_id !== (input.repositoryId ?? null))
+                return yield* new AgentSessionError({
+                  operation: "start",
+                  message: "Session repository selection is immutable",
+                })
               return existing[0]!
             }),
           )

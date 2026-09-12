@@ -73,6 +73,7 @@ const UnsettledRow = Schema.Struct({
 })
 
 const SessionRow = Schema.Struct({
+  repository_id: Schema.NullOr(Schema.String),
   generation: Schema.Int,
   title: Schema.String,
   native_session_id: Schema.NullOr(Schema.String),
@@ -126,7 +127,7 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
 
   return yield* Effect.gen(function* () {
     const sessions = yield* query(sql`
-      SELECT generation::int AS generation, title, native_session_id, runner_state FROM agent_session WHERE session_id = ${sessionId}
+      SELECT generation::int AS generation, title, native_session_id, runner_state, repository_id FROM agent_session WHERE session_id = ${sessionId}
     `).pipe(Effect.flatMap(decodeSession), Effect.mapError(dbError))
     const session = sessions[0]
     if (session === undefined || session.runner_state === "disconnected") return "settled" as const
@@ -134,7 +135,11 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
     // Native creation is idempotent on the deterministic session identity.
     if (session.native_session_id === null) {
       const created = yield* runner
-        .createSession(sessionId, { generation: session.generation, title: session.title })
+        .createSession(sessionId, {
+          generation: session.generation,
+          title: session.title,
+          ...(session.repository_id === null ? {} : { repositoryId: session.repository_id }),
+        })
         .pipe(Effect.result)
       if (created._tag === "Failure") {
         const outcome = yield* classify(created.failure, markSession)

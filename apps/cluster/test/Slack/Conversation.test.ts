@@ -145,7 +145,7 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
         }
         const sql = yield* SqlClient.SqlClient
         yield* sql`INSERT INTO github_installation (installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence,access_error) VALUES ('slack-i','1','team','Organization','all','active','https://github.com/team',1,NULL)`
-        yield* sql`INSERT INTO github_repository (repository_id,installation_id,owner,repo,access,enabled,projected_sequence,automation_ready_at) VALUES ('slack-r','slack-i','team','repo','accessible',true,1,now())`
+        yield* sql`INSERT INTO github_repository (repository_id,installation_id,owner,repo,access,enabled,projected_sequence,automation_ready_at) VALUES ('12345','slack-i','team','repo','accessible',true,1,now())`
         const webhook = yield* SlackWebhook
         const conversation = yield* SlackConversation
         const processor = yield* SlackProcessor
@@ -188,6 +188,10 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
         yield* processor.process(id)
         assert.isNull((yield* conversation.inspect("C2", "200.000001")).thread?.warning)
         const view = yield* (yield* AgentSessions).view(id)
+        const selected = yield* sql<{
+          repository_id: string
+        }>`SELECT repository_id FROM agent_session WHERE session_id=${id}`
+        assert.strictEqual(selected[0]?.repository_id, "12345")
         assert.strictEqual(view.inputs.length, 2)
         assert.strictEqual((view.inputs[0]!.author as { displayName: string }).displayName, "U2")
         assert.include(view.inputs[0]!.text, "Earlier discussion")
@@ -296,7 +300,7 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
     () =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient
-        yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,repository_id,pr_number,state,context) VALUES ('existing-pr-home','T1','CPR','700.000001','700.000001','slack-r','123','ready','[]')`
+        yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,repository_id,pr_number,state,context) VALUES ('existing-pr-home','T1','CPR','700.000001','700.000001','12345','123','ready','[]')`
         for (const [index, text] of [
           "Use team/repo",
           "Fix src/components in team/repo",

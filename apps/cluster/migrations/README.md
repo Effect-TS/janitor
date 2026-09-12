@@ -207,3 +207,8 @@ projection and responses. The runner Worker (`runner/`) owns the native
 conversation; these tables hold only what Janitor needs to accept inputs,
 deliver them in order with stable runner message ids, and project runner
 events. Existing tables are unchanged.
+
+`0025_agent_repository.sql` adds the selected repository identity to an agent
+session. The identity stays available for external cleanup after repository
+removal. Session creation rejects a retry that changes the selection. Repository
+execution checks readiness through Janitor before cloning or dispatching tools.

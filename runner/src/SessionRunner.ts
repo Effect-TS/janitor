@@ -38,8 +38,13 @@ import {
 } from "./Protocol.ts"
 import { errorResponse, jsonResponse, parseCommand, type Command } from "./Router.ts"
 import { RunnerStorage, payloadHash, type NativeSessionRow, type SessionRecord } from "./Storage.ts"
+import {
+  RepositoryWorkspace,
+  type RepositorySelection,
+  type WorkspaceEnvironment,
+} from "./RepositoryWorkspace.ts"
 
-export interface RunnerEnv {
+export interface RunnerEnv extends WorkspaceEnvironment {
   readonly JANITOR_AGENT_RUNNER_TOKEN?: string
   readonly JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS?: string
   readonly JANITOR_AGENT_RUNNER_RELEASE?: string
@@ -75,6 +80,7 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
   private hostPromise: Promise<Host> | undefined
   private creating: Promise<CreateSessionResult> | undefined
   private readonly configurations: ModelConfigurations | ModelConfigurationError
+  private repository: RepositoryWorkspace | undefined
 
   constructor(ctx: DurableObjectState, env: RunnerEnv) {
     super(ctx, env)
@@ -96,6 +102,10 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
       if (!supervision.obligation || this.guardReason() !== null) return
       if ((await ctx.storage.getAlarm()) === null) await this.rearm()
     })
+  }
+
+  protected makeRepository(selected: RepositorySelection) {
+    return new RepositoryWorkspace(this.ctx.storage, this.env, selected)
   }
 
   // Deployment knobs; the test entry overrides these to accelerate timing.
@@ -197,6 +207,19 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
   protected async ensureHost(): Promise<Host> {
     if (this.host !== undefined) return this.host
     if (this.hostPromise !== undefined) return this.hostPromise
+    this.hostPromise = this.constructHost().finally(() => {
+      this.hostPromise = undefined
+    })
+    return this.hostPromise
+  }
+
+  private async constructHost(): Promise<Host> {
+    this.requireRunnable()
+    const selected = await this.ctx.storage.get<RepositorySelection>("_janitor_repository")
+    if (selected) {
+      this.repository ??= this.makeRepository(selected)
+      await this.repository.connect()
+    }
     this.requireRunnable()
     const configurations = this.configurations as ModelConfigurations
     const recorded = this.store.compatibility
@@ -215,7 +238,8 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
       }
       await this.ctx.storage.sync()
     }
-    this.hostPromise = createHost({
+    return createHost({
+      repository: this.repository,
       storage: this.ctx.storage,
       configurations,
       selection: () =>
@@ -229,30 +253,26 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
         Duration.millis(this.options().modelInactivityMs),
       ),
       journal: (kind, data) => this.store.journal(kind, data),
+    }).then((host) => {
+      const applied = this.store.nativeMigrations
+      const unknown = applied.filter((id) => !SUPPORTED_NATIVE_MIGRATIONS.includes(id))
+      if (unknown.length > 0)
+        throw new Error(`Native initialization produced unknown migrations ${unknown.join(", ")}`)
+      this.store.compatibility = {
+        formatVersion: COMPATIBILITY_FORMAT,
+        protocol: PROTOCOL_VERSION,
+        release: this.release,
+        nativeMigrations: SUPPORTED_NATIVE_MIGRATIONS,
+        inProgress: null,
+      }
+      this.host = host
+      this.store.journal("host-created", { incarnation: this.incarnation })
+      return host
     })
-      .then((host) => {
-        const applied = this.store.nativeMigrations
-        const unknown = applied.filter((id) => !SUPPORTED_NATIVE_MIGRATIONS.includes(id))
-        if (unknown.length > 0)
-          throw new Error(`Native initialization produced unknown migrations ${unknown.join(", ")}`)
-        this.store.compatibility = {
-          formatVersion: COMPATIBILITY_FORMAT,
-          protocol: PROTOCOL_VERSION,
-          release: this.release,
-          nativeMigrations: SUPPORTED_NATIVE_MIGRATIONS,
-          inProgress: null,
-        }
-        this.host = host
-        this.store.journal("host-created", { incarnation: this.incarnation })
-        return host
-      })
-      .finally(() => {
-        this.hostPromise = undefined
-      })
-    return this.hostPromise
   }
 
   protected async disposeHost() {
+    await this.hostPromise?.catch(() => undefined)
     const host = this.host
     this.host = undefined
     if (host === undefined) return
@@ -381,6 +401,9 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
       )
     const existing = this.store.session
     if (existing !== undefined) {
+      const selected = await this.ctx.storage.get<RepositorySelection>("_janitor_repository")
+      if (selected?.repositoryId !== body.repositoryId)
+        throw new ProtocolError("invalid_request", "Session repository selection is immutable")
       if (existing.generation !== body.generation)
         throw new ProtocolError(
           "stale_generation",
@@ -388,6 +411,11 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
         )
       return this.createResult(existing, false)
     }
+    if (
+      this.store.intendedRepositoryId !== undefined &&
+      this.store.intendedRepositoryId !== (body.repositoryId ?? null)
+    )
+      throw new ProtocolError("invalid_request", "Session repository selection is immutable")
     if (this.creating !== undefined) return this.creating
     this.requireRunnable()
     const configurations = this.configurations as ModelConfigurations
@@ -407,6 +435,8 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     // Deterministic identities persist before native creation, so a retry or a crash after
     // native creation reconciles the same conversation instead of creating another.
     this.store.transaction(() => {
+      if (this.store.intendedRepositoryId === undefined)
+        this.store.intendedRepositoryId = body.repositoryId ?? null
       if (this.store.intendedGeneration === undefined)
         this.store.intendedGeneration = body.generation
       if (this.store.intendedModelConfigurationId === undefined)
@@ -416,6 +446,15 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     })
     const intended = this.store.intendedNativeSessionId!
     this.creating = (async () => {
+      const selected = await this.ctx.storage.get<RepositorySelection>("_janitor_repository")
+      if (selected && selected.repositoryId !== body.repositoryId)
+        throw new ProtocolError("invalid_request", "Session repository selection changed")
+      if (body.repositoryId && !selected)
+        await this.ctx.storage.put("_janitor_repository", {
+          sessionId,
+          generation: body.generation,
+          repositoryId: body.repositoryId,
+        })
       const host = await this.ensureHost()
       const nativeId = Session.ID.make(intended)
       const created = await host.sdk((sdk) =>
@@ -429,9 +468,18 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
           yield* sdk.sessions.create({
             id: nativeId,
             title: body.title,
-            permissions: [{ action: "*", resource: "*", effect: "allow" }],
+            permissions: [
+              { action: "*", resource: "*", effect: "deny" },
+              ...["read", "glob", "grep"].map((action) => ({
+                action,
+                resource: "*",
+                effect: "allow" as const,
+              })),
+            ],
             location: Location.Ref.make({
-              directory: AbsolutePath.make("/workspace"),
+              directory: AbsolutePath.make(
+                body.repositoryId ? "/workspace/repository" : "/workspace",
+              ),
               workspaceID,
             }),
           })
@@ -664,10 +712,13 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
         `Session ${sessionId} is at generation ${generation}; cleanup carried ${body.generation}`,
       )
     const already = this.store.disconnection
-    if (already !== undefined) return { sessionId, cleaned: true }
+    if (already !== undefined && !(await this.ctx.storage.get("_janitor_repository")))
+      return { sessionId, cleaned: true }
     this.store.disconnection = { generation: body.generation, at: Date.now() }
     await this.ctx.storage.sync()
     await this.disposeHost()
+    const selected = await this.ctx.storage.get<RepositorySelection>("_janitor_repository")
+    if (selected) await (this.repository ?? this.makeRepository(selected)).destroy()
     await this.ctx.storage.deleteAlarm()
     // Only the tombstone survives: native conversation, inputs and journal are deleted.
     const tombstone = this.store.disconnection!

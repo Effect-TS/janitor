@@ -26,7 +26,7 @@ describe("command boundary", () => {
     const badId = await harness.raw("GET", "/v1/sessions/bad%20id")
     expect(badId).toMatchObject({ status: 400, body: { code: "invalid_request" } })
     const health = await harness.call("GET", "/v1/health")
-    expect(health).toMatchObject({ protocol: 1, release: "test" })
+    expect(health).toMatchObject({ protocol: 2, release: "test" })
   })
 
   it("distinguishes missing sessions from stale generations", async () => {

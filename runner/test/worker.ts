@@ -2,11 +2,19 @@
 // injection reachable only through `/__test/` routes. The production entry has
 // none of this; the acceptance driver and the runner tests build this file.
 import { Effect } from "effect"
+import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { ProtocolError } from "../src/Protocol.ts"
 import { errorResponse, jsonResponse, sessionIdOf, type Command } from "../src/Router.ts"
 import { DEFAULT_OPTIONS, SessionRunner, type RunnerOptions } from "../src/SessionRunner.ts"
 import { authenticate, handle as productionHandle, type WorkerEnv } from "../src/worker.ts"
+import {
+  RepositoryWorkspace,
+  type RepositorySelection,
+  type Binding,
+  type WorkspaceSandbox,
+  type RepositoryAuthority,
+} from "../src/RepositoryWorkspace.ts"
 
 export interface ModelScript {
   /** How the scripted provider answers; see `respond`. */
@@ -20,6 +28,7 @@ export interface ModelScript {
     | "disconnect"
     | "activity"
     | "shell-policy"
+    | "repository"
     | "crash"
   /** Delay before each text answer, so a turn spans supervision checks. */
   readonly delayMs?: number
@@ -78,6 +87,45 @@ const toolCall = (name: string, args: unknown) =>
   done
 
 export class TestSessionRunner extends SessionRunner {
+  protected override makeRepository(selected: RepositorySelection) {
+    const transport = this.env.REPOSITORY_TEST_TRANSPORT as RepositoryAuthority | undefined
+    if (!transport) return super.makeRepository(selected)
+    return new (class extends RepositoryWorkspace {
+      protected override sandbox(binding: Binding): WorkspaceSandbox {
+        const stub: WorkspaceSandbox = {
+          getProcess: async () => null,
+          startProcess: async (_command, options) => {
+            const response = await transport!.fetch(
+              new Request("http://sandbox/start", {
+                method: "POST",
+                body: JSON.stringify({ resource: binding.resource, env: options.env }),
+              }),
+            )
+            if (!response.ok) throw new Error("test Sandbox startup failed")
+            return { waitForPort: async () => {} }
+          },
+          containerFetch: async (url, init) =>
+            transport!.fetch(
+              new Request(url, {
+                ...init,
+                headers: { ...init.headers, "x-test-resource": binding.resource },
+              }),
+            ),
+          destroy: async () =>
+            transport!.fetch(
+              new Request("http://sandbox/destroy", { method: "POST", body: binding.resource }),
+            ),
+        }
+        // Exercise the pinned SDK's ID validation and method wrappers before
+        // crossing the test-only container transport boundary.
+        const namespace = {
+          idFromName: (name: string) => ({ toString: () => name }),
+          get: () => stub,
+        } as unknown as DurableObjectNamespace<Sandbox>
+        return getSandbox(namespace, binding.resource)
+      }
+    })(this.ctx.storage, this.env, selected)
+  }
   private meta<T>(key: string, fallback: T): T {
     const row = this.ctx.storage.sql
       .exec("SELECT value FROM _janitor_meta WHERE key = ?", key)
@@ -201,6 +249,13 @@ export class TestSessionRunner extends SessionRunner {
             }),
           )
         switch (script.mode) {
+          case "repository": {
+            if (summary.tools.some((tool) => !["read", "glob", "grep"].includes(tool)))
+              throw new Error(`Unexpected repository tools: ${summary.tools}`)
+            if (call === 1) return respond(toolCall("read", { path: "README.md" }))
+            if (call === 2) return respond(toolCall("grep", { pattern: "repository", path: "." }))
+            break
+          }
           case "crash": {
             if ((script.crashes ?? 0) >= call) {
               setTimeout(async () => {

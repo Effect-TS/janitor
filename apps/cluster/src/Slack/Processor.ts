@@ -202,6 +202,7 @@ export class SlackProcessor extends Context.Service<
                   )
                 yield* sessions.start({
                   sessionId,
+                  repositoryId,
                   title: inputs[0]?.text.slice(0, 200) ?? "Slack conversation",
                 })
                 for (const input of inputs.filter((input) => !input.forwarded)) {
