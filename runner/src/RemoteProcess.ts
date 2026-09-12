@@ -30,13 +30,27 @@ export const makeRemoteSpawner = (rpc: BridgeRpc) =>
         return yield* Effect.fail(
           failure("Pipeline objects and extra file descriptors are unsupported"),
         )
+      const { stdin: input, stdout, stderr, shell, extendEnv } = command.options
+      if (
+        (input !== undefined &&
+          input !== "pipe" &&
+          input !== "ignore" &&
+          !Stream.isStream(input)) ||
+        (stdout !== undefined && stdout !== "pipe" && stdout !== "ignore") ||
+        (stderr !== undefined && stderr !== "pipe" && stderr !== "ignore") ||
+        (shell !== undefined && shell !== false)
+      )
+        return yield* Effect.fail(failure("Unsupported process stdio or shell option"))
       const id = crypto.randomUUID()
       const started = yield* attempt(() =>
         rpc<{ pid: number }>("/process", {
           id,
           argv: [command.command, ...command.args],
-          env: command.options.env ?? {},
+          env: Object.fromEntries(
+            Object.entries(command.options.env ?? {}).filter(([, value]) => value !== undefined),
+          ),
           cwd: command.options.cwd,
+          extendEnv,
         }),
       )
       let inputSeq = 0
@@ -96,8 +110,8 @@ export const makeRemoteSpawner = (rpc: BridgeRpc) =>
       return Spawner.makeHandle({
         pid: Spawner.ProcessId(started.pid),
         stdin,
-        stdout: output("stdout"),
-        stderr: output("stderr"),
+        stdout: stdout === "ignore" ? Stream.empty : output("stdout"),
+        stderr: stderr === "ignore" ? Stream.empty : output("stderr"),
         all: output("all"),
         exitCode: attempt(async () => {
           for (;;) {
@@ -113,8 +127,8 @@ export const makeRemoteSpawner = (rpc: BridgeRpc) =>
         }),
         isRunning: attempt(async () => !(await status()).closed),
         kill,
-        getInputFd: () => Sink.drain,
-        getOutputFd: () => Stream.empty,
+        getInputFd: () => Sink.fail(failure("Extra file descriptors are unsupported")),
+        getOutputFd: () => Stream.fail(failure("Extra file descriptors are unsupported")),
         unref: Effect.fail(failure("Background processes are unavailable")),
       })
     }),

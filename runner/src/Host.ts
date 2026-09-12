@@ -5,7 +5,9 @@
 // replacements for model execution and model resolution. Construction forks
 // the native suspended-session recovery sweep immediately, so callers must run
 // every pre-host guard before calling `createHost`.
-import { Effect, Layer, ManagedRuntime, Stream, type Scope } from "effect"
+import { Effect, Layer, ManagedRuntime, Stream, Semaphore, type Scope } from "effect"
+import { readFile } from "node:fs/promises"
+import { Shell } from "@opencode/core/shell"
 import { HttpClient } from "effect/unstable/http"
 import { OpenCode, Tool } from "@opencode/sdk/effect"
 import { LLMClient, RequestExecutor } from "@opencode/ai/route"
@@ -17,7 +19,7 @@ import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { makeMemoryDriver } from "@opencode/core/environment/index"
 import { migrations } from "@opencode/core/database/migration.gen"
 import { resolverLayer, type ModelConfigurations, type SecretReader } from "./ModelConfiguration.ts"
-import type { RepositoryWorkspace } from "./RepositoryWorkspace.ts"
+import { REPOSITORY_TOOLS, type RepositoryWorkspace } from "./RepositoryWorkspace.ts"
 import { Tool as NativeTool } from "@opencode/core/tool"
 import { RipgrepBinary } from "@opencode/core/ripgrep/binary"
 
@@ -53,6 +55,64 @@ export interface Host {
 }
 
 export const createHost = (deps: HostDependencies): Promise<Host> => {
+  let toolActive = false
+  let captures: Array<{ name: string; base64: string }> = []
+  const checkpointError = (cause: unknown) => new Tool.Error({ message: String(cause) })
+  const durableShell = Shell.node.mapLayer((layer) =>
+    Layer.effect(
+      Shell.Service,
+      Effect.gen(function* () {
+        const native = yield* Shell.Service
+        return {
+          ...native,
+          create: (input, before) => {
+            if (
+              !toolActive ||
+              !Number.isFinite(input.timeout ?? 120000) ||
+              (input.timeout ?? 120000) <= 0
+            )
+              return Effect.die(new Error("Only admitted foreground tool commands are supported"))
+            return native.create(input, (invocation) => {
+              // Workerd can populate process.env from secret bindings. Shell commands
+              // receive only the container's public execution environment.
+              invocation.env = {
+                PATH: "/usr/local/bin:/usr/bin:/bin",
+                HOME: "/workspace",
+                LANG: "C.UTF-8",
+                TERM: "xterm-256color",
+                OPENCODE_TERMINAL: "1",
+              }
+              return before ? before(invocation) : Effect.void
+            })
+          },
+          timeout: (id, duration) =>
+            duration > 0 && Number.isFinite(duration)
+              ? native.timeout(id, duration)
+              : Effect.die(new Error("Background shell execution is unavailable")),
+          result: (started) =>
+            native.result(started).pipe(
+              Effect.flatMap((result) =>
+                Effect.promise(async () => {
+                  const bytes = await readFile(result.info.file)
+                  const name = `${crypto.randomUUID()}.out`
+                  captures.push({ name, base64: bytes.toString("base64") })
+                  return {
+                    ...result,
+                    capture: result.capture && {
+                      ...result.capture,
+                      output: result.capture.output.replaceAll(
+                        result.info.file,
+                        `/workspace/.janitor-captures/${name}`,
+                      ),
+                    },
+                  }
+                }),
+              ),
+            ),
+        }
+      }),
+    ).pipe(Layer.provide(layer)),
+  )
   let captured: SessionExecution.Interface | undefined
   const execution = SessionExecution.node.mapLayer((layer) =>
     Layer.effect(
@@ -73,13 +133,72 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
       NativeTool.Service,
       Effect.gen(function* () {
         const native = yield* NativeTool.Service
+        const gate = yield* Semaphore.make(1)
         return {
           ...native,
           snapshot: (rules) =>
-            native.snapshot([
-              ...(rules ?? []),
-              { action: "execute", resource: "*", effect: "deny" },
-            ]),
+            native
+              .snapshot([...(rules ?? []), { action: "execute", resource: "*", effect: "deny" }])
+              .pipe(
+                Effect.map((snapshot) => ({
+                  ...snapshot,
+                  execute: (input) =>
+                    Effect.gen(function* () {
+                      if (!deps.repository) return yield* snapshot.execute(input)
+                      const args = input.call.input as { timeout?: unknown; background?: unknown }
+                      const timeout = args?.timeout ?? 120000
+                      if (
+                        args?.background === true ||
+                        typeof timeout !== "number" ||
+                        !Number.isFinite(timeout) ||
+                        timeout <= 0
+                      )
+                        return yield* Effect.fail(
+                          checkpointError(
+                            "Commands require a positive finite timeout and foreground execution",
+                          ),
+                        )
+                      const id = `${input.messageID}:${input.call.id}`
+                      const prior = yield* Effect.tryPromise({
+                        try: () => deps.repository!.admitTool(id, input.call, timeout),
+                        catch: checkpointError,
+                      })
+                      if (prior) {
+                        const saved = JSON.parse(prior)
+                        if (saved.error) return yield* Effect.fail(checkpointError(saved.error))
+                        return saved.value as NativeTool.NormalizedResult
+                      }
+                      toolActive = true
+                      captures = []
+                      const result = yield* snapshot.execute(input).pipe(
+                        Effect.map((value) => ({ value, error: undefined as string | undefined })),
+                        Effect.catch((error) =>
+                          Effect.succeed({ value: undefined, error: error.message }),
+                        ),
+                        Effect.ensuring(
+                          Effect.sync(() => {
+                            toolActive = false
+                          }),
+                        ),
+                      )
+                      yield* Effect.tryPromise({
+                        try: () =>
+                          deps.repository!.finishTool(id, JSON.stringify(result), captures),
+                        catch: checkpointError,
+                      })
+                      if (result.error !== undefined)
+                        return yield* Effect.fail(checkpointError(result.error))
+                      return result.value!
+                    }).pipe(
+                      Effect.ensuring(
+                        Effect.sync(() => {
+                          deps.repository?.releaseTool()
+                        }),
+                      ),
+                      gate.withPermits(1),
+                    ),
+                })),
+              ),
         }
       }),
     ).pipe(Layer.provide(layer)),
@@ -95,7 +214,7 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
   const options = {
     storage: deps.storage,
     models: { fetch: false },
-    config: { content: "{}" },
+    config: { content: JSON.stringify({ experimental: { portable_shell_scanner: true } }) },
   }
   const runtime = ManagedRuntime.make(
     Layer.effect(
@@ -110,6 +229,7 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
             overrides: [
               ...ServerWorkerd.replacements(options),
               NativeTool.node.replace(inspectionTools),
+              Shell.node.replace(durableShell),
               RipgrepBinary.node.replace(
                 Layer.succeed(RipgrepBinary.Service, { filepath: Effect.succeed("/usr/bin/rg") }),
               ),
@@ -128,7 +248,7 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
             Effect.gen(function* () {
               yield* context.tool.transform((editor) => {
                 for (const tool of editor.list())
-                  if (!deps.repository || !["read", "glob", "grep"].includes(tool.id))
+                  if (!deps.repository || !REPOSITORY_TOOLS.includes(tool.id))
                     editor.remove(tool.id)
               })
               yield* context.tool.hook("execute.before", (event) => {
@@ -137,6 +257,7 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
                   return Effect.fail(
                     new Tool.Error({ message: "Select a ready repository before using tools" }),
                   )
+                if (["edit", "write", "shell"].includes(event.tool)) return Effect.void
                 return Effect.tryPromise({
                   try: () =>
                     deps.repository!.rpc("/resolve", {

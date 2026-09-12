@@ -40,9 +40,11 @@ import { errorResponse, jsonResponse, parseCommand, type Command } from "./Route
 import { RunnerStorage, payloadHash, type NativeSessionRow, type SessionRecord } from "./Storage.ts"
 import {
   RepositoryWorkspace,
+  REPOSITORY_TOOLS,
   type RepositorySelection,
   type WorkspaceEnvironment,
 } from "./RepositoryWorkspace.ts"
+import { WorkspaceCheckpoints } from "./WorkspaceCheckpoints.ts"
 
 export interface RunnerEnv extends WorkspaceEnvironment {
   readonly JANITOR_AGENT_RUNNER_TOKEN?: string
@@ -309,6 +311,17 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
 
   override async alarm(): Promise<void> {
     this.store.journal("alarm-start", { incarnation: this.incarnation })
+    // Cleanup also progresses while uncertain native execution remains held.
+    try {
+      await (
+        this.repository?.checkpoints ??
+        new WorkspaceCheckpoints(this.ctx.storage, this.env.WORKSPACE_CHECKPOINTS)
+      ).prune()
+    } catch (error) {
+      this.store.journal("checkpoint-cleanup-error", { error: String(error) })
+      await this.rearm()
+      return
+    }
     const supervision = this.store.supervision
     if (!supervision.obligation || this.store.disconnection !== undefined) {
       this.store.journal("alarm-noop")
@@ -355,6 +368,7 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
       resumeAttempts: row?.resumeAttempts ?? 0,
     })
     if (active) return
+    await this.repository?.checkpoints.prune()
     if (claimHeld(row)) {
       // An orphaned claim: native recovery runs from host construction with its durable
       // resumption accounting. A host older than two checks that still shows the claim held
@@ -470,11 +484,16 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
             title: body.title,
             permissions: [
               { action: "*", resource: "*", effect: "deny" },
-              ...["read", "glob", "grep"].map((action) => ({
+              ...REPOSITORY_TOOLS.map((action) => ({
                 action,
                 resource: "*",
                 effect: "allow" as const,
               })),
+              {
+                action: "external_directory",
+                resource: "/workspace/.janitor-captures/*",
+                effect: "allow",
+              },
             ],
             location: Location.Ref.make({
               directory: AbsolutePath.make(

@@ -4,6 +4,16 @@ import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
 import { makeRemoteSpawner, type BridgeRpc } from "./RemoteProcess.ts"
 import { ProtocolError } from "./Protocol.ts"
 import { RunnerStorage } from "./Storage.ts"
+import { WorkspaceCheckpoints, type Archive } from "./WorkspaceCheckpoints.ts"
+
+export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
+  "read",
+  "glob",
+  "grep",
+  "edit",
+  "write",
+  "shell",
+]
 const payloadHash = async (value: unknown) => {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -24,6 +34,7 @@ export interface RepositoryAuthority {
   readonly fetch: (request: Request) => Promise<Response>
 }
 export interface WorkspaceEnvironment {
+  readonly WORKSPACE_CHECKPOINTS?: R2Bucket
   readonly SANDBOXES?: DurableObjectNamespace<Sandbox>
   readonly REPOSITORY_AUTHORITY?: RepositoryAuthority
   readonly REPOSITORY_SERVICE_TOKEN?: string
@@ -61,6 +72,8 @@ const required = [
   "repository-clone-v1",
   "path-resolution-v1",
   "pid-namespace-v1",
+  "workspace-user-v1",
+  "checkpoint-stream-v2",
 ]
 export const checkBridge = (meta: Meta, generation: number) => {
   if (
@@ -74,6 +87,9 @@ export const checkBridge = (meta: Meta, generation: number) => {
 
 /** Runner-owned provisioning identity and admission evidence survive container loss. */
 export class RepositoryWorkspace {
+  readonly checkpoints: WorkspaceCheckpoints
+  private toolTimeout = 120000
+  private activeTool: string | undefined
   private connecting: Promise<Binding> | undefined
   private readonly inFlight = new Set<string>()
   private hold(message: string): never {
@@ -86,6 +102,7 @@ export class RepositoryWorkspace {
     private readonly env: WorkspaceEnvironment,
     readonly selected: RepositorySelection,
   ) {
+    this.checkpoints = new WorkspaceCheckpoints(storage, env.WORKSPACE_CHECKPOINTS)
     storage.sql.exec(`CREATE TABLE IF NOT EXISTS _janitor_operation (
       id TEXT PRIMARY KEY, epoch TEXT NOT NULL, payload_hash TEXT NOT NULL,
       payload TEXT NOT NULL, state TEXT NOT NULL, result TEXT)`)
@@ -115,20 +132,27 @@ export class RepositoryWorkspace {
       throw new ProtocolError("blocked", "Sandbox namespace is not configured")
     return getSandbox(this.env.SANDBOXES, binding.resource)
   }
-  private async raw(binding: Binding, path: string, input?: unknown) {
+  private async request(binding: Binding, path: string, input?: unknown, archive?: Archive) {
     const current = await this.storage.get<Binding>("_janitor_workspace")
     if (current?.destroyed) throw new ProtocolError("stale_generation", "Workspace was destroyed")
     const response = await this.sandbox(binding).containerFetch(
       `http://bridge${path}`,
       {
-        method: input === undefined ? "GET" : "POST",
+        method: input === undefined && !archive ? "GET" : "POST",
         headers: {
           authorization: `Bearer ${binding.token}`,
           "x-janitor-generation": String(this.selected.generation),
           "x-bridge-epoch": binding.epoch ?? "",
           "content-type": "application/json",
+          ...(archive
+            ? {
+                "content-type": "application/x-ndjson",
+                "content-length": String(archive.size),
+                "x-archive-sha256": archive.sha256,
+              }
+            : {}),
         },
-        body: input === undefined ? undefined : JSON.stringify(input),
+        body: archive?.body ?? (input === undefined ? undefined : JSON.stringify(input)),
       },
       8788,
     )
@@ -139,7 +163,27 @@ export class RepositoryWorkspace {
         response.status >= 500 ? "transport" : "blocked",
         `Bridge refused operation (${response.status})`,
       )
-    return response.json()
+    return response
+  }
+  private async raw(binding: Binding, path: string, input?: unknown) {
+    return (await this.request(binding, path, input)).json()
+  }
+  private async snapshot(
+    binding: Binding,
+    captures: ReadonlyArray<{ name: string; base64: string }> = [],
+  ): Promise<Archive> {
+    const response = await this.request(binding, "/checkpoint", { captures })
+    const sha256 = response.headers.get("x-archive-sha256")
+    const size = Number(response.headers.get("content-length"))
+    if (
+      !response.body ||
+      !sha256 ||
+      !/^[a-f0-9]{64}$/.test(sha256) ||
+      !Number.isSafeInteger(size) ||
+      size <= 0
+    )
+      throw new ProtocolError("blocked", "Invalid bridge archive headers")
+    return { body: response.body, sha256, size }
   }
   async connect(): Promise<Binding> {
     if (this.connecting) return this.connecting
@@ -175,9 +219,23 @@ export class RepositoryWorkspace {
     await process.waitForPort(8788, { mode: "tcp" })
     const meta = (await this.raw(binding, "/meta")) as Meta
     checkBridge(meta, this.selected.generation)
+    if (this.checkpoints.uncertain() && !this.activeTool)
+      this.hold("Tool operation requires reconciliation before native recovery")
     if (binding.epoch && binding.epoch !== meta.epoch) {
-      this.hold("Bridge epoch changed; workspace operations require reconciliation")
+      if (this.checkpoints.uncertain())
+        this.hold("Bridge epoch changed during an admitted tool operation")
+      if (
+        this.storage.sql
+          .exec("SELECT id FROM _janitor_operation WHERE state = 'admitted' LIMIT 1")
+          .toArray().length
+      )
+        this.hold("Bridge epoch changed; workspace operations require reconciliation")
+      const archive = await this.checkpoints.restore()
+      if (!archive) this.hold("Bridge epoch changed without a committed workspace")
+      await this.request({ ...binding, epoch: meta.epoch }, "/restore", undefined, archive)
     }
+    // Native tool execution can lazily connect its environment after tool admission.
+    if (this.activeTool && binding.epoch === meta.epoch) return binding
     binding.epoch = meta.epoch
     await this.storage.put("_janitor_workspace", binding)
     if (
@@ -220,9 +278,16 @@ export class RepositoryWorkspace {
       JSON.stringify({ ready: true }),
     )
     await this.storage.sync()
+    if (!this.checkpoints.current()) {
+      const archive = await this.snapshot(binding)
+      await this.checkpoints.commit(archive, binding.resource)
+    }
+    await this.raw(binding, "/thaw", {})
+    await this.checkpoints.prune()
     return binding
   }
   readonly rpc: BridgeRpc = async <A>(path: string, input?: unknown): Promise<A> => {
+    if (path === "/process") input = { ...(input as object), timeout: this.toolTimeout }
     if (path === "/process" || path === "/resolve") await this.authority(false)
     const binding = await this.storage.get<Binding>("_janitor_workspace")
     if (!binding?.epoch || binding.destroyed)
@@ -290,6 +355,33 @@ export class RepositoryWorkspace {
       if (id) this.inFlight.delete(id)
     }
   }
+  async admitTool(id: string, input: unknown, timeout = 120000) {
+    await this.authority(false)
+    const result = await this.checkpoints.admit(id, input)
+    this.toolTimeout = timeout
+    if (result === undefined) this.activeTool = id
+    return result
+  }
+  async finishTool(
+    id: string,
+    result: string,
+    captures: ReadonlyArray<{ name: string; base64: string }>,
+  ) {
+    const binding = await this.storage.get<Binding>("_janitor_workspace")
+    if (!binding?.epoch || binding.destroyed) this.hold("Workspace unavailable before checkpoint")
+    try {
+      const archive = await this.snapshot(binding, captures)
+      await this.checkpoints.commit(archive, binding.resource, { id, result })
+      await this.raw(binding, "/thaw", {})
+    } catch (cause) {
+      this.hold(`Workspace checkpoint failed; operation requires reconciliation: ${String(cause)}`)
+    } finally {
+      this.activeTool = undefined
+    }
+  }
+  releaseTool() {
+    this.activeTool = undefined
+  }
   async destroy() {
     let binding = await this.storage.get<Binding>("_janitor_workspace")
     if (!binding)
@@ -300,6 +392,7 @@ export class RepositoryWorkspace {
       }
     await this.storage.put("_janitor_workspace", { ...binding, destroyed: true })
     await this.sandbox(binding).destroy()
+    await this.checkpoints.prune(true)
   }
   driver() {
     const attempt = <A>(run: () => Promise<A>) =>
