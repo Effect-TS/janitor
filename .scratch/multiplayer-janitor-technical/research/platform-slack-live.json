@@ -1,0 +1,55 @@
+{
+  "runID": "57381416-ccc4-42bc-8a13-01ba9ac4c4f1",
+  "checks": [
+    "private-thread bot pagination and unique metadata readback",
+    "positive lookup after locally simulated response loss",
+    "progress message update"
+  ],
+  "messages": [
+    {
+      "ts": "1789218582.945899",
+      "operation": "57381416-ccc4-42bc-8a13-01ba9ac4c4f1:root"
+    },
+    {
+      "ts": "1789218584.043839",
+      "operation": "57381416-ccc4-42bc-8a13-01ba9ac4c4f1:progress"
+    },
+    {
+      "ts": "1789218585.142449",
+      "operation": "57381416-ccc4-42bc-8a13-01ba9ac4c4f1:reply"
+    },
+    {
+      "ts": "1789218586.248249",
+      "operation": "57381416-ccc4-42bc-8a13-01ba9ac4c4f1:final"
+    }
+  ],
+  "cleanup": [
+    {
+      "ts": "1789218586.248249",
+      "deleted": true
+    },
+    {
+      "ts": "1789218585.142449",
+      "deleted": true
+    },
+    {
+      "ts": "1789218584.043839",
+      "deleted": true
+    },
+    {
+      "ts": "1789218582.945899",
+      "deleted": true
+    }
+  ],
+  "uncertain": [],
+  "pages": [
+    {
+      "timestamps": ["1789218582.945899", "1789218585.142449", "1789218586.248249"],
+      "hasNextCursor": true
+    },
+    {
+      "timestamps": ["1789218582.945899", "1789218584.043839"],
+      "hasNextCursor": false
+    }
+  ]
+}

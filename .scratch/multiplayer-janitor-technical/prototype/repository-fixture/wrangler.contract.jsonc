@@ -1,0 +1,38 @@
+{
+  "name": "janitor-repository-contract-fixture",
+  "main": "dist-contract/worker.mjs",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "max_instances": 2,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "Sandbox",
+        "name": "Sandbox",
+      },
+      {
+        "class_name": "Contract",
+        "name": "CONTRACT",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Sandbox", "Contract"],
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "CHECKPOINTS",
+      "bucket_name": "janitor-repository-contract-fixture",
+    },
+  ],
+  "workers_dev": true,
+}

@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-09-12T14:41:34.906Z",
+  "worker": "janitor-platform-delivery-fixture",
+  "account": "a5324318f7f0ddf25e7a1ba5359d1aa5",
+  "controlPlaneStatus": 404,
+  "remainingMatchingNamespaces": 0,
+  "publicStatus": 404,
+  "deleted": true,
+  "slackEventSubscriptions": "Manual disable remains; bot token cannot edit app configuration",
+  "credentials": "Retained outside repository; no tokens included"
+}

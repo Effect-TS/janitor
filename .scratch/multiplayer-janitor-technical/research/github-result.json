@@ -1,0 +1,32 @@
+{
+  "repository": "Effect-TS/slopcop-sandbox",
+  "repositoryID": 1323166030,
+  "runID": "9f25034a",
+  "root": "/tmp/janitor-github-fixture-SvDQuX",
+  "checks": [
+    "installation tokens restricted to the designated repository and distinct read/write permissions",
+    "token cache reuses a valid scope and refreshes at expiry under an injected clock",
+    "ordinary HTTPS Git with installation credentials creates isolated new-work branches",
+    "discarded successful PR creation reply reconciles to exactly one draft PR",
+    "existing PR branch update and discarded successful push reply reconcile by remote commit",
+    "concurrent GitHub push is rejected, human history survives reconciliation, and read-only credentials cannot publish",
+    "working-tree and Git-state checkpoint contains no App key or installation token",
+    "revoked token is rejected and a fresh scoped installation token restores access"
+  ],
+  "cleanup": [
+    {
+      "closedPR": "https://github.com/Effect-TS/slopcop-sandbox/pull/7"
+    },
+    {
+      "deletedBranch": "janitor-verification/9f25034a-work"
+    },
+    {
+      "deletedBranch": "janitor-verification/9f25034a-base"
+    }
+  ],
+  "installationID": 158746421,
+  "defaultBranch": "main",
+  "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+  "pullRequest": "https://github.com/Effect-TS/slopcop-sandbox/pull/7",
+  "passed": true
+}

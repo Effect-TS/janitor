@@ -18,6 +18,8 @@ The user accepted the recommended session list, compact session detail view, and
 
 ## Answer
 
+Later scope refinement: [Decide dashboard and usage data contracts](../../multiplayer-janitor-technical/issues/08-observation-contracts.md) defers team totals and period filtering. Per-session token totals and team-wide session visibility remain in the MVP. The original discussion below is retained.
+
 The main view is a team-wide session list. Each entry shows a short title, repository when associated, current state, latest activity time, token usage, and links to its home thread and related PR when present. Working sessions appear first; recent idle and failed sessions remain accessible.
 
 Opening a session shows basic session information, its latest activity or error, usage, and related links. The conversation stays in Slack or Discord. This provides a way to find and inspect work without adding a conversation viewer or detailed execution-log viewer to the MVP.

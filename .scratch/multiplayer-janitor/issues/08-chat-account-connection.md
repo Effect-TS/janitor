@@ -8,6 +8,8 @@ Blocked by: 02, 04
 
 ## Question
 
+Later user decision: [Decide platform identity and authorization contracts](../../multiplayer-janitor-technical/issues/06-platform-identity.md) supersedes ongoing Cloudflare Access eligibility with persistent linked-account authorization and explicit admin removal. Access expiry or removal alone does not disable linked-account usage. Historical discussion below is retained.
+
 What should a teammate experience when connecting a Slack or Discord account after signing into Janitor through the existing Cloudflare Access identity provider?
 
 Walk through first-time connection, an unconnected account prompting Janitor, and a teammate replacing or disconnecting an account. Decide how Janitor shows which identity authored an instruction, and the expected behavior when team eligibility ends. Preserve the agreed single source of team eligibility rather than introducing a second authorization list. Resolve product behavior; leave protocol and implementation details to later technical work, creating focused research tickets if platform facts become prerequisites.

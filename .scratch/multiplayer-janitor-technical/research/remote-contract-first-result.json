@@ -1,0 +1,490 @@
+{
+  "kind": "cloudflare-repository-contract",
+  "steps": [
+    {
+      "path": "/start",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 6055,
+      "result": {
+        "localGitCasesInsideSandbox": [
+          "fixture command succeeds with unfinished work",
+          "host archive preserves index, local commit, tracked deletion, untracked and ignored files, symlink and mode",
+          "non-fast-forward push is rejected; reconciliation preserves concurrent human commit",
+          "remote ref inspection observes successful local publication without a repeat push"
+        ],
+        "idempotentAdoption": true,
+        "authRejected": 401,
+        "staleEpochRejected": 409
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 4196,
+      "result": {
+        "shell": {
+          "tool": {
+            "nativeToolTested": true,
+            "backgroundRejectedBeforeExecution": true,
+            "nativeJobRegistryUsed": true,
+            "rewrittenOutputReadable": true,
+            "captureBytes": 100000,
+            "permissionsAreFixtureStubs": true
+          },
+          "checks": [
+            "native shell combined output capture",
+            "native shell exit 7",
+            "native shell timeout",
+            "native shell removal followed by external freeze",
+            "large output points to Workerd-only capture",
+            "100000 capture bytes copied into external workspace"
+          ],
+          "result": {
+            "info": {
+              "id": "sh_09221b39a001pghLtsU6s1zjum",
+              "status": "exited",
+              "command": "printf native-out; printf native-err >&2; exit 7",
+              "cwd": "/workspace/fixture",
+              "shell": "/bin/sh",
+              "file": "/tmp/opencode/data/shell/fixture/sh_09221b39a001pghLtsU6s1zjum.out",
+              "metadata": {},
+              "time": {
+                "started": 1789158077338,
+                "completed": 1789158077477
+              },
+              "pid": 0,
+              "exit": 7
+            },
+            "capture": {
+              "output": "native-outnative-err",
+              "truncated": false
+            }
+          },
+          "timeoutStatus": "timeout",
+          "cancellationStatus": "killed",
+          "largeCaptureNotInWorkspace": true,
+          "copiedCaptureBytes": 100000,
+          "eventCount": 14,
+          "nativeToolTested": true,
+          "durableCaptureVerified": false
+        },
+        "checks": ["binary write/read", "stat", "move/list/remove"],
+        "workerdTested": true,
+        "cloudflareSandboxTested": true,
+        "completeSpawnerContract": false
+      }
+    },
+    {
+      "path": "/prepare",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 459,
+      "result": {
+        "manifestFiles": 213,
+        "failedEditPreserved": true
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "baseline"
+      },
+      "status": 200,
+      "elapsedMs": 2566,
+      "result": {
+        "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+        "op": "baseline",
+        "generation": 1,
+        "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+        "size": 8888320,
+        "elapsedMs": 1364
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 54,
+      "result": {
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 1364
+        },
+        "operation": {
+          "state": "complete",
+          "generation": 1,
+          "checkpoint": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar"
+        }
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "upload-failure",
+        "fail": "before-upload"
+      },
+      "status": 500,
+      "elapsedMs": 46,
+      "result": {
+        "error": "Error: injected upload failure",
+        "route": "/stage"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 23,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 1364
+        },
+        "pending": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/2fd645b5-08ca-4530-bf55-fc683f0a42e6.tar",
+          "op": "upload-failure",
+          "generation": 1
+        },
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "0098e844-d5ad-4d27-a27a-c63ff3acb5e4"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 152,
+      "result": {
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 1364
+        },
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 33,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 1364
+        },
+        "pending": null,
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "0098e844-d5ad-4d27-a27a-c63ff3acb5e4"
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "upload-crash",
+        "fail": "after-upload"
+      },
+      "status": 500,
+      "elapsedMs": 2494,
+      "result": {
+        "text": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Worker threw exception | janitor-repo-probe-20260911-vwap.matechs.worke"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 288,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 1364
+        },
+        "pending": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/47799d20-4bce-48ed-b78d-15c0f8b0d503.tar",
+          "op": "upload-crash",
+          "generation": 1
+        },
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "84f786fa-7234-4367-9a0c-6a67cdc0c55f"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 187,
+      "result": {
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 1364
+        },
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "commit-crash"
+      },
+      "status": 200,
+      "elapsedMs": 2058,
+      "result": {
+        "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/af65bb8d-7a2e-4454-8f6c-3ea42cdbf8b2.tar",
+        "op": "commit-crash",
+        "generation": 1,
+        "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+        "size": 8888320,
+        "elapsedMs": 2006
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 31,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 1364
+        },
+        "pending": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/af65bb8d-7a2e-4454-8f6c-3ea42cdbf8b2.tar",
+          "op": "commit-crash",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 2006
+        },
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "commit-crash": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "84f786fa-7234-4367-9a0c-6a67cdc0c55f"
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {
+        "fail": "after-commit"
+      },
+      "status": 500,
+      "elapsedMs": 172,
+      "result": {
+        "text": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Worker threw exception | janitor-repo-probe-20260911-vwap.matechs.worke"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 1371,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/af65bb8d-7a2e-4454-8f6c-3ea42cdbf8b2.tar",
+          "op": "commit-crash",
+          "generation": 1,
+          "sha256": "933b2a9285aa587c3aaca216f5d574d0394bca7075ccebe076c7302f051446c6",
+          "size": 8888320,
+          "elapsedMs": 2006
+        },
+        "pending": null,
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/6cfb4a37-27a3-419e-8c95-5987da8e964c.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "commit-crash": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/af65bb8d-7a2e-4454-8f6c-3ea42cdbf8b2.tar"
+          }
+        },
+        "boot": "51b0a8cb-6f57-4ba5-98dc-5554f1abb8b5"
+      }
+    },
+    {
+      "path": "/restore",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 6830,
+      "result": {
+        "identicalManifest": true,
+        "fixtureTestPassed": true,
+        "oldBridgeEpochRejected": true,
+        "staleOverlayFileRemoved": true,
+        "restoreMs": 1274,
+        "archiveBytes": 8888320
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "disconnect-race"
+      },
+      "status": 200,
+      "elapsedMs": 863,
+      "result": {
+        "key": "contract-3267348c-2311-4fe1-b6b5-c8fa38736b40/e324c462-d79e-45b8-8894-d125f07541ae.tar",
+        "op": "disconnect-race",
+        "generation": 1,
+        "sha256": "64e2e77eb65870d39bff30a01610b6f8f7581b6ad018f2025103f76ad7b74638",
+        "size": 8888320,
+        "elapsedMs": 836
+      }
+    },
+    {
+      "path": "/disconnect",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 406,
+      "result": {
+        "active": false,
+        "generation": 2,
+        "deletedObjects": 2
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 25,
+      "result": {
+        "error": "Error: stale completion fenced",
+        "route": "/commit"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 965,
+      "result": {
+        "checkpoint": null,
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/start",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 21,
+      "result": {
+        "error": "Error: disconnected",
+        "route": "/start"
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 35,
+      "result": {
+        "error": "Error: {\"error\":\"Environment.Failed\",\"cause\":\"Error: disconnected session\"}",
+        "route": "/tools"
+      }
+    },
+    {
+      "path": "/cleanup",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 115,
+      "result": {
+        "cleaned": true
+      }
+    }
+  ],
+  "passed": true
+}

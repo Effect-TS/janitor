@@ -1,0 +1,1931 @@
+{
+  "startedAt": "2026-09-11T21:50:03.110Z",
+  "cases": [
+    {
+      "name": "creation-crash-v4",
+      "passed": true
+    },
+    {
+      "name": "shell-policy-v4",
+      "passed": true
+    },
+    {
+      "name": "boot-gate-v4",
+      "passed": true
+    }
+  ],
+  "calls": [
+    {
+      "name": "boot-gate-v4",
+      "path": "/create",
+      "status": 200,
+      "data": {
+        "session": "ses_aafdd0e4f0b2457389960e04975a851f"
+      }
+    },
+    {
+      "name": "boot-gate-v4",
+      "path": "/admit",
+      "status": 200,
+      "data": {
+        "id": "msg_092730068001ol5GaLa6421prJ",
+        "sessionID": "ses_aafdd0e4f0b2457389960e04975a851f",
+        "timeCreated": "2026-09-11T21:50:05.416Z",
+        "type": "user",
+        "payload": {
+          "text": "must not recover through unresolved effects"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "shell-policy-v4",
+      "path": "/create",
+      "status": 200,
+      "data": {
+        "session": "ses_59811b6dbef44b00b9f3e0ce67806269"
+      }
+    },
+    {
+      "name": "creation-crash-v4",
+      "path": "/create",
+      "status": 500,
+      "data": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Worker threw exception | janitor-runner-probe-ed436934.matechs.workers.dev | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />\n<meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\" />\n<meta name=\"robots\" content=\"noindex, nofollow\" />\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />\n<link rel=\"stylesheet\" id=\"cf_styles-css\" href=\"/cdn-cgi/styles/cf.errors.css\" />\n<!--[if lt IE 9]><link rel=\"stylesheet\" id='cf_styles-ie-css' href=\"/cdn-cgi/styles/cf.errors.ie.css\" /><![endif]-->\n<style>body{margin:0;padding:0}</style>\n\n\n<!--[if gte IE 10]><!-->\n<script>\n  if (!navigator.cookieEnabled) {\n    window.addEventListener('DOMContentLoaded', function () {\n      var cookieEl = document.getElementById('cookie-alert');\n      cookieEl.style.display = 'block';\n    })\n  }\n</script>\n<!--<![endif]-->\n\n</head>\n<body>\n    <div id=\"cf-wrapper\">\n        <div class=\"cf-alert cf-alert-error cf-cookie-error\" id=\"cookie-alert\" data-translate=\"enable_cookies\">Please enable cookies.</div>\n        <div id=\"cf-error-details\" class=\"cf-error-details-wrapper\">\n            <div class=\"cf-wrapper cf-header cf-error-overview\">\n                <h1>\n                    <span class=\"cf-error-type\" data-translate=\"error\">Error</span>\n                    <span class=\"cf-error-code\">1101</span>\n                    <small class=\"heading-ray-id\">Ray ID: a399e2c5fc4d242d &bull; 2026-09-11 21:50:06 UTC</small>\n                </h1>\n                <h2 class=\"cf-subheadline\" data-translate=\"error_desc\">Worker threw exception</h2>\n            </div><!-- /.header -->\n    \n            <section></section><!-- spacer -->\n    \n            <div class=\"cf-section cf-wrapper\">\n                <div class=\"cf-columns two\">\n                    <div class=\"cf-column\">\n                        <h2 data-translate=\"what_happened\">What happened?</h2>\n                            <p>You've requested a page on a website (janitor-runner-probe-ed436934.matechs.workers.dev) that is on the <a href=\"https://www.cloudflare.com/5xx-error-landing?utm_source=error_100x\" target=\"_blank\">Cloudflare</a> network. An unknown error occurred while rendering the page.</p>\n                    </div>\n                    \n                    <div class=\"cf-column\">\n                        <h2 data-translate=\"what_can_i_do\">What can I do?</h2>\n                            <p><strong>If you are the owner of this website:</strong><br />refer to <a href=\"https://developers.cloudflare.com/workers/observability/errors/\" target=\"_blank\">Workers - Errors and Exceptions</a> and check Workers Logs for janitor-runner-probe-ed436934.matechs.workers.dev.</p>\n                    </div>\n                    \n                </div>\n            </div><!-- /.section -->\n    \n            <div class=\"cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300\">\n    <p class=\"text-13\">\n      <span class=\"cf-footer-item sm:block sm:mb-1\">Cloudflare Ray ID: <strong class=\"font-semibold\">a399e2c5fc4d242d</strong></span>\n      <span class=\"cf-footer-separator sm:hidden\">&bull;</span>\n      <span id=\"cf-footer-item-ip\" class=\"cf-footer-item hidden sm:block sm:mb-1\">\n        Your IP:\n        <button type=\"button\" id=\"cf-footer-ip-reveal\" class=\"cf-footer-ip-reveal-btn\">Click to reveal</button>\n        <span class=\"hidden\" id=\"cf-footer-ip\">20.231.80.12</span>\n        <span class=\"cf-footer-separator sm:hidden\">&bull;</span>\n      </span>\n      <span class=\"cf-footer-item sm:block sm:mb-1\"><span>Performance &amp; security by</span> <a rel=\"noopener noreferrer\" href=\"https://www.cloudflare.com/5xx-error-landing\" id=\"brand_link\" target=\"_blank\">Cloudflare</a></span>\n      \n    </p>\n    <script>(function(){function d(){var b=a.getElementById(\"cf-footer-item-ip\"),c=a.getElementById(\"cf-footer-ip-reveal\");b&&\"classList\"in b&&(b.classList.remove(\"hidden\"),c.addEventListener(\"click\",function(){c.classList.add(\"hidden\");a.getElementById(\"cf-footer-ip\").classList.remove(\"hidden\")}))}var a=document;document.addEventListener&&a.addEventListener(\"DOMContentLoaded\",d)})();</script>\n  </div><!-- /.error-footer -->\n\n        </div><!-- /#cf-error-details -->\n    </div><!-- /#cf-wrapper -->\n\n     <script>\n    window._cf_translation = {};\n    \n    \n  </script> \n</body>\n</html>"
+    },
+    {
+      "name": "shell-policy-v4",
+      "path": "/admit",
+      "status": 200,
+      "data": {
+        "id": "msg_09273026b00181dPRFLdXFDGBi",
+        "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+        "timeCreated": "2026-09-11T21:50:05.931Z",
+        "type": "user",
+        "payload": {
+          "text": "exercise native shell policy"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "creation-crash-v4",
+      "path": "/create",
+      "status": 200,
+      "data": {
+        "session": "ses_54da1de9064f417e8cdb1b2f65468a3f"
+      }
+    },
+    {
+      "name": "creation-crash-v4",
+      "path": "/admit",
+      "status": 200,
+      "data": {
+        "id": "msg_092730670001ZbItrJGLt3PaXV",
+        "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+        "timeCreated": "2026-09-11T21:50:06.960Z",
+        "type": "user",
+        "payload": {
+          "text": "same native conversation after creation crash"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "creation-crash-v4",
+      "path": "/evidence",
+      "status": 200,
+      "data": {
+        "session": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+        "row": {
+          "id": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+          "time_suspended": null,
+          "resume_attempts": 0,
+          "time_idle": 1789163407035,
+          "idle_outcome": "succeeded"
+        },
+        "modelCalls": 1,
+        "obligation": false,
+        "alarm": null,
+        "events": [
+          {
+            "id": "evt_09273040200440A6FoQW1xkBaC",
+            "created": 1789163406338,
+            "type": "session.created",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 0,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+              "location": {
+                "directory": "/probe",
+                "workspaceID": "wrk_092730402003YnwwHW523Df6XK"
+              },
+              "subpath": "",
+              "slug": "calm-orchid",
+              "title": "lifecycle-fixture",
+              "version": "unknown"
+            }
+          },
+          {
+            "id": "evt_09273067000bSAKquOLd3fyvZv",
+            "created": 1789163406960,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 1,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "inboxID": "msg_092730670001ZbItrJGLt3PaXV",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "same native conversation after creation crash"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09273067000ca1772KUdkz6jHM",
+            "created": 1789163406960,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 2,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f"
+            }
+          },
+          {
+            "id": "evt_09273067000dG58t0fgYhMNCO5",
+            "created": 1789163406960,
+            "type": "session.instructions.updated",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 3,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "delta": {
+                "core/environment": "1554aa6c1bec9e9715e35aad9f39ea61dbedc23dd7378274793642bd81bcc64b",
+                "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+                "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+                "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+              }
+            }
+          },
+          {
+            "id": "evt_09273067000eH9dcFjUEVrnJKW",
+            "created": 1789163406960,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 4,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "inboxID": "msg_092730670001ZbItrJGLt3PaXV"
+            }
+          },
+          {
+            "id": "evt_09273067001011OOi5nnnqPwJj",
+            "created": 1789163406960,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 5,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "assistantMessageID": "msg_09273067000f1dXqmhQg3bEjPg",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_0927306bb001CmhRVIXgqD77Zj",
+            "created": 1789163407035,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 6,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "assistantMessageID": "msg_09273067000f1dXqmhQg3bEjPg",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_0927306bb003tedTJT7JcIg4qb",
+            "created": 1789163407035,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 7,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "assistantMessageID": "msg_09273067000f1dXqmhQg3bEjPg",
+              "ordinal": 0,
+              "text": "fixture answer 1"
+            }
+          },
+          {
+            "id": "evt_0927306bb004IY7G5A52sH2OsR",
+            "created": 1789163407035,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 8,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "assistantMessageID": "msg_09273067000f1dXqmhQg3bEjPg"
+            }
+          },
+          {
+            "id": "evt_0927306bb005xk7dlUt6RvPMCK",
+            "created": 1789163407035,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 9,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "assistantMessageID": "msg_09273067000f1dXqmhQg3bEjPg",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_0927306bb007DCaPyOS5dissrd",
+            "created": 1789163407035,
+            "type": "session.execution.succeeded",
+            "durable": {
+              "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+              "seq": 10,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_54da1de9064f417e8cdb1b2f65468a3f"
+            }
+          },
+          {
+            "type": "log.synced",
+            "aggregateID": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+            "seq": 10
+          }
+        ],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789163406337,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "4fbae996-eeba-4677-b8f0-6f01f275a9ce"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789163406900,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "f2380133-a4a8-4a4d-97a1-81c6759b400a"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789163406900,
+            "kind": "created",
+            "data": {
+              "id": "ses_54da1de9064f417e8cdb1b2f65468a3f"
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789163406960,
+            "kind": "armed",
+            "data": {
+              "due": 1789163407660
+            }
+          },
+          {
+            "seq": 5,
+            "time": 1789163406960,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 6,
+            "time": 1789163406960,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_092730670001ZbItrJGLt3PaXV"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789163406960,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_092730670001ZbItrJGLt3PaXV",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "same native conversation after creation crash"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "f2380133-a4a8-4a4d-97a1-81c6759b400a"
+            }
+          },
+          {
+            "seq": 8,
+            "time": 1789163406960,
+            "kind": "model-response",
+            "data": {
+              "call": 1,
+              "incarnation": "f2380133-a4a8-4a4d-97a1-81c6759b400a"
+            }
+          },
+          {
+            "seq": 9,
+            "time": 1789163407660,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "f2380133-a4a8-4a4d-97a1-81c6759b400a"
+            }
+          },
+          {
+            "seq": 10,
+            "time": 1789163407660,
+            "kind": "armed",
+            "data": {
+              "due": 1789163408360
+            }
+          },
+          {
+            "seq": 11,
+            "time": 1789163407660,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_54da1de9064f417e8cdb1b2f65468a3f",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": 1789163407035,
+                "idle_outcome": "succeeded"
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 12,
+            "time": 1789163407660,
+            "kind": "idle",
+            "data": {}
+          },
+          {
+            "seq": 13,
+            "time": 1789163407660,
+            "kind": "alarm-end",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "shell-policy-v4",
+      "path": "/evidence",
+      "status": 200,
+      "data": {
+        "session": "ses_59811b6dbef44b00b9f3e0ce67806269",
+        "row": {
+          "id": "ses_59811b6dbef44b00b9f3e0ce67806269",
+          "time_suspended": null,
+          "resume_attempts": 0,
+          "time_idle": 1789163406045,
+          "idle_outcome": "succeeded"
+        },
+        "modelCalls": 5,
+        "obligation": false,
+        "alarm": null,
+        "events": [
+          {
+            "id": "evt_09273020f004xwhtLhO57YV103",
+            "created": 1789163405839,
+            "type": "session.created",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 0,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+              "location": {
+                "directory": "/probe",
+                "workspaceID": "wrk_09273020f003u127Kpv8AZ9r6P"
+              },
+              "subpath": "",
+              "slug": "shiny-island",
+              "title": "lifecycle-fixture",
+              "version": "unknown"
+            }
+          },
+          {
+            "id": "evt_09273026b00bHMEf3fd8IyHToF",
+            "created": 1789163405931,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 1,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "inboxID": "msg_09273026b00181dPRFLdXFDGBi",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "exercise native shell policy"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09273026b00cJfqQ1Vwu4jHQNj",
+            "created": 1789163405931,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 2,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269"
+            }
+          },
+          {
+            "id": "evt_09273026b00dxNWMjkjR9MtwRU",
+            "created": 1789163405931,
+            "type": "session.instructions.updated",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 3,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "delta": {
+                "core/environment": "da872ed0f33e198bf187e8cfddb9798f79c522d4a7b221f9dc937a3ab32f7a90",
+                "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+                "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+                "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+              }
+            }
+          },
+          {
+            "id": "evt_09273026b00ec6RmjFeYkI37OY",
+            "created": 1789163405931,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 4,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "inboxID": "msg_09273026b00181dPRFLdXFDGBi"
+            }
+          },
+          {
+            "id": "evt_09273026b010PYvlJ5zLScUzpF",
+            "created": 1789163405931,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 5,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_09273026b00fLd1HPzETfz50fF",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_09273026b011MT4R4B13u86Sav",
+            "created": 1789163405931,
+            "type": "session.tool.input.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 6,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_09273026b00fLd1HPzETfz50fF",
+              "id": "guard-1",
+              "name": "shell"
+            }
+          },
+          {
+            "id": "evt_09273026b012MplMHMmT2zmbIK",
+            "created": 1789163405931,
+            "type": "session.tool.input.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 7,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_09273026b00fLd1HPzETfz50fF",
+              "id": "guard-1",
+              "text": ""
+            }
+          },
+          {
+            "id": "evt_09273026b013j6Dgwf451MgmJP",
+            "created": 1789163405931,
+            "type": "session.tool.called",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 8,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_09273026b00fLd1HPzETfz50fF",
+              "id": "guard-1",
+              "input": {
+                "command": "fixture",
+                "timeout": 0
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_09273026b014kurj0zqRpIojhv",
+            "created": 1789163405931,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 9,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_09273026b00fLd1HPzETfz50fF"
+            }
+          },
+          {
+            "id": "evt_09273026b015LHWWPvmXt1qhBG",
+            "created": 1789163405931,
+            "type": "session.tool.failed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 10,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_09273026b00fLd1HPzETfz50fF",
+              "id": "guard-1",
+              "error": {
+                "type": "tool.execution",
+                "message": "Foreground commands require a finite positive timeout"
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_0927302a8001nuVLI7gp28Y7qk",
+            "created": 1789163405992,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 11,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_09273026b00fLd1HPzETfz50fF",
+              "finish": "tool-calls",
+              "cost": 0,
+              "tokens": {
+                "input": 0,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_0927302a8004u5Kc2i9fQ1CM2T",
+            "created": 1789163405992,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 12,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302a8003DmjbGAJ0rwXsOj",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_0927302a80056IKuytyEFpvoLm",
+            "created": 1789163405992,
+            "type": "session.tool.input.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 13,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302a8003DmjbGAJ0rwXsOj",
+              "id": "guard-2",
+              "name": "shell"
+            }
+          },
+          {
+            "id": "evt_0927302a8006vI7ycuOUAR48zu",
+            "created": 1789163405992,
+            "type": "session.tool.input.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 14,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302a8003DmjbGAJ0rwXsOj",
+              "id": "guard-2",
+              "text": ""
+            }
+          },
+          {
+            "id": "evt_0927302a8007OE2mvLtm49JTv1",
+            "created": 1789163405992,
+            "type": "session.tool.called",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 15,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302a8003DmjbGAJ0rwXsOj",
+              "id": "guard-2",
+              "input": {
+                "command": "fixture"
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_0927302a8008Aodu7mlLfJtxTj",
+            "created": 1789163405992,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 16,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302a8003DmjbGAJ0rwXsOj"
+            }
+          },
+          {
+            "id": "evt_0927302a8009vGqqPnP3N0D5Xj",
+            "created": 1789163405992,
+            "type": "session.tool.failed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 17,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302a8003DmjbGAJ0rwXsOj",
+              "id": "guard-2",
+              "error": {
+                "type": "tool.execution",
+                "message": "fixture captured native shell invocation before spawn"
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_0927302bc001GOviCRQvRB8Uki",
+            "created": 1789163406012,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 18,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302a8003DmjbGAJ0rwXsOj",
+              "finish": "tool-calls",
+              "cost": 0,
+              "tokens": {
+                "input": 0,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_0927302bc0049r4fV7Ao3SXtRx",
+            "created": 1789163406012,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 19,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302bc003hFSoUGg8WDFv1m",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_0927302bc005TvLRTny0Bn4Pl7",
+            "created": 1789163406012,
+            "type": "session.tool.input.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 20,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302bc003hFSoUGg8WDFv1m",
+              "id": "guard-3",
+              "name": "shell"
+            }
+          },
+          {
+            "id": "evt_0927302bc006N0suplPH7WH3ZA",
+            "created": 1789163406012,
+            "type": "session.tool.input.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 21,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302bc003hFSoUGg8WDFv1m",
+              "id": "guard-3",
+              "text": ""
+            }
+          },
+          {
+            "id": "evt_0927302bc0070gXmfhJa2iODLL",
+            "created": 1789163406012,
+            "type": "session.tool.called",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 22,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302bc003hFSoUGg8WDFv1m",
+              "id": "guard-3",
+              "input": {
+                "command": "fixture",
+                "timeout": 300000
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_0927302bc008wDoL3wUmaQuR0n",
+            "created": 1789163406012,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 23,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302bc003hFSoUGg8WDFv1m"
+            }
+          },
+          {
+            "id": "evt_0927302bc009cF5ipSCafanzuG",
+            "created": 1789163406012,
+            "type": "session.tool.failed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 24,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302bc003hFSoUGg8WDFv1m",
+              "id": "guard-3",
+              "error": {
+                "type": "tool.execution",
+                "message": "fixture captured native shell invocation before spawn"
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_0927302ca001KAnpdHD8hBP955",
+            "created": 1789163406026,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 25,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302bc003hFSoUGg8WDFv1m",
+              "finish": "tool-calls",
+              "cost": 0,
+              "tokens": {
+                "input": 0,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_0927302ca0043A3aw30eHMT014",
+            "created": 1789163406026,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 26,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302ca0031szM7KpcZ9tZzx",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_0927302ca005s4nzQlff6mkh5Y",
+            "created": 1789163406026,
+            "type": "session.tool.input.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 27,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302ca0031szM7KpcZ9tZzx",
+              "id": "guard-4",
+              "name": "shell"
+            }
+          },
+          {
+            "id": "evt_0927302ca006y9tSksrpezh874",
+            "created": 1789163406026,
+            "type": "session.tool.input.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 28,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302ca0031szM7KpcZ9tZzx",
+              "id": "guard-4",
+              "text": ""
+            }
+          },
+          {
+            "id": "evt_0927302ca007ENUpVI1h91mfTW",
+            "created": 1789163406026,
+            "type": "session.tool.called",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 29,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302ca0031szM7KpcZ9tZzx",
+              "id": "guard-4",
+              "input": {
+                "command": "fixture",
+                "background": true
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_0927302ca008bP2Jj6x1WGTmci",
+            "created": 1789163406026,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 30,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302ca0031szM7KpcZ9tZzx"
+            }
+          },
+          {
+            "id": "evt_0927302ca009ybvc5lj74ZwG6f",
+            "created": 1789163406026,
+            "type": "session.tool.failed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 31,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302ca0031szM7KpcZ9tZzx",
+              "id": "guard-4",
+              "error": {
+                "type": "tool.execution",
+                "message": "Foreground commands require a finite positive timeout"
+              },
+              "executed": false
+            }
+          },
+          {
+            "id": "evt_0927302d4001Dls8DKQucvzS9w",
+            "created": 1789163406036,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 32,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302ca0031szM7KpcZ9tZzx",
+              "finish": "tool-calls",
+              "cost": 0,
+              "tokens": {
+                "input": 0,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_0927302d4004bHv6H1u6mpBc59",
+            "created": 1789163406036,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 33,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302d4003n87y8bBXp2ue4j",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_0927302dd00150tbXjsa7EZ4Fu",
+            "created": 1789163406045,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 34,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302d4003n87y8bBXp2ue4j",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_0927302dd003WQqiFynokpblwP",
+            "created": 1789163406045,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 35,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302d4003n87y8bBXp2ue4j",
+              "ordinal": 0,
+              "text": "fixture answer 5"
+            }
+          },
+          {
+            "id": "evt_0927302dd0041yuIt1QParoKkW",
+            "created": 1789163406045,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 36,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302d4003n87y8bBXp2ue4j"
+            }
+          },
+          {
+            "id": "evt_0927302dd005v9hv9MWc58SI7z",
+            "created": 1789163406045,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 37,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "assistantMessageID": "msg_0927302d4003n87y8bBXp2ue4j",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_0927302dd007vMcCujZUaEq1wO",
+            "created": 1789163406045,
+            "type": "session.execution.succeeded",
+            "durable": {
+              "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+              "seq": 38,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_59811b6dbef44b00b9f3e0ce67806269"
+            }
+          },
+          {
+            "type": "log.synced",
+            "aggregateID": "ses_59811b6dbef44b00b9f3e0ce67806269",
+            "seq": 38
+          }
+        ],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789163405837,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789163405839,
+            "kind": "created",
+            "data": {
+              "id": "ses_59811b6dbef44b00b9f3e0ce67806269"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789163405931,
+            "kind": "armed",
+            "data": {
+              "due": 1789163406631
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789163405931,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 5,
+            "time": 1789163405931,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09273026b00181dPRFLdXFDGBi"
+            }
+          },
+          {
+            "seq": 6,
+            "time": 1789163405931,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_09273026b00181dPRFLdXFDGBi",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "exercise native shell policy"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789163405931,
+            "kind": "shell-rejected",
+            "data": {
+              "input": {
+                "command": "fixture",
+                "timeout": 0
+              }
+            }
+          },
+          {
+            "seq": 8,
+            "time": 1789163405992,
+            "kind": "model-start",
+            "data": {
+              "call": 2,
+              "messages": [
+                {
+                  "id": "msg_09273026b00181dPRFLdXFDGBi",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "exercise native shell policy"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09273026b00fLd1HPzETfz50fF",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture",
+                        "timeout": 0
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "Foreground commands require a finite positive timeout"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 9,
+            "time": 1789163405992,
+            "kind": "shell-boundary",
+            "data": {
+              "timeout": 120000,
+              "command": "fixture"
+            }
+          },
+          {
+            "seq": 10,
+            "time": 1789163406012,
+            "kind": "model-start",
+            "data": {
+              "call": 3,
+              "messages": [
+                {
+                  "id": "msg_09273026b00181dPRFLdXFDGBi",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "exercise native shell policy"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09273026b00fLd1HPzETfz50fF",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture",
+                        "timeout": 0
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "Foreground commands require a finite positive timeout"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0927302a8003DmjbGAJ0rwXsOj",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-2",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture"
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-2",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "fixture captured native shell invocation before spawn"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 11,
+            "time": 1789163406012,
+            "kind": "shell-boundary",
+            "data": {
+              "timeout": 300000,
+              "command": "fixture"
+            }
+          },
+          {
+            "seq": 12,
+            "time": 1789163406026,
+            "kind": "model-start",
+            "data": {
+              "call": 4,
+              "messages": [
+                {
+                  "id": "msg_09273026b00181dPRFLdXFDGBi",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "exercise native shell policy"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09273026b00fLd1HPzETfz50fF",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture",
+                        "timeout": 0
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "Foreground commands require a finite positive timeout"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0927302a8003DmjbGAJ0rwXsOj",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-2",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture"
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-2",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "fixture captured native shell invocation before spawn"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0927302bc003hFSoUGg8WDFv1m",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-3",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture",
+                        "timeout": 300000
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-3",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "fixture captured native shell invocation before spawn"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 13,
+            "time": 1789163406026,
+            "kind": "shell-rejected",
+            "data": {
+              "input": {
+                "command": "fixture",
+                "background": true
+              }
+            }
+          },
+          {
+            "seq": 14,
+            "time": 1789163406036,
+            "kind": "model-start",
+            "data": {
+              "call": 5,
+              "messages": [
+                {
+                  "id": "msg_09273026b00181dPRFLdXFDGBi",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "exercise native shell policy"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09273026b00fLd1HPzETfz50fF",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture",
+                        "timeout": 0
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-1",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "Foreground commands require a finite positive timeout"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0927302a8003DmjbGAJ0rwXsOj",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-2",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture"
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-2",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "fixture captured native shell invocation before spawn"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0927302bc003hFSoUGg8WDFv1m",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-3",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture",
+                        "timeout": 300000
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-3",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "fixture captured native shell invocation before spawn"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0927302ca0031szM7KpcZ9tZzx",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool-call",
+                      "id": "guard-4",
+                      "name": "shell",
+                      "input": {
+                        "command": "fixture",
+                        "background": true
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": [
+                    {
+                      "type": "tool-result",
+                      "id": "guard-4",
+                      "name": "shell",
+                      "result": {
+                        "type": "error",
+                        "value": {
+                          "error": {
+                            "type": "tool.execution",
+                            "message": "Foreground commands require a finite positive timeout"
+                          },
+                          "content": []
+                        }
+                      },
+                      "providerExecuted": false
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 15,
+            "time": 1789163406036,
+            "kind": "model-response",
+            "data": {
+              "call": 5,
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 16,
+            "time": 1789163406631,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "ffe3920e-f362-425a-b894-bb56535af87d"
+            }
+          },
+          {
+            "seq": 17,
+            "time": 1789163406631,
+            "kind": "armed",
+            "data": {
+              "due": 1789163407331
+            }
+          },
+          {
+            "seq": 18,
+            "time": 1789163406631,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_59811b6dbef44b00b9f3e0ce67806269",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": 1789163406045,
+                "idle_outcome": "succeeded"
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 19,
+            "time": 1789163406631,
+            "kind": "idle",
+            "data": {}
+          },
+          {
+            "seq": 20,
+            "time": 1789163406631,
+            "kind": "alarm-end",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "boot-gate-v4",
+      "path": "/evidence",
+      "status": 200,
+      "data": {
+        "session": "ses_aafdd0e4f0b2457389960e04975a851f",
+        "row": null,
+        "modelCalls": 1,
+        "obligation": false,
+        "alarm": null,
+        "events": [],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789163405338,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "68bf7358-804a-4212-bfa0-ea37920288c4"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789163405340,
+            "kind": "created",
+            "data": {
+              "id": "ses_aafdd0e4f0b2457389960e04975a851f"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789163405416,
+            "kind": "armed",
+            "data": {
+              "due": 1789163406416
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789163405416,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 5,
+            "time": 1789163405416,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_092730068001ol5GaLa6421prJ"
+            }
+          },
+          {
+            "seq": 6,
+            "time": 1789163405416,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_092730068001ol5GaLa6421prJ",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "must not recover through unresolved effects"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "68bf7358-804a-4212-bfa0-ea37920288c4"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789163405446,
+            "kind": "block-persisted",
+            "data": {}
+          },
+          {
+            "seq": 8,
+            "time": 1789163406454,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "85067677-dfc1-44ef-901d-fed7d592d7eb"
+            }
+          },
+          {
+            "seq": 9,
+            "time": 1789163406454,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "85067677-dfc1-44ef-901d-fed7d592d7eb"
+            }
+          },
+          {
+            "seq": 10,
+            "time": 1789163406454,
+            "kind": "armed",
+            "data": {
+              "due": 1789163407454
+            }
+          },
+          {
+            "seq": 11,
+            "time": 1789163406454,
+            "kind": "blocked",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "shell-policy-v4",
+      "path": "/cleanup",
+      "status": 200,
+      "data": {
+        "cleaned": true
+      }
+    },
+    {
+      "name": "boot-gate-v4",
+      "path": "/cleanup",
+      "status": 200,
+      "data": {
+        "cleaned": true
+      }
+    },
+    {
+      "name": "creation-crash-v4",
+      "path": "/cleanup",
+      "status": 200,
+      "data": {
+        "cleaned": true
+      }
+    }
+  ],
+  "passed": true,
+  "cleanup": [
+    {
+      "name": "shell-policy-v4",
+      "cleaned": true
+    },
+    {
+      "name": "boot-gate-v4",
+      "cleaned": true
+    },
+    {
+      "name": "creation-crash-v4",
+      "cleaned": true
+    }
+  ],
+  "finishedAt": "2026-09-11T21:50:14.267Z"
+}

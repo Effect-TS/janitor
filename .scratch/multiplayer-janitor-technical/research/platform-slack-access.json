@@ -1,0 +1,48 @@
+{
+  "checkedAt": "2026-09-12T12:58:58.150Z",
+  "mode": "read-only",
+  "appID": "A0C284F2FSL",
+  "checks": [
+    {
+      "method": "auth.test",
+      "status": 200,
+      "ok": true,
+      "scopes": "app_mentions:read,chat:write,groups:history,groups:read,metadata.message:read"
+    },
+    {
+      "method": "conversations.info",
+      "status": 200,
+      "ok": true,
+      "scopes": "app_mentions:read,chat:write,groups:history,groups:read,metadata.message:read"
+    },
+    {
+      "method": "conversations.history",
+      "status": 200,
+      "ok": true,
+      "scopes": "app_mentions:read,chat:write,groups:history,groups:read,metadata.message:read"
+    }
+  ],
+  "mutations": 0,
+  "identity": {
+    "teamID": "T05479Z6JBW",
+    "botID": "B0C1FMBA7MF",
+    "userID": "U0C0YCF3B1D",
+    "workspaceURL": "https://effectfulworkspace.slack.com/"
+  },
+  "channel": {
+    "id": "C0C19USKLPQ",
+    "name": "janitor-test",
+    "private": true,
+    "member": true,
+    "archived": false
+  },
+  "history": {
+    "count": 2,
+    "hasMore": false,
+    "hasCursor": false,
+    "limited": false
+  },
+  "replies": {
+    "skipped": "No ordinary root message in the bounded history sample"
+  }
+}

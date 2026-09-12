@@ -1,0 +1,19 @@
+{
+  "repository": "Effect-TS/slopcop-sandbox",
+  "prs": [
+    {
+      "number": 6,
+      "state": "closed",
+      "merged": false,
+      "url": "https://github.com/Effect-TS/slopcop-sandbox/pull/6"
+    },
+    {
+      "number": 7,
+      "state": "closed",
+      "merged": false,
+      "url": "https://github.com/Effect-TS/slopcop-sandbox/pull/7"
+    }
+  ],
+  "remainingFixtureBranches": [],
+  "defaultBranchUnchanged": true
+}

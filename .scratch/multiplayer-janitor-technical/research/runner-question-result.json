@@ -1,0 +1,1097 @@
+[
+  {
+    "name": "question",
+    "path": "/create",
+    "status": 200,
+    "data": {
+      "session": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87"
+    }
+  },
+  {
+    "name": "question",
+    "path": "/admit",
+    "status": 200,
+    "data": {
+      "id": "msg_09274e89b001871QcJFqzNdx2b",
+      "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+      "timeCreated": "2026-09-11T21:52:10.482Z",
+      "type": "user",
+      "payload": {
+        "text": "ask me a question"
+      },
+      "delivery": "queue"
+    }
+  },
+  {
+    "name": "question",
+    "path": "/evidence",
+    "status": 200,
+    "data": {
+      "session": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+      "row": {
+        "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+        "time_suspended": 1789163530499,
+        "resume_attempts": 0,
+        "time_idle": null,
+        "idle_outcome": null
+      },
+      "modelCalls": 1,
+      "obligation": true,
+      "alarm": 1789163532802,
+      "events": [
+        {
+          "id": "evt_09274e81a001h39Exwz92PRSnw",
+          "created": 1789163530266,
+          "type": "session.created",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 0,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+            "location": {
+              "directory": "/probe",
+              "workspaceID": "wrk_09274e805002EKHaVmUxor9pH2"
+            },
+            "subpath": "",
+            "slug": "hidden-forest",
+            "title": "lifecycle-fixture",
+            "permissions": [
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              }
+            ],
+            "version": "unknown"
+          }
+        },
+        {
+          "id": "evt_09274e8f2001Ow64NTCaTypud5",
+          "created": 1789163530482,
+          "type": "session.inbox.enqueued",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 1,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "inboxID": "msg_09274e89b001871QcJFqzNdx2b",
+            "item": {
+              "type": "user",
+              "payload": {
+                "text": "ask me a question"
+              },
+              "delivery": "queue"
+            }
+          }
+        },
+        {
+          "id": "evt_09274e902001xiXF4wjSmpC0Vw",
+          "created": 1789163530498,
+          "type": "session.execution.started",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 2,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87"
+          }
+        },
+        {
+          "id": "evt_09274e923001TklmKoEueuKI6H",
+          "created": 1789163530531,
+          "type": "session.instructions.updated",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 3,
+            "version": 2
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "delta": {
+              "core/environment": "122866f77f4b254d34ef6fdc4eaa210aa0da355a930333586bf99fe4020aea45",
+              "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+              "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+              "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+            }
+          }
+        },
+        {
+          "id": "evt_09274e92c001PGirpnwMEsoqMx",
+          "created": 1789163530540,
+          "type": "session.inbox.delivered",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 4,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "inboxID": "msg_09274e89b001871QcJFqzNdx2b"
+          }
+        },
+        {
+          "id": "evt_09274e951001uBls3swC9rGo0g",
+          "created": 1789163530577,
+          "type": "session.step.started",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 5,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "agent": "build",
+            "model": {
+              "id": "probe",
+              "providerID": "openai"
+            }
+          }
+        },
+        {
+          "id": "evt_09274e959001l3h3oOPjc9NgNJ",
+          "created": 1789163530585,
+          "type": "session.tool.input.started",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 6,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "id": "question",
+            "name": "question"
+          }
+        },
+        {
+          "id": "evt_09274e965001HFYKFKePpCrId2",
+          "created": 1789163530597,
+          "type": "session.tool.input.ended",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 7,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "id": "question",
+            "text": "{\"questions\":[{\"question\":\"Which approach?\",\"header\":\"Approach\",\"options\":[{\"label\":\"A\",\"description\":\"First approach\"},{\"label\":\"B\",\"description\":\"Second approach\"}]}]}"
+          }
+        },
+        {
+          "id": "evt_09274e96b001wZ5tbiJZqN6uug",
+          "created": 1789163530603,
+          "type": "session.tool.called",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 8,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "id": "question",
+            "input": {
+              "questions": [
+                {
+                  "question": "Which approach?",
+                  "header": "Approach",
+                  "options": [
+                    {
+                      "label": "A",
+                      "description": "First approach"
+                    },
+                    {
+                      "label": "B",
+                      "description": "Second approach"
+                    }
+                  ]
+                }
+              ]
+            },
+            "executed": false
+          }
+        },
+        {
+          "id": "evt_09274e972001bBu8O0A5okc0n1",
+          "created": 1789163530610,
+          "type": "session.step.streamed",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 9,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT"
+          }
+        },
+        {
+          "type": "log.synced",
+          "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+          "seq": 9
+        }
+      ],
+      "trace": [
+        {
+          "seq": 1,
+          "time": 1789163530148,
+          "kind": "constructor",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 2,
+          "time": 1789163530282,
+          "kind": "created",
+          "data": {
+            "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87"
+          }
+        },
+        {
+          "seq": 3,
+          "time": 1789163530300,
+          "kind": "armed",
+          "data": {
+            "due": 1789163530799
+          }
+        },
+        {
+          "seq": 4,
+          "time": 1789163530300,
+          "kind": "admission-before",
+          "data": {}
+        },
+        {
+          "seq": 5,
+          "time": 1789163530491,
+          "kind": "admission-after",
+          "data": {
+            "id": "msg_09274e89b001871QcJFqzNdx2b"
+          }
+        },
+        {
+          "seq": 6,
+          "time": 1789163530565,
+          "kind": "http-start",
+          "data": {
+            "call": 1,
+            "mode": "question"
+          }
+        },
+        {
+          "seq": 7,
+          "time": 1789163530800,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 8,
+          "time": 1789163530800,
+          "kind": "armed",
+          "data": {
+            "due": 1789163531300
+          }
+        },
+        {
+          "seq": 9,
+          "time": 1789163530834,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 10,
+          "time": 1789163530846,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 11,
+          "time": 1789163531301,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 12,
+          "time": 1789163531301,
+          "kind": "armed",
+          "data": {
+            "due": 1789163531801
+          }
+        },
+        {
+          "seq": 13,
+          "time": 1789163531311,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 14,
+          "time": 1789163531316,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 15,
+          "time": 1789163531801,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 16,
+          "time": 1789163531801,
+          "kind": "armed",
+          "data": {
+            "due": 1789163532301
+          }
+        },
+        {
+          "seq": 17,
+          "time": 1789163531810,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 18,
+          "time": 1789163531814,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 19,
+          "time": 1789163532302,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 20,
+          "time": 1789163532302,
+          "kind": "armed",
+          "data": {
+            "due": 1789163532802
+          }
+        },
+        {
+          "seq": 21,
+          "time": 1789163532312,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 22,
+          "time": 1789163532316,
+          "kind": "alarm-end",
+          "data": {}
+        }
+      ]
+    }
+  },
+  {
+    "name": "question",
+    "path": "/admit",
+    "status": 200,
+    "data": {
+      "id": "msg_09274f02f001kZ30GKkrwv40Kt",
+      "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+      "timeCreated": "2026-09-11T21:52:12.336Z",
+      "type": "user",
+      "payload": {
+        "text": "Choose A"
+      },
+      "delivery": "queue"
+    }
+  },
+  {
+    "name": "question",
+    "path": "/evidence",
+    "status": 200,
+    "data": {
+      "session": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+      "row": {
+        "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+        "time_suspended": 1789163530499,
+        "resume_attempts": 0,
+        "time_idle": null,
+        "idle_outcome": null
+      },
+      "modelCalls": 1,
+      "obligation": true,
+      "alarm": 1789163534804,
+      "events": [
+        {
+          "id": "evt_09274e81a001h39Exwz92PRSnw",
+          "created": 1789163530266,
+          "type": "session.created",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 0,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+            "location": {
+              "directory": "/probe",
+              "workspaceID": "wrk_09274e805002EKHaVmUxor9pH2"
+            },
+            "subpath": "",
+            "slug": "hidden-forest",
+            "title": "lifecycle-fixture",
+            "permissions": [
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              }
+            ],
+            "version": "unknown"
+          }
+        },
+        {
+          "id": "evt_09274e8f2001Ow64NTCaTypud5",
+          "created": 1789163530482,
+          "type": "session.inbox.enqueued",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 1,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "inboxID": "msg_09274e89b001871QcJFqzNdx2b",
+            "item": {
+              "type": "user",
+              "payload": {
+                "text": "ask me a question"
+              },
+              "delivery": "queue"
+            }
+          }
+        },
+        {
+          "id": "evt_09274e902001xiXF4wjSmpC0Vw",
+          "created": 1789163530498,
+          "type": "session.execution.started",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 2,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87"
+          }
+        },
+        {
+          "id": "evt_09274e923001TklmKoEueuKI6H",
+          "created": 1789163530531,
+          "type": "session.instructions.updated",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 3,
+            "version": 2
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "delta": {
+              "core/environment": "122866f77f4b254d34ef6fdc4eaa210aa0da355a930333586bf99fe4020aea45",
+              "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+              "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+              "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+            }
+          }
+        },
+        {
+          "id": "evt_09274e92c001PGirpnwMEsoqMx",
+          "created": 1789163530540,
+          "type": "session.inbox.delivered",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 4,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "inboxID": "msg_09274e89b001871QcJFqzNdx2b"
+          }
+        },
+        {
+          "id": "evt_09274e951001uBls3swC9rGo0g",
+          "created": 1789163530577,
+          "type": "session.step.started",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 5,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "agent": "build",
+            "model": {
+              "id": "probe",
+              "providerID": "openai"
+            }
+          }
+        },
+        {
+          "id": "evt_09274e959001l3h3oOPjc9NgNJ",
+          "created": 1789163530585,
+          "type": "session.tool.input.started",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 6,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "id": "question",
+            "name": "question"
+          }
+        },
+        {
+          "id": "evt_09274e965001HFYKFKePpCrId2",
+          "created": 1789163530597,
+          "type": "session.tool.input.ended",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 7,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "id": "question",
+            "text": "{\"questions\":[{\"question\":\"Which approach?\",\"header\":\"Approach\",\"options\":[{\"label\":\"A\",\"description\":\"First approach\"},{\"label\":\"B\",\"description\":\"Second approach\"}]}]}"
+          }
+        },
+        {
+          "id": "evt_09274e96b001wZ5tbiJZqN6uug",
+          "created": 1789163530603,
+          "type": "session.tool.called",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 8,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT",
+            "id": "question",
+            "input": {
+              "questions": [
+                {
+                  "question": "Which approach?",
+                  "header": "Approach",
+                  "options": [
+                    {
+                      "label": "A",
+                      "description": "First approach"
+                    },
+                    {
+                      "label": "B",
+                      "description": "Second approach"
+                    }
+                  ]
+                }
+              ]
+            },
+            "executed": false
+          }
+        },
+        {
+          "id": "evt_09274e972001bBu8O0A5okc0n1",
+          "created": 1789163530610,
+          "type": "session.step.streamed",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 9,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "assistantMessageID": "msg_09274e9360012oxZeFrydhV3MT"
+          }
+        },
+        {
+          "id": "evt_09274f030001aNrEk3Btx198hJ",
+          "created": 1789163532336,
+          "type": "session.inbox.enqueued",
+          "durable": {
+            "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "seq": 10,
+            "version": 1
+          },
+          "data": {
+            "sessionID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+            "inboxID": "msg_09274f02f001kZ30GKkrwv40Kt",
+            "item": {
+              "type": "user",
+              "payload": {
+                "text": "Choose A"
+              },
+              "delivery": "queue"
+            }
+          }
+        },
+        {
+          "type": "log.synced",
+          "aggregateID": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+          "seq": 10
+        }
+      ],
+      "trace": [
+        {
+          "seq": 1,
+          "time": 1789163530148,
+          "kind": "constructor",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 2,
+          "time": 1789163530282,
+          "kind": "created",
+          "data": {
+            "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87"
+          }
+        },
+        {
+          "seq": 3,
+          "time": 1789163530300,
+          "kind": "armed",
+          "data": {
+            "due": 1789163530799
+          }
+        },
+        {
+          "seq": 4,
+          "time": 1789163530300,
+          "kind": "admission-before",
+          "data": {}
+        },
+        {
+          "seq": 5,
+          "time": 1789163530491,
+          "kind": "admission-after",
+          "data": {
+            "id": "msg_09274e89b001871QcJFqzNdx2b"
+          }
+        },
+        {
+          "seq": 6,
+          "time": 1789163530565,
+          "kind": "http-start",
+          "data": {
+            "call": 1,
+            "mode": "question"
+          }
+        },
+        {
+          "seq": 7,
+          "time": 1789163530800,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 8,
+          "time": 1789163530800,
+          "kind": "armed",
+          "data": {
+            "due": 1789163531300
+          }
+        },
+        {
+          "seq": 9,
+          "time": 1789163530834,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 10,
+          "time": 1789163530846,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 11,
+          "time": 1789163531301,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 12,
+          "time": 1789163531301,
+          "kind": "armed",
+          "data": {
+            "due": 1789163531801
+          }
+        },
+        {
+          "seq": 13,
+          "time": 1789163531311,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 14,
+          "time": 1789163531316,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 15,
+          "time": 1789163531801,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 16,
+          "time": 1789163531801,
+          "kind": "armed",
+          "data": {
+            "due": 1789163532301
+          }
+        },
+        {
+          "seq": 17,
+          "time": 1789163531810,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 18,
+          "time": 1789163531814,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 19,
+          "time": 1789163532302,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 20,
+          "time": 1789163532302,
+          "kind": "armed",
+          "data": {
+            "due": 1789163532802
+          }
+        },
+        {
+          "seq": 21,
+          "time": 1789163532312,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 0,
+            "revision": 1
+          }
+        },
+        {
+          "seq": 22,
+          "time": 1789163532316,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 23,
+          "time": 1789163532328,
+          "kind": "armed",
+          "data": {
+            "due": 1789163532828
+          }
+        },
+        {
+          "seq": 24,
+          "time": 1789163532328,
+          "kind": "admission-before",
+          "data": {}
+        },
+        {
+          "seq": 25,
+          "time": 1789163532344,
+          "kind": "admission-after",
+          "data": {
+            "id": "msg_09274f02f001kZ30GKkrwv40Kt"
+          }
+        },
+        {
+          "seq": 26,
+          "time": 1789163532803,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 27,
+          "time": 1789163532803,
+          "kind": "armed",
+          "data": {
+            "due": 1789163533303
+          }
+        },
+        {
+          "seq": 28,
+          "time": 1789163532819,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 1,
+            "revision": 2
+          }
+        },
+        {
+          "seq": 29,
+          "time": 1789163532823,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 30,
+          "time": 1789163533303,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 31,
+          "time": 1789163533304,
+          "kind": "armed",
+          "data": {
+            "due": 1789163533803
+          }
+        },
+        {
+          "seq": 32,
+          "time": 1789163533313,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 1,
+            "revision": 2
+          }
+        },
+        {
+          "seq": 33,
+          "time": 1789163533317,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 34,
+          "time": 1789163533803,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 35,
+          "time": 1789163533804,
+          "kind": "armed",
+          "data": {
+            "due": 1789163534304
+          }
+        },
+        {
+          "seq": 36,
+          "time": 1789163533816,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 1,
+            "revision": 2
+          }
+        },
+        {
+          "seq": 37,
+          "time": 1789163533820,
+          "kind": "alarm-end",
+          "data": {}
+        },
+        {
+          "seq": 38,
+          "time": 1789163534304,
+          "kind": "alarm-start",
+          "data": {
+            "incarnation": "084a8d8f-868c-47a8-b4fd-36ead88e0c20"
+          }
+        },
+        {
+          "seq": 39,
+          "time": 1789163534304,
+          "kind": "armed",
+          "data": {
+            "due": 1789163534804
+          }
+        },
+        {
+          "seq": 40,
+          "time": 1789163534314,
+          "kind": "inspected",
+          "data": {
+            "active": true,
+            "row": {
+              "id": "ses_9af7d29b44324fc6ac7d5d17fc0bbd87",
+              "time_suspended": 1789163530499,
+              "resume_attempts": 0,
+              "time_idle": null,
+              "idle_outcome": null
+            },
+            "pending": 1,
+            "revision": 2
+          }
+        },
+        {
+          "seq": 41,
+          "time": 1789163534318,
+          "kind": "alarm-end",
+          "data": {}
+        }
+      ]
+    }
+  },
+  {
+    "name": "question",
+    "path": "/cleanup",
+    "status": 200,
+    "data": {
+      "cleaned": true
+    }
+  }
+]

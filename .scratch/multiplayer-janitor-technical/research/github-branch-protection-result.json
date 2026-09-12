@@ -1,0 +1,6 @@
+{
+  "branch": "janitor-verification/f31428de-protected",
+  "error": "AssertionError [ERR_ASSERTION]: gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)\n\n\n1 !== 0\n",
+  "branchDeleted": true,
+  "tokenRevoked": true
+}

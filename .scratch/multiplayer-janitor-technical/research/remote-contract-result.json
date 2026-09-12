@@ -1,0 +1,588 @@
+{
+  "kind": "cloudflare-repository-contract",
+  "steps": [
+    {
+      "path": "/start",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 8693,
+      "result": {
+        "localGitCasesInsideSandbox": [
+          "fixture command succeeds with unfinished work",
+          "host archive preserves index, local commit, tracked deletion, untracked and ignored files, symlink and mode",
+          "non-fast-forward push is rejected; reconciliation preserves concurrent human commit",
+          "remote ref inspection observes successful local publication without a repeat push"
+        ],
+        "idempotentAdoption": true,
+        "authRejected": 401,
+        "staleEpochRejected": 409
+      }
+    },
+    {
+      "path": "/sdk",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 2354,
+      "result": {
+        "sessionID": "ses_f6dbfdc4bffcgJQcMLpmlZh0ud",
+        "workspaceID": "wrk_0924023b4002h4S1Z5813BX590",
+        "calls": {
+          "create": 1,
+          "connect": 1,
+          "model": 3,
+          "rejected": 1,
+          "captures": 1
+        },
+        "durableEventCount": 26,
+        "actualSDKSession": true,
+        "actualNativeShellTool": true,
+        "durableAdmissionBeforeCommand": true,
+        "checkpointBeforeNativeToolResult": true,
+        "fakeModel": true,
+        "unattendedLifecycleTested": false
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 15491,
+      "result": {
+        "shell": {
+          "tool": {
+            "nativeToolTested": true,
+            "backgroundRejectedBeforeExecution": true,
+            "nativeJobRegistryUsed": true,
+            "rewrittenOutputReadable": true,
+            "captureBytes": 100000,
+            "permissionsAreFixtureStubs": true
+          },
+          "checks": [
+            "native shell combined output capture",
+            "native shell exit 7",
+            "native shell timeout",
+            "native shell removal followed by external freeze",
+            "large output points to Workerd-only capture",
+            "100000 capture bytes copied into external workspace"
+          ],
+          "result": {
+            "info": {
+              "id": "sh_09240315a001rz2JgMHM1adXuu",
+              "status": "exited",
+              "command": "printf native-out; printf native-err >&2; exit 7",
+              "cwd": "/workspace/fixture",
+              "shell": "/bin/sh",
+              "file": "/tmp/opencode/data/shell/fixture/sh_09240315a001rz2JgMHM1adXuu.out",
+              "metadata": {},
+              "time": {
+                "started": 1789160075610,
+                "completed": 1789160075740
+              },
+              "pid": 255,
+              "exit": 7
+            },
+            "capture": {
+              "output": "native-outnative-err",
+              "truncated": false
+            }
+          },
+          "timeoutStatus": "timeout",
+          "cancellationStatus": "killed",
+          "largeCaptureNotInWorkspace": true,
+          "copiedCaptureBytes": 100000,
+          "eventCount": 14,
+          "nativeToolTested": true,
+          "durableCaptureVerified": false
+        },
+        "checks": ["binary write/read", "stat", "move/list/remove"],
+        "workerdTested": true,
+        "cloudflareSandboxTested": true,
+        "completeSpawnerContract": false
+      }
+    },
+    {
+      "path": "/protocol",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 2303,
+      "result": {
+        "lostSpawnAndStdinRepliesReconciled": true,
+        "binaryInput": true,
+        "nonzeroExit": true,
+        "stderr": true,
+        "outsideCwdRejected": true,
+        "subdirectoryCwd": true,
+        "controlCredentialNotInherited": true
+      }
+    },
+    {
+      "path": "/prepare",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 6109,
+      "result": {
+        "manifestFiles": 217,
+        "failedEditPreserved": true
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "baseline"
+      },
+      "status": 200,
+      "elapsedMs": 3141,
+      "result": {
+        "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+        "op": "baseline",
+        "generation": 1,
+        "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+        "size": 8888320,
+        "elapsedMs": 2068
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 159,
+      "result": {
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2068
+        },
+        "operation": {
+          "state": "complete",
+          "generation": 1,
+          "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar"
+        }
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "upload-failure",
+        "fail": "before-upload"
+      },
+      "status": 500,
+      "elapsedMs": 41,
+      "result": {
+        "error": "Error: injected upload failure",
+        "route": "/stage"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 37,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2068
+        },
+        "pending": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/7d01d611-2174-46cc-9f9d-bdb472067021.tar",
+          "op": "upload-failure",
+          "generation": 1
+        },
+        "operations": {
+          "sdk-shell": {
+            "state": "complete",
+            "generation": 1,
+            "payload": {
+              "command": "printf 'SDK native shell result\\n' > sdk-result.md; printf sdk-complete",
+              "cwd": "/workspace/fixture"
+            },
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/6bfad26c-dfd4-4fcc-a071-58f6fe5593bd.tar"
+          },
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "f0420e3e-9a66-4445-b406-ecda7cc9d973"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 160,
+      "result": {
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2068
+        },
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 30,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2068
+        },
+        "pending": null,
+        "operations": {
+          "sdk-shell": {
+            "state": "complete",
+            "generation": 1,
+            "payload": {
+              "command": "printf 'SDK native shell result\\n' > sdk-result.md; printf sdk-complete",
+              "cwd": "/workspace/fixture"
+            },
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/6bfad26c-dfd4-4fcc-a071-58f6fe5593bd.tar"
+          },
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "f0420e3e-9a66-4445-b406-ecda7cc9d973"
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "upload-crash",
+        "fail": "after-upload"
+      },
+      "status": 500,
+      "elapsedMs": 2482,
+      "result": {
+        "text": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Worker threw exception | janitor-repo-probe-20260911-vwap.matechs.worke"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 524,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2068
+        },
+        "pending": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/655afd96-deaa-4bd2-ac1f-6d248ee1b95b.tar",
+          "op": "upload-crash",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2443
+        },
+        "operations": {
+          "sdk-shell": {
+            "state": "complete",
+            "generation": 1,
+            "payload": {
+              "command": "printf 'SDK native shell result\\n' > sdk-result.md; printf sdk-complete",
+              "cwd": "/workspace/fixture"
+            },
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/6bfad26c-dfd4-4fcc-a071-58f6fe5593bd.tar"
+          },
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "d8017b17-03d6-488c-857b-6ad5f7f7d020"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 155,
+      "result": {
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2068
+        },
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "commit-crash"
+      },
+      "status": 200,
+      "elapsedMs": 2150,
+      "result": {
+        "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/f8d773f8-4384-4ca0-8be3-27ddf700f6f2.tar",
+        "op": "commit-crash",
+        "generation": 1,
+        "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+        "size": 8888320,
+        "elapsedMs": 2086
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 30,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2068
+        },
+        "pending": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/f8d773f8-4384-4ca0-8be3-27ddf700f6f2.tar",
+          "op": "commit-crash",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2086
+        },
+        "operations": {
+          "sdk-shell": {
+            "state": "complete",
+            "generation": 1,
+            "payload": {
+              "command": "printf 'SDK native shell result\\n' > sdk-result.md; printf sdk-complete",
+              "cwd": "/workspace/fixture"
+            },
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/6bfad26c-dfd4-4fcc-a071-58f6fe5593bd.tar"
+          },
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "commit-crash": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "d8017b17-03d6-488c-857b-6ad5f7f7d020"
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {
+        "fail": "after-commit"
+      },
+      "status": 500,
+      "elapsedMs": 167,
+      "result": {
+        "text": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Worker threw exception | janitor-repo-probe-20260911-vwap.matechs.worke"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 229,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/f8d773f8-4384-4ca0-8be3-27ddf700f6f2.tar",
+          "op": "commit-crash",
+          "generation": 1,
+          "sha256": "fb06eec1a61e3acf85a998efb0fd06b1b4667672f09ca4eab6a38a1ef0edaa8d",
+          "size": 8888320,
+          "elapsedMs": 2086
+        },
+        "pending": null,
+        "operations": {
+          "sdk-shell": {
+            "state": "complete",
+            "generation": 1,
+            "payload": {
+              "command": "printf 'SDK native shell result\\n' > sdk-result.md; printf sdk-complete",
+              "cwd": "/workspace/fixture"
+            },
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/6bfad26c-dfd4-4fcc-a071-58f6fe5593bd.tar"
+          },
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/d2870841-1c1c-40a5-97bb-fcf7cc46e4ba.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "commit-crash": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/f8d773f8-4384-4ca0-8be3-27ddf700f6f2.tar"
+          }
+        },
+        "boot": "a84b5d61-007b-48b1-996a-c502e560236c"
+      }
+    },
+    {
+      "path": "/restore",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 4844,
+      "result": {
+        "identicalManifest": true,
+        "fixtureTestPassed": true,
+        "oldBridgeEpochRejected": true,
+        "staleOverlayFileRemoved": true,
+        "restoreMs": 1453,
+        "archiveBytes": 8888320
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "disconnect-race"
+      },
+      "status": 200,
+      "elapsedMs": 968,
+      "result": {
+        "key": "contract-3344ede4-b779-42be-8d35-5e70dd26cecb/4e0db6c6-682a-429c-8401-12d08dc5f869.tar",
+        "op": "disconnect-race",
+        "generation": 1,
+        "sha256": "786ff0dc7f2b1880a97ce28a72d73d5f380d66527fd44c05f43a822ab28c09a2",
+        "size": 8888320,
+        "elapsedMs": 887
+      }
+    },
+    {
+      "path": "/active-command",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 489,
+      "result": {
+        "active": true,
+        "freezeRefusedWhileWriting": true
+      }
+    },
+    {
+      "path": "/disconnect",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 2222,
+      "result": {
+        "active": false,
+        "generation": 2,
+        "deletedObjects": 2,
+        "nativeSessionDeleted": true
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 30,
+      "result": {
+        "error": "Error: stale completion fenced",
+        "route": "/commit"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 159,
+      "result": {
+        "checkpoint": null,
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/start",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 28,
+      "result": {
+        "error": "Error: disconnected",
+        "route": "/start"
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 31,
+      "result": {
+        "error": "Error: {\"error\":\"Environment.Failed\",\"cause\":\"Error: disconnected session\"}",
+        "route": "/tools"
+      }
+    },
+    {
+      "path": "/cleanup",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 118,
+      "result": {
+        "cleaned": true
+      }
+    }
+  ],
+  "passed": true
+}

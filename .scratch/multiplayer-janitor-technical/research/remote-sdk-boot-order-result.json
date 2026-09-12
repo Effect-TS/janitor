@@ -1,0 +1,32 @@
+{
+  "kind": "cloudflare-repository-contract",
+  "steps": [
+    {
+      "path": "/start",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 6277,
+      "result": {
+        "localGitCasesInsideSandbox": [
+          "fixture command succeeds with unfinished work",
+          "host archive preserves index, local commit, tracked deletion, untracked and ignored files, symlink and mode",
+          "non-fast-forward push is rejected; reconciliation preserves concurrent human commit",
+          "remote ref inspection observes successful local publication without a repeat push"
+        ],
+        "idempotentAdoption": true,
+        "authRejected": 401,
+        "staleEpochRejected": 409
+      }
+    },
+    {
+      "path": "/sdk",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 64,
+      "result": {
+        "error": "Error: Database is not empty and has no session table",
+        "route": "/sdk"
+      }
+    }
+  ]
+}

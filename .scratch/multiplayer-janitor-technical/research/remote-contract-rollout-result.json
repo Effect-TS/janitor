@@ -1,0 +1,90 @@
+{
+  "kind": "cloudflare-repository-contract",
+  "steps": [
+    {
+      "path": "/start",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 7400,
+      "result": {
+        "localGitCasesInsideSandbox": [
+          "fixture command succeeds with unfinished work",
+          "host archive preserves index, local commit, tracked deletion, untracked and ignored files, symlink and mode",
+          "non-fast-forward push is rejected; reconciliation preserves concurrent human commit",
+          "remote ref inspection observes successful local publication without a repeat push"
+        ],
+        "idempotentAdoption": true,
+        "authRejected": 401,
+        "staleEpochRejected": 409
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 2993,
+      "result": {
+        "shell": {
+          "tool": {
+            "nativeToolTested": true,
+            "backgroundRejectedBeforeExecution": true,
+            "nativeJobRegistryUsed": true,
+            "rewrittenOutputReadable": true,
+            "captureBytes": 100000,
+            "permissionsAreFixtureStubs": true
+          },
+          "checks": [
+            "native shell combined output capture",
+            "native shell exit 7",
+            "native shell timeout",
+            "native shell removal followed by external freeze",
+            "large output points to Workerd-only capture",
+            "100000 capture bytes copied into external workspace"
+          ],
+          "result": {
+            "info": {
+              "id": "sh_09226222b001tjbHyV1tZsE6jA",
+              "status": "exited",
+              "command": "printf native-out; printf native-err >&2; exit 7",
+              "cwd": "/workspace/fixture",
+              "shell": "/bin/sh",
+              "file": "/tmp/opencode/data/shell/fixture/sh_09226222b001tjbHyV1tZsE6jA.out",
+              "metadata": {},
+              "time": {
+                "started": 1789158367787,
+                "completed": 1789158367883
+              },
+              "pid": 0,
+              "exit": 7
+            },
+            "capture": {
+              "output": "native-outnative-err",
+              "truncated": false
+            }
+          },
+          "timeoutStatus": "timeout",
+          "cancellationStatus": "killed",
+          "largeCaptureNotInWorkspace": true,
+          "copiedCaptureBytes": 100000,
+          "eventCount": 14,
+          "nativeToolTested": true,
+          "durableCaptureVerified": false
+        },
+        "checks": ["binary write/read", "stat", "move/list/remove"],
+        "workerdTested": true,
+        "cloudflareSandboxTested": true,
+        "completeSpawnerContract": false
+      }
+    },
+    {
+      "path": "/protocol",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 380,
+      "result": {
+        "error": "Error: {\"error\":\"fixture only permits its configured cwd\"}",
+        "route": "/protocol"
+      }
+    }
+  ]
+}

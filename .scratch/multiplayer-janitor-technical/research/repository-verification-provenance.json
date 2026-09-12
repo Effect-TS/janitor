@@ -1,0 +1,11 @@
+{
+  "openCodeRevision": "2df00955cb933e977427535d2505e50cbc689c69",
+  "effect": "4.0.0-rc.112",
+  "sandboxSDK": "0.12.9",
+  "baseImage": "docker.io/cloudflare/sandbox:0.12.9@sha256:4a56a37a3cfd9b38d65bb4b5d0b341e6490a3a4c0226274ae4c1cca4948e85fe",
+  "fixtureImageDigest": "sha256:9ede89d52d2b2f772b26ec50077b7ed978212c701481e3d668165fadfcd5bfcb",
+  "workerVersion": "9662ea84-b064-4dda-8265-449f720ec7a3",
+  "workerBundleSha256": "42446ddcc92e2c7d53bb8ec858d9c624902ef309e0929c6b1adc7846301cdb49",
+  "wrangler": "4.131.1",
+  "finalFixtureIdentity": "complete-v3"
+}

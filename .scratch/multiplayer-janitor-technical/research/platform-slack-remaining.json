@@ -1,0 +1,19 @@
+{
+  "runID": "dcba3549-3469-4a83-b1c6-cd89daf66096",
+  "checks": [
+    "Actual private-thread history excludes another root",
+    "Deleted Slack marker has no match; local policy blocks automatic repost",
+    "Ephemeral API accepted private test; it is absent from retained thread history",
+    "Retained real human reply can backfill a locally omitted input once; context boundary and prior admission preserved"
+  ],
+  "messages": ["1789223460.721129", "1789223461.817979", "1789223462.990769"],
+  "cleanup": ["1789223461.817979", "1789223462.990769", "1789223460.721129"],
+  "ephemeral": [
+    {
+      "ok": true,
+      "messageTS": "1789223465.000400",
+      "humanVisibility": "unverified; API success is not receipt"
+    }
+  ],
+  "uncertain": []
+}

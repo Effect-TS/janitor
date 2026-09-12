@@ -1,0 +1,42 @@
+{
+  "runID": "1f1bf920-d806-43c1-b563-693f8dce2f4e",
+  "checks": [],
+  "messages": [
+    {
+      "ts": "1789218391.060509",
+      "operation": "1f1bf920-d806-43c1-b563-693f8dce2f4e:root"
+    },
+    {
+      "ts": "1789218392.162879",
+      "operation": "1f1bf920-d806-43c1-b563-693f8dce2f4e:progress"
+    },
+    {
+      "ts": "1789218393.269499",
+      "operation": "1f1bf920-d806-43c1-b563-693f8dce2f4e:reply"
+    },
+    {
+      "ts": "1789218394.374519",
+      "operation": "1f1bf920-d806-43c1-b563-693f8dce2f4e:final"
+    }
+  ],
+  "cleanup": [
+    {
+      "ts": "1789218394.374519",
+      "deleted": true
+    },
+    {
+      "ts": "1789218393.269499",
+      "deleted": true
+    },
+    {
+      "ts": "1789218392.162879",
+      "deleted": true
+    },
+    {
+      "ts": "1789218391.060509",
+      "deleted": true
+    }
+  ],
+  "uncertain": [],
+  "failure": "Expected values to be strictly equal:\n\n2 !== 1\n"
+}

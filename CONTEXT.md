@@ -97,14 +97,39 @@ An ongoing team effort with Janitor-run agents that teammates can join and steer
 **Agent session**:
 An ongoing conversation with a Janitor-run agent that teammates can join and steer in its home thread, working within one repository. After creation, ordinary messages from authorized teammates are agent inputs; messages arriving during active work queue for the next turn.
 
+**Default agent model**:
+The team-funded provider and model selected for new agent sessions in a Janitor deployment. It is separate from the provider and model used by AI labeling rules.
+
+**Session model**:
+The provider and model selected for an agent session when it starts. The selection remains unchanged when the deployment default changes; rotating its API credential does not change that selection.
+
+**Agent input**:
+An authorized teammate instruction directed to an agent session. A delivery retry is the same input; two separately sent instructions remain distinct even when their text matches.
+
+Once accepted, an input remains part of the shared session even if its author disconnects their account or loses team eligibility; its original authorship is preserved.
+
+**Agent turn**:
+An interval of agent work within an ongoing session that may include several model responses and tool operations. Finishing a turn leaves the session available for later inputs; after interruption, the resumed work may incorporate the oldest queued input.
+
 **Home thread**:
 The single private-channel thread where teammates participate in an agent session. The MVP uses Slack; Discord is planned for a later release.
 
 **Authorized team member**:
-A teammate admitted through Janitor's existing team sign-in who may direct Janitor through a connected chat account or authorized PR review feedback. Authorized team members have equivalent control of sessions they can participate in; starting a session does not grant exclusive control.
+A teammate admitted through Janitor's team sign-in whose linked accounts may direct Janitor until disconnected or explicitly disabled in Janitor, independently of subsequent Cloudflare Access session expiry or eligibility. Authorized team members have equivalent control of sessions they can participate in; starting a session does not grant exclusive control.
+
+**Teammate removal**:
+An admin explicitly disabling a teammate's linked accounts in Janitor, preventing further instructions while preserving accepted work and historical attribution. Removing Cloudflare Access alone does not perform teammate removal in Janitor.
+
+**Admin**:
+An authorized team member permitted to change roles and remove or restore teammates in Janitor. Admins and members have equal control when collaborating with agents; the last active admin cannot be removed or demoted.
+
+**Member**:
+An authorized team member who may collaborate with agents but cannot change roles or remove or restore teammates. Newly admitted teammates are members unless explicitly assigned an admin role.
 
 **Connected chat account**:
 A Slack or Discord account associated with an authorized team member after sign-in to Janitor.
+
+In the MVP, a teammate connects one Slack account per workspace, and each Slack account belongs to one teammate at a time.
 
 **Automatic PR review handling**:
 Agent work prompted by an authorized teammate's PR review feedback, with changes and replies made on GitHub without another request in the session's home thread. Outside contributors' feedback requires an authorized teammate's request before the agent acts on it.
@@ -142,7 +167,7 @@ A connected repository whose automations and synchronization pipeline are stoppe
 The re-enabling of a paused repository, requiring successful synchronization against GitHub's current state before automation runs again. Events received while paused are not replayed.
 
 **Repository disconnection**:
-Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Labels already present on GitHub remain unchanged.
+Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Disconnection also ends its agent sessions and deletes their session data and saved workspaces, including unpublished work. Work and labels already published on GitHub remain unchanged.
 
 **Repository reconnection**:
 A fresh connection of a previously disconnected repository, starting without its former policies, labeling rules, or stored data. Successful synchronization is required before automation becomes ready, and existing GitHub labels remain unchanged.

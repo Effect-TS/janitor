@@ -1,0 +1,29 @@
+{
+  "configuredAt": "2026-09-12T13:16:25.357Z",
+  "fault": {
+    "before": 0,
+    "after": 1
+  },
+  "baselineReceiptIDs": [
+    "Ev0C1FNN0L2V",
+    "Ev0C0YDRQNMV",
+    "Ev0C1FNN61T3",
+    "Ev0C1HEQJLLU",
+    "Ev0C1FNN5SMP",
+    "Ev0C1BSACWCE",
+    "Ev0C0YDS0831",
+    "Ev0C17HU5RJP",
+    "Ev0C1DP66QN6",
+    "Ev0C1HEQQB28",
+    "Ev0C17HU3NP5",
+    "Ev0C285TV1JL",
+    "Ev0C1BSLP6MU",
+    "Ev0C1HF1JJ92",
+    "Ev0C1BSM6EJJ",
+    "Ev0C1BSN6UVC"
+  ],
+  "baselineAttemptCount": 16,
+  "status": "completed",
+  "scope": "Next eligible event in private janitor-test commits, returns 503 once, then subsequent attempts receive normal acknowledgment.",
+  "result": "platform-slack-retry.json"
+}

@@ -8,6 +8,8 @@ Blocked by: none
 
 ## Question
 
+Later user decision: [Decide platform identity and authorization contracts](../../multiplayer-janitor-technical/issues/06-platform-identity.md) supersedes ongoing Cloudflare Access eligibility with persistent linked-account authorization and explicit admin removal. Admin/member roles govern team administration; equal control over agent work is preserved. Historical discussion below is retained.
+
 Who can contribute context, instruct Janitor, approve changes, and stop work, and what may Janitor share between a private team conversation and a public repository?
 
 Use a private Slack discussion about Mike's public PR as the concrete case. Distinguish team members from outside contributors, decide how the experience communicates authorship and authority, and identify which actions require recognizing the same person across platforms. Decide the expected behavior when someone can access one conversation but not another. Capture product rules; defer identity-provider and permission implementation choices.

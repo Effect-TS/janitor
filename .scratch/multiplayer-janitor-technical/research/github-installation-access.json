@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "id": 158746421,
+  "app_id": 4811166,
+  "account": "Effect-TS",
+  "permissions": {
+    "checks": "read",
+    "issues": "write",
+    "metadata": "read",
+    "statuses": "read",
+    "pull_requests": "write"
+  },
+  "repository_selection": "selected"
+}

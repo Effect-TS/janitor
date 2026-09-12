@@ -1,0 +1,30 @@
+{
+  "at": "2026-09-11T21:52:06.291Z",
+  "resources": [
+    {
+      "path": "/workers/scripts/janitor-runner-probe-ed436934/settings",
+      "status": 404,
+      "success": false,
+      "errors": [
+        {
+          "code": 10007,
+          "message": "This Worker does not exist on your account."
+        }
+      ]
+    },
+    {
+      "path": "/workers/durable_objects/namespaces/d3314972ccac44b1a6b307c38049a103",
+      "status": 404,
+      "success": false,
+      "errors": [
+        {
+          "code": 10066,
+          "message": "Durable Object namespace ID 'd3314972ccac44b1a6b307c38049a103' not found."
+        }
+      ]
+    }
+  ],
+  "fixtureSecretDeleted": true,
+  "artifactSecretCheckPassed": true,
+  "noSandboxOrR2Created": true
+}

@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-09-12T14:34:25.562Z",
+  "guid": "63379460-aeb0-11f1-9089-cd519dc8bdf2",
+  "attempts": [
+    {
+      "id": "3842328207915220992",
+      "guid": "63379460-aeb0-11f1-9089-cd519dc8bdf2",
+      "redelivery": true,
+      "status": 202
+    },
+    {
+      "id": "3842322419570180096",
+      "guid": "63379460-aeb0-11f1-9089-cd519dc8bdf2",
+      "redelivery": false,
+      "status": 202
+    }
+  ],
+  "pages": 74,
+  "summaries": 7384,
+  "fullWindowScanned": true,
+  "mutations": 0,
+  "rateRemaining": null,
+  "resumeCursor": null,
+  "elapsedMs": 11940
+}
