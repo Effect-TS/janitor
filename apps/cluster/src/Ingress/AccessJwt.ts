@@ -93,8 +93,8 @@ export const make = Effect.fnUntraced(function* (config: AccessVerifierConfig) {
   const issuer = `https://${config.teamDomain}`
   const keys = yield* Jwks.makeKeySet({
     url: `${issuer}/cdn-cgi/access/certs`,
-    ...(config.keyCacheTtl === undefined ? {} : { keyCacheTtl: config.keyCacheTtl }),
-    ...(config.refreshCooldown === undefined ? {} : { refreshCooldown: config.refreshCooldown }),
+    keyCacheTtl: config.keyCacheTtl,
+    refreshCooldown: config.refreshCooldown,
   })
 
   const verify = Effect.fn("AccessVerifier.verify")(function* (assertion: string) {

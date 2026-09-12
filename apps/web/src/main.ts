@@ -144,6 +144,11 @@ export const requestNavigation = (
   }
 }
 
+const isAccountRoute = (
+  route: Routes.AppRoute,
+): route is Extract<Routes.AppRoute, { _tag: "Account" | "AccountReturn" }> =>
+  route._tag === "Account" || route._tag === "AccountReturn"
+
 /** A platform callback with both parameters completes the link; anything else just opens the page. */
 const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
   const entered =
@@ -159,14 +164,7 @@ const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
       : {
           model:
             route._tag === "AccountReturn"
-              ? evo(model.account, {
-                  error: () =>
-                    Option.some(
-                      route.error === undefined
-                        ? "The platform did not return an authorization. Start again."
-                        : `The platform declined the authorization (${route.error}).`,
-                    ),
-                })
+              ? Account.declined(model.account, route.error)
               : model.account,
         }
   return {
@@ -182,7 +180,7 @@ const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
 }
 
 const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
-  if (route._tag === "Account" || route._tag === "AccountReturn") return enterAccount(model, route)
+  if (isAccountRoute(route)) return enterAccount(model, route)
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return {
       model: evo(model, {
@@ -959,9 +957,6 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
         ],
       )
 
-const isAccountRoute = (route: Routes.AppRoute): boolean =>
-  route._tag === "Account" || route._tag === "AccountReturn"
-
 const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
   Sidebar.menu(h, {
     children: [
@@ -1144,7 +1139,7 @@ const accountView = (h: HtmlBuilder<Message>, model: Model) =>
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.navigation.route
   const repositories = Option.getOrElse(model.workspace.repositories, () => [])
-  if (route._tag === "Account" || route._tag === "AccountReturn") return accountView(h, model)
+  if (isAccountRoute(route)) return accountView(h, model)
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")

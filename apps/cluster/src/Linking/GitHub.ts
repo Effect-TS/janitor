@@ -12,7 +12,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as UrlParams from "effect/unstable/http/UrlParams"
-import { LinkProofFailed, type ProvenAccount } from "./Proof.ts"
+import { type LinkProofFailed, proofFailure, type ProvenAccount } from "./Proof.ts"
 
 /**
  * GitHub user ownership through the GitHub App's user authorization flow.
@@ -52,10 +52,7 @@ const UserResponse = Schema.Struct({
   }),
 })
 
-const failed =
-  (reason: LinkProofFailed["reason"], message: string) =>
-  (cause?: unknown): LinkProofFailed =>
-    new LinkProofFailed({ platform: "github", reason, message, cause })
+const failed = proofFailure("github")
 
 export const make = Effect.fnUntraced(function* (config: GitHubLinkConfig) {
   const http = yield* HttpClient.HttpClient

@@ -313,6 +313,27 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
     }),
   )
 
+  it.effect("authorizes a linked account with no browser session at all", () =>
+    Effect.gen(function* () {
+      const teammates = yield* Teammates
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`DELETE FROM teammate_audit`
+      yield* sql`DELETE FROM teammate_link`
+      yield* sql`DELETE FROM teammate`
+      const member = yield* admitted(second)
+      const account = { platform: "github", workspaceId: "github.com", accountId: "7" } as const
+      yield* teammates.link(member.teammateId, { ...account, displayName: "second" })
+      // Nothing about Access reaches this seam: platform authority rests on
+      // the link alone, so an expired or absent browser session changes nothing.
+      const decision = yield* teammates.authorize(account)
+      assert.strictEqual(decision._tag, "Authorized")
+      if (decision._tag === "Authorized") {
+        assert.strictEqual(decision.teammateId, member.teammateId)
+        assert.strictEqual(decision.role, "member")
+      }
+    }),
+  )
+
   it.effect("binds a link attempt to its teammate and platform and consumes it once", () =>
     Effect.gen(function* () {
       const teammates = yield* Teammates

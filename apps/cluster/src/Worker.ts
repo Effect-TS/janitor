@@ -234,6 +234,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             }))
           : Option.some({ issuer: LOCAL_DEV_ISSUER, subject: LOCAL_DEV_EMAIL }),
     })
+    if (localDevAudience === undefined && Option.isNone(linking.initialAdminSubject)) {
+      yield* Effect.logError(
+        "JANITOR_INITIAL_ADMIN_SUBJECT is not set: every teammate is admitted as a member and nobody can manage the team",
+      )
+    }
     let notifyOutbox: Effect.Effect<void> = Effect.void
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,

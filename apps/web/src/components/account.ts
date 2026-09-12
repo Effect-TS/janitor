@@ -11,7 +11,6 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
@@ -21,6 +20,7 @@ import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import { reasonOf, request } from "@/lib/api"
 import * as Icon from "@/lib/icons"
 import { UserRound } from "lucide"
 
@@ -31,6 +31,17 @@ import { UserRound } from "lucide"
  * page reloads its view afterwards; nothing here decides authorization.
  */
 
+/** What the page is waiting on; the subject is the platform, link or teammate. */
+const PendingAction = Schema.Literals([
+  "connect",
+  "return",
+  "disconnect",
+  "role",
+  "remove",
+  "restore",
+])
+type PendingAction = typeof PendingAction.Type
+
 export const Model = Schema.Struct({
   view: Schema.Option(AccountView),
   loadError: Schema.Option(Schema.String),
@@ -38,7 +49,7 @@ export const Model = Schema.Struct({
   notice: Schema.String,
   nextOperationId: Schema.Int,
   pending: Schema.Option(
-    Schema.Struct({ operationId: Schema.Int, action: Schema.String, subject: Schema.String }),
+    Schema.Struct({ operationId: Schema.Int, action: PendingAction, subject: Schema.String }),
   ),
   nextRequestId: Schema.Int,
   maybeLoadRequest: Schema.Option(Schema.Int),
@@ -87,23 +98,6 @@ export interface ReturnParams {
 }
 
 const base = "/api/v1/account"
-const request = (method: "POST" | "PUT" | "DELETE", url: string, body: unknown) =>
-  Effect.gen(function* () {
-    const client = yield* HttpClient.HttpClient
-    const req = yield* HttpClientRequest.make(method)(url).pipe(HttpClientRequest.bodyJson(body))
-    const response = yield* client.execute(req)
-    if (response.status >= 400) {
-      const data = yield* HttpIncomingMessage.schemaBodyJson(
-        Schema.Struct({ message: Schema.String }),
-      )(response).pipe(
-        Effect.orElseSucceed(() => ({ message: "The request failed. Please retry." })),
-      )
-      return yield* Effect.fail(new Error(data.message))
-    }
-    return response
-  })
-const reasonOf = (error: unknown) =>
-  error instanceof Error ? error.message : "The request failed. Please retry."
 const failed = (error: unknown, operationId: number) =>
   Message.Failed({ operationId, reason: reasonOf(error) })
 
@@ -148,7 +142,7 @@ const Start = Command.define("StartAccountLink", {
     ),
 })
 
-const Return = Command.define("CompleteAccountLink", {
+const CompleteLink = Command.define("CompleteAccountLink", {
   args: {
     platform: LinkPlatform,
     state: Schema.String,
@@ -219,7 +213,7 @@ type Step = Update.ReturnWithOutMessage<Model, Message, OutMessage, HttpClient.H
 const isBusy = (model: Model): boolean => Option.isSome(model.pending)
 const matchesOperation = (model: Model, operationId: number) =>
   Option.exists(model.pending, (pending) => pending.operationId === operationId)
-const begin = (model: Model, action: string, subject: string): Model =>
+const begin = (model: Model, action: PendingAction, subject: string): Model =>
   evo(model, {
     pending: () => Option.some({ operationId: model.nextOperationId, action, subject }),
     nextOperationId: (id) => id + 1,
@@ -236,12 +230,23 @@ const reload = (model: Model) => ({
 const settle = (model: Model, notice: string) =>
   reload(evo(model, { pending: () => Option.none(), notice: () => notice }))
 
+/** The platform came back without a code: nothing was proven. */
+export const declined = (model: Model, error: string | undefined): Model =>
+  evo(model, {
+    error: () =>
+      Option.some(
+        error === undefined
+          ? "The platform did not return an authorization. Start again."
+          : `The platform declined the authorization (${error}).`,
+      ),
+  })
+
 /** Entering the page from a platform callback completes the link before loading. */
 export const returned = (model: Model, params: ReturnParams): Step => {
   const started = begin(model, "return", params.platform)
   return {
     model: started,
-    commands: [Return({ ...params, operationId: model.nextOperationId })],
+    commands: [CompleteLink({ ...params, operationId: model.nextOperationId })],
   }
 }
 
@@ -346,7 +351,7 @@ const platformRow = (
   const link = activeLink(view.links, platform)
   const available = view.linking[platform]
   const name = platformName(platform)
-  const busyWith = (action: string, subject: string) =>
+  const busyWith = (action: PendingAction, subject: string) =>
     Option.exists(
       model.pending,
       (pending) => pending.action === action && pending.subject === subject,
@@ -409,7 +414,7 @@ const rosterRow = (
 ): Html => {
   const isSelf = entry.teammateId === self.teammateId
   const removed = entry.status === "removed"
-  const busyWith = (action: string) =>
+  const busyWith = (action: PendingAction) =>
     Option.exists(
       model.pending,
       (pending) => pending.action === action && pending.subject === entry.teammateId,

@@ -109,25 +109,31 @@ export class AccountLinking extends Context.Service<
     const config = yield* AccountLinkingConfig
     const teammates = yield* Teammates
 
-    const slack: Provider | undefined = Option.isSome(config.slack)
-      ? yield* SlackLink.make(config.slack.value)
-      : undefined
-    const github: Provider | undefined = Option.isSome(config.github)
-      ? yield* Effect.map(GitHubLink.make(config.github.value), (link): Provider => ({
-          authorizeUrl: (state) => link.authorizeUrl(state),
-          prove: (code) => link.prove(code),
-        }))
-      : undefined
+    const maybeSlack: Option.Option<Provider> = yield* Option.match(config.slack, {
+      onNone: () => Effect.succeed(Option.none<Provider>()),
+      onSome: (slack) => Effect.map(SlackLink.make(slack), Option.some),
+    })
+    const maybeGithub: Option.Option<Provider> = yield* Option.match(config.github, {
+      onNone: () => Effect.succeed(Option.none<Provider>()),
+      onSome: (github) =>
+        Effect.map(GitHubLink.make(github), (link) =>
+          Option.some<Provider>({
+            authorizeUrl: (state) => link.authorizeUrl(state),
+            prove: (code) => link.prove(code),
+          }),
+        ),
+    })
 
     const availability: LinkingAvailability = {
-      slack: slack !== undefined,
-      github: github !== undefined,
+      slack: Option.isSome(maybeSlack),
+      github: Option.isSome(maybeGithub),
     }
 
-    const providerFor = (platform: LinkPlatform) => {
-      const provider = platform === "slack" ? slack : github
-      return provider === undefined ? Effect.fail(unavailable(platform)) : Effect.succeed(provider)
-    }
+    const providerFor = (platform: LinkPlatform) =>
+      Option.match(platform === "slack" ? maybeSlack : maybeGithub, {
+        onNone: () => Effect.fail(unavailable(platform)),
+        onSome: Effect.succeed,
+      })
 
     const start = (teammateId: TeammateId, platform: LinkPlatform) =>
       Effect.gen(function* () {

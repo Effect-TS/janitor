@@ -159,6 +159,11 @@ const isUniqueViolation = (error: unknown): boolean => {
   )
 }
 
+const removedError = new TeammateError({
+  reason: "removed",
+  message: "Your Janitor membership was removed.",
+})
+
 /** Anything the database refuses becomes `unavailable`, except an ownership race. */
 const wrap = <A, R>(
   effect: Effect.Effect<A, TeammateError | SqlError.SqlError | Schema.SchemaError, R>,
@@ -265,7 +270,7 @@ export class Teammates extends Context.Service<
       sql`INSERT INTO teammate_audit (actor_teammate_id, subject_teammate_id, action, details)
           VALUES (${actor}::uuid, ${subject}::uuid, ${action}, ${JSON.stringify(details)}::jsonb)`
 
-    const touch = (teammateId: string) =>
+    const advanceIdentityRevision = (teammateId: string) =>
       sql`UPDATE teammate SET identity_revision = identity_revision + 1, updated_at = now()
           WHERE teammate_id::text = ${teammateId}`
 
@@ -301,7 +306,7 @@ export class Teammates extends Context.Service<
         Effect.gen(function* () {
           if ((yield* otherActiveAdmins(teammate.teammate_id)) > 0) return teammate
           yield* sql`UPDATE teammate SET role = 'admin' WHERE teammate_id::text = ${teammate.teammate_id}`
-          yield* touch(teammate.teammate_id)
+          yield* advanceIdentityRevision(teammate.teammate_id)
           yield* audit(null, teammate.teammate_id, "initial-admin")
           return (yield* loadTeammate(teammate.teammate_id)) ?? teammate
         }),
@@ -412,7 +417,7 @@ export class Teammates extends Context.Service<
             })
           }
           yield* sql`UPDATE teammate SET role = ${role} WHERE teammate_id::text = ${target}`
-          yield* touch(target)
+          yield* advanceIdentityRevision(target)
           yield* audit(actor, target, "set-role", { role })
         }),
       ).pipe(wrap)
@@ -436,7 +441,7 @@ export class Teammates extends Context.Service<
             WHERE teammate_id::text = ${target}`
           yield* sql`UPDATE teammate_link SET status = 'disabled', ended_at = now()
             WHERE teammate_id::text = ${target} AND status = 'active'`
-          yield* touch(target)
+          yield* advanceIdentityRevision(target)
           yield* audit(actor, target, "remove")
         }),
       ).pipe(wrap)
@@ -455,7 +460,7 @@ export class Teammates extends Context.Service<
           // Links disabled by removal carry proof that is still valid.
           yield* sql`UPDATE teammate_link SET status = 'active', ended_at = NULL
             WHERE teammate_id::text = ${target} AND status = 'disabled'`
-          yield* touch(target)
+          yield* advanceIdentityRevision(target)
           yield* audit(actor, target, "restore")
         }),
       ).pipe(wrap)
@@ -475,7 +480,7 @@ export class Teammates extends Context.Service<
                 message: "That connected account is not yours or is already disconnected.",
               })
             }
-            yield* touch(teammateId)
+            yield* advanceIdentityRevision(teammateId)
             yield* audit(teammateId, teammateId, "disconnect", { linkId })
           }),
         )
@@ -485,10 +490,7 @@ export class Teammates extends Context.Service<
       Effect.gen(function* () {
         const row = yield* loadTeammate(teammateId)
         if (row === undefined || row.status !== "active") {
-          return yield* new TeammateError({
-            reason: "removed",
-            message: "Your Janitor membership was removed.",
-          })
+          return yield* removedError
         }
         const [attempt] = yield* sql<{ state: string; nonce: string }>`
           INSERT INTO teammate_link_attempt (teammate_id, platform)
@@ -520,10 +522,7 @@ export class Teammates extends Context.Service<
           Effect.gen(function* () {
             const teammate = yield* lockTeammate(teammateId)
             if (teammate === undefined || teammate.status !== "active") {
-              return yield* new TeammateError({
-                reason: "removed",
-                message: "Your Janitor membership was removed.",
-              })
+              return yield* removedError
             }
             const owners = yield* sql
               .unsafe(
@@ -541,6 +540,7 @@ export class Teammates extends Context.Service<
               })
             }
             if (owner !== undefined) {
+              // Fresh proof of the same account: keep the link, note the re-proof.
               const updated = yield* sql
                 .unsafe(
                   `UPDATE teammate_link SET display_name = $2, status = 'active', ended_at = NULL
@@ -548,6 +548,8 @@ export class Teammates extends Context.Service<
                   [owner.link_id, proof.displayName],
                 )
                 .pipe(Effect.flatMap(decodeLinks))
+              yield* advanceIdentityRevision(teammateId)
+              yield* audit(teammateId, teammateId, "relink", { linkId: owner.link_id })
               return linkedAccount(updated[0]!)
             }
             yield* sql`UPDATE teammate_link SET status = 'replaced', ended_at = now()
@@ -560,7 +562,7 @@ export class Teammates extends Context.Service<
                 [teammateId, proof.platform, proof.workspaceId, proof.accountId, proof.displayName],
               )
               .pipe(Effect.flatMap(decodeLinks))
-            yield* touch(teammateId)
+            yield* advanceIdentityRevision(teammateId)
             yield* audit(teammateId, teammateId, "link", {
               platform: proof.platform,
               workspaceId: proof.workspaceId,

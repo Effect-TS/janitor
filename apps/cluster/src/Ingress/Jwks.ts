@@ -32,12 +32,12 @@ export interface KeySetConfig {
   /** Where the issuer publishes its JWKS. */
   readonly url: string
   /** How long a fetched key set is trusted before it is fetched again. */
-  readonly keyCacheTtl?: Duration.Duration
+  readonly keyCacheTtl?: Duration.Duration | undefined
   /**
    * Minimum time between the fetch that produced the cached key set and a
    * refresh forced by an unknown `kid`.
    */
-  readonly refreshCooldown?: Duration.Duration
+  readonly refreshCooldown?: Duration.Duration | undefined
 }
 
 export interface KeySet {

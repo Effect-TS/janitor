@@ -22,3 +22,10 @@ export class LinkProofFailed extends Data.TaggedError("LinkProofFailed")<{
   readonly message: string
   readonly cause?: unknown
 }> {}
+
+/** Builds one platform's failures: `failed(reason, message)(cause)`. */
+export const proofFailure =
+  (platform: LinkPlatform) =>
+  (reason: LinkProofReason, message: string) =>
+  (cause?: unknown): LinkProofFailed =>
+    new LinkProofFailed({ platform, reason, message, cause })

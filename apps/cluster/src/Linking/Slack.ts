@@ -8,7 +8,7 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as UrlParams from "effect/unstable/http/UrlParams"
 import * as Jwks from "../Ingress/Jwks.ts"
-import { LinkProofFailed, type ProvenAccount } from "./Proof.ts"
+import { type LinkProofFailed, proofFailure, type ProvenAccount } from "./Proof.ts"
 
 /**
  * Slack workspace/user ownership through Sign in with Slack (OpenID Connect).
@@ -60,10 +60,7 @@ const IdTokenClaims = Schema.Struct({
 
 const decodeClaims = Schema.decodeUnknownEffect(IdTokenClaims)
 
-const failed =
-  (reason: LinkProofFailed["reason"], message: string) =>
-  (cause?: unknown): LinkProofFailed =>
-    new LinkProofFailed({ platform: "slack", reason, message, cause })
+const failed = proofFailure("slack")
 
 const rejected = failed("token-rejected", "Slack returned an ID token Janitor cannot accept.")
 
@@ -71,8 +68,8 @@ export const make = Effect.fnUntraced(function* (config: SlackLinkConfig) {
   const http = yield* HttpClient.HttpClient
   const keys = yield* Jwks.makeKeySet({
     url: SLACK_KEYS_URL,
-    ...(config.keyCacheTtl === undefined ? {} : { keyCacheTtl: config.keyCacheTtl }),
-    ...(config.refreshCooldown === undefined ? {} : { refreshCooldown: config.refreshCooldown }),
+    keyCacheTtl: config.keyCacheTtl,
+    refreshCooldown: config.refreshCooldown,
   })
   const decodeToken = HttpClientResponse.schemaJson(TokenResponse)
 
