@@ -1,0 +1,299 @@
+{
+  "purpose": "Ticket 07 bounded live GitHub publication acceptance",
+  "repository": "Effect-TS/slopcop-sandbox",
+  "image": {
+    "bridgeProtocol": 1,
+    "sandboxSdk": "0.12.9",
+    "baseImage": "cloudflare/sandbox:0.12.9@sha256:4a56a37a3cfd9b38d65bb4b5d0b341e6490a3a4c0226274ae4c1cca4948e85fe",
+    "imageDigest": "sha256:b6c707b4bfb9fd509429e7b2924f9f5734fa48890f4cbb8977f3d357a03a2b4e",
+    "imageId": "b1726deeb98ef0f763226387b3316dc2f416864891327ee934b31b9f12733b02",
+    "buildEngine": "5.8.6",
+    "node": "v22.23.2",
+    "packages": "ca-certificates\t20260601~22.04.1\ncoreutils\t8.32-4.1ubuntu1.4\nfindutils\t4.8.0-1ubuntu3\ngit\t1:2.34.1-1ubuntu1.17\nripgrep\t13.0.0-2ubuntu0.1\nutil-linux\t2.37.2-4ubuntu3.6\n"
+  },
+  "permissionFix": {
+    "before": {
+      "pull_requests": "write"
+    },
+    "after": {
+      "contents": "read",
+      "pull_requests": "write"
+    },
+    "observedRejection": "not all refs are readable",
+    "regression": "Repository credential API test failed before the change and passed afterward"
+  },
+  "branchProtection": {
+    "credential": "Existing human GitHub CLI login, read-only request",
+    "response": {
+      "message": "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+      "documentation_url": "https://docs.github.com/rest/branches/branch-protection#get-branch-protection",
+      "status": "403"
+    },
+    "limit": "The designated private repository plan does not support branch protection. No protection setting was changed."
+  },
+  "attempts": [
+    {
+      "repository": "Effect-TS/slopcop-sandbox",
+      "repositoryId": "1323166030",
+      "sessionId": "live-publication-ca151bea-ad7e-4921-9097-e9241e0b952a",
+      "branch": "janitor/f3686b57467b8ffbb754aa3443f79386fa5153d28875695b660d4eef1ded2c50",
+      "startedAt": "2026-09-12T22:59:09.706Z",
+      "limits": "Local Workerd/SQLite/R2 and production bridge image; scripted model and fixture authority. No deployed service bindings or Slack delivery exercised.",
+      "installationId": 158746421,
+      "base": "main",
+      "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "protectionRead": {
+        "status": 403,
+        "message": "Resource not accessible by integration"
+      },
+      "scopedPermissionsVerified": true,
+      "failed": true,
+      "error": "Error: POST /v1/sessions/live-publication-ca151bea-ad7e-4921-9097-e9241e0b952a/inputs returned 400: {\"code\":\"invalid_request\",\"message\":\"Invalid admit request: Expected a string matching the RegExp ^msg_[A-Za-z0-9_-]{1,120}$\\n  at [\\\"inputId\\\"]\"}",
+      "branchAbsent": true,
+      "defaultBranchUnchanged": true,
+      "cleanupErrors": [],
+      "tokensRevoked": true,
+      "passed": false,
+      "finishedAt": "2026-09-12T22:59:18.697Z"
+    },
+    {
+      "repository": "Effect-TS/slopcop-sandbox",
+      "repositoryId": "1323166030",
+      "sessionId": "live-publication-34bd55bb-1b82-4a5e-94db-79d5ea6236c3",
+      "branch": "janitor/09faed909a2b23ecfdb430688e04ea0b9ef59c23cf5cc740c5f4486379dea913",
+      "startedAt": "2026-09-12T23:00:05.350Z",
+      "limits": "Local Workerd/SQLite/R2 and production bridge image; scripted model and fixture authority. No deployed service bindings or Slack delivery exercised.",
+      "installationId": 158746421,
+      "base": "main",
+      "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "protectionRead": {
+        "status": 403,
+        "message": "Resource not accessible by integration"
+      },
+      "scopedPermissionsVerified": true,
+      "pushResponseLost": true,
+      "prCreateIntent": true,
+      "failed": true,
+      "error": "Error: Timed out waiting for condition",
+      "branchAbsent": true,
+      "defaultBranchUnchanged": true,
+      "cleanupErrors": [
+        "PR cleanup or verification failed"
+      ],
+      "tokensRevoked": true,
+      "passed": false,
+      "finishedAt": "2026-09-12T23:00:52.276Z",
+      "postflight": {
+        "at": "2026-09-12T23:02:38.229Z",
+        "matchingPRs": 0,
+        "branchAbsent": true,
+        "credential": "existing human gh login, read APIs only"
+      }
+    },
+    {
+      "repository": "Effect-TS/slopcop-sandbox",
+      "repositoryId": "1323166030",
+      "sessionId": "live-publication-c028dfa6-a653-47b8-9810-cff22805c800",
+      "branch": "janitor/30ec1c88d69691be3893869d4298320e4b41cdd4d4e8d30c48f48d695a48609a",
+      "startedAt": "2026-09-12T23:02:42.056Z",
+      "limits": "Local Workerd/SQLite/R2 and production bridge image; scripted model and fixture authority. No deployed service bindings or Slack delivery exercised.",
+      "installationId": 158746421,
+      "base": "main",
+      "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "protectionRead": {
+        "status": 403,
+        "message": "Resource not accessible by integration"
+      },
+      "scopedPermissionsVerified": true,
+      "pushResponseLost": true,
+      "prCreateIntent": true,
+      "prCreateResponse": {
+        "status": 422,
+        "acceptedPermissions": "pull_requests=write"
+      },
+      "prRejection": "Validation Failed",
+      "failed": true,
+      "error": "AssertionError [ERR_ASSERTION]: Live PR creation did not succeed\n+ actual - expected\n\n+ 'undefined'\n- 'string'\n",
+      "branchAbsent": true,
+      "defaultBranchUnchanged": true,
+      "cleanupErrors": [],
+      "tokensRevoked": true,
+      "passed": false,
+      "finishedAt": "2026-09-12T23:02:54.494Z"
+    },
+    {
+      "repository": "Effect-TS/slopcop-sandbox",
+      "repositoryId": "1323166030",
+      "sessionId": "live-publication-07cbea2a-eb3a-4688-95b6-d5db05c044ef",
+      "branch": "janitor/9af1847836bb38bcc3f95df7cddda400c550a0286160b0e1ca40426ccd7033d9",
+      "startedAt": "2026-09-12T23:05:43.879Z",
+      "limits": "Local Workerd/SQLite/R2 and production bridge image; scripted model and fixture authority. No deployed service bindings or Slack delivery exercised.",
+      "installationId": 158746421,
+      "base": "main",
+      "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "protectionRead": {
+        "status": 403,
+        "message": "Resource not accessible by integration"
+      },
+      "scopedPermissionsVerified": true,
+      "localCommit": "e1d0ba2c8c9638f1b049db822cf64604174872e9",
+      "baseCommit": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "pushResponseLost": true,
+      "prCreateIntent": true,
+      "prCreateResponse": {
+        "status": 422,
+        "acceptedPermissions": "pull_requests=write"
+      },
+      "prRejection": "Validation Failed",
+      "prValidationErrors": [
+        {
+          "resource": "PullRequest",
+          "code": "custom",
+          "message": "not all refs are readable"
+        }
+      ],
+      "failed": true,
+      "error": "AssertionError [ERR_ASSERTION]: Live PR creation did not succeed\n+ actual - expected\n\n+ 'undefined'\n- 'string'\n",
+      "branchAbsent": true,
+      "defaultBranchUnchanged": true,
+      "cleanupErrors": [],
+      "tokensRevoked": true,
+      "passed": false,
+      "finishedAt": "2026-09-12T23:05:55.796Z"
+    },
+    {
+      "repository": "Effect-TS/slopcop-sandbox",
+      "repositoryId": "1323166030",
+      "sessionId": "live-publication-6d84803e-8323-434b-9cad-af232cb60afd",
+      "branch": "janitor/c67d415754c54a64aa56d8d3030bca14b598b49aa0b645d94fa82ff863009eae",
+      "startedAt": "2026-09-12T23:06:52.553Z",
+      "limits": "Local Workerd/SQLite/R2 and production bridge image; scripted model and fixture authority. No deployed service bindings or Slack delivery exercised.",
+      "installationId": 158746421,
+      "base": "main",
+      "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "protectionRead": {
+        "status": 403,
+        "message": "Resource not accessible by integration"
+      },
+      "scopedPermissionsVerified": true,
+      "localCommit": "ebb35276cee526b19ee73118dd3407101d5f833a",
+      "baseCommit": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "pushResponseLost": true,
+      "prCreateIntent": true,
+      "prCreateResponse": {
+        "status": 201,
+        "acceptedPermissions": "pull_requests=write"
+      },
+      "pullRequest": "https://github.com/Effect-TS/slopcop-sandbox/pull/10",
+      "pullRequestNumber": 10,
+      "recoveredAfterRestart": true,
+      "noDuplicateWrites": {
+        "pushes": 1,
+        "creates": 1
+      },
+      "credentialsExcluded": true,
+      "revokedCredentialRejected": true,
+      "closedWithoutMerge": "https://github.com/Effect-TS/slopcop-sandbox/pull/10",
+      "cleanupErrors": [
+        "Branch cleanup or verification failed"
+      ],
+      "tokensRevoked": true,
+      "passed": false,
+      "finishedAt": "2026-09-12T23:07:12.113Z",
+      "postflight": {
+        "at": "2026-09-12T23:08:16.209Z",
+        "closedWithoutMerge": true,
+        "branchAbsent": true,
+        "defaultBranchUnchanged": true
+      }
+    },
+    {
+      "repository": "Effect-TS/slopcop-sandbox",
+      "repositoryId": "1323166030",
+      "sessionId": "live-publication-62a5c074-8c72-4503-95c4-d4c8c536d733",
+      "branch": "janitor/c9bcf594cd7995644c27b2be768cbd0f6ae72fe639b3edb576030648df66840c",
+      "startedAt": "2026-09-12T23:08:21.600Z",
+      "limits": "Local Workerd/SQLite/R2 and production bridge image; scripted model and fixture authority. No deployed service bindings or Slack delivery exercised.",
+      "installationId": 158746421,
+      "base": "main",
+      "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "protectionRead": {
+        "status": 403,
+        "message": "Resource not accessible by integration"
+      },
+      "scopedPermissionsVerified": true,
+      "localCommit": "11b1b1388a1b7e77860037a53bf8fe6a30005f33",
+      "baseCommit": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+      "pushResponseLost": true,
+      "prCreateIntent": true,
+      "prCreateResponse": {
+        "status": 201,
+        "acceptedPermissions": "pull_requests=write"
+      },
+      "pullRequest": "https://github.com/Effect-TS/slopcop-sandbox/pull/11",
+      "pullRequestNumber": 11,
+      "recoveredAfterRestart": true,
+      "noDuplicateWrites": {
+        "pushes": 1,
+        "creates": 1
+      },
+      "credentialsExcluded": true,
+      "revokedCredentialRejected": true,
+      "closedWithoutMerge": "https://github.com/Effect-TS/slopcop-sandbox/pull/11",
+      "branchAbsent": true,
+      "defaultBranchUnchanged": true,
+      "cleanupErrors": [],
+      "tokensRevoked": true,
+      "passed": true,
+      "finishedAt": "2026-09-12T23:08:45.024Z"
+    }
+  ],
+  "limits": [
+    "The runner executed in local Workerd with durable SQLite and R2 and the production bridge image.",
+    "A scripted model and fixture repository authority were used; the production credential API was tested locally.",
+    "No deployed service bindings, Slack delivery, paid model calls or deployment were exercised."
+  ],
+  "finalAudit": {
+    "at": "2026-09-12T23:11:30.858Z",
+    "credential": "Existing human GitHub CLI login, read-only requests",
+    "branches": [
+      {
+        "branch": "janitor/f3686b57467b8ffbb754aa3443f79386fa5153d28875695b660d4eef1ded2c50",
+        "absent": true
+      },
+      {
+        "branch": "janitor/09faed909a2b23ecfdb430688e04ea0b9ef59c23cf5cc740c5f4486379dea913",
+        "absent": true
+      },
+      {
+        "branch": "janitor/30ec1c88d69691be3893869d4298320e4b41cdd4d4e8d30c48f48d695a48609a",
+        "absent": true
+      },
+      {
+        "branch": "janitor/9af1847836bb38bcc3f95df7cddda400c550a0286160b0e1ca40426ccd7033d9",
+        "absent": true
+      },
+      {
+        "branch": "janitor/c67d415754c54a64aa56d8d3030bca14b598b49aa0b645d94fa82ff863009eae",
+        "absent": true
+      },
+      {
+        "branch": "janitor/c9bcf594cd7995644c27b2be768cbd0f6ae72fe639b3edb576030648df66840c",
+        "absent": true
+      }
+    ],
+    "prs": [
+      {
+        "number": 10,
+        "state": "closed",
+        "merged": false
+      },
+      {
+        "number": 11,
+        "state": "closed",
+        "merged": false
+      }
+    ],
+    "defaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807"
+  }
+}

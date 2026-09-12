@@ -78,11 +78,12 @@ export class RepositoryAccess extends Context.Service<
               return yield* new RepositoryAccessError({
                 message: "Repository identity is out of range",
               })
+            // PR creation must also read the private repository's head and base refs.
             const permissions =
               request.permission === "push"
                 ? { contents: "write" }
                 : request.permission === "pull_request"
-                  ? { pull_requests: "write" }
+                  ? { contents: "read", pull_requests: "write" }
                   : { contents: "read" }
             const key = JSON.stringify([repository.installation_id, numericId, permissions])
             const now = yield* Clock.currentTimeMillis

@@ -15,7 +15,7 @@ Source: [Accepted implementation handoff](../spec.md). Implement this slice with
 - [x] After lost write responses, inspect remote refs and matching PRs with stable operation identity; allow PR metadata to lag refs. Unknown outcomes block dependent work, not trigger new branches/PRs.
 - [x] Persist PR/session associations and deliver a substantive Slack result with the PR link. Unavailable writes preserve work and explain the limitation.
 - [x] Test scoped credential expiry/revocation, denied writes, concurrent pushes, actual or controlled lost responses, credential exclusion and duplicate PR prevention.
-- [ ] Clean bounded live branches/PRs without merging.
+- [x] Clean bounded live branches/PRs without merging.
 
 ## Comments
 
@@ -33,6 +33,20 @@ Review found an unrecorded image digest, an additional test seam that had not be
 
 Review found that a lost preparation response could strand publication before any push. Preparation now has a durable, credential-free bridge receipt and a stable attempt identity. Native acceptance covers lost preparation responses and checkpoint interruption. Confirmed validation rejections also permit correction and retry. Follow-up review found no remaining specification defects in the implementation.
 
-### Evidence limits
+### Initial local evidence
 
-Validation passed with 106 root test files and 585 tests, six runner test files and 29 tests, and seven bridge tests. The final runner suite includes divergent commits on the pinned Git version. Runner typecheck and production build passed. Root `vp check` passed with zero errors and 435 warnings. The recorded image digest and embedded bridge source hashes match the tested image. No live GitHub writes, messages to teammates, paid model calls or deployment were performed. Live App permissions, branch protection, deployed service bindings and live branch/PR cleanup remain acceptance work; the final checkbox stays open for that evidence.
+Validation passed with 106 root test files and 585 tests, six runner test files and 29 tests, and seven bridge tests. That runner suite includes divergent commits on the pinned Git version. Runner typecheck and production build passed. Root `vp check` passed with zero errors and 435 warnings. The recorded image digest and embedded bridge source hashes match the tested image. At that point no live GitHub writes, messages to teammates, paid model calls or deployment had been performed, so the final checkbox remained open pending the live continuation below.
+
+### Live acceptance continuation
+
+The user authorized completing bounded live acceptance in this thread. The [recorded evidence](../evidence/07-publication-live.json) retains every attempt and cleanup result. The final live test passed on 2026-09-12 using local Workerd, durable SQLite/R2, the production bridge image and actual GitHub App installation tokens restricted to `Effect-TS/slopcop-sandbox`.
+
+Live testing found a production credential defect. GitHub rejected PR creation with HTTP 422 and `not all refs are readable` when the PR token had only Pull requests write. Adding Contents read resolved the failure. The agreed repository credential API test failed before this fix and passed afterward. The live runner then created PRs [#10](https://github.com/Effect-TS/slopcop-sandbox/pull/10) and [#11](https://github.com/Effect-TS/slopcop-sandbox/pull/11), recovered after discarded successful push/PR responses and a runtime restart, and verified one push and one PR creation per successful session. Durable events and workspace checkpoints excluded the installation tokens; a revoked token was rejected.
+
+Both PRs are closed without merging, all generated branches are absent, all minted tokens were revoked, and the default branch remains at `d20e1c6b5888a74f4abc24008e211feb00b11807`. An immediate deletion read on the first successful publication failed before a separate read confirmed absence. The driver now polls deletion visibility for up to 20 seconds; the final run passed automatic cleanup. Earlier rejected attempts were also cleaned and are retained in the evidence.
+
+Standards and Spec reviews found cleanup races in the initial live driver. Write budgets and target checks now precede dispatch, closing fences are checked after request-body reads, and cleanup stops execution and waits for dispatched GitHub requests before removing remote work. Follow-up reviews found no remaining blockers. The permission documentation was corrected.
+
+The designated private repository still returns HTTP 403 asking for a plan upgrade when its administrator reads branch protection. No protection configuration changed. Actual protected-branch rejection and deployed service bindings remain deployment/environment acceptance work. The live driver uses a scripted model and fixture authority; it does not establish deployed Slack delivery or production authority readiness behavior. No Slack messages, paid model calls or deployment occurred in this continuation.
+
+Final validation after the permission fix passed: 106 root files with 585 tests, six runner files with 29 tests, and the separately authorized live test. The live test is skipped by default in the runner suite. Runner typecheck passed; root `vp check` reported zero errors and 435 warnings. A final read-only GitHub audit confirmed all six attempted branch names absent, both test PRs closed and unmerged, and the default head unchanged.

@@ -77,7 +77,7 @@ layer(service)("Repository execution authority", (it) => {
         yield* access.authorize({ ...request, permission: "pull_request" })
         assert.deepStrictEqual(requests[2], {
           repository_ids: [9100],
-          permissions: { pull_requests: "write" },
+          permissions: { contents: "read", pull_requests: "write" },
         })
         assert.isUndefined((yield* access.authorize({ ...request, token: false })).token)
         assert.strictEqual(requests.length, 3)
