@@ -98,6 +98,14 @@ import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
 import { RunnerClient } from "./Agent/RunnerClient.ts"
 import { AgentSessions } from "./Agent/Sessions.ts"
 import * as Redacted from "effect/Redacted"
+import { SlackConfig } from "./Slack/Config.ts"
+import { SlackConversation } from "./Slack/Conversation.ts"
+import { SlackWebhook } from "./Slack/Webhook.ts"
+import { SlackTransport } from "./Slack/Transport.ts"
+import { SlackProcessor } from "./Slack/Processor.ts"
+import { SlackDelivery } from "./Slack/Delivery.ts"
+import { SlackCronLayer, SlackCronName } from "./Slack/Cron.ts"
+import { SlackWebhookRoutes } from "./Ingress/SlackWebhook.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
 const ZONE = "effectful.co"
@@ -220,6 +228,24 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Config.withDefault(Redacted.make("")),
     )
     const runnerConfigured = runnerUrl !== "" && Redacted.value(runnerToken) !== ""
+    const slackWorkspace = yield* Config.String("JANITOR_SLACK_WORKSPACE_ID").pipe(
+      Config.withDefault(""),
+    )
+    const slackApp = yield* Config.String("JANITOR_SLACK_APP_ID").pipe(Config.withDefault(""))
+    const slackBot = yield* Config.String("JANITOR_SLACK_BOT_USER_ID").pipe(Config.withDefault(""))
+    const slackToken = yield* Config.Redacted("JANITOR_SLACK_BOT_TOKEN").pipe(
+      Config.withDefault(Redacted.make("")),
+    )
+    const slackSecret = yield* Config.Redacted("JANITOR_SLACK_SIGNING_SECRET").pipe(
+      Config.withDefault(Redacted.make("")),
+    )
+    const slackConfigured =
+      runnerConfigured &&
+      slackWorkspace !== "" &&
+      slackApp !== "" &&
+      slackBot !== "" &&
+      Redacted.value(slackToken) !== "" &&
+      Redacted.value(slackSecret) !== ""
 
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
       Layer.provideMerge(GitHubAppAuth.layerFrom(appCredentials)),
@@ -255,8 +281,26 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     }
     let notifyOutbox: Effect.Effect<void> = Effect.void
     let notifyCatchUp: Effect.Effect<void> = Effect.void
+    const SlackLayers = slackConfigured
+      ? Layer.mergeAll(SlackCronLayer, SlackWebhook.layer).pipe(
+          Layer.provideMerge(
+            Layer.mergeAll(SlackProcessor.layer, SlackDelivery.layer, SlackConversation.layer),
+          ),
+          Layer.provideMerge(SlackTransport.layer),
+          Layer.provide(
+            Layer.succeed(SlackConfig, {
+              workspaceId: slackWorkspace,
+              appId: slackApp,
+              botUserId: slackBot,
+              token: slackToken,
+              signingSecret: slackSecret,
+              accountUrl: `${publicOrigin}/account`,
+            }),
+          ),
+        )
+      : Layer.empty
     const AgentLayers = runnerConfigured
-      ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer).pipe(
+      ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer, SlackLayers).pipe(
           Layer.provideMerge(Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer)),
           Layer.provideMerge(
             RunnerClient.layer({ baseUrl: runnerUrl, token: runnerToken }).pipe(
@@ -357,8 +401,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ? cluster.wake(AgentCatchUpCronName)
       : () => Effect.void
     notifyCatchUp = wakeAgentCatchUp()
+    const wakeSlack = slackConfigured ? cluster.wake(SlackCronName) : () => Effect.void
     yield* Cloudflare.Workers.cron("* * * * *", () =>
-      Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), wakeAgentCatchUp()], { discard: true }),
+      Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), wakeAgentCatchUp(), wakeSlack()], {
+        discard: true,
+      }),
     )
 
     yield* Cloudflare.Queues.consumeQueueMessages(
@@ -400,10 +447,13 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // fails closed rather than open.
     const accessAudience = typeof env.ACCESS_AUD === "string" ? env.ACCESS_AUD : ""
     const apiRoutes = yield* HttpRouter.toHttpEffect(
-      makeRoutesLayer(
-        secrets,
-        { teamDomain: Access.TEAM_DOMAIN, audience: accessAudience },
-        { localDevAudience },
+      Layer.mergeAll(
+        makeRoutesLayer(
+          secrets,
+          { teamDomain: Access.TEAM_DOMAIN, audience: accessAudience },
+          { localDevAudience },
+        ),
+        slackConfigured ? SlackWebhookRoutes : Layer.empty,
       ).pipe(Layer.provide([Etag.layer, HttpPlatformStubLayer, Path.layer, FetchHttpClient.layer])),
     )
     // Route errors that know their response (400 for a malformed request,

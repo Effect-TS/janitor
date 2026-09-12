@@ -121,3 +121,6 @@ CF_ACCESS_TOKEN=<the token>
 
 The token expires with the Access session. Anything you save in that mode
 changes the deployed configuration.
+
+Private Slack agent conversations use a separate bot installation configuration.
+See [Slack setup and delivery behavior](docs/slack/README.md).

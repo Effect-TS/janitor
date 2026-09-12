@@ -1,0 +1,29 @@
+{
+  "display_information": { "name": "Janitor", "description": "Shared agent conversations" },
+  "features": { "bot_user": { "display_name": "Janitor", "always_online": false } },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "chat:write",
+        "groups:history",
+        "groups:read",
+        "metadata.message:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://YOUR_JANITOR_HOST/api/v1/webhooks/slack",
+      "bot_events": [
+        "app_mention",
+        "message.groups",
+        "member_left_channel",
+        "app_uninstalled",
+        "tokens_revoked"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false
+  }
+}
