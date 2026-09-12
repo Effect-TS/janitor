@@ -26,6 +26,7 @@ import {
   seedPullRequests,
   seq,
   verifyTrack,
+  webhookNow,
 } from "./support.ts"
 
 const writes: Array<GitHubRequest> = []
@@ -117,7 +118,7 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
             sequence: seq,
           })
         })
-      const queued = yield* refresh(new Date())
+      const queued = yield* refresh(yield* webhookNow)
       assert.strictEqual(queued._tag, "Published")
       const labels = { _tag: "RepositoryTrack", repositoryId, track: "labels" } as const
       const failure = yield* targets.invalidate({ scope: labels, sequence: Option.none() })
@@ -135,7 +136,7 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
       assert.deepStrictEqual(writes, [])
       assert.strictEqual((yield* refresh(blockedAt))._tag, "Skipped")
       assert.strictEqual((yield* refresh())._tag, "Skipped")
-      const fresh = yield* refresh(new Date())
+      const fresh = yield* refresh(yield* webhookNow)
       assert.strictEqual(fresh._tag, "Published")
       if (fresh._tag === "Published") yield* ReconcileEntity.execute(fresh.identity)
       assert.deepStrictEqual(
@@ -264,11 +265,11 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
           yield* applyEvent(event, GitHubWebhookJournalSequence.make(sequence), new Date())
         })
       yield* pullEvent(false, "20")
-      const beforeMerge = yield* refresh(new Date())
+      const beforeMerge = yield* refresh(yield* webhookNow)
       assert.strictEqual(beforeMerge._tag, "Published")
       yield* pullEvent(true, "21")
       if (beforeMerge._tag === "Published") yield* ReconcileEntity.execute(beforeMerge.identity)
-      assert.strictEqual((yield* refresh(new Date()))._tag, "Skipped")
+      assert.strictEqual((yield* refresh(yield* webhookNow))._tag, "Skipped")
       assert.strictEqual(writes.length, 2)
       const access = (issues: string, sequence: string) =>
         Effect.gen(function* () {
@@ -286,7 +287,7 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
             sequence: GitHubWebhookJournalSequence.make(sequence),
           })
         })
-      const oldAccess = yield* refresh(new Date(), 16)
+      const oldAccess = yield* refresh(yield* webhookNow, 16)
       assert.strictEqual(oldAccess._tag, "Published")
       yield* access("read", "30")
       if (oldAccess._tag === "Published") yield* ReconcileEntity.execute(oldAccess.identity)
@@ -304,7 +305,7 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
       assert.strictEqual((yield* refresh(duringLoss, 16))._tag, "Skipped")
       assert.strictEqual((yield* refresh(undefined, 16))._tag, "Skipped")
       assert.strictEqual(writes.length, 2)
-      const afterAccess = yield* refresh(new Date(), 16)
+      const afterAccess = yield* refresh(yield* webhookNow, 16)
       assert.strictEqual(afterAccess._tag, "Published")
       if (afterAccess._tag === "Published") yield* ReconcileEntity.execute(afterAccess.identity)
       assert.strictEqual(writes.length, 3)

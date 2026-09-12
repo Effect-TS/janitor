@@ -21,7 +21,7 @@ import { RepositoryActivity } from "../src/RepositoryActivity.ts"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
 import { GitHubTransport } from "../src/GitHub/Transport.ts"
 import { TestPayloadCipher } from "./support/PayloadCipher.ts"
-import { Services, actor, baseMain, repositoryId } from "./Labeling/support.ts"
+import { Services, actor, baseMain, repositoryId, webhookNow } from "./Labeling/support.ts"
 
 const permissions = { metadata: "read", issues: "write", pull_requests: "read", checks: "read" }
 let granted = { ...permissions }
@@ -141,7 +141,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
             const old = yield* targets.invalidate({
               scope,
               sequence: Option.none(),
-              webhookReceivedAt: new Date(),
+              webhookReceivedAt: yield* webhookNow,
             })
             yield* targets.begin(scope, old.generation)
             if (loss === "checks")
