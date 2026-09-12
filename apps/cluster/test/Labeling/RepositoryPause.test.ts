@@ -25,6 +25,7 @@ import {
   seedPullRequests,
   seq,
   verifyTrack,
+  webhookNow,
 } from "./support.ts"
 
 class WriteControl extends Context.Service<
@@ -44,7 +45,7 @@ const ready = Effect.gen(function* () {
   const { generation } = yield* targets.invalidate({
     scope,
     sequence: Option.some(seq),
-    webhookReceivedAt: new Date(),
+    webhookReceivedAt: yield* webhookNow,
   })
   yield* targets.begin(scope, generation)
   yield* targets.complete({

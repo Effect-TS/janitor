@@ -24,6 +24,7 @@ import {
   seedPullRequests,
   seq,
   verifyTrack,
+  webhookNow,
 } from "./support.ts"
 
 /** Records every GitHub write and answers 200, so the apply activity can be observed. */
@@ -59,7 +60,7 @@ const verifyEntity = Effect.gen(function* () {
   const { generation } = yield* targets.invalidate({
     scope,
     sequence: Option.some(seq),
-    webhookReceivedAt: new Date(),
+    webhookReceivedAt: yield* webhookNow,
   })
   yield* targets.begin(scope, generation)
   yield* targets.complete({
@@ -206,7 +207,7 @@ layer(Services, { timeout: "2 minutes" })("SnapshotHandoff against Postgres", (i
       const six = yield* targets.invalidate({
         scope: scope6,
         sequence: Option.some(seq),
-        webhookReceivedAt: new Date(),
+        webhookReceivedAt: yield* webhookNow,
       })
       yield* targets.begin(scope6, six.generation)
       yield* targets.complete({

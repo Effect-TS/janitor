@@ -1,4 +1,4 @@
-import { executeAndReadActivity } from "./support.ts"
+import { executeAndReadActivity, webhookNow } from "./support.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -83,7 +83,7 @@ const verifyEntity = Effect.gen(function* () {
   const { generation } = yield* targets.invalidate({
     scope,
     sequence: Option.some(seq),
-    webhookReceivedAt: new Date(),
+    webhookReceivedAt: yield* webhookNow,
   })
   yield* targets.begin(scope, generation)
   yield* targets.complete({

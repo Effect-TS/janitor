@@ -38,6 +38,7 @@ import {
   repositoryId,
   seedReady as seed,
   seedPullRequests,
+  webhookNow,
 } from "./support.ts"
 
 const writes: Array<GitHubRequest> = []
@@ -113,7 +114,7 @@ const prepare = Effect.gen(function* () {
   const { generation } = yield* targets.invalidate({
     scope,
     sequence: Option.some(sequence),
-    webhookReceivedAt: new Date(),
+    webhookReceivedAt: yield* webhookNow,
   })
   yield* targets.begin(scope, generation)
   yield* targets.complete({
@@ -144,7 +145,7 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
       yield* targets.invalidate({
         scope,
         sequence: Option.some(GitHubWebhookJournalSequence.make("3")),
-        webhookReceivedAt: new Date(),
+        webhookReceivedAt: yield* webhookNow,
       })
       yield* Deferred.succeed(answer, { matches: true, confidence: 1, reason: "Matches old facts" })
       yield* Fiber.join(fiber)
@@ -305,7 +306,7 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
       const { generation } = yield* targets.invalidate({
         scope,
         sequence: Option.some(sequence),
-        webhookReceivedAt: new Date(),
+        webhookReceivedAt: yield* webhookNow,
       })
       yield* targets.begin(scope, generation)
       yield* targets.complete({
@@ -353,7 +354,7 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
           yield* targets.invalidate({
             scope,
             sequence: Option.some(GitHubWebhookJournalSequence.make("4")),
-            webhookReceivedAt: new Date(),
+            webhookReceivedAt: yield* webhookNow,
           })
         else if (change === "lost access")
           yield* (yield* GitHubReadModel).markRepositoriesLost({
