@@ -64,13 +64,13 @@ export class ModelConfigurationError extends Error {
  */
 export const parseModelConfigurations = (raw: string | undefined): ModelConfigurations => {
   if (raw === undefined || raw.trim() === "")
-    throw new ModelConfigurationError("RUNNER_MODEL_CONFIGURATIONS is not configured")
+    throw new ModelConfigurationError("JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS is not configured")
   let parsed: ModelConfigurations
   try {
     parsed = decodeConfigurations(JSON.parse(raw))
   } catch (cause) {
     throw new ModelConfigurationError(
-      `RUNNER_MODEL_CONFIGURATIONS is invalid: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS is invalid: ${cause instanceof Error ? cause.message : String(cause)}`,
     )
   }
   const ids = new Set<string>()

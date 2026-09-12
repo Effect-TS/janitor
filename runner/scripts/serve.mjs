@@ -5,7 +5,7 @@
 // Prints one JSON line `{"url": "...", "token": "..."}` once the runner accepts
 // requests. `--test` serves the fault-injecting test bundle with the scripted
 // model; the default serves the production bundle and expects real model
-// configuration through RUNNER_MODEL_CONFIGURATIONS.
+// configuration through JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS.
 import { Miniflare } from "miniflare"
 import fs from "node:fs"
 import os from "node:os"
@@ -19,7 +19,7 @@ const flag = (name) => {
 const test = args.includes("--test")
 const port = Number(flag("--port") ?? "0")
 const persist = flag("--persist") ?? fs.mkdtempSync(path.join(os.tmpdir(), "janitor-runner-serve-"))
-const token = process.env.RUNNER_SERVICE_TOKEN ?? "runner-local-token"
+const token = process.env.JANITOR_AGENT_RUNNER_TOKEN ?? "runner-local-token"
 const root = new URL("..", import.meta.url).pathname
 
 const testConfigurations = {
@@ -39,14 +39,19 @@ const testConfigurations = {
 }
 
 const bindings = {
-  RUNNER_SERVICE_TOKEN: token,
-  RUNNER_RELEASE: process.env.RUNNER_RELEASE ?? "local",
-  RUNNER_MODEL_CONFIGURATIONS:
-    process.env.RUNNER_MODEL_CONFIGURATIONS ?? (test ? JSON.stringify(testConfigurations) : ""),
+  JANITOR_AGENT_RUNNER_TOKEN: token,
+  JANITOR_AGENT_RUNNER_RELEASE: process.env.JANITOR_AGENT_RUNNER_RELEASE ?? "local",
+  JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS:
+    process.env.JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS ??
+    (test ? JSON.stringify(testConfigurations) : ""),
   ...(test ? { MODEL_SECRET_TEST: "scripted-secret" } : {}),
 }
 for (const [name, value] of Object.entries(process.env))
-  if (name.startsWith("MODEL_SECRET_") && value !== undefined) bindings[name] = value
+  if (
+    (name.startsWith("MODEL_SECRET_") || name === "JANITOR_AGENT_RUNNER_MODEL_API_KEY") &&
+    value !== undefined
+  )
+    bindings[name] = value
 
 const mf = new Miniflare({
   modules: true,

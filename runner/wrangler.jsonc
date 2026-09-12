@@ -1,7 +1,7 @@
 {
   // Deployment packaging for the runner Worker. Bindings and secrets are
   // provisioned per stage; see README.md. This file is not used by tests.
-  "name": "janitor-runner",
+  "name": "janitor-agent-runner",
   "main": "dist/worker.mjs",
   "compatibility_date": "2026-09-05",
   "compatibility_flags": ["nodejs_compat"],
