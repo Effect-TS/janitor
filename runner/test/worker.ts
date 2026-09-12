@@ -29,11 +29,13 @@ export interface ModelScript {
     | "activity"
     | "shell-policy"
     | "repository"
+    | "repository-work"
     | "crash"
   /** Delay before each text answer, so a turn spans supervision checks. */
   readonly delayMs?: number
   /** Answers returned in order; the last repeats. */
   readonly answers?: ReadonlyArray<string>
+  readonly tools?: ReadonlyArray<{ name: string; input: unknown }>
   /** Input tokens reported per answer. */
   readonly inputTokens?: number
   /** For `crash`: the model calls (1-based) that abort the object instead of answering. */
@@ -43,6 +45,8 @@ export interface ModelScript {
 }
 
 export interface TestFaults {
+  readonly abortAfterArchiveUpload?: boolean
+  readonly abortAfterCheckpointCommit?: boolean
   readonly intervalMs?: number
   readonly modelInactivityMs?: number
   readonly lostReplyOnce?: boolean
@@ -90,7 +94,40 @@ export class TestSessionRunner extends SessionRunner {
   protected override makeRepository(selected: RepositorySelection) {
     const transport = this.env.REPOSITORY_TEST_TRANSPORT as RepositoryAuthority | undefined
     if (!transport) return super.makeRepository(selected)
+    const runner = this
+    const bucket = this.env.WORKSPACE_CHECKPOINTS!
+    const environment = {
+      ...this.env,
+      WORKSPACE_CHECKPOINTS: new Proxy(bucket, {
+        get(target, property) {
+          if (property === "put")
+            return async (...args: Parameters<R2Bucket["put"]>) => {
+              const result = await target.put(...args)
+              if (runner.faults.abortAfterArchiveUpload) {
+                runner.setFaults({ abortAfterArchiveUpload: false })
+                await runner.ctx.storage.sync()
+                runner.ctx.abort("test: archive uploaded before pointer commit")
+              }
+              return result
+            }
+          const value = Reflect.get(target, property)
+          return typeof value === "function" ? value.bind(target) : value
+        },
+      }),
+    }
     return new (class extends RepositoryWorkspace {
+      override async finishTool(
+        id: string,
+        result: string,
+        captures: ReadonlyArray<{ name: string; base64: string }>,
+      ) {
+        await super.finishTool(id, result, captures)
+        if (runner.faults.abortAfterCheckpointCommit) {
+          runner.setFaults({ abortAfterCheckpointCommit: false })
+          await runner.ctx.storage.sync()
+          runner.ctx.abort("test: pointer committed before native tool result")
+        }
+      }
       protected override sandbox(binding: Binding): WorkspaceSandbox {
         const stub: WorkspaceSandbox = {
           getProcess: async () => null,
@@ -124,7 +161,7 @@ export class TestSessionRunner extends SessionRunner {
         } as unknown as DurableObjectNamespace<Sandbox>
         return getSandbox(namespace, binding.resource)
       }
-    })(this.ctx.storage, this.env, selected)
+    })(this.ctx.storage, environment, selected)
   }
   private meta<T>(key: string, fallback: T): T {
     const row = this.ctx.storage.sql
@@ -249,8 +286,17 @@ export class TestSessionRunner extends SessionRunner {
             }),
           )
         switch (script.mode) {
+          case "repository-work": {
+            const tool = script.tools?.[call - this.meta<number>("testToolBase", 0) - 1]
+            if (tool) return respond(toolCall(tool.name, tool.input))
+            break
+          }
           case "repository": {
-            if (summary.tools.some((tool) => !["read", "glob", "grep"].includes(tool)))
+            if (
+              summary.tools.some(
+                (tool) => !["read", "glob", "grep", "write", "edit", "shell"].includes(tool),
+              )
+            )
               throw new Error(`Unexpected repository tools: ${summary.tools}`)
             if (call === 1) return respond(toolCall("read", { path: "README.md" }))
             if (call === 2) return respond(toolCall("grep", { pattern: "repository", path: "." }))
@@ -364,7 +410,10 @@ export class TestSessionRunner extends SessionRunner {
     const rest = url.pathname.replace(/^\/__test\/sessions\/[^/]+/, "")
     try {
       if (rest === "/model" && request.method === "POST") {
+        // Model a Workerd process environment populated from runner-only bindings.
+        process.env.JANITOR_TEST_RUNNER_SECRET = "runner-only-secret"
         this.put("testModel", await request.json())
+        this.put("testToolBase", this.meta<number>("modelCalls", 0))
         return jsonResponse({ ok: true })
       }
       if (rest === "/faults" && request.method === "POST") {

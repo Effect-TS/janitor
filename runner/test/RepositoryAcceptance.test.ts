@@ -3,13 +3,15 @@ import { execFileSync } from "node:child_process"
 import { Harness } from "./support/Harness.ts"
 
 // The built bridge image, runner SQLite, native tools and model protocol are real.
-it("two sessions inspect isolated repositories and adopt a Sandbox after a lost creation response", async () => {
+it("native edits and foreground tests checkpoint isolated workspaces and restore after Sandbox loss", async () => {
   const resources = new Map<string, { container: string; url: string }>()
   let dropStart = true
   let oldImage = false
   let ready = true
   let dropProcess = true
   const processRequests = new Map<string, number>()
+  const timeouts: number[] = []
+  const capturedPaths = new Map<string, string>()
   const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim()
   const image = "localhost/janitor-inspection:ticket05"
   docker("image", "inspect", image)
@@ -70,6 +72,17 @@ it("two sessions inspect isolated repositories and adopt a Sandbox after a lost 
     const resource = resources.get(request.headers.get("x-test-resource")!)!
     // GitHub repositories are preloaded at this external boundary.
     if (path === "/repository") return Response.json({ ready: true })
+    if (path === "/process") {
+      const input = (await request.clone().json()) as {
+        timeout: number
+        env: Record<string, string>
+      }
+      timeouts.push(input.timeout)
+      expect(input.env).not.toHaveProperty("JANITOR_TEST_RUNNER_SECRET")
+      expect(input.env).not.toHaveProperty("JANITOR_AGENT_RUNNER_TOKEN")
+      expect(input.env).not.toHaveProperty("REPOSITORY_SERVICE_TOKEN")
+      expect(input.env).not.toHaveProperty("MODEL_SECRET_TEST")
+    }
     const response = await fetch(resource.url + path + new URL(request.url).search, {
       method: request.method,
       headers: request.headers,
@@ -109,7 +122,34 @@ it("two sessions inspect isolated repositories and adopt a Sandbox after a lost 
     await second.create({ repositoryId: "123" })
     expect(resources.size).toBe(2)
     for (const session of [first, second]) {
-      await session.model({ mode: "repository", answers: ["Repository inspected"] })
+      await session.model({
+        mode: "repository-work",
+        answers: ["Repository inspected"],
+        tools: [
+          { name: "read", input: { path: "README.md" } },
+          { name: "write", input: { path: "answer.txt", content: "before\n" } },
+          { name: "edit", input: { path: "answer.txt", oldString: "before", newString: "after" } },
+          {
+            name: "shell",
+            input: {
+              command:
+                "if tr '\\0' '\\n' < /proc/1/environ | grep -q JANITOR_BRIDGE_TOKEN; then exit 99; fi; cat answer.txt | tr a-z A-Z; printf preserved > failed.txt; exit 7",
+            },
+          },
+          { name: "shell", input: { command: "seq 1 6000", timeout: 150000 } },
+          { name: "shell", input: { command: "truncate -s 40000000 retained.bin" } },
+          {
+            name: "shell",
+            input: {
+              command:
+                "printf timeout > timed.txt; (sleep 1; printf escaped > timed.txt) & sleep 30",
+              timeout: 300,
+            },
+          },
+          { name: "shell", input: { command: "touch forbidden-background", background: true } },
+          { name: "shell", input: { command: "touch forbidden-unlimited", timeout: 0 } },
+        ],
+      })
       await session.admit({
         inputId: "msg_inspect",
         text: "Read README.md and search the repository",
@@ -117,14 +157,81 @@ it("two sessions inspect isolated repositories and adopt a Sandbox after a lost 
       let events: any[] = []
       for (let i = 0; i < 150; i++) {
         events = (await session.allEvents()).events
-        if (events.filter((event) => event.type === "session.tool.success").length >= 2) break
+        if (
+          events.filter((event) => event.type === "session.tool.success").length >= 7 &&
+          events.filter((event) => event.type === "session.tool.failed").length === 2
+        )
+          break
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
       expect(
         events.filter((event) => event.type === "session.tool.success"),
         JSON.stringify(events),
-      ).toHaveLength(2)
+      ).toHaveLength(7)
       expect(JSON.stringify(events)).toContain("repository janitor-")
+      expect(JSON.stringify(events)).toContain("AFTER")
+      expect(JSON.stringify(events)).toContain("/workspace/.janitor-captures/")
+      capturedPaths.set(
+        session.id,
+        JSON.stringify(events).match(/\/workspace\/\.janitor-captures\/[A-Za-z0-9_-]+\.out/)![0],
+      )
+      expect(JSON.stringify(events)).toContain("Command exited with code 7")
+    }
+    expect(timeouts).toContain(150000)
+    expect(timeouts).toContain(120000)
+    await harness.restart()
+    for (const resource of resources.values()) docker("stop", "-t", "0", resource.container)
+    resources.clear()
+    for (const session of [first, second]) {
+      await session.model({
+        mode: "repository-work",
+        tools: [
+          { name: "read", input: { path: "answer.txt" } },
+          { name: "read", input: { path: capturedPaths.get(session.id), offset: 5999, limit: 2 } },
+        ],
+      })
+      await session.admit({ inputId: "msg_restore", text: "Read the saved answer" })
+      for (let i = 0; i < 100; i++) {
+        const events = (await session.allEvents()).events
+        if (events.filter((event: any) => event.type === "session.tool.success").length >= 9) break
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      expect(JSON.stringify((await session.allEvents()).events)).toContain("1: after")
+      expect(JSON.stringify((await session.allEvents()).events)).toContain("6000: 6000")
+    }
+    expect(resources.size).toBe(2)
+    for (const resource of resources.values()) {
+      expect(
+        docker(
+          "exec",
+          resource.container,
+          "stat",
+          "-c",
+          "%s",
+          "/workspace/repository/retained.bin",
+        ),
+      ).toBe("40000000")
+      expect(docker("exec", resource.container, "cat", "/workspace/repository/answer.txt")).toBe(
+        "after",
+      )
+      expect(docker("exec", resource.container, "cat", "/workspace/repository/failed.txt")).toBe(
+        "preserved",
+      )
+      expect(docker("exec", resource.container, "cat", "/workspace/repository/timed.txt")).toBe(
+        "timeout",
+      )
+      expect(
+        docker(
+          "exec",
+          resource.container,
+          "sh",
+          "-c",
+          "test ! -e /workspace/repository/forbidden-background && test ! -e /workspace/repository/forbidden-unlimited; echo $?",
+        ),
+      ).toBe("0")
+      expect(
+        docker("exec", resource.container, "sh", "-c", "cat /workspace/.janitor-captures/*.out"),
+      ).toContain("6000")
     }
     await first.create({ repositoryId: "123", generation: 0 }, 409)
     expect([...processRequests.values()].filter((count) => count === 2)).toHaveLength(1)
@@ -140,6 +247,51 @@ it("two sessions inspect isolated repositories and adopt a Sandbox after a lost 
       await session.cleanup()
     }
     expect(resources.size).toBe(0)
+    for (const position of ["before", "after"] as const) {
+      const session = harness.session(`crash-${position}`)
+      await session.create({ repositoryId: "123" })
+      const incarnation = (await session.state()).incarnation
+      await session.model({
+        mode: "repository-work",
+        tools: [{ name: "write", input: { path: "crash.txt", content: "durable once" } }],
+      })
+      const fault = position === "before" ? "abortAfterArchiveUpload" : "abortAfterCheckpointCommit"
+      await session.faults({ [fault]: true })
+      await session.admit({ inputId: "msg_crash", text: "Write the file" })
+      for (let i = 0; i < 100; i++) {
+        const state = await session.state()
+        if (state.faults[fault] === false && state.incarnation !== incarnation) break
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      expect((await session.state()).faults[fault]).toBe(false)
+      expect((await session.state()).incarnation).not.toBe(incarnation)
+      const processCount = processRequests.size
+      await harness.restart()
+      for (const resource of resources.values()) docker("stop", "-t", "0", resource.container)
+      resources.clear()
+      await session.model({
+        mode: "repository-work",
+        tools: [{ name: "read", input: { path: "crash.txt" } }],
+      })
+      await session.admit(
+        { inputId: "msg_recover", text: "Read the saved file" },
+        position === "before" ? 423 : 200,
+      )
+      if (position === "before") {
+        expect((await session.inspect()).execution).toBe("blocked")
+        expect(processRequests.size).toBe(processCount)
+      } else {
+        for (let i = 0; i < 100; i++) {
+          if (JSON.stringify((await session.allEvents()).events).includes("1: durable once")) break
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        expect(JSON.stringify((await session.allEvents()).events)).toContain("1: durable once")
+      }
+      await session.cleanup()
+    }
+    expect(
+      (await (await harness.mf.getR2Bucket("WORKSPACE_CHECKPOINTS")).list()).objects,
+    ).toHaveLength(0)
   } finally {
     await harness.dispose()
     for (const resource of resources.values()) docker("stop", "-t", "0", resource.container)

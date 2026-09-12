@@ -19,5 +19,8 @@
   "containers": [{ "class_name": "Sandbox", "image": "./bridge/Dockerfile", "max_instances": 10 }],
   // Set the stage-specific Janitor service and matching secret before deployment.
   "services": [{ "binding": "REPOSITORY_AUTHORITY", "service": "janitor" }],
+  "r2_buckets": [
+    { "binding": "WORKSPACE_CHECKPOINTS", "bucket_name": "janitor-workspace-checkpoints" },
+  ],
   "observability": { "enabled": true },
 }

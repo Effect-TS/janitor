@@ -1,7 +1,20 @@
 import { createServer } from "node:http"
+import { createReadStream } from "node:fs"
 import { spawn } from "node:child_process"
 import { randomUUID, timingSafeEqual, createHash } from "node:crypto"
-import { realpathSync, renameSync, rmSync, existsSync } from "node:fs"
+import {
+  realpathSync,
+  renameSync,
+  rmSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  lstatSync,
+  constants,
+  readdirSync,
+  lchownSync,
+} from "node:fs"
+import { archive, restore } from "./archive.mjs"
 import { resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
@@ -14,6 +27,7 @@ export const capabilities = [
   "generation-v1",
   "repository-clone-v1",
   "path-resolution-v1",
+  "checkpoint-stream-v2",
 ]
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 const fail = (status, message) => {
@@ -34,6 +48,13 @@ export async function startBridge({
   if (!token || !Number.isSafeInteger(generation) || generation < 0)
     throw new Error("Invalid bridge identity")
   const root = realpathSync(cwd)
+  const ownWorkspace = (directory = root) => {
+    if (!isolateProcesses) return
+    lchownSync(directory, 1000, 1000)
+    if (lstatSync(directory).isDirectory())
+      for (const name of readdirSync(directory)) ownWorkspace(`${directory}/${name}`)
+  }
+  ownWorkspace()
   const epoch = randomUUID()
   const db = new DatabaseSync(journalPath)
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
@@ -76,17 +97,68 @@ export async function startBridge({
           epoch,
           generation,
           protocol,
-          capabilities: [...capabilities, ...(isolateProcesses ? ["pid-namespace-v1"] : [])],
+          capabilities: [
+            ...capabilities,
+            ...(isolateProcesses ? ["pid-namespace-v1", "workspace-user-v1"] : []),
+          ],
         })
       if (req.headers["x-bridge-epoch"] !== epoch) fail(409, "stale epoch; reconcile before retry")
+      if (url.pathname === "/restore" && req.method === "POST") {
+        if ([...children.values()].some((record) => !record.closed)) fail(409, "processes active")
+        frozen = true
+        await restore(root, req, req.headers["x-archive-sha256"])
+        ownWorkspace()
+        db.prepare("INSERT OR REPLACE INTO repository VALUES (1, 'restored', 'ready')").run()
+        return reply(200, { restored: true })
+      }
       let size = 0
       const chunks = []
       for await (const chunk of req) {
         size += chunk.length
-        if (size > 2 * 1024 * 1024) fail(413, "request too large")
+        if (size > 128 * 1024 * 1024) fail(413, "request too large")
         chunks.push(chunk)
       }
       const input = size ? JSON.parse(Buffer.concat(chunks).toString()) : {}
+      if (url.pathname === "/checkpoint" && req.method === "POST") {
+        frozen = true
+        for (const record of children.values()) stop(record)
+        await Promise.all([...children.values()].map((record) => record.done))
+        for (const capture of input.captures ?? []) {
+          if (!/^[A-Za-z0-9_-]+\.out$/.test(capture.name) || typeof capture.base64 !== "string")
+            fail(400, "invalid capture")
+          mkdirSync(`${root}/.janitor-captures`, { recursive: true })
+          if (!lstatSync(`${root}/.janitor-captures`).isDirectory())
+            fail(409, "capture directory was replaced")
+          writeFileSync(
+            `${root}/.janitor-captures/${capture.name}`,
+            Buffer.from(capture.base64, "base64"),
+            {
+              flag:
+                constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+              mode: 0o600,
+            },
+          )
+          ownWorkspace(`${root}/.janitor-captures`)
+        }
+        const saved = archive(root)
+        res.writeHead(200, {
+          "content-type": "application/x-ndjson",
+          "content-length": saved.size,
+          "x-archive-sha256": saved.sha256,
+        })
+        const stream = createReadStream(saved.file)
+        res.once("close", () => {
+          stream.destroy()
+          saved.cleanup()
+        })
+        stream.once("error", () => res.destroy())
+        stream.pipe(res)
+        return
+      }
+      if (url.pathname === "/thaw" && req.method === "POST") {
+        frozen = false
+        return reply(200, { frozen })
+      }
       if (url.pathname === "/repository" && req.method === "GET")
         return reply(200, {
           ready: db.prepare("SELECT state FROM repository WHERE id = 1").get()?.state === "ready",
@@ -159,12 +231,13 @@ export async function startBridge({
         // The repository directory is the native session's cwd. Atomic rename avoids partial adoption.
         if (existsSync(`${root}/repository`)) fail(409, "repository destination exists")
         renameSync(target, `${root}/repository`)
+        ownWorkspace(`${root}/repository`)
         db.prepare("UPDATE repository SET state = 'ready' WHERE id = 1").run()
         return reply(200, { ready: true })
       }
       if (url.pathname === "/process" && req.method === "POST") {
         if (frozen) fail(409, "workspace frozen")
-        const { id, argv, env = {}, timeout = 120000 } = input
+        const { id, argv, env = {}, timeout = 120000, extendEnv = true } = input
         if (
           !/^[A-Za-z0-9_-]{1,120}$/.test(id ?? "") ||
           !Array.isArray(argv) ||
@@ -172,7 +245,7 @@ export async function startBridge({
           !argv.every((arg) => typeof arg === "string" && !arg.includes("\0")) ||
           !Number.isFinite(timeout) ||
           timeout <= 0 ||
-          timeout > 86400000 ||
+          typeof extendEnv !== "boolean" ||
           typeof env !== "object" ||
           env === null ||
           Array.isArray(env) ||
@@ -189,6 +262,7 @@ export async function startBridge({
           env: Object.fromEntries(Object.entries(env).sort()),
           cwd: commandCwd,
           timeout,
+          extendEnv,
         }
         const identity = hash(payload)
         const previous = row(id)
@@ -201,8 +275,14 @@ export async function startBridge({
         db.prepare(
           "INSERT INTO operation (id, epoch, generation, payload_hash, payload) VALUES (?, ?, ?, ?, ?)",
         ).run(id, epoch, generation, identity, JSON.stringify(payload))
+        const publicEnv = {
+          PATH: isolateProcesses ? "/usr/local/bin:/usr/bin:/bin" : process.env.PATH,
+          HOME: root,
+          LANG: "C.UTF-8",
+        }
+        const commandEnv = { ...(extendEnv ? publicEnv : {}), ...env }
         const child = spawn(
-          isolateProcesses ? "unshare" : argv[0],
+          isolateProcesses ? "/usr/bin/unshare" : argv[0],
           isolateProcesses
             ? [
                 "--user",
@@ -211,12 +291,23 @@ export async function startBridge({
                 "--fork",
                 "--kill-child=SIGKILL",
                 "--",
+                "/usr/bin/env",
+                "-i",
+                "--",
+                ...Object.entries(commandEnv).map(([key, value]) => `${key}=${value}`),
+                "/bin/bash",
+                "-c",
+                'exec -- "$@"',
+                "janitor",
                 ...argv,
               ]
             : argv.slice(1),
           {
             cwd: commandCwd,
-            env: { PATH: process.env.PATH, HOME: root, LANG: "C.UTF-8", ...env },
+            // Drop identity before loading the launcher; caller environment applies only inside
+            // the PID namespace so loader hooks cannot run with bridge access or escape cleanup.
+            ...(isolateProcesses ? { uid: 1000, gid: 1000 } : {}),
+            env: isolateProcesses ? publicEnv : commandEnv,
             detached: true,
             stdio: ["pipe", "pipe", "pipe"],
           },
@@ -232,10 +323,17 @@ export async function startBridge({
         }
         children.set(id, record)
         db.prepare("UPDATE operation SET pid = ? WHERE id = ?").run(child.pid ?? null, id)
-        const timer = setTimeout(() => {
-          db.prepare("UPDATE operation SET error = 'process timeout' WHERE id = ?").run(id)
-          stop(record)
-        }, timeout)
+        const deadline = Date.now() + timeout
+        let timer
+        const expire = () => {
+          const remaining = deadline - Date.now()
+          if (remaining > 0) timer = setTimeout(expire, Math.min(remaining, 2147483647))
+          else {
+            db.prepare("UPDATE operation SET error = 'process timeout' WHERE id = ?").run(id)
+            stop(record)
+          }
+        }
+        expire()
         const frame = (kind, bytes) => {
           record.bytes += bytes.length
           if (record.bytes > 8 * 1024 * 1024) {
@@ -295,13 +393,14 @@ export async function startBridge({
             .all(id, after),
         })
       }
-      if (operation.epoch !== epoch || operation.error) fail(409, "operation uncertain")
+      if (operation.epoch !== epoch) fail(409, "operation uncertain")
       const record = children.get(id)
       if (match[2] === "kill" && req.method === "POST") {
         if (!["SIGTERM", "SIGKILL"].includes(input.signal)) fail(400, "unsupported signal")
         stop(record, input.signal)
         return reply(200, { accepted: true })
       }
+      if (operation.error) fail(409, "operation uncertain")
       if (match[2] === "stdin" && req.method === "POST") {
         if (
           !Number.isSafeInteger(input.seq) ||

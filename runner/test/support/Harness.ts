@@ -59,6 +59,8 @@ export const makeMiniflare = (options: HarnessOptions = {}) =>
       ...options.bindings,
     },
     durableObjects: { SESSIONS: { className: "SessionRunner", useSQLite: true } },
+    r2Buckets: ["WORKSPACE_CHECKPOINTS"],
+    ...(options.persist === undefined ? {} : { r2Persist: path.join(options.persist, "r2") }),
     serviceBindings: options.serviceBindings,
     ...(options.persist === undefined ? {} : { durableObjectsPersist: options.persist }),
   })
