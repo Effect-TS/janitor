@@ -15,6 +15,7 @@ import {
   lchownSync,
 } from "node:fs"
 import { archive, restore } from "./archive.mjs"
+import { publishGit } from "./publication.mjs"
 import { resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
@@ -28,6 +29,7 @@ export const capabilities = [
   "repository-clone-v1",
   "path-resolution-v1",
   "checkpoint-stream-v2",
+  "publication-v1",
 ]
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 const fail = (status, message) => {
@@ -65,11 +67,13 @@ export async function startBridge({
       PRIMARY KEY (operation, seq));
     CREATE TABLE IF NOT EXISTS input (operation TEXT, seq INTEGER, payload_hash TEXT, state TEXT,
       PRIMARY KEY (operation, seq));
-    CREATE TABLE IF NOT EXISTS repository (id INTEGER PRIMARY KEY, identity TEXT, state TEXT);`)
+    CREATE TABLE IF NOT EXISTS repository (id INTEGER PRIMARY KEY, identity TEXT, state TEXT);
+    CREATE TABLE IF NOT EXISTS preparation (id TEXT PRIMARY KEY, epoch TEXT NOT NULL, identity TEXT NOT NULL, result TEXT);`)
   // A new process cannot establish the fate of the old owner. Retain evidence and refuse replay.
   db.prepare("UPDATE operation SET error = 'uncertain after bridge restart' WHERE closed = 0").run()
   const children = new Map()
   let frozen = false
+  let publishing = false
   const row = (id) => db.prepare("SELECT * FROM operation WHERE id = ?").get(id)
   const stop = (record, signal = "SIGKILL") => {
     if (record && !record.closed) {
@@ -104,11 +108,15 @@ export async function startBridge({
         })
       if (req.headers["x-bridge-epoch"] !== epoch) fail(409, "stale epoch; reconcile before retry")
       if (url.pathname === "/restore" && req.method === "POST") {
+        if (publishing) fail(409, "publication active")
         if ([...children.values()].some((record) => !record.closed)) fail(409, "processes active")
         frozen = true
         await restore(root, req, req.headers["x-archive-sha256"])
         ownWorkspace()
         db.prepare("INSERT OR REPLACE INTO repository VALUES (1, 'restored', 'ready')").run()
+        // A verified archive replaces only local preparation work. Publication
+        // writes are journaled separately by the runner and are never replayed here.
+        db.prepare("DELETE FROM preparation").run()
         return reply(200, { restored: true })
       }
       let size = 0
@@ -119,6 +127,47 @@ export async function startBridge({
         chunks.push(chunk)
       }
       const input = size ? JSON.parse(Buffer.concat(chunks).toString()) : {}
+      if (url.pathname.startsWith("/git/") && req.method === "POST") {
+        if (publishing) fail(409, "publication active")
+        publishing = true
+        frozen = true
+        try {
+          for (const record of children.values()) stop(record)
+          await Promise.all([...children.values()].map((record) => record.done))
+          if (url.pathname === "/git/prepare") {
+            if (!/^[a-f0-9-]{36}$/.test(input.prepareId ?? ""))
+              fail(400, "invalid preparation identity")
+            const identity = hash({
+              owner: input.owner,
+              repo: input.repo,
+              branch: input.branch,
+              base: input.base,
+            })
+            const prior = db.prepare("SELECT * FROM preparation WHERE id = ?").get(input.prepareId)
+            if (prior) {
+              if (prior.identity !== identity || prior.epoch !== epoch || prior.result === null)
+                fail(409, "preparation outcome requires reconciliation")
+              return reply(200, { ...JSON.parse(prior.result), duplicate: true })
+            }
+            db.prepare("INSERT INTO preparation VALUES (?, ?, ?, NULL)").run(
+              input.prepareId,
+              epoch,
+              identity,
+            )
+          }
+          const result = await publishGit(root, cloneOrigin, url.pathname.slice(5), input)
+          ownWorkspace()
+          if (url.pathname === "/git/prepare")
+            db.prepare("UPDATE preparation SET result = ? WHERE id = ?").run(
+              JSON.stringify(result),
+              input.prepareId,
+            )
+          return reply(200, result)
+        } finally {
+          publishing = false
+        }
+      }
+      if (publishing) fail(409, "publication active")
       if (url.pathname === "/checkpoint" && req.method === "POST") {
         frozen = true
         for (const record of children.values()) stop(record)

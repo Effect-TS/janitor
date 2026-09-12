@@ -1,4 +1,5 @@
 import * as Context from "effect/Context"
+import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
@@ -20,6 +21,9 @@ export const RepositoryRequest = Schema.Struct({
   generation: Schema.Int,
   repositoryId: Schema.String.check(Schema.isPattern(/^[0-9]+$/)),
   token: Schema.Boolean,
+  permission: Schema.optionalKey(Schema.Literals(["read", "push", "pull_request"])),
+  refresh: Schema.optionalKey(Schema.Boolean),
+  publication: Schema.optionalKey(Schema.Boolean),
 })
 export class RepositoryAccessError extends Schema.TaggedError<RepositoryAccessError>()(
   "RepositoryAccessError",
@@ -47,6 +51,7 @@ export class RepositoryAccess extends Context.Service<
       const sql = yield* SqlClient.SqlClient
       const auth = yield* GitHubAppAuth
       const http = yield* HttpClient.HttpClient
+      const tokens = new Map<string, { token: Redacted.Redacted<string>; expiresAt: number }>()
       return {
         authorize: (request: typeof RepositoryRequest.Type) =>
           Effect.gen(function* () {
@@ -55,6 +60,8 @@ export class RepositoryAccess extends Context.Service<
         JOIN github_repository r ON r.repository_id = s.repository_id
         WHERE s.session_id = ${request.sessionId} AND s.generation = ${request.generation}
           AND s.repository_id = ${request.repositoryId} AND s.runner_state <> 'disconnected'
+          AND (${request.publication !== true} OR NOT EXISTS (
+            SELECT 1 FROM slack_thread t WHERE t.session_id = s.session_id AND t.pr_number IS NOT NULL))
           AND r.connected AND r.sync_enabled AND r.automation_ready_at IS NOT NULL
           AND repository_access_available(r.repository_id)
           AND NOT EXISTS (SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId' = r.repository_id
@@ -71,9 +78,23 @@ export class RepositoryAccess extends Context.Service<
               return yield* new RepositoryAccessError({
                 message: "Repository identity is out of range",
               })
+            const permissions =
+              request.permission === "push"
+                ? { contents: "write" }
+                : request.permission === "pull_request"
+                  ? { pull_requests: "write" }
+                  : { contents: "read" }
+            const key = JSON.stringify([repository.installation_id, numericId, permissions])
+            const now = yield* Clock.currentTimeMillis
+            // Readiness is checked even on cache hits. A denied Git/GitHub operation
+            // requests refresh before retrying with the same publication identity.
+            if (request.refresh) tokens.delete(key)
+            for (const [identity, cached] of tokens)
+              if (cached.expiresAt <= now + 60000) tokens.delete(identity)
+            const cached = tokens.get(key)
+            if (cached)
+              return { owner: repository.owner, repo: repository.repo, token: cached.token }
             const jwt = yield* auth.appJwt
-            // Mint per clone, with a single numeric repository and read-only Contents permission.
-            // No installation-wide token or private key reaches the execution service.
             const response = yield* HttpClientRequest.post(
               `${GITHUB_API_BASE_URL}/app/installations/${repository.installation_id}/access_tokens`,
             ).pipe(
@@ -85,18 +106,27 @@ export class RepositoryAccess extends Context.Service<
               }),
               HttpClientRequest.bodyJson({
                 repository_ids: [numericId],
-                permissions: { contents: "read" },
+                permissions,
               }),
               Effect.flatMap(http.execute),
               Effect.flatMap(HttpClientResponse.filterStatusOk),
               Effect.flatMap(
-                HttpClientResponse.schemaBodyJson(Schema.Struct({ token: Schema.String })),
+                HttpClientResponse.schemaBodyJson(
+                  Schema.Struct({ token: Schema.String, expires_at: Schema.String }),
+                ),
               ),
             )
+            const expiresAt = Date.parse(response.expires_at)
+            if (!Number.isFinite(expiresAt) || expiresAt <= now + 60000)
+              return yield* new RepositoryAccessError({
+                message: "Scoped credential expires too soon",
+              })
+            const token = Redacted.make(response.token)
+            tokens.set(key, { token, expiresAt })
             return {
               owner: repository.owner,
               repo: repository.repo,
-              token: Redacted.make(response.token),
+              token,
             }
           }).pipe(
             Effect.mapError(

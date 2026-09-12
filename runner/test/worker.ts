@@ -294,7 +294,8 @@ export class TestSessionRunner extends SessionRunner {
           case "repository": {
             if (
               summary.tools.some(
-                (tool) => !["read", "glob", "grep", "write", "edit", "shell"].includes(tool),
+                (tool) =>
+                  !["read", "glob", "grep", "write", "edit", "shell", "publish"].includes(tool),
               )
             )
               throw new Error(`Unexpected repository tools: ${summary.tools}`)

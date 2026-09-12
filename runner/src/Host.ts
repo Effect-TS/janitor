@@ -5,7 +5,7 @@
 // replacements for model execution and model resolution. Construction forks
 // the native suspended-session recovery sweep immediately, so callers must run
 // every pre-host guard before calling `createHost`.
-import { Effect, Layer, ManagedRuntime, Stream, Semaphore, type Scope } from "effect"
+import { Effect, Layer, ManagedRuntime, Stream, Semaphore, Schema, type Scope } from "effect"
 import { readFile } from "node:fs/promises"
 import { Shell } from "@opencode/core/shell"
 import { HttpClient } from "effect/unstable/http"
@@ -145,6 +145,12 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
                   execute: (input) =>
                     Effect.gen(function* () {
                       if (!deps.repository) return yield* snapshot.execute(input)
+                      // Publication has its own durable intent/result journal. Replaying
+                      // a lost native result reconciles that record before any new write.
+                      if (input.call.name === "publish")
+                        return yield* snapshot
+                          .execute(input)
+                          .pipe(Effect.ensuring(Effect.promise(() => deps.repository!.thaw())))
                       const args = input.call.input as { timeout?: unknown; background?: unknown }
                       const timeout = args?.timeout ?? 120000
                       if (
@@ -247,6 +253,23 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
           effect: (context) =>
             Effect.gen(function* () {
               yield* context.tool.transform((editor) => {
+                if (deps.repository)
+                  editor.add({
+                    name: "publish",
+                    options: { permission: "publish", codemode: false },
+                    description:
+                      "Publish committed, tested repository work on this session's designated new-work branch and open one reviewable GitHub PR. Commit changes with shell first. Include a substantive summary and validation in body. Humans decide whether to merge. Retry this tool to reconcile lost responses; never use shell to push or create competing PRs.",
+                    input: Schema.Struct({
+                      title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+                      body: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10000)),
+                      base: Schema.optionalKey(Schema.String),
+                    }),
+                    execute: (input) =>
+                      Effect.tryPromise({
+                        try: () => deps.repository!.publication.publish(input),
+                        catch: checkpointError,
+                      }),
+                  })
                 for (const tool of editor.list())
                   if (!deps.repository || !REPOSITORY_TOOLS.includes(tool.id))
                     editor.remove(tool.id)
@@ -257,7 +280,7 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
                   return Effect.fail(
                     new Tool.Error({ message: "Select a ready repository before using tools" }),
                   )
-                if (["edit", "write", "shell"].includes(event.tool)) return Effect.void
+                if (["edit", "write", "shell", "publish"].includes(event.tool)) return Effect.void
                 return Effect.tryPromise({
                   try: () =>
                     deps.repository!.rpc("/resolve", {
