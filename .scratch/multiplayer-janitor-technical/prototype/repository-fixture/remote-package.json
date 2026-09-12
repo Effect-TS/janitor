@@ -1,0 +1,14 @@
+{
+  "name": "janitor-remote-repository-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bundle": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "wrangler deploy",
+    "image": "docker build -t localhost/janitor-repository-fixture:probe .",
+    "image-test": "docker run --rm --network=none --entrypoint node localhost/janitor-repository-fixture:probe /opt/janitor-fixture/probe-bridge.mjs",
+    "cloudflare": "wrangler"
+  },
+  "dependencies": { "@cloudflare/sandbox": "0.12.9" },
+  "devDependencies": { "wrangler": "4.131.1" }
+}

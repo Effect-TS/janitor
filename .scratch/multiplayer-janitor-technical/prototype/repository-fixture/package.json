@@ -1,0 +1,11 @@
+{
+  "name": "janitor-repository-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "node fixture.mjs",
+    "bridge": "node probe-bridge.mjs",
+    "checkpoint": "node probe-checkpoint.mjs",
+    "recovery": "node probe-recovery.mjs"
+  }
+}

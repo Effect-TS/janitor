@@ -1,0 +1,50 @@
+{
+  "checkedAt": "2026-09-12T13:40:31.047Z",
+  "mode": "read-only",
+  "app": {
+    "id": 4811166,
+    "slug": "effect-janitor",
+    "permissions": {
+      "checks": "read",
+      "contents": "write",
+      "issues": "write",
+      "metadata": "read",
+      "pull_requests": "write",
+      "statuses": "read"
+    },
+    "events": [
+      "check_run",
+      "check_suite",
+      "issue_comment",
+      "pull_request",
+      "pull_request_review",
+      "pull_request_review_comment",
+      "status"
+    ]
+  },
+  "installation": {
+    "id": 158746421,
+    "account": "Effect-TS",
+    "permissions": {
+      "checks": "read",
+      "issues": "write",
+      "contents": "write",
+      "metadata": "read",
+      "statuses": "read",
+      "pull_requests": "write"
+    },
+    "events": [
+      "check_run",
+      "check_suite",
+      "issue_comment",
+      "pull_request",
+      "pull_request_review",
+      "pull_request_review_comment",
+      "status"
+    ],
+    "suspended": false
+  },
+  "webhookConfigured": true,
+  "deliveryListAccessible": true,
+  "mutations": 0
+}

@@ -1,0 +1,32 @@
+{
+  "checkedAt": "2026-09-12T13:19:37.344Z",
+  "deliveryID": "Ev0C17JGJ1R9",
+  "messageTS": "1789219087.955639",
+  "thread": "1789218813.600349",
+  "receiptCount": 1,
+  "attempts": [
+    {
+      "seq": 17,
+      "receipt_id": "Ev0C17JGJ1R9",
+      "retry_number": null,
+      "disposition": "failed-after-commit"
+    },
+    {
+      "seq": 18,
+      "receipt_id": "Ev0C17JGJ1R9",
+      "retry_number": "1",
+      "disposition": "acknowledged"
+    }
+  ],
+  "liveChecks": [
+    "First callback persisted before injected 503",
+    "Slack redelivered same event ID with retry number 1",
+    "Retry acknowledged without a second durable receipt"
+  ],
+  "localReplay": {
+    "instructionCount": 1,
+    "eligibility": "synthetic local member; no production Janitor admission"
+  },
+  "faultsReset": true,
+  "remoteMessagesSent": 0
+}

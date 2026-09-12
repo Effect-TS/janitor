@@ -1,0 +1,18 @@
+{
+  "opencode": "2df00955cb933e977427535d2505e50cbc689c69",
+  "effect": "4.0.0-rc.112",
+  "wrangler": "4.131.1",
+  "account": "a5324318f7f0ddf25e7a1ba5359d1aa5",
+  "worker": "janitor-runner-probe-ed436934",
+  "versions": {
+    "lifetime": "942130e1-7d1d-4007-b15f-bac50a654ce4",
+    "httpAndRaces": "ad243b93-6461-4e59-9e77-d94ab5e74115",
+    "final": "0c9cc25b-3b54-4481-b2e9-ef71d3caa593",
+    "firstFinal": "0b0fc439-a93a-4caf-acca-8961f4b06985"
+  },
+  "finalBundleSha256": "e0f11cb2c2cc54532fad74316098692c46987e6a3bc7581e6d31589b889f783b",
+  "compatibilityDate": "2026-09-11",
+  "localCompatibilityDate": "2026-07-04",
+  "realModelCalls": 0,
+  "namespace": "d3314972ccac44b1a6b307c38049a103"
+}

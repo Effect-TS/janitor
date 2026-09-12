@@ -1,0 +1,35 @@
+[
+  {
+    "path": "/workers/scripts/janitor-repo-probe-20260911-vwap",
+    "status": 404,
+    "success": false,
+    "errors": [
+      {
+        "code": 10007,
+        "message": "This Worker does not exist on your account."
+      }
+    ]
+  },
+  {
+    "path": "/workers/durable_objects/namespaces/dfa6ec438427480b98b4dbfcf7984d1a",
+    "status": 404,
+    "success": false,
+    "errors": [
+      {
+        "code": 10066,
+        "message": "Durable Object namespace ID 'dfa6ec438427480b98b4dbfcf7984d1a' not found."
+      }
+    ]
+  },
+  {
+    "path": "/r2/buckets/janitor-repo-probe-20260911-vwap",
+    "status": 404,
+    "success": false,
+    "errors": [
+      {
+        "code": 10006,
+        "message": "The specified bucket does not exist."
+      }
+    ]
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "name": "janitor-platform-delivery-fixture",
+  "main": "receiver.mjs",
+  "account_id": "a5324318f7f0ddf25e7a1ba5359d1aa5",
+  "compatibility_date": "2026-09-11",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Journal"] }],
+  "vars": {
+    "SLACK_TEAM_ID": "T05479Z6JBW",
+    "SLACK_APP_ID": "A0C284F2FSL",
+    "SLACK_CHANNEL_ID": "C0C19USKLPQ"
+  }
+}

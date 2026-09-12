@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-09-12T14:35:27.057Z",
+  "invalidCredential": {
+    "ok": false,
+    "error": "invalid_auth"
+  },
+  "validCredentialRestored": true,
+  "invalidEphemeralRecipient": {
+    "ok": false,
+    "error": "user_not_in_channel"
+  },
+  "publicFallbackSent": false,
+  "limitation": "Not a real channel membership removal/restoration test; no active user received the invalid-recipient request."
+}

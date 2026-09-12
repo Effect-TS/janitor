@@ -1,0 +1,21 @@
+{
+  "name": "janitor-runner-lifecycle-fixture",
+  "main": "dist-runner/worker.mjs",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RUNNER",
+        "class_name": "Runner"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Runner"]
+    }
+  ],
+  "workers_dev": true
+}

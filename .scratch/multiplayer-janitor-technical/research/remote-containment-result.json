@@ -1,0 +1,5 @@
+{
+  "status": 200,
+  "elapsedMs": 19905,
+  "body": "{\"id\":\"janitor-fixture-06ffe111-87a6-432f-88b7-c910f763bf81\",\"checks\":[\"foreground PID namespace containment and cancellation passed inside Cloudflare Sandbox\",\"process bridge probe passed inside Cloudflare Sandbox\",\"custom archive saved to R2 without SDK expiry metadata\",\"new sandbox restores identical staged, unstaged and untracked Git state\"],\"archiveBytes\":61440,\"fullOpenCodeAdapterVerified\":false,\"durablePointerTransactionVerified\":false,\"githubPublicationVerified\":false}"
+}

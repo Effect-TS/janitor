@@ -1,0 +1,4262 @@
+{
+  "startedAt": "2026-09-11T21:40:03.123Z",
+  "cases": [
+    {
+      "name": "saved-v1",
+      "passed": true,
+      "noRequestsDuringWaitMs": 10291
+    },
+    {
+      "name": "queue-v1",
+      "passed": true,
+      "noRequestsDuringWaitMs": 11211
+    },
+    {
+      "name": "recover-v1",
+      "passed": true,
+      "noRequestsDuringWaitMs": 18222
+    },
+    {
+      "name": "exhaust-v1",
+      "passed": true,
+      "noRequestsDuringWaitMs": 60089
+    },
+    {
+      "name": "long-v1",
+      "passed": true,
+      "noRequestsDuringWaitMs": 221161
+    }
+  ],
+  "calls": [
+    {
+      "name": "long-v1",
+      "path": "/create",
+      "status": 200,
+      "elapsedMs": 2348,
+      "data": {
+        "session": "ses_f6d96282dffd9syDj264Kyg5x0"
+      }
+    },
+    {
+      "name": "recover-v1",
+      "path": "/create",
+      "status": 200,
+      "elapsedMs": 2424,
+      "data": {
+        "session": "ses_f6d9627bdffdbEdlhKdJEAASao"
+      }
+    },
+    {
+      "name": "queue-v1",
+      "path": "/create",
+      "status": 200,
+      "elapsedMs": 2676,
+      "data": {
+        "session": "ses_f6d962738ffdn89Ts9OBFLQipi"
+      }
+    },
+    {
+      "name": "saved-v1",
+      "path": "/create",
+      "status": 200,
+      "elapsedMs": 2723,
+      "data": {
+        "session": "ses_f6d96273dffdzlpR5rYh4nB0Iy"
+      }
+    },
+    {
+      "name": "recover-v1",
+      "path": "/admit",
+      "status": 200,
+      "elapsedMs": 416,
+      "data": {
+        "id": "msg_09269d887001D3LbnFzc0sChwy",
+        "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+        "timeCreated": "2026-09-11T21:40:05.383Z",
+        "type": "user",
+        "payload": {
+          "text": "recover automatically"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "saved-v1",
+      "path": "/admit",
+      "status": 503,
+      "elapsedMs": 296,
+      "data": "injected lost admission reply"
+    },
+    {
+      "name": "queue-v1",
+      "path": "/admit",
+      "status": 200,
+      "elapsedMs": 428,
+      "data": {
+        "id": "msg_09269d92e001jOb3DsnnEkrdWD",
+        "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+        "timeCreated": "2026-09-11T21:40:05.550Z",
+        "type": "user",
+        "payload": {
+          "text": "Slack first"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "queue-v1",
+      "path": "/admit",
+      "status": 200,
+      "elapsedMs": 61,
+      "data": {
+        "id": "msg_09269d9af0011PeyVUvX7KYOKT",
+        "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+        "timeCreated": "2026-09-11T21:40:05.679Z",
+        "type": "user",
+        "payload": {
+          "text": "GitHub second"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "queue-v1",
+      "path": "/admit",
+      "status": 200,
+      "elapsedMs": 64,
+      "data": {
+        "id": "msg_09269da03001IUT0yiNct09Glw",
+        "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+        "timeCreated": "2026-09-11T21:40:05.763Z",
+        "type": "user",
+        "payload": {
+          "text": "Slack third"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "exhaust-v1",
+      "path": "/create",
+      "status": 200,
+      "elapsedMs": 3766,
+      "data": {
+        "session": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+      }
+    },
+    {
+      "name": "long-v1",
+      "path": "/admit",
+      "status": 200,
+      "elapsedMs": 1769,
+      "data": {
+        "id": "msg_09269de64001Qdnr2py04sbjBM",
+        "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+        "timeCreated": "2026-09-11T21:40:06.884Z",
+        "type": "user",
+        "payload": {
+          "text": "complete one long task"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "exhaust-v1",
+      "path": "/admit",
+      "status": 200,
+      "elapsedMs": 348,
+      "data": {
+        "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+        "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+        "timeCreated": "2026-09-11T21:40:06.645Z",
+        "type": "user",
+        "payload": {
+          "text": "repeatedly interrupted"
+        },
+        "delivery": "queue"
+      }
+    },
+    {
+      "name": "saved-v1",
+      "path": "/evidence",
+      "status": 200,
+      "elapsedMs": 1287,
+      "data": {
+        "session": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+        "row": {
+          "id": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+          "time_suspended": null,
+          "resume_attempts": 0,
+          "time_idle": 1789162807538,
+          "idle_outcome": "succeeded"
+        },
+        "modelCalls": 1,
+        "obligation": false,
+        "alarm": null,
+        "events": [
+          {
+            "id": "evt_09269d8c2003siq6iC73GERD9Y",
+            "created": 1789162805442,
+            "type": "session.created",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 0,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+              "location": {
+                "directory": "/probe",
+                "workspaceID": "wrk_09269d8c2001h2jqWgN2c2RT2V"
+              },
+              "subpath": "",
+              "slug": "witty-island",
+              "title": "lifecycle-fixture",
+              "version": "unknown"
+            }
+          },
+          {
+            "id": "evt_09269d92200bqgFTt1UNDgYt5X",
+            "created": 1789162805538,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 1,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "inboxID": "msg_09269d9220017515W7EzWgXjwe",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "save without initial wake"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09269dd0a001Jk5ahJpCiKlN5U",
+            "created": 1789162806538,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 2,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy"
+            }
+          },
+          {
+            "id": "evt_09269dd0a002tEkh1ApSeXHbnP",
+            "created": 1789162806538,
+            "type": "session.instructions.updated",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 3,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "delta": {
+                "core/environment": "770515453e8244aec752ed368b8340c93803910702b9012e4c5f2f416e2cb61a",
+                "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+                "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+                "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+              }
+            }
+          },
+          {
+            "id": "evt_09269dd0a003JYnQHglkfYcYXQ",
+            "created": 1789162806538,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 4,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "inboxID": "msg_09269d9220017515W7EzWgXjwe"
+            }
+          },
+          {
+            "id": "evt_09269e0f2001leB4Qr8Bmt5KXO",
+            "created": 1789162807538,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 5,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "assistantMessageID": "msg_09269dd0a004JRgc7uuxHkd3jj",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_09269e0f2002tzqxasOsa95PIS",
+            "created": 1789162807538,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 6,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "assistantMessageID": "msg_09269dd0a004JRgc7uuxHkd3jj",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_09269e0f20044blMWnm8iGnpWL",
+            "created": 1789162807538,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 7,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "assistantMessageID": "msg_09269dd0a004JRgc7uuxHkd3jj",
+              "ordinal": 0,
+              "text": "fixture answer 1"
+            }
+          },
+          {
+            "id": "evt_09269e0f2005fbBfcn0Aioo8O9",
+            "created": 1789162807538,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 8,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "assistantMessageID": "msg_09269dd0a004JRgc7uuxHkd3jj"
+            }
+          },
+          {
+            "id": "evt_09269e0f2006MkScRu0fjHT3aw",
+            "created": 1789162807538,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 9,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "assistantMessageID": "msg_09269dd0a004JRgc7uuxHkd3jj",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_09269e0f2008iYQZpL2c9PapaP",
+            "created": 1789162807538,
+            "type": "session.execution.succeeded",
+            "durable": {
+              "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+              "seq": 10,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96273dffdzlpR5rYh4nB0Iy"
+            }
+          },
+          {
+            "type": "log.synced",
+            "aggregateID": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+            "seq": 10
+          }
+        ],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789162805439,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "47b8e07c-d6fe-4b00-b26a-b7ec0b7eb2a7"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789162805442,
+            "kind": "created",
+            "data": {
+              "id": "ses_f6d96273dffdzlpR5rYh4nB0Iy"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789162805538,
+            "kind": "armed",
+            "data": {
+              "due": 1789162806538
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789162805538,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 5,
+            "time": 1789162805538,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09269d9220017515W7EzWgXjwe"
+            }
+          },
+          {
+            "seq": 6,
+            "time": 1789162806538,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "47b8e07c-d6fe-4b00-b26a-b7ec0b7eb2a7"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789162806538,
+            "kind": "armed",
+            "data": {
+              "due": 1789162807538
+            }
+          },
+          {
+            "seq": 8,
+            "time": 1789162806538,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 1,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 9,
+            "time": 1789162806538,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 10,
+            "time": 1789162806538,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_09269d9220017515W7EzWgXjwe",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "save without initial wake"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "47b8e07c-d6fe-4b00-b26a-b7ec0b7eb2a7"
+            }
+          },
+          {
+            "seq": 11,
+            "time": 1789162807538,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "47b8e07c-d6fe-4b00-b26a-b7ec0b7eb2a7"
+            }
+          },
+          {
+            "seq": 12,
+            "time": 1789162807538,
+            "kind": "armed",
+            "data": {
+              "due": 1789162808538
+            }
+          },
+          {
+            "seq": 13,
+            "time": 1789162807538,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+                "time_suspended": 1789162806538,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 14,
+            "time": 1789162807538,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 15,
+            "time": 1789162807538,
+            "kind": "model-response",
+            "data": {
+              "call": 1,
+              "incarnation": "47b8e07c-d6fe-4b00-b26a-b7ec0b7eb2a7"
+            }
+          },
+          {
+            "seq": 16,
+            "time": 1789162808538,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "47b8e07c-d6fe-4b00-b26a-b7ec0b7eb2a7"
+            }
+          },
+          {
+            "seq": 17,
+            "time": 1789162808538,
+            "kind": "armed",
+            "data": {
+              "due": 1789162809538
+            }
+          },
+          {
+            "seq": 18,
+            "time": 1789162808538,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d96273dffdzlpR5rYh4nB0Iy",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": 1789162807538,
+                "idle_outcome": "succeeded"
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 19,
+            "time": 1789162808538,
+            "kind": "idle",
+            "data": {}
+          },
+          {
+            "seq": 20,
+            "time": 1789162808538,
+            "kind": "alarm-end",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "queue-v1",
+      "path": "/evidence",
+      "status": 200,
+      "elapsedMs": 1208,
+      "data": {
+        "session": "ses_f6d962738ffdn89Ts9OBFLQipi",
+        "row": {
+          "id": "ses_f6d962738ffdn89Ts9OBFLQipi",
+          "time_suspended": null,
+          "resume_attempts": 0,
+          "time_idle": 1789162808550,
+          "idle_outcome": "succeeded"
+        },
+        "modelCalls": 3,
+        "obligation": false,
+        "alarm": null,
+        "events": [
+          {
+            "id": "evt_09269d8c7003SRegSdT7ybPSAv",
+            "created": 1789162805447,
+            "type": "session.created",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 0,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+              "location": {
+                "directory": "/probe",
+                "workspaceID": "wrk_09269d8c7001t6QNf6Q2vthOhN"
+              },
+              "subpath": "",
+              "slug": "jolly-wolf",
+              "title": "lifecycle-fixture",
+              "version": "unknown"
+            }
+          },
+          {
+            "id": "evt_09269d92e00bAPn8DSxCD1wniv",
+            "created": 1789162805550,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 1,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "inboxID": "msg_09269d92e001jOb3DsnnEkrdWD",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "Slack first"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09269d92e00cwuflvqL9ESpoDG",
+            "created": 1789162805550,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 2,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi"
+            }
+          },
+          {
+            "id": "evt_09269d92e00dloCfP9I9hJKPPQ",
+            "created": 1789162805550,
+            "type": "session.instructions.updated",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 3,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "delta": {
+                "core/environment": "143dc8fbae0f37951c2b4dbe53e096051f37e5d95ed9c744e7c37543f8a58aad",
+                "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+                "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+                "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+              }
+            }
+          },
+          {
+            "id": "evt_09269d92e00e1j6UvmFdU7V95E",
+            "created": 1789162805550,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 4,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "inboxID": "msg_09269d92e001jOb3DsnnEkrdWD"
+            }
+          },
+          {
+            "id": "evt_09269d9af002WK7oc6oUwsBJbC",
+            "created": 1789162805679,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 5,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "inboxID": "msg_09269d9af0011PeyVUvX7KYOKT",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "GitHub second"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09269da030026LYa9mwh5yP5Sw",
+            "created": 1789162805763,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 6,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "inboxID": "msg_09269da03001IUT0yiNct09Glw",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "Slack third"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09269dd16001b0IZLU97nB71dj",
+            "created": 1789162806550,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 7,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269d92e00foiswOr7oc7zgRq",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_09269dd16002c4k9YSzQMPnFNK",
+            "created": 1789162806550,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 8,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269d92e00foiswOr7oc7zgRq",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_09269dd16004pTM5SLQa77dlBw",
+            "created": 1789162806550,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 9,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269d92e00foiswOr7oc7zgRq",
+              "ordinal": 0,
+              "text": "fixture answer 1"
+            }
+          },
+          {
+            "id": "evt_09269dd160052q4a9GkfukSgY6",
+            "created": 1789162806550,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 10,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269d92e00foiswOr7oc7zgRq"
+            }
+          },
+          {
+            "id": "evt_09269dd160062DHLsRN06ueVet",
+            "created": 1789162806550,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 11,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269d92e00foiswOr7oc7zgRq",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_09269dd16008Xm7qzfwrN9VyvK",
+            "created": 1789162806550,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 12,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "inboxID": "msg_09269d9af0011PeyVUvX7KYOKT"
+            }
+          },
+          {
+            "id": "evt_09269e0fe001uLO2cHJNa947mK",
+            "created": 1789162807550,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 13,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269dd16009VCdWdje9LibF2P",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_09269e0fe0021huuzwqVVHJWni",
+            "created": 1789162807550,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 14,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269dd16009VCdWdje9LibF2P",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_09269e0fe004W6qeQQn3NKekrt",
+            "created": 1789162807550,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 15,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269dd16009VCdWdje9LibF2P",
+              "ordinal": 0,
+              "text": "fixture answer 2"
+            }
+          },
+          {
+            "id": "evt_09269e0fe005D1A9sAQkGJKQsM",
+            "created": 1789162807550,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 16,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269dd16009VCdWdje9LibF2P"
+            }
+          },
+          {
+            "id": "evt_09269e0fe006yX5lKkefwj4yX9",
+            "created": 1789162807550,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 17,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269dd16009VCdWdje9LibF2P",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_09269e0fe008FgRFUYkZdHZ4JG",
+            "created": 1789162807550,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 18,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "inboxID": "msg_09269da03001IUT0yiNct09Glw"
+            }
+          },
+          {
+            "id": "evt_09269e4e6001I8908wuRyHHUfm",
+            "created": 1789162808550,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 19,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269e0fe009OBEWYUn7p3BlFc",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_09269e4e6002rvb9Cx8znRqz2g",
+            "created": 1789162808550,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 20,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269e0fe009OBEWYUn7p3BlFc",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_09269e4e6004eC6ShnHvBWtjM1",
+            "created": 1789162808550,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 21,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269e0fe009OBEWYUn7p3BlFc",
+              "ordinal": 0,
+              "text": "fixture answer 3"
+            }
+          },
+          {
+            "id": "evt_09269e4e60055VsFe0ZLb2I0KF",
+            "created": 1789162808550,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 22,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269e0fe009OBEWYUn7p3BlFc"
+            }
+          },
+          {
+            "id": "evt_09269e4e6006QpjQYuucCEnkbN",
+            "created": 1789162808550,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 23,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "assistantMessageID": "msg_09269e0fe009OBEWYUn7p3BlFc",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_09269e4e6008rqZmooktmRepM8",
+            "created": 1789162808550,
+            "type": "session.execution.succeeded",
+            "durable": {
+              "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+              "seq": 24,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d962738ffdn89Ts9OBFLQipi"
+            }
+          },
+          {
+            "type": "log.synced",
+            "aggregateID": "ses_f6d962738ffdn89Ts9OBFLQipi",
+            "seq": 24
+          }
+        ],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789162805442,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789162805447,
+            "kind": "created",
+            "data": {
+              "id": "ses_f6d962738ffdn89Ts9OBFLQipi"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789162805550,
+            "kind": "armed",
+            "data": {
+              "due": 1789162806550
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789162805550,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 5,
+            "time": 1789162805550,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09269d92e001jOb3DsnnEkrdWD"
+            }
+          },
+          {
+            "seq": 6,
+            "time": 1789162805550,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_09269d92e001jOb3DsnnEkrdWD",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Slack first"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789162805679,
+            "kind": "armed",
+            "data": {
+              "due": 1789162806679
+            }
+          },
+          {
+            "seq": 8,
+            "time": 1789162805679,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 9,
+            "time": 1789162805679,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09269d9af0011PeyVUvX7KYOKT"
+            }
+          },
+          {
+            "seq": 10,
+            "time": 1789162805763,
+            "kind": "armed",
+            "data": {
+              "due": 1789162806763
+            }
+          },
+          {
+            "seq": 11,
+            "time": 1789162805763,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 12,
+            "time": 1789162805763,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09269da03001IUT0yiNct09Glw"
+            }
+          },
+          {
+            "seq": 13,
+            "time": 1789162806550,
+            "kind": "model-response",
+            "data": {
+              "call": 1,
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 14,
+            "time": 1789162806550,
+            "kind": "model-start",
+            "data": {
+              "call": 2,
+              "messages": [
+                {
+                  "id": "msg_09269d92e001jOb3DsnnEkrdWD",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Slack first"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269d92e00foiswOr7oc7zgRq",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "fixture answer 1"
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269d9af0011PeyVUvX7KYOKT",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "GitHub second"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 15,
+            "time": 1789162806562,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 16,
+            "time": 1789162806562,
+            "kind": "armed",
+            "data": {
+              "due": 1789162807562
+            }
+          },
+          {
+            "seq": 17,
+            "time": 1789162806562,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d962738ffdn89Ts9OBFLQipi",
+                "time_suspended": 1789162805550,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 1,
+              "revision": 3
+            }
+          },
+          {
+            "seq": 18,
+            "time": 1789162806562,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 19,
+            "time": 1789162807550,
+            "kind": "model-response",
+            "data": {
+              "call": 2,
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 20,
+            "time": 1789162807550,
+            "kind": "model-start",
+            "data": {
+              "call": 3,
+              "messages": [
+                {
+                  "id": "msg_09269d92e001jOb3DsnnEkrdWD",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Slack first"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269d92e00foiswOr7oc7zgRq",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "fixture answer 1"
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269d9af0011PeyVUvX7KYOKT",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "GitHub second"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269dd16009VCdWdje9LibF2P",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "fixture answer 2"
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269da03001IUT0yiNct09Glw",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Slack third"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 21,
+            "time": 1789162807562,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 22,
+            "time": 1789162807562,
+            "kind": "armed",
+            "data": {
+              "due": 1789162808562
+            }
+          },
+          {
+            "seq": 23,
+            "time": 1789162807562,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d962738ffdn89Ts9OBFLQipi",
+                "time_suspended": 1789162805550,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 3
+            }
+          },
+          {
+            "seq": 24,
+            "time": 1789162807562,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 25,
+            "time": 1789162808550,
+            "kind": "model-response",
+            "data": {
+              "call": 3,
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 26,
+            "time": 1789162808562,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "b791ba9c-b59c-4c2b-976a-5f6c7ae9a140"
+            }
+          },
+          {
+            "seq": 27,
+            "time": 1789162808562,
+            "kind": "armed",
+            "data": {
+              "due": 1789162809562
+            }
+          },
+          {
+            "seq": 28,
+            "time": 1789162808562,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d962738ffdn89Ts9OBFLQipi",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": 1789162808550,
+                "idle_outcome": "succeeded"
+              },
+              "pending": 0,
+              "revision": 3
+            }
+          },
+          {
+            "seq": 29,
+            "time": 1789162808562,
+            "kind": "idle",
+            "data": {}
+          },
+          {
+            "seq": 30,
+            "time": 1789162808562,
+            "kind": "alarm-end",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "recover-v1",
+      "path": "/evidence",
+      "status": 200,
+      "elapsedMs": 1219,
+      "data": {
+        "session": "ses_f6d9627bdffdbEdlhKdJEAASao",
+        "row": {
+          "id": "ses_f6d9627bdffdbEdlhKdJEAASao",
+          "time_suspended": null,
+          "resume_attempts": 0,
+          "time_idle": 1789162807916,
+          "idle_outcome": "succeeded"
+        },
+        "modelCalls": 2,
+        "obligation": false,
+        "alarm": null,
+        "events": [
+          {
+            "id": "evt_09269d842003Ap9XA5PcEnxk8T",
+            "created": 1789162805314,
+            "type": "session.created",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 0,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+              "location": {
+                "directory": "/probe",
+                "workspaceID": "wrk_09269d842001PjN8p7KP5SZlV0"
+              },
+              "subpath": "",
+              "slug": "nimble-nebula",
+              "title": "lifecycle-fixture",
+              "version": "unknown"
+            }
+          },
+          {
+            "id": "evt_09269d88700bdc5nq4tw1z6q26",
+            "created": 1789162805383,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 1,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "inboxID": "msg_09269d887001D3LbnFzc0sChwy",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "recover automatically"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09269d88700cpExJXv4cRzZUo6",
+            "created": 1789162805383,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 2,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao"
+            }
+          },
+          {
+            "id": "evt_09269d88700dzQ7nKGjxv4sitp",
+            "created": 1789162805383,
+            "type": "session.instructions.updated",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 3,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "delta": {
+                "core/environment": "73eca496b393954600e1ff79a45361fb9fbffe98b34ff0c067de97e78e69114c",
+                "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+                "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+                "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+              }
+            }
+          },
+          {
+            "id": "evt_09269d88700efFfnjtw7Pau9Ga",
+            "created": 1789162805383,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 4,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "inboxID": "msg_09269d887001D3LbnFzc0sChwy"
+            }
+          },
+          {
+            "id": "evt_09269dc82001lTwT78gXvyCXfx",
+            "created": 1789162806402,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 5,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269dc82002Ke00bZRMk1VUR4",
+            "created": 1789162806402,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 6,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao"
+            }
+          },
+          {
+            "id": "evt_09269e26c001jM2qA5Py40PyNI",
+            "created": 1789162807916,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 7,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "assistantMessageID": "msg_09269dc9000adCu7opFNVF8AE0",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_09269e26c002CpfKQDGFHK1o1e",
+            "created": 1789162807916,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 8,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "assistantMessageID": "msg_09269dc9000adCu7opFNVF8AE0",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_09269e26c004IL5gafycm2kkmu",
+            "created": 1789162807916,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 9,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "assistantMessageID": "msg_09269dc9000adCu7opFNVF8AE0",
+              "ordinal": 0,
+              "text": "fixture answer 2"
+            }
+          },
+          {
+            "id": "evt_09269e26c005Gm4RuJe8bpk1Ip",
+            "created": 1789162807916,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 10,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "assistantMessageID": "msg_09269dc9000adCu7opFNVF8AE0"
+            }
+          },
+          {
+            "id": "evt_09269e26c006xsKkGbhAKRZ4c7",
+            "created": 1789162807916,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 11,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "assistantMessageID": "msg_09269dc9000adCu7opFNVF8AE0",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_09269e26c008rlRPBktQO1VYgH",
+            "created": 1789162807916,
+            "type": "session.execution.succeeded",
+            "durable": {
+              "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+              "seq": 12,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9627bdffdbEdlhKdJEAASao"
+            }
+          },
+          {
+            "type": "log.synced",
+            "aggregateID": "ses_f6d9627bdffdbEdlhKdJEAASao",
+            "seq": 12
+          }
+        ],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789162805312,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "8ba84659-9ad3-45f2-b0fe-7271201ae89f"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789162805314,
+            "kind": "created",
+            "data": {
+              "id": "ses_f6d9627bdffdbEdlhKdJEAASao"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789162805383,
+            "kind": "armed",
+            "data": {
+              "due": 1789162806383
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789162805383,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 5,
+            "time": 1789162805383,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09269d887001D3LbnFzc0sChwy"
+            }
+          },
+          {
+            "seq": 6,
+            "time": 1789162805383,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_09269d887001D3LbnFzc0sChwy",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "recover automatically"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "8ba84659-9ad3-45f2-b0fe-7271201ae89f"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789162806402,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "6d8c1fe0-d2da-498b-85bb-181bb1353649"
+            }
+          },
+          {
+            "seq": 8,
+            "time": 1789162806402,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "6d8c1fe0-d2da-498b-85bb-181bb1353649"
+            }
+          },
+          {
+            "seq": 9,
+            "time": 1789162806402,
+            "kind": "armed",
+            "data": {
+              "due": 1789162807402
+            }
+          },
+          {
+            "seq": 10,
+            "time": 1789162806402,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9627bdffdbEdlhKdJEAASao",
+                "time_suspended": 1789162805383,
+                "resume_attempts": 1,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 11,
+            "time": 1789162806402,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 12,
+            "time": 1789162806416,
+            "kind": "model-start",
+            "data": {
+              "call": 2,
+              "messages": [
+                {
+                  "id": "msg_09269d887001D3LbnFzc0sChwy",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "recover automatically"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269dc82001lTwT78gXvyCXfx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "6d8c1fe0-d2da-498b-85bb-181bb1353649"
+            }
+          },
+          {
+            "seq": 13,
+            "time": 1789162807402,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "6d8c1fe0-d2da-498b-85bb-181bb1353649"
+            }
+          },
+          {
+            "seq": 14,
+            "time": 1789162807402,
+            "kind": "armed",
+            "data": {
+              "due": 1789162808402
+            }
+          },
+          {
+            "seq": 15,
+            "time": 1789162807402,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d9627bdffdbEdlhKdJEAASao",
+                "time_suspended": 1789162805383,
+                "resume_attempts": 1,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 16,
+            "time": 1789162807402,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 17,
+            "time": 1789162807916,
+            "kind": "model-response",
+            "data": {
+              "call": 2,
+              "incarnation": "6d8c1fe0-d2da-498b-85bb-181bb1353649"
+            }
+          },
+          {
+            "seq": 18,
+            "time": 1789162808402,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "6d8c1fe0-d2da-498b-85bb-181bb1353649"
+            }
+          },
+          {
+            "seq": 19,
+            "time": 1789162808402,
+            "kind": "armed",
+            "data": {
+              "due": 1789162809402
+            }
+          },
+          {
+            "seq": 20,
+            "time": 1789162808402,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9627bdffdbEdlhKdJEAASao",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": 1789162807916,
+                "idle_outcome": "succeeded"
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 21,
+            "time": 1789162808402,
+            "kind": "idle",
+            "data": {}
+          },
+          {
+            "seq": 22,
+            "time": 1789162808402,
+            "kind": "alarm-end",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "exhaust-v1",
+      "path": "/evidence",
+      "status": 200,
+      "elapsedMs": 80,
+      "data": {
+        "session": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+        "row": {
+          "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+          "time_suspended": null,
+          "resume_attempts": 0,
+          "time_idle": 1789162818214,
+          "idle_outcome": "failed"
+        },
+        "modelCalls": 11,
+        "obligation": false,
+        "alarm": null,
+        "events": [
+          {
+            "id": "evt_09269dd2a003mfiSjGsn8V5ATY",
+            "created": 1789162806570,
+            "type": "session.created",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 0,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+              "location": {
+                "directory": "/probe",
+                "workspaceID": "wrk_09269dd2a001M0Y239NVsYcUij"
+              },
+              "subpath": "",
+              "slug": "gentle-tiger",
+              "title": "lifecycle-fixture",
+              "version": "unknown"
+            }
+          },
+          {
+            "id": "evt_09269dd7500bzAAGELJ0N5cTau",
+            "created": 1789162806645,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 1,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "inboxID": "msg_09269dd75001ZH1R56w7HjZ50O",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "repeatedly interrupted"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09269dd7500cDiD7HuiE8U76t5",
+            "created": 1789162806645,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 2,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269dd7500d2vaYDPxa77p6mq",
+            "created": 1789162806645,
+            "type": "session.instructions.updated",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 3,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "delta": {
+                "core/environment": "b697f6e515b4817a50a1bdfff9457dbb7e8507329c1f50e076d5d82be8ab2a95",
+                "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+                "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+                "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+              }
+            }
+          },
+          {
+            "id": "evt_09269dd7500eti1wwarKYGowFk",
+            "created": 1789162806645,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 4,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "inboxID": "msg_09269dd75001ZH1R56w7HjZ50O"
+            }
+          },
+          {
+            "id": "evt_09269e23b001INYVPG6XSTs7IR",
+            "created": 1789162807867,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 5,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269e23b0022KZzRCVUxDIork",
+            "created": 1789162807867,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 6,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269e637001b8d5MD2Irrjarx",
+            "created": 1789162808887,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 7,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269e637002744UpVvVh4Zjsd",
+            "created": 1789162808887,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 8,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269ea36001EIF135U6X0e7Pp",
+            "created": 1789162809910,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 9,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269ea36002LKmEBi0V0aZz3X",
+            "created": 1789162809910,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 10,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269ee48001UUfwGAcO7hZpty",
+            "created": 1789162810952,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 11,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269ee48002TbUjhfY2rc6a7O",
+            "created": 1789162810952,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 12,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269f244001t1lVw5wQaGfyio",
+            "created": 1789162811972,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 13,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269f244002yZHpPvPxZ8bHqx",
+            "created": 1789162811972,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 14,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269f6980019AeY1nujJMO3Go",
+            "created": 1789162813080,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 15,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269f698002ktneUwj6n1YX6g",
+            "created": 1789162813080,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 16,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269fa93001ClONJ3Xff0xm9G",
+            "created": 1789162814099,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 17,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269fa93002w3f3dr9BPEwv82",
+            "created": 1789162814099,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 18,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_09269fe92001LlXBtj8EsLh7I3",
+            "created": 1789162815122,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 19,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_09269fe92002nC7RkKP3CK5GBh",
+            "created": 1789162815122,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 20,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_0926a02b0001Hv2OslWCXJkv8a",
+            "created": 1789162816176,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 21,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_0926a02b0002UBogdtEdKUl146",
+            "created": 1789162816176,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 22,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_0926a06ab001nHvnSJwp6szDBQ",
+            "created": 1789162817195,
+            "type": "session.synthetic",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 23,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "text": "The server restarted while you were working. Continue from where you left off without repeating completed work.",
+              "description": "Continuing after restart"
+            }
+          },
+          {
+            "id": "evt_0926a06ab002OySFavV7tF3LcZ",
+            "created": 1789162817195,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 24,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "id": "evt_0926a0aa6001333tEiqsxEh7u3",
+            "created": 1789162818214,
+            "type": "session.execution.failed",
+            "durable": {
+              "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "seq": 25,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+              "error": {
+                "type": "aborted",
+                "message": "Execution was interrupted repeatedly and will not be resumed automatically."
+              }
+            }
+          },
+          {
+            "type": "log.synced",
+            "aggregateID": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+            "seq": 25
+          }
+        ],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789162806567,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "5546c0d2-6a91-4f6a-a064-ded6147ac096"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789162806570,
+            "kind": "created",
+            "data": {
+              "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789162806645,
+            "kind": "armed",
+            "data": {
+              "due": 1789162807645
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789162806645,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 5,
+            "time": 1789162806645,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09269dd75001ZH1R56w7HjZ50O"
+            }
+          },
+          {
+            "seq": 6,
+            "time": 1789162806645,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "5546c0d2-6a91-4f6a-a064-ded6147ac096"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789162807867,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "69bd38f6-cbd2-4ae3-bf0c-88f2c9e314ab"
+            }
+          },
+          {
+            "seq": 8,
+            "time": 1789162807867,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "69bd38f6-cbd2-4ae3-bf0c-88f2c9e314ab"
+            }
+          },
+          {
+            "seq": 9,
+            "time": 1789162807867,
+            "kind": "armed",
+            "data": {
+              "due": 1789162808867
+            }
+          },
+          {
+            "seq": 10,
+            "time": 1789162807867,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 1,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 11,
+            "time": 1789162807867,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 12,
+            "time": 1789162807881,
+            "kind": "model-start",
+            "data": {
+              "call": 2,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "69bd38f6-cbd2-4ae3-bf0c-88f2c9e314ab"
+            }
+          },
+          {
+            "seq": 13,
+            "time": 1789162808887,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "0c333f43-245e-47bb-aedf-0ff86fe1f177"
+            }
+          },
+          {
+            "seq": 14,
+            "time": 1789162808887,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "0c333f43-245e-47bb-aedf-0ff86fe1f177"
+            }
+          },
+          {
+            "seq": 15,
+            "time": 1789162808887,
+            "kind": "armed",
+            "data": {
+              "due": 1789162809887
+            }
+          },
+          {
+            "seq": 16,
+            "time": 1789162808887,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 2,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 17,
+            "time": 1789162808887,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 18,
+            "time": 1789162808899,
+            "kind": "model-start",
+            "data": {
+              "call": 3,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "0c333f43-245e-47bb-aedf-0ff86fe1f177"
+            }
+          },
+          {
+            "seq": 19,
+            "time": 1789162809910,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "c69ee314-33f2-42a3-9d1a-f90c25280e13"
+            }
+          },
+          {
+            "seq": 20,
+            "time": 1789162809910,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "c69ee314-33f2-42a3-9d1a-f90c25280e13"
+            }
+          },
+          {
+            "seq": 21,
+            "time": 1789162809910,
+            "kind": "armed",
+            "data": {
+              "due": 1789162810910
+            }
+          },
+          {
+            "seq": 22,
+            "time": 1789162809910,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 3,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 23,
+            "time": 1789162809910,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 24,
+            "time": 1789162809921,
+            "kind": "model-start",
+            "data": {
+              "call": 4,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "c69ee314-33f2-42a3-9d1a-f90c25280e13"
+            }
+          },
+          {
+            "seq": 25,
+            "time": 1789162810952,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "16f86757-976b-499c-97dc-bbbcd68213af"
+            }
+          },
+          {
+            "seq": 26,
+            "time": 1789162810952,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "16f86757-976b-499c-97dc-bbbcd68213af"
+            }
+          },
+          {
+            "seq": 27,
+            "time": 1789162810952,
+            "kind": "armed",
+            "data": {
+              "due": 1789162811952
+            }
+          },
+          {
+            "seq": 28,
+            "time": 1789162810952,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 4,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 29,
+            "time": 1789162810952,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 30,
+            "time": 1789162810963,
+            "kind": "model-start",
+            "data": {
+              "call": 5,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ee48001UUfwGAcO7hZpty",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "16f86757-976b-499c-97dc-bbbcd68213af"
+            }
+          },
+          {
+            "seq": 31,
+            "time": 1789162811972,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "71c7cb53-152e-4f84-93b3-7dcaaf0329da"
+            }
+          },
+          {
+            "seq": 32,
+            "time": 1789162811972,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "71c7cb53-152e-4f84-93b3-7dcaaf0329da"
+            }
+          },
+          {
+            "seq": 33,
+            "time": 1789162811972,
+            "kind": "armed",
+            "data": {
+              "due": 1789162812972
+            }
+          },
+          {
+            "seq": 34,
+            "time": 1789162811972,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 5,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 35,
+            "time": 1789162811972,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 36,
+            "time": 1789162811989,
+            "kind": "model-start",
+            "data": {
+              "call": 6,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ee48001UUfwGAcO7hZpty",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f244001t1lVw5wQaGfyio",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "71c7cb53-152e-4f84-93b3-7dcaaf0329da"
+            }
+          },
+          {
+            "seq": 37,
+            "time": 1789162813080,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "fded81d0-5d2f-4ef4-8c19-444f2650522d"
+            }
+          },
+          {
+            "seq": 38,
+            "time": 1789162813080,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "fded81d0-5d2f-4ef4-8c19-444f2650522d"
+            }
+          },
+          {
+            "seq": 39,
+            "time": 1789162813080,
+            "kind": "armed",
+            "data": {
+              "due": 1789162814080
+            }
+          },
+          {
+            "seq": 40,
+            "time": 1789162813080,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 6,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 41,
+            "time": 1789162813080,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 42,
+            "time": 1789162813091,
+            "kind": "model-start",
+            "data": {
+              "call": 7,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ee48001UUfwGAcO7hZpty",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f244001t1lVw5wQaGfyio",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f6980019AeY1nujJMO3Go",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "fded81d0-5d2f-4ef4-8c19-444f2650522d"
+            }
+          },
+          {
+            "seq": 43,
+            "time": 1789162814099,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "2d0ef3d3-a7b8-4162-aadf-8b6536b10d38"
+            }
+          },
+          {
+            "seq": 44,
+            "time": 1789162814099,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "2d0ef3d3-a7b8-4162-aadf-8b6536b10d38"
+            }
+          },
+          {
+            "seq": 45,
+            "time": 1789162814099,
+            "kind": "armed",
+            "data": {
+              "due": 1789162815099
+            }
+          },
+          {
+            "seq": 46,
+            "time": 1789162814099,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 7,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 47,
+            "time": 1789162814099,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 48,
+            "time": 1789162814106,
+            "kind": "model-start",
+            "data": {
+              "call": 8,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ee48001UUfwGAcO7hZpty",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f244001t1lVw5wQaGfyio",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f6980019AeY1nujJMO3Go",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269fa93001ClONJ3Xff0xm9G",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "2d0ef3d3-a7b8-4162-aadf-8b6536b10d38"
+            }
+          },
+          {
+            "seq": 49,
+            "time": 1789162815122,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "2b2f45cd-7d6a-4e1d-8b24-b3f326c42e2c"
+            }
+          },
+          {
+            "seq": 50,
+            "time": 1789162815122,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "2b2f45cd-7d6a-4e1d-8b24-b3f326c42e2c"
+            }
+          },
+          {
+            "seq": 51,
+            "time": 1789162815122,
+            "kind": "armed",
+            "data": {
+              "due": 1789162816122
+            }
+          },
+          {
+            "seq": 52,
+            "time": 1789162815122,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 8,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 53,
+            "time": 1789162815122,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 54,
+            "time": 1789162815136,
+            "kind": "model-start",
+            "data": {
+              "call": 9,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ee48001UUfwGAcO7hZpty",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f244001t1lVw5wQaGfyio",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f6980019AeY1nujJMO3Go",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269fa93001ClONJ3Xff0xm9G",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269fe92001LlXBtj8EsLh7I3",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "2b2f45cd-7d6a-4e1d-8b24-b3f326c42e2c"
+            }
+          },
+          {
+            "seq": 55,
+            "time": 1789162816176,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "92ac64bc-78fe-49ba-9bf2-687c0fae4e28"
+            }
+          },
+          {
+            "seq": 56,
+            "time": 1789162816176,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "92ac64bc-78fe-49ba-9bf2-687c0fae4e28"
+            }
+          },
+          {
+            "seq": 57,
+            "time": 1789162816176,
+            "kind": "armed",
+            "data": {
+              "due": 1789162817176
+            }
+          },
+          {
+            "seq": 58,
+            "time": 1789162816176,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 9,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 59,
+            "time": 1789162816176,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 60,
+            "time": 1789162816189,
+            "kind": "model-start",
+            "data": {
+              "call": 10,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ee48001UUfwGAcO7hZpty",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f244001t1lVw5wQaGfyio",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f6980019AeY1nujJMO3Go",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269fa93001ClONJ3Xff0xm9G",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269fe92001LlXBtj8EsLh7I3",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0926a02b0001Hv2OslWCXJkv8a",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "92ac64bc-78fe-49ba-9bf2-687c0fae4e28"
+            }
+          },
+          {
+            "seq": 61,
+            "time": 1789162817195,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "3a6da73d-21a8-437b-a575-4d2b1878a708"
+            }
+          },
+          {
+            "seq": 62,
+            "time": 1789162817195,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "3a6da73d-21a8-437b-a575-4d2b1878a708"
+            }
+          },
+          {
+            "seq": 63,
+            "time": 1789162817195,
+            "kind": "armed",
+            "data": {
+              "due": 1789162818195
+            }
+          },
+          {
+            "seq": 64,
+            "time": 1789162817195,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": 1789162806645,
+                "resume_attempts": 10,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 65,
+            "time": 1789162817195,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 66,
+            "time": 1789162817204,
+            "kind": "model-start",
+            "data": {
+              "call": 11,
+              "messages": [
+                {
+                  "id": "msg_09269dd75001ZH1R56w7HjZ50O",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "repeatedly interrupted"
+                    }
+                  ],
+                  "metadata": {}
+                },
+                {
+                  "id": "msg_09269e23b001INYVPG6XSTs7IR",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269e637001b8d5MD2Irrjarx",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ea36001EIF135U6X0e7Pp",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269ee48001UUfwGAcO7hZpty",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f244001t1lVw5wQaGfyio",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269f6980019AeY1nujJMO3Go",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269fa93001ClONJ3Xff0xm9G",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_09269fe92001LlXBtj8EsLh7I3",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0926a02b0001Hv2OslWCXJkv8a",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                },
+                {
+                  "id": "msg_0926a06ab001nHvnSJwp6szDBQ",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "The server restarted while you were working. Continue from where you left off without repeating completed work."
+                    }
+                  ]
+                }
+              ],
+              "incarnation": "3a6da73d-21a8-437b-a575-4d2b1878a708"
+            }
+          },
+          {
+            "seq": 67,
+            "time": 1789162818214,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "5fa30c1a-2ba0-4a9d-aacd-eda66b861fa7"
+            }
+          },
+          {
+            "seq": 68,
+            "time": 1789162818214,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "5fa30c1a-2ba0-4a9d-aacd-eda66b861fa7"
+            }
+          },
+          {
+            "seq": 69,
+            "time": 1789162818214,
+            "kind": "armed",
+            "data": {
+              "due": 1789162819214
+            }
+          },
+          {
+            "seq": 70,
+            "time": 1789162818214,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d9622d5ffdV6mVRvFKlHbJrx",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": 1789162818214,
+                "idle_outcome": "failed"
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 71,
+            "time": 1789162818214,
+            "kind": "idle",
+            "data": {}
+          },
+          {
+            "seq": 72,
+            "time": 1789162818214,
+            "kind": "alarm-end",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "long-v1",
+      "path": "/evidence",
+      "status": 200,
+      "elapsedMs": 1155,
+      "data": {
+        "session": "ses_f6d96282dffd9syDj264Kyg5x0",
+        "row": {
+          "id": "ses_f6d96282dffd9syDj264Kyg5x0",
+          "time_suspended": null,
+          "resume_attempts": 0,
+          "time_idle": 1789162986884,
+          "idle_outcome": "succeeded"
+        },
+        "modelCalls": 1,
+        "obligation": false,
+        "alarm": null,
+        "events": [
+          {
+            "id": "evt_09269d7d2003EYZx32VLbDtrNq",
+            "created": 1789162805202,
+            "type": "session.created",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 0,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "projectID": "c67e90abcab5b5ed9e49b25afd45f0e5ee8b3187",
+              "location": {
+                "directory": "/probe",
+                "workspaceID": "wrk_09269d7d2001g9y2AkaN5C3VIr"
+              },
+              "subpath": "",
+              "slug": "stellar-rocket",
+              "title": "lifecycle-fixture",
+              "version": "unknown"
+            }
+          },
+          {
+            "id": "evt_09269de6400biDfCLBaYYCbwIU",
+            "created": 1789162806884,
+            "type": "session.inbox.enqueued",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 1,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "inboxID": "msg_09269de64001Qdnr2py04sbjBM",
+              "item": {
+                "type": "user",
+                "payload": {
+                  "text": "complete one long task"
+                },
+                "delivery": "queue"
+              }
+            }
+          },
+          {
+            "id": "evt_09269de6400chnwlscqcjHtZh2",
+            "created": 1789162806884,
+            "type": "session.execution.started",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 2,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0"
+            }
+          },
+          {
+            "id": "evt_09269de6400dJcXwtWU5MP8P5s",
+            "created": 1789162806884,
+            "type": "session.instructions.updated",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 3,
+              "version": 2
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "delta": {
+                "core/environment": "78369593882d059fc071fd583597bad324888553ccfb5877543609573e0c9e7d",
+                "core/date": "f6385be3ccfefaf35af9b46a011fadc2892b09b94c9aee4892a0bc2fe0523952",
+                "core/codemode": "e7f10d7a93f9afd99c80754147344f48f86214190e9d129c5ef44b41ed9a0493",
+                "core/skill-guidance": "8394362d28c82fa4d13c7a9f5568c05680f6687e07db8f426a0e3c92f3027dc9"
+              }
+            }
+          },
+          {
+            "id": "evt_09269de6400ebw0Oe62262nY7O",
+            "created": 1789162806884,
+            "type": "session.inbox.delivered",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 4,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "inboxID": "msg_09269de64001Qdnr2py04sbjBM"
+            }
+          },
+          {
+            "id": "evt_0926c9d840010mDPr719VtQiY9",
+            "created": 1789162986884,
+            "type": "session.step.started",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 5,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "assistantMessageID": "msg_09269de6400fCFPumHDeyvymFd",
+              "agent": "build",
+              "model": {
+                "id": "probe",
+                "providerID": "test"
+              }
+            }
+          },
+          {
+            "id": "evt_0926c9d84002wkzeuXpaQPHxBv",
+            "created": 1789162986884,
+            "type": "session.text.started",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 6,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "assistantMessageID": "msg_09269de6400fCFPumHDeyvymFd",
+              "ordinal": 0
+            }
+          },
+          {
+            "id": "evt_0926c9d84004SIzBXZHnJ2KzTX",
+            "created": 1789162986884,
+            "type": "session.text.ended",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 7,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "assistantMessageID": "msg_09269de6400fCFPumHDeyvymFd",
+              "ordinal": 0,
+              "text": "fixture answer 1"
+            }
+          },
+          {
+            "id": "evt_0926c9d84005J6Yl9tUVLhQemY",
+            "created": 1789162986884,
+            "type": "session.step.streamed",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 8,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "assistantMessageID": "msg_09269de6400fCFPumHDeyvymFd"
+            }
+          },
+          {
+            "id": "evt_0926c9d84006kXO9Fz3QV3PLWN",
+            "created": 1789162986884,
+            "type": "session.step.ended",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 9,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "assistantMessageID": "msg_09269de6400fCFPumHDeyvymFd",
+              "finish": "stop",
+              "cost": 0,
+              "tokens": {
+                "input": 7,
+                "output": 0,
+                "reasoning": 0,
+                "cache": {
+                  "read": 0,
+                  "write": 0
+                }
+              }
+            }
+          },
+          {
+            "id": "evt_0926c9d84008fSI0F9vmRVXpT1",
+            "created": 1789162986884,
+            "type": "session.execution.succeeded",
+            "durable": {
+              "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+              "seq": 10,
+              "version": 1
+            },
+            "data": {
+              "sessionID": "ses_f6d96282dffd9syDj264Kyg5x0"
+            }
+          },
+          {
+            "type": "log.synced",
+            "aggregateID": "ses_f6d96282dffd9syDj264Kyg5x0",
+            "seq": 10
+          }
+        ],
+        "trace": [
+          {
+            "seq": 1,
+            "time": 1789162805200,
+            "kind": "constructor",
+            "data": {
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 2,
+            "time": 1789162805202,
+            "kind": "created",
+            "data": {
+              "id": "ses_f6d96282dffd9syDj264Kyg5x0"
+            }
+          },
+          {
+            "seq": 3,
+            "time": 1789162806884,
+            "kind": "armed",
+            "data": {
+              "due": 1789162836884
+            }
+          },
+          {
+            "seq": 4,
+            "time": 1789162806884,
+            "kind": "admission-before",
+            "data": {}
+          },
+          {
+            "seq": 5,
+            "time": 1789162806884,
+            "kind": "admission-after",
+            "data": {
+              "id": "msg_09269de64001Qdnr2py04sbjBM"
+            }
+          },
+          {
+            "seq": 6,
+            "time": 1789162806884,
+            "kind": "model-start",
+            "data": {
+              "call": 1,
+              "messages": [
+                {
+                  "id": "msg_09269de64001Qdnr2py04sbjBM",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "complete one long task"
+                    }
+                  ],
+                  "metadata": {}
+                }
+              ],
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 7,
+            "time": 1789162836884,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 8,
+            "time": 1789162836884,
+            "kind": "armed",
+            "data": {
+              "due": 1789162866884
+            }
+          },
+          {
+            "seq": 9,
+            "time": 1789162836884,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d96282dffd9syDj264Kyg5x0",
+                "time_suspended": 1789162806884,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 10,
+            "time": 1789162836884,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 11,
+            "time": 1789162866884,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 12,
+            "time": 1789162866884,
+            "kind": "armed",
+            "data": {
+              "due": 1789162896884
+            }
+          },
+          {
+            "seq": 13,
+            "time": 1789162866884,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d96282dffd9syDj264Kyg5x0",
+                "time_suspended": 1789162806884,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 14,
+            "time": 1789162866884,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 15,
+            "time": 1789162896884,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 16,
+            "time": 1789162896884,
+            "kind": "armed",
+            "data": {
+              "due": 1789162926884
+            }
+          },
+          {
+            "seq": 17,
+            "time": 1789162896884,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d96282dffd9syDj264Kyg5x0",
+                "time_suspended": 1789162806884,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 18,
+            "time": 1789162896884,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 19,
+            "time": 1789162926884,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 20,
+            "time": 1789162926884,
+            "kind": "armed",
+            "data": {
+              "due": 1789162956884
+            }
+          },
+          {
+            "seq": 21,
+            "time": 1789162926884,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d96282dffd9syDj264Kyg5x0",
+                "time_suspended": 1789162806884,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 22,
+            "time": 1789162926884,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 23,
+            "time": 1789162956885,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 24,
+            "time": 1789162956885,
+            "kind": "armed",
+            "data": {
+              "due": 1789162986885
+            }
+          },
+          {
+            "seq": 25,
+            "time": 1789162956885,
+            "kind": "inspected",
+            "data": {
+              "active": true,
+              "row": {
+                "id": "ses_f6d96282dffd9syDj264Kyg5x0",
+                "time_suspended": 1789162806884,
+                "resume_attempts": 0,
+                "time_idle": null,
+                "idle_outcome": null
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 26,
+            "time": 1789162956885,
+            "kind": "alarm-end",
+            "data": {}
+          },
+          {
+            "seq": 27,
+            "time": 1789162986884,
+            "kind": "model-response",
+            "data": {
+              "call": 1,
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 28,
+            "time": 1789162986889,
+            "kind": "alarm-start",
+            "data": {
+              "incarnation": "ac412f5e-3b75-475e-a679-8382565a2618"
+            }
+          },
+          {
+            "seq": 29,
+            "time": 1789162986889,
+            "kind": "armed",
+            "data": {
+              "due": 1789163016889
+            }
+          },
+          {
+            "seq": 30,
+            "time": 1789162986889,
+            "kind": "inspected",
+            "data": {
+              "active": false,
+              "row": {
+                "id": "ses_f6d96282dffd9syDj264Kyg5x0",
+                "time_suspended": null,
+                "resume_attempts": 0,
+                "time_idle": 1789162986884,
+                "idle_outcome": "succeeded"
+              },
+              "pending": 0,
+              "revision": 1
+            }
+          },
+          {
+            "seq": 31,
+            "time": 1789162986889,
+            "kind": "idle",
+            "data": {}
+          },
+          {
+            "seq": 32,
+            "time": 1789162986889,
+            "kind": "alarm-end",
+            "data": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "long-v1",
+      "path": "/cleanup",
+      "status": 200,
+      "elapsedMs": 93,
+      "data": {
+        "cleaned": true
+      }
+    },
+    {
+      "name": "recover-v1",
+      "path": "/cleanup",
+      "status": 200,
+      "elapsedMs": 1086,
+      "data": {
+        "cleaned": true
+      }
+    },
+    {
+      "name": "exhaust-v1",
+      "path": "/cleanup",
+      "status": 200,
+      "elapsedMs": 1031,
+      "data": {
+        "cleaned": true
+      }
+    },
+    {
+      "name": "saved-v1",
+      "path": "/cleanup",
+      "status": 200,
+      "elapsedMs": 120,
+      "data": {
+        "cleaned": true
+      }
+    },
+    {
+      "name": "queue-v1",
+      "path": "/cleanup",
+      "status": 200,
+      "elapsedMs": 99,
+      "data": {
+        "cleaned": true
+      }
+    }
+  ],
+  "passed": true,
+  "cleanup": [
+    {
+      "name": "long-v1",
+      "cleaned": true
+    },
+    {
+      "name": "recover-v1",
+      "cleaned": true
+    },
+    {
+      "name": "exhaust-v1",
+      "cleaned": true
+    },
+    {
+      "name": "saved-v1",
+      "cleaned": true
+    },
+    {
+      "name": "queue-v1",
+      "cleaned": true
+    }
+  ],
+  "finishedAt": "2026-09-11T21:43:50.835Z"
+}

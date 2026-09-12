@@ -1,0 +1,56 @@
+{
+  "kind": "cloudflare-repository-contract",
+  "steps": [
+    {
+      "path": "/start",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 6903,
+      "result": {
+        "localGitCasesInsideSandbox": [
+          "fixture command succeeds with unfinished work",
+          "host archive preserves index, local commit, tracked deletion, untracked and ignored files, symlink and mode",
+          "non-fast-forward push is rejected; reconciliation preserves concurrent human commit",
+          "remote ref inspection observes successful local publication without a repeat push"
+        ],
+        "idempotentAdoption": true,
+        "authRejected": 401,
+        "staleEpochRejected": 409
+      }
+    },
+    {
+      "path": "/sdk",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 2330,
+      "result": {
+        "sessionID": "ses_f6dc5bc0dffcBdwvrD9iga1VKk",
+        "workspaceID": "wrk_0923a43f2002wN0EHzgu3fVo5K",
+        "calls": {
+          "create": 1,
+          "connect": 1,
+          "model": 3,
+          "rejected": 1,
+          "captures": 1
+        },
+        "durableEventCount": 26,
+        "actualSDKSession": true,
+        "actualNativeShellTool": true,
+        "durableAdmissionBeforeCommand": true,
+        "checkpointBeforeNativeToolResult": true,
+        "fakeModel": true,
+        "unattendedLifecycleTested": false
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 4135,
+      "result": {
+        "error": "Error: {\"error\":\"Error: missing remote PID\",\"cause\":\"\"}",
+        "route": "/tools"
+      }
+    }
+  ]
+}

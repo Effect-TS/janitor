@@ -1,0 +1,49 @@
+{
+  "runID": "7c8f2285-4d1c-423d-af44-2eda53327c55",
+  "results": [
+    {
+      "name": "capture-order",
+      "instructionCount": 5,
+      "humanInlineCommentsCovered": 4
+    },
+    {
+      "name": "reverse-order",
+      "instructionCount": 5,
+      "humanInlineCommentsCovered": 4
+    },
+    {
+      "name": "reviews-first",
+      "instructionCount": 5,
+      "humanInlineCommentsCovered": 4
+    },
+    {
+      "name": "inline-first",
+      "instructionCount": 5,
+      "humanInlineCommentsCovered": 4
+    },
+    {
+      "name": "duplicate-deliveries",
+      "instructionCount": 5,
+      "humanInlineCommentsCovered": 4
+    },
+    {
+      "name": "submission-hydration-without-inline-events",
+      "instructionCount": 5,
+      "humanInlineCommentsCovered": 4
+    },
+    {
+      "name": "inline-hydration-without-submission-events",
+      "instructionCount": 4,
+      "limitation": "Body-only review has no inline event and still needs its own delivery recovery"
+    }
+  ],
+  "expectedInstructions": [
+    "comment:5646271378",
+    "review:5186578176",
+    "review:5186578211",
+    "review:5186578244",
+    "review:5186578375"
+  ],
+  "remoteCalls": 0,
+  "limitation": "Candidate classifier tested against REST-created fixture relationships and known first snapshots. Actual membership authorization, pending-review UI replies, missing/inconsistent hydration, historical completeness, and production transactionality remain unverified."
+}

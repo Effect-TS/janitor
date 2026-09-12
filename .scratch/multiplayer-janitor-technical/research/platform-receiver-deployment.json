@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-09-12T13:06:53.195Z",
+  "worker": "janitor-platform-delivery-fixture",
+  "url": "https://janitor-platform-delivery-fixture.matechs.workers.dev",
+  "accountID": "a5324318f7f0ddf25e7a1ba5359d1aa5",
+  "uploadedCodeVersion": "2c0a4a64-8ee2-4ff1-9d6b-a13445d15282",
+  "receiverSHA256": "d7fb7b8884e3e5683152eef8cac3ea26fea2d90e71681548407fcd760a8f0813",
+  "checks": [
+    "Unauthenticated journal reads rejected",
+    "Signed URL challenge returns expected value",
+    "Authenticated journal readable and empty before Slack subscription"
+  ],
+  "status": "deleted",
+  "cleanup": "Worker deleted; control-plane and public endpoint return 404; zero matching namespaces. See platform-receiver-cleanup.json.",
+  "slackEventsVerifiedAt": "2026-09-12T13:10:28.420Z",
+  "eventEvidence": "platform-slack-webhooks.json",
+  "deletedAt": "2026-09-12T14:41:34.906Z"
+}

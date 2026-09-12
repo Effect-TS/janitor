@@ -1,0 +1,18 @@
+{
+  "name": "janitor-platform-contract-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "node --test contract.test.mjs delivery-queue.test.mjs",
+    "verify-receiver": "node probe-receiver.mjs",
+    "live-slack": "node probe-slack.mjs",
+    "slack-human": "node probe-slack-human.mjs",
+    "github-reviews": "node probe-github-reviews.mjs",
+    "github-capture": "node capture-github-reviews.mjs",
+    "github-replay": "node replay-github-reviews.mjs",
+    "github-remaining": "node probe-github-remaining.mjs",
+    "slack-remaining": "node probe-slack-remaining.mjs",
+    "runtime-json": "node probe-runtime-json.mjs",
+    "github-redelivery": "node probe-github-redelivery.mjs"
+  }
+}

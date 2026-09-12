@@ -1,0 +1,336 @@
+{
+  "runID": "7c8f2285-4d1c-423d-af44-2eda53327c55",
+  "pr": {
+    "number": 8,
+    "url": "https://github.com/Effect-TS/slopcop-sandbox/pull/8"
+  },
+  "checkedAt": "2026-09-12T13:49:18.898Z",
+  "pages": [
+    {
+      "candidateIDs": [
+        "3842322426589347840",
+        "3842322424649482240",
+        "3842322424076959744",
+        "3842322419570180096",
+        "3842322416682401792",
+        "3842322413337444352",
+        "3842322413039656960",
+        "3842322411747803136",
+        "3842322411630370816",
+        "3842322411395489792",
+        "3842322409826811904",
+        "3842322409709379584",
+        "3842322409482887168",
+        "3842322409386409984"
+      ],
+      "count": 100,
+      "candidateCount": 14,
+      "hasNext": true
+    }
+  ],
+  "deliveries": [
+    {
+      "attemptID": "3842322426589347840",
+      "guid": "64e23e14-aeb0-11f1-8d7a-afd1771f6b18",
+      "event": "pull_request_review",
+      "action": "submitted",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:47.445Z",
+      "contribution": {
+        "id": 5186578412,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": null,
+        "state": "approved",
+        "updatedAt": "2026-09-12T13:46:44Z",
+        "submittedAt": "2026-09-12T13:46:44Z",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322424649482240",
+      "guid": "64fa5300-aeb0-11f1-8198-b09043d35313",
+      "event": "pull_request_review_comment",
+      "action": "edited",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:46.549Z",
+      "contribution": {
+        "id": 3996370643,
+        "reviewID": 5186578176,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "Edited fixture inline 7c8f2285-4d1c-423d-af44-2eda53327c55",
+        "createdAt": "2026-09-12T13:46:36Z",
+        "updatedAt": "2026-09-12T13:46:45Z",
+        "path": "janitor-delivery-7c8f2285-4d1c-423d-af44-2eda53327c55.txt",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322424076959744",
+      "guid": "642e78de-aeb0-11f1-9775-46b85f85ce90",
+      "event": "pull_request_review",
+      "action": "submitted",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:46.263Z",
+      "contribution": {
+        "id": 5186578375,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "Fixture body-only review 7c8f2285-4d1c-423d-af44-2eda53327c55",
+        "state": "commented",
+        "updatedAt": "2026-09-12T13:46:43Z",
+        "submittedAt": "2026-09-12T13:46:43Z",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322419570180096",
+      "guid": "63379460-aeb0-11f1-9089-cd519dc8bdf2",
+      "event": "issue_comment",
+      "action": "created",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:44.156Z",
+      "contribution": {
+        "id": 5646271472,
+        "author": "effect-janitor[bot]",
+        "authorID": 324261976,
+        "authorType": "Bot",
+        "body": "Fixture overall answer.\n\n<!-- janitor-operation:7c8f2285-4d1c-423d-af44-2eda53327c55:overall -->",
+        "createdAt": "2026-09-12T13:46:42Z",
+        "updatedAt": "2026-09-12T13:46:42Z"
+      }
+    },
+    {
+      "attemptID": "3842322416682401792",
+      "guid": "62897a10-aeb0-11f1-93b4-e0733cd22ace",
+      "event": "issue_comment",
+      "action": "created",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:42.86Z",
+      "contribution": {
+        "id": 5646271378,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "@effect-janitor please inspect this synthetic fixture. Run 7c8f2285-4d1c-423d-af44-2eda53327c55.",
+        "createdAt": "2026-09-12T13:46:40Z",
+        "updatedAt": "2026-09-12T13:46:40Z"
+      }
+    },
+    {
+      "attemptID": "3842322413337444352",
+      "guid": "6198313c-aeb0-11f1-93d3-fcd77971707a",
+      "event": "pull_request_review",
+      "action": "submitted",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:41.261Z",
+      "contribution": {
+        "id": 5186578276,
+        "author": "effect-janitor[bot]",
+        "authorID": 324261976,
+        "authorType": "Bot",
+        "body": null,
+        "state": "commented",
+        "updatedAt": "2026-09-12T13:46:39Z",
+        "submittedAt": "2026-09-12T13:46:39Z",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322413039656960",
+      "guid": "61b2f030-aeb0-11f1-9021-b9fda0e8dcbf",
+      "event": "pull_request_review_comment",
+      "action": "created",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:41.112Z",
+      "contribution": {
+        "id": 3996370757,
+        "reviewID": 5186578276,
+        "replyTo": 3996370673,
+        "author": "effect-janitor[bot]",
+        "authorID": 324261976,
+        "authorType": "Bot",
+        "body": "Fixture agent answer.\n\n<!-- janitor-operation:7c8f2285-4d1c-423d-af44-2eda53327c55:inline -->",
+        "createdAt": "2026-09-12T13:46:39Z",
+        "updatedAt": "2026-09-12T13:46:39Z",
+        "path": "janitor-delivery-7c8f2285-4d1c-423d-af44-2eda53327c55.txt",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322411747803136",
+      "guid": "60fb16f4-aeb0-11f1-9584-0ac1c4d49d43",
+      "event": "pull_request_review",
+      "action": "submitted",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:40.54Z",
+      "contribution": {
+        "id": 5186578244,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": null,
+        "state": "commented",
+        "updatedAt": "2026-09-12T13:46:38Z",
+        "submittedAt": "2026-09-12T13:46:38Z",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322411630370816",
+      "guid": "61180fc0-aeb0-11f1-9328-850cef1a8137",
+      "event": "pull_request_review_comment",
+      "action": "created",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:40.48Z",
+      "contribution": {
+        "id": 3996370713,
+        "reviewID": 5186578244,
+        "replyTo": 3996370642,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "Later human fixture reply 7c8f2285-4d1c-423d-af44-2eda53327c55",
+        "createdAt": "2026-09-12T13:46:38Z",
+        "updatedAt": "2026-09-12T13:46:38Z",
+        "path": "janitor-delivery-7c8f2285-4d1c-423d-af44-2eda53327c55.txt",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322411395489792",
+      "guid": "60bb16b2-aeb0-11f1-94ab-560a54571ae4",
+      "event": "pull_request_review",
+      "action": "submitted",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:40.364Z",
+      "contribution": {
+        "id": 5186578211,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": null,
+        "state": "commented",
+        "updatedAt": "2026-09-12T13:46:37Z",
+        "submittedAt": "2026-09-12T13:46:37Z",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322409826811904",
+      "guid": "60e58e10-aeb0-11f1-9bdf-f93438fdf11e",
+      "event": "pull_request_review_comment",
+      "action": "created",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:39.652Z",
+      "contribution": {
+        "id": 3996370673,
+        "reviewID": 5186578211,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "Standalone fixture comment 7c8f2285-4d1c-423d-af44-2eda53327c55",
+        "createdAt": "2026-09-12T13:46:37Z",
+        "updatedAt": "2026-09-12T13:46:37Z",
+        "path": "janitor-delivery-7c8f2285-4d1c-423d-af44-2eda53327c55.txt",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322409709379584",
+      "guid": "608608f0-aeb0-11f1-81cc-db77afcc9947",
+      "event": "pull_request_review_comment",
+      "action": "created",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:39.594Z",
+      "contribution": {
+        "id": 3996370642,
+        "reviewID": 5186578176,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "Fixture batch first inline comment",
+        "createdAt": "2026-09-12T13:46:36Z",
+        "updatedAt": "2026-09-12T13:46:36Z",
+        "path": "janitor-delivery-7c8f2285-4d1c-423d-af44-2eda53327c55.txt",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322409482887168",
+      "guid": "608ac3e0-aeb0-11f1-9a53-0f98af5db230",
+      "event": "pull_request_review_comment",
+      "action": "created",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:39.481Z",
+      "contribution": {
+        "id": 3996370643,
+        "reviewID": 5186578176,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "Fixture batch second inline comment",
+        "createdAt": "2026-09-12T13:46:36Z",
+        "updatedAt": "2026-09-12T13:46:36Z",
+        "path": "janitor-delivery-7c8f2285-4d1c-423d-af44-2eda53327c55.txt",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    },
+    {
+      "attemptID": "3842322409386409984",
+      "guid": "604801a4-aeb0-11f1-9646-d2aaa2c23a27",
+      "event": "pull_request_review",
+      "action": "submitted",
+      "statusCode": 202,
+      "redelivery": false,
+      "deliveredAt": "2026-09-12T13:46:39.433Z",
+      "contribution": {
+        "id": 5186578176,
+        "author": "IMax153",
+        "authorID": 38051499,
+        "authorType": "User",
+        "body": "Fixture review batch 7c8f2285-4d1c-423d-af44-2eda53327c55",
+        "state": "commented",
+        "updatedAt": "2026-09-12T13:46:36Z",
+        "submittedAt": "2026-09-12T13:46:36Z",
+        "commitID": "90e6b159e9ec7e6f636e78ff5baf807c6da0c7cc"
+      }
+    }
+  ],
+  "expected": [
+    "pull_request_review:submitted:5186578176",
+    "pull_request_review:submitted:5186578211",
+    "pull_request_review:submitted:5186578244",
+    "pull_request_review:submitted:5186578276",
+    "pull_request_review:submitted:5186578375",
+    "pull_request_review:submitted:5186578412",
+    "pull_request_review_comment:created:3996370642",
+    "pull_request_review_comment:created:3996370643",
+    "pull_request_review_comment:created:3996370673",
+    "pull_request_review_comment:created:3996370713",
+    "pull_request_review_comment:created:3996370757",
+    "issue_comment:created:5646271378",
+    "issue_comment:created:5646271472",
+    "pull_request_review_comment:edited:3996370643"
+  ],
+  "missing": [],
+  "fullWindowScanned": false,
+  "mutations": 0
+}

@@ -1,0 +1,28 @@
+{
+  "repository": "Effect-TS/slopcop-sandbox",
+  "repositoryID": 1323166030,
+  "runID": "ad41a03c",
+  "root": "/tmp/janitor-github-fixture-Ycj8jB",
+  "checks": [
+    "installation tokens restricted to the designated repository and distinct read/write permissions",
+    "token cache reuses a valid scope and refreshes at expiry under an injected clock",
+    "ordinary HTTPS Git with installation credentials creates isolated new-work branches",
+    "discarded successful PR creation reply reconciles to exactly one draft PR"
+  ],
+  "cleanup": [
+    {
+      "closedPR": "https://github.com/Effect-TS/slopcop-sandbox/pull/6"
+    },
+    {
+      "deletedBranch": "janitor-verification/ad41a03c-work"
+    },
+    {
+      "deletedBranch": "janitor-verification/ad41a03c-base"
+    }
+  ],
+  "installationID": 158746421,
+  "defaultBranch": "main",
+  "originalDefaultHead": "d20e1c6b5888a74f4abc24008e211feb00b11807",
+  "pullRequest": "https://github.com/Effect-TS/slopcop-sandbox/pull/6",
+  "error": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n+ actual - expected\n\n+ '6ea7217343a362f6a1448f43dacd8519868ac1a7'\n- '39058b93efca4fa7d61dc01e03fa550039b7fdab'\n"
+}

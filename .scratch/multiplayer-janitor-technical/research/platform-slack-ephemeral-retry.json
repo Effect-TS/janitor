@@ -1,0 +1,13 @@
+{
+  "requestedAt": "2026-09-12T14:55:55.979Z",
+  "channel": "C0C19USKLPQ",
+  "user": "U080M0Q2JLF",
+  "threadTS": "1789218813.600349",
+  "previousAttempt": "User reports not seeing the first ephemeral message",
+  "state": "api-accepted",
+  "humanVisibility": "confirmed by recipient",
+  "httpStatus": 200,
+  "messageTS": "1789224956.000100",
+  "userConfirmation": "I see it",
+  "confirmationRecordedAt": "2026-09-12T14:56:38.355Z"
+}

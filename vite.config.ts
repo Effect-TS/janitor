@@ -9,6 +9,12 @@ export default defineConfig({
     semi: false,
   },
   lint: {
+    // Feasibility fixtures run with isolated Cloudflare/OpenCode dependencies.
+    // Checking them against Janitor's dependency graph produces invalid diagnostics.
+    ignorePatterns: [
+      ".scratch/multiplayer-janitor-technical/prototype/repository-fixture/**",
+      ".scratch/multiplayer-janitor-technical/prototype/runner-fixture/**",
+    ],
     extends: [recommended],
     plugins: ["typescript"],
     jsPlugins: [

@@ -1,0 +1,106 @@
+{
+  "checkedAt": "2026-09-12T13:10:28.420Z",
+  "runID": "57381416-ccc4-42bc-8a13-01ba9ac4c4f1",
+  "receiptCount": 12,
+  "attemptCount": 12,
+  "fixtureEvents": [
+    {
+      "deliveryID": "Ev0C1FNN0L2V",
+      "eventType": "message",
+      "subtype": null,
+      "messageTS": "1789218582.945899",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C0YDRQNMV",
+      "eventType": "message",
+      "subtype": null,
+      "messageTS": "1789218584.043839",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C1FNN61T3",
+      "eventType": "message",
+      "subtype": null,
+      "messageTS": "1789218585.142449",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C1HEQJLLU",
+      "eventType": "message",
+      "subtype": null,
+      "messageTS": "1789218586.248249",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C1FNN5SMP",
+      "eventType": "message",
+      "subtype": "message_changed",
+      "messageTS": "1789218584.043839",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C1BSACWCE",
+      "eventType": "message",
+      "subtype": "message_deleted",
+      "messageTS": "1789218586.248249",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C0YDS0831",
+      "eventType": "message",
+      "subtype": "message_changed",
+      "messageTS": "1789218582.945899",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C17HU5RJP",
+      "eventType": "message",
+      "subtype": "message_deleted",
+      "messageTS": "1789218585.142449",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C1DP66QN6",
+      "eventType": "message",
+      "subtype": "message_changed",
+      "messageTS": "1789218582.945899",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C1HEQQB28",
+      "eventType": "message",
+      "subtype": "message_deleted",
+      "messageTS": "1789218584.043839",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C17HU3NP5",
+      "eventType": "message",
+      "subtype": "message_changed",
+      "messageTS": "1789218582.945899",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    },
+    {
+      "deliveryID": "Ev0C285TV1JL",
+      "eventType": "message",
+      "subtype": "message_deleted",
+      "messageTS": "1789218582.945899",
+      "botAuthored": true,
+      "channel": "C0C19USKLPQ"
+    }
+  ],
+  "acknowledged": true,
+  "rawPayloadsSaved": false
+}

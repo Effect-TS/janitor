@@ -1,0 +1,58 @@
+{
+  "checkedAt": "2026-09-12T13:15:24.668Z",
+  "root": "1789218813.600349",
+  "initiating": "1789218823.819509",
+  "followup": "1789218845.026139",
+  "captured": [
+    {
+      "eventID": "Ev0C1BSLP6MU",
+      "type": "message",
+      "timestamp": "1789218813.600349",
+      "thread": "1789218813.600349"
+    },
+    {
+      "eventID": "Ev0C1HF1JJ92",
+      "type": "message",
+      "timestamp": "1789218823.819509",
+      "thread": "1789218813.600349"
+    },
+    {
+      "eventID": "Ev0C1BSM6EJJ",
+      "type": "app_mention",
+      "timestamp": "1789218823.819509",
+      "thread": "1789218813.600349"
+    },
+    {
+      "eventID": "Ev0C1BSN6UVC",
+      "type": "message",
+      "timestamp": "1789218845.026139",
+      "thread": "1789218813.600349"
+    }
+  ],
+  "liveChecks": [
+    "One human mention produced two distinct envelopes with one source message identity",
+    "Unmentioned human follow-up arrived as message event",
+    "History through initiating timestamp includes root and initiating message, excludes later reply"
+  ],
+  "localReplay": [
+    {
+      "firstType": "message",
+      "instructionCount": 2,
+      "receiptCount": 3
+    },
+    {
+      "firstType": "app_mention",
+      "instructionCount": 2,
+      "receiptCount": 3
+    }
+  ],
+  "historyPages": [
+    {
+      "timestamps": ["1789218813.600349", "1789218823.819509"],
+      "hasNextCursor": false
+    }
+  ],
+  "contextTimestamps": ["1789218813.600349", "1789218823.819509"],
+  "remoteMutations": 0,
+  "limitation": "Eligibility is synthetic; no production Janitor admission, session creation, or agent execution is exercised. Initiating message is context boundary and one input, not two prompts."
+}

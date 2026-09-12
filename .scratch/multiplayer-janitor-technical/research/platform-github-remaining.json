@@ -1,0 +1,298 @@
+{
+  "runID": "2b9e1817-7c09-4316-8661-6a6b274614f3",
+  "startedAt": "2026-09-12T14:29:52.345Z",
+  "repository": "Effect-TS/slopcop-sandbox",
+  "branch": "janitor-delivery/2b9e1817-7c09-4316-8661-6a6b274614f3",
+  "operations": [
+    {
+      "name": "branch",
+      "method": "POST",
+      "path": "/repos/Effect-TS/slopcop-sandbox/git/refs",
+      "state": "confirmed"
+    },
+    {
+      "name": "fixture-file",
+      "method": "PUT",
+      "path": "/repos/Effect-TS/slopcop-sandbox/contents/janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+      "state": "confirmed"
+    },
+    {
+      "name": "draft-pr",
+      "method": "POST",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls",
+      "state": "confirmed",
+      "id": 4513711822,
+      "number": 9
+    },
+    {
+      "name": "seed-human-thread",
+      "method": "POST",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/9/comments",
+      "state": "confirmed",
+      "id": 3996504065
+    },
+    {
+      "name": "pending-review",
+      "method": "POST",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/9/reviews",
+      "state": "confirmed",
+      "id": 5186716225
+    },
+    {
+      "name": "reply-within-pending-review",
+      "method": "POST",
+      "path": "/graphql",
+      "state": "confirmed"
+    },
+    {
+      "name": "submit-pending-review",
+      "method": "POST",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/9/reviews/5186716225/events",
+      "state": "confirmed",
+      "id": 5186716225
+    },
+    {
+      "name": "later-reply",
+      "method": "POST",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/9/comments/3996504065/replies",
+      "state": "confirmed",
+      "id": 3996504279
+    },
+    {
+      "name": "edit-during-hydration",
+      "method": "PATCH",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/comments/3996504115",
+      "state": "confirmed",
+      "id": 3996504115
+    },
+    {
+      "name": "deletion-marker-reply",
+      "method": "POST",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/9/comments/3996504065/replies",
+      "state": "confirmed",
+      "id": 3996504365
+    },
+    {
+      "name": "delete-marker-reply",
+      "method": "DELETE",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/comments/3996504365",
+      "state": "confirmed"
+    },
+    {
+      "name": "delete-fixture-target",
+      "method": "DELETE",
+      "path": "/repos/Effect-TS/slopcop-sandbox/pulls/comments/3996504065",
+      "state": "confirmed"
+    }
+  ],
+  "reviews": [],
+  "comments": [
+    {
+      "id": 3996504279,
+      "reviewID": 5186716385,
+      "replyTo": 3996504065,
+      "author": "IMax153",
+      "authorID": 38051499,
+      "authorType": "User",
+      "body": "Reply after review submission 2b9e1817-7c09-4316-8661-6a6b274614f3",
+      "createdAt": "2026-09-12T14:30:01Z",
+      "updatedAt": "2026-09-12T14:30:01Z",
+      "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+      "line": 1,
+      "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+    }
+  ],
+  "snapshots": [
+    {
+      "name": "submitted-pending-with-reply",
+      "reviewID": 5186716225,
+      "comments": [
+        {
+          "id": 3996504113,
+          "reviewID": 5186716225,
+          "author": "IMax153",
+          "authorID": 38051499,
+          "authorType": "User",
+          "body": "Pending batch second line",
+          "createdAt": "2026-09-12T14:29:57Z",
+          "updatedAt": "2026-09-12T14:30:00Z",
+          "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+          "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+        },
+        {
+          "id": 3996504115,
+          "reviewID": 5186716225,
+          "author": "IMax153",
+          "authorID": 38051499,
+          "authorType": "User",
+          "body": "Pending batch third line",
+          "createdAt": "2026-09-12T14:29:57Z",
+          "updatedAt": "2026-09-12T14:30:00Z",
+          "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+          "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+        },
+        {
+          "id": 3996504159,
+          "reviewID": 5186716225,
+          "replyTo": 3996504065,
+          "author": "IMax153",
+          "authorID": 38051499,
+          "authorType": "User",
+          "body": "Reply inside pending review 2b9e1817-7c09-4316-8661-6a6b274614f3",
+          "createdAt": "2026-09-12T14:29:58Z",
+          "updatedAt": "2026-09-12T14:30:00Z",
+          "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+          "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+        }
+      ]
+    },
+    {
+      "name": "mixed-time-hydration",
+      "comments": [
+        {
+          "id": 3996504113,
+          "reviewID": 5186716225,
+          "author": "IMax153",
+          "authorID": 38051499,
+          "authorType": "User",
+          "body": "Pending batch second line",
+          "createdAt": "2026-09-12T14:29:57Z",
+          "updatedAt": "2026-09-12T14:30:00Z",
+          "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+          "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+        },
+        {
+          "id": 3996504115,
+          "reviewID": 5186716225,
+          "author": "IMax153",
+          "authorID": 38051499,
+          "authorType": "User",
+          "body": "Edited during paginated hydration 2b9e1817-7c09-4316-8661-6a6b274614f3",
+          "createdAt": "2026-09-12T14:29:57Z",
+          "updatedAt": "2026-09-12T14:30:02Z",
+          "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+          "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+        },
+        {
+          "id": 3996504159,
+          "reviewID": 5186716225,
+          "replyTo": 3996504065,
+          "author": "IMax153",
+          "authorID": 38051499,
+          "authorType": "User",
+          "body": "Reply inside pending review 2b9e1817-7c09-4316-8661-6a6b274614f3",
+          "createdAt": "2026-09-12T14:29:58Z",
+          "updatedAt": "2026-09-12T14:30:00Z",
+          "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+          "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+        }
+      ]
+    }
+  ],
+  "deliveries": [],
+  "checks": [
+    "Pending-review reply grouped with three-comment review; later reply has a new review ID",
+    "Edit between hydration pages changes fetched content; no historical snapshot guarantee",
+    "Deleted publication is absent from readback; absence cannot authorize repost",
+    "Deleted inline target rejects reply without implicit PR-level fallback"
+  ],
+  "cleanup": [
+    {
+      "action": "close-pr-unmerged",
+      "ok": true
+    },
+    {
+      "action": "delete-branch",
+      "ok": true
+    },
+    {
+      "action": "revoke-token",
+      "ok": true
+    }
+  ],
+  "pr": {
+    "number": 9,
+    "url": "https://github.com/Effect-TS/slopcop-sandbox/pull/9"
+  },
+  "missingTarget": {
+    "status": 404,
+    "message": "Parent comment not found"
+  },
+  "allReviews": [
+    {
+      "id": 5186716225,
+      "author": "IMax153",
+      "authorID": 38051499,
+      "authorType": "User",
+      "state": "COMMENTED",
+      "body": "Submitted pending fixture 2b9e1817-7c09-4316-8661-6a6b274614f3",
+      "submittedAt": "2026-09-12T14:29:59Z",
+      "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+    },
+    {
+      "id": 5186716385,
+      "author": "IMax153",
+      "authorID": 38051499,
+      "authorType": "User",
+      "state": "COMMENTED",
+      "body": "",
+      "submittedAt": "2026-09-12T14:30:01Z",
+      "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+    }
+  ],
+  "allComments": [
+    {
+      "id": 3996504113,
+      "reviewID": 5186716225,
+      "author": "IMax153",
+      "authorID": 38051499,
+      "authorType": "User",
+      "body": "Pending batch second line",
+      "createdAt": "2026-09-12T14:29:57Z",
+      "updatedAt": "2026-09-12T14:30:00Z",
+      "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+      "line": 2,
+      "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+    },
+    {
+      "id": 3996504115,
+      "reviewID": 5186716225,
+      "author": "IMax153",
+      "authorID": 38051499,
+      "authorType": "User",
+      "body": "Edited during paginated hydration 2b9e1817-7c09-4316-8661-6a6b274614f3",
+      "createdAt": "2026-09-12T14:29:57Z",
+      "updatedAt": "2026-09-12T14:30:02Z",
+      "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+      "line": 3,
+      "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+    },
+    {
+      "id": 3996504159,
+      "reviewID": 5186716225,
+      "author": "IMax153",
+      "authorID": 38051499,
+      "authorType": "User",
+      "body": "Reply inside pending review 2b9e1817-7c09-4316-8661-6a6b274614f3",
+      "createdAt": "2026-09-12T14:29:58Z",
+      "updatedAt": "2026-09-12T14:30:00Z",
+      "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+      "line": 1,
+      "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+    },
+    {
+      "id": 3996504279,
+      "reviewID": 5186716385,
+      "replyTo": 3996504159,
+      "author": "IMax153",
+      "authorID": 38051499,
+      "authorType": "User",
+      "body": "Reply after review submission 2b9e1817-7c09-4316-8661-6a6b274614f3",
+      "createdAt": "2026-09-12T14:30:01Z",
+      "updatedAt": "2026-09-12T14:30:02Z",
+      "path": "janitor-delivery-2b9e1817-7c09-4316-8661-6a6b274614f3.txt",
+      "line": 1,
+      "commitID": "e304c50570cdf0a84cbeabcaf01664b4dfc421f9"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "branch": "janitor-verification/619b0a65-cloudflare",
+  "checks": [],
+  "remote": {
+    "branch": "janitor-verification/619b0a65-cloudflare",
+    "sha": "379949e8189ff77f77e3910a2044f24aefe0e923",
+    "cloneAndPushThroughCloudflare": true,
+    "tokenAbsentFromArchive": true,
+    "tokenAbsentAfterExec": true
+  },
+  "passed": true,
+  "branchDeleted": true,
+  "tokenRevoked": true,
+  "sandboxCleaned": true
+}

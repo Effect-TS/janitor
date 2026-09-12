@@ -1,0 +1,518 @@
+{
+  "kind": "cloudflare-repository-contract",
+  "steps": [
+    {
+      "path": "/start",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 5649,
+      "result": {
+        "localGitCasesInsideSandbox": [
+          "fixture command succeeds with unfinished work",
+          "host archive preserves index, local commit, tracked deletion, untracked and ignored files, symlink and mode",
+          "non-fast-forward push is rejected; reconciliation preserves concurrent human commit",
+          "remote ref inspection observes successful local publication without a repeat push"
+        ],
+        "idempotentAdoption": true,
+        "authRejected": 401,
+        "staleEpochRejected": 409
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 2844,
+      "result": {
+        "shell": {
+          "tool": {
+            "nativeToolTested": true,
+            "backgroundRejectedBeforeExecution": true,
+            "nativeJobRegistryUsed": true,
+            "rewrittenOutputReadable": true,
+            "captureBytes": 100000,
+            "permissionsAreFixtureStubs": true
+          },
+          "checks": [
+            "native shell combined output capture",
+            "native shell exit 7",
+            "native shell timeout",
+            "native shell removal followed by external freeze",
+            "large output points to Workerd-only capture",
+            "100000 capture bytes copied into external workspace"
+          ],
+          "result": {
+            "info": {
+              "id": "sh_092298f74001ZMGApE09CCeN3O",
+              "status": "exited",
+              "command": "printf native-out; printf native-err >&2; exit 7",
+              "cwd": "/workspace/fixture",
+              "shell": "/bin/sh",
+              "file": "/tmp/opencode/data/shell/fixture/sh_092298f74001ZMGApE09CCeN3O.out",
+              "metadata": {},
+              "time": {
+                "started": 1789158592372,
+                "completed": 1789158592466
+              },
+              "pid": 0,
+              "exit": 7
+            },
+            "capture": {
+              "output": "native-outnative-err",
+              "truncated": false
+            }
+          },
+          "timeoutStatus": "timeout",
+          "cancellationStatus": "killed",
+          "largeCaptureNotInWorkspace": true,
+          "copiedCaptureBytes": 100000,
+          "eventCount": 14,
+          "nativeToolTested": true,
+          "durableCaptureVerified": false
+        },
+        "checks": ["binary write/read", "stat", "move/list/remove"],
+        "workerdTested": true,
+        "cloudflareSandboxTested": true,
+        "completeSpawnerContract": false
+      }
+    },
+    {
+      "path": "/protocol",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 403,
+      "result": {
+        "lostSpawnAndStdinRepliesReconciled": true,
+        "binaryInput": true,
+        "nonzeroExit": true,
+        "stderr": true,
+        "outsideCwdRejected": true,
+        "subdirectoryCwd": true,
+        "controlCredentialNotInherited": true
+      }
+    },
+    {
+      "path": "/prepare",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 356,
+      "result": {
+        "manifestFiles": 215,
+        "failedEditPreserved": true
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "baseline"
+      },
+      "status": 200,
+      "elapsedMs": 1816,
+      "result": {
+        "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+        "op": "baseline",
+        "generation": 1,
+        "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+        "size": 8888320,
+        "elapsedMs": 700
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 53,
+      "result": {
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 700
+        },
+        "operation": {
+          "state": "complete",
+          "generation": 1,
+          "checkpoint": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar"
+        }
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "upload-failure",
+        "fail": "before-upload"
+      },
+      "status": 500,
+      "elapsedMs": 56,
+      "result": {
+        "error": "Error: injected upload failure",
+        "route": "/stage"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 24,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 700
+        },
+        "pending": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/6cec5fa0-244d-4317-901d-84dc077ddc30.tar",
+          "op": "upload-failure",
+          "generation": 1
+        },
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "29b5db19-019d-4fdc-91c8-4cdb3e40f71f"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 164,
+      "result": {
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 700
+        },
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 33,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 700
+        },
+        "pending": null,
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "29b5db19-019d-4fdc-91c8-4cdb3e40f71f"
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "upload-crash",
+        "fail": "after-upload"
+      },
+      "status": 500,
+      "elapsedMs": 653,
+      "result": {
+        "text": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Worker threw exception | janitor-repo-probe-20260911-vwap.matechs.worke"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 229,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 700
+        },
+        "pending": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/7d8db8b9-dae3-4447-8619-0adf1cbbe4f1.tar",
+          "op": "upload-crash",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 597
+        },
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "5b3de365-f1fc-4a7c-9eb9-841b067ae2fc"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 166,
+      "result": {
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 700
+        },
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "commit-crash"
+      },
+      "status": 200,
+      "elapsedMs": 631,
+      "result": {
+        "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/f48806ce-cf20-4853-b785-8320ac2b973e.tar",
+        "op": "commit-crash",
+        "generation": 1,
+        "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+        "size": 8888320,
+        "elapsedMs": 562
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 29,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar",
+          "op": "baseline",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 700
+        },
+        "pending": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/f48806ce-cf20-4853-b785-8320ac2b973e.tar",
+          "op": "commit-crash",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 562
+        },
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "commit-crash": {
+            "state": "uncertain",
+            "generation": 1
+          }
+        },
+        "boot": "5b3de365-f1fc-4a7c-9eb9-841b067ae2fc"
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {
+        "fail": "after-commit"
+      },
+      "status": 500,
+      "elapsedMs": 172,
+      "result": {
+        "text": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Worker threw exception | janitor-repo-probe-20260911-vwap.matechs.worke"
+      }
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "elapsedMs": 298,
+      "result": {
+        "active": true,
+        "generation": 1,
+        "checkpoint": {
+          "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/f48806ce-cf20-4853-b785-8320ac2b973e.tar",
+          "op": "commit-crash",
+          "generation": 1,
+          "sha256": "d493f64caabec1fec180e6e7ae0d66dc0c325f257d6675d43123fcad0a9edd45",
+          "size": 8888320,
+          "elapsedMs": 562
+        },
+        "pending": null,
+        "operations": {
+          "baseline": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/1cce595a-bc0f-4a13-910d-b32d646f09a7.tar"
+          },
+          "upload-failure": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "upload-crash": {
+            "state": "uncertain",
+            "generation": 1
+          },
+          "commit-crash": {
+            "state": "complete",
+            "generation": 1,
+            "checkpoint": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/f48806ce-cf20-4853-b785-8320ac2b973e.tar"
+          }
+        },
+        "boot": "b5b98074-13e6-42de-8ff1-109d22a10880"
+      }
+    },
+    {
+      "path": "/restore",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 16702,
+      "result": {
+        "identicalManifest": true,
+        "fixtureTestPassed": true,
+        "oldBridgeEpochRejected": true,
+        "staleOverlayFileRemoved": true,
+        "restoreMs": 1102,
+        "archiveBytes": 8888320
+      }
+    },
+    {
+      "path": "/stage",
+      "input": {
+        "op": "disconnect-race"
+      },
+      "status": 200,
+      "elapsedMs": 726,
+      "result": {
+        "key": "contract-df66b2e1-3f4b-41c4-9d10-fe63b3acffeb/977efdf1-9229-4ffb-b69c-517b9cee238c.tar",
+        "op": "disconnect-race",
+        "generation": 1,
+        "sha256": "a3aeb80ca918d1f4f2f033b29fed2ebb3cb2e11aca574a8a58f8419efc8b6f4f",
+        "size": 8888320,
+        "elapsedMs": 609
+      }
+    },
+    {
+      "path": "/active-command",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 157,
+      "result": {
+        "active": true,
+        "freezeRefusedWhileWriting": true
+      }
+    },
+    {
+      "path": "/disconnect",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 1502,
+      "result": {
+        "active": false,
+        "generation": 2,
+        "deletedObjects": 2
+      }
+    },
+    {
+      "path": "/commit",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 36,
+      "result": {
+        "error": "Error: stale completion fenced",
+        "route": "/commit"
+      }
+    },
+    {
+      "path": "/reconcile",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 175,
+      "result": {
+        "checkpoint": null,
+        "orphanRemoved": true
+      }
+    },
+    {
+      "path": "/start",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 42,
+      "result": {
+        "error": "Error: disconnected",
+        "route": "/start"
+      }
+    },
+    {
+      "path": "/tools",
+      "input": {},
+      "status": 500,
+      "elapsedMs": 37,
+      "result": {
+        "error": "Error: {\"error\":\"Environment.Failed\",\"cause\":\"Error: disconnected session\"}",
+        "route": "/tools"
+      }
+    },
+    {
+      "path": "/cleanup",
+      "input": {},
+      "status": 200,
+      "elapsedMs": 144,
+      "result": {
+        "cleaned": true
+      }
+    }
+  ],
+  "passed": true
+}
