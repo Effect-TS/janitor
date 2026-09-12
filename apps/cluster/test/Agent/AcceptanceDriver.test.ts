@@ -40,7 +40,7 @@ const startRunner = (persist: string, port = 0): Promise<RunnerProcess> =>
       {
         cwd: runnerRoot,
         stdio: ["pipe", "pipe", "inherit"],
-        env: { ...process.env, RUNNER_SERVICE_TOKEN: "driver-token" },
+        env: { ...process.env, JANITOR_AGENT_RUNNER_TOKEN: "driver-token" },
       },
     )
     const lines = readline.createInterface({ input: child.stdout! })

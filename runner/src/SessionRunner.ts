@@ -40,9 +40,9 @@ import { errorResponse, jsonResponse, parseCommand, type Command } from "./Route
 import { RunnerStorage, payloadHash, type NativeSessionRow, type SessionRecord } from "./Storage.ts"
 
 export interface RunnerEnv {
-  readonly RUNNER_SERVICE_TOKEN?: string
-  readonly RUNNER_MODEL_CONFIGURATIONS?: string
-  readonly RUNNER_RELEASE?: string
+  readonly JANITOR_AGENT_RUNNER_TOKEN?: string
+  readonly JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS?: string
+  readonly JANITOR_AGENT_RUNNER_RELEASE?: string
   readonly [binding: string]: unknown
 }
 
@@ -81,7 +81,7 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     this.store = new RunnerStorage(ctx.storage)
     let configurations: ModelConfigurations | ModelConfigurationError
     try {
-      configurations = parseModelConfigurations(env.RUNNER_MODEL_CONFIGURATIONS)
+      configurations = parseModelConfigurations(env.JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS)
     } catch (cause) {
       configurations =
         cause instanceof ModelConfigurationError
@@ -109,7 +109,7 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
   }
 
   protected get release(): string {
-    return this.env.RUNNER_RELEASE ?? "development"
+    return this.env.JANITOR_AGENT_RUNNER_RELEASE ?? "development"
   }
 
   override async fetch(request: Request): Promise<Response> {

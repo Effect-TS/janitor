@@ -22,7 +22,7 @@ const constantTimeEqual = (a: string, b: string) => {
 }
 
 export const authenticate = (request: Request, env: RunnerEnv) => {
-  const expected = env.RUNNER_SERVICE_TOKEN
+  const expected = env.JANITOR_AGENT_RUNNER_TOKEN
   const header = request.headers.get("authorization") ?? ""
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : ""
   if (
@@ -41,7 +41,7 @@ export const handle = async (request: Request, env: WorkerEnv): Promise<Response
     if (url.pathname === "/v1/health" && request.method === "GET")
       return jsonResponse({
         protocol: PROTOCOL_VERSION,
-        release: env.RUNNER_RELEASE ?? "development",
+        release: env.JANITOR_AGENT_RUNNER_RELEASE ?? "development",
       })
     checkProtocol(request)
     const sessionId = sessionIdOf(url)

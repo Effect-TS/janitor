@@ -51,9 +51,9 @@ export const makeMiniflare = (options: HarnessOptions = {}) =>
     compatibilityDate: "2026-07-04",
     compatibilityFlags: ["nodejs_compat"],
     bindings: {
-      RUNNER_SERVICE_TOKEN: TOKEN,
-      RUNNER_RELEASE: "test",
-      RUNNER_MODEL_CONFIGURATIONS: JSON.stringify(testConfigurations),
+      JANITOR_AGENT_RUNNER_TOKEN: TOKEN,
+      JANITOR_AGENT_RUNNER_RELEASE: "test",
+      JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS: JSON.stringify(testConfigurations),
       ...(options.secret === undefined ? {} : { [SECRET_BINDING]: options.secret }),
       ...options.bindings,
     },

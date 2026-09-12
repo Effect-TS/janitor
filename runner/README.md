@@ -1,4 +1,4 @@
-# Janitor session runner
+# Janitor agent runner
 
 The runner is a separately built Cloudflare Worker with one SQLite Durable Object per agent session. Each object hosts the pinned OpenCode Workerd SDK (`@opencode/sdk/workerd/effect`, published packages `@opencode/*` 2.0.2) and owns the native conversation, inbox, execution claims, durable events and usage. Janitor talks to it only through the versioned JSON command boundary in `src/Protocol.ts`.
 
@@ -29,14 +29,20 @@ The test bundle (`test/worker.ts`) wraps the production runner with a scripted m
 
 ## Configuration
 
-| Binding                       | Purpose                                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `RUNNER_SERVICE_TOKEN`        | Bearer token Janitor presents on every command.                                                                           |
-| `RUNNER_MODEL_CONFIGURATIONS` | JSON `{ default, records[] }` of immutable model configuration records (`src/ModelConfiguration.ts`). No key values.      |
-| `RUNNER_RELEASE`              | Release identity recorded in each object's compatibility record.                                                          |
-| `<record.secretBinding>`      | One secret binding per provider credential, read at request time only. Rotate through deployment; records stay unchanged. |
+The Cloudflare Worker is named `janitor-agent-runner`. Use the `JANITOR_AGENT_RUNNER_` prefix for its deployment configuration so these settings are distinguishable from GitHub Actions runners.
+
+Janitor needs `JANITOR_AGENT_RUNNER_URL`, the agent runner's HTTPS base URL, and `JANITOR_AGENT_RUNNER_TOKEN`. The same token is a secret binding on the agent runner. The earlier `RUNNER_SERVICE_URL` and `RUNNER_SERVICE_TOKEN` names are no longer read.
+
+| Binding                                     | Purpose                                                                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `JANITOR_AGENT_RUNNER_TOKEN`                | Bearer token Janitor presents on every command.                                                                           |
+| `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS` | JSON `{ default, records[] }` of immutable model configuration records (`src/ModelConfiguration.ts`). No key values.      |
+| `JANITOR_AGENT_RUNNER_RELEASE`              | Release identity recorded in each object's compatibility record.                                                          |
+| `<record.secretBinding>`                    | One secret binding per provider credential, read at request time only. Rotate through deployment; records stay unchanged. |
 
 A session selects the default record at creation and keeps it; changing the default affects new sessions only. A missing secret or retired record is a visible execution failure, never a substitute model.
+
+Use `JANITOR_AGENT_RUNNER_MODEL_API_KEY` for the provider secret and set the model record's `secretBinding` to that name. Other explicit binding names remain supported. In GitHub's `production` environment, store the URL and model configurations as variables, and the service token and provider key as secrets. Set `JANITOR_AGENT_RUNNER_RELEASE` from the deployed commit SHA. CI must explicitly pass each value to the corresponding deployment.
 
 ## Command boundary
 
