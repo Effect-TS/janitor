@@ -197,3 +197,13 @@ acceptance must call `Teammates.authorize` inside its own transaction: it takes
 a share lock on the link and teammate rows, so removal waits for the acceptance
 to commit and a later evaluation sees the removal. The migration creates no
 rows; the first admin is admitted from `JANITOR_INITIAL_ADMIN_SUBJECT` on sign-in.
+
+## Agent sessions
+
+`0023_agent_sessions.sql` adds agent session identity, accepted inputs in one
+per-session acceptance order, the durable runner handoff state, per-consumer
+event cursors, persisted catch-up obligations, and the rebuildable session
+projection and responses. The runner Worker (`runner/`) owns the native
+conversation; these tables hold only what Janitor needs to accept inputs,
+deliver them in order with stable runner message ids, and project runner
+events. Existing tables are unchanged.

@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/anomalyco/opencode.git",
+  "revision": "2df00955cb933e977427535d2505e50cbc689c69",
+  "roots": ["@opencode/sdk", "@opencode/ai"],
+  "excludedDirectories": ["test", "tests", "example", "examples", "script", "scripts", "bench"]
+}

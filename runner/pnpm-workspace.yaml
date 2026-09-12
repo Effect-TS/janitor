@@ -1,0 +1,21 @@
+# The runner is an independent pnpm workspace. Janitor's root workspace pins a
+# pkg.pr.new Effect snapshot with global overrides; the pinned OpenCode Workerd
+# SDK was verified against the registry 4.0.0-rc.112 Effect graph. Keeping the
+# graphs separate prevents either side's overrides from replacing the other's.
+packages:
+  - "."
+  - "vendor/packages/*"
+
+overrides:
+  effect: 4.0.0-rc.112
+  "@effect/platform-node": 4.0.0-rc.112
+  "@effect/platform-node-shared": 4.0.0-rc.112
+
+allowBuilds:
+  workerd: true
+  esbuild: false
+  sharp: false
+  protobufjs: false
+  msgpackr-extract: false
+  cpu-features: false
+  ssh2: false

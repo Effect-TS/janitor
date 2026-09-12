@@ -92,6 +92,12 @@ import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutbo
 import * as AccountLinking from "./AccountLinking.ts"
 import { Teammates, TeammatesConfig } from "./Teammates.ts"
 import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
+import { AgentCatchUpCronLayer, AgentCatchUpCronName } from "./Agent/CatchUpCron.ts"
+import { AgentCatchUpWake, AgentEventProjection } from "./Agent/EventProjection.ts"
+import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
+import { RunnerClient } from "./Agent/RunnerClient.ts"
+import { AgentSessions } from "./Agent/Sessions.ts"
+import * as Redacted from "effect/Redacted"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
 const ZONE = "effectful.co"
@@ -206,6 +212,14 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // Account linking is optional per platform; the account page says which
     // platforms this deployment can connect.
     const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)
+    // The session runner is a separately deployed Worker; its base URL and
+    // service token arrive as deployment configuration. Agent sessions are
+    // unavailable, not degraded, when the runner is not configured.
+    const runnerUrl = yield* Config.String("RUNNER_SERVICE_URL").pipe(Config.withDefault(""))
+    const runnerToken = yield* Config.Redacted("RUNNER_SERVICE_TOKEN").pipe(
+      Config.withDefault(Redacted.make("")),
+    )
+    const runnerConfigured = runnerUrl !== "" && Redacted.value(runnerToken) !== ""
 
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
       Layer.provideMerge(GitHubAppAuth.layerFrom(appCredentials)),
@@ -240,6 +254,23 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       )
     }
     let notifyOutbox: Effect.Effect<void> = Effect.void
+    let notifyCatchUp: Effect.Effect<void> = Effect.void
+    const AgentLayers = runnerConfigured
+      ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer).pipe(
+          Layer.provideMerge(Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer)),
+          Layer.provideMerge(
+            RunnerClient.layer({ baseUrl: runnerUrl, token: runnerToken }).pipe(
+              Layer.provide(FetchHttpClient.layer),
+            ),
+          ),
+          Layer.provide(
+            Layer.succeed(
+              AgentCatchUpWake,
+              Effect.suspend(() => notifyCatchUp),
+            ),
+          ),
+        )
+      : Layer.empty
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
       ProjectGitHubWebhookLayer,
@@ -250,6 +281,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       RuleTestJobLayer,
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
+      AgentLayers,
     ).pipe(
       Layer.provideMerge(LabelingSyncIntegrationLayer),
       Layer.provideMerge(
@@ -281,6 +313,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           RefreshEntityRegistration,
           ReconcileEntityRegistration,
           RuleTestJobRegistration,
+          ...(runnerConfigured ? [AgentHandoffRegistration] : []),
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
@@ -320,8 +353,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)
     notifyOutbox = wakeOutboxDispatch()
     const wakeSyncRepair = cluster.wake(SyncRepairCronName)
+    const wakeAgentCatchUp = runnerConfigured
+      ? cluster.wake(AgentCatchUpCronName)
+      : () => Effect.void
+    notifyCatchUp = wakeAgentCatchUp()
     yield* Cloudflare.Workers.cron("* * * * *", () =>
-      Effect.all([wakeOutboxDispatch(), wakeSyncRepair()], { discard: true }),
+      Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), wakeAgentCatchUp()], { discard: true }),
     )
 
     yield* Cloudflare.Queues.consumeQueueMessages(

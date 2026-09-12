@@ -1,0 +1,26 @@
+{
+  // The vendored OpenCode source is type-checked alongside the runner, so the
+  // flags match upstream's `@tsconfig/bun` baseline; stricter optional-property
+  // and unused checks would report upstream code, not runner defects.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "bundler",
+    "customConditions": ["workerd", "browser"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["@cloudflare/workers-types/experimental", "node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowJs": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

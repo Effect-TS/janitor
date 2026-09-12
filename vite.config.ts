@@ -14,6 +14,10 @@ export default defineConfig({
     ignorePatterns: [
       ".scratch/multiplayer-janitor-technical/prototype/repository-fixture/**",
       ".scratch/multiplayer-janitor-technical/prototype/runner-fixture/**",
+      // The runner is an independent workspace with its own dependency graph
+      // and checks (`runner/package.json`); its vendored OpenCode source and
+      // bundles are not application code.
+      "runner/**",
     ],
     extends: [recommended],
     plugins: ["typescript"],
