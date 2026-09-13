@@ -8,10 +8,7 @@
   "replyId": "3998445493",
   "acceptedInputs": 1,
   "passed": true,
-  "cleanup": [
-    "PR closed",
-    "Branch deleted"
-  ],
+  "cleanup": ["PR closed", "Branch deleted"],
   "finishedAt": "2026-09-13T02:46:09.452Z",
   "cleanupVerified": {
     "prState": "closed",
