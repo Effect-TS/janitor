@@ -2,6 +2,9 @@ import * as Live from "./components/live"
 import * as Connections from "@/components/repository-connections"
 import * as Account from "@/components/account"
 import * as Sessions from "@/components/sessions"
+import * as DesignSystem from "@/components/design-system"
+import * as Overlay from "@/components/ui/overlay"
+import { buttonBase, buttonSizes, buttonVariants } from "@/components/ui/button"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -59,6 +62,7 @@ export const Message = defineMessageUnion({
   GotSessionsMessage: { message: Sessions.Message },
   GotNavigationMessage: { message: Navigation.Message },
   PersistedRepository: {},
+  NoOp: {},
   GotSidebarMessage: {
     message: Sidebar.Message,
   },
@@ -722,6 +726,7 @@ export const update = (model: Model, message: Message) =>
     GotSessionsMessage: ({ message }) => foldSessions(model, message),
     GotNavigationMessage: ({ message }) => updateNavigation(model, message),
     PersistedRepository: () => ({ model }),
+    NoOp: () => ({ model }),
     GotSidebarMessage: ({ message }) => foldSidebar(model, message),
     GotThemeSwitcherMessage: ({ message }) => foldThemeSwitcher(model, message),
     GotSyncButtonMessage: ({ message }) =>
@@ -886,16 +891,21 @@ export const subscriptions = Subscription.aggregate<Model, Message, AppServices>
   navigationSubscriptions,
 )
 
+/** Sidebar destinations are rows, not links: foreground text, primary wash
+ *  and a 2px primary edge when current, `aria-current` carrying the state. */
+const navLinkClass = "text-foreground no-underline hover:no-underline"
+const navLinkActiveClass = "border-primary bg-sidebar-accent font-semibold"
+
 const brandHeader = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class("flex gap-2 items-center")],
     [
-      JanitorIcon.view(h, { className: "size-8 rounded-sm" }),
+      JanitorIcon.view(h, { className: "size-7" }),
       h.div(
         [h.Class("flex flex-col")],
         [
-          h.span([h.Class("font-bold truncate")], ["The Janitor"]),
-          h.span([h.Class("text-xs text-muted-foreground truncate")], ["Repository Maintenance"]),
+          h.span([h.Class("truncate text-label font-semibold")], ["The Janitor"]),
+          h.span([h.Class("truncate text-caption text-ink-subtle")], ["Repository maintenance"]),
         ],
       ),
     ],
@@ -916,7 +926,7 @@ const repositorySwitcher = (h: HtmlBuilder<Message>, model: Model): Html =>
     // The header's `p-2` and the first group's `p-2` put 16px between this and
     // the nav below it. `Sidebar.menu` only contributes `gap-1` above, so add
     // the missing 12px and the switcher sits evenly between the two.
-    className: "mt-3",
+    className: "mt-2",
     children: [
       h.submodel({
         slotId: "repository-switcher",
@@ -935,8 +945,7 @@ const sidebarMenu = (h: HtmlBuilder<Message>, model: Model): Html =>
         children: [
           Sidebar.menuButton(h, {
             size: "lg",
-            className:
-              "data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
+            className: "border-l-0 px-1.5 hover:bg-transparent",
             children: [brandHeader(h)],
           }),
         ],
@@ -969,9 +978,9 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                             h.Class(
                               cn(
                                 Sidebar.sidebarMenuButtonClass,
-                                "h-9 gap-2.5 px-3 text-muted-foreground hover:text-sidebar-foreground",
+                                navLinkClass,
                                 Routes.section(model.navigation.route) === section &&
-                                  "bg-sidebar-accent font-semibold text-sidebar-foreground",
+                                  navLinkActiveClass,
                               ),
                             ),
                             h.AriaCurrent(
@@ -991,7 +1000,7 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                                 Activity,
                                 Settings,
                               }[section],
-                              "size-4 shrink-0",
+                              "size-3.5 shrink-0 text-ink-subtle",
                             ),
                             h.span([], [section]),
                           ],
@@ -1019,12 +1028,13 @@ const teamNav = (h: HtmlBuilder<Message>, model: Model): Html =>
                   h.Class(
                     cn(
                       Sidebar.sidebarMenuButtonClass,
-                      isSessionsRoute(model.navigation.route) && "bg-sidebar-accent font-medium",
+                      navLinkClass,
+                      isSessionsRoute(model.navigation.route) && navLinkActiveClass,
                     ),
                   ),
                   h.AriaCurrent(isSessionsRoute(model.navigation.route) ? "page" : "false"),
                 ],
-                [Icon.view(h, Bot, "size-4 shrink-0"), h.span([], ["Sessions"])],
+                [Icon.view(h, Bot, "size-3.5 shrink-0 text-ink-subtle"), h.span([], ["Sessions"])],
               ),
             ],
           }),
@@ -1044,12 +1054,13 @@ const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
               h.Class(
                 cn(
                   Sidebar.sidebarMenuButtonClass,
-                  isAccountRoute(model.navigation.route) && "bg-sidebar-accent font-semibold",
+                  navLinkClass,
+                  isAccountRoute(model.navigation.route) && navLinkActiveClass,
                 ),
               ),
               h.AriaCurrent(isAccountRoute(model.navigation.route) ? "page" : "false"),
             ],
-            [Icon.view(h, UserRound, "size-4 shrink-0"), h.span([], ["Account"])],
+            [Icon.view(h, UserRound, "size-3.5 shrink-0 text-ink-subtle"), h.span([], ["Account"])],
           ),
         ],
       }),
@@ -1074,14 +1085,10 @@ const repositorySyncDisabled = (model: Model): boolean =>
 
 const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.header(
-    [
-      h.Class(
-        "flex h-12 shrink-0 items-center gap-2 border-b-2 border-outline bg-card transition-[width,height] ease-linear",
-      ),
-    ],
+    [h.Class("flex h-app-bar shrink-0 items-center gap-2 border-b border-border bg-card")],
     [
       h.div(
-        [h.Class("w-full flex justify-between px-4 lg:px-6")],
+        [h.Class("flex w-full justify-between px-3.5")],
         [
           h.div(
             [h.Class("flex items-center gap-1 lg:gap-2")],
@@ -1093,7 +1100,7 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                 ],
               }),
               h.span(
-                [h.Class("text-body-sm font-semibold")],
+                [h.Class("text-body-md font-semibold")],
                 [
                   model.navigation.route._tag === "Connect" ||
                   model.navigation.route._tag === "ConnectReturn"
@@ -1104,9 +1111,11 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                         ? "Sessions"
                         : model.navigation.route._tag === "Home"
                           ? "Repositories"
-                          : model.navigation.route._tag === "NotFound"
-                            ? "Page not found"
-                            : Routes.section(model.navigation.route),
+                          : model.navigation.route._tag === "DesignSystem"
+                            ? "Design system"
+                            : model.navigation.route._tag === "NotFound"
+                              ? "Page not found"
+                              : Routes.section(model.navigation.route),
                 ],
               ),
             ],
@@ -1119,7 +1128,7 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
               (model.live.status === "disconnected" || model.live.status === "denied")
                 ? h.button(
                     [
-                      h.Class("text-xs text-muted-foreground mr-2 underline"),
+                      h.Class("mr-2 text-body-sm text-primary hover:underline"),
                       h.OnClick(Message.GotLiveMessage({ message: Live.Message.Retry() })),
                     ],
                     [
@@ -1157,18 +1166,16 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
 const toastEntry = (h: HtmlBuilder<Message>, payload: ToastPayload, variant: Toast.Variant): Html =>
   h.div(
     [
-      h.Class(
-        cn(
-          "pointer-events-auto w-80 jn-mount bg-card px-4 py-3 text-sm",
-          variant === "Error" && "border-rust",
-          variant === "Warning" && "border-yellow-safety-dark",
-          variant === "Success" && "border-cobalt",
-        ),
-      ),
+      h.Class(cn(Overlay.toastClass, variant === "Error" && "border-destructive")),
+      h.DataAttribute("slot", "toast"),
+      h.DataAttribute("variant", variant.toLowerCase()),
     ],
     [
-      h.div([h.Class("font-medium")], [payload.title]),
-      h.div([h.Class("text-muted-foreground")], [payload.description]),
+      h.div(
+        [h.Class(cn(Overlay.toastTitleClass, variant === "Error" && "text-destructive"))],
+        [payload.title],
+      ),
+      h.div([h.Class(Overlay.toastDescriptionClass)], [payload.description]),
     ],
   )
 
@@ -1227,18 +1234,19 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const repositories = Option.getOrElse(model.workspace.repositories, () => [])
   if (isAccountRoute(route)) return accountView(h, model)
   if (isSessionsRoute(route)) return sessionsView(h, model)
+  if (route._tag === "DesignSystem") return DesignSystem.view(h, { noop: Message.NoOp() })
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")
     return h.div(
-      [h.Class("p-6 space-y-3")],
+      [h.Class("flex flex-col items-start gap-2 p-4 lg:p-5")],
       [
-        h.h1([h.Class("text-lg font-semibold")], ["Page not found"]),
+        h.h1([], ["Page not found"]),
         h.p(
-          [h.Class("text-sm text-muted-foreground")],
+          [h.Class("text-body-sm text-ink-muted")],
           ["This address does not match a page in The Janitor."],
         ),
-        h.a([h.Href(Routes.home()), h.Class("text-sm underline")], ["Choose a repository"]),
+        h.a([h.Href(Routes.home()), h.Class("text-body-sm")], ["Choose a repository"]),
       ],
     )
   if (
@@ -1248,19 +1256,23 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     Option.isNone(model.workspace.repositoriesError)
   )
     return h.div(
-      [h.Class("policy-empty")],
+      [h.Class("flex flex-col items-start gap-3 p-4 lg:p-5")],
       [
-        Icon.view(h, FileCode2, "size-10 text-muted-foreground"),
-        h.h1([h.Class("text-xl font-semibold")], ["Connect your first repository"]),
+        h.h1([], ["Connect your first repository"]),
         h.p(
-          [h.Class("text-sm text-muted-foreground max-w-sm")],
+          [h.Class("text-body-sm text-ink-muted")],
           ["Connect a GitHub repository to start building and testing your labeling policies."],
         ),
         h.a(
           [
             h.Href(Routes.connect()),
             h.Class(
-              "rounded-sm border-[2.5px] border-outline bg-primary text-primary-foreground px-4 py-2 text-button font-bold shadow-edge",
+              cn(
+                buttonBase,
+                "inline-flex items-center justify-center whitespace-nowrap no-underline hover:no-underline",
+                buttonVariants.default,
+                buttonSizes.default,
+              ),
             ),
           ],
           ["Connect repository"],
@@ -1269,22 +1281,28 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     )
   if (route._tag === "Home")
     return h.div(
-      [h.Class("p-6 space-y-3")],
+      [h.Class("flex flex-col items-start gap-3 p-4 lg:p-5")],
       [
-        h.h1([h.Class("text-lg font-semibold")], ["Choose a repository"]),
+        h.h1([], ["Choose a repository"]),
         Option.isSome(model.workspace.repositoriesError)
-          ? h.p([h.Role("alert")], [model.workspace.repositoriesError.value])
+          ? h.p(
+              [h.Role("alert"), h.Class("text-body-sm text-destructive")],
+              [model.workspace.repositoriesError.value],
+            )
           : Option.isNone(model.workspace.repositories)
-            ? h.p([h.Role("status")], ["Loading repositories…"])
+            ? h.p(
+                [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+                ["Loading repositories…"],
+              )
             : h.div(
-                [h.Class("flex flex-col items-start gap-2")],
+                [h.Class("flex flex-col items-start gap-1")],
                 repositories
                   .filter((repo) => repo.access === "accessible")
                   .map((repo) =>
                     h.a(
                       [
                         h.Href(Routes.repositoryHome({ repositoryId: repo.repositoryId })),
-                        h.Class("text-sm underline"),
+                        h.Class("font-mono text-mono-md"),
                       ],
                       [`${repo.owner}/${repo.repo}`],
                     ),
@@ -1293,7 +1311,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
         Option.isSome(model.workspace.repositories) &&
         !repositories.some((repo) => repo.access === "accessible")
           ? h.p(
-              [h.Class("text-sm text-muted-foreground")],
+              [h.Class("text-body-sm text-ink-muted")],
               ["No accessible repositories are available."],
             )
           : h.empty,
@@ -1306,10 +1324,10 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     )
   )
     return h.div(
-      [h.Class("p-6 space-y-3")],
+      [h.Class("flex flex-col items-start gap-2 p-4 lg:p-5")],
       [
         h.p(
-          [h.Role("alert")],
+          [h.Role("alert"), h.Class("text-body-md")],
           [
             Option.isSome(model.connections.inventory) &&
             model.connections.inventory.value.repositories.some(
@@ -1319,8 +1337,8 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
               : "This repository is unavailable or you no longer have access.",
           ],
         ),
-        h.a([h.Href(Routes.home()), h.Class("text-sm underline")], ["Choose a repository"]),
-        h.a([h.Href(Routes.connect()), h.Class("text-sm underline")], ["Connect or repair access"]),
+        h.a([h.Href(Routes.home()), h.Class("text-body-sm")], ["Choose a repository"]),
+        h.a([h.Href(Routes.connect()), h.Class("text-body-sm")], ["Connect or repair access"]),
         connectionView(h, model, route.repositoryId),
       ],
     )
@@ -1332,12 +1350,15 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
   })
   return route._tag === "Settings"
-    ? h.div([h.Class("space-y-4 p-4")], [connectionView(h, model, route.repositoryId), content])
+    ? h.div(
+        [h.Class("flex flex-col gap-4 p-4 lg:p-5")],
+        [connectionView(h, model, route.repositoryId), content],
+      )
     : content
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isSessionsRoute(model.navigation.route) ? "Sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
+  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isSessionsRoute(model.navigation.route) ? "Sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "DesignSystem" ? "Design system" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

@@ -30,6 +30,7 @@ export const AppRoute = Route.defineRouteUnion({
   Settings: repository,
   Sessions: {},
   Session: { sessionId: Schema.String },
+  DesignSystem: {},
   Account: { section: AccountSection },
   AccountReturn: {
     platform: Schema.String,
@@ -111,6 +112,8 @@ export const settings = pipe(
   Route.mapTo(AppRoute.Settings),
 )
 export const sessions = pipe(Route.literal("sessions"), Route.mapTo(AppRoute.Sessions))
+/** Every primitive in every state, in both themes. A deliverable, not a page users visit. */
+export const designSystem = pipe(Route.literal("design-system"), Route.mapTo(AppRoute.DesignSystem))
 export const session = pipe(
   Route.literal("sessions"),
   Route.slash(idSegment("sessionId")),
@@ -172,6 +175,7 @@ export const parse = Route.parseUrlWithFallback(
     settings,
     session,
     sessions,
+    designSystem,
     accountReturn,
     account,
   ),
@@ -193,6 +197,7 @@ export const path = (route: AppRoute): string =>
     Settings: settings,
     Sessions: sessions,
     Session: session,
+    DesignSystem: designSystem,
     Account: account,
     AccountReturn: accountReturn,
     NotFound: ({ path }) => path,

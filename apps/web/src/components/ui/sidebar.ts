@@ -27,7 +27,7 @@ import { PanelLeft } from "lucide"
 
 export const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
-export const SIDEBAR_WIDTH = "16rem"
+export const SIDEBAR_WIDTH = "var(--spacing-sidebar)"
 
 export const SIDEBAR_WIDTH_MOBILE = "18rem"
 
@@ -219,27 +219,26 @@ export const sidebarProviderClass =
 export const sidebarShellClass = "group peer hidden text-sidebar-foreground md:block"
 
 export const sidebarMobilePanelClass =
-  "bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden [--sidebar-width:18rem] w-(--sidebar-width)"
+  "bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden w-72"
 
 export const sidebarContainerClass =
-  "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex"
+  "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-120 ease-ui data-[side=left]:left-0 data-[side=right]:right-0 md:flex"
 
 export const sidebarInnerContainerClass =
-  "bg-sidebar group-data-[variant=floating]:ring-sidebar-border group-data-[variant=floating]:rounded-md group-data-[variant=floating]:shadow-mount group-data-[variant=floating]:ring-2 flex size-full flex-col"
+  "bg-sidebar group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:rounded-sm flex size-full flex-col"
 
 export const sidebarContainerVariantClass = {
   docked:
-    "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r-2 group-data-[side=right]:border-l-2 border-sidebar-border",
-  padded:
-    "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]",
+    "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l border-sidebar-border",
+  padded: "p-2",
 } as const satisfies Record<Padding, string>
 
 export const sidebarGapClass =
-  "transition-[width] duration-200 ease-linear relative w-(--sidebar-width) bg-transparent group-data-[collapsible=offcanvas]:w-0 group-data-[side=right]:rotate-180"
+  "transition-[width] duration-120 ease-ui relative w-(--sidebar-width) bg-transparent group-data-[collapsible=offcanvas]:w-0 group-data-[side=right]:rotate-180"
 
 export const sidebarIconWidthClass = {
   docked: "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
-  padded: "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]",
+  padded: "",
 } as const satisfies Record<Padding, string>
 
 export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h) => {
@@ -348,12 +347,14 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
         [
           h.div([
             h.DataAttribute("slot", "sidebar-gap"),
+            h.DataAttribute("padding", padding),
             h.Class(cn(sidebarGapClass, sidebarIconWidthClass[padding])),
           ]),
           h.div(
             [
               h.DataAttribute("slot", "sidebar-container"),
               h.DataAttribute("side", side),
+              h.DataAttribute("padding", padding),
               h.Class(
                 cn(
                   sidebarContainerClass,
@@ -454,7 +455,7 @@ export type GroupLabelConfig = StyleConfig & {
 }
 
 export const sidebarGroupLabelClass =
-  "text-muted-foreground ring-sidebar-ring h-8 rounded-sm px-2 font-mono text-mono-sm font-semibold transition-[margin,opacity] duration-200 ease-linear group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 focus-visible:ring-2 [&>svg]:size-4 flex shrink-0 items-center outline-hidden [&>svg]:shrink-0"
+  "text-muted-foreground ring-sidebar-ring h-6 rounded-none px-2 text-caption font-medium transition-[margin,opacity] duration-120 ease-ui group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 focus-visible:ring-2 [&>svg]:size-4 flex shrink-0 items-center [&>svg]:shrink-0"
 
 export const groupLabel = <M>(h: HtmlBuilder<M>, config: GroupLabelConfig): Html =>
   h.div(
@@ -472,7 +473,7 @@ export type GroupActionConfig<M> = StyleConfig & {
 }
 
 export const sidebarGroupActionClass =
-  "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground absolute top-3.5 right-3 w-5 rounded-md p-0 focus-visible:ring-2 [&>svg]:size-4 flex aspect-square items-center justify-center outline-hidden transition-transform group-data-[collapsible=icon]:hidden after:absolute after:-inset-2 md:after:hidden [&>svg]:shrink-0"
+  "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground absolute top-3.5 right-3 w-5 rounded-sm p-0 focus-visible:ring-2 [&>svg]:size-3.5 flex aspect-square items-center justify-center group-data-[collapsible=icon]:hidden after:absolute after:-inset-2 md:after:hidden [&>svg]:shrink-0"
 
 export const groupAction = <M>(h: HtmlBuilder<M>, config: GroupActionConfig<M>): Html =>
   h.button(
@@ -490,7 +491,7 @@ export type GroupContentConfig = StyleConfig & {
   readonly children: ReadonlyArray<Child>
 }
 
-export const sidebarGroupContentClass = "w-full text-sm"
+export const sidebarGroupContentClass = "w-full text-body-sm"
 
 export const groupContent = <M>(h: HtmlBuilder<M>, config: GroupContentConfig): Html =>
   h.div(
@@ -506,7 +507,7 @@ export type MenuConfig = StyleConfig & {
   readonly children: ReadonlyArray<Child>
 }
 
-export const sidebarMenuClass = "flex w-full min-w-0 flex-col gap-1"
+export const sidebarMenuClass = "flex w-full min-w-0 flex-col gap-0.5"
 
 export const menu = <M>(h: HtmlBuilder<M>, config: MenuConfig): Html =>
   h.div(
@@ -547,18 +548,17 @@ export type MenuButtonConfig<M> = StyleConfig & {
 }
 
 export const sidebarMenuButtonClass =
-  "ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground gap-2 rounded-sm p-2 text-left text-sm font-medium transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 data-active:font-semibold peer/menu-button group/menu-button flex w-full items-center overflow-hidden outline-hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate cursor-pointer"
+  "ring-sidebar-ring hover:bg-surface-muted active:bg-sidebar-accent data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground data-active:border-primary data-open:hover:bg-surface-muted gap-2 rounded-none border-l-2 border-transparent px-2 text-left text-body-sm font-normal transition-colors duration-120 ease-ui group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-7! group-data-[collapsible=icon]:p-1.5! focus-visible:ring-2 data-active:font-semibold peer/menu-button group/menu-button flex w-full items-center overflow-hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0 [&>span:last-child]:truncate cursor-pointer"
 
 export const sidebarMenuButtonVariantClass = {
-  default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-  outline:
-    "bg-background hover:bg-sidebar-accent hover:text-sidebar-accent-foreground shadow-[0_0_0_2px_var(--sidebar-border)]",
+  default: "",
+  outline: "border border-sidebar-border bg-card rounded-sm",
 } as const satisfies Record<MenuButtonVariant, string>
 
 export const sidebarMenuButtonSizeClass = {
-  default: "h-8 text-sm",
-  sm: "h-7 text-xs",
-  lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
+  default: "h-6.5 text-body-sm",
+  sm: "h-6 text-caption",
+  lg: "h-10 text-body-sm group-data-[collapsible=icon]:p-0!",
 } as const satisfies Record<MenuButtonSize, string>
 
 export const menuButton = <M>(h: HtmlBuilder<M>, config: MenuButtonConfig<M>): Html => {
@@ -592,7 +592,7 @@ export type MenuActionConfig<M> = StyleConfig & {
 }
 
 export const sidebarMenuActionClass =
-  "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer-hover/menu-button:text-sidebar-accent-foreground absolute top-1.5 right-1 aspect-square w-5 rounded-sm p-0 peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-1 focus-visible:ring-2 [&>svg]:size-4 flex items-center justify-center outline-hidden transition-transform group-data-[collapsible=icon]:hidden after:absolute after:-inset-2 md:after:hidden [&>svg]:shrink-0"
+  "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer-hover/menu-button:text-sidebar-accent-foreground absolute top-1 right-1 aspect-square w-5 rounded-sm p-0 peer-data-[size=default]/menu-button:top-1 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-0.5 focus-visible:ring-2 [&>svg]:size-3.5 flex items-center justify-center group-data-[collapsible=icon]:hidden after:absolute after:-inset-2 md:after:hidden [&>svg]:shrink-0"
 
 export const sidebarMenuActionShowOnHoverClass =
   "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 peer-data-active/menu-button:text-sidebar-accent-foreground aria-expanded:opacity-100 md:opacity-0"
@@ -620,7 +620,7 @@ export type MenuBadgeConfig = StyleConfig & {
 }
 
 export const sidebarMenuBadgeClass =
-  "text-sidebar-foreground peer-hover/menu-button:text-sidebar-accent-foreground peer-data-active/menu-button:text-sidebar-accent-foreground pointer-events-none absolute right-1 h-5 min-w-5 rounded-full px-1 font-mono text-mono-sm font-semibold peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-1 flex items-center justify-center tabular-nums select-none group-data-[collapsible=icon]:hidden"
+  "text-ink-subtle pointer-events-none absolute right-2 h-5 min-w-5 px-0.5 font-mono text-mono-xs font-medium peer-data-[size=default]/menu-button:top-0.75 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-0.5 flex items-center justify-end tabular-nums select-none group-data-[collapsible=icon]:hidden"
 
 export const menuBadge = <M>(h: HtmlBuilder<M>, config: MenuBadgeConfig): Html =>
   h.div(
@@ -636,29 +636,27 @@ export type MenuSkeletonConfig = StyleConfig & {
   readonly showIcon?: boolean
 }
 
-export const sidebarMenuSkeletonClass = "h-8 gap-2 rounded-sm px-2 flex items-center"
+export const sidebarMenuSkeletonClass = "h-6.5 gap-2 px-2 flex items-center"
 
 export const menuSkeleton = <M>(h: HtmlBuilder<M>, config: MenuSkeletonConfig): Html => {
-  const width = `${Math.floor(Math.random() * 40) + 50}%`
   return h.div(
     [
       h.DataAttribute("slot", "sidebar-menu-skeleton"),
       h.DataAttribute("sidebar", "menu-skeleton"),
       h.Class(cn(sidebarMenuSkeletonClass, config.className)),
-      h.Style({ "--skeleton-width": width }),
     ],
     [
       ...(config.showIcon === true
         ? [
             h.div([
               h.DataAttribute("sidebar", "menu-skeleton-icon"),
-              h.Class(cn(skeletonClass, "size-4 rounded-xs")),
+              h.Class(cn(skeletonClass, "size-3.5")),
             ]),
           ]
         : []),
       h.div([
         h.DataAttribute("sidebar", "menu-skeleton-text"),
-        h.Class(cn(skeletonClass, "h-4 max-w-(--skeleton-width) flex-1")),
+        h.Class(cn(skeletonClass, "h-3 w-2/3")),
       ]),
     ],
   )
@@ -669,7 +667,7 @@ export type MenuSubConfig = StyleConfig & {
 }
 
 export const sidebarMenuSubClass =
-  "border-sidebar-border mx-3.5 translate-x-px gap-1 border-l px-2.5 py-0.5 group-data-[collapsible=icon]:hidden flex min-w-0 flex-col"
+  "border-border-subtle mx-3.5 translate-x-px gap-0.5 border-l px-2.5 py-0.5 group-data-[collapsible=icon]:hidden flex min-w-0 flex-col"
 
 export const menuSub = <M>(h: HtmlBuilder<M>, config: MenuSubConfig): Html =>
   h.ul(
@@ -705,7 +703,7 @@ export type MenuSubButtonConfig<M> = StyleConfig & {
 }
 
 export const sidebarMenuSubButtonClass =
-  "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground [&>svg]:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground h-7 gap-2 rounded-sm px-2 focus-visible:ring-2 data-[size=md]:text-sm data-[size=sm]:text-xs [&>svg]:size-4 flex min-w-0 -translate-x-px items-center overflow-hidden outline-hidden group-data-[collapsible=icon]:hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:shrink-0"
+  "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground [&>svg]:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground h-6.5 gap-2 rounded-none px-2 focus-visible:ring-2 data-[size=md]:text-body-sm data-[size=sm]:text-caption [&>svg]:size-3.5 flex min-w-0 -translate-x-px items-center overflow-hidden group-data-[collapsible=icon]:hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:shrink-0"
 
 export const menuSubButton = <M>(h: HtmlBuilder<M>, config: MenuSubButtonConfig<M>): Html => {
   const size = config.size ?? "md"
@@ -731,12 +729,12 @@ export const input = <M>(h: HtmlBuilder<M>, config: InputConfig<M>): Html =>
     ...config.attributes,
     h.DataAttribute("slot", "sidebar-input"),
     h.DataAttribute("sidebar", "input"),
-    h.Class(cn(inputClass, "bg-background h-8 w-full shadow-none", config.className)),
+    h.Class(cn(inputClass, "h-7 w-full", config.className)),
   ])
 
 export type SeparatorConfig = StyleConfig
 
-export const sidebarSeparatorClass = "mx-2 h-px w-auto shrink-0 bg-sidebar-border"
+export const sidebarSeparatorClass = "mx-2 h-px w-auto shrink-0 bg-border-subtle"
 
 export const separator = <M>(h: HtmlBuilder<M>, config: SeparatorConfig): Html =>
   h.div([
@@ -750,7 +748,7 @@ export type RailConfig<M> = StyleConfig & {
 }
 
 export const sidebarRailClass =
-  "hover:after:bg-sidebar-border absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2 in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize [[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar [[data-side=left][data-collapsible=offcanvas]_&]:-right-2 [[data-side=right][data-collapsible=offcanvas]_&]:-left-2"
+  "hover:after:bg-sidebar-border absolute inset-y-0 z-20 hidden w-4 group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-0.5 sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2 in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize [[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar [[data-side=left][data-collapsible=offcanvas]_&]:-right-2 [[data-side=right][data-collapsible=offcanvas]_&]:-left-2"
 
 export const rail = <M>(h: HtmlBuilder<M>, config: RailConfig<M>): Html =>
   h.button([
@@ -769,7 +767,7 @@ export type TriggerConfig<M> = StyleConfig & {
 }
 
 export const sidebarTriggerClass =
-  "inline-flex size-7 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-sm border-2 border-outline bg-card text-card-foreground text-sm font-medium cursor-pointer outline-none transition-colors hover:bg-popover disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+  "inline-flex size-7 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-sm border border-border bg-card text-foreground text-label font-medium cursor-pointer transition-colors duration-120 ease-ui hover:bg-surface-muted disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
 
 export const trigger = <M>(h: HtmlBuilder<M>, config: TriggerConfig<M>): Html =>
   h.button(
@@ -788,7 +786,7 @@ export type InsetConfig = StyleConfig & {
 }
 
 export const sidebarInsetClass =
-  "bg-transparent md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-md md:peer-data-[variant=inset]:shadow-mount md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2 relative flex w-full flex-1 flex-col"
+  "bg-transparent md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-sm md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-border md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2 relative flex w-full flex-1 flex-col"
 
 export const inset = <M>(h: HtmlBuilder<M>, config: InsetConfig): Html =>
   h.main(

@@ -1,675 +1,709 @@
 ---
 version: alpha
-name: Utility Room
+name: Ops Console
 description: >-
   The visual identity for The Janitor — a control plane for GitHub auto-labeling
-  rules and agent-assisted pull requests. Painted-cinderblock surfaces, enamel
-  signage, and physical switchgear. Cobalt and safety yellow on cream, outlined
-  in navy.
+  rules and agent-assisted pull requests. A dense, neutral operations console
+  with a schematic blueprint canvas for rule graphs. Blue means interactive.
+  Yellow means the agent did it. Nothing else is colored.
 
 colors:
   primary: "#1E5FD0"
   primary-hover: "#174CA8"
-  primary-light: "#4A8AF0"
-  on-primary: "#FFFBF0"
+  primary-wash: "#EDF3FD"
+  primary-line: "#B9CDF0"
+  on-primary: "#FFFFFF"
 
-  secondary: "#12225C"
-  secondary-hover: "#0B1436"
-  on-secondary: "#F6EFDD"
+  agent: "#FFCE1B"
+  agent-ink: "#8A6A05"
+  agent-wash: "#FFF8E0"
+  agent-line: "#F0DFA0"
+  on-agent: "#1B2027"
 
-  tertiary: "#FFCE1B"
-  tertiary-hover: "#E0A800"
-  on-tertiary: "#12225C"
+  canvas: "#F4F6F8"
+  surface: "#FFFFFF"
+  surface-muted: "#FAFBFC"
 
-  neutral: "#DDD8C9"
-  neutral-dim: "#C7C1B0"
+  foreground: "#1B2027"
+  foreground-muted: "#59606B"
+  foreground-subtle: "#6C747F"
+  foreground-faint: "#A8AFB9"
 
-  surface: "#F6EFDD"
-  surface-raised: "#FFFBF0"
-  surface-inset: "#0A1233"
-  surface-panel: "#0E1B4A"
-  surface-board: "#B9AE93"
-  on-surface: "#12225C"
-  on-surface-muted: "#4A5478"
-  on-panel-muted: "#9DAAD0"
+  border: "#D6DBE1"
+  border-subtle: "#E8EBEF"
+  wire: "#A9BCDC"
+  grid-line: "rgb(30 95 208 / 0.055)"
 
+  success: "#1A7F37"
+  on-success: "#FFFFFF"
   danger: "#B23A2B"
   danger-hover: "#8E2C20"
-  on-danger: "#FFFBF0"
-
-  metal: "#8E97AE"
-  metal-dark: "#4C5570"
+  on-danger: "#FFFFFF"
 
 typography:
-  display:
-    fontFamily: Big Shoulders Display
-    fontSize: 2.75rem
-    fontWeight: 800
-    lineHeight: 1
-    letterSpacing: 0.01em
-  sign:
-    fontFamily: Big Shoulders Display
-    fontSize: 1.5625rem
-    fontWeight: 700
-    lineHeight: 1.1
-    letterSpacing: 0.09em
-  stamp:
-    fontFamily: Big Shoulders Display
-    fontSize: 2.125rem
-    fontWeight: 800
-    lineHeight: 1.15
-    letterSpacing: 0.09em
-  h2:
-    fontFamily: Archivo
-    fontSize: 1.25rem
-    fontWeight: 700
+  h1:
+    fontFamily: Inter
+    fontSize: 1.125rem
+    fontWeight: 600
     lineHeight: 1.3
-    letterSpacing: -0.005em
-  h3:
-    fontFamily: Archivo
-    fontSize: 1rem
+    letterSpacing: -0.01em
+  h2:
+    fontFamily: Inter
+    fontSize: 0.875rem
     fontWeight: 600
     lineHeight: 1.35
+  h3:
+    fontFamily: Inter
+    fontSize: 0.8125rem
+    fontWeight: 600
+    lineHeight: 1.4
   body-md:
-    fontFamily: Archivo
-    fontSize: 0.9375rem
-    fontWeight: 400
-    lineHeight: 1.5
-  body-sm:
-    fontFamily: Archivo
+    fontFamily: Inter
     fontSize: 0.8125rem
     fontWeight: 400
     lineHeight: 1.45
+  body-sm:
+    fontFamily: Inter
+    fontSize: 0.75rem
+    fontWeight: 400
+    lineHeight: 1.4
   label:
-    fontFamily: Archivo
-    fontSize: 0.90625rem
-    fontWeight: 600
+    fontFamily: Inter
+    fontSize: 0.78125rem
+    fontWeight: 500
     lineHeight: 1.4
   button:
-    fontFamily: Archivo
-    fontSize: 0.875rem
-    fontWeight: 700
+    fontFamily: Inter
+    fontSize: 0.78125rem
+    fontWeight: 500
     lineHeight: 1.2
-  numeral:
-    fontFamily: Spline Sans Mono
-    fontSize: 1.6875rem
-    fontWeight: 600
-    lineHeight: 1.1
+  caption:
+    fontFamily: Inter
+    fontSize: 0.6875rem
+    fontWeight: 500
+    lineHeight: 1.35
   mono-md:
-    fontFamily: Spline Sans Mono
-    fontSize: 0.90625rem
-    fontWeight: 600
+    fontFamily: JetBrains Mono
+    fontSize: 0.78125rem
+    fontWeight: 400
     lineHeight: 1.4
   mono-sm:
-    fontFamily: Spline Sans Mono
-    fontSize: 0.6875rem
-    fontWeight: 600
+    fontFamily: JetBrains Mono
+    fontSize: 0.71875rem
+    fontWeight: 400
+    lineHeight: 1.35
+  mono-xs:
+    fontFamily: JetBrains Mono
+    fontSize: 0.65625rem
+    fontWeight: 500
     lineHeight: 1.3
-    letterSpacing: 0.02em
+    letterSpacing: 0.01em
+  numeral:
+    fontFamily: JetBrains Mono
+    fontSize: 0.71875rem
+    fontWeight: 500
+    lineHeight: 1.3
+    fontFeature: "tnum"
 
 rounded:
   none: 0px
   xs: 3px
-  sm: 4px
-  md: 6px
-  lg: 14px
+  sm: 5px
+  md: 8px
   full: 9999px
 
 spacing:
   xs: 4px
-  sm: 8px
-  md: 12px
-  lg: 18px
-  xl: 26px
-  2xl: 40px
-  3xl: 64px
+  sm: 6px
+  md: 8px
+  lg: 12px
+  xl: 16px
+  2xl: 24px
+  3xl: 40px
 
 components:
-  top-rail:
-    backgroundColor: "{colors.secondary}"
-    textColor: "{colors.on-secondary}"
-    height: 62px
-    padding: 22px
+  app-bar:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+    height: 46px
+    padding: 14px
+  sidebar:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+    width: 216px
+    padding: 12px
+  sidebar-item:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.body-sm}"
+    padding: 14px
+    height: 26px
+  sidebar-item-active:
+    backgroundColor: "{colors.primary-wash}"
+    textColor: "{colors.foreground}"
+  sidebar-section-label:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground-subtle}"
+    typography: "{typography.caption}"
+
+  page-title:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.h1}"
+  page-lede:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.foreground-muted}"
+    typography: "{typography.body-sm}"
+
+  tab:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.foreground-muted}"
+    typography: "{typography.body-md}"
+    padding: 11px
+  tab-active:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.foreground}"
 
   button-primary:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-tertiary}"
-    typography: "{typography.button}"
-    rounded: "{rounded.sm}"
-    padding: 17px
-  button-primary-hover:
-    backgroundColor: "{colors.tertiary-hover}"
-    textColor: "{colors.on-tertiary}"
-  button-secondary:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.button}"
-    rounded: "{rounded.sm}"
-    padding: 17px
-  button-secondary-hover:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.on-surface}"
-  button-danger:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.danger}"
-    typography: "{typography.button}"
-    rounded: "{rounded.sm}"
-    padding: 17px
-  button-danger-hover:
-    backgroundColor: "{colors.danger}"
-    textColor: "{colors.on-danger}"
-  button-link:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.primary-hover}"
-    typography: "{typography.button}"
-
-  sign-plate:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.on-primary}"
-    typography: "{typography.sign}"
-    rounded: "{rounded.md}"
-    padding: 20px
-
-  panel:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.body-md}"
-    rounded: "{rounded.md}"
-    padding: 18px
-
-  time-card:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.display}"
-    rounded: "{rounded.md}"
-    padding: 26px
-  time-card-stamp:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.danger}"
-    typography: "{typography.stamp}"
-    rounded: "{rounded.sm}"
-    padding: 14px
-
-  breaker-panel:
-    backgroundColor: "{colors.surface-panel}"
-    textColor: "{colors.on-secondary}"
-    rounded: "{rounded.md}"
-    padding: 22px
-  breaker-caption:
-    backgroundColor: "{colors.surface-panel}"
-    textColor: "{colors.on-panel-muted}"
-    typography: "{typography.body-sm}"
-  breaker-tape:
-    backgroundColor: "{colors.surface-panel}"
-    textColor: "{colors.tertiary}"
-    typography: "{typography.mono-sm}"
-    rounded: "{rounded.xs}"
-    padding: 7px
-
-  switch-off:
-    backgroundColor: "{colors.surface-inset}"
-    textColor: "{colors.metal}"
-    typography: "{typography.mono-sm}"
-    rounded: "{rounded.sm}"
-    width: 70px
-    height: 36px
-  switch-on:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-tertiary}"
-  switch-knob:
-    backgroundColor: "{colors.surface-raised}"
-    rounded: "{rounded.xs}"
-    width: 32px
-    height: 26px
-
-  clipboard:
-    backgroundColor: "{colors.surface-board}"
-    rounded: "{rounded.md}"
-    padding: 18px
-  clipboard-clip:
-    backgroundColor: "{colors.metal}"
-    rounded: "{rounded.sm}"
-    width: 110px
-    height: 24px
-  clipboard-sheet:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.body-md}"
-    rounded: "{rounded.xs}"
-    padding: 20px
-
-  hook-tag:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.label}"
-    rounded: "{rounded.lg}"
-    padding: 12px
-  hook-tag-active:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-tertiary}"
-  hook-tag-danger:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.danger}"
-  hook-rail:
-    backgroundColor: "{colors.metal-dark}"
-    height: 14px
-    rounded: "{rounded.xs}"
-
-  chip:
-    backgroundColor: "{colors.neutral}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.mono-sm}"
-    rounded: "{rounded.full}"
-    padding: 9px
-  chip-active:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-tertiary}"
-
-  input:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.body-md}"
+    typography: "{typography.button}"
     rounded: "{rounded.sm}"
     padding: 11px
-  input-focus:
-    backgroundColor: "{colors.surface-raised}"
-    textColor: "{colors.on-surface}"
-  checkbox:
+    height: 28px
+  button-primary-hover:
+    backgroundColor: "{colors.primary-hover}"
+    textColor: "{colors.on-primary}"
+  button-default:
     backgroundColor: "{colors.surface}"
-    rounded: "{rounded.xs}"
-    size: 22px
-  checkbox-checked:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-tertiary}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.button}"
+    rounded: "{rounded.sm}"
+    padding: 11px
+    height: 28px
+  button-default-hover:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.foreground}"
+  button-danger:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.on-danger}"
+    typography: "{typography.button}"
+    rounded: "{rounded.sm}"
+  button-danger-hover:
+    backgroundColor: "{colors.danger-hover}"
+    textColor: "{colors.on-danger}"
 
-  data-row:
+  card:
     backgroundColor: "{colors.surface}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.mono-md}"
-    padding: 18px
-  data-row-meta:
+    textColor: "{colors.foreground}"
+    rounded: "{rounded.sm}"
+  card-header:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.h3}"
+    padding: 12px
+
+  table-header:
     backgroundColor: "{colors.surface}"
-    textColor: "{colors.on-surface-muted}"
-    typography: "{typography.body-sm}"
-  data-row-empty:
-    backgroundColor: "{colors.neutral-dim}"
-    textColor: "{colors.on-surface}"
+    textColor: "{colors.foreground-subtle}"
+    typography: "{typography.caption}"
+    padding: 12px
+  table-row:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
     typography: "{typography.body-md}"
-    padding: 18px
-
-  save-bar:
+    padding: 12px
+    height: 28px
+  table-row-hover:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.foreground}"
+  table-row-selected:
+    backgroundColor: "{colors.primary-wash}"
+    textColor: "{colors.foreground}"
+  table-cell-code:
     backgroundColor: "{colors.surface}"
-    textColor: "{colors.on-surface}"
-    typography: "{typography.sign}"
-    padding: 22px
+    textColor: "{colors.foreground-muted}"
+    typography: "{typography.mono-sm}"
+  table-cell-numeric:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground-muted}"
+    typography: "{typography.numeral}"
 
+  input:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.sm}"
+    padding: 9px
+    height: 28px
+  input-placeholder:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.foreground-subtle}"
+  switch-off:
+    backgroundColor: "{colors.foreground-faint}"
+    rounded: "{rounded.full}"
+    width: 26px
+    height: 15px
+  switch-on:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+
+  badge:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.foreground-muted}"
+    typography: "{typography.mono-xs}"
+    rounded: "{rounded.xs}"
+    padding: 5px
+  badge-selected:
+    backgroundColor: "{colors.primary-wash}"
+    textColor: "{colors.primary-hover}"
+    rounded: "{rounded.full}"
+  badge-success:
+    backgroundColor: "{colors.success}"
+    textColor: "{colors.on-success}"
+  badge-danger:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.on-danger}"
+
+  agent-badge:
+    backgroundColor: "{colors.agent-wash}"
+    textColor: "{colors.agent-ink}"
+    typography: "{typography.mono-xs}"
+    rounded: "{rounded.xs}"
+    padding: 5px
+  agent-marker:
+    backgroundColor: "{colors.agent}"
+    textColor: "{colors.on-agent}"
+    rounded: "{rounded.full}"
+    size: 7px
+  feed-item:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.body-md}"
+    padding: 12px
+  feed-item-agent:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.agent-ink}"
+    typography: "{typography.label}"
+  feed-timestamp:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground-subtle}"
+    typography: "{typography.mono-xs}"
+
+  canvas:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+  canvas-grid:
+    backgroundColor: "{colors.grid-line}"
+    size: 22px
+  canvas-wire:
+    backgroundColor: "{colors.wire}"
+    size: 1.25px
+  canvas-column-label:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground-subtle}"
+    typography: "{typography.caption}"
+  node:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.mono-sm}"
+    rounded: "{rounded.xs}"
+    padding: 9px
+  node-hover:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.primary-line}"
+  node-selected:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.primary}"
+  node-agent:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.agent}"
+  node-kind:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground-subtle}"
+    typography: "{typography.caption}"
+  junction-chip:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground-muted}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.full}"
+    padding: 7px
+  annotation:
+    backgroundColor: "{colors.agent-wash}"
+    textColor: "{colors.agent-ink}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.xs}"
+    padding: 9px
+  annotation-leader:
+    backgroundColor: "{colors.agent-line}"
+
+  inspector:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+    width: 292px
+    padding: 14px
+  inspector-key:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground-muted}"
+    typography: "{typography.body-sm}"
+  inspector-value:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.foreground}"
+    typography: "{typography.mono-sm}"
+
+  divider:
+    backgroundColor: "{colors.border}"
+    height: 1px
+  divider-subtle:
+    backgroundColor: "{colors.border-subtle}"
+    height: 1px
   link:
     backgroundColor: "{colors.surface}"
-    textColor: "{colors.primary-hover}"
+    textColor: "{colors.primary}"
     typography: "{typography.body-md}"
   focus-ring:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-tertiary}"
-  agent-marker:
-    backgroundColor: "{colors.primary-light}"
-    textColor: "{colors.secondary-hover}"
-    typography: "{typography.mono-sm}"
-    rounded: "{rounded.full}"
-    padding: 8px
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
 ---
 
 ## Overview
 
-**Utility Room.** The Janitor is a maintenance worker for your repositories, so
-its control plane is built like the room a maintenance worker keeps their tools
-in: painted cinderblock walls, porcelain-enamel signage, a clipboard on a hook,
-and a breaker panel with real switches on it.
+**Ops Console with a Blueprint canvas.** The Janitor is a tool an engineer opens
+when something needs attention, often at the start of the day and often on a
+second monitor next to GitHub. The interface is built to disappear: neutral,
+dense, hairline-ruled, and fast to scan.
 
-The metaphor is load-bearing, not costume. Every physical object in the UI maps
-to something that is genuinely physical in the product's model:
+It has exactly one deliberate exception. Auto-labeling rules and agent-assisted
+pull requests are fundamentally _graphs_ — a trigger, branching conditions, a
+sequence of actions. Those render on a schematic canvas with a faint grid,
+orthogonal connectors, and node boxes, borrowing the vocabulary of a printed
+plan. The shift in register is the point: you can tell at a glance whether you
+are reading a list or reading a diagram.
 
-| Object             | What it holds                                                |
-| ------------------ | ------------------------------------------------------------ |
-| Breaker panel      | Standing permissions — binary, consequential, rarely changed |
-| Clipboard          | Schedules and preferences — a duty roster you fill in        |
-| Enamel sign        | Section boundaries you can find by scanning, not reading     |
-| Hazard stripes     | Destructive actions only                                     |
-| Punch card         | Agent status and recent activity                             |
-| Key tags on a rail | Navigation — things you take down and carry                  |
+Two rules govern everything else.
 
-Three rules keep it from becoming a theme park.
+**Blue means you can interact with it.** Links, buttons, focus rings, selected
+rows, active tabs. Never a heading, never an icon on static content, never a
+decorative fill.
 
-1. **One loud thing per screen.** The breaker panel is the memorable object on
-   Settings. Everything around it is quiet. If a new screen has two candidates
-   for the loud thing, one of them is wrong.
-2. **No decorative props.** No mop cursors, no wet-floor icons, no bucket
-   spinners. A prop earns its place by carrying information.
-3. **Density beats charm past eight rows.** The chunky treatment is for objects
-   you look at. Lists you scan drop to hairlines. See `.jn-dense` in Layout.
+**Yellow means The Janitor did it.** Agent-authored comments, commits the agent
+pushed, runs it performed, prose it wrote. One meaning, no exceptions — which is
+why there is no warning color in this system. Adding one would destroy the
+signal that makes an activity feed readable at a glance.
 
-The audience is a working engineer who opens this app when something needs
-fixing. Charm is the second priority; legibility at 7am is the first.
+Everything else is grey. If a screen has a third accent on it, something has
+gone wrong.
+
+The product's mascot does not appear anywhere in the application interface. He
+belongs on the login screen, in onboarding, and on the marketing site.
 
 ## Colors
 
-The palette comes from the product's mark: a cobalt disc, a navy outline, one
-saturated yellow, and a cream mop head. Nothing has been added to it.
+**Blue — `primary` `#1E5FD0`.** Interactive affordance, and only that. Four
+supporting values: `primary-hover` `#174CA8` for hover and for blue text on
+white where the extra contrast helps, `primary-wash` `#EDF3FD` for selected rows
+and active navigation, `primary-line` `#B9CDF0` for the border of a hovered
+node, and `on-primary` white for text on a filled blue button.
 
-**Cobalt — `primary` `#1E5FD0`.** Structure and interactive affordance. Enamel
-signs, links, focus targets, active states in charts. Never used as a page
-background — cobalt is a plate you mount on the wall, not the wall.
+**Yellow — `agent` `#FFCE1B`.** Reserved entirely for marking work the agent
+performed. It appears as small markers and left borders, never as a large fill.
+Yellow is never a text color: use `agent-ink` `#8A6A05` for agent-attributed
+text, which clears AA on white at 5.1:1. `agent-wash` `#FFF8E0` backs annotation
+callouts and agent badges; `agent-line` `#F0DFA0` is their dashed border.
 
-**Navy — `secondary` `#12225C`.** The outline color, and the reason the whole
-system reads as drawn rather than rendered. Every raised object gets a 2–3px
-navy border. Also the top rail, and all body text on light surfaces. Use
-`secondary-hover` `#0B1436` for the drop edge under raised objects, never as a
-fill on its own.
+**Greys.** `canvas` `#F4F6F8` is the page behind cards. `surface` white is every
+card, table, and panel. `surface-muted` `#FAFBFC` is card headers, input fills,
+and row hover. Text runs `foreground` `#1B2027` for content, `foreground-muted`
+`#59606B` for secondary text, and `foreground-subtle` `#6C747F` for column
+headers, timestamps, and metadata.
 
-**Safety yellow — `tertiary` `#FFCE1B`.** The strongest signal in the system and
-therefore the most rationed. Yellow means exactly three things:
+`foreground-faint` `#A8AFB9` is **not a text color**. It is for non-text marks
+only: switch tracks in the off position, disabled dots, chart gridlines. Using
+it for text will fail contrast.
 
-- a permission or setting is **on**
-- an action is the **primary** one on the screen
-- the element has **keyboard focus**
+**Borders.** `border` `#D6DBE1` separates structural regions — card edges,
+sidebar, top bar, table head. `border-subtle` `#E8EBEF` separates rows within a
+list. Getting this distinction right is most of what makes a dense table
+readable.
 
-Yellow is never a background wash, never a chart series, never a decorative
-accent, and never appears on more than a few square inches of any screen. If a
-screen looks yellow, you have used it wrong. Note the deliberate collision with
-hazard striping — yellow on navy diagonals marks destructive zones — which works
-precisely because plain yellow is otherwise scarce.
+**Blueprint.** `wire` `#A9BCDC` is the connector stroke, and `grid-line` at
+5.5% blue is the canvas grid. Both are structural, never text.
 
-**Cream — `surface` `#F6EFDD` / `surface-raised` `#FFFBF0`.** Every panel, card
-and sheet. Warmer than white on purpose; against the cinderblock wall it reads
-as paper and enamel rather than as a modal.
+**Status.** `success` `#1A7F37` and `danger` `#B23A2B` only. Neither is used for
+emphasis, only for genuine state.
 
-**Wall — `neutral` `#DDD8C9` with `neutral-dim` `#C7C1B0` mortar.** The app
-background is a running-bond cinderblock pattern at very low contrast, plus a
-5% fractal-noise overlay. Both are subliminal — if a reviewer can describe the
-pattern from memory, turn it down. Never place body text directly on the wall;
-text lives on cream.
-
-**Rust — `danger` `#B23A2B`.** Destructive actions and the punch-card stamp. It
-is the one color outside the mark's palette, chosen because it reads as stamp
-ink and shop-floor paint rather than as a browser alert.
-
-**Steel — `metal` `#8E97AE` / `metal-dark` `#4C5570`.** Hardware only: the hook
-rail, the clipboard clip, screw heads. Never text, never a fill on a content
-surface.
-
-**Agent attribution.** `primary-light` `#4A8AF0` marks work The Janitor did
-itself, in timelines and diffs, so a human can scan a thread and separate agent
-actions from teammate actions without reading avatars. This is a semantic role,
-not a decorative tint — do not reuse it.
-
-All foreground/background pairs in `components` clear WCAG AA (4.5:1). The
-tightest pair is `danger` on `surface` at 5.15:1; do not darken the cream or
-lighten the rust without re-checking.
-
-**Night shift.** The dark theme is warm charcoal, never navy. Wall `#1c1b18`,
-mortar `#262420`, card `#2a2823`, raised `#34312b`, inset `#14130f`, outlines
-`#5a554b` and `#7b7466`, ink `#f6efdd`, muted `#a8a08e`, rust `#e0705c`.
-Enamel signs, yellow on-states and the hazard stripe keep their day colours;
-they are plates mounted on the wall, and the wall is what changes.
+Every foreground/background pair in `components` clears WCAG AA. The tightest is
+`foreground-subtle` on `surface-muted` at 4.5:1 — do not lighten either one.
 
 ## Typography
 
-Three families, each with a job that maps to a physical thing.
+**Inter** for everything a person reads or clicks. **JetBrains Mono** for
+machine truth.
 
-**Big Shoulders Display** is signage. It appears on enamel plates, the punch-card
-headline, the punch-card stamp, and the save bar — and nowhere else. It is
-condensed, industrial, and set uppercase with `0.09em` tracking on signs. This
-is the one place uppercase is permitted, because these are objects with words
-stamped into them, not labels.
+The mono rule is load-bearing. If a value came out of GitHub rather than out of
+a person, it is mono: repository names, branch names, commit SHAs, issue and PR
+numbers, label names, rule expressions, run IDs, event names, durations, and
+counts. Prose a human wrote is Inter. This distinction is what lets someone scan
+an activity feed without reading it word by word, and it is more important than
+any color decision in this system.
 
-**Archivo** is everything a person reads or clicks: body copy, form labels,
-buttons, table content, help text. Sentence case throughout.
+Enable tabular figures (`font-feature-settings: "tnum"`) on every numeric
+column. Ragged digits in a table of run counts are the fastest way to make this
+identity look amateur.
 
-**Spline Sans Mono** is machine truth: repository names, branch names, rule
-expressions, run IDs, counts on the punch card, and the small tape labels on the
-breaker panel. If a value came out of GitHub rather than out of a person, it is
-mono. This rule is what makes the interface scannable — mono is a signal, so
-never use it for atmosphere.
+Base size is 13px, not 16px. This is an operational tool where a table of two
+hundred rows is a normal Tuesday. The scale below is tight on purpose; do not
+loosen it in the name of legibility.
 
-The scale is a modest 1.2-ish progression anchored at 15px body, because this is
-a dense operational tool rather than a marketing page. Display sizes jump hard
-away from the body sizes so headings act as landmarks rather than as slightly
-bigger paragraphs.
+| Token     | Size   | Use                                                    |
+| --------- | ------ | ------------------------------------------------------ |
+| `h1`      | 18px   | Page title, one per screen                             |
+| `h2`      | 14px   | Section headings                                       |
+| `h3`      | 13px   | Card headers, row titles                               |
+| `body-md` | 13px   | Default                                                |
+| `label`   | 12.5px | Form labels, button text, emphasized feed actors       |
+| `body-sm` | 12px   | Help text, secondary detail                            |
+| `caption` | 11px   | Column heads, sidebar section labels, node kind labels |
+| `mono-md` | 12.5px | Breadcrumbs, primary machine values                    |
+| `mono-sm` | 11.5px | Machine values in tables and nodes                     |
+| `mono-xs` | 10.5px | Badges, timestamps, run IDs                            |
+| `numeral` | 11.5px | Numeric table columns, tabular                         |
 
-| Token     | Size   | Use                               |
-| --------- | ------ | --------------------------------- |
-| `display` | 44px   | Punch-card headline, one per page |
-| `stamp`   | 34px   | Rotated status stamp              |
-| `sign`    | 25px   | Enamel section plates, save bar   |
-| `numeral` | 27px   | Tally figures on the punch card   |
-| `h2`      | 20px   | Panel headings inside a section   |
-| `h3`      | 16px   | Row titles, breaker names         |
-| `label`   | 14.5px | Form labels                       |
-| `body-md` | 15px   | Default                           |
-| `body-sm` | 13px   | Help text, row metadata           |
-| `mono-md` | 14.5px | Repository and branch names       |
-| `mono-sm` | 11px   | Tape labels, chips, run IDs       |
-
-Body copy caps at 62 characters. Help text sits directly under its label at
-`on-surface-muted`, never in a tooltip.
+Sentence case throughout. No tracked-out uppercase eyebrow labels above
+headings. Body copy caps at 66 characters. Help text sits under its label at
+`foreground-muted`, never in a tooltip.
 
 ## Layout
 
-A two-column shell: a 212px sticky hook rack on the left, fluid content on the
-right, 1180px maximum, 34px gutter. Content is left-aligned throughout — nothing
-is centered except the clipboard clip, which is centered because a real clip is.
+A three-column shell: a 216px sidebar, a fluid main column, and a 292px
+inspector that collapses below 1240px. The sidebar and inspector are sticky and
+scroll independently. Main content sits at 16–20px padding, which is tighter
+than a marketing site and correct for this one.
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ ▪ rail  The Janitor · org                    ⬤ user  │  62px, navy
-├──────────┬───────────────────────────────────────────┤
-│ ══════   │  ┌─────────────────────────────────────┐  │
-│  ⌐ tag   │  │  PUNCH CARD — status + week + tally │  │  hero
-│  ⌐ tag   │  └─────────────────────────────────────┘  │
-│  ⌐ tag   │  ▐ ENAMEL SIGN ▌                          │
-│  ⌐ tag   │  ┌─────────────────────────────────────┐  │
-│  ⌐ tag   │  │  panel — rows                       │  │
-│          │  └─────────────────────────────────────┘  │
-│          │  ▐ ENAMEL SIGN ▌                          │
-│          │  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  │
-│          │  ┃  breaker panel — the loud thing     ┃  │
-│          │  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛  │
-│          │  ▨▨▨ hazard ▨▨▨                           │
-└──────────┴───────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│ mark  org / repo / section        [search]  status  avatar │ 46px
+├────────┬─────────────────────────────────────┬─────────────┤
+│ repos  │ Page title           [action][action]│ Inspector   │
+│  · a   │ ─ tabs ────────────────────────────  │             │
+│  · b   │ ┌─────────────────────────────────┐  │ selection   │
+│        │ │ card header                     │  │ details     │
+│ workspc│ │ dense table rows                │  │             │
+│  · runs│ └─────────────────────────────────┘  │ dry run     │
+│  · PRs │ ┌─────────────────────────────────┐  │             │
+│        │ │ ▚ blueprint canvas ▚            │  │ history     │
+│        │ └─────────────────────────────────┘  │             │
+└────────┴─────────────────────────────────────┴─────────────┘
 ```
 
-Sections are 40px apart. The enamel sign is not inside its panel — it sits above
-it, like a plate screwed to the wall over a fixture, with the section's lede
-paragraph between them.
+Everything is left-aligned. Numeric table columns are right-aligned. Nothing is
+centered.
 
-**Breakpoints.** Below 880px the hook rack unhooks and becomes a horizontal
-wrapped row of tags above the content. Below 620px, panels lose their offset
-shadow (keeping the border) and switches shrink to 56×30. The punch card's week
-strip stays — it is the reason to open the page on a phone.
+Cards stack with 18px between them and have no outer margin — the canvas colour
+behind them provides the separation.
 
-**Density.** Any list past eight rows switches to `.jn-dense`: hairline
-`neutral-dim` dividers instead of 2px navy, 8px vertical padding instead of 14,
-no per-row shadow, mono at 13px. The outer panel keeps its border and shadow so
-the object is still an object; only its contents get quiet. Treat this as the
-default for repository lists, run history, and audit logs — the chunky variant
-is for short, high-stakes sets like the breaker panel.
+**Breakpoints.** Below 1240px the inspector becomes a slide-over triggered from
+the selection. Below 820px the sidebar becomes a drawer. The blueprint canvas
+never reflows; it scrolls horizontally inside its card at all widths, because a
+graph that rewraps is a graph you can't read.
+
+**Density.** Table rows are 28px with `border-subtle` dividers. Do not add
+zebra striping — hover and selection are the row affordances. Lists longer than
+about fifty rows should virtualize rather than paginate.
 
 ## Elevation & Depth
 
-Depth in this system is physical, not atmospheric. There are no blurs, no
-layered glows, and no `rgba(0,0,0,.1)` soft shadows. An object is either
-mounted on the wall, recessed into a plate, or printed flat.
+There is almost no elevation in this system. Separation is achieved with 1px
+hairlines and background-colour shifts, not with shadow.
 
-**Mounted** — the only raised treatment, identical for every object:
+- **Structural regions** — cards, sidebar, top bar, inspector: `1px solid
+border`, `rounded.sm`, no shadow.
+- **Rows within a region**: `1px solid border-subtle` on the bottom edge, none
+  on the last child.
+- **Overlays** — dialogs, popovers, dropdowns, tooltips: the only shadowed
+  elements, and only enough to lift them off the page:
+  `0 6px 16px rgb(27 32 39 / 0.12), 0 0 0 1px var(--border)`.
+- **Everything else**: flat.
 
-```css
-border: 3px solid var(--color-secondary);
-box-shadow:
-  0 3px 0 var(--color-secondary-hover),
-  0 6px 14px rgb(11 20 54 / 0.28);
-```
+No gradients. No blurred backdrops. The dialog overlay is a flat scrim at
+`rgb(27 32 39 / 0.45)` with no `backdrop-filter`.
 
-A hard navy drop edge does the work; the soft shadow only grounds it against the
-wall. Because the value is fixed, there is no elevation scale to get wrong — a
-card, a panel, a clipboard and the top rail are all mounted at the same depth.
-Hierarchy comes from size and color, not from z-height.
-
-**Recessed** — for anything a control sits inside (switch tracks, text inputs,
-checkboxes):
-
-```css
-box-shadow: inset 0 3px 6px rgb(11 20 54 / 0.55);
-```
-
-**Flat** — content printed on a surface: table rows, sheet text, chips. No
-shadow at all. Most of the interface is flat.
-
-Buttons are the only objects that move. Pressing one translates it 3px down and
-removes its drop edge, so the button physically travels into the surface. This
-is the system's entire motion budget for interaction.
-
-**Motion.** One transition curve, `cubic-bezier(.3, 1.6, .6, 1)` at 130ms, used
-only where something physically moved: the switch knob sliding, the save bar
-rising, the button depressing. No entrance animations, no hover lifts, no
-scroll-triggered reveals. Everything respects `prefers-reduced-motion`, which
-disables transitions entirely rather than shortening them.
+**Motion.** 120ms `ease-out`, applied only to state changes the user caused:
+hover background, focus ring, switch travel, disclosure expansion, slide-over
+entry. No entrance animations, no scroll-triggered reveals, no skeleton shimmer
+(use a static `surface-muted` block). `prefers-reduced-motion: reduce` disables
+transitions entirely.
 
 ## Shapes
 
-Radii are small and inconsistent on purpose, because manufactured objects have
-different corner treatments.
+Radii are small and used consistently.
 
-- `xs` 3px — things stamped or cut from sheet: switch knobs, tape labels, sheets
-- `sm` 4px — hardware and controls: buttons, inputs, the clipboard clip
-- `md` 6px — mounted panels, cards, enamel signs
-- `lg` 14px — the bottom corners of hook tags only, where a real tag is rounded
-- `full` — status chips only
+- `xs` 3px — badges, blueprint nodes, annotation boxes
+- `sm` 5px — buttons, inputs, cards, dialogs, everything structural
+- `md` 8px — slide-overs and full-screen sheets only
+- `full` — status dots, agent markers, switch tracks, junction chips
 
-Hook tags are the one asymmetric shape in the system: `4px 4px 14px 14px`, and
-they hang at `rotate(-0.9deg)` from a transform origin near the hook, so they
-swing upright on hover. Nothing else in the interface is rotated except the
-punch-card stamp at `-3.5deg`. Two rotated things per page is the ceiling.
+Nothing is rotated. Nothing is skewed. Icons are 14px stroke icons at 1.5px
+weight, inheriting `currentColor`, aligned to the text baseline.
 
-The hazard stripe is a fixed pattern: 45°, 14px bands, `tertiary` on `secondary`,
-16px tall, with a 3px navy border beneath it. It appears only at the top of a
-destructive region and along the top of the save bar. It is never a border on an
-individual button and never a background fill.
+**Blueprint canvas specifics.** The grid is a 22px square lattice of 1px
+`grid-line` rules. Connectors are 1.25px `wire` strokes, orthogonal only —
+horizontal and vertical segments with square corners, never curves or diagonals.
+Junction points are 2.6px filled circles. Nodes are `surface` boxes with a 1px
+`border`, `rounded.xs`, and a `caption` kind label above a `mono-sm` expression.
+A selected node takes a `primary` border and a 2px `primary-wash` ring; an
+agent-authored node takes a 3px `agent` left border.
+
+Annotations are dashed `agent-line` boxes on `agent-wash`, attached to a node by
+a 1.25px dashed leader. They carry information the graph itself cannot express.
+Use them sparingly — more than two on a canvas and they stop being annotations.
 
 ## Components
 
-### Enamel sign
+### Top bar
 
-The section heading. A cobalt plate with a vertical gloss gradient, a 3px navy
-border, a 2px inset cream keyline, and a small cream dot at the left standing in
-for a mounting screw. Set in `sign` typography, uppercase. Signs are always
-horizontal — the temptation to hang one at an angle should be resisted.
+46px, `surface`, 1px bottom border. A small product mark, then a breadcrumb in
+`mono-md` where each ancestor is a link and the current segment is plain and
+semibold. Right side: a compact search input, a status pill, and an avatar. The
+status pill uses an `agent` dot when the agent is actively running.
 
-### Breaker switch
+### Sidebar
 
-70×36 track, recessed navy when off and `tertiary` when off→on, with a 32×26
-cream knob carrying three ridged lines. The word "on" sits in the track and is
-revealed as the knob travels. The knob overshoots slightly on the way over.
+`caption` section labels in `foreground-subtle`, 26px item rows in `body-sm`.
+The active item takes `primary-wash` with a 2px `primary` left border and
+`aria-current="page"`. Repository names are mono; workspace destinations are
+not. Counts sit right-aligned in `mono-xs` at `foreground-subtle`.
 
-Wrap a real `<input type="checkbox">`, visually hidden and positioned over the
-whole control, so keyboard and screen-reader behavior is native. Focus draws a
-3px `tertiary` ring at 3px offset around the track. Disabled breakers drop to
-50% opacity and must carry an inline explanation of what would enable them —
-never a bare greyed switch.
+### Tabs
 
-Optional `breaker-tape` labels sit between the description and the switch for
-constraints that qualify a permission, such as an approval count.
+Text buttons with a 2px `primary` bottom border when active, sitting on the
+region's bottom hairline. No pill backgrounds, no boxes.
 
-### Punch card
+### Card
 
-The status hero. Cream stock with a perforated top edge (a repeating
-radial-gradient), a dashed inset keyline 9px in, a rotated rust stamp, a
-seven-bar week strip, and a tally row of mono figures. The bars use `primary`
-with `tertiary` for today. It carries live numbers only — never a placeholder
-skeleton, because an empty punch card should say what to do instead.
+`surface`, 1px border, `rounded.sm`. An optional header strip in `surface-muted`
+carrying an `h3` title, a `mono-sm` metadata string, and right-aligned actions.
+Cards do not nest.
 
-### Clipboard
+### Dense table
 
-Board in `surface-board` with a steel clip centered and overhanging the top
-edge, holding a cream sheet. Fields inside the sheet are a two-column flex row
-that wraps: label plus help text on the left at `min-width: 190px`, control on
-the right, hairline divider between. Used for schedules and notifications.
+28px rows, `caption` column heads in `foreground-subtle`, `border-subtle` row
+dividers. Machine values in mono, numeric columns right-aligned and tabular.
+Row hover is `surface-muted`; row selection is `primary-wash` with a 2px
+`primary` inset left edge and `aria-selected`. Inline controls inside rows are
+small — a 26×15 switch, a 24px icon button — and must stop event propagation so
+they don't trigger row selection.
+
+### Blueprint canvas
+
+Described in Shapes. Also: the canvas scrolls horizontally inside its card and
+carries a footer bar in `surface-muted` with zoom controls on the left, a plain
+summary in the middle, and machine counts in mono on the right. Column labels
+("When", "If every condition matches", "Then") sit above the first node of each
+column in `caption`, sentence case.
+
+Node layout must come from a layout engine, not hardcoded coordinates. Cap the
+visual builder at the graph complexity it can lay out legibly and fall back to a
+YAML editor beyond that, with an explicit affordance to switch.
+
+### Activity feed
+
+Each entry is a 7px marker dot, a body line, and a right-aligned `mono-xs`
+timestamp. Agent entries take the `agent` marker and an `agent-ink` actor name;
+human entries take a `foreground-faint` marker and a plain semibold actor name.
+Issue and PR references are mono links. Label names are badges.
+
+Because the yellow/grey distinction is the whole point of this component, it
+must not be the only carrier: agent entries also name "The Janitor" as the
+actor, so the information survives greyscale and screen readers.
+
+### Inspector
+
+A stack of bordered sections, each with a `caption` heading. Configuration is
+rendered as key/value rows: key in `body-sm` at `foreground-muted` in a fixed
+88px column, value in `mono-sm`. Reflects the current selection, and shows a
+plain instruction rather than a blank panel when nothing is selected.
 
 ### Buttons
 
-Four variants, all with a 2.5px border and a 3px hard drop edge in the border
-color. Primary is yellow, secondary is cream with a navy border, danger is a
-rust fill with cream text and a rust-dark border and edge that darkens on hover
-(so it reads as the primary button in a different paint), and ghost is a dashed
-transparent outline with no drop edge and no press travel.
+Three variants, 28px tall, `rounded.sm`, `label` typography. Default is
+`surface` with a 1px border. Primary is filled `primary`. Danger is filled
+`danger`, used only for irreversible actions. No shadows, no press travel — the
+only feedback is the background change.
 
-Labels are sentence case verbs that name the outcome: "Save changes", "Pause
-everything", "Connect another repository". The verb persists through the flow —
-"Pause everything" produces "Paused", not "Success".
+Labels are sentence-case verbs naming the outcome: "New rule", "Run all as a
+test", "Disconnect repository". The verb persists through the flow, so a button
+reading "Pause" produces a toast reading "Paused", not "Success".
 
-### Save bar
+### Empty and error states
 
-Fixed to the bottom, hidden by default, slides up on the first change to any
-control. A hazard strip runs along its top edge, then the word "Wet paint" in
-`sign` type, a plain-language status line, a ghost Discard and a primary Save
-changes. Nothing else in the app is fixed to the viewport bottom.
-
-### Hook rack
-
-A steel rail with two screw heads, and tags hanging below it. The active tag is
-yellow and hangs straight; the rest are cream and tilted. The hazard-zone tag is
-outlined in rust. Uses `aria-current="page"` for the active state — color alone
-never carries it.
-
-### Data row
-
-The workhorse. Repository or branch name in `mono-md`, metadata beneath in
-`body-sm` at `on-surface-muted`, a status chip, and an action button. Chips are
-`neutral` for idle and `tertiary` for running. Past eight rows, apply `.jn-dense`.
-
-### Empty states
-
-An empty panel gets a dashed top border, a light 135° hatch fill, and one
-sentence in the interface's voice naming the action, prefixed with a plus. Never
-an illustration inside a working panel — the mascot appears in onboarding, full
-page empty states, and marketing only.
+A single sentence in the interface's voice naming the next action, plus one
+button. No illustrations inside working panels. Errors say what happened and
+what to do, and never apologize.
 
 ## Do's and Don'ts
 
-**Do** keep yellow to on-states, primary actions, and focus rings. Three
-meanings, no more.
+**Do** keep blue for interactive elements and yellow for agent authorship. Two
+accents, two meanings.
 
-**Do** use mono for anything GitHub produced and Archivo for anything a person
-wrote. The distinction is how people scan these screens.
+**Do** set every value that came from GitHub in mono, and every value a human
+wrote in Inter.
 
-**Do** give every mounted object the same 3px navy border and hard drop edge.
-Sameness is what makes the wall read as a wall.
+**Do** enable tabular figures on numeric columns.
 
-**Do** switch to `.jn-dense` past eight rows, and design the dense variant at
-the same time as the chunky one.
+**Do** use `border` for structure and `border-subtle` for rows within a
+structure. The distinction is most of the visual system.
 
-**Do** write help text into the layout rather than into tooltips, and explain
-what a disabled control needs in order to work.
+**Do** pair semantic color with text or an icon so state survives greyscale and
+screen readers.
 
-**Don't** put the mascot on any screen a person opens because something is
-wrong. He is not in Settings, not in error states, not in the hazard zone.
+**Don't** add a third accent color. There is no warning yellow, no info blue, no
+purple for anything. If something needs emphasis, use weight or position.
 
-**Don't** add props. No mop icons, no bucket loaders, no wet-floor signs, no
-sponge textures. The three surfaces — wall, cream, navy panel — and the existing
-objects are the entire vocabulary.
+**Don't** use `agent` yellow as a text color, a large fill, or a status. It is a
+small mark and a left border.
 
-**Don't** use uppercase outside Big Shoulders on enamel signs, stamps, and the
-save bar. No tracked-out caps eyebrow labels above headings.
+**Don't** use `foreground-faint` for text. It is for non-text marks only.
 
-**Don't** introduce soft drop shadows, gradients as decoration, or blurred
-overlays. Depth is a hard navy edge or an inset, never a haze.
+**Don't** add soft drop shadows to cards, rows, or buttons. Overlays are the
+only shadowed elements in the system.
 
-**Don't** put text on the cinderblock wall, and don't raise the wall pattern's
-contrast to make it visible. It is meant to be felt, not read.
+**Don't** let the blueprint vocabulary — grid backgrounds, node boxes, connector
+lines — appear on ordinary pages. It marks graph views specifically.
 
-**Don't** rotate more than two elements per page, and never rotate anything
-containing an interactive control other than a hook tag.
+**Don't** animate anything the user did not trigger, and don't use shimmer
+skeletons.
 
-**Don't** use cobalt as a page background or yellow as a fill on large areas.
-Both are plates mounted on a surface, not the surface.
+**Don't** loosen the density to improve legibility. Fix contrast or hierarchy
+instead; the row height is calibrated for long tables.
 
-**Don't** animate anything the user did not trigger. No entrance fades, no
-staggered reveals, no hover lifts on cards.
+**Don't** put the product mascot anywhere in the application interface.
+
+**Don't** use zebra striping, vertical table rules, or full-width horizontal
+rules between form fields.
+
+## Project notes
+
+These sections record decisions specific to this codebase that the identity
+above does not cover. They were agreed during the Ops Console restyle and are
+normative for this repository.
+
+### Mascot
+
+The product owner keeps the mascot mark in the top bar of the application. It
+is the single exception to the rule above: a 28px mark at the far left of the
+top bar, and nowhere else inside the app.
+
+### GitHub label colors
+
+Label names are mono badges. Because GitHub labels carry a colour chosen by the
+repository's maintainers, that colour is user data, not a design token, and it
+is the one value the interface renders that does not come from this file. It
+appears as a muted tint: the label's colour as a 6px dot at the left of the
+badge, never as a full fill and never as text.
+
+### Blueprint host
+
+The only graph view today is the labeling rule editor. Its three-step flow
+(trigger, conditions, actions) renders on the blueprint canvas. Policies are
+YAML documents and stay in the code editor.

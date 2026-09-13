@@ -12,7 +12,7 @@ export const view = <M>(h: HtmlBuilder<M>, config: JanitorIconConfig): Html =>
     [
       h.DataAttribute("slot", "janitor-icon"),
       h.Class(
-        cn("relative block overflow-hidden rounded-sm border-2 border-outline", config.className),
+        cn("relative block overflow-hidden rounded-xs border border-border", config.className),
       ),
     ],
     [

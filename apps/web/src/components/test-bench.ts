@@ -11,20 +11,24 @@ import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import { chip, type ChipVariant } from "@/components/ui/chip"
+import * as Feed from "@/components/ui/feed"
+import { panel, panelHeader } from "@/components/ui/panel"
+import * as Select from "@/components/ui/select"
 import * as Icon from "@/lib/icons"
-import { Play, X } from "lucide"
+import { Check, CircleAlert, CircleHelp, Play, X } from "lucide"
 import {
   ConfigurationView,
   describeLocation,
   describeOutcome,
   describePlan,
   labelName,
+  type Outcome,
   TestEntity,
   testEndpoint,
   TestResponse,
   TestSubject,
 } from "@/components/labeling-wire"
-import { cn } from "@/lib/utils"
 
 /**
  * The test bench (plan: "User interface"). Runs a subject against the most
@@ -172,16 +176,29 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
 // VIEW
 
-const chipClass = "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
+/** Outcome as a chip: match neutral with a check, no-match neutral, unknown
+ *  neutral with a question mark, failed danger. No warning colour exists. */
+const outcomeChip = (h: HtmlBuilder<Message>, outcome: Outcome, text?: string): Html => {
+  const variant: ChipVariant = outcome === "failed" ? "danger" : "neutral"
+  const icon =
+    outcome === "match"
+      ? Check
+      : outcome === "unknown"
+        ? CircleHelp
+        : outcome === "failed"
+          ? CircleAlert
+          : null
+  return chip(h, {
+    variant,
+    className: "shrink-0",
+    children: [
+      ...(icon === null ? [] : [Icon.view(h, icon, "size-3 shrink-0")]),
+      text ?? describeOutcome(outcome),
+    ],
+  })
+}
 
-const outcomeClass = (outcome: string) =>
-  outcome === "match"
-    ? "text-emerald-600 dark:text-emerald-400"
-    : outcome === "failed"
-      ? "text-destructive"
-      : outcome === "no-match"
-        ? "text-amber-600 dark:text-amber-400"
-        : "text-muted-foreground"
+const labelChip = (h: HtmlBuilder<Message>, name: string): Html => chip(h, { children: [name] })
 
 const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): Html => {
   const isExpanded = model.expanded.includes(entity.number)
@@ -193,7 +210,7 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
   ].filter((part) => part.length > 0)
   return h.li(
     [
-      h.Class("flex flex-col gap-1 border-t py-2"),
+      h.Class("flex flex-col gap-1.5 border-t border-border-subtle px-3 py-2 first:border-t-0"),
       h.DataAttribute("number", String(entity.number)),
     ],
     [
@@ -201,22 +218,19 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
         [h.Class("flex items-start justify-between gap-3")],
         [
           h.div(
-            [h.Class("flex min-w-0 flex-col")],
+            [h.Class("flex min-w-0 flex-col gap-0.5")],
             [
               h.span(
-                [h.Class("truncate text-sm font-medium")],
-                [`#${entity.number} ${entity.title}`],
+                [h.Class("truncate text-body-md font-medium")],
+                [h.span([h.Class("font-mono")], [`#${entity.number}`]), ` ${entity.title}`],
               ),
-              h.span([h.Class("text-muted-foreground text-xs")], [meta.join(" · ")]),
+              h.span([h.Class("text-body-sm text-ink-muted")], [meta.join(" · ")]),
               entity.labels.length === 0
                 ? h.empty
                 : h.div(
-                    [h.Class("mt-1 flex flex-wrap gap-1")],
+                    [h.Class("mt-0.5 flex flex-wrap gap-1")],
                     entity.labels.map((labelId) =>
-                      h.span(
-                        [h.Class(chipClass)],
-                        [labelName(model.configuration.labels, labelId)],
-                      ),
+                      labelChip(h, labelName(model.configuration.labels, labelId)),
                     ),
                   ),
             ],
@@ -227,30 +241,25 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
                 [
                   h.Type("button"),
                   h.OnClick(Message.ToggledTrace({ number: entity.number })),
-                  h.Class(
-                    cn(
-                      "shrink-0 cursor-pointer text-sm font-medium",
-                      outcomeClass(entity.evaluation.outcome),
-                    ),
-                  ),
+                  h.AriaExpanded(isExpanded),
+                  h.Class("shrink-0 cursor-pointer rounded-xs"),
                   h.DataAttribute("outcome", entity.evaluation.outcome),
                 ],
-                [describeOutcome(entity.evaluation.outcome)],
+                [outcomeChip(h, entity.evaluation.outcome)],
               ),
         ],
       ),
       entity.evaluation === null
         ? h.empty
-        : h.div([h.Class("text-muted-foreground text-xs")], [entity.evaluation.reason]),
+        : h.div([h.Class("text-body-sm text-ink-muted")], [entity.evaluation.reason]),
       entity.evaluation !== null && isExpanded
         ? h.ul(
-            [h.Class("text-muted-foreground mt-1 flex flex-col gap-0.5 font-mono text-xs")],
+            [h.Class("mt-1 flex flex-col gap-0.5 font-mono text-mono-sm text-ink-muted")],
             entity.evaluation.trace.map((node) =>
               h.li(
                 [],
                 [
-                  h.span([h.Class(outcomeClass(node.outcome))], [describeOutcome(node.outcome)]),
-                  ` ${describeLocation(node.location)}: ${node.reason}`,
+                  `${describeOutcome(node.outcome)} · ${describeLocation(node.location)}: ${node.reason}`,
                 ],
               ),
             ),
@@ -259,19 +268,12 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
       entity.plan === null
         ? h.empty
         : entity.plan.actions.length === 0
-          ? h.div([h.Class("text-muted-foreground text-xs")], ["no changes"])
+          ? h.div([h.Class("text-body-sm text-ink-muted")], ["no changes"])
           : h.ul(
-              [h.Class("flex flex-col gap-0.5 text-sm")],
+              [h.Class("flex flex-col gap-0.5 font-mono text-mono-sm")],
               describePlan(entity.plan, model.configuration).map((line, index) =>
                 h.li(
-                  [
-                    h.DataAttribute("action", entity.plan?.actions[index]?.action ?? ""),
-                    h.Class(
-                      outcomeClass(
-                        entity.plan?.actions[index]?.action === "add" ? "match" : "no-match",
-                      ),
-                    ),
-                  ],
+                  [h.DataAttribute("action", entity.plan?.actions[index]?.action ?? "")],
                   [line],
                 ),
               ),
@@ -285,19 +287,19 @@ const draftView = (h: HtmlBuilder<Message>, model: Model): Html => {
   const entity = entities.find((entry) => entry.number === model.selectedNumber) ?? entities[0]
   const running = model.run._tag === "Running"
   return h.section(
-    [h.Class("policy-draft-bench"), h.DataAttribute("bench", model.run._tag)],
+    [h.Class("flex flex-col gap-3"), h.DataAttribute("bench", model.run._tag)],
     [
       h.div(
-        [h.Class("flex items-center justify-between")],
+        [h.Class("flex items-center justify-between gap-2")],
         [
           h.h2(
-            [h.Class("text-sm font-semibold")],
+            [h.Class("text-h3 font-semibold")],
             [model.numbers.length > 0 ? "Result" : "Test bench"],
           ),
           Button.view(h, {
             variant: "ghost",
             size: "icon-xs",
-            label: Icon.view(h, X, "size-3"),
+            label: Icon.view(h, X),
             onClick: Message.ClickedClose(),
             attributes: [h.AriaLabel("Close"), h.Title("Clear test results")],
           }),
@@ -306,79 +308,69 @@ const draftView = (h: HtmlBuilder<Message>, model: Model): Html => {
       model.numbers.length > 0
         ? h.empty
         : h.p(
-            [h.Class("text-xs text-muted-foreground")],
+            [h.Class("text-body-sm text-ink-muted")],
             ["Preview this draft against recent open items."],
           ),
       entities.length > 0 && model.numbers.length === 0
-        ? h.div(
-            [h.Class("flex flex-col gap-1.5")],
-            [
-              h.label(
-                [h.For("policy-test-item"), h.Class("text-xs text-muted-foreground")],
-                ["Issue or pull request"],
-              ),
-              h.select(
-                [
-                  h.Id("policy-test-item"),
-                  h.Class("policy-test-select"),
-                  h.Value(String(entity?.number ?? "")),
-                  h.OnChange((value) => Message.SelectedEntity({ number: Number(value) })),
-                ],
-                entities.map((entry) =>
-                  h.option([h.Value(String(entry.number))], [`#${entry.number} · ${entry.title}`]),
-                ),
-              ),
-            ],
-          )
+        ? Select.view(h, {
+            id: "policy-test-item",
+            label: "Issue or pull request",
+            value: String(entity?.number ?? ""),
+            options: entities.map((entry) => [
+              String(entry.number),
+              `#${entry.number} · ${entry.title}`,
+            ]),
+            onChange: (value) => Message.SelectedEntity({ number: Number(value) }),
+          })
         : h.empty,
       Button.view(h, {
-        variant: "outline",
+        variant: "secondary",
         size: "sm",
         onClick: Message.ClickedRun(),
         isDisabled: running,
         label: h.span(
           [h.Class("flex items-center gap-1.5")],
-          [Icon.view(h, Play, "size-3"), running ? "Running" : "Test draft"],
+          [Icon.view(h, Play), running ? "Running" : "Test draft"],
         ),
       }),
       model.run._tag === "Failed" || model.run._tag === "Rejected"
         ? h.p(
-            [h.Role("alert"), h.Class("text-xs text-destructive")],
+            [h.Role("alert"), h.Class("text-body-sm text-destructive")],
             [model.run._tag === "Failed" ? model.run.reason : model.run.message],
           )
         : running
           ? h.p(
-              [h.Role("status"), h.Class("text-xs text-muted-foreground")],
-              ["Evaluating the most recently updated open items"],
+              [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+              ["Evaluating the most recently updated open items…"],
             )
           : entity === undefined
             ? h.p(
-                [h.Class("text-xs text-muted-foreground")],
+                [h.Class("text-body-sm text-ink-muted")],
                 ["No open issues or pull requests to test against yet."],
               )
-            : h.div(
-                [h.Class("policy-test-result"), h.DataAttribute("number", String(entity.number))],
-                [
+            : panel(h, {
+                className: "oc-agent-edge flex flex-col gap-3 p-3",
+                attributes: [h.DataAttribute("number", String(entity.number))],
+                children: [
                   h.div(
-                    [h.Class("flex items-center justify-between gap-2")],
+                    [h.Class("flex flex-wrap items-center gap-2")],
                     [
+                      Feed.agentBadge(h),
+                      h.span(
+                        [h.Class("font-mono text-mono-sm text-ink-subtle")],
+                        [`#${entity.number}`],
+                      ),
                       h.span(
                         [
-                          h.Class(
-                            cn(
-                              "policy-result-tag",
-                              outcomeClass(entity.evaluation?.outcome ?? "unknown"),
-                            ),
-                          ),
+                          h.Class("ml-auto"),
                           h.DataAttribute("outcome", entity.evaluation?.outcome ?? "unknown"),
                         ],
-                        [describeOutcome(entity.evaluation?.outcome ?? "unknown")],
+                        [outcomeChip(h, entity.evaluation?.outcome ?? "unknown")],
                       ),
-                      h.span([h.Class("text-xs text-muted-foreground")], [`#${entity.number}`]),
                     ],
                   ),
                   h.p(
-                    [h.Class("text-xs leading-relaxed text-muted-foreground")],
+                    [h.Class("text-body-sm text-ink-muted")],
                     [
                       entity.evaluation?.outcome === "match"
                         ? `This ${entity.kind === "pull_request" ? "pull request" : "issue"} matches the draft.`
@@ -388,33 +380,45 @@ const draftView = (h: HtmlBuilder<Message>, model: Model): Html => {
                             "No evaluation is available for this item."),
                     ],
                   ),
-                  h.ul(
-                    [h.Class("policy-test-trace")],
-                    (entity.evaluation?.trace ?? []).map((node) =>
-                      h.li(
-                        [h.Title(describeLocation(node.location))],
-                        [
-                          h.span([], [node.reason]),
-                          h.span(
+                  (entity.evaluation?.trace ?? []).length === 0
+                    ? h.empty
+                    : h.ul(
+                        [h.Class("flex flex-col gap-1.5")],
+                        (entity.evaluation?.trace ?? []).map((node) =>
+                          h.li(
                             [
-                              h.Class(outcomeClass(node.outcome)),
-                              h.AriaLabel(describeOutcome(node.outcome)),
+                              h.Class("flex items-start justify-between gap-3 text-body-sm"),
+                              h.Title(describeLocation(node.location)),
                             ],
                             [
-                              node.outcome === "match"
-                                ? "✓"
-                                : node.outcome === "no-match"
-                                  ? "−"
-                                  : "?",
+                              h.span([h.Class("min-w-0 text-ink-muted")], [node.reason]),
+                              h.span(
+                                [
+                                  h.Class("inline-flex shrink-0 items-center text-ink-muted"),
+                                  h.AriaLabel(describeOutcome(node.outcome)),
+                                ],
+                                [
+                                  Icon.view(
+                                    h,
+                                    node.outcome === "match"
+                                      ? Check
+                                      : node.outcome === "no-match"
+                                        ? X
+                                        : CircleHelp,
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
                   model.subject._tag === "Draft" && model.subject.policyId !== undefined
                     ? h.div(
-                        [h.Class("policy-test-bindings")],
+                        [
+                          h.Class(
+                            "flex flex-col gap-1.5 border-t border-border-subtle pt-2.5 text-body-sm empty:hidden",
+                          ),
+                        ],
                         model.configuration.rules
                           .filter(
                             (rule) =>
@@ -425,19 +429,16 @@ const draftView = (h: HtmlBuilder<Message>, model: Model): Html => {
                             h.div(
                               [h.Class("flex items-center justify-between gap-2")],
                               [
-                                h.span([h.Class("text-muted-foreground")], ["Used by rule"]),
-                                h.span(
-                                  [h.Class(chipClass)],
-                                  [labelName(model.configuration.labels, rule.labelId)],
-                                ),
+                                h.span([h.Class("text-ink-muted")], ["Used by rule"]),
+                                labelChip(h, labelName(model.configuration.labels, rule.labelId)),
                               ],
                             ),
                           ),
                       )
                     : h.empty,
                 ],
-              ),
-      h.p([h.Class("text-xs text-muted-foreground")], ["Tests do not change labels."]),
+              }),
+      h.p([h.Class("text-body-sm text-ink-muted")], ["Tests do not change labels."]),
     ],
   )
 }
@@ -446,23 +447,23 @@ export const view = Submodel.defineView<Model, Message>((model, h): Html => {
   if (model.subject._tag === "Draft") return draftView(h, model)
   const running = model.run._tag === "Running"
   return h.section(
-    [h.Class("flex flex-col gap-2"), h.DataAttribute("bench", model.run._tag)],
+    [h.Class("flex flex-col gap-3"), h.DataAttribute("bench", model.run._tag)],
     [
       h.div(
         [h.Class("flex flex-wrap items-center justify-between gap-3")],
         [
           h.div(
-            [h.Class("flex flex-col")],
+            [h.Class("flex min-w-0 flex-col")],
             [
-              h.h2([h.Class("text-sm font-semibold tracking-tight")], ["Test bench"]),
-              h.span([h.Class("text-muted-foreground text-xs")], [model.title]),
+              h.h2([h.Class("text-h3 font-semibold")], ["Test bench"]),
+              h.span([h.Class("truncate text-body-sm text-ink-muted")], [model.title]),
             ],
           ),
           h.div(
-            [h.Class("flex items-center gap-2")],
+            [h.Class("flex items-center gap-1.5")],
             [
               Button.view(h, {
-                variant: "outline",
+                variant: "secondary",
                 size: "sm",
                 onClick: Message.ClickedRun(),
                 isDisabled: running,
@@ -481,34 +482,46 @@ export const view = Submodel.defineView<Model, Message>((model, h): Html => {
       (() => {
         switch (model.run._tag) {
           case "Running":
-            return h.div(
-              [h.Class("text-muted-foreground text-sm")],
-              ["Evaluating the most recently updated open items"],
+            return h.p(
+              [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+              ["Evaluating the most recently updated open items…"],
             )
           case "Rejected":
-            return h.div(
-              [h.Class("text-destructive text-sm"), h.Role("alert")],
+            return h.p(
+              [h.Class("text-body-sm text-destructive"), h.Role("alert")],
               [model.run.message],
             )
           case "Failed":
-            return h.div(
-              [h.Class("text-destructive text-sm"), h.Role("alert")],
+            return h.p(
+              [h.Class("text-body-sm text-destructive"), h.Role("alert")],
               [`Test failed: ${model.run.reason}`],
             )
           case "Evaluated": {
             const list = model.run.entities
             return list.length === 0
-              ? h.div(
-                  [h.Class("text-muted-foreground text-sm")],
+              ? h.p(
+                  [h.Class("text-body-sm text-ink-muted")],
                   ["No open issues or pull requests to test against yet."],
                 )
-              : h.ul(
-                  [h.Class("flex flex-col")],
-                  list.map((entity) => entityRow(h, model, entity)),
-                )
+              : panel(h, {
+                  flush: true,
+                  className: "oc-agent-edge",
+                  children: [
+                    panelHeader(h, {
+                      title: "Results",
+                      meta: `${list.length} ${list.length === 1 ? "item" : "items"}`,
+                      actions: [Feed.agentBadge(h)],
+                    }),
+                    h.ul(
+                      [h.Class("flex flex-col")],
+                      list.map((entity) => entityRow(h, model, entity)),
+                    ),
+                  ],
+                })
           }
         }
       })(),
+      h.p([h.Class("text-body-sm text-ink-muted")], ["Tests do not change labels."]),
     ],
   )
 })

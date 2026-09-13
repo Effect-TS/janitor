@@ -50,7 +50,7 @@ const svgAttributes = <M>(
   h.Xmlns("http://www.w3.org/2000/svg"),
   h.Fill("none"),
   h.ViewBox("0 0 24 24"),
-  h.StrokeWidth("2"),
+  h.StrokeWidth("1.5"),
   h.Stroke("currentColor"),
   h.StrokeLinecap("round"),
   h.StrokeLinejoin("round"),
@@ -62,7 +62,7 @@ const nodeToAttributes = <M>(
 ): ReadonlyArray<Attribute<M> | ChildAttribute> =>
   Object.entries(attrs).map(([name, value]) => h.Attribute(name, String(value)))
 
-const defaultIconClass = "size-4 shrink-0"
+const defaultIconClass = "size-3.5 shrink-0"
 
 export const view = <M>(h: HtmlBuilder<M>, node: IconNode, className = defaultIconClass): Html =>
   h.svg(

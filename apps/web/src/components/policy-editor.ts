@@ -8,27 +8,19 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import * as Mount from "foldkit/mount"
-import type { Html, HtmlBuilder } from "foldkit/html"
+import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import { selectClass } from "@/components/ui/select"
+import * as DialogChrome from "@/components/ui/dialog"
+import * as Inspector from "@/components/ui/inspector"
 import * as Disclosure from "@foldkit/ui/disclosure"
 import * as Dialog from "@foldkit/ui/dialog"
 import * as Icon from "@/lib/icons"
-import {
-  Upload,
-  Save,
-  ChevronRight,
-  CodeXml,
-  Pencil,
-  Trash2,
-  CircleCheck,
-  CircleAlert,
-  CircleHelp,
-  LoaderCircle,
-} from "lucide"
+import { Check, ChevronDown, ChevronRight, Info, LoaderCircle, Pencil } from "lucide"
 import { input } from "@/components/ui/input"
 import * as PolicySource from "@/components/policy-source"
 import * as TestBench from "@/components/test-bench"
@@ -771,6 +763,37 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
 // VIEW
 
+/** An inspector section that keeps its own attributes (the `Versions`
+ *  region is named for assistive tech, and Validation carries an action in
+ *  its heading). Same markup as `Inspector.section`. */
+const inspectorSection = (
+  h: HtmlBuilder<Message>,
+  config: {
+    readonly heading: string
+    readonly action?: Html
+    readonly attributes?: ReadonlyArray<Attribute<Message> | ChildAttribute>
+    readonly children: ReadonlyArray<Html | string>
+  },
+): Html =>
+  h.section(
+    [h.DataAttribute("slot", "inspector-section"), ...(config.attributes ?? [])],
+    [
+      config.action === undefined
+        ? h.h3([h.DataAttribute("slot", "inspector-heading")], [config.heading])
+        : h.div(
+            [h.Class("mb-2 flex items-center justify-between gap-2")],
+            [
+              h.h3(
+                [h.DataAttribute("slot", "inspector-heading"), h.Class("mb-0")],
+                [config.heading],
+              ),
+              config.action,
+            ],
+          ),
+      ...config.children,
+    ],
+  )
+
 const validationView = (h: HtmlBuilder<Message>, validation: Validation): Html => {
   const status =
     validation._tag === "Valid"
@@ -780,34 +803,41 @@ const validationView = (h: HtmlBuilder<Message>, validation: Validation): Html =
         : validation._tag === "Validating"
           ? "checking"
           : "unchecked"
-  const icon =
-    validation._tag === "Valid"
-      ? CircleCheck
-      : validation._tag === "Invalid"
-        ? CircleAlert
-        : validation._tag === "Validating"
-          ? LoaderCircle
-          : CircleHelp
   const title =
     validation._tag === "Valid"
-      ? "Policy is valid."
+      ? "Valid"
       : validation._tag === "Invalid"
-        ? "Policy is invalid"
+        ? "Invalid"
         : validation._tag === "Validating"
-          ? "Checking policy…"
+          ? "Checking…"
           : "Not validated"
+  const tone =
+    validation._tag === "Valid"
+      ? "text-success"
+      : validation._tag === "Invalid"
+        ? "text-destructive"
+        : "text-foreground"
   return h.div(
     [
-      h.Class("policy-validation"),
+      h.Class("flex flex-col gap-1 text-body-sm wrap-anywhere"),
       h.DataAttribute("validation", status),
       h.Role(status === "invalid" ? "alert" : "status"),
     ],
     [
       h.div(
-        [h.Class("flex items-center gap-2 font-medium")],
-        [Icon.view(h, icon, status === "checking" ? "size-4 animate-spin" : "size-4"), title],
+        [h.Class(`flex items-center gap-1.5 font-medium ${tone}`)],
+        [
+          validation._tag === "Valid"
+            ? Icon.view(h, Check)
+            : validation._tag === "Validating"
+              ? Icon.view(h, LoaderCircle, "animate-spin")
+              : h.empty,
+          title,
+        ],
       ),
-      validation._tag === "Invalid" ? h.p([h.Class("text-xs")], [validation.message]) : h.empty,
+      validation._tag === "Invalid"
+        ? h.p([h.Class("text-body-sm text-ink-muted")], [validation.message])
+        : h.empty,
     ],
   )
 }
@@ -819,13 +849,22 @@ const submissionView = (h: HtmlBuilder<Message>, submission: Submission): Html =
       return h.empty
     case "Conflicted":
       return h.div(
-        [h.Class("text-xs text-amber-600 dark:text-amber-400"), h.Role("alert")],
+        [h.Class("flex items-start gap-1.5 text-body-sm text-foreground"), h.Role("alert")],
         [
-          "Someone saved this policy meanwhile. Your draft is intact; saving again writes over theirs.",
+          Icon.view(h, Info, "mt-0.5 shrink-0"),
+          h.span(
+            [],
+            [
+              "Someone saved this policy meanwhile. Your draft is intact; saving again writes over theirs.",
+            ],
+          ),
         ],
       )
     case "SubmitError":
-      return h.div([h.Class("text-destructive text-xs"), h.Role("alert")], [submission.message])
+      return h.div(
+        [h.Class("text-body-sm text-destructive"), h.Role("alert")],
+        [submission.message],
+      )
   }
 }
 
@@ -845,22 +884,35 @@ const disclosure = (
       onToggle,
       toView: ({ button, panel }) =>
         h.section(
-          [h.Class("policy-disclosure")],
+          [h.DataAttribute("slot", "inspector-section")],
           [
             h.button(
-              [...button, h.Class("policy-disclosure-toggle")],
               [
-                Icon.view(h, ChevronRight, isOpen ? "size-3 rotate-90" : "size-3"),
+                ...button,
+                h.Class(
+                  "flex w-full cursor-pointer items-center gap-1.5 rounded-xs text-left text-caption font-medium text-ink-subtle transition-colors duration-120 ease-ui hover:text-foreground",
+                ),
+              ],
+              [
+                Icon.view(h, isOpen ? ChevronDown : ChevronRight, "size-3"),
                 h.span([], [title]),
-                h.span([h.Class("ml-auto text-muted-foreground")], [summary]),
+                h.span([h.Class("ml-auto font-mono text-mono-xs")], [summary]),
               ],
             ),
-            isOpen ? h.div([...panel, h.Class("policy-disclosure-content")], children) : h.empty,
+            isOpen
+              ? h.div(
+                  [...panel, h.Class("mt-2 flex flex-col gap-2 text-body-sm wrap-anywhere")],
+                  children,
+                )
+              : h.empty,
           ],
         ),
     },
     h,
   )
+
+const metadataTextClass =
+  "-mx-1 cursor-text rounded-xs border border-transparent px-1 text-left transition-colors duration-120 ease-ui hover:border-border focus-visible:border-primary focus-visible:outline-none disabled:cursor-default disabled:hover:border-transparent wrap-anywhere"
 
 interface ViewInputs {
   readonly isDeleting?: boolean
@@ -876,6 +928,8 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
       identity._tag === "Existing"
         ? model.configuration.rules.filter((rule) => rule.policyId === identity.policyId).length
         : 0
+    const showActions =
+      identity._tag === "New" || isDirty(model) || (canSubmit && hasChangesToPublish(model))
     return h.keyed("div")(
       identity._tag === "Existing" ? identity.policyId : "new-policy",
       [h.Class("policy-document"), h.DataAttribute("editor", "policy")],
@@ -887,9 +941,14 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
               [h.Class("policy-document-center"), h.AriaLabel("Policy document")],
               [
                 h.div(
-                  [h.Class("policy-document-heading")],
+                  [h.Class("flex flex-col gap-1 px-5 pt-4 pb-3")],
                   [
-                    isDeleting ? h.p([h.Role("status")], ["Deleting policy…"]) : h.empty,
+                    isDeleting
+                      ? h.p(
+                          [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+                          ["Deleting policy…"],
+                        )
+                      : h.empty,
                     ...(["name", "description"] as const).map((field) => {
                       const draft = model.metadataEdits[field]
                       const label = field === "name" ? "title" : "description"
@@ -899,16 +958,16 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                           draft === null
                             ? h.keyed("div")(
                                 `metadata-display-${field}`,
-                                [h.Class("policy-metadata-display")],
+                                [h.Class("group flex min-h-6 items-center gap-2")],
                                 [
                                   field === "name"
                                     ? h.h1(
-                                        [h.Class("policy-document-title")],
+                                        [h.Class("min-w-0 text-h1")],
                                         [
                                           h.button(
                                             [
                                               h.Type("button"),
-                                              h.Class("policy-metadata-text"),
+                                              h.Class(metadataTextClass),
                                               h.Disabled(busy),
                                               h.OnClick(Message.ClickedEditMetadata({ field })),
                                             ],
@@ -917,12 +976,12 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                         ],
                                       )
                                     : h.p(
-                                        [h.Class("policy-document-description")],
+                                        [h.Class("min-w-0 text-body-sm text-ink-muted")],
                                         [
                                           h.button(
                                             [
                                               h.Type("button"),
-                                              h.Class("policy-metadata-text"),
+                                              h.Class(metadataTextClass),
                                               h.Disabled(busy),
                                               h.OnClick(Message.ClickedEditMetadata({ field })),
                                             ],
@@ -934,6 +993,8 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                     variant: "ghost",
                                     size: "icon-xs",
                                     isDisabled: busy,
+                                    className:
+                                      "shrink-0 text-ink-subtle opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
                                     label: Icon.view(h, Pencil, "size-3"),
                                     onClick: Message.ClickedEditMetadata({ field }),
                                     attributes: [
@@ -946,7 +1007,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                             : h.keyed("div")(
                                 `metadata-edit-${field}`,
                                 [
-                                  h.Class("policy-metadata-form"),
+                                  h.Class("policy-metadata-form flex items-center gap-1.5"),
                                   h.OnFocusLeave(Message.ClickedCancelMetadata({ field })),
                                 ],
                                 [
@@ -957,7 +1018,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                     onInput: (value) =>
                                       Message.UpdatedMetadataDraft({ field, value }),
                                     labelClass: "sr-only",
-                                    wrapperClass: "gap-0",
+                                    wrapperClass: "min-w-0 flex-1 gap-0",
                                     attributes: [
                                       h.OnMount(FocusMetadataInput()),
                                       h.OnKeyDownPreventDefault((key) =>
@@ -968,11 +1029,11 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                     ],
                                     className:
                                       field === "name"
-                                        ? "policy-title-input"
-                                        : "policy-description-input",
+                                        ? "h-8 text-h1 font-semibold"
+                                        : "text-body-sm",
                                   }),
                                   h.div(
-                                    [h.Class("flex items-center gap-1")],
+                                    [h.Class("flex shrink-0 items-center gap-1")],
                                     [
                                       Button.view(h, {
                                         size: "xs",
@@ -998,15 +1059,13 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                   ],
                 ),
                 h.div(
-                  [h.Class("policy-source-toolbar")],
                   [
-                    h.span(
-                      [h.Class("flex items-center gap-2")],
-                      [
-                        Icon.view(h, CodeXml, "size-3.5"),
-                        h.span([h.Class("text-muted-foreground")], ["YAML"]),
-                      ],
+                    h.Class(
+                      "flex h-7 shrink-0 items-center justify-between gap-2 border-y border-border bg-surface-muted px-5 text-caption font-medium text-ink-subtle",
                     ),
+                  ],
+                  [
+                    h.span([h.Class("font-mono text-mono-xs")], ["YAML"]),
                     Button.view(h, {
                       variant: "ghost",
                       size: "xs",
@@ -1038,7 +1097,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                       ? h.empty
                       : h.ul(
                           [
-                            h.Class("text-destructive flex flex-col gap-0.5 text-xs"),
+                            h.Class("flex flex-col gap-0.5 text-body-sm text-destructive"),
                             h.Role("alert"),
                           ],
                           issues.map((issue) => h.li([], [issue])),
@@ -1051,189 +1110,165 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
             h.aside(
               [h.Class("policy-inspector"), h.AriaLabel("Policy test bench and information")],
               [
-                identity._tag === "New" ||
-                isDirty(model) ||
-                (canSubmit && hasChangesToPublish(model))
+                showActions
                   ? h.section(
-                      [h.Class("policy-sidebar-actions"), h.AriaLabel("Policy controls")],
                       [
-                        h.div(
-                          [
-                            h.Class(
-                              identity._tag === "New"
-                                ? "policy-publish-actions policy-creation-actions"
-                                : "policy-publish-actions",
-                            ),
-                          ],
-                          [
-                            identity._tag === "New"
-                              ? Button.view(h, {
-                                  variant: "ghost",
-                                  size: "sm",
-                                  label: "Cancel",
-                                  attributes: [h.DataAttribute("action", "cancel-creation")],
-                                  onClick: Message.ClickedCancel(),
-                                  isDisabled: busy,
-                                })
-                              : h.empty,
-                            identity._tag === "New" || isDirty(model)
-                              ? Button.view(h, {
-                                  variant: "outline",
-                                  size: "sm",
-                                  onClick: Message.ClickedSave(),
-                                  isDisabled: !canSubmit,
-                                  label: h.span(
-                                    [h.Class("flex items-center gap-1.5")],
-                                    [Icon.view(h, Save, "size-3.5"), "Save draft"],
-                                  ),
-                                })
-                              : h.empty,
-                            identity._tag === "New" || (canSubmit && hasChangesToPublish(model))
-                              ? Button.view(h, {
-                                  size: "sm",
-                                  onClick: Message.ClickedPublish(),
-                                  isDisabled: !canSubmit || !hasChangesToPublish(model),
-                                  label: h.span(
-                                    [h.Class("flex items-center gap-1.5")],
-                                    [
-                                      Icon.view(h, Upload, "size-3.5"),
-                                      identity._tag === "New" ? "Save & publish" : "Publish",
-                                    ],
-                                  ),
-                                  attributes: [h.DataAttribute("action", "publish")],
-                                })
-                              : h.empty,
-                          ],
+                        h.Class(
+                          "flex flex-wrap items-center gap-1.5 border-b border-border px-3.5 py-3",
                         ),
+                        h.AriaLabel("Policy controls"),
+                      ],
+                      [
+                        identity._tag === "New" || (canSubmit && hasChangesToPublish(model))
+                          ? Button.view(h, {
+                              size: "sm",
+                              onClick: Message.ClickedPublish(),
+                              isDisabled: !canSubmit || !hasChangesToPublish(model),
+                              label: identity._tag === "New" ? "Save & publish" : "Publish",
+                              attributes: [h.DataAttribute("action", "publish")],
+                            })
+                          : h.empty,
+                        identity._tag === "New" || isDirty(model)
+                          ? Button.view(h, {
+                              variant: "secondary",
+                              size: "sm",
+                              onClick: Message.ClickedSave(),
+                              isDisabled: !canSubmit,
+                              label: "Save draft",
+                            })
+                          : h.empty,
+                        identity._tag === "New"
+                          ? Button.view(h, {
+                              variant: "ghost",
+                              size: "sm",
+                              label: "Cancel",
+                              attributes: [h.DataAttribute("action", "cancel-creation")],
+                              onClick: Message.ClickedCancel(),
+                              isDisabled: busy,
+                            })
+                          : h.empty,
                       ],
                     )
                   : h.empty,
-                h.section(
-                  [
-                    h.Class("policy-inspector-section flex flex-col gap-3"),
-                    h.AriaLabel("Versions"),
+                inspectorSection(h, {
+                  heading: "Status",
+                  children: [
+                    Inspector.row(h, "Publication", PolicyStatus.view(h, publicationStatus(model))),
                   ],
-                  [
-                    h.div(
-                      [h.Class("flex items-center justify-between gap-2 flex-wrap")],
-                      [
-                        h.h2([h.Class("text-sm font-semibold")], ["Versions"]),
-                        PolicyStatus.view(h, publicationStatus(model)),
-                      ],
-                    ),
-                    h.div(
-                      [h.Class("policy-property")],
-                      [
-                        h.span([], ["Published"]),
-                        h.span(
-                          [],
-                          [
-                            model.publishedRevision === null
-                              ? "Not published"
-                              : `v${model.publishedRevision}`,
-                          ],
-                        ),
-                      ],
+                }),
+                inspectorSection(h, {
+                  heading: "Versions",
+                  attributes: [h.AriaLabel("Versions")],
+                  children: [
+                    Inspector.row(
+                      h,
+                      "Published",
+                      model.publishedRevision === null
+                        ? "Not published"
+                        : `v${model.publishedRevision}`,
                     ),
                   ],
-                ),
-                h.div(
-                  [h.Class("policy-inspector-section flex flex-col gap-3")],
-                  [
-                    h.h2([h.Class("text-sm font-semibold")], ["Test bench"]),
-                    model.testCandidates._tag === "Failed"
-                      ? h.p(
-                          [h.Class("text-xs text-destructive"), h.Role("alert")],
-                          ["Could not load test items. Retrying with the next repository refresh."],
-                        )
-                      : testItems(model).length === 0
-                        ? h.p(
-                            [h.Class("text-xs text-muted-foreground")],
-                            ["No open items are available for this policy's target."],
-                          )
-                        : h.div(
-                            [h.Class("flex flex-col gap-1.5")],
-                            [
-                              h.label(
-                                [
-                                  h.For("policy-test-choice"),
-                                  h.Class("text-xs text-muted-foreground"),
-                                ],
-                                [
-                                  Option.exists(
-                                    parsedSource(model),
-                                    (source) => source.target === "issue",
-                                  )
-                                    ? "Issues"
-                                    : "Pull Requests",
-                                ],
-                              ),
-                              h.select(
-                                [
-                                  h.Id("policy-test-choice"),
-                                  h.Class("policy-test-select"),
-                                  h.Value(String(selectedTestItem(model)?.number ?? "")),
-                                  h.OnChange((value) =>
-                                    Message.SelectedTestItem({ number: Number(value) }),
-                                  ),
-                                ],
-                                testItems(model).map((item) =>
-                                  h.option(
-                                    [h.Value(String(item.number))],
-                                    [`#${item.number} · ${item.title}`],
-                                  ),
+                }),
+                inspectorSection(h, {
+                  heading: "Test bench",
+                  children: [
+                    h.div(
+                      [h.Class("flex flex-col gap-2")],
+                      [
+                        model.testCandidates._tag === "Failed"
+                          ? h.p(
+                              [h.Class("text-body-sm"), h.Role("alert")],
+                              [
+                                h.span(
+                                  [h.Class("text-destructive")],
+                                  ["Could not load test items."],
                                 ),
+                                " Retrying with the next repository refresh.",
+                              ],
+                            )
+                          : testItems(model).length === 0
+                            ? h.p(
+                                [h.Class("text-body-sm text-ink-muted")],
+                                ["No open items are available for this policy's target."],
+                              )
+                            : h.div(
+                                [h.Class("flex flex-col gap-1")],
+                                [
+                                  h.label(
+                                    [
+                                      h.For("policy-test-choice"),
+                                      h.Class("text-body-sm text-ink-muted"),
+                                    ],
+                                    [
+                                      Option.exists(
+                                        parsedSource(model),
+                                        (source) => source.target === "issue",
+                                      )
+                                        ? "Issues"
+                                        : "Pull Requests",
+                                    ],
+                                  ),
+                                  h.select(
+                                    [
+                                      h.Id("policy-test-choice"),
+                                      h.Class(selectClass),
+                                      h.Value(String(selectedTestItem(model)?.number ?? "")),
+                                      h.OnChange((value) =>
+                                        Message.SelectedTestItem({ number: Number(value) }),
+                                      ),
+                                    ],
+                                    testItems(model).map((item) =>
+                                      h.option(
+                                        [h.Value(String(item.number))],
+                                        [`#${item.number} · ${item.title}`],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                    Option.match(model.maybeTestBench, {
-                      onNone: () =>
-                        h.div(
-                          [h.Class("flex flex-col gap-3")],
-                          [
-                            Button.view(h, {
-                              variant: "outline",
-                              size: "sm",
-                              onClick: Message.ClickedTestDraft(),
-                              isDisabled:
-                                Option.isNone(parsedSource(model)) ||
-                                selectedTestItem(model) === undefined,
-                              label: "Test draft",
+                        Option.match(model.maybeTestBench, {
+                          onNone: () =>
+                            h.div(
+                              [],
+                              [
+                                Button.view(h, {
+                                  variant: "secondary",
+                                  size: "sm",
+                                  onClick: Message.ClickedTestDraft(),
+                                  isDisabled:
+                                    Option.isNone(parsedSource(model)) ||
+                                    selectedTestItem(model) === undefined,
+                                  label: "Test draft",
+                                }),
+                              ],
+                            ),
+                          onSome: (bench) =>
+                            h.submodel({
+                              slotId: "draft-test-bench",
+                              model: bench,
+                              view: TestBench.view,
+                              toParentMessage: (message) =>
+                                Message.GotTestBenchMessage({
+                                  message,
+                                  generation: model.testGeneration,
+                                }),
                             }),
-                          ],
-                        ),
-                      onSome: (bench) =>
-                        h.submodel({
-                          slotId: "draft-test-bench",
-                          model: bench,
-                          view: TestBench.view,
-                          toParentMessage: (message) =>
-                            Message.GotTestBenchMessage({
-                              message,
-                              generation: model.testGeneration,
-                            }),
-                        }),
-                    }),
-                  ],
-                ),
-                h.div(
-                  [h.Class("policy-inspector-section flex flex-col gap-3")],
-                  [
-                    h.div(
-                      [h.Class("flex items-center justify-between gap-2")],
-                      [
-                        h.h2([h.Class("text-xs font-semibold")], ["Validation"]),
-                        Button.view(h, {
-                          variant: "ghost",
-                          size: "xs",
-                          onClick: Message.ClickedValidate(),
-                          isDisabled:
-                            Option.isNone(parsedSource(model)) ||
-                            model.validation._tag === "Validating",
-                          label: "Validate",
                         }),
                       ],
                     ),
+                  ],
+                }),
+                inspectorSection(h, {
+                  heading: "Validation",
+                  action: Button.view(h, {
+                    variant: "ghost",
+                    size: "xs",
+                    onClick: Message.ClickedValidate(),
+                    isDisabled:
+                      Option.isNone(parsedSource(model)) || model.validation._tag === "Validating",
+                    label: "Validate",
+                  }),
+                  children: [
                     validationView(
                       h,
                       Option.isNone(parsedSource(model))
@@ -1247,7 +1282,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                         : model.validation,
                     ),
                   ],
-                ),
+                }),
                 disclosure(
                   h,
                   "policy-used-by",
@@ -1256,7 +1291,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                   `${bound} rule${bound === 1 ? "" : "s"}`,
                   (isOpen) => Message.ToggledUsedBy({ isOpen }),
                   bound === 0
-                    ? [h.p([], ["No rules use this policy yet."])]
+                    ? [h.p([h.Class("text-ink-muted")], ["No rules use this policy yet."])]
                     : model.configuration.rules
                         .filter(
                           (rule) =>
@@ -1268,7 +1303,9 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                               h.Href(
                                 Routes.rule({ repositoryId: model.repositoryId, ruleId: rule.id }),
                               ),
-                              h.Class("policy-rule-card"),
+                              h.Class(
+                                "flex flex-col gap-0.5 rounded-sm border border-border bg-card p-2 text-body-sm text-ink-muted transition-colors duration-120 ease-ui hover:bg-surface-muted hover:border-primary-line",
+                              ),
                               h.AriaLabel(
                                 `Rule for ${labelName(model.configuration.labels, rule.labelId)}`,
                               ),
@@ -1277,16 +1314,16 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                               h.div(
                                 [h.Class("flex items-center justify-between gap-2")],
                                 [
-                                  h.strong(
-                                    [h.Class("text-foreground")],
+                                  h.span(
+                                    [h.Class("font-mono text-mono-sm text-foreground")],
                                     [labelName(model.configuration.labels, rule.labelId)],
                                   ),
                                   h.span(
                                     [
                                       h.Class(
                                         rule.enabled
-                                          ? "text-emerald-600 dark:text-emerald-400"
-                                          : "text-muted-foreground",
+                                          ? "text-caption font-medium text-success"
+                                          : "text-caption font-medium text-ink-subtle",
                                       ),
                                     ],
                                     [rule.enabled ? "Enabled" : "Disabled"],
@@ -1297,31 +1334,35 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                               h.p([], [`On non-match: ${describeResultAction(rule.onNoMatch)}`]),
                               rule.group === null
                                 ? h.empty
-                                : h.p([], [`Group: ${rule.group} · Priority ${rule.priority}`]),
+                                : h.p(
+                                    [],
+                                    [
+                                      "Group: ",
+                                      h.span([h.Class("font-mono text-mono-sm")], [rule.group]),
+                                      " · Priority ",
+                                      h.span(
+                                        [h.Class("font-mono text-mono-sm")],
+                                        [String(rule.priority)],
+                                      ),
+                                    ],
+                                  ),
                             ],
                           ),
                         ),
                 ),
                 identity._tag === "Existing"
-                  ? h.div(
-                      [h.Class("policy-delete-actions")],
-                      [
+                  ? inspectorSection(h, {
+                      heading: "Delete",
+                      children: [
                         Button.view(h, {
                           variant: "destructive",
-                          size: "lg",
-                          className: "w-full h-10",
+                          size: "sm",
                           isDisabled: busy,
                           onClick: Message.ClickedDelete(),
-                          label: h.span(
-                            [h.Class("flex items-center gap-1.5")],
-                            [
-                              Icon.view(h, Trash2, "size-4"),
-                              isDeleting ? "Deleting policy…" : "Delete policy",
-                            ],
-                          ),
+                          label: isDeleting ? "Deleting policy…" : "Delete policy",
                         }),
                       ],
-                    )
+                    })
                   : h.empty,
               ],
             ),
@@ -1334,51 +1375,30 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
           toParentMessage: (message) => Message.GotDeleteDialogMessage({ message }),
           viewInputs: {
             toView: (render) =>
-              h.dialog(
-                [
-                  ...render.dialog,
-                  h.Class(
-                    "fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none bg-transparent p-0 text-foreground",
-                  ),
+              DialogChrome.view(h, {
+                dialog: render.dialog,
+                backdrop: render.backdrop,
+                panel: render.panel,
+                title: render.title,
+                description: render.description,
+                isVisible: render.isVisible,
+                titleText: "Delete policy?",
+                descriptionText: 'Delete "' + model.name + '"? This cannot be undone.',
+                actions: [
+                  Button.view(h, {
+                    label: "Cancel",
+                    variant: "secondary",
+                    attributes: [h.Id("cancel-delete-policy")],
+                    onClick: Message.CancelledDelete(),
+                  }),
+                  Button.view(h, {
+                    label: "Delete policy",
+                    variant: "destructive",
+                    isDisabled: busy,
+                    onClick: Message.ConfirmedDelete(),
+                  }),
                 ],
-                render.isVisible
-                  ? [
-                      h.div([...render.backdrop, h.Class("fixed inset-0 bg-black/40")], []),
-                      h.div(
-                        [
-                          ...render.panel,
-                          h.Class(
-                            "relative mx-auto mt-[20vh] w-[calc(100%-2rem)] max-w-md rounded-xl border bg-background p-5 shadow-xl space-y-4",
-                          ),
-                        ],
-                        [
-                          h.h2([...render.title, h.Class("font-semibold")], ["Delete policy?"]),
-                          h.p(
-                            [...render.description, h.Class("text-sm text-muted-foreground")],
-                            ['Delete "' + model.name + '"? This cannot be undone.'],
-                          ),
-                          h.div(
-                            [h.Class("flex justify-end gap-2")],
-                            [
-                              Button.view(h, {
-                                label: "Cancel",
-                                variant: "outline",
-                                attributes: [h.Id("cancel-delete-policy")],
-                                onClick: Message.CancelledDelete(),
-                              }),
-                              Button.view(h, {
-                                label: "Delete policy",
-                                variant: "destructive",
-                                isDisabled: busy,
-                                onClick: Message.ConfirmedDelete(),
-                              }),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ]
-                  : [],
-              ),
+              }),
           },
         }),
       ],

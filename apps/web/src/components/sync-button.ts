@@ -14,7 +14,7 @@ import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import { RefreshCw } from "lucide"
-import { buttonSizes, buttonVariants } from "@/components/ui/button"
+import * as Overlay from "@/components/ui/overlay"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 
@@ -361,30 +361,23 @@ export const view = Submodel.defineView<
                     ]),
                 h.Class(
                   cn(
-                    "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md outline-none transition-all focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
-                    buttonVariants.ghost,
-                    buttonSizes["icon-sm"],
+                    Overlay.menuButtonClass,
                     disabled && "opacity-50 cursor-default",
                     Option.isSome(model.summary) &&
                       model.summary.value.failedTargets > 0 &&
-                      "text-amber-500",
+                      "text-destructive",
                   ),
                 ),
               ],
-              [Icon.view(h, RefreshCw, cn("size-4 shrink-0", syncing && "animate-spin"))],
+              [Icon.view(h, RefreshCw, cn("size-3.5 shrink-0", syncing && "animate-spin"))],
             ),
             render.isVisible
               ? h.div(
-                  [
-                    ...render.panel,
-                    h.Class(
-                      "z-50 rounded-md bg-card px-3 py-2 text-xs text-foreground shadow-md ring ring-border whitespace-nowrap",
-                    ),
-                  ],
+                  [...render.panel, h.Class(cn(Overlay.tooltipContentClass, "whitespace-nowrap"))],
                   [
                     h.div([h.Class("font-medium")], ["Re-sync GitHub"]),
                     h.div(
-                      [h.Class("text-muted-foreground")],
+                      [h.Class("text-ink-muted")],
                       [
                         syncDisabled
                           ? "Repository paused. Resume it in repository settings before syncing."

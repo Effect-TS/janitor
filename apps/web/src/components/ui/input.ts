@@ -2,9 +2,10 @@ import * as FoldkitInput from "@foldkit/ui/input"
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import { cn } from "@/lib/utils"
 
-/** Recessed control: cream well, 2px outline, inset lip, brightens on focus. */
+/** Input: surface-muted fill, 1px border, 28px tall, brightens to surface
+ *  and takes a primary border on focus. */
 export const inputClass =
-  "border-outline aria-invalid:border-destructive h-8 rounded-sm border-2 bg-card text-card-foreground shadow-[inset_0_2px_0_rgb(18_34_92/0.1)] px-2.5 py-1 text-base transition-colors file:h-6 file:text-sm file:font-medium focus-visible:bg-popover md:text-sm w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+  "h-7 w-full min-w-0 rounded-sm border border-border bg-surface-muted px-2 py-1 text-body-md text-foreground transition-colors duration-120 ease-ui placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-card aria-invalid:border-destructive file:inline-flex file:h-5 file:border-0 file:bg-transparent file:text-body-sm file:font-medium file:text-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
 
 /** Same string as the `label` item's component classes (upstream label.tsx). */
 /** Upstream string re-keyed for foldkit: the label precedes the control, so
@@ -12,9 +13,10 @@ export const inputClass =
  *  state flows from the wrapper (group/field + data-disabled, mirroring
  *  switch.ts). */
 export const inputLabelClass =
-  "gap-2 text-label leading-none font-semibold group-data-[disabled]:opacity-50 flex items-center select-none group-data-[disabled]/field:pointer-events-none group-data-[disabled]/field:cursor-not-allowed group-data-[disabled]/field:opacity-50"
+  "gap-2 text-label leading-none font-medium group-data-[disabled]:opacity-50 flex items-center select-none group-data-[disabled]/field:pointer-events-none group-data-[disabled]/field:cursor-not-allowed group-data-[disabled]/field:opacity-50"
 
-export const inputDescriptionClass = "text-sm text-muted-foreground"
+/** Help text sits under its label at foreground-muted, never in a tooltip. */
+export const inputDescriptionClass = "text-body-sm text-ink-muted"
 
 export const inputWrapperClass = "group/field flex flex-col gap-1.5 w-full"
 

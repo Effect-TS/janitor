@@ -1,18 +1,20 @@
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { cn } from "@/lib/utils"
 
-/** Status chip. Mono, pill-shaped, and the only element allowed a full radius.
- *  `on` is safety yellow and therefore rationed: one meaning, "this is on". */
-export type ChipVariant = "neutral" | "on" | "danger" | "agent"
+/** Badge. Mono, 3px radius, neutral by default. `selected` is the only pill
+ *  shape. `agent` is yellow and means The Janitor produced the thing; `success`
+ *  and `danger` are genuine state, never emphasis. */
+export type ChipVariant = "neutral" | "selected" | "success" | "danger" | "agent"
 
 export const chipClass =
-  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border-2 px-2 py-0.5 font-mono text-mono-sm font-semibold"
+  "inline-flex h-4.5 max-w-full items-center gap-1 truncate whitespace-nowrap rounded-xs border border-border bg-surface-muted px-1.5 font-mono text-mono-xs font-medium leading-none text-ink-muted"
 
 export const chipVariants: Record<ChipVariant, string> = {
-  neutral: "border-outline bg-muted text-foreground",
-  on: "border-yellow-safety-dark bg-yellow-safety text-navy",
-  danger: "border-destructive bg-transparent text-destructive",
-  agent: "border-cobalt-dark bg-cobalt-light text-navy-deep",
+  neutral: "",
+  selected: "rounded-full border-primary-line bg-primary-wash text-primary-hover",
+  success: "border-success bg-success text-primary-foreground",
+  danger: "border-destructive bg-destructive text-destructive-foreground",
+  agent: "border-agent-line bg-agent-wash text-agent-ink",
 }
 
 export type ChipConfig = {
@@ -25,7 +27,8 @@ export const chip = <M>(h: HtmlBuilder<M>, config: ChipConfig): Html =>
   h.span(
     [
       h.Class(cn(chipClass, chipVariants[config.variant ?? "neutral"], config.className)),
-      h.DataAttribute("slot", "chip"),
+      h.DataAttribute("slot", "badge"),
+      h.DataAttribute("variant", config.variant ?? "neutral"),
     ],
     config.children,
   )

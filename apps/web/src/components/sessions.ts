@@ -23,12 +23,16 @@ import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import { chip, type ChipVariant } from "@/components/ui/chip"
+import * as Feed from "@/components/ui/feed"
+import { emptyPanel, panel } from "@/components/ui/panel"
+import { sign } from "@/components/ui/sign"
 import * as Live from "@/components/live"
 import { readFailure, reasonOf } from "@/lib/api"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
-import { Bot, CircleAlert, ExternalLink, GitPullRequest, MessageSquare } from "lucide"
+import { CircleAlert, Clock, ExternalLink, GitPullRequest, MessageSquare } from "lucide"
 
 /**
  * The Janitor dashboard: every teammate sees the same compact list of agent
@@ -346,11 +350,13 @@ const EXECUTION_LABEL: Record<ExecutionState, string> = {
   failed: "Failed",
 }
 
-const EXECUTION_CLASS: Record<ExecutionState, string> = {
-  working: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-  idle: "bg-muted text-muted-foreground",
-  blocked: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-  failed: "bg-destructive/10 text-destructive",
+/** Working is the agent running, so it takes the agent mark; blocked is a
+ *  neutral state whose reason sits beside it; failed is genuine failure. */
+const EXECUTION_VARIANT: Record<ExecutionState, ChipVariant> = {
+  working: "agent",
+  idle: "neutral",
+  blocked: "neutral",
+  failed: "danger",
 }
 
 export const formatTime = (time: DateTime.Utc): string =>
@@ -373,28 +379,36 @@ export const describeFreshness = (session: SessionSummary): string =>
       ? "Not yet read from the runner"
       : `Confirmed ${formatTime(session.freshness.readAt)}`
 
-const badge = (h: HtmlBuilder<Message>, session: SessionSummary): Html =>
-  h.span(
-    [
-      h.Class(
-        cn(
-          "inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-xs font-medium",
-          EXECUTION_CLASS[session.execution],
-        ),
-      ),
-    ],
-    [EXECUTION_LABEL[session.execution]],
-  )
+/** A machine value: a timestamp, a count, an identifier. */
+const mono = (h: HtmlBuilder<Message>, text: string, className?: string): Html =>
+  h.span([h.Class(cn("font-mono text-mono-sm", className))], [text])
 
-const externalLink = (h: HtmlBuilder<Message>, url: string, label: string): Html =>
+const agentDot = (h: HtmlBuilder<Message>): Html =>
+  h.span([h.Class("oc-agent-dot"), h.AriaHidden(true)], [])
+
+const badge = (h: HtmlBuilder<Message>, session: SessionSummary): Html =>
+  chip(h, {
+    variant: EXECUTION_VARIANT[session.execution],
+    className: "shrink-0",
+    children: [
+      ...(session.execution === "working" ? [agentDot(h)] : []),
+      EXECUTION_LABEL[session.execution],
+    ],
+  })
+
+const externalLink = (
+  h: HtmlBuilder<Message>,
+  url: string,
+  label: ReadonlyArray<Html | string>,
+): Html =>
   h.a(
     [
       h.Href(url),
       h.Target("_blank"),
       h.Rel("noreferrer"),
-      h.Class("inline-flex items-center gap-1 text-sm underline"),
+      h.Class("inline-flex items-center gap-1 text-primary"),
     ],
-    [label, Icon.view(h, ExternalLink, "size-3")],
+    [...label, Icon.view(h, ExternalLink, "size-3 shrink-0")],
   )
 
 const links = (h: HtmlBuilder<Message>, session: SessionSummary): ReadonlyArray<Html> => [
@@ -403,56 +417,60 @@ const links = (h: HtmlBuilder<Message>, session: SessionSummary): ReadonlyArray<
     : [
         h.span(
           [h.Class("inline-flex items-center gap-1")],
-          [
-            Icon.view(h, MessageSquare, "size-3"),
-            externalLink(h, session.homeThread.url, "Home thread"),
-          ],
+          [Icon.view(h, MessageSquare), externalLink(h, session.homeThread.url, ["Home thread"])],
         ),
       ]),
   ...session.pullRequests.map((pr) =>
     h.span(
       [h.Class("inline-flex items-center gap-1")],
-      [Icon.view(h, GitPullRequest, "size-3"), externalLink(h, pr.url, `PR #${pr.number}`)],
+      [
+        Icon.view(h, GitPullRequest),
+        externalLink(h, pr.url, ["PR ", mono(h, `#${pr.number}`, "text-primary")]),
+      ],
     ),
   ),
 ]
 
+/** A warning is neutral text with an icon; there is no warning colour. */
+const warning = (h: HtmlBuilder<Message>, text: string): ReadonlyArray<Html | string> => [
+  Icon.view(h, CircleAlert),
+  text,
+]
+
 const row = (h: HtmlBuilder<Message>, session: SessionSummary): Html =>
   h.li(
-    [h.Class("flex flex-col gap-1 py-3")],
+    [h.Class("flex flex-col gap-1 border-b border-border-subtle px-3 py-2 last:border-b-0")],
     [
       h.div(
         [h.Class("flex flex-wrap items-center gap-2")],
         [
+          agentDot(h),
           badge(h, session),
           h.a(
             [
               h.Href(Routes.session({ sessionId: session.sessionId })),
-              h.Class("text-sm font-medium underline-offset-4 hover:underline"),
+              h.Class("text-body-md font-medium"),
             ],
             [session.title],
           ),
           session.repository === null
-            ? h.span([h.Class("text-xs text-muted-foreground")], ["No repository yet"])
-            : h.span(
-                [h.Class("text-xs text-muted-foreground")],
-                [`${session.repository.owner}/${session.repository.repo}`],
-              ),
+            ? h.span([h.Class("text-body-sm text-ink-subtle")], ["No repository yet"])
+            : mono(h, `${session.repository.owner}/${session.repository.repo}`, "text-ink-subtle"),
         ],
       ),
       session.reason === null
         ? h.empty
-        : h.p([h.Class("text-xs text-muted-foreground")], [session.reason]),
+        : h.p([h.Class("text-body-sm text-ink-muted")], [session.reason]),
       h.div(
-        [h.Class("flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground")],
+        [h.Class("flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm text-ink-subtle")],
         [
-          h.span([], [`Activity ${formatTime(session.activityAt)}`]),
-          h.span([h.Title(USAGE_NOTE)], [describeUsage(session.usage)]),
+          h.span([], ["Activity ", mono(h, formatTime(session.activityAt), "text-mono-xs")]),
+          mono(h, describeUsage(session.usage), "text-mono-xs"),
           session.deliveryWarning === null
             ? h.empty
             : h.span(
-                [h.Class("inline-flex items-center gap-1 text-amber-700 dark:text-amber-300")],
-                [Icon.view(h, CircleAlert, "size-3"), `Delivery: ${session.deliveryWarning}`],
+                [h.Class("inline-flex items-center gap-1 text-ink-muted")],
+                warning(h, `Delivery: ${session.deliveryWarning}`),
               ),
           ...links(h, session),
         ],
@@ -470,21 +488,33 @@ const liveStatus = (h: HtmlBuilder<Message>, model: Model): Html => {
         ? "Showing last known data; the latest refresh failed."
         : "Reconnecting to live updates…"
   return h.p(
-    [h.Role("status"), h.Class("flex flex-wrap gap-2 text-xs text-muted-foreground")],
+    [h.Role("status"), h.Class("flex flex-wrap items-center gap-2 text-body-sm text-ink-muted")],
     [
       h.span([], [text]),
-      h.button(
-        [h.Class("underline"), h.OnClick(Message.ClickedRetry())],
-        [status === "denied" ? "Reconnect" : "Retry"],
-      ),
+      Button.view(h, {
+        variant: "link",
+        size: "sm",
+        label: status === "denied" ? "Reconnect" : "Retry",
+        onClick: Message.ClickedRetry(),
+      }),
     ],
   )
 }
 
+const alert = (h: HtmlBuilder<Message>, text: string): Html =>
+  panel(h, {
+    attributes: [h.Role("alert")],
+    className: "border-destructive text-body-sm",
+    children: [h.div([h.Class("font-medium text-destructive")], [text])],
+  })
+
 const fact = (h: HtmlBuilder<Message>, label: string, value: ReadonlyArray<Html | string>) =>
   h.div(
     [h.Class("flex flex-col gap-0.5")],
-    [h.dt([h.Class("text-xs text-muted-foreground")], [label]), h.dd([h.Class("text-sm")], value)],
+    [
+      h.dt([h.Class("text-caption font-medium text-ink-subtle")], [label]),
+      h.dd([h.Class("text-body-md")], value),
+    ],
   )
 
 /**
@@ -492,146 +522,206 @@ const fact = (h: HtmlBuilder<Message>, label: string, value: ReadonlyArray<Html 
  * found. A caught-up scan with nothing pending says so; a gap is shown next
  * to it because being caught up never means nothing was lost.
  */
-const describeRecovery = (status: RecoveryStatus): string => {
-  const parts: Array<string> = []
-  if (status.completedAt === null) parts.push("not scanned yet")
-  else if (status.overdue) parts.push(`scan overdue, last ${formatTime(status.completedAt)}`)
-  if (status.incomplete) parts.push("results still arriving")
+const describeRecovery = (
+  h: HtmlBuilder<Message>,
+  status: RecoveryStatus,
+): ReadonlyArray<Html | string> => {
+  const parts: Array<ReadonlyArray<Html | string>> = []
+  if (status.completedAt === null) parts.push(["not scanned yet"])
+  else if (status.overdue)
+    parts.push(["scan overdue, last ", mono(h, formatTime(status.completedAt))])
+  if (status.incomplete) parts.push(["results still arriving"])
   if (status.hydrating > 0)
-    parts.push(
-      `fetching comments for ${formatCount(status.hydrating)} contribution${status.hydrating === 1 ? "" : "s"}`,
-    )
-  if (status.warning !== null) parts.push(`retrying past: ${status.warning}`)
-  return `${platformName(status.platform)}: ${parts.length === 0 ? `caught up, last scan ${formatTime(status.completedAt!)}` : parts.join("; ")}`
+    parts.push([
+      "fetching comments for ",
+      mono(h, formatCount(status.hydrating)),
+      ` contribution${status.hydrating === 1 ? "" : "s"}`,
+    ])
+  const body: ReadonlyArray<Html | string> =
+    parts.length === 0
+      ? ["caught up, last scan ", mono(h, formatTime(status.completedAt!))]
+      : parts.flatMap((part, index) => (index === 0 ? part : ["; ", ...part]))
+  return [`${platformName(status.platform)}: `, ...body]
 }
+
+const recoveryRow = (h: HtmlBuilder<Message>, status: RecoveryStatus): Html =>
+  h.li(
+    [
+      h.Class(
+        "flex items-start gap-2 border-b border-border-subtle px-3 py-2 text-body-md last:border-b-0",
+      ),
+    ],
+    [
+      status.overdue
+        ? Icon.view(h, Clock, "mt-0.5 size-3.5 shrink-0 text-ink-muted")
+        : status.incomplete
+          ? Icon.view(h, CircleAlert, "mt-0.5 size-3.5 shrink-0 text-ink-muted")
+          : h.empty,
+      h.div(
+        [h.Class("flex min-w-0 flex-col gap-0.5")],
+        [
+          h.p([], describeRecovery(h, status)),
+          status.warning === null
+            ? h.empty
+            : h.p([h.Class("text-body-sm text-ink-muted")], [`Retrying past: ${status.warning}`]),
+          status.gap === null
+            ? h.empty
+            : h.p([h.Class("text-body-sm text-ink-subtle")], [status.gap]),
+        ],
+      ),
+    ],
+  )
 
 const recoveryView = (h: HtmlBuilder<Message>, recovery: ReadonlyArray<RecoveryStatus>): Html =>
   recovery.length === 0
     ? h.empty
     : h.section(
-        [h.Class("rounded-lg border p-5 space-y-2")],
+        [h.Class("flex flex-col gap-3")],
         [
-          h.h2([h.Class("text-base font-semibold")], ["Recovery"]),
-          h.ul(
-            [h.Class("text-sm space-y-2")],
-            recovery.map((status) =>
-              h.li(
-                [h.Class("space-y-0.5")],
-                [
-                  h.p(
-                    status.overdue || status.incomplete || status.warning !== null
-                      ? [h.Class("text-amber-700 dark:text-amber-300")]
-                      : [],
-                    [describeRecovery(status)],
-                  ),
-                  status.gap === null
-                    ? h.empty
-                    : h.p([h.Class("text-xs text-muted-foreground")], [status.gap]),
-                ],
+          sign(h, { children: ["Recovery"] }),
+          panel(h, {
+            flush: true,
+            children: [
+              h.ul(
+                [],
+                recovery.map((status) => recoveryRow(h, status)),
               ),
-            ),
-          ),
+            ],
+          }),
         ],
       )
 
-const detailView = (h: HtmlBuilder<Message>, detail: SessionDetail): Html =>
-  h.div(
-    [h.Class("space-y-5")],
-    [
-      h.a([h.Href(Routes.sessions()), h.Class("text-sm underline")], ["All sessions"]),
-      h.div(
-        [h.Class("flex flex-wrap items-center gap-2")],
-        [badge(h, detail), h.h1([h.Class("text-lg font-semibold")], [detail.title])],
-      ),
-      detail.reason === null ? h.empty : h.p([h.Class("text-sm")], [detail.reason]),
-      detail.latestError === null
-        ? h.empty
-        : h.p(
-            [h.Role("alert"), h.Class("text-sm text-destructive")],
-            [`Latest error: ${detail.latestError}`],
-          ),
-      detail.deliveryWarning === null
-        ? h.empty
-        : h.p(
-            [h.Role("alert"), h.Class("text-sm text-amber-700 dark:text-amber-300")],
-            [`Delivery: ${detail.deliveryWarning}`],
-          ),
-      h.dl(
-        [h.Class("grid gap-4 rounded-lg border p-5 sm:grid-cols-2")],
+const pendingDeliveryView = (h: HtmlBuilder<Message>, detail: SessionDetail): Html =>
+  detail.pendingDelivery.length === 0
+    ? h.empty
+    : h.section(
+        [h.Class("flex flex-col gap-3")],
         [
-          fact(h, "Repository", [
-            detail.repository === null
-              ? "Not selected yet"
-              : `${detail.repository.owner}/${detail.repository.repo}`,
-          ]),
-          fact(h, "Links", links(h, detail).length === 0 ? ["None"] : links(h, detail)),
-          fact(h, "Latest activity", [formatTime(detail.activityAt)]),
-          fact(h, "Projection", [describeFreshness(detail)]),
-          fact(h, "Inputs", [
-            `${formatCount(detail.acceptedInputs)} accepted, ${formatCount(detail.pendingInputs)} awaiting the runner${detail.lastInputAt === null ? "" : `, last ${formatTime(detail.lastInputAt)}`}`,
-          ]),
-          fact(h, "Recorded usage", [
-            h.span([], [describeUsage(detail.usage)]),
-            h.p([h.Class("text-xs text-muted-foreground")], [USAGE_NOTE]),
-          ]),
-        ],
-      ),
-      detail.pendingDelivery.length === 0
-        ? h.empty
-        : h.section(
-            [h.Class("rounded-lg border p-5 space-y-2")],
-            [
-              h.h2([h.Class("text-base font-semibold")], ["Pending delivery"]),
+          sign(h, { children: ["Pending delivery"] }),
+          panel(h, {
+            flush: true,
+            children: [
               h.ul(
-                [h.Class("text-sm space-y-1")],
+                [],
                 detail.pendingDelivery.map((item) =>
                   h.li(
-                    [],
                     [
-                      `${platformName(item.platform)} reply ${item.state}${item.error === null ? "" : `: ${item.error}`}`,
+                      h.Class(
+                        "flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 text-body-md last:border-b-0",
+                      ),
+                    ],
+                    [
+                      `${platformName(item.platform)} reply ${item.state}${item.error === null ? "" : ": "}`,
+                      ...(item.error === null ? [] : [mono(h, item.error, "text-destructive")]),
                     ],
                   ),
                 ),
               ),
             ],
+          }),
+        ],
+      )
+
+const detailView = (h: HtmlBuilder<Message>, detail: SessionDetail): Html =>
+  h.div(
+    [h.Class("flex flex-col gap-4")],
+    [
+      h.a([h.Href(Routes.sessions()), h.Class("self-start text-body-sm")], ["All sessions"]),
+      h.div(
+        [h.Class("flex flex-wrap items-center gap-2")],
+        [h.h1([], [detail.title]), Feed.agentBadge(h), badge(h, detail)],
+      ),
+      detail.reason === null
+        ? h.empty
+        : h.p([h.Class("text-body-md text-ink-muted")], [detail.reason]),
+      detail.latestError === null ? h.empty : alert(h, `Latest error: ${detail.latestError}`),
+      detail.deliveryWarning === null
+        ? h.empty
+        : h.p(
+            [h.Role("alert"), h.Class("flex items-center gap-1 text-body-sm text-ink-muted")],
+            warning(h, `Delivery: ${detail.deliveryWarning}`),
           ),
+      panel(h, {
+        children: [
+          h.dl(
+            [h.Class("grid gap-4 sm:grid-cols-2")],
+            [
+              fact(h, "Repository", [
+                detail.repository === null
+                  ? "Not selected yet"
+                  : mono(h, `${detail.repository.owner}/${detail.repository.repo}`),
+              ]),
+              fact(h, "Links", [
+                h.span(
+                  [h.Class("flex flex-wrap items-center gap-x-4 gap-y-1")],
+                  links(h, detail).length === 0 ? ["None"] : links(h, detail),
+                ),
+              ]),
+              fact(h, "Latest activity", [mono(h, formatTime(detail.activityAt))]),
+              fact(h, "Projection", [describeFreshness(detail)]),
+              fact(h, "Inputs", [
+                mono(h, formatCount(detail.acceptedInputs)),
+                " accepted, ",
+                mono(h, formatCount(detail.pendingInputs)),
+                " awaiting the runner",
+                ...(detail.lastInputAt === null
+                  ? []
+                  : [", last ", mono(h, formatTime(detail.lastInputAt))]),
+              ]),
+              fact(h, "Recorded usage", [
+                mono(h, describeUsage(detail.usage)),
+                h.p([h.Class("text-body-sm text-ink-muted")], [USAGE_NOTE]),
+              ]),
+            ],
+          ),
+        ],
+      }),
+      pendingDeliveryView(h, detail),
       recoveryView(h, detail.recovery),
-      h.p([h.Class("text-xs text-muted-foreground")], [describeFreshness(detail)]),
+      h.p([h.Class("text-body-sm text-ink-subtle")], [describeFreshness(detail)]),
     ],
   )
 
 const listView = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.div(
-    [h.Class("space-y-4")],
+    [h.Class("flex flex-col gap-4")],
     [
       h.div(
-        [h.Class("flex items-center gap-3")],
+        [h.Class("flex flex-col gap-1")],
         [
-          Icon.view(h, Bot, "size-6 text-muted-foreground"),
-          h.h1([h.Class("text-lg font-semibold")], ["Sessions"]),
-        ],
-      ),
-      h.p(
-        [h.Class("text-sm text-muted-foreground")],
-        [
-          "Every teammate sees the same sessions. Collaborate with an agent in its home thread; usage totals are recorded by OpenCode and are not a bill.",
+          h.div(
+            [h.Class("flex flex-wrap items-center gap-2")],
+            [h.h1([], ["Sessions"]), Feed.agentBadge(h)],
+          ),
+          h.p(
+            [h.Class("text-body-sm text-ink-muted")],
+            [
+              "Every teammate sees the same sessions. Collaborate with an agent in its home thread; usage totals are recorded by OpenCode and are not a bill.",
+            ],
+          ),
         ],
       ),
       !model.loaded && model.loading
-        ? h.p([h.Role("status")], ["Loading sessions…"])
+        ? h.p([h.Role("status"), h.Class("text-body-sm text-ink-muted")], ["Loading sessions…"])
         : model.loaded && model.sessions.length === 0
-          ? h.p([h.Class("text-sm text-muted-foreground")], ["No agent sessions yet."])
-          : h.ul(
-              [h.Class("divide-y")],
-              model.sessions.map((session) => row(h, session)),
-            ),
+          ? emptyPanel(h, { children: ["No agent sessions yet."] })
+          : panel(h, {
+              flush: true,
+              children: [
+                h.ul(
+                  [],
+                  model.sessions.map((session) => row(h, session)),
+                ),
+              ],
+            }),
       model.cursor === null
         ? h.empty
         : Button.view(h, {
             label: model.loadingMore ? "Loading…" : "Load more",
             onClick: Message.ClickedMore(),
-            variant: "outline",
+            variant: "secondary",
             size: "sm",
+            className: "self-start",
             isDisabled: model.loadingMore,
           }),
     ],
@@ -640,18 +730,19 @@ const listView = (h: HtmlBuilder<Message>, model: Model): Html =>
 export const view = Submodel.defineView<Model, Message, Record<string, never>>(
   (model, _inputs, h) =>
     h.div(
-      [h.Class("mx-auto w-full max-w-3xl p-6 space-y-4")],
+      [h.Class("flex w-full max-w-3xl flex-col gap-4 p-4 lg:p-5")],
       [
         liveStatus(h, model),
-        model.error !== null && !model.stale
-          ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.error])
-          : h.empty,
+        model.error !== null && !model.stale ? alert(h, model.error) : h.empty,
         model.selected === null
           ? listView(h, model)
           : model.detail === null
             ? model.loading
-              ? h.p([h.Role("status")], ["Loading session…"])
-              : h.a([h.Href(Routes.sessions()), h.Class("text-sm underline")], ["All sessions"])
+              ? h.p(
+                  [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+                  ["Loading session…"],
+                )
+              : h.a([h.Href(Routes.sessions()), h.Class("text-body-sm")], ["All sessions"])
             : detailView(h, model.detail),
       ],
     ),

@@ -370,15 +370,15 @@ const sectionTitle: Record<Routes.AccountSection, string> = {
   team: "Team",
 }
 
-/** The section rack. Team hangs only for admins, who receive a roster. */
-const sectionRack = (
+/** The section nav. Team is listed only for admins, who receive a roster. */
+const sectionNav = (
   h: HtmlBuilder<Message>,
   current: Routes.AccountSection,
   hasTeam: boolean,
 ): Html =>
   rack(h, {
     label: "Account settings",
-    className: "md:w-[200px]",
+    className: "shrink-0 md:w-sidebar",
     items: (["you", "accounts", ...(hasTeam ? ["team" as const] : [])] as const).map((section) => ({
       href: Routes.accountSection(section),
       label: sectionTitle[section],
@@ -393,36 +393,56 @@ const pane = (
   children: ReadonlyArray<Html>,
 ): Html =>
   h.section(
-    [h.Attribute("aria-labelledby", `account-${section}`), h.Class("flex flex-col gap-3.5")],
+    [h.Attribute("aria-labelledby", `account-${section}`), h.Class("flex flex-col gap-3")],
     [
-      sign(h, { id: `account-${section}`, children: [sectionTitle[section]] }),
-      h.p([h.Class("text-muted-foreground")], [lede]),
+      h.div(
+        [h.Class("flex flex-col gap-1")],
+        [
+          sign(h, { id: `account-${section}`, children: [sectionTitle[section]] }),
+          h.p([h.Class("text-body-sm text-ink-muted")], [lede]),
+        ],
+      ),
       ...children,
     ],
   )
 
+/** A machine value: an identifier or a date. */
+const mono = (h: HtmlBuilder<Message>, text: string): Html =>
+  h.span([h.Class("font-mono text-mono-sm")], [text])
+
+const roleChip = (h: HtmlBuilder<Message>, role: typeof TeammateRole.Type): Html =>
+  chip(h, { children: [role === "admin" ? "admin" : "member"] })
+
+/** An error panel: what happened, in destructive on the title only. */
+const alert = (h: HtmlBuilder<Message>, text: string): Html =>
+  panel(h, {
+    attributes: [h.Role("alert")],
+    className: "border-destructive text-body-sm",
+    children: [h.div([h.Class("font-medium text-destructive")], [text])],
+  })
+
 // YOU
+
+const youRow = (h: HtmlBuilder<Message>, label: string, value: Html | string): Html =>
+  h.div(
+    [h.Class("flex items-center gap-4 border-b border-border-subtle px-4 py-1.5 last:border-b-0")],
+    [
+      h.dt([h.Class("w-32 shrink-0 text-body-sm text-ink-muted")], [label]),
+      h.dd([h.Class("min-w-0 truncate text-body-md")], [value]),
+    ],
+  )
 
 const youPane = (h: HtmlBuilder<Message>, view: AccountView): Html =>
   pane(h, "you", "How Janitor knows you. Sign-in is handled by Cloudflare Access.", [
     panel(h, {
+      flush: true,
       children: [
         h.dl(
-          [h.Class("grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-2.5")],
+          [],
           [
-            h.dt([h.Class("text-sm text-muted-foreground")], ["Email"]),
-            h.dd([], [displayName(view.teammate)]),
-            h.dt([h.Class("text-sm text-muted-foreground")], ["Role"]),
-            h.dd(
-              [],
-              [
-                view.teammate.role === "admin"
-                  ? chip(h, { variant: "on", children: ["admin"] })
-                  : chip(h, { children: ["member"] }),
-              ],
-            ),
-            h.dt([h.Class("text-sm text-muted-foreground")], ["Teammate since"]),
-            h.dd([], [formatDay(view.teammate.createdAt)]),
+            youRow(h, "Email", displayName(view.teammate)),
+            youRow(h, "Role", roleChip(h, view.teammate.role)),
+            youRow(h, "Teammate since", mono(h, formatDay(view.teammate.createdAt))),
           ],
         ),
       ],
@@ -443,12 +463,12 @@ const platformRow = (
   const name = platformName(platform)
   const status =
     link !== undefined
-      ? h.span([], ["Connected as ", h.code([h.Class("font-mono")], [link.displayName])])
+      ? h.span([], ["Connected as ", mono(h, link.displayName)])
       : !available
         ? h.span([], ["Not available in this deployment"])
         : past === undefined
           ? h.span([], ["Not connected"])
-          : h.span([], ["Disconnected · was ", h.code([h.Class("font-mono")], [past.displayName])])
+          : h.span([], ["Disconnected · was ", mono(h, past.displayName)])
   const connectLabel = busyWith(model, "connect", platform) ? "Opening…" : `Connect ${name}`
   const actions =
     link === undefined
@@ -478,19 +498,19 @@ const platformRow = (
         ]
   return h.div(
     [
-      h.Class("flex items-center gap-3.5 border-b-2 border-outline px-[18px] py-4 last:border-b-0"),
+      h.Class("flex items-center gap-3 border-b border-border-subtle px-4 py-2.5 last:border-b-0"),
       h.DataAttribute("slot", "row"),
     ],
     [
       platformMark(h, platform),
       h.div(
-        [h.Class("min-w-0 flex-1")],
+        [h.Class("flex min-w-0 flex-1 flex-col gap-0.5")],
         [
           h.p([h.Class("text-h3 font-semibold")], [name]),
-          h.p([h.Class("text-sm text-muted-foreground")], [status]),
+          h.p([h.Class("text-body-sm text-ink-muted")], [status]),
         ],
       ),
-      h.div([h.Class("flex shrink-0 items-center gap-2.5")], actions),
+      h.div([h.Class("flex shrink-0 items-center gap-2")], actions),
     ],
   )
 }
@@ -502,7 +522,7 @@ const accountsPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView):
       children: [platformRow(h, model, view, "github"), platformRow(h, model, view, "slack")],
     }),
     h.p(
-      [h.Class("text-sm text-muted-foreground")],
+      [h.Class("text-body-sm text-ink-muted")],
       [
         "Disconnecting stops new instructions from that account. Work it already contributed is kept.",
       ],
@@ -525,15 +545,13 @@ const rosterRow = (
         Button.view(h, {
           label: busyWith(model, "restore", entry.teammateId) ? "Restoring…" : "Restore",
           onClick: Message.ClickedRestore({ teammateId: entry.teammateId }),
-          variant: "outline",
+          variant: "secondary",
           size: "sm",
           isDisabled: isBusy(model),
         }),
       ]
     : [
-        entry.role === "admin"
-          ? chip(h, { variant: "on", children: ["admin"] })
-          : chip(h, { children: ["member"] }),
+        roleChip(h, entry.role),
         ...(isSelf
           ? []
           : [
@@ -547,7 +565,7 @@ const rosterRow = (
                   teammateId: entry.teammateId,
                   role: entry.role === "admin" ? "member" : "admin",
                 }),
-                variant: "outline",
+                variant: "secondary",
                 size: "sm",
                 isDisabled: isBusy(model),
               }),
@@ -564,8 +582,8 @@ const rosterRow = (
     [
       h.Class(
         cn(
-          "flex items-center gap-3 px-[18px] py-2.5",
-          removed && "bg-muted/60 text-muted-foreground",
+          "flex items-center gap-3 border-b border-border-subtle px-4 py-1.5 last:border-b-0",
+          removed && "text-ink-muted",
         ),
       ),
       h.DataAttribute("slot", "row"),
@@ -576,19 +594,17 @@ const rosterRow = (
         [h.Class("min-w-0 flex-1")],
         [
           h.p(
-            [h.Class("truncate")],
+            [h.Class("truncate text-body-md")],
             [
-              entry.email === null
-                ? h.code([h.Class("font-mono text-sm")], [entry.subject])
-                : entry.email,
-              isSelf ? h.span([h.Class("ml-1 text-muted-foreground")], ["(you)"]) : h.empty,
+              displayName(entry),
+              isSelf ? h.span([h.Class("ml-1 text-ink-muted")], ["(you)"]) : h.empty,
             ],
           ),
           entry.email === null && !removed
-            ? h.p([h.Class("text-sm text-muted-foreground")], ["No email on record"])
+            ? h.p([h.Class("text-body-sm text-ink-muted")], ["No email on record"])
             : h.empty,
           removed && entry.removedAt !== null
-            ? h.p([h.Class("text-sm")], [`Removed ${formatDay(entry.removedAt)}`])
+            ? h.p([h.Class("text-body-sm")], ["Removed ", mono(h, formatDay(entry.removedAt))])
             : h.empty,
         ],
       ),
@@ -601,7 +617,7 @@ const teamPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Htm
   if (view.team === null)
     return pane(h, "team", "Only admins can manage the team.", [
       emptyPanel(h, {
-        children: [h.p([], ["Ask an admin if you need a role change or to remove someone."])],
+        children: ["Ask an admin if you need a role change or to remove someone."],
       }),
     ])
   const active = view.team.filter((entry) => entry.status !== "removed")
@@ -609,20 +625,24 @@ const teamPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Htm
   return pane(h, "team", "Everyone who has signed in. New teammates start as members.", [
     panel(h, {
       flush: true,
-      className: "jn-dense",
       children: [
-        ...active.map((entry) => rosterRow(h, model, view.teammate, entry)),
-        ...(model.showRemoved
-          ? removed.map((entry) => rosterRow(h, model, view.teammate, entry))
-          : []),
+        h.div(
+          [],
+          [
+            ...active.map((entry) => rosterRow(h, model, view.teammate, entry)),
+            ...(model.showRemoved
+              ? removed.map((entry) => rosterRow(h, model, view.teammate, entry))
+              : []),
+          ],
+        ),
         h.div(
           [
             h.Class(
-              "flex items-center justify-between gap-3 border-t-2 border-outline bg-popover px-[18px] py-2.5 text-sm text-muted-foreground",
+              "flex min-h-8 items-center justify-between gap-3 border-t border-border bg-surface-muted px-4 py-1 text-body-sm text-ink-muted",
             ),
           ],
           [
-            h.span([], [`${active.length} active`]),
+            h.span([], [mono(h, String(active.length)), " active"]),
             removed.length === 0
               ? h.empty
               : Button.view(h, {
@@ -641,63 +661,32 @@ const teamPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Htm
 
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>
   h.div(
+    [h.Class("flex flex-col gap-4 p-4 md:flex-row md:gap-8 lg:p-5"), h.OnMount(Open({}))],
     [
-      h.Class("flex flex-col gap-6 p-6 md:grid md:grid-cols-[200px_minmax(0,640px)] md:gap-10"),
-      h.OnMount(Open({})),
-    ],
-    [
-      sectionRack(
+      sectionNav(
         h,
         inputs.section,
         Option.exists(model.view, (view) => view.team !== null),
       ),
       h.div(
-        [h.Class("flex min-w-0 flex-col gap-3.5")],
+        [h.Class("flex min-w-0 max-w-2xl flex-1 flex-col gap-3")],
         [
-          Option.isSome(model.error)
-            ? h.p(
-                [
-                  h.Role("alert"),
-                  h.Class(
-                    "rounded-sm border-2 border-destructive bg-popover px-3.5 py-2.5 text-sm text-destructive",
-                  ),
-                ],
-                [model.error.value],
-              )
-            : h.empty,
-          Option.isSome(model.loadError)
-            ? h.p(
-                [
-                  h.Role("alert"),
-                  h.Class(
-                    "rounded-sm border-2 border-destructive bg-popover px-3.5 py-2.5 text-sm text-destructive",
-                  ),
-                ],
-                [model.loadError.value],
-              )
-            : h.empty,
+          Option.isSome(model.error) ? alert(h, model.error.value) : h.empty,
+          Option.isSome(model.loadError) ? alert(h, model.loadError.value) : h.empty,
           model.notice
-            ? h.p(
-                [
-                  h.Role("status"),
-                  h.Class(
-                    "rounded-sm border-2 border-dashed border-outline/40 bg-popover px-3.5 py-2.5 text-sm text-muted-foreground",
-                  ),
-                ],
-                [model.notice],
-              )
+            ? panel(h, {
+                attributes: [h.Role("status")],
+                className: "text-body-sm text-ink-muted",
+                children: [model.notice],
+              })
             : h.empty,
           Option.match(model.view, {
             onNone: () =>
               Option.isNone(model.loadError)
-                ? panel(h, {
-                    children: [
-                      h.p(
-                        [h.Role("status"), h.Class("text-muted-foreground")],
-                        ["Loading your account…"],
-                      ),
-                    ],
-                  })
+                ? h.p(
+                    [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+                    ["Loading your account…"],
+                  )
                 : h.empty,
             onSome: (view) => {
               switch (inputs.section) {

@@ -8,7 +8,8 @@ export type SkeletonConfig = {
   readonly children: ReadonlyArray<Child>
 }
 
-export const skeletonClass = "bg-muted rounded-xs animate-pulse"
+/** A static surface-muted block. Never a shimmer. */
+export const skeletonClass = "rounded-xs bg-surface-muted"
 
 export const skeleton = <M>(h: HtmlBuilder<M>, config: SkeletonConfig): Html =>
   h.div(

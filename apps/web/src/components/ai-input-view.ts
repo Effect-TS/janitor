@@ -3,6 +3,9 @@ import * as Schema from "effect/Schema"
 import { AiInputDetails, type AiInputReport } from "@/components/labeling-wire"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import * as Button from "@/components/ui/button"
+import * as Feed from "@/components/ui/feed"
+import * as Icon from "@/lib/icons"
+import { ChevronRight, Info, Scissors } from "lucide"
 
 export const InputInspection = Schema.Union([
   Schema.TaggedStruct("Idle", {}),
@@ -13,6 +16,15 @@ export const InputInspection = Schema.Union([
 export type InputInspection = typeof InputInspection.Type
 const size = (bytes: number) => `${(bytes / 1000).toFixed(1)} KB`
 
+const summaryClass =
+  "flex cursor-pointer list-none items-center gap-1.5 text-body-sm font-medium text-foreground marker:hidden [&::-webkit-details-marker]:hidden"
+
+const noteClass = "flex items-start gap-1.5 text-body-sm text-ink-muted"
+
+/** Byte counts are machine values: mono, tabular. */
+const bytes = <M>(h: HtmlBuilder<M>, text: string): Html =>
+  h.span([h.Class("font-mono text-mono-sm tabular-nums")], [text])
+
 export const aiInputView = <M>(
   h: HtmlBuilder<M>,
   report: AiInputReport | undefined,
@@ -22,25 +34,47 @@ export const aiInputView = <M>(
 ): Html => {
   if (!report) return h.empty
   const shortened = report.status === "shortened"
+  /** What the agent received, verbatim: mono on a muted surface with the agent edge. */
   const code = (text: string) =>
     h.pre(
       [
         h.Class(
-          "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border bg-muted/30 p-2 text-[11px]",
+          "oc-agent-edge mt-1.5 max-h-64 overflow-auto rounded-xs border border-border-subtle bg-surface-muted p-2 font-mono text-mono-sm whitespace-pre-wrap wrap-anywhere",
         ),
       ],
       [text],
     )
+  const disclosure = (title: string, body: Html): Html =>
+    h.details(
+      [h.Class("group/disclosure")],
+      [
+        h.summary(
+          [h.Class(summaryClass)],
+          [
+            Icon.view(h, ChevronRight, "size-3.5 shrink-0 group-open/disclosure:hidden"),
+            Icon.view(
+              h,
+              ChevronRight,
+              "size-3.5 shrink-0 rotate-90 hidden group-open/disclosure:block",
+            ),
+            title,
+          ],
+        ),
+        body,
+      ],
+    )
   return h.details(
-    [h.Class("mt-3 rounded-md border p-2 text-xs")],
+    [
+      h.Class("group/report mt-3 rounded-sm border border-border p-2.5 text-body-sm"),
+      h.DataAttribute("slot", "ai-input-report"),
+    ],
     [
       h.summary(
+        [h.Class(summaryClass)],
         [
-          h.Class(
-            `cursor-pointer font-medium ${shortened ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`,
-          ),
-        ],
-        [
+          Icon.view(h, ChevronRight, "size-3.5 shrink-0 group-open/report:hidden"),
+          Icon.view(h, ChevronRight, "size-3.5 shrink-0 rotate-90 hidden group-open/report:block"),
+          shortened ? Icon.view(h, Scissors, "size-3.5 shrink-0 text-ink-subtle") : h.empty,
           shortened
             ? "AI input shortened"
             : report.status === "rejected"
@@ -49,31 +83,59 @@ export const aiInputView = <M>(
         ],
       ),
       h.p(
-        [h.Class("mt-2 text-muted-foreground")],
-        [
-          report.status === "rejected"
-            ? `Input was not sent. ${size(report.originalBytes)} before preparation; ${size(report.budgetBytes)} limit.`
-            : `${size(report.suppliedBytes)} of ${size(report.budgetBytes)} input budget used, including reserved framing.`,
-        ],
+        [h.Class("mt-2 text-ink-muted")],
+        report.status === "rejected"
+          ? [
+              "Input was not sent. ",
+              bytes(h, size(report.originalBytes)),
+              " before preparation; ",
+              bytes(h, size(report.budgetBytes)),
+              " limit.",
+            ]
+          : [
+              bytes(h, size(report.suppliedBytes)),
+              " of ",
+              bytes(h, size(report.budgetBytes)),
+              " input budget used, including reserved framing.",
+            ],
       ),
       ...report.facts.map((fact) =>
         h.div(
-          [h.Class("mt-2")],
+          [h.Class("mt-2 flex flex-col gap-0.5")],
           [
-            h.strong([], [fact.name]),
-            h.span(
-              [h.Class("ml-2 text-muted-foreground")],
+            h.div(
+              [h.Class("flex flex-wrap items-baseline gap-2")],
               [
-                report.status === "rejected"
-                  ? `${size(fact.originalBytes)} · not sent`
-                  : `${size(fact.originalBytes)} → ${size(fact.suppliedBytes)}`,
+                h.span(
+                  [h.Class("font-mono text-mono-sm font-medium text-foreground")],
+                  [fact.name],
+                ),
+                h.span(
+                  [h.Class("text-ink-muted")],
+                  report.status === "rejected"
+                    ? [bytes(h, size(fact.originalBytes)), " · not sent"]
+                    : [
+                        bytes(h, size(fact.originalBytes)),
+                        " → ",
+                        bytes(h, size(fact.suppliedBytes)),
+                      ],
+                ),
               ],
             ),
             fact.omission
               ? h.p(
-                  [h.Class("text-amber-700 dark:text-amber-400")],
+                  [h.Class(noteClass)],
                   [
-                    `${fact.omission.end - fact.omission.start} ${fact.omission.unit} omitted (${fact.omission.start + 1}–${fact.omission.end}).`,
+                    Icon.view(h, Scissors, "mt-0.5 size-3.5 shrink-0"),
+                    h.span(
+                      [],
+                      [
+                        bytes(h, String(fact.omission.end - fact.omission.start)),
+                        ` ${fact.omission.unit} omitted (`,
+                        bytes(h, `${fact.omission.start + 1}–${fact.omission.end}`),
+                        ").",
+                      ],
+                    ),
                   ],
                 )
               : h.empty,
@@ -81,7 +143,7 @@ export const aiInputView = <M>(
         ),
       ),
       h.p(
-        [h.Class("mt-2 text-muted-foreground")],
+        [h.Class("mt-2 text-ink-muted")],
         [
           report.status === "rejected"
             ? "No evidence was sent to the AI provider."
@@ -92,14 +154,12 @@ export const aiInputView = <M>(
         ? h.empty
         : inspection._tag === "Ready"
           ? h.div(
-              [h.Class("mt-3 space-y-3")],
+              [h.Class("mt-3 flex flex-col gap-2")],
               [
-                h.details(
-                  [],
-                  [
-                    h.summary([h.Class("cursor-pointer")], ["View sent input"]),
-                    code(inspection.details.system + "\n\n" + inspection.details.text),
-                  ],
+                h.div([h.Class("flex")], [Feed.agentBadge(h, "sent to the model")]),
+                disclosure(
+                  "View sent input",
+                  code(inspection.details.system + "\n\n" + inspection.details.text),
                 ),
                 ...report.facts
                   .filter((fact) => fact.omission)
@@ -123,37 +183,43 @@ export const aiInputView = <M>(
                               )
                             : omitted
                     }
-                    return h.details(
-                      [],
-                      [
-                        h.summary([h.Class("cursor-pointer")], [`View omitted ${fact.name}`]),
-                        code(omitted),
-                      ],
-                    )
+                    return disclosure(`View omitted ${fact.name}`, code(omitted))
                   }),
                 h.p(
-                  [h.Class("text-muted-foreground")],
-                  ["This is the snapshot used for this test, not the current PR contents."],
+                  [h.Class(noteClass)],
+                  [
+                    Icon.view(h, Info, "mt-0.5 size-3.5 shrink-0"),
+                    h.span(
+                      [],
+                      ["This is the snapshot used for this test, not the current PR contents."],
+                    ),
+                  ],
                 ),
               ],
             )
           : !available
             ? h.p(
-                [h.Class("mt-2 text-muted-foreground")],
+                [h.Class("mt-2 text-ink-muted")],
                 ["Input details are unavailable for this earlier result."],
               )
             : h.div(
-                [h.Class("mt-2")],
+                [h.Class("mt-2 flex flex-col gap-2")],
                 [
                   inspection._tag === "Failed"
-                    ? h.p([h.Role("alert")], [inspection.reason])
+                    ? h.p([h.Role("alert"), h.Class("text-destructive")], [inspection.reason])
                     : h.empty,
-                  Button.view(h, {
-                    label: inspection._tag === "Loading" ? "Loading input…" : "Inspect input",
-                    variant: "outline",
-                    isDisabled: inspection._tag === "Loading",
-                    onClick: inspect,
-                  }),
+                  h.div(
+                    [h.Class("flex")],
+                    [
+                      Button.view(h, {
+                        label: inspection._tag === "Loading" ? "Loading input…" : "Inspect input",
+                        variant: "secondary",
+                        size: "sm",
+                        isDisabled: inspection._tag === "Loading",
+                        onClick: inspect,
+                      }),
+                    ],
+                  ),
                 ],
               ),
     ],

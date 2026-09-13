@@ -6,6 +6,7 @@ import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
+import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import * as Mount from "foldkit/mount"
 import * as Dialog from "@foldkit/ui/dialog"
 import type * as Update from "foldkit/update"
@@ -13,9 +14,12 @@ import * as Submodel from "foldkit/submodel"
 import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
 import * as Button from "@/components/ui/button"
+import * as DialogChrome from "@/components/ui/dialog"
 import { input } from "@/components/ui/input"
+import { panel } from "@/components/ui/panel"
 import * as Icon from "@/lib/icons"
-import { FolderGit2 } from "lucide"
+import { cn } from "@/lib/utils"
+import { CircleAlert } from "lucide"
 import { reasonOf, request } from "@/lib/api"
 import * as Routes from "@/routes"
 
@@ -307,6 +311,28 @@ export const update = (model: Model, message: Message) =>
     CancelledDisconnect: () =>
       isBusy(model) ? { model } : mapDialog(model, Dialog.close(model.dialog)),
   })
+/** An error panel: what happened, in destructive on the title only. */
+const alert = <M>(h: HtmlBuilder<M>, text: string): Html =>
+  panel(h, {
+    attributes: [h.Role("alert")],
+    className: "border-destructive text-body-sm",
+    children: [h.div([h.Class("font-medium text-destructive")], [text])],
+  })
+
+/** A warning is neutral text with an icon; there is no warning colour. */
+const note = <M>(
+  h: HtmlBuilder<M>,
+  text: string,
+  attributes: ReadonlyArray<Attribute<M> | ChildAttribute> = [],
+): Html =>
+  h.p(
+    [...attributes, h.Class("flex items-start gap-1 text-body-sm text-ink-muted")],
+    [Icon.view(h, CircleAlert, "mt-0.5 size-3.5 shrink-0"), h.span([], [text])],
+  )
+
+const repositoryName = <M>(h: HtmlBuilder<M>, owner: string, repo: string, className?: string) =>
+  h.span([h.Class(cn("font-mono text-mono-md", className))], [`${owner}/${repo}`])
+
 export const view = Submodel.defineView<
   Model,
   Message,
@@ -318,7 +344,7 @@ export const view = Submodel.defineView<
   const button = (
     label: string,
     onClick: Message,
-    variant: "outline" | "default" | "destructive" = "outline",
+    variant: "secondary" | "default" | "destructive" = "secondary",
   ) =>
     Button.view(h, {
       label:
@@ -338,221 +364,210 @@ export const view = Submodel.defineView<
       size: "sm",
       isDisabled: isBusy(model),
     })
-  return h.section(
-    [
-      h.Class(
-        settings ? "rounded-lg border p-5 space-y-4" : "mx-auto w-full max-w-2xl p-6 space-y-5",
-      ),
-      h.OnMount(Poll({ state: inputs.state, refresh: !settings })),
-    ],
-    [
-      h.div(
-        [h.Class("flex items-center gap-3")],
-        [
-          Icon.view(h, FolderGit2, "size-6 text-muted-foreground"),
-          h.h1(
-            [h.Class("text-lg font-semibold")],
-            [settings ? "Connection" : "Connect a repository"],
-          ),
-        ],
-      ),
-      Option.isSome(model.error)
-        ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.error.value])
-        : h.empty,
-      Option.isSome(model.loadError)
-        ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.loadError.value])
-        : h.empty,
-      model.notice
-        ? h.p([h.Role("status"), h.Class("text-sm text-muted-foreground")], [model.notice])
-        : h.empty,
-      Option.isNone(model.inventory) && Option.isNone(model.loadError)
-        ? h.p([h.Role("status")], ["Loading repositories…"])
-        : h.empty,
-      settings && current
-        ? h.div(
-            [h.Class("space-y-4")],
-            [
-              h.p(
-                [h.Class("text-sm")],
-                [
-                  `${current.owner}/${current.repo} · ${!current.connected ? "Disconnected" : current.access !== "accessible" || current.installationStatus !== "active" ? "Access lost" : !current.enabled ? "Paused" : current.syncState === "failed" ? "Automation blocked by synchronization failure" : current.syncState === "syncing" ? "Synchronizing before automation becomes ready…" : "Automation ready"}`,
-                ],
-              ),
-              h.div(
-                [h.Class("flex flex-wrap gap-2")],
-                [
-                  current.accessError
-                    ? h.p(
-                        [h.Role("status"), h.Class("text-sm text-muted-foreground")],
-                        [current.accessError],
-                      )
-                    : h.empty,
-                  current.connected && current.enabled && current.syncState === "failed"
-                    ? button(
-                        "Retry sync",
-                        Message.ClickedChange({ id: current.repositoryId, action: "resume" }),
-                      )
-                    : h.empty,
-                  current.connected && current.enabled && current.syncState === "failed"
-                    ? h.p(
-                        [h.Role("status"), h.Class("text-sm text-muted-foreground")],
-                        [
-                          `${current.syncError ?? "Synchronization could not complete."} Automatic retries continue. Retry sync to refresh facts now. Recovery waits for new webhook events before labeling.`,
-                        ],
-                      )
-                    : h.empty,
-                  h.p(
-                    [h.Class("text-sm text-muted-foreground")],
-                    [
-                      "Pausing stops automation and synchronization. Configuration, stored facts and GitHub labels are kept.",
-                    ],
-                  ),
-                  current.connected
-                    ? button(
-                        current.enabled ? "Pause repository" : "Resume repository",
+  const visible = rows.filter((row) =>
+    `${row.owner}/${row.repo}`.toLowerCase().includes(model.search.toLowerCase()),
+  )
+  const children: ReadonlyArray<Html> = [
+    settings ? h.h2([], ["Connection"]) : h.h1([], ["Connect a repository"]),
+    Option.isSome(model.error) ? alert(h, model.error.value) : h.empty,
+    Option.isSome(model.loadError) ? alert(h, model.loadError.value) : h.empty,
+    model.notice
+      ? h.p([h.Role("status"), h.Class("text-body-sm text-ink-muted")], [model.notice])
+      : h.empty,
+    Option.isNone(model.inventory) && Option.isNone(model.loadError)
+      ? h.p([h.Role("status"), h.Class("text-body-sm text-ink-muted")], ["Loading repositories…"])
+      : h.empty,
+    settings && current
+      ? h.div(
+          [h.Class("flex flex-col gap-3")],
+          [
+            h.p(
+              [h.Class("flex flex-wrap items-center gap-2 text-body-md")],
+              [
+                repositoryName(h, current.owner, current.repo),
+                h.span([h.Class("text-ink-subtle")], ["·"]),
+                h.span(
+                  [
+                    h.Class(
+                      current.connected && current.enabled && current.syncState === "failed"
+                        ? "text-destructive"
+                        : "",
+                    ),
+                  ],
+                  [
+                    !current.connected
+                      ? "Disconnected"
+                      : current.access !== "accessible" || current.installationStatus !== "active"
+                        ? "Access lost"
+                        : !current.enabled
+                          ? "Paused"
+                          : current.syncState === "failed"
+                            ? "Automation blocked by synchronization failure"
+                            : current.syncState === "syncing"
+                              ? "Synchronizing before automation becomes ready…"
+                              : "Automation ready",
+                  ],
+                ),
+              ],
+            ),
+            current.accessError ? note(h, current.accessError, [h.Role("status")]) : h.empty,
+            current.connected && current.enabled && current.syncState === "failed"
+              ? h.p(
+                  [h.Role("status"), h.Class("text-body-sm")],
+                  [
+                    h.span(
+                      [h.Class("text-destructive")],
+                      [current.syncError ?? "Synchronization could not complete."],
+                    ),
+                    h.span(
+                      [h.Class("text-ink-muted")],
+                      [
+                        " Automatic retries continue. Retry sync to refresh facts now. Recovery waits for new webhook events before labeling.",
+                      ],
+                    ),
+                  ],
+                )
+              : h.empty,
+            h.p(
+              [h.Class("text-body-sm text-ink-muted")],
+              [
+                "Pausing stops automation and synchronization. Configuration, stored facts and GitHub labels are kept.",
+              ],
+            ),
+            h.div(
+              [h.Class("flex flex-wrap items-center gap-2")],
+              [
+                current.connected && current.enabled && current.syncState === "failed"
+                  ? button(
+                      "Retry sync",
+                      Message.ClickedChange({ id: current.repositoryId, action: "resume" }),
+                    )
+                  : h.empty,
+                current.connected
+                  ? button(
+                      current.enabled ? "Pause repository" : "Resume repository",
+                      Message.ClickedChange({
+                        id: current.repositoryId,
+                        action: current.enabled ? "pause" : "resume",
+                      }),
+                    )
+                  : button(
+                      "Reconnect",
+                      Message.ClickedChange({ id: current.repositoryId, action: "connect" }),
+                    ),
+                button(
+                  "Manage GitHub access",
+                  Message.ClickedGithub({ installationId: current.installationId }),
+                ),
+                current.connected
+                  ? button("Disconnect repository", Message.ClickedDisconnect(), "destructive")
+                  : h.empty,
+              ],
+            ),
+            current.pendingCleanups > 0
+              ? h.p(
+                  [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+                  [cleanupNotice(current.pendingCleanups)],
+                )
+              : h.empty,
+            !current.enabled && current.reconnect
+              ? h.p(
+                  [h.Class("text-body-sm text-ink-muted")],
+                  [
+                    "Pausing retains your configuration and stored data. Resume to synchronize before automation runs.",
+                  ],
+                )
+              : h.empty,
+            h.submodel({
+              slotId: "disconnect-dialog",
+              model: model.dialog,
+              view: Dialog.view,
+              toParentMessage: (message) => Message.GotDialogMessage({ message }),
+              viewInputs: {
+                toView: (render) =>
+                  DialogChrome.view(h, {
+                    dialog: render.dialog,
+                    backdrop: render.backdrop,
+                    panel: render.panel,
+                    title: render.title,
+                    description: render.description,
+                    isVisible: render.isVisible,
+                    titleText: `Disconnect ${current.owner}/${current.repo}?`,
+                    descriptionText: h.span(
+                      [h.Class("flex flex-col gap-2")],
+                      [
+                        h.span(
+                          [],
+                          [
+                            "Disconnect permanently deletes all policies, drafts, published history, labeling rules and groups, stored facts, event history and cached evaluations. GitHub labels stay unchanged. Reconnecting starts empty and requires synchronization. Pause and access loss retain your configuration.",
+                          ],
+                        ),
+                        h.span(
+                          [h.Role("alert"), h.Class("font-medium text-foreground")],
+                          [unpublishedWorkNotice(current.sessionCount)],
+                        ),
+                        Option.isSome(model.error)
+                          ? h.span(
+                              [h.Role("alert"), h.Class("font-medium text-destructive")],
+                              [model.error.value],
+                            )
+                          : h.empty,
+                      ],
+                    ),
+                    actions: [
+                      Button.view(h, {
+                        label: "Cancel",
+                        variant: "secondary",
+                        size: "sm",
+                        attributes: [h.Id("cancel-disconnect")],
+                        onClick: Message.CancelledDisconnect(),
+                        isDisabled: isBusy(model),
+                      }),
+                      button(
+                        "Disconnect repository",
                         Message.ClickedChange({
                           id: current.repositoryId,
-                          action: current.enabled ? "pause" : "resume",
+                          action: "disconnect",
                         }),
-                      )
-                    : button(
-                        "Reconnect",
-                        Message.ClickedChange({ id: current.repositoryId, action: "connect" }),
+                        "destructive",
                       ),
-                  button(
-                    "Manage GitHub access",
-                    Message.ClickedGithub({ installationId: current.installationId }),
-                  ),
-                  current.connected
-                    ? button("Disconnect repository", Message.ClickedDisconnect(), "destructive")
-                    : h.empty,
-                ],
-              ),
-              current.pendingCleanups > 0
-                ? h.p(
-                    [h.Role("status"), h.Class("text-sm text-muted-foreground")],
-                    [cleanupNotice(current.pendingCleanups)],
-                  )
-                : h.empty,
-              !current.enabled && current.reconnect
-                ? h.p(
-                    [h.Class("text-sm text-muted-foreground")],
-                    [
-                      "Pausing retains your configuration and stored data. Resume to synchronize before automation runs.",
                     ],
-                  )
-                : h.empty,
-              h.submodel({
-                slotId: "disconnect-dialog",
-                model: model.dialog,
-                view: Dialog.view,
-                toParentMessage: (message) => Message.GotDialogMessage({ message }),
-                viewInputs: {
-                  toView: (render) =>
-                    h.dialog(
-                      [
-                        ...render.dialog,
-                        h.Class(
-                          "fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none bg-transparent p-0 text-foreground",
-                        ),
-                      ],
-                      render.isVisible
-                        ? [
-                            h.div([...render.backdrop, h.Class("fixed inset-0 bg-black/40")], []),
-                            h.div(
-                              [
-                                ...render.panel,
-                                h.Class(
-                                  "relative mx-auto mt-[20vh] w-[calc(100%-2rem)] max-w-md rounded-xl border bg-background p-5 shadow-xl space-y-4",
-                                ),
-                              ],
-                              [
-                                h.h2(
-                                  [...render.title, h.Class("font-semibold")],
-                                  [`Disconnect ${current.owner}/${current.repo}?`],
-                                ),
-                                h.p(
-                                  [...render.description, h.Class("text-sm text-muted-foreground")],
-                                  [
-                                    `Disconnect permanently deletes all policies, drafts, published history, labeling rules and groups, stored facts, event history and cached evaluations. GitHub labels stay unchanged. Reconnecting starts empty and requires synchronization. Pause and access loss retain your configuration.`,
-                                  ],
-                                ),
-                                h.p(
-                                  [h.Role("alert"), h.Class("text-sm font-medium")],
-                                  [unpublishedWorkNotice(current.sessionCount)],
-                                ),
-                                Option.isSome(model.error)
-                                  ? h.p(
-                                      [h.Role("alert"), h.Class("text-sm text-destructive")],
-                                      [model.error.value],
-                                    )
-                                  : h.empty,
-                                h.div(
-                                  [h.Class("flex justify-end gap-2")],
-                                  [
-                                    Button.view(h, {
-                                      label: "Cancel",
-                                      variant: "outline",
-                                      size: "sm",
-                                      attributes: [h.Id("cancel-disconnect")],
-                                      onClick: Message.CancelledDisconnect(),
-                                      isDisabled: isBusy(model),
-                                    }),
-                                    button(
-                                      "Disconnect repository",
-                                      Message.ClickedChange({
-                                        id: current.repositoryId,
-                                        action: "disconnect",
-                                      }),
-                                      "destructive",
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ]
-                        : [],
-                    ),
-                },
+                  }),
+              },
+            }),
+          ],
+        )
+      : !settings
+        ? h.div(
+            [h.Class("flex flex-col gap-3")],
+            [
+              h.p(
+                [h.Class("text-body-sm text-ink-muted")],
+                ["Choose a repository already accessible to Janitor, or grant access on GitHub."],
+              ),
+              input(h, {
+                id: "connection-search",
+                label: "Find a repository",
+                labelClass: "sr-only",
+                value: model.search,
+                onInput: (value) => Message.Searched({ value }),
+                placeholder: "Find a repository…",
               }),
-            ],
-          )
-        : !settings
-          ? h.div(
-              [h.Class("space-y-4")],
-              [
-                h.p(
-                  [h.Class("text-sm text-muted-foreground")],
-                  ["Choose a repository already accessible to Janitor, or grant access on GitHub."],
-                ),
-                input(h, {
-                  id: "connection-search",
-                  label: "Find a repository",
-                  labelClass: "sr-only",
-                  value: model.search,
-                  onInput: (value) => Message.Searched({ value }),
-                  placeholder: "Find a repository…",
-                }),
-                h.div(
-                  [h.Class("divide-y rounded-lg border")],
-                  rows
-                    .filter((row) =>
-                      `${row.owner}/${row.repo}`.toLowerCase().includes(model.search.toLowerCase()),
-                    )
-                    .flatMap((row, index, visible) => [
+              visible.length === 0
+                ? h.empty
+                : panel(h, {
+                    flush: true,
+                    children: visible.flatMap((row, index) => [
                       ...(index === 0 || visible[index - 1]?.owner !== row.owner
                         ? [
                             h.div(
                               [
                                 h.Class(
-                                  "bg-muted/40 px-3 py-2 flex items-center justify-between gap-3",
+                                  "flex min-h-8 items-center justify-between gap-3 border-b border-border bg-surface-muted px-3 py-1.5",
                                 ),
                               ],
                               [
-                                h.h2(
-                                  [h.Class("text-xs font-medium text-muted-foreground")],
-                                  [row.owner],
-                                ),
+                                h.h2([h.Class("font-mono text-mono-sm font-medium")], [row.owner]),
                                 button(
                                   "Manage access",
                                   Message.ClickedGithub({ installationId: row.installationId }),
@@ -562,20 +577,19 @@ export const view = Submodel.defineView<
                           ]
                         : []),
                       h.div(
-                        [h.Class("flex items-center justify-between gap-3 p-3")],
+                        [
+                          h.Class(
+                            "flex items-center justify-between gap-3 border-b border-border-subtle px-3 py-1.5 last:border-b-0",
+                          ),
+                        ],
                         [
                           h.div(
-                            [h.Class("min-w-0")],
+                            [h.Class("flex min-w-0 flex-col gap-0.5")],
                             [
+                              repositoryName(h, row.owner, row.repo, "truncate"),
+                              row.accessError ? note(h, row.accessError) : h.empty,
                               h.p(
-                                [h.Class("text-sm font-medium truncate")],
-                                [`${row.owner}/${row.repo}`],
-                              ),
-                              row.accessError
-                                ? h.p([h.Class("text-xs text-muted-foreground")], [row.accessError])
-                                : h.empty,
-                              h.p(
-                                [h.Class("text-xs text-muted-foreground")],
+                                [h.Class("text-body-sm text-ink-subtle")],
                                 [
                                   `${row.isPrivate === null ? "Visibility unknown" : row.isPrivate ? "Private" : "Public"} · ${row.connected ? "Connected" : row.access !== "accessible" || row.installationStatus !== "active" ? "Access unavailable" : row.reconnect ? "Previously disconnected · reconnect fresh" : "Available"}`,
                                 ],
@@ -586,7 +600,7 @@ export const view = Submodel.defineView<
                             ? h.a(
                                 [
                                   h.Href(Routes.policies({ repositoryId: row.repositoryId })),
-                                  h.Class("text-sm underline"),
+                                  h.Class("shrink-0 text-body-sm"),
                                 ],
                                 ["Open"],
                               )
@@ -606,47 +620,55 @@ export const view = Submodel.defineView<
                         ],
                       ),
                     ]),
-                ),
-                rows.length > 0 &&
-                !rows.some((row) =>
-                  `${row.owner}/${row.repo}`.toLowerCase().includes(model.search.toLowerCase()),
-                )
-                  ? h.p(
-                      [h.Class("text-sm text-muted-foreground")],
-                      ["No repositories match your search."],
-                    )
-                  : h.empty,
-                rows.length === 0 && Option.isSome(model.inventory)
-                  ? h.p(
-                      [h.Class("text-sm text-muted-foreground")],
-                      [
-                        "No repositories are available yet. Grant access on GitHub, then refresh this list. Organization approval may be required.",
-                      ],
-                    )
-                  : h.empty,
-                h.div(
-                  [h.Class("flex flex-wrap items-center gap-3")],
-                  [
-                    button(
-                      "Grant access on GitHub",
-                      Message.ClickedGithub({ installationId: null }),
-                      "default",
-                    ),
-                    Button.view(h, {
-                      label: "Cancel",
-                      variant: "link",
-                      className: "px-0 text-sm underline",
-                      onClick: Message.ClickedCancel(),
-                    }),
-                  ],
-                ),
-              ],
-            )
-          : h.empty,
-      button(
-        isBusy(model) ? "Updating repositories…" : "Refresh repositories",
-        Message.ClickedRefresh(),
-      ),
-    ],
-  )
+                  }),
+              rows.length > 0 && visible.length === 0
+                ? h.p(
+                    [h.Class("text-body-sm text-ink-muted")],
+                    ["No repositories match your search."],
+                  )
+                : h.empty,
+              rows.length === 0 && Option.isSome(model.inventory)
+                ? h.p(
+                    [h.Class("text-body-sm text-ink-muted")],
+                    [
+                      "No repositories are available yet. Grant access on GitHub, then refresh this list. Organization approval may be required.",
+                    ],
+                  )
+                : h.empty,
+              h.div(
+                [h.Class("flex flex-wrap items-center gap-3")],
+                [
+                  button(
+                    "Grant access on GitHub",
+                    Message.ClickedGithub({ installationId: null }),
+                    "default",
+                  ),
+                  Button.view(h, {
+                    label: "Cancel",
+                    variant: "link",
+                    size: "sm",
+                    onClick: Message.ClickedCancel(),
+                  }),
+                ],
+              ),
+            ],
+          )
+        : h.empty,
+    h.div(
+      [],
+      [
+        button(
+          isBusy(model) ? "Updating repositories…" : "Refresh repositories",
+          Message.ClickedRefresh(),
+        ),
+      ],
+    ),
+  ]
+  const attributes = [h.OnMount(Poll({ state: inputs.state, refresh: !settings }))]
+  return settings
+    ? panel(h, { className: "flex flex-col gap-3", attributes, children })
+    : h.section(
+        [h.Class("flex w-full max-w-2xl flex-col gap-4 p-4 lg:p-5"), ...attributes],
+        children,
+      )
 })

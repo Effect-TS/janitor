@@ -1,4 +1,6 @@
 import * as Menu from "@foldkit/ui/menu"
+import * as Overlay from "@/components/ui/overlay"
+import { cn } from "@/lib/utils"
 import * as Effect from "effect/Effect"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -258,11 +260,7 @@ const menuItem = (
   item: ThemePreference,
 ): Html =>
   h.div(
-    [
-      h.Class(
-        "flex items-center gap-2 bg-card px-3 py-2 text-sm text-foreground transition-colors hover:bg-popover",
-      ),
-    ],
+    [h.Class(cn(Overlay.menuItemClass, "hover:bg-surface-muted"))],
     [
       menuItemIcon(h, item),
       h.span([h.Class("flex-1")], [item]),
@@ -281,13 +279,12 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
       anchor: { placement: "bottom-end", gap: 4, padding: 8 },
       ariaLabel: "Theme",
       buttonContent: menuItemIcon(h, model.resolvedTheme),
-      buttonClassName:
-        "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-sm border-2 border-outline bg-card text-card-foreground text-sm font-medium outline-none transition-colors hover:bg-popover disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-      itemsClassName: "z-50 w-full max-w-36 cursor-pointer overflow-hidden bg-card py-1 jn-mount",
+      buttonClassName: Overlay.menuButtonClass,
+      itemsClassName: cn(Overlay.menuItemsClass, "w-36"),
       itemToConfig: (item) => ({
         content: menuItem(h, model.preferredTheme, item),
       }),
-      backdropClassName: "fixed inset-0 z-40",
+      backdropClassName: Overlay.menuBackdropClass,
     },
   }),
 )

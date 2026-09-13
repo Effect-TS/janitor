@@ -136,9 +136,10 @@ describe("Sessions dashboard", () => {
       Scene.expect(Scene.text("Recovery")).toExist(),
       Scene.expect(
         Scene.text(
-          "GitHub: scan overdue, last 2026-09-13 10:00 UTC; results still arriving; fetching comments for 2 contributions; retrying past: GitHub asked us to slow down",
+          "GitHub: scan overdue, last 2026-09-13 10:00 UTC; results still arriving; fetching comments for 2 contributions",
         ),
       ).toExist(),
+      Scene.expect(Scene.text("Retrying past: GitHub asked us to slow down")).toExist(),
       Scene.expect(Scene.text("Only retained GitHub deliveries can be recovered")).toExist(),
       Scene.expect(Scene.text("Slack: caught up, last scan 2026-09-13 10:00 UTC")).toExist(),
       Scene.expect(Scene.text("Deleted uncaptured text cannot be recovered")).toExist(),

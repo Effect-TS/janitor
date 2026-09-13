@@ -12,7 +12,7 @@ import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
-import type { HtmlBuilder } from "foldkit/html"
+import type { Html, HtmlBuilder } from "foldkit/html"
 import {
   ActivityCursor,
   ActivityEntry,
@@ -21,17 +21,14 @@ import {
   type ConfigurationView,
 } from "./labeling-wire"
 import * as Button from "./ui/button"
+import { chip } from "./ui/chip"
+import * as Feed from "./ui/feed"
+import { inputGroup, inputGroupAddon, inputGroupInput } from "./ui/input-group"
+import { emptyPanel } from "./ui/panel"
+import * as Select from "./ui/select"
 import * as Icon from "@/lib/icons"
-import {
-  Activity as ActivityIcon,
-  Check,
-  Minus,
-  CircleAlert,
-  Clock,
-  ChevronRight,
-  GitPullRequest,
-  Search,
-} from "lucide"
+import { cn } from "@/lib/utils"
+import { Check, ChevronDown, ChevronRight, CircleAlert, CircleHelp, Clock, Search } from "lucide"
 import * as Routes from "@/routes"
 
 const Mode = Schema.Literals(["journal", "grouped"])
@@ -92,8 +89,8 @@ export const init = (): Model => ({
   generation: 0,
   expanded: [],
   expandedGroups: [],
-  journal: VirtualList.init({ id: "activity-journal", rowHeightPx: 96 }),
-  grouped: VirtualList.init({ id: "activity-grouped", rowHeightPx: 96 }),
+  journal: VirtualList.init({ id: "activity-journal", rowHeightPx: 32 }),
+  grouped: VirtualList.init({ id: "activity-grouped", rowHeightPx: 32 }),
 })
 export const FetchPage = Command.define("FetchActivity", {
   args: {
@@ -195,7 +192,7 @@ export const rows = (model: Model): ReadonlyArray<Row> => {
     ...(model.expandedGroups.includes(number) ? entries.map(event) : []),
   ])
 }
-export const rowHeight = (row: Row) => (row.kind === "group" ? 72 : row.expanded ? 420 : 96)
+export const rowHeight = (row: Row) => (row.kind === "group" ? 28 : row.expanded ? 420 : 32)
 const scrollTop = (model: Model): Return => {
   const result = VirtualList.scrollToIndexVariable(model[model.mode], rows(model), rowHeight, 0)
   return {
@@ -372,26 +369,22 @@ export const outcome = (
       icon: CircleAlert,
     }
   if (!entry.outcome || entry.actions.some((action) => action.status === "planned"))
-    return { label: "Pending", tone: "text-muted-foreground", icon: Clock }
+    return { label: "Pending", tone: "text-ink-muted", icon: Clock }
   if (entry.outcome === "superseded")
-    return { label: "Replaced by newer activity", tone: "text-muted-foreground", icon: Clock }
+    return { label: "Replaced by newer activity", tone: "text-ink-muted", icon: Clock }
   if (entry.outcome === "not-qualified")
-    return { label: "Waiting for a verified snapshot", tone: "text-muted-foreground", icon: Clock }
+    return { label: "Waiting for a verified snapshot", tone: "text-ink-muted", icon: Clock }
   if (entry.actions.some((action) => action.status === "applied"))
-    return { label: "Labels updated", tone: "text-emerald-600 dark:text-emerald-400", icon: Check }
+    return { label: "Labels updated", tone: "text-foreground", icon: Check }
   if (entry.evaluations?.some((rule) => rule.reason.startsWith("Gate unresolved:")))
-    return {
-      label: "Gate unresolved · AI skipped",
-      tone: "text-amber-700 dark:text-amber-400",
-      icon: CircleAlert,
-    }
+    return { label: "Gate unresolved · AI skipped", tone: "text-ink-muted", icon: CircleHelp }
   if (entry.plan?.rules.some((rule) => rule.outcome === "unknown"))
     return {
       label: "Could not decide · labels unchanged",
-      tone: "text-amber-700 dark:text-amber-400",
-      icon: CircleAlert,
+      tone: "text-ink-muted",
+      icon: CircleHelp,
     }
-  return { label: "No label changes", tone: "text-muted-foreground", icon: Check }
+  return { label: "No label changes", tone: "text-ink-muted", icon: Check }
 }
 const stamp = (entry: ActivityEntry) =>
   DateTime.formatUtc(entry.createdAt, {
@@ -400,16 +393,82 @@ const stamp = (entry: ActivityEntry) =>
     hour: "2-digit",
     minute: "2-digit",
   }) + " UTC"
-const label = (h: HtmlBuilder<Message>, action: ActivityEntry["actions"][number]) =>
+const isHex = (color: string | null | undefined): color is string =>
+  color !== null && color !== undefined && /^[0-9a-f]{6}$/i.test(color)
+/** GitHub label colour as a 6px dot inside a neutral chip; never a fill. */
+const labelDot = (h: HtmlBuilder<Message>, color: string | null | undefined) =>
   h.span(
     [
-      h.Class("activity-label"),
-      ...(action.color && /^[0-9a-f]{6}$/i.test(action.color)
-        ? [h.Style({ borderColor: `#${action.color}70`, backgroundColor: `#${action.color}18` })]
-        : []),
+      h.Class(cn("size-1.5 rounded-full", isHex(color) ? "" : "bg-ink-faint")),
+      ...(isHex(color) ? [h.Style({ backgroundColor: `#${color}` })] : []),
+      h.AriaHidden(true),
     ],
-    [action.name ?? `Label ${action.labelId}`],
+    [],
   )
+const label = (h: HtmlBuilder<Message>, action: ActivityEntry["actions"][number]) =>
+  chip(h, { children: [labelDot(h, action.color), action.name ?? `Label ${action.labelId}`] })
+const subjectRef = (h: HtmlBuilder<Message>, entry: ActivityEntry) =>
+  h.span([h.Class("font-mono text-primary")], [`#${entry.number}`])
+/** One feed line: what The Janitor did to the subject. */
+const feedBody = (h: HtmlBuilder<Message>, entry: ActivityEntry): ReadonlyArray<Html | string> => {
+  const subject: ReadonlyArray<Html | string> = [
+    subjectRef(h, entry),
+    ...(entry.title ? [" (", entry.title, ")"] : []),
+  ]
+  const list = (actions: ReadonlyArray<ActivityEntry["actions"][number]>) =>
+    actions.flatMap((action, index) => [index === 0 ? "" : " ", label(h, action)])
+  const applied = entry.actions.filter((action) => action.status === "applied")
+  const failed = entry.actions.filter((action) => action.status === "failed")
+  const planned = entry.actions.filter((action) => action.status === "planned")
+  if (applied.length > 0) {
+    const added = applied.filter((action) => action.action === "add")
+    const removed = applied.filter((action) => action.action === "remove")
+    return [
+      ...(added.length > 0 ? ["added ", ...list(added)] : []),
+      ...(added.length > 0 && removed.length > 0 ? [" and "] : []),
+      ...(removed.length > 0 ? ["removed ", ...list(removed)] : []),
+      ...(failed.length > 0 ? [", could not update ", ...list(failed)] : []),
+      " on ",
+      ...subject,
+    ]
+  }
+  if (failed.length > 0) return ["could not update ", ...list(failed), " on ", ...subject]
+  if (planned.length > 0) return ["is updating ", ...list(planned), " on ", ...subject]
+  return ["evaluated ", ...subject]
+}
+const decisionChip = (
+  h: HtmlBuilder<Message>,
+  result: string | undefined,
+  skipped: boolean | undefined,
+) => {
+  const status = skipped
+    ? "Skipped by gate"
+    : result === "match"
+      ? "Matched"
+      : result === "no-match"
+        ? "No match"
+        : result === "failed"
+          ? "Evaluation failed"
+          : result === "unknown"
+            ? "Undecided"
+            : "Pending"
+  const icon = skipped
+    ? null
+    : result === "match"
+      ? Check
+      : result === "unknown"
+        ? CircleHelp
+        : result === "failed"
+          ? CircleAlert
+          : result === "no-match"
+            ? null
+            : Clock
+  return chip(h, {
+    variant: result === "failed" && !skipped ? "danger" : "neutral",
+    className: "shrink-0",
+    children: [...(icon ? [Icon.view(h, icon, "size-3 shrink-0")] : []), status],
+  })
+}
 const evaluationCards = (
   h: HtmlBuilder<Message>,
   model: Model,
@@ -434,96 +493,58 @@ const evaluationCards = (
     const color = currentLabel?.color ?? actions.find((action) => action.color)?.color
     const skipped = evaluation?.reason.startsWith("Skipped by gate:")
     const result = decision?.outcome ?? evaluation?.outcome
-    const status = skipped
-      ? "Skipped by gate"
-      : result === "match"
-        ? "Matched"
-        : result === "no-match"
-          ? "No match"
-          : result === "failed"
-            ? "Evaluation failed"
-            : result === "unknown"
-              ? "Undecided"
-              : "Pending"
-    const tone =
-      skipped || result === "no-match"
-        ? "neutral"
-        : result === "match"
-          ? "match"
-          : result === "failed"
-            ? "failed"
-            : result === "unknown"
-              ? "unknown"
-              : "neutral"
     return h.div(
-      [h.Class("activity-rule-card")],
+      [h.Class("flex min-w-0 flex-col gap-2 py-2.5"), h.DataAttribute("rule", id)],
       [
         h.div(
-          [h.Class("activity-rule-heading")],
+          [h.Class("flex flex-wrap items-center gap-2")],
           [
             h.a(
               [
                 h.Href(Routes.rule({ repositoryId: model.repositoryId, ruleId: id })),
-                h.Class("activity-rule-link"),
-              ],
-              [
-                h.span(
-                  [
-                    h.Class("activity-rule-dot"),
-                    ...(color && /^[0-9a-f]{6}$/i.test(color)
-                      ? [h.Style({ backgroundColor: `#${color}` })]
-                      : []),
-                  ],
-                  [],
-                ),
-                h.span([h.Class("truncate")], [name]),
-                Icon.view(h, ChevronRight, "size-3 shrink-0 text-muted-foreground"),
-              ],
-            ),
-            h.div(
-              [h.Class("activity-rule-badges")],
-              [
-                rule
-                  ? h.span(
-                      [h.Class("text-[10px] text-muted-foreground")],
-                      [rule.ai ? "AI rule" : "Policy rule"],
-                    )
-                  : h.empty,
-                h.span(
-                  [h.Class(`activity-decision activity-decision-${tone}`)],
-                  [
-                    Icon.view(
-                      h,
-                      result === "unknown" || result === "failed"
-                        ? CircleAlert
-                        : result === "match"
-                          ? Check
-                          : result === "no-match"
-                            ? Minus
-                            : Clock,
-                      "size-3",
-                    ),
-                    status,
-                  ],
+                h.Class(
+                  "inline-flex min-w-0 max-w-full items-center gap-1.5 font-mono text-mono-sm text-primary hover:underline",
                 ),
               ],
+              [labelDot(h, color), h.span([h.Class("truncate")], [name])],
             ),
+            rule
+              ? rule.ai
+                ? chip(h, { variant: "agent", children: ["AI"] })
+                : chip(h, { children: ["policy"] })
+              : h.empty,
+            h.span([h.Class("ml-auto")], [decisionChip(h, result, skipped)]),
           ],
         ),
         rule?.ai && !skipped && evaluation?.reason
-          ? h.p([h.Class("activity-rule-reason")], [evaluation.reason])
+          ? h.div(
+              [h.Class("oc-agent-edge flex flex-col items-start gap-1 pl-2.5")],
+              [
+                Feed.agentBadge(h, "AI"),
+                h.p(
+                  [h.Class("max-w-prose text-body-sm text-ink-muted wrap-anywhere")],
+                  [evaluation.reason],
+                ),
+              ],
+            )
           : h.empty,
         decision?.requestedAction
-          ? h.p([h.Class("activity-selection")], [describeResultAction(decision.requestedAction)])
+          ? h.p(
+              [h.Class("text-body-sm text-ink-muted")],
+              [describeResultAction(decision.requestedAction)],
+            )
           : h.empty,
         decision?.selected
-          ? h.p([h.Class("activity-selection")], ["Selected for the label plan"])
+          ? h.p([h.Class("text-body-sm text-ink-muted")], ["Selected for the label plan"])
           : h.empty,
         ...actions.map((action) =>
           h.div(
             [
               h.Class(
-                `activity-rule-action ${action.status === "failed" ? "text-destructive" : ""}`,
+                cn(
+                  "flex flex-wrap items-center gap-1.5 text-body-sm",
+                  action.status === "failed" ? "text-destructive" : "text-ink-muted",
+                ),
               ),
             ],
             [
@@ -554,7 +575,7 @@ const evaluationCards = (
               ),
               label(h, action),
               ...(action.detail
-                ? [h.p([h.Class("basis-full text-muted-foreground")], [action.detail])]
+                ? [h.p([h.Class("basis-full text-ink-muted")], [action.detail])]
                 : []),
             ],
           ),
@@ -573,58 +594,35 @@ const eventView = (
 ) => {
   const result = outcome(entry)
   return h.article(
-    [h.Class("activity-event")],
+    [h.Class("h-full border-b border-border-subtle"), h.DataAttribute("slot", "feed-item")],
     [
       h.button(
         [
-          h.Class("activity-event-summary"),
+          h.Class(
+            "activity-event-summary flex h-8 w-full cursor-pointer items-center gap-2.5 px-3 text-left text-body-md transition-colors duration-120 ease-ui hover:bg-surface-muted",
+          ),
           h.OnClick(Message.ToggledEvent({ id: entry.id })),
           h.AriaExpanded(expanded),
         ],
         [
+          Feed.marker(h, { kind: "agent" }),
           h.span(
-            [h.Class(`activity-event-icon ${result.tone}`)],
-            [Icon.view(h, result.icon, "size-4")],
+            [h.Class("min-w-0 flex-1 truncate")],
+            [Feed.actorName(h, { kind: "agent" }), " ", ...feedBody(h, entry)],
           ),
-          h.div(
-            [h.Class("min-w-0 flex-1")],
+          h.span(
             [
-              h.div(
-                [h.Class("truncate text-sm font-medium")],
-                [entry.title ?? `Subject #${entry.number}`],
+              h.Class(
+                cn("hidden shrink-0 items-center gap-1 text-body-sm sm:inline-flex", result.tone),
               ),
-              h.div(
-                [h.Class("activity-event-meta")],
-                [
-                  h.span([], [`#${entry.number}`]),
-                  h.span([h.Class(result.tone)], [result.label]),
-                  ...entry.actions
-                    .slice(0, 2)
-                    .map((action) =>
-                      h.span(
-                        [h.Class("inline-flex items-center gap-1")],
-                        [
-                          action.status === "applied"
-                            ? action.action === "add"
-                              ? "Added"
-                              : "Removed"
-                            : action.status === "failed"
-                              ? "Failed"
-                              : "Pending",
-                          label(h, action),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-              h.time([h.Class("text-[10px] text-muted-foreground")], [stamp(entry)]),
             ],
+            [Icon.view(h, result.icon, "size-3 shrink-0"), result.label],
           ),
-          Icon.view(
-            h,
-            ChevronRight,
-            `size-4 shrink-0 text-muted-foreground ${expanded ? "rotate-90" : ""}`,
+          h.time(
+            [h.Class("shrink-0 font-mono text-mono-xs text-ink-subtle tabular-nums")],
+            [stamp(entry)],
           ),
+          Icon.view(h, expanded ? ChevronDown : ChevronRight, "size-3.5 shrink-0 text-ink-subtle"),
         ],
       ),
       expanded
@@ -636,9 +634,12 @@ const eventView = (
             ],
             [
               h.div(
-                [h.Class("flex items-center justify-between mb-3")],
+                [h.Class("flex items-center justify-between gap-3")],
                 [
-                  h.h3([h.Class("text-xs font-medium")], ["Evaluation details"]),
+                  h.h3(
+                    [h.Class("text-caption font-medium text-ink-subtle")],
+                    ["Evaluation details"],
+                  ),
                   repository && entry.kind
                     ? h.a(
                         [
@@ -647,7 +648,7 @@ const eventView = (
                           ),
                           h.Target("_blank"),
                           h.Rel("noopener noreferrer"),
-                          h.Class("text-xs underline"),
+                          h.Class("text-body-sm text-primary hover:underline"),
                         ],
                         ["Open on GitHub"],
                       )
@@ -656,34 +657,64 @@ const eventView = (
               ),
               entry.detail
                 ? h.p(
-                    [h.Class("mb-3 text-xs text-muted-foreground whitespace-pre-wrap")],
+                    [h.Class("mt-2 text-body-sm text-ink-muted whitespace-pre-wrap")],
                     [entry.detail],
                   )
                 : h.empty,
               h.div(
-                [h.Class("activity-evaluation-summary")],
                 [
-                  Icon.view(h, result.icon, `size-4 shrink-0 ${result.tone}`),
-                  h.span([h.Class(result.tone)], [result.label]),
+                  h.Class(
+                    cn(
+                      "mt-2 flex flex-wrap items-center gap-2 rounded-xs bg-surface-muted px-2.5 py-1.5 text-body-sm",
+                      result.tone,
+                    ),
+                  ),
+                ],
+                [
+                  Icon.view(h, result.icon, "size-3.5 shrink-0"),
+                  h.span([], [result.label]),
                   h.span(
-                    [h.Class("ml-auto text-muted-foreground")],
+                    [h.Class("ml-auto font-mono text-mono-xs text-ink-subtle tabular-nums")],
                     [`${entry.plan?.rules.length ?? entry.evaluations?.length ?? 0} rules`],
                   ),
                 ],
               ),
               h.div(
-                [h.Class("activity-rule-cards")],
+                [h.Class("flex flex-col divide-y divide-border-subtle")],
                 evaluationCards(h, model, entry, configuration),
               ),
               h.p(
-                [h.Class("text-[10px] text-muted-foreground mt-3")],
+                [h.Class("mt-2 text-caption text-ink-subtle")],
                 [
-                  `Rules revision ${entry.revision} · Rule names and types reflect current configuration.`,
+                  "Rules revision ",
+                  h.span([h.Class("font-mono tabular-nums")], [String(entry.revision)]),
+                  " · Rule names and types reflect current configuration.",
                 ],
               ),
             ],
           )
         : h.empty,
+    ],
+  )
+}
+const groupView = (h: HtmlBuilder<Message>, model: Model, row: Row & { kind: "group" }) => {
+  const expanded = model.expandedGroups.includes(row.number)
+  return h.button(
+    [
+      h.Class(
+        "flex h-7 w-full cursor-pointer items-center gap-2 border-b border-border-subtle bg-surface-muted px-3 text-left text-caption text-ink-subtle transition-colors duration-120 ease-ui",
+      ),
+      h.OnClick(Message.ToggledGroup({ number: row.number })),
+      h.AriaExpanded(expanded),
+    ],
+    [
+      Icon.view(h, expanded ? ChevronDown : ChevronRight, "size-3.5 shrink-0"),
+      h.span([h.Class("shrink-0 font-mono text-mono-xs")], [`#${row.number}`]),
+      h.span([h.Class("min-w-0 flex-1 truncate font-medium text-foreground")], [row.title]),
+      h.span(
+        [h.Class("shrink-0 font-mono text-mono-xs tabular-nums")],
+        [`${row.count} ${row.count === 1 ? "evaluation" : "evaluations"}`],
+      ),
     ],
   )
 }
@@ -693,64 +724,67 @@ export const view = Submodel.defineView<
   { repository: RepositoryOverview | undefined; configuration?: ConfigurationView | undefined }
 >((model, { repository, configuration }, h) => {
   const items = rows(model)
+  const filtered = model.search || model.target !== "all"
   return h.section(
     [h.Class("activity-workspace"), h.AriaLabel("Repository activity")],
     [
       h.div(
-        [h.Class("activity-toolbar")],
+        [h.Class("flex shrink-0 flex-wrap items-center gap-2 pb-3")],
         [
           h.form(
+            [h.Class("w-full sm:w-72"), h.OnSubmit(Message.ChangedSearch({ value: model.search }))],
             [
-              h.Class("activity-search"),
-              h.OnSubmit(Message.ChangedSearch({ value: model.search })),
-            ],
-            [
-              Icon.view(h, Search, "size-4 text-muted-foreground"),
-              h.input([
-                h.Type("search"),
-                h.Value(model.search),
-                h.Placeholder("Find an issue or pull request…"),
-                h.AriaLabel("Search activity"),
-                h.OnInput((value) => Message.ChangedSearch({ value })),
-              ]),
+              inputGroup(h, {
+                children: [
+                  inputGroupAddon(h, { children: [Icon.view(h, Search)] }),
+                  inputGroupInput(h, {
+                    id: "activity-search",
+                    type: "search",
+                    value: model.search,
+                    placeholder: "Find an issue or pull request…",
+                    ariaLabel: "Search activity",
+                    onInput: (value) => Message.ChangedSearch({ value }),
+                  }),
+                ],
+              }),
             ],
           ),
           h.div(
-            [h.Class("activity-view-toggle"), h.Role("group"), h.AriaLabel("Activity view")],
+            [h.Class("flex items-center gap-1"), h.Role("group"), h.AriaLabel("Activity view")],
             (["journal", "grouped"] as const).map((mode) =>
-              h.button(
-                [
-                  h.Type("button"),
-                  h.AriaPressed(String(model.mode === mode)),
-                  h.OnClick(Message.ChangedMode({ mode })),
-                ],
-                [mode === "journal" ? "Journal" : "By subject"],
-              ),
+              Button.view(h, {
+                variant: "secondary",
+                size: "sm",
+                label: mode === "journal" ? "Journal" : "By subject",
+                onClick: Message.ChangedMode({ mode }),
+                className: model.mode === mode ? "bg-primary-wash" : undefined,
+                attributes: [h.AriaPressed(String(model.mode === mode))],
+              }),
             ),
           ),
-          h.select(
-            [
-              h.Class("activity-target"),
-              h.Value(model.target),
-              h.AriaLabel("Subject type"),
-              h.OnChange((value) =>
-                Message.ChangedTarget({
-                  target:
-                    value === "issue" ? "issue" : value === "pull_request" ? "pull_request" : "all",
-                }),
-              ),
+          Select.view(h, {
+            id: "activity-target",
+            label: "Subject type",
+            isLabelHidden: true,
+            wrapperClass: "w-36",
+            className: "h-6 text-body-sm",
+            value: model.target,
+            options: [
+              ["all", "All subjects"],
+              ["pull_request", "Pull requests"],
+              ["issue", "Issues"],
             ],
-            [
-              h.option([h.Value("all")], ["All subjects"]),
-              h.option([h.Value("pull_request")], ["Pull requests"]),
-              h.option([h.Value("issue")], ["Issues"]),
-            ],
-          ),
+            onChange: (value) =>
+              Message.ChangedTarget({
+                target:
+                  value === "issue" ? "issue" : value === "pull_request" ? "pull_request" : "all",
+              }),
+          }),
           model.pending
             ? Button.view(h, {
                 label: "New activity",
                 size: "sm",
-                variant: "outline",
+                variant: "secondary",
                 onClick: Message.ClickedNew(),
               })
             : h.empty,
@@ -758,12 +792,15 @@ export const view = Submodel.defineView<
       ),
       model.error
         ? h.div(
-            [h.Role("alert"), h.Class("activity-notice")],
             [
-              model.error,
+              h.Role("alert"),
+              h.Class("flex shrink-0 items-center justify-between gap-3 py-2 text-body-sm"),
+            ],
+            [
+              h.span([h.Class("text-destructive")], [model.error]),
               Button.view(h, {
                 label: "Retry",
-                variant: "outline",
+                variant: "secondary",
                 size: "sm",
                 onClick: Message.ClickedRetry(),
                 isDisabled: model.loading,
@@ -772,30 +809,19 @@ export const view = Submodel.defineView<
           )
         : h.empty,
       !items.length
-        ? h.div(
-            [h.Class("activity-empty"), h.Role("status")],
-            [
-              Icon.view(h, ActivityIcon, "size-8 text-muted-foreground"),
-              h.h2(
-                [h.Class("text-sm font-medium")],
-                [
-                  !model.initialized && model.loading
-                    ? "Loading activity…"
-                    : model.search || model.target !== "all"
-                      ? "No matching activity"
-                      : "No activity yet",
-                ],
-              ),
-              h.p(
-                [h.Class("text-xs text-muted-foreground")],
-                [
-                  model.search || model.target !== "all"
-                    ? "Try another subject or clear your filters."
-                    : "Labeling decisions will appear here as Janitor evaluates issues and pull requests.",
-                ],
-              ),
-            ],
-          )
+        ? !model.initialized && model.loading
+          ? h.p(
+              [h.Role("status"), h.Class("py-2 text-body-sm text-ink-muted")],
+              ["Loading activity…"],
+            )
+          : emptyPanel(h, {
+              attributes: [h.Role("status")],
+              children: [
+                filtered
+                  ? "No matching activity; try another subject or clear the filters."
+                  : "No activity yet; labeling decisions appear here once The Janitor evaluates an issue or pull request.",
+              ],
+            })
         : h.submodel({
             slotId: `activity-${model.mode}`,
             model: model[model.mode],
@@ -810,43 +836,24 @@ export const view = Submodel.defineView<
               itemToView: (row) =>
                 row.kind === "event"
                   ? eventView(h, model, row.entry, row.expanded, repository, configuration)
-                  : h.button(
-                      [
-                        h.Class("activity-group"),
-                        h.OnClick(Message.ToggledGroup({ number: row.number })),
-                        h.AriaExpanded(model.expandedGroups.includes(row.number)),
-                      ],
-                      [
-                        Icon.view(h, GitPullRequest, "size-4 shrink-0"),
-                        h.span(
-                          [h.Class("min-w-0 flex-1 text-left")],
-                          [
-                            h.span([h.Class("block truncate text-sm font-medium")], [row.title]),
-                            h.span(
-                              [h.Class("text-xs text-muted-foreground")],
-                              [`#${row.number} · ${row.count} loaded evaluations`],
-                            ),
-                          ],
-                        ),
-                        Icon.view(
-                          h,
-                          ChevronRight,
-                          `size-4 ${model.expandedGroups.includes(row.number) ? "rotate-90" : ""}`,
-                        ),
-                      ],
-                    ),
+                  : groupView(h, model, row),
             },
           }),
       h.footer(
-        [h.Class("activity-footer")],
+        [
+          h.Class(
+            "flex min-h-10 shrink-0 items-center justify-between gap-3 text-body-sm text-ink-subtle",
+          ),
+        ],
         [
           h.span(
             [h.Role("status")],
-            [
-              model.loading && model.initialized
-                ? "Updating…"
-                : `${model.entries.length} evaluations loaded`,
-            ],
+            model.loading && model.initialized
+              ? ["Updating…"]
+              : [
+                  h.span([h.Class("font-mono tabular-nums")], [String(model.entries.length)]),
+                  " evaluations loaded",
+                ],
           ),
           model.cursor && model.entries.length < MAX_LOADED
             ? Button.view(h, {

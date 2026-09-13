@@ -63,7 +63,7 @@ export type HeaderConfig<M> = StyleConfig<M> & {
   readonly children: ReadonlyArray<Child>
 }
 
-const headerClass = "gap-0.5 p-4 flex flex-col"
+const headerClass = "gap-0.5 border-b border-border px-3.5 py-3 flex flex-col"
 
 export const header = <M>(h: HtmlBuilder<M>, config: HeaderConfig<M>): Html =>
   h.div(
@@ -81,7 +81,7 @@ export type TitleConfig<M> = StyleConfig<M> & {
   readonly children: ReadonlyArray<Child>
 }
 
-const titleClass = "text-foreground text-base font-medium font-sans"
+const titleClass = "text-foreground text-h2 font-semibold"
 
 export const title = <M>(h: HtmlBuilder<M>, config: TitleConfig<M>): Html =>
   h.div(
@@ -99,7 +99,7 @@ export type DescriptionConfig<M> = StyleConfig<M> & {
   readonly children: ReadonlyArray<Child>
 }
 
-const descriptionClass = "text-muted-foreground text-sm"
+const descriptionClass = "text-ink-muted text-body-sm"
 
 export const description = <M>(h: HtmlBuilder<M>, config: DescriptionConfig<M>): Html =>
   h.div(
@@ -117,7 +117,7 @@ export type FooterConfig<M> = StyleConfig<M> & {
   readonly children: ReadonlyArray<Child>
 }
 
-const footerClass = "gap-2 p-4 mt-auto flex flex-col"
+const footerClass = "gap-2 border-t border-border px-3.5 py-3 mt-auto flex flex-col"
 
 export const footer = <M>(h: HtmlBuilder<M>, config: FooterConfig<M>): Html =>
   h.div(
@@ -136,7 +136,7 @@ export type CloseButtonConfig<M> = StyleConfig<M> & {
 }
 
 const closeButtonClass =
-  "absolute top-3 right-3 focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 border border-transparent bg-clip-padding text-sm font-medium focus-visible:ring-3 aria-invalid:ring-3 active:not-aria-[haspopup]:translate-y-px [&_svg:not([class*='size-'])]:size-4 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground size-7 rounded-sm"
+  "absolute top-2 right-2 inline-flex size-6 items-center justify-center rounded-sm border border-transparent text-muted-foreground transition-colors duration-120 ease-ui hover:bg-surface-muted hover:text-foreground aria-expanded:bg-surface-muted aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-3.5"
 
 export const closeButton = <M>(h: HtmlBuilder<M>, config: CloseButtonConfig<M>): Html =>
   h.div(
@@ -163,19 +163,15 @@ export type StyledViewInputs<M> = {
 }
 
 const backdropClass =
-  "bg-navy-deep/55 data-enter:opacity-0 data-leave:opacity-0 fixed inset-0 z-50 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
+  "bg-scrim data-enter:opacity-0 data-leave:opacity-0 fixed inset-0 z-50 transition-opacity duration-120 ease-ui data-ending-style:opacity-0 data-starting-style:opacity-0"
 
 const motionClass =
-  "data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem]"
+  "data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:data-ending-style:translate-y-10 data-[side=bottom]:data-starting-style:translate-y-10 data-[side=left]:data-ending-style:-translate-x-10 data-[side=left]:data-starting-style:-translate-x-10 data-[side=right]:data-ending-style:translate-x-10 data-[side=right]:data-starting-style:translate-x-10 data-[side=top]:data-ending-style:-translate-y-10 data-[side=top]:data-starting-style:-translate-y-10 data-enter:opacity-0 data-leave:opacity-0 data-[side=bottom]:data-enter:translate-y-10 data-[side=bottom]:data-leave:translate-y-10 data-[side=left]:data-enter:-translate-x-10 data-[side=left]:data-leave:-translate-x-10 data-[side=right]:data-enter:translate-x-10 data-[side=right]:data-leave:translate-x-10 data-[side=top]:data-enter:-translate-y-10 data-[side=top]:data-leave:-translate-y-10"
 
-const panelClass = {
-  top: "bg-card text-card-foreground border-outline fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-mount transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t-[3px] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r-[3px] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l-[3px] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b-[3px] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm data-enter:opacity-0 data-leave:opacity-0 data-[side=bottom]:data-enter:translate-y-[2.5rem] data-[side=bottom]:data-leave:translate-y-[2.5rem] data-[side=left]:data-enter:translate-x-[-2.5rem] data-[side=left]:data-leave:translate-x-[-2.5rem] data-[side=right]:data-enter:translate-x-[2.5rem] data-[side=right]:data-leave:translate-x-[2.5rem] data-[side=top]:data-enter:translate-y-[-2.5rem] data-[side=top]:data-leave:translate-y-[-2.5rem]",
-  bottom:
-    "bg-card text-card-foreground border-outline fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-mount transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t-[3px] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r-[3px] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l-[3px] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b-[3px] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm data-enter:opacity-0 data-leave:opacity-0 data-[side=bottom]:data-enter:translate-y-[2.5rem] data-[side=bottom]:data-leave:translate-y-[2.5rem] data-[side=left]:data-enter:translate-x-[-2.5rem] data-[side=left]:data-leave:translate-x-[-2.5rem] data-[side=right]:data-enter:translate-x-[2.5rem] data-[side=right]:data-leave:translate-x-[2.5rem] data-[side=top]:data-enter:translate-y-[-2.5rem] data-[side=top]:data-leave:translate-y-[-2.5rem]",
-  left: "bg-card text-card-foreground border-outline fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-mount transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t-[3px] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r-[3px] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l-[3px] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b-[3px] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm data-enter:opacity-0 data-leave:opacity-0 data-[side=bottom]:data-enter:translate-y-[2.5rem] data-[side=bottom]:data-leave:translate-y-[2.5rem] data-[side=left]:data-enter:translate-x-[-2.5rem] data-[side=left]:data-leave:translate-x-[-2.5rem] data-[side=right]:data-enter:translate-x-[2.5rem] data-[side=right]:data-leave:translate-x-[2.5rem] data-[side=top]:data-enter:translate-y-[-2.5rem] data-[side=top]:data-leave:translate-y-[-2.5rem]",
-  right:
-    "bg-card text-card-foreground border-outline fixed z-50 flex flex-col gap-4 bg-clip-padding text-sm shadow-mount transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t-[3px] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r-[3px] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l-[3px] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b-[3px] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm data-enter:opacity-0 data-leave:opacity-0 data-[side=bottom]:data-enter:translate-y-[2.5rem] data-[side=bottom]:data-leave:translate-y-[2.5rem] data-[side=left]:data-enter:translate-x-[-2.5rem] data-[side=left]:data-leave:translate-x-[-2.5rem] data-[side=right]:data-enter:translate-x-[2.5rem] data-[side=right]:data-leave:translate-x-[2.5rem] data-[side=top]:data-enter:translate-y-[-2.5rem] data-[side=top]:data-leave:translate-y-[-2.5rem]",
-} as const satisfies Record<Side, string>
+/** Slide-over: surface, 1px border, 8px radius, the overlay shadow, and a
+ *  120ms user-triggered entry. */
+const panelClass =
+  "bg-card text-card-foreground border-border fixed z-50 flex flex-col text-body-md shadow-overlay transition duration-120 ease-ui data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:rounded-t-md data-[side=bottom]:border-t data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:rounded-r-md data-[side=left]:border-r data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:rounded-l-md data-[side=right]:border-l data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:rounded-b-md data-[side=top]:border-b data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm"
 
 export const styledViewInputs = <M>(
   h: HtmlBuilder<M>,
@@ -198,7 +194,7 @@ export const styledViewInputs = <M>(
                   ...panel,
                   h.DataAttribute("slot", "sheet-content"),
                   h.DataAttribute("side", side),
-                  h.Class(cn(panelClass[side], motionClass, viewInputs.panelClass)),
+                  h.Class(cn(panelClass, motionClass, viewInputs.panelClass)),
                 ],
                 viewInputs.content(h, { closeButton, title, description }),
               ),
