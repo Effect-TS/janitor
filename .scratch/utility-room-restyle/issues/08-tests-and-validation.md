@@ -26,4 +26,5 @@ Make the suite reflect the new Account page and verify the restyle visually.
 - Screenshots for the ten combinations are linked below and match the mockup.
 
 ## Comments
+
 Tests rewritten per section: accounts (member and admin fixtures), you, team (self has no actions, removed toggle and restore), member empty state, load failure. Route tests cover the three section paths and the default. `vp check` and `vp test --project web` pass. Visual pass recorded below once dev mode was inspected.

@@ -1,6 +1,6 @@
 # Polish the remaining pages on the new tokens
 
-Status: needs-triage
+Status: needs-triage (first pass shipped)
 Parent: ../spec.md
 Blocked by: 05
 
@@ -20,3 +20,7 @@ After the token swap, every page is on the Utility Room palette but was composed
 
 - No hex colour literals remain in `styles.css` outside the token definitions.
 - Each route has been screenshotted in day and night and reviewed.
+
+## Comments
+
+First pass done: every hex literal in the page CSS is now a token or a color-mix of one (draft state cobalt, published and enabled switches yellow, unknown decisions yellow-tinted, match decisions cobalt), and page radii map to the xs/sm/md scale. Section signs and hazard strips on repository pages remain open; review each route in dev before deciding where they belong.
