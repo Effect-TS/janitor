@@ -34,13 +34,18 @@ it.skipIf(process.env.JANITOR_RUN_SLACK_RECOVERY_FIXTURE !== "1")(
     const save = () =>
       writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n", { mode: 0o600 })
     const call = async (method: string, parameters: Record<string, unknown>) => {
-      const response = await fetch(`https://slack.com/api/${method}`, {
-        method: "POST",
+      const read = method === "auth.test" || method === "conversations.info"
+      const url = new URL(`https://slack.com/api/${method}`)
+      if (read)
+        for (const [key, value] of Object.entries(parameters))
+          url.searchParams.set(key, String(value))
+      const response = await fetch(url, {
+        method: read ? "GET" : "POST",
         headers: {
           authorization: `Bearer ${token}`,
           "content-type": "application/json; charset=utf-8",
         },
-        body: JSON.stringify(parameters),
+        ...(read ? {} : { body: JSON.stringify(parameters) }),
         signal: AbortSignal.timeout(10000),
       })
       const body = await response.json()
