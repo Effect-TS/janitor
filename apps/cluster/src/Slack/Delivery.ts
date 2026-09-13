@@ -175,58 +175,68 @@ export class SlackDelivery extends Context.Service<
           )
           if (claim === null) return
           const { thread, output } = claim
-          let delay = 1
-          const sent = (ts: string) =>
-            sql.withTransaction(
-              Effect.gen(function* () {
-                yield* sql`UPDATE slack_output SET state='sent',message_ts=${ts},error=NULL WHERE output_id=${output.output_id}`
-                if (output.kind === "progress")
-                  yield* sql`UPDATE slack_thread SET progress_ts=${ts} WHERE session_id=${sessionId}`
-              }),
-            )
-          if (output.state === "uncertain") {
-            const result = yield* transport
-              .replies(thread.channel_id, thread.thread_ts, output.reconcile_cursor)
-              .pipe(Effect.result)
-            if (result._tag === "Success") {
-              const matches = result.success.messages.filter(
-                (message) =>
-                  message.user === config.botUserId &&
-                  message.thread_ts === thread.thread_ts &&
-                  message.metadata?.event_type === "janitor_output" &&
-                  message.metadata.event_payload.marker === output.output_id &&
-                  (output.kind !== "progress" ||
-                    thread.progress_ts === null ||
-                    message.ts === thread.progress_ts),
-              )
-              if (matches.length === 1) yield* sent(matches[0]!.ts)
-              else {
-                yield* sql`UPDATE slack_output SET reconcile_cursor=${result.success.cursor},error='Publication uncertain; waiting for a positive author, thread and marker match' WHERE output_id=${output.output_id}`
-                delay = result.success.cursor === "" ? 300 : 1
-              }
-            } else {
-              delay = Math.max(30, result.failure.retryAfter)
-              yield* sql`UPDATE slack_output SET error=${result.failure.message} WHERE output_id=${output.output_id}`
-            }
-          } else {
-            const result = yield* (
-              output.kind === "progress" && thread.progress_ts !== null
-                ? transport.update(
-                    thread.channel_id,
-                    thread.progress_ts,
-                    output.text,
-                    output.output_id,
+          yield* sql.withTransaction(
+            Effect.gen(function* () {
+              let delay = 1
+              const sent = (ts: string) =>
+                sql.withTransaction(
+                  Effect.gen(function* () {
+                    yield* sql`UPDATE slack_output SET state='sent',message_ts=${ts},error=NULL WHERE output_id=${output.output_id}`
+                    if (output.kind === "progress")
+                      yield* sql`UPDATE slack_thread SET progress_ts=${ts} WHERE session_id=${sessionId}`
+                  }),
+                )
+              if (output.state === "uncertain") {
+                const result = yield* transport
+                  .replies(thread.channel_id, thread.thread_ts, output.reconcile_cursor)
+                  .pipe(Effect.result)
+                if (result._tag === "Success") {
+                  const matches = result.success.messages.filter(
+                    (message) =>
+                      message.user === config.botUserId &&
+                      message.thread_ts === thread.thread_ts &&
+                      message.metadata?.event_type === "janitor_output" &&
+                      message.metadata.event_payload.marker === output.output_id &&
+                      (output.kind !== "progress" ||
+                        thread.progress_ts === null ||
+                        message.ts === thread.progress_ts),
                   )
-                : transport.post(thread.channel_id, thread.thread_ts, output.text, output.output_id)
-            ).pipe(Effect.result)
-            if (result._tag === "Success") yield* sent(result.success)
-            else {
-              const error = result.failure
-              delay = error.disposition === "denied" ? 300 : Math.max(1, error.retryAfter)
-              yield* sql`UPDATE slack_output SET state=${error.disposition === "uncertain" ? "uncertain" : "pending"},error=${error.message} WHERE output_id=${output.output_id}`
-            }
-          }
-          yield* sql`UPDATE slack_channel_delivery SET due_at=CLOCK_TIMESTAMP()+make_interval(secs=>${delay}) WHERE workspace_id=${thread.workspace_id} AND channel_id=${thread.channel_id}`
+                  if (matches.length === 1) yield* sent(matches[0]!.ts)
+                  else {
+                    yield* sql`UPDATE slack_output SET reconcile_cursor=${result.success.cursor},error='Publication uncertain; waiting for a positive author, thread and marker match' WHERE output_id=${output.output_id}`
+                    delay = result.success.cursor === "" ? 300 : 1
+                  }
+                } else {
+                  delay = Math.max(30, result.failure.retryAfter)
+                  yield* sql`UPDATE slack_output SET error=${result.failure.message} WHERE output_id=${output.output_id}`
+                }
+              } else {
+                const result = yield* (
+                  output.kind === "progress" && thread.progress_ts !== null
+                    ? transport.update(
+                        thread.channel_id,
+                        thread.progress_ts,
+                        output.text,
+                        output.output_id,
+                      )
+                    : transport.post(
+                        thread.channel_id,
+                        thread.thread_ts,
+                        output.text,
+                        output.output_id,
+                      )
+                ).pipe(Effect.result)
+                if (result._tag === "Success") yield* sent(result.success)
+                else {
+                  const error = result.failure
+                  delay = error.disposition === "denied" ? 300 : Math.max(1, error.retryAfter)
+                  yield* sql`UPDATE slack_output SET state=${error.disposition === "uncertain" ? "uncertain" : "pending"},error=${error.message} WHERE output_id=${output.output_id}`
+                }
+              }
+              yield* sql`UPDATE slack_thread SET delivery_warning=(SELECT error FROM slack_output WHERE session_id=${sessionId} AND state<>'sent' ORDER BY sequence LIMIT 1) WHERE session_id=${sessionId}`
+              yield* sql`UPDATE slack_channel_delivery SET due_at=CLOCK_TIMESTAMP()+make_interval(secs=>${delay}) WHERE workspace_id=${thread.workspace_id} AND channel_id=${thread.channel_id}`
+            }),
+          )
         }).pipe(slackError)
       const processDue = Effect.gen(function* () {
         const reads = yield* sql<{

@@ -99,6 +99,15 @@ export interface AcceptInput {
 }
 
 export interface SessionView {
+  readonly recovery: ReadonlyArray<{
+    platform: string
+    overdue: boolean
+    incomplete: boolean
+    warning: string | null
+    gap: string | null
+  }>
+  readonly slackDelivery: ReadonlyArray<{ id: string; state: string; error: string | null }>
+  readonly deliveryWarning: string | null
   readonly feedback: ReadonlyArray<{ key: string; state: string; warning: string | null }>
   readonly githubDelivery: ReadonlyArray<{ id: string; state: string; error: string | null }>
   readonly pullRequests: ReadonlyArray<{
@@ -324,7 +333,34 @@ export class AgentSessions extends Context.Service<
         }>`SELECT output_id AS id,state,error FROM github_feedback_output WHERE session_id=${sessionId} AND state<>'sent' ORDER BY sequence`.pipe(
           wrap("view"),
         )
+        const recovery = yield* sql<{
+          platform: string
+          overdue: boolean
+          incomplete: boolean
+          warning: string | null
+          gap: string | null
+        }>`
+          SELECT 'github' AS platform,completed_at IS NULL OR completed_at<CLOCK_TIMESTAMP()-interval '5 minutes' AS overdue,
+            cursor<>'' OR EXISTS(SELECT 1 FROM github_recovery_attempt WHERE state='pending') AS incomplete,warning,gap FROM platform_recovery WHERE scan_id='github'
+          UNION ALL SELECT 'slack',recovery_completed_at IS NULL OR recovery_completed_at<CLOCK_TIMESTAMP()-interval '5 minutes',recovery_cursor<>'',recovery_warning,
+            'Deleted uncaptured text and never-received start mentions cannot be recovered' FROM slack_thread WHERE session_id=${sessionId}
+        `.pipe(wrap("view"))
+        const slackDelivery = yield* sql<{
+          id: string
+          state: string
+          error: string | null
+        }>`SELECT output_id AS id,state,error FROM slack_output WHERE session_id=${sessionId} AND state<>'sent' ORDER BY sequence`.pipe(
+          wrap("view"),
+        )
+        const warnings = yield* sql<{
+          delivery_warning: string | null
+        }>`SELECT delivery_warning FROM slack_thread WHERE session_id=${sessionId}`.pipe(
+          wrap("view"),
+        )
         return {
+          recovery,
+          slackDelivery,
+          deliveryWarning: warnings[0]?.delivery_warning ?? null,
           session,
           inputs,
           projection: projections[0] ?? null,
