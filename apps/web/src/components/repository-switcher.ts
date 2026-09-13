@@ -162,7 +162,7 @@ const tile = (
       h.AriaHidden(true),
       h.Class(
         cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold tracking-tight",
+          "flex size-8 shrink-0 items-center justify-center rounded-sm font-mono text-[11px] font-semibold tracking-tight",
           tones[tone],
           className,
         ),
@@ -204,10 +204,10 @@ const repositoryRow = (
     isSelected,
     onClick: Message.ClickedRepository({ repositoryId: repository.repositoryId }),
     className:
-      "my-0.5 cursor-pointer gap-2 rounded-[7px] px-2 py-1.5 hover:bg-accent focus-visible:bg-accent focus-visible:ring-inset",
+      "my-0.5 cursor-pointer gap-2 rounded-sm px-2 py-1.5 hover:bg-popover focus-visible:bg-popover focus-visible:ring-inset",
     attributes: [h.DataAttribute("repository", repository.repositoryId)],
     children: [
-      tile(h, repository, "size-8 rounded-[7px] text-[11px]"),
+      tile(h, repository, "size-8 rounded-sm text-[11px]"),
       h.span(
         [h.Class("min-w-0 flex-1")],
         [
@@ -320,7 +320,7 @@ const triggerLabel = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html => {
             [
               h.AriaHidden(true),
               h.Class(
-                "bg-muted flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px]",
+                "bg-muted flex size-8 shrink-0 items-center justify-center rounded-sm font-mono text-[11px]",
               ),
             ],
             ["--"],
@@ -377,7 +377,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
               variant: "outline",
               attributes: [...render.button],
               className:
-                "h-13 w-full overflow-hidden rounded-[10px] border-sidebar-border bg-card p-2 shadow-xs hover:bg-sidebar-accent dark:bg-card dark:hover:bg-sidebar-accent data-open:bg-sidebar-accent group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0",
+                "h-13 w-full overflow-hidden rounded-sm border-2 border-outline bg-card p-2 shadow-none hover:bg-popover data-open:bg-popover active:translate-y-0 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0",
               label: triggerLabel(h, inputs),
             }),
             ...(render.isVisible

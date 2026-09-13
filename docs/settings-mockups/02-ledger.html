@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>02 · Ledger</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=Spline+Sans+Mono:wght@400;600&display=swap"
+    />
+    <link rel="stylesheet" href="utility-room.css" />
+    <script src="mockup.js" defer></script>
+    <style>
+      /* Layout: top hook rail instead of a side rack, then a 360px sticky summary column beside a ledger. */
+      .toprack {
+        position: relative;
+        z-index: 1;
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 26px 34px 0;
+      }
+      .toprack nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        padding: 0 12px;
+      }
+      .ledger {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap: 34px;
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 34px;
+      }
+      .summary {
+        position: sticky;
+        top: 34px;
+        align-self: start;
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+      }
+      .acct {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        padding: 14px 0;
+        border-top: 2px solid var(--jn-navy);
+      }
+      .acct .main {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .acct .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        font-size: var(--text-body-sm);
+        font-weight: 600;
+        color: var(--jn-muted-ink);
+        padding: 8px 18px;
+        border-bottom: 2px solid var(--jn-navy);
+        background: var(--jn-cream-hi);
+      }
+      td {
+        padding: 8px 18px;
+        border-bottom: 1px solid var(--jn-mortar);
+        vertical-align: middle;
+        font-size: var(--text-body-md);
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      td code {
+        font-size: var(--text-body-sm);
+      }
+      tr[data-removed] td {
+        color: var(--jn-muted-ink);
+      }
+      .th-actions {
+        text-align: right;
+      }
+      td.actions {
+        text-align: right;
+        white-space: nowrap;
+      }
+      @media (width < 880px) {
+        .ledger {
+          grid-template-columns: 1fr;
+        }
+        .summary {
+          position: static;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="rail">
+      <div class="brand"><span class="mark"></span>The Janitor</div>
+      <div class="who"><span class="dot"></span><b>founder@example.com</b></div>
+    </header>
+
+    <div class="toprack">
+      <div class="rack-rail jn-steel"></div>
+      <nav aria-label="Sections">
+        <a class="jn-tag" href="#">Dashboard</a>
+        <a class="jn-tag" href="#">Repositories</a>
+        <a class="jn-tag" href="#">Agent sessions</a>
+        <a class="jn-tag" href="#" aria-current="page">Settings</a>
+      </nav>
+    </div>
+
+    <div class="ledger">
+      <!-- Left: you + accounts, one quiet panel -->
+      <aside class="summary">
+        <section class="section" aria-labelledby="s-you">
+          <h2 id="s-you" class="jn-sign t-sign"><span class="jn-screw"></span>You</h2>
+          <div class="panel">
+            <div class="cluster" style="gap: 12px; align-items: flex-start">
+              <span class="avatar">FO</span>
+              <div style="min-width: 0">
+                <div class="t-h3" style="overflow-wrap: anywhere">founder@example.com</div>
+                <div class="t-body-sm muted">
+                  <span data-when="viewer=admin">Admin</span
+                  ><span data-when="viewer=member">Member</span> · teammate since 2 Jun 2026
+                </div>
+              </div>
+            </div>
+            <p class="t-body-sm muted" style="margin-top: 10px">
+              Signed in through <code>team.cloudflareaccess.test</code>. Subject
+              <code>9c1d4e2a…a3b1</code>. Email is display only.
+            </p>
+
+            <h3 class="t-h3" style="margin-top: 22px">Connected accounts</h3>
+            <p class="t-body-sm muted" style="margin: 4px 0 10px">
+              Connected accounts may direct Janitor from Slack and GitHub until you disconnect them,
+              independently of this browser session.
+            </p>
+
+            <div class="acct">
+              <span class="platform-mark t-mono-sm">GH</span>
+              <div class="main">
+                <div class="t-label">
+                  GitHub <span class="t-body-sm muted" style="font-weight: 400">· github.com</span>
+                </div>
+                <div data-when="github=connected">
+                  <div class="status-line">
+                    <span class="chip" data-variant="on">connected</span>
+                    <code class="t-mono-md">octocat</code>
+                  </div>
+                  <div class="t-body-sm muted">User ID <code>4242</code> · linked 14 Aug 2026</div>
+                  <div class="btns">
+                    <button class="btn" data-size="sm">Replace GitHub account</button
+                    ><button class="btn" data-variant="destructive" data-size="sm">
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+                <div data-when="github=never">
+                  <div class="status-line"><span class="chip">not connected</span></div>
+                  <div class="t-body-sm muted">No GitHub account connected.</div>
+                  <div class="btns">
+                    <button class="btn" data-variant="primary" data-size="sm">
+                      Connect GitHub
+                    </button>
+                  </div>
+                </div>
+                <div data-when="github=disconnected">
+                  <div class="status-line">
+                    <span class="chip">disconnected</span>
+                    <code class="t-mono-md muted">octocat</code>
+                  </div>
+                  <div class="t-body-sm muted">
+                    Disconnected 10 Sep 2026. A self-disconnected account still requires linking
+                    again.
+                  </div>
+                  <div class="btns">
+                    <button class="btn" data-variant="primary" data-size="sm">
+                      Connect GitHub
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="acct">
+              <span class="platform-mark t-mono-sm">SL</span>
+              <div class="main">
+                <div class="t-label">
+                  Slack
+                  <span class="t-body-sm muted" style="font-weight: 400"
+                    >· workspace T0A1B2C3D</span
+                  >
+                </div>
+                <div data-when="slack=connected">
+                  <div class="status-line">
+                    <span class="chip" data-variant="on">connected</span>
+                    <code class="t-mono-md">founder</code>
+                  </div>
+                  <div class="t-body-sm muted">
+                    Member ID <code>U04ABCD12</code> · linked 2 Jun 2026
+                  </div>
+                  <div class="btns">
+                    <button class="btn" data-size="sm">Replace Slack account</button
+                    ><button class="btn" data-variant="destructive" data-size="sm">
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+                <div data-when="slack=never">
+                  <div class="status-line"><span class="chip">not connected</span></div>
+                  <div class="t-body-sm muted">
+                    No Slack account connected. Bot mentions from you only get an ephemeral reminder
+                    until you connect.
+                  </div>
+                  <div class="btns">
+                    <button class="btn" data-variant="primary" data-size="sm">Connect Slack</button>
+                  </div>
+                </div>
+                <div data-when="slack=disconnected">
+                  <div class="status-line">
+                    <span class="chip">disconnected</span>
+                    <code class="t-mono-md muted">founder</code>
+                  </div>
+                  <div class="t-body-sm muted">
+                    Disconnected 10 Sep 2026. Shared sessions and your accepted inputs are
+                    unaffected.
+                  </div>
+                  <div class="btns">
+                    <button class="btn" data-variant="primary" data-size="sm">Connect Slack</button>
+                  </div>
+                </div>
+                <div data-when="slack=unavailable">
+                  <div class="status-line"><span class="chip">unavailable</span></div>
+                  <div class="t-body-sm muted">
+                    Slack account linking is not configured for this deployment.
+                  </div>
+                  <div class="btns">
+                    <button class="btn" data-size="sm" disabled>Connect Slack</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Right: the roster ledger -->
+      <main class="content">
+        <section class="section" aria-labelledby="s-team">
+          <h2 id="s-team" class="jn-sign t-sign"><span class="jn-screw"></span>Team</h2>
+          <p class="lede" data-when="viewer=admin">
+            Everyone admitted through team sign-in. Roles change immediately. Removing a teammate
+            disables their connected accounts and sign-in; their accepted work and attribution are
+            kept.
+          </p>
+          <p class="lede" data-when="viewer=member">Only an active admin can manage teammates.</p>
+
+          <div class="panel flush jn-dense" data-when="viewer=admin">
+            <div class="panel-head">
+              <div class="t-h3">
+                Roster
+                <span class="muted t-body-sm" style="font-weight: 400">· 4 active · 1 removed</span>
+              </div>
+              <input
+                class="input"
+                type="search"
+                placeholder="Filter by email or account"
+                aria-label="Filter teammates"
+                style="padding: 6px 10px; font-size: var(--text-body-sm)"
+              />
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Teammate</th>
+                  <th>Role</th>
+                  <th>Slack</th>
+                  <th>GitHub</th>
+                  <th>Since</th>
+                  <th class="th-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="t-label">
+                      founder@example.com <span class="muted" style="font-weight: 400">(you)</span>
+                    </div>
+                    <div class="t-body-sm rust">
+                      Last active admin · cannot be removed or demoted
+                    </div>
+                  </td>
+                  <td>
+                    <select
+                      class="select"
+                      disabled
+                      aria-label="Role for founder@example.com"
+                      style="padding: 4px 28px 4px 8px; font-size: var(--text-body-sm)"
+                    >
+                      <option selected>admin</option>
+                      <option>member</option>
+                    </select>
+                  </td>
+                  <td><code>founder</code></td>
+                  <td><code>octocat</code></td>
+                  <td class="t-body-sm muted">2 Jun 2026</td>
+                  <td class="actions">
+                    <button class="btn" data-variant="destructive" data-size="sm" disabled>
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+                <tr>
+                  <td><div class="t-label">second@example.com</div></td>
+                  <td>
+                    <select
+                      class="select"
+                      aria-label="Role for second@example.com"
+                      style="padding: 4px 28px 4px 8px; font-size: var(--text-body-sm)"
+                    >
+                      <option>admin</option>
+                      <option selected>member</option>
+                    </select>
+                  </td>
+                  <td><code>second</code></td>
+                  <td><code>second</code></td>
+                  <td class="t-body-sm muted">9 Jun 2026</td>
+                  <td class="actions">
+                    <button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+                  </td>
+                </tr>
+                <tr>
+                  <td><div class="t-label">third@example.com</div></td>
+                  <td>
+                    <select
+                      class="select"
+                      aria-label="Role for third@example.com"
+                      style="padding: 4px 28px 4px 8px; font-size: var(--text-body-sm)"
+                    >
+                      <option>admin</option>
+                      <option selected>member</option>
+                    </select>
+                  </td>
+                  <td class="t-body-sm muted">not connected</td>
+                  <td><code>third</code></td>
+                  <td class="t-body-sm muted">21 Jul 2026</td>
+                  <td class="actions">
+                    <button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="t-label"><code>a1f9c0d2-5e77-4b8a-9d13-0c2f6e4b7a90</code></div>
+                    <div class="t-body-sm muted">No email from Access; showing the subject</div>
+                  </td>
+                  <td>
+                    <select
+                      class="select"
+                      aria-label="Role for a1f9c0d2"
+                      style="padding: 4px 28px 4px 8px; font-size: var(--text-body-sm)"
+                    >
+                      <option>admin</option>
+                      <option selected>member</option>
+                    </select>
+                  </td>
+                  <td class="t-body-sm muted">not connected</td>
+                  <td class="t-body-sm muted">not connected</td>
+                  <td class="t-body-sm muted">1 Sep 2026</td>
+                  <td class="actions">
+                    <button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+                  </td>
+                </tr>
+                <tr data-removed>
+                  <td>
+                    <div class="t-label">impostor@example.com</div>
+                    <div class="t-body-sm">Removed 30 Aug 2026 by founder@example.com</div>
+                  </td>
+                  <td><span class="chip" data-variant="danger">removed</span></td>
+                  <td><code>impostor</code> <span class="t-body-sm">(disabled)</span></td>
+                  <td class="t-body-sm">not connected</td>
+                  <td class="t-body-sm">3 Aug 2026</td>
+                  <td class="actions"><button class="btn" data-size="sm">Restore</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="panel jn-empty" data-when="viewer=member">
+            <p>Only an active admin can manage teammates. Your role is member.</p>
+          </div>
+        </section>
+
+        <section class="section" aria-labelledby="s-audit" data-when="viewer=admin">
+          <h2 id="s-audit" class="jn-sign t-sign"><span class="jn-screw"></span>Recent changes</h2>
+          <p class="lede">
+            The teammate audit trail. Actions are recorded with the acting admin, the subject and
+            the time.
+          </p>
+          <div class="panel flush jn-dense">
+            <div class="rows">
+              <div data-slot="row">
+                <code>remove</code>
+                <div class="main"><div>founder@example.com removed impostor@example.com</div></div>
+                <span class="meta">30 Aug 2026, 16:02 UTC</span>
+              </div>
+              <div data-slot="row">
+                <code>relink</code>
+                <div class="main">
+                  <div>
+                    founder@example.com replaced GitHub <code>founder</code> with
+                    <code>octocat</code>
+                  </div>
+                </div>
+                <span class="meta">14 Aug 2026, 09:32 UTC</span>
+              </div>
+              <div data-slot="row">
+                <code>link</code>
+                <div class="main">
+                  <div>third@example.com connected GitHub <code>third</code></div>
+                </div>
+                <span class="meta">21 Jul 2026, 11:47 UTC</span>
+              </div>
+              <div data-slot="row">
+                <code>set-role</code>
+                <div class="main">
+                  <div>founder@example.com made second@example.com a member</div>
+                </div>
+                <span class="meta">9 Jun 2026, 08:15 UTC</span>
+              </div>
+              <div data-slot="row">
+                <code>initial-admin</code>
+                <div class="main"><div>founder@example.com admitted as the initial admin</div></div>
+                <span class="meta">2 Jun 2026, 14:11 UTC</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

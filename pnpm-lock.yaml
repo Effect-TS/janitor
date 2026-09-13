@@ -244,7 +244,13 @@ catalogs:
     '@foldkit/vite-plugin':
       specifier: ^0.20.1
       version: 0.20.1
-    '@fontsource-variable/geist':
+    '@fontsource-variable/archivo':
+      specifier: ^5.3.0
+      version: 5.3.0
+    '@fontsource-variable/big-shoulders-display':
+      specifier: ^5.3.0
+      version: 5.3.0
+    '@fontsource-variable/spline-sans-mono':
       specifier: ^5.3.0
       version: 5.3.0
     '@lezer/common':
@@ -423,7 +429,13 @@ importers:
       '@foldkit/ui':
         specifier: 'catalog:'
         version: 0.157.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(foldkit@0.157.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))
-      '@fontsource-variable/geist':
+      '@fontsource-variable/archivo':
+        specifier: 'catalog:'
+        version: 5.3.0
+      '@fontsource-variable/big-shoulders-display':
+        specifier: 'catalog:'
+        version: 5.3.0
+      '@fontsource-variable/spline-sans-mono':
         specifier: 'catalog:'
         version: 5.3.0
       '@janitor/domain':
@@ -1224,8 +1236,14 @@ packages:
       foldkit: '>=0.153.0'
       vite: ^7.0.0 || ^8.0.0
 
-  '@fontsource-variable/geist@5.3.0':
-    resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
+  '@fontsource-variable/archivo@5.3.0':
+    resolution: {integrity: sha512-HogK8FJelrD1o7TlZlkIVtHgc20bO5PZRWE7mUeUTdMN055alznQV6/00J00IBeu8FQAH4s3zW9UJNvKExXf+g==}
+
+  '@fontsource-variable/big-shoulders-display@5.3.0':
+    resolution: {integrity: sha512-7k1REXMZFEa7gSWOURbmCJW5Gv9D0EbEFQgosZidM8Ob/qpPlK96vqyIzCTnNZ/C0XFZWxeKU53D3QdeHctYCA==}
+
+  '@fontsource-variable/spline-sans-mono@5.3.0':
+    resolution: {integrity: sha512-dH/qBj/MCE4ObiuCwlA9X1o3AftMO9dwfFgoRVYjy6VCPYkpWAlEtK/RjeyICgsR8rW763IAQARskVgShBY5JA==}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -4927,7 +4945,11 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@fontsource-variable/geist@5.3.0': {}
+  '@fontsource-variable/archivo@5.3.0': {}
+
+  '@fontsource-variable/big-shoulders-display@5.3.0': {}
+
+  '@fontsource-variable/spline-sans-mono@5.3.0': {}
 
   '@grpc/grpc-js@1.14.4':
     dependencies:

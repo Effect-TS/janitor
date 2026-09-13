@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>07 · Sidebar sections</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=Spline+Sans+Mono:wght@400;600&display=swap"
+    />
+    <link rel="stylesheet" href="utility-room.css" />
+    <script src="mockup.js" defer></script>
+    <style>
+      /* App shell, mirroring apps/web: 16rem sidebar (brand, repository switcher,
+     repository nav, footer link) + inset with a 48px header. */
+      .app {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 16rem minmax(0, 1fr);
+        min-height: calc(100vh - 38px);
+      }
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        border-right: 2px solid var(--jn-navy);
+        background: var(--jn-wall);
+      }
+      .sidebar .head,
+      .sidebar .foot {
+        padding: 8px;
+      }
+      .sidebar .foot {
+        margin-top: auto;
+      }
+      .sb-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 8px;
+        border-radius: var(--radius-sm);
+        font-size: var(--text-body-sm);
+        font-weight: 500;
+        color: var(--jn-navy);
+        text-decoration: none;
+      }
+      .sb-item:hover {
+        background: var(--jn-cream);
+      }
+      .sb-item[aria-current] {
+        background: var(--jn-cream);
+        font-weight: 600;
+      }
+      .sb-item .ico {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border: 2px solid var(--jn-navy);
+        border-radius: 3px;
+        opacity: 0.8;
+      }
+      .sb-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        font-weight: 700;
+      }
+      .sb-brand .mark {
+        width: 24px;
+        height: 24px;
+        border-radius: 9999px;
+        background: var(--jn-cobalt);
+        border: 2px solid var(--jn-navy);
+        box-shadow: inset 0 0 0 2px var(--jn-cream);
+      }
+      .sb-switcher {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 2px solid var(--jn-navy);
+        border-radius: var(--radius-sm);
+        background: var(--jn-cream);
+        font-family: var(--font-mono);
+        font-size: var(--text-body-sm);
+        font-weight: 600;
+      }
+      .sb-group {
+        padding: 8px;
+      }
+      .sb-label {
+        padding: 4px 8px 6px;
+        font-size: var(--text-mono-sm);
+        font-family: var(--font-mono);
+        color: var(--jn-muted-ink);
+        letter-spacing: 0.02em;
+      }
+      .inset {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .inset-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 48px;
+        padding: 0 24px;
+        border-bottom: 2px solid var(--jn-navy);
+        background: var(--jn-cream);
+        font-size: var(--text-body-sm);
+        font-weight: 600;
+      }
+      .inset-head .tools {
+        display: flex;
+        gap: 6px;
+      }
+      .inset-head .tools span {
+        width: 28px;
+        height: 28px;
+        border: 2px solid var(--jn-navy);
+        border-radius: var(--radius-sm);
+        background: var(--jn-cream-hi);
+      }
+
+      /* Settings page: section rack on the left, one section in the centre. */
+      .settings {
+        display: grid;
+        grid-template-columns: 200px minmax(0, 640px);
+        gap: 40px;
+        padding: 26px 24px;
+        align-items: start;
+      }
+      .rack-sm .rack-rail {
+        margin-bottom: 14px;
+      }
+      .rack-sm nav {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 0 4px;
+      }
+      .rack-sm .jn-tag {
+        font-size: var(--text-body-sm);
+        padding: 8px 12px 9px;
+      }
+      .pane {
+        display: none;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .pane[data-active] {
+        display: flex;
+      }
+      .pane > .lede {
+        color: var(--jn-muted-ink);
+      }
+      .pane .panel {
+        padding: 0;
+      }
+      .acct {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 16px 18px;
+        border-bottom: 2px solid var(--jn-navy);
+      }
+      .acct:last-child {
+        border-bottom: 0;
+      }
+      .acct .main {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .acct .main .who {
+        font-size: var(--text-h3);
+        font-weight: 600;
+      }
+      .acct .main .who code {
+        font-size: var(--text-mono-md);
+      }
+      .acct .main .sub {
+        font-size: var(--text-body-sm);
+        color: var(--jn-muted-ink);
+      }
+      .acct .end {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: none;
+      }
+      .team-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--jn-mortar);
+      }
+      .team-row:last-child {
+        border-bottom: 0;
+      }
+      .team-row .main {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .team-row .sub {
+        font-size: var(--text-body-sm);
+        color: var(--jn-muted-ink);
+      }
+      .team-row .end {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+      }
+      .team-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 18px;
+        border-top: 2px solid var(--jn-navy);
+        background: var(--jn-cream-hi);
+        font-size: var(--text-body-sm);
+        color: var(--jn-muted-ink);
+      }
+      .removed-rows {
+        display: none;
+      }
+      .removed-rows[data-open] {
+        display: block;
+      }
+      .you-grid {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 10px 22px;
+        padding: 18px;
+        align-items: center;
+      }
+      .you-grid dt {
+        color: var(--jn-muted-ink);
+        font-size: var(--text-body-sm);
+      }
+      .you-grid dd {
+        margin: 0;
+      }
+      @media (width < 880px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+        .sidebar {
+          display: none;
+        }
+        .settings {
+          grid-template-columns: 1fr;
+          gap: 22px;
+        }
+        .rack-sm nav {
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <!-- Existing app sidebar -->
+      <aside class="sidebar" aria-label="App navigation">
+        <div class="head">
+          <div class="sb-brand"><span class="mark"></span>The Janitor</div>
+          <div class="sb-switcher">effect/janitor <span aria-hidden="true">⌄</span></div>
+        </div>
+        <div class="sb-group">
+          <div class="sb-label">Repository</div>
+          <a class="sb-item" href="#"><span class="ico"></span>Overview</a>
+          <a class="sb-item" href="#"><span class="ico"></span>Policies</a>
+          <a class="sb-item" href="#"><span class="ico"></span>Rules</a>
+          <a class="sb-item" href="#"><span class="ico"></span>Activity</a>
+          <a class="sb-item" href="#"><span class="ico"></span>Settings</a>
+        </div>
+        <div class="foot">
+          <a class="sb-item" href="#" aria-current="page"
+            ><span class="ico" style="border-radius: 9999px"></span>Account</a
+          >
+        </div>
+      </aside>
+
+      <div class="inset">
+        <header class="inset-head">
+          <span>Account</span>
+          <div class="tools" aria-hidden="true"><span></span><span></span></div>
+        </header>
+
+        <div class="settings">
+          <!-- Settings sections rack -->
+          <aside class="rack-sm">
+            <div class="rack-rail jn-steel"></div>
+            <nav aria-label="Account settings">
+              <a class="jn-tag" href="#you" data-section="you">You</a>
+              <a class="jn-tag" href="#accounts" data-section="accounts">Connected accounts</a>
+              <a class="jn-tag" href="#team" data-section="team">Team</a>
+            </nav>
+          </aside>
+
+          <main>
+            <!-- YOU -->
+            <section class="pane" id="pane-you" aria-labelledby="h-you">
+              <h2 id="h-you" class="jn-sign t-sign"><span class="jn-screw"></span>You</h2>
+              <p class="lede">How Janitor knows you. Sign-in is handled by Cloudflare Access.</p>
+              <div class="panel">
+                <dl class="you-grid">
+                  <dt>Email</dt>
+                  <dd>founder@example.com</dd>
+                  <dt>Role</dt>
+                  <dd>
+                    <span class="chip" data-variant="on" data-when="viewer=admin">admin</span
+                    ><span class="chip" data-when="viewer=member">member</span>
+                  </dd>
+                  <dt>Teammate since</dt>
+                  <dd>2 Jun 2026</dd>
+                </dl>
+              </div>
+            </section>
+
+            <!-- CONNECTED ACCOUNTS -->
+            <section class="pane" id="pane-accounts" aria-labelledby="h-accounts">
+              <h2 id="h-accounts" class="jn-sign t-sign">
+                <span class="jn-screw"></span>Connected accounts
+              </h2>
+              <p class="lede">Accounts that can give Janitor instructions on your behalf.</p>
+              <div class="panel">
+                <div class="acct">
+                  <span class="platform-mark t-mono-sm">GH</span>
+                  <div class="main">
+                    <div class="who">GitHub</div>
+                    <div class="sub" data-when="github=connected">
+                      Connected as <code>octocat</code>
+                    </div>
+                    <div class="sub" data-when="github=never">Not connected</div>
+                    <div class="sub" data-when="github=disconnected">
+                      Disconnected · was <code>octocat</code>
+                    </div>
+                  </div>
+                  <div class="end">
+                    <button
+                      class="btn"
+                      data-variant="destructive"
+                      data-size="sm"
+                      data-when="github=connected"
+                    >
+                      Disconnect
+                    </button>
+                    <button
+                      class="btn"
+                      data-variant="primary"
+                      data-size="sm"
+                      data-when="github=never,disconnected"
+                    >
+                      Connect GitHub
+                    </button>
+                  </div>
+                </div>
+                <div class="acct">
+                  <span class="platform-mark t-mono-sm">SL</span>
+                  <div class="main">
+                    <div class="who">Slack</div>
+                    <div class="sub" data-when="slack=connected">
+                      Connected as <code>founder</code>
+                    </div>
+                    <div class="sub" data-when="slack=never">Not connected</div>
+                    <div class="sub" data-when="slack=disconnected">
+                      Disconnected · was <code>founder</code>
+                    </div>
+                    <div class="sub" data-when="slack=unavailable">
+                      Not available in this deployment
+                    </div>
+                  </div>
+                  <div class="end">
+                    <button
+                      class="btn"
+                      data-variant="destructive"
+                      data-size="sm"
+                      data-when="slack=connected"
+                    >
+                      Disconnect
+                    </button>
+                    <button
+                      class="btn"
+                      data-variant="primary"
+                      data-size="sm"
+                      data-when="slack=never,disconnected"
+                    >
+                      Connect Slack
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <p class="t-body-sm muted">
+                Disconnecting stops new instructions from that account. Work it already contributed
+                is kept.
+              </p>
+            </section>
+
+            <!-- TEAM -->
+            <section class="pane" id="pane-team" aria-labelledby="h-team">
+              <h2 id="h-team" class="jn-sign t-sign"><span class="jn-screw"></span>Team</h2>
+              <p class="lede" data-when="viewer=admin">
+                Everyone who has signed in. New teammates start as members.
+              </p>
+              <p class="lede" data-when="viewer=member">Only admins can manage the team.</p>
+
+              <div class="panel jn-dense" data-when="viewer=admin">
+                <div class="team-row">
+                  <span class="avatar">FO</span>
+                  <div class="main">
+                    <div>founder@example.com <span class="muted">(you)</span></div>
+                  </div>
+                  <div class="end"><span class="chip" data-variant="on">admin</span></div>
+                </div>
+                <div class="team-row">
+                  <span class="avatar">SE</span>
+                  <div class="main"><div>second@example.com</div></div>
+                  <div class="end">
+                    <span class="chip">member</span
+                    ><button class="btn" data-size="sm">Make admin</button
+                    ><button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+                  </div>
+                </div>
+                <div class="team-row">
+                  <span class="avatar">TH</span>
+                  <div class="main"><div>third@example.com</div></div>
+                  <div class="end">
+                    <span class="chip">member</span
+                    ><button class="btn" data-size="sm">Make admin</button
+                    ><button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+                  </div>
+                </div>
+                <div class="team-row">
+                  <span class="avatar">a1</span>
+                  <div class="main">
+                    <div><code>a1f9c0d2…7a90</code></div>
+                    <div class="sub">No email on record</div>
+                  </div>
+                  <div class="end">
+                    <span class="chip">member</span
+                    ><button class="btn" data-size="sm">Make admin</button
+                    ><button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+                  </div>
+                </div>
+                <div class="removed-rows" id="removed">
+                  <div class="team-row" style="background: var(--jn-mortar)">
+                    <span class="avatar">IM</span>
+                    <div class="main">
+                      <div>impostor@example.com</div>
+                      <div class="sub">Removed 30 Aug 2026</div>
+                    </div>
+                    <div class="end">
+                      <span class="chip" data-variant="danger">removed</span
+                      ><button class="btn" data-size="sm">Restore</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="team-foot">
+                  <span>4 active</span>
+                  <button
+                    class="btn-link"
+                    id="toggle-removed"
+                    aria-expanded="false"
+                    aria-controls="removed"
+                  >
+                    Show 1 removed
+                  </button>
+                </div>
+              </div>
+
+              <div class="panel jn-empty" data-when="viewer=member" style="padding: 18px">
+                <p>Ask an admin if you need a role change or to remove someone.</p>
+              </div>
+            </section>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      ;(function () {
+        var tags = document.querySelectorAll("[data-section]")
+        function show() {
+          var id = (location.hash || "#accounts").slice(1)
+          if (!document.getElementById("pane-" + id)) id = "accounts"
+          document.querySelectorAll(".pane").forEach(function (p) {
+            if (p.id === "pane-" + id) p.setAttribute("data-active", "")
+            else p.removeAttribute("data-active")
+          })
+          tags.forEach(function (t) {
+            if (t.getAttribute("data-section") === id) t.setAttribute("aria-current", "page")
+            else t.removeAttribute("aria-current")
+          })
+        }
+        window.addEventListener("hashchange", show)
+        document.addEventListener("DOMContentLoaded", function () {
+          show()
+          var b = document.getElementById("toggle-removed"),
+            r = document.getElementById("removed")
+          b.addEventListener("click", function () {
+            var open = r.hasAttribute("data-open")
+            if (open) r.removeAttribute("data-open")
+            else r.setAttribute("data-open", "")
+            b.setAttribute("aria-expanded", String(!open))
+            b.textContent = open ? "Show 1 removed" : "Hide removed"
+          })
+        })
+      })()
+    </script>
+  </body>
+</html>

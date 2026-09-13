@@ -300,7 +300,8 @@ const foldAccountOutMessage =
   (model) =>
     Account.OutMessage.match(outMessage, {
       OpenPlatform: ({ url }) => requestNavigation(model, url, false, false, true),
-      FinishedReturn: () => requestNavigation(model, Routes.account(), true, false),
+      FinishedReturn: () =>
+        requestNavigation(model, Routes.accountSection("accounts"), true, false),
     })
 
 const foldAccount = Update.foldChild({
@@ -889,11 +890,11 @@ const brandHeader = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class("flex gap-2 items-center")],
     [
-      JanitorIcon.view(h, { className: "size-8 rounded-lg" }),
+      JanitorIcon.view(h, { className: "size-8 rounded-sm" }),
       h.div(
         [h.Class("flex flex-col")],
         [
-          h.span([h.Class("font-semibold truncate")], ["The Janitor"]),
+          h.span([h.Class("font-bold truncate")], ["The Janitor"]),
           h.span([h.Class("text-xs text-muted-foreground truncate")], ["Repository Maintenance"]),
         ],
       ),
@@ -968,9 +969,9 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
                             h.Class(
                               cn(
                                 Sidebar.sidebarMenuButtonClass,
-                                "repository-nav-link",
+                                "h-9 gap-2.5 px-3 text-muted-foreground hover:text-sidebar-foreground",
                                 Routes.section(model.navigation.route) === section &&
-                                  "bg-sidebar-accent font-medium",
+                                  "bg-sidebar-accent font-semibold text-sidebar-foreground",
                               ),
                             ),
                             h.AriaCurrent(
@@ -1039,11 +1040,11 @@ const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
         children: [
           h.a(
             [
-              h.Href(Routes.account()),
+              h.Href(Routes.accountSection("accounts")),
               h.Class(
                 cn(
                   Sidebar.sidebarMenuButtonClass,
-                  isAccountRoute(model.navigation.route) && "bg-sidebar-accent font-medium",
+                  isAccountRoute(model.navigation.route) && "bg-sidebar-accent font-semibold",
                 ),
               ),
               h.AriaCurrent(isAccountRoute(model.navigation.route) ? "page" : "false"),
@@ -1075,7 +1076,7 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.header(
     [
       h.Class(
-        "flex h-12 shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear",
+        "flex h-12 shrink-0 items-center gap-2 border-b-2 border-outline bg-card transition-[width,height] ease-linear",
       ),
     ],
     [
@@ -1092,7 +1093,7 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                 ],
               }),
               h.span(
-                [h.Class("text-sm font-medium")],
+                [h.Class("text-body-sm font-semibold")],
                 [
                   model.navigation.route._tag === "Connect" ||
                   model.navigation.route._tag === "ConnectReturn"
@@ -1158,10 +1159,10 @@ const toastEntry = (h: HtmlBuilder<Message>, payload: ToastPayload, variant: Toa
     [
       h.Class(
         cn(
-          "pointer-events-auto w-80 rounded-md border bg-card px-4 py-3 text-sm shadow-lg",
-          variant === "Error" && "border-destructive/40",
-          variant === "Warning" && "border-amber-500/40",
-          variant === "Success" && "border-emerald-500/40",
+          "pointer-events-auto w-80 jn-mount bg-card px-4 py-3 text-sm",
+          variant === "Error" && "border-rust",
+          variant === "Warning" && "border-yellow-safety-dark",
+          variant === "Success" && "border-cobalt",
         ),
       ),
     ],
@@ -1219,7 +1220,7 @@ const accountView = (h: HtmlBuilder<Message>, model: Model) =>
     model: model.account,
     view: Account.view,
     toParentMessage: (message) => Message.GotAccountMessage({ message }),
-    viewInputs: {},
+    viewInputs: { section: Routes.accountSectionOf(model.navigation.route) },
   })
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.navigation.route
@@ -1258,7 +1259,9 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
         h.a(
           [
             h.Href(Routes.connect()),
-            h.Class("rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm"),
+            h.Class(
+              "rounded-sm border-[2.5px] border-outline bg-primary text-primary-foreground px-4 py-2 text-button font-bold shadow-edge",
+            ),
           ],
           ["Connect repository"],
         ),

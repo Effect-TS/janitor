@@ -14,16 +14,18 @@ export const buttonVariantKeys = [
 ] as const
 
 export const buttonVariants: Record<ButtonVariant, string> = {
-  default: "bg-primary text-primary-foreground hover:bg-primary/80",
+  // Utility Room: primary is safety yellow, danger is a rust fill with the same
+  // hard drop edge, secondary and outline are cream plates, ghost is a dashed
+  // outline that does not travel, link is cobalt text.
+  default: "bg-primary text-primary-foreground border-outline hover:bg-yellow-safety-dark",
   destructive:
-    "bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30",
-  outline:
-    "border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground",
+    "bg-rust text-cream-hi border-rust-dark shadow-[0_3px_0_var(--jn-rust-dark)] hover:bg-rust-dark",
+  outline: "bg-card text-card-foreground border-outline hover:bg-popover aria-expanded:bg-popover",
   secondary:
-    "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+    "bg-secondary text-secondary-foreground border-outline hover:bg-popover aria-expanded:bg-popover",
   ghost:
-    "hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground",
-  link: "text-primary underline-offset-4 hover:underline",
+    "border-dashed border-outline/70 bg-transparent shadow-none hover:bg-muted/40 aria-expanded:bg-muted/40 active:not-aria-[haspopup]:translate-y-0",
+  link: "border-transparent bg-transparent shadow-none text-cobalt-dark underline underline-offset-4 hover:text-cobalt dark:text-cobalt-light active:not-aria-[haspopup]:translate-y-0",
 }
 
 export type ButtonSize = (typeof buttonSizeKeys)[number]
@@ -41,19 +43,19 @@ export const buttonSizeKeys = [
 
 export const buttonSizes: Record<ButtonSize, string> = {
   default: "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-  xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-  sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+  xs: "h-6 gap-1 px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+  sm: "h-7 gap-1 px-2.5 text-body-sm has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
   lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
   icon: "size-8 p-0",
-  "icon-xs":
-    "size-6 p-0 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
-  "icon-sm":
-    "size-7 p-0 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+  "icon-xs": "size-6 p-0 [&_svg:not([class*='size-'])]:size-3",
+  "icon-sm": "size-7 p-0",
   "icon-lg": "size-9 p-0",
 }
 
+/** Every button is a mounted object: a 2.5px outline and a 3px hard drop edge.
+ *  Pressing it travels 3px into the surface and loses the edge. */
 const buttonBase =
-  "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 rounded-lg border border-transparent bg-clip-padding text-sm font-medium focus-visible:ring-3 aria-invalid:ring-3 active:not-aria-[haspopup]:translate-y-px [&_svg:not([class*='size-'])]:size-4 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 cursor-pointer"
+  "aria-invalid:border-destructive rounded-sm border-[2.5px] border-outline bg-clip-padding text-button font-bold shadow-edge transition-[transform,box-shadow,background-color] duration-100 active:not-aria-[haspopup]:translate-y-[3px] active:not-aria-[haspopup]:shadow-none [&_svg:not([class*='size-'])]:size-4 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
 
 export type ButtonConfig<M> = {
   readonly type?: "button" | "submit" | "reset" | undefined
