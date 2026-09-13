@@ -24,13 +24,17 @@ it.skipIf(process.env.JANITOR_RUN_GITHUB_REVIEW_FIXTURE !== "1")(
     const repository = env.FIXTURE_GITHUB_REPOSITORY!
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository))
       throw new Error("Set FIXTURE_GITHUB_REPOSITORY to a disposable owner/repo")
-    for (const key of [
-      "JANITOR_GITHUB_APP_ID",
-      "JANITOR_GITHUB_APP_PRIVATE_KEY_FILE",
-      "GITHUB_REVIEWER_TOKEN",
-    ])
+    for (const key of ["JANITOR_GITHUB_APP_ID", "GITHUB_REVIEWER_TOKEN"])
       if (!env[key]) throw new Error(`Set ${key} in .env.github-review-fixture`)
-    const privateKey = readFileSync(env.JANITOR_GITHUB_APP_PRIVATE_KEY_FILE!, "utf8")
+    const privateKey = env.JANITOR_GITHUB_APP_PRIVATE_KEY
+      ? env.JANITOR_GITHUB_APP_PRIVATE_KEY.replaceAll("\\n", "\n")
+      : env.JANITOR_GITHUB_APP_PRIVATE_KEY_FILE
+        ? readFileSync(env.JANITOR_GITHUB_APP_PRIVATE_KEY_FILE, "utf8")
+        : undefined
+    if (!privateKey)
+      throw new Error(
+        "Set JANITOR_GITHUB_APP_PRIVATE_KEY or JANITOR_GITHUB_APP_PRIVATE_KEY_FILE in .env.github-review-fixture",
+      )
     const now = Math.floor(Date.now() / 1000)
     const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url")
     const payload = `${encode({ alg: "RS256", typ: "JWT" })}.${encode({ iat: now - 60, exp: now + 540, iss: env.JANITOR_GITHUB_APP_ID })}`

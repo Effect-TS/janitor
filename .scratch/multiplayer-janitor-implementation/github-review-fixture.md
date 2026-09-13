@@ -10,6 +10,16 @@ JANITOR_GITHUB_APP_PRIVATE_KEY_FILE=/absolute/path/to/app-private-key.pem
 GITHUB_REVIEWER_TOKEN=
 ```
 
+Alternatively, replace `JANITOR_GITHUB_APP_PRIVATE_KEY_FILE` with a quoted PEM
+string. Both literal newlines inside quotes and escaped `\n` separators work:
+
+```dotenv
+JANITOR_GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nYOUR_KEY_CONTENT\n-----END RSA PRIVATE KEY-----"
+```
+
+Preserve the original PEM header and footer; some keys use `BEGIN PRIVATE KEY`
+instead. If both variables are populated, the string takes precedence.
+
 Install the App on the named repository with Contents and Pull requests
 read/write. Use a separate human account's token with repository access and Pull
 requests read/write. The fixture retrieves the reviewer identity from GitHub;
