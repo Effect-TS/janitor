@@ -55,7 +55,7 @@ export const buttonSizes: Record<ButtonSize, string> = {
 
 /** Flat: a 1px border, no shadow, no press travel. The only feedback is the
  *  background change. */
-const buttonBase =
+export const buttonBase =
   "aria-invalid:border-destructive rounded-sm border text-label font-medium leading-none shadow-none transition-colors duration-120 ease-ui [&_svg:not([class*='size-'])]:size-3.5 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
 
 export type ButtonConfig<M> = {

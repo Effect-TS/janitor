@@ -7,7 +7,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-const CHROME = process.env.CHROME ?? "/nix/store/xsrddymgg12bq9gza3srqnxxxvvzi7s9-playwright-chromium/chrome-linux64/chrome"
+const CHROME =
+  process.env.CHROME ??
+  "/nix/store/xsrddymgg12bq9gza3srqnxxxvvzi7s9-playwright-chromium/chrome-linux64/chrome"
 
 const args = process.argv.slice(2)
 const url = args[0]
@@ -23,10 +25,21 @@ const port = 9222 + Math.floor(Math.random() * 500)
 
 // Chrome writes a profile per run; keep it off the small root filesystem.
 const profile = mkdtempSync(join(process.env.SHOT_TMP ?? tmpdir(), "shot-"))
-const chrome = spawn(CHROME, [
-  "--headless=new", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--no-first-run", `--user-data-dir=${profile}`,
-  `--remote-debugging-port=${port}`, `--window-size=${width},${height}`, "about:blank",
-], { stdio: "ignore" })
+const chrome = spawn(
+  CHROME,
+  [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-gpu",
+    "--hide-scrollbars",
+    "--no-first-run",
+    `--user-data-dir=${profile}`,
+    `--remote-debugging-port=${port}`,
+    `--window-size=${width},${height}`,
+    "about:blank",
+  ],
+  { stdio: "ignore" },
+)
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const wsUrl = async () => {
@@ -46,8 +59,15 @@ await new Promise((resolve) => (ws.onopen = resolve))
 let id = 0
 const pending = new Map()
 const events = []
+const errors = []
 ws.onmessage = (message) => {
   const data = JSON.parse(message.data)
+  if (data.method === "Runtime.exceptionThrown")
+    errors.push(
+      data.params.exceptionDetails.exception?.description ?? data.params.exceptionDetails.text,
+    )
+  if (data.method === "Runtime.consoleAPICalled" && data.params.type === "error")
+    errors.push(data.params.args.map((a) => a.value ?? a.description).join(" "))
   if (data.id !== undefined) {
     const { resolve, reject } = pending.get(data.id)
     pending.delete(data.id)
@@ -67,7 +87,13 @@ const call = (method, params) => send(method, params, sessionId)
 
 await call("Page.enable")
 await call("Runtime.enable")
-await call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 820 })
+await call("Log.enable")
+await call("Emulation.setDeviceMetricsOverride", {
+  width,
+  height,
+  deviceScaleFactor: 1,
+  mobile: width < 820,
+})
 const features = []
 if (has("dark")) features.push({ name: "prefers-color-scheme", value: "dark" })
 if (has("reduced-motion")) features.push({ name: "prefers-reduced-motion", value: "reduce" })
@@ -77,16 +103,36 @@ await sleep(Number(flag("wait", 1500)))
 
 const tabs = Number(flag("tab", 0))
 for (let index = 0; index < tabs; index++) {
-  await call("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 })
-  await call("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 })
+  await call("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Tab",
+    code: "Tab",
+    windowsVirtualKeyCode: 9,
+  })
+  await call("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Tab",
+    code: "Tab",
+    windowsVirtualKeyCode: 9,
+  })
   await sleep(30)
 }
+
+if (has("errors"))
+  console.log(
+    JSON.stringify(
+      errors.map((e) => String(e).slice(0, 600)),
+      null,
+      2,
+    ),
+  )
 
 let result
 const expression = flag("eval")
 if (expression !== undefined) {
   result = await call("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })
-  if (has("json")) console.log(JSON.stringify(result.result.value ?? result.exceptionDetails, null, 2))
+  if (has("json"))
+    console.log(JSON.stringify(result.result.value ?? result.exceptionDetails, null, 2))
   await sleep(Number(flag("settle", 200)))
 }
 
@@ -95,7 +141,12 @@ if (!has("json") && out !== undefined) {
   const clipY = flag("clip-y")
   if (clipY !== undefined) {
     // Grow the viewport to include the clip; capturing beyond it paints blank.
-    await call("Emulation.setDeviceMetricsOverride", { width, height: Number(clipY) + height, deviceScaleFactor: 1, mobile: false })
+    await call("Emulation.setDeviceMetricsOverride", {
+      width,
+      height: Number(clipY) + height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    })
     await sleep(400)
     params.clip = { x: 0, y: Number(clipY), width, height, scale: 1 }
   } else if (has("full")) {

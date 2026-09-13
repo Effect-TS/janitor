@@ -167,7 +167,7 @@ export const view = Submodel.defineView<Model, Message>((model, h): Html =>
     [
       h.Id(model.id),
       h.Class(
-        "overflow-hidden rounded-md border bg-background transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
+        "overflow-hidden rounded-sm border border-border bg-card transition-colors duration-120 ease-ui focus-within:border-primary",
       ),
       h.OnMount(
         MountPolicySourceEditor({

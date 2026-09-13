@@ -17,7 +17,7 @@ import {
 } from "@codemirror/language"
 import { lintGutter, linter, lintKeymap } from "@codemirror/lint"
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search"
-import { Compartment, type Extension } from "@codemirror/state"
+import { Compartment, Prec, type Extension } from "@codemirror/state"
 import {
   drawSelection,
   dropCursor,
@@ -47,14 +47,43 @@ const yamlLinter = linter((view) =>
   }),
 )
 
+/** Chrome overrides on top of the GitHub syntax theme: the editor is a
+ *  `card` region, gutters are `surface-muted` with subtle mono line numbers,
+ *  selection is the blue wash and the cursor is `primary`. Every colour is a
+ *  CSS custom property so the theme switch and the tokens stay in charge. */
+export const hostTheme = Prec.high(
+  EditorView.theme({
+    "&": { backgroundColor: "var(--card)", color: "var(--foreground)" },
+    ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.5" },
+    ".cm-gutters": {
+      backgroundColor: "var(--oc-surface-muted)",
+      color: "var(--oc-ink-subtle)",
+      borderRight: "1px solid var(--border)",
+      fontFamily: "var(--font-mono)",
+      fontSize: "var(--text-mono-sm)",
+    },
+    ".cm-lineNumbers .cm-gutterElement": { color: "var(--oc-ink-subtle)" },
+    ".cm-activeLine": { backgroundColor: "var(--oc-surface-muted)" },
+    ".cm-activeLineGutter": {
+      backgroundColor: "var(--oc-surface-muted)",
+      color: "var(--foreground)",
+    },
+    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--primary)" },
+    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+      { backgroundColor: "var(--oc-blue-wash)" },
+    ".cm-selectionMatch": { backgroundColor: "var(--oc-blue-wash)" },
+    ".cm-matchingBracket": {
+      outline: "1px solid var(--oc-blue-line)",
+      backgroundColor: "transparent",
+    },
+    "&.cm-focused": { outline: "none" },
+  }),
+)
+
 const editorTheme = EditorView.theme({
-  "&": { minHeight: "18rem", maxHeight: "36rem", fontSize: "13px" },
-  ".cm-scroller": {
-    overflow: "auto",
-    fontFamily: "var(--font-mono)",
-  },
+  "&": { minHeight: "18rem", maxHeight: "36rem", fontSize: "var(--text-mono-md)" },
+  ".cm-scroller": { overflow: "auto" },
   ".cm-content": { padding: "12px 0" },
-  "&.cm-focused": { outline: "none" },
 })
 
 export const formatEditor = (id: string): string => {
@@ -164,6 +193,7 @@ export const createPolicySourceEditor = (input: {
         if (update.docChanged) input.onChange(update.state.doc.toString())
       }),
       editorTheme,
+      hostTheme,
     ],
   })
 }

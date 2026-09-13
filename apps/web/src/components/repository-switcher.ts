@@ -14,6 +14,7 @@ import { Check, ChevronsUpDown, Plus } from "lucide"
 import type { RepositoryOverview } from "@/components/labeling-wire"
 import * as CommandPalette from "@/components/ui/command"
 import * as Button from "@/components/ui/button"
+import * as Overlay from "@/components/ui/overlay"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 
@@ -149,21 +150,12 @@ const tile = (
   repository: RepositoryOverview,
   className?: string,
 ): Html => {
-  const tones = [
-    "bg-[#e3d9ff] text-[#54368f] dark:bg-[#55427a] dark:text-[#f0e7ff]",
-    "bg-[#d1e7ff] text-[#285579] dark:bg-[#28516d] dark:text-[#e0f1ff]",
-    "bg-[#d5ece4] text-[#285d49] dark:bg-[#29594b] dark:text-[#d9fff0]",
-  ]
-  const tone =
-    repository.repositoryId.split("").reduce((sum, char) => sum + char.charCodeAt(0), 1) %
-    tones.length
   return h.span(
     [
       h.AriaHidden(true),
       h.Class(
         cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-sm font-mono text-[11px] font-semibold tracking-tight",
-          tones[tone],
+          "flex size-7 shrink-0 items-center justify-center rounded-xs border border-border bg-surface-muted font-mono text-mono-sm font-medium text-foreground",
           className,
         ),
       ),
@@ -181,13 +173,13 @@ const status = (h: HtmlBuilder<Message>, repository: RepositoryOverview): Html =
     [
       h.Class(
         cn(
-          "inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-normal",
-          repository.enabled ? "text-[#277346] dark:text-[#8acaa1]" : "text-muted-foreground",
+          "inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-caption font-normal",
+          repository.enabled ? "text-success" : "text-ink-muted",
         ),
       ),
     ],
     [
-      h.span([h.AriaHidden(true), h.Class("size-[5px] rounded-full bg-current")], []),
+      h.span([h.AriaHidden(true), h.Class("size-1.5 rounded-full bg-current")], []),
       statusText(repository),
     ],
   )
@@ -204,19 +196,22 @@ const repositoryRow = (
     isSelected,
     onClick: Message.ClickedRepository({ repositoryId: repository.repositoryId }),
     className:
-      "my-0.5 cursor-pointer gap-2 rounded-sm px-2 py-1.5 hover:bg-popover focus-visible:bg-popover focus-visible:ring-inset",
+      "cursor-pointer gap-2 rounded-xs px-2 py-1 hover:bg-surface-muted focus-visible:bg-surface-muted",
     attributes: [h.DataAttribute("repository", repository.repositoryId)],
     children: [
-      tile(h, repository, "size-8 rounded-sm text-[11px]"),
+      tile(h, repository),
       h.span(
         [h.Class("min-w-0 flex-1")],
         [
           h.span(
-            [h.Class("block truncate text-[13px] font-semibold"), h.Title(repository.repo)],
+            [
+              h.Class("block truncate font-mono text-mono-md font-medium"),
+              h.Title(repository.repo),
+            ],
             [repository.repo],
           ),
           h.span(
-            [h.Class("text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs")],
+            [h.Class("flex items-center gap-1.5 text-caption text-ink-subtle")],
             [
               countText(repository.ruleCount, "rule"),
               h.span([h.AriaHidden(true)], ["·"]),
@@ -240,8 +235,8 @@ const ownerGroup = (
 ): Html =>
   CommandPalette.group(h, {
     heading: group.owner,
-    headingClassName: "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium",
-    headingSuffix: h.span([h.Class("opacity-70")], [String(group.repositories.length)]),
+    headingClassName: "flex items-center gap-1.5 px-2 py-1.5 font-mono text-caption font-medium",
+    headingSuffix: h.span([h.Class("text-ink-subtle")], [String(group.repositories.length)]),
     className: "p-0",
     children: group.repositories.map((repository) =>
       repositoryRow(h, repository, Option.contains(maybeSelectedId, repository.repositoryId)),
@@ -270,32 +265,38 @@ const paletteBody = (
 
 const palette = (h: HtmlBuilder<Message>, model: Model, inputs: ViewInputs): Html =>
   CommandPalette.container(h, {
-    className: "h-auto w-88 max-w-[calc(100vw-1rem)] rounded-xl! border bg-card p-0 shadow-lg",
+    className: cn(Overlay.popoverContentClass, "h-auto w-88 p-0"),
     children: [
       CommandPalette.input(h, {
         id: "repository-search",
         ariaLabel: "Find a repository",
         value: model.search,
         placeholder: "Find a repository…",
-        wrapperClassName: "border-b px-1.5 py-1",
+        wrapperClassName: "border-b border-border px-1.5 py-1",
         groupClassName:
-          "h-8! rounded-none! border-0 bg-transparent dark:bg-transparent has-[[data-slot=input-group-control]:focus-visible]:ring-0",
-        className: "text-xs",
+          "h-7 rounded-none border-0 bg-transparent has-[[data-slot=input-group-control]:focus-visible]:border-transparent has-[[data-slot=input-group-control]:focus-visible]:bg-transparent",
+        className: "text-body-sm",
         onInput: (search) => Message.ChangedSearch({ search }),
       }),
       CommandPalette.list(h, {
-        className: "max-h-[min(430px,60dvh)] p-1",
+        className: "max-h-96 p-1",
         children: paletteBody(h, inputs, model.search),
       }),
       h.a(
         [
           h.Href(Routes.connect()),
-          h.Class("flex items-center gap-2.5 border-t px-3 py-2 text-xs hover:bg-accent"),
+          h.Class(
+            "flex items-center gap-2 border-t border-border px-3 py-1.5 text-body-sm text-foreground hover:bg-surface-muted hover:no-underline",
+          ),
         ],
-        [Icon.view(h, Plus, "size-3.5 shrink-0"), "Connect repository…"],
+        [Icon.view(h, Plus), "Connect repository…"],
       ),
       h.div(
-        [h.Class("text-muted-foreground flex justify-between border-t px-3 py-1.5 text-[11px]")],
+        [
+          h.Class(
+            "flex justify-between border-t border-border px-3 py-1.5 font-mono text-mono-xs text-ink-subtle",
+          ),
+        ],
         [
           countText(inputs.repositories.length, "repository", "repositories"),
           h.span(
@@ -320,7 +321,7 @@ const triggerLabel = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html => {
             [
               h.AriaHidden(true),
               h.Class(
-                "bg-muted flex size-8 shrink-0 items-center justify-center rounded-sm font-mono text-[11px]",
+                "flex size-7 shrink-0 items-center justify-center rounded-xs border border-border bg-surface-muted font-mono text-mono-sm",
               ),
             ],
             ["--"],
@@ -328,8 +329,8 @@ const triggerLabel = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html => {
           h.span(
             [h.Class("grid min-w-0 flex-1 text-left")],
             [
-              h.span([h.Class("text-muted-foreground text-[11px]")], ["Select one"]),
-              h.span([h.Class("truncate text-[13px] font-semibold")], ["No repository"]),
+              h.span([h.Class("text-caption text-ink-subtle")], ["Select one"]),
+              h.span([h.Class("truncate text-body-sm font-semibold")], ["No repository"]),
             ],
           ),
         ],
@@ -340,13 +341,13 @@ const triggerLabel = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html => {
             [
               h.span(
                 [
-                  h.Class("text-muted-foreground truncate text-[11px] font-normal"),
+                  h.Class("truncate font-mono text-mono-xs text-ink-subtle"),
                   h.Title(repository.owner),
                 ],
                 [repository.owner],
               ),
               h.span(
-                [h.Class("truncate text-[13px] font-semibold"), h.Title(repository.repo)],
+                [h.Class("truncate font-mono text-mono-md font-medium"), h.Title(repository.repo)],
                 [repository.repo],
               ),
             ],
@@ -354,7 +355,7 @@ const triggerLabel = (h: HtmlBuilder<Message>, inputs: ViewInputs): Html => {
           status(h, repository),
         ],
       }),
-      Icon.view(h, ChevronsUpDown, "text-muted-foreground size-3 shrink-0"),
+      Icon.view(h, ChevronsUpDown, "size-3 shrink-0 text-ink-subtle"),
     ],
   )
 }
@@ -374,15 +375,15 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
           [],
           [
             Button.view(h, {
-              variant: "outline",
+              variant: "secondary",
               attributes: [...render.button],
               className:
-                "h-13 w-full overflow-hidden rounded-sm border-2 border-outline bg-card p-2 shadow-none hover:bg-popover data-open:bg-popover active:translate-y-0 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0",
+                "h-11 w-full overflow-hidden p-1.5 data-open:bg-surface-muted group-data-[collapsible=icon]:size-7 group-data-[collapsible=icon]:p-0",
               label: triggerLabel(h, inputs),
             }),
             ...(render.isVisible
               ? [
-                  h.div([...render.backdrop, h.Class("fixed inset-0 z-40")], []),
+                  h.div([...render.backdrop, h.Class(Overlay.menuBackdropClass)], []),
                   h.div([...render.panel, h.Class("z-50")], [palette(h, model, inputs)]),
                 ]
               : []),

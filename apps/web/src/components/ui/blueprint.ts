@@ -77,8 +77,15 @@ export const node = <M>(h: HtmlBuilder<M>, config: NodeConfig<M>): Html =>
     ],
   )
 
-/** Orthogonal connector between two columns. A horizontal run, an optional
- *  vertical drop, and a horizontal run; junction dots at both ends. */
+export type WirePath = {
+  readonly fromY: number
+  readonly toY: number
+  readonly label?: string
+}
+
+/** Orthogonal connectors between two columns: a horizontal run, a vertical
+ *  drop at the midpoint, and a horizontal run, with junction dots at both
+ *  ends. Pass `paths` for a branch; a single path is the default. */
 export const wire = <M>(
   h: HtmlBuilder<M>,
   config: {
@@ -86,16 +93,27 @@ export const wire = <M>(
     readonly fromY?: number
     readonly toY?: number
     readonly label?: string
+    readonly paths?: ReadonlyArray<WirePath>
+    readonly className?: string
   },
 ): Html => {
-  const height = config.height ?? 48
-  const fromY = config.fromY ?? 24
-  const toY = config.toY ?? 24
+  const paths: ReadonlyArray<WirePath> = config.paths ?? [
+    {
+      fromY: config.fromY ?? 24,
+      toY: config.toY ?? 24,
+      ...(config.label === undefined ? {} : { label: config.label }),
+    },
+  ]
+  const height =
+    config.height ?? Math.max(48, ...paths.map((path) => Math.max(path.fromY, path.toY) + 24))
   const width = 56
   const mid = width / 2
-  const path = `M0 ${fromY} H${mid} V${toY} H${width}`
   return h.div(
-    [h.Class("relative mt-7 shrink-0"), h.DataAttribute("slot", "blueprint-wire"), h.AriaHidden(true)],
+    [
+      h.Class(cn("relative mt-7 shrink-0", config.className)),
+      h.DataAttribute("slot", "blueprint-wire"),
+      h.AriaHidden(true),
+    ],
     [
       h.svg(
         [
@@ -105,37 +123,39 @@ export const wire = <M>(
           h.Attribute("height", String(height)),
           h.ViewBox(`0 0 ${width} ${height}`),
         ],
-        [
+        paths.flatMap((path) => [
           h.path([
             h.Class("oc-wire"),
-            h.Attribute("d", path),
+            h.Attribute("d", `M0 ${path.fromY} H${mid} V${path.toY} H${width}`),
             h.Attribute("shape-rendering", "crispEdges"),
           ]),
           h.circle([
             h.Class("fill-wire"),
             h.Attribute("cx", "0"),
-            h.Attribute("cy", String(fromY)),
+            h.Attribute("cy", String(path.fromY)),
             h.Attribute("r", "2.6"),
           ]),
           h.circle([
             h.Class("fill-wire"),
             h.Attribute("cx", String(width)),
-            h.Attribute("cy", String(toY)),
+            h.Attribute("cy", String(path.toY)),
             h.Attribute("r", "2.6"),
           ]),
-        ],
+        ]),
       ),
-      ...(config.label === undefined
-        ? []
-        : [
-            h.span(
-              [
-                h.Class("oc-junction absolute left-1/2 -translate-x-1/2 -translate-y-1/2"),
-                h.Style({ top: `${Math.round((fromY + toY) / 2)}px` }),
-              ],
-              [config.label],
-            ),
-          ]),
+      ...paths.flatMap((path) =>
+        path.label === undefined
+          ? []
+          : [
+              h.span(
+                [
+                  h.Class("oc-junction absolute left-1/2 -translate-x-1/2 -translate-y-1/2"),
+                  h.Style({ top: `${Math.round((path.fromY + path.toY) / 2)}px` }),
+                ],
+                [path.label],
+              ),
+            ],
+      ),
     ],
   )
 }

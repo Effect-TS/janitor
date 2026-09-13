@@ -7,10 +7,8 @@ import * as Mount from "foldkit/mount"
 import * as Stream from "effect/Stream"
 import * as Queue from "effect/Queue"
 import { AiRuleDefinition, FactDescription } from "@/components/labeling-wire"
-import * as Switch from "@foldkit/ui/switch"
 import * as Dialog from "@foldkit/ui/dialog"
 import * as Disclosure from "@foldkit/ui/disclosure"
-import * as Select from "@foldkit/ui/select"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -23,9 +21,16 @@ import { defineMessageUnion } from "foldkit/message"
 import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
-import { ArrowLeft, ChevronRight, FileCode2, Tag, Play, Trash2 } from "lucide"
+import { ArrowLeft, ChevronRight, Play, Trash2 } from "lucide"
 import * as Button from "@/components/ui/button"
-import { input, inputClass } from "@/components/ui/input"
+import { input } from "@/components/ui/input"
+import * as Blueprint from "@/components/ui/blueprint"
+import { chip } from "@/components/ui/chip"
+import * as DialogChrome from "@/components/ui/dialog"
+import * as Feed from "@/components/ui/feed"
+import { panel, panelHeader } from "@/components/ui/panel"
+import * as SelectField from "@/components/ui/select"
+import * as SwitchControl from "@/components/ui/switch"
 import {
   ConfigurationView,
   ResultAction,
@@ -966,15 +971,15 @@ const groupOrderView = (h: HtmlBuilder<Message>, model: Model): Html => {
     [h.Class("flex flex-col gap-2")],
     [
       h.p(
-        [h.Class("text-xs text-muted-foreground")],
+        [h.Class("text-body-sm text-ink-muted")],
         ["Reorder the saved group. Save any edits first."],
       ),
       ...members.map((rule, index) =>
         h.div(
-          [h.Class("flex items-center gap-2 text-xs")],
+          [h.Class("flex items-center gap-2 text-body-sm")],
           [
             h.span(
-              [],
+              [h.Class("font-mono text-mono-sm")],
               [
                 labelName(model.labels, rule.labelId) +
                   " · " +
@@ -1007,9 +1012,6 @@ const groupOrderView = (h: HtmlBuilder<Message>, model: Model): Html => {
   )
 }
 
-const labelClass = "text-muted-foreground text-xs font-medium"
-const selectClass = cn(inputClass, "h-8 appearance-none pr-6 text-sm")
-
 const selectField = (
   h: HtmlBuilder<Message>,
   config: {
@@ -1018,29 +1020,17 @@ const selectField = (
     readonly value: string
     readonly options: ReadonlyArray<readonly [string, string]>
     readonly onChange: (value: string) => Message
+    readonly isLabelHidden?: boolean
   },
 ): Html =>
-  Select.view(
-    {
-      id: config.id,
-      value: config.value,
-      onChange: config.onChange,
-      toView: (attributes) =>
-        h.div(
-          [h.Class("flex flex-col gap-1")],
-          [
-            h.label([...attributes.label, h.Class(labelClass)], [config.label]),
-            h.select(
-              [...attributes.select, h.Class(selectClass)],
-              config.options.map(([value, text]) =>
-                h.option([h.Value(value), h.Selected(value === config.value)], [text]),
-              ),
-            ),
-          ],
-        ),
-    },
-    h,
-  )
+  SelectField.view(h, {
+    id: config.id,
+    label: config.label,
+    value: config.value,
+    options: config.options,
+    onChange: config.onChange,
+    ...(config.isLabelHidden === undefined ? {} : { isLabelHidden: config.isLabelHidden }),
+  })
 
 const submissionView = (h: HtmlBuilder<Message>, submission: Submission): Html => {
   switch (submission._tag) {
@@ -1049,35 +1039,21 @@ const submissionView = (h: HtmlBuilder<Message>, submission: Submission): Html =
       return h.empty
     case "Conflicted":
       return h.div(
-        [h.Class("text-xs text-amber-600 dark:text-amber-400"), h.Role("alert")],
+        [h.Class("text-body-sm text-ink-muted"), h.Role("alert")],
         ["Someone changed this rule meanwhile. Saving again writes over their change."],
       )
     case "Rejected":
       return h.ul(
-        [h.Class("text-destructive flex flex-col gap-0.5 text-xs"), h.Role("alert")],
+        [h.Class("flex flex-col gap-0.5 text-body-sm text-destructive"), h.Role("alert")],
         submission.issues.map((issue) => h.li([], [issue.message])),
       )
     case "SubmitError":
-      return h.div([h.Class("text-destructive text-xs"), h.Role("alert")], [submission.message])
+      return h.div(
+        [h.Class("text-body-sm text-destructive"), h.Role("alert")],
+        [submission.message],
+      )
   }
 }
-
-const step = (
-  h: HtmlBuilder<Message>,
-  number: string,
-  title: string,
-  children: ReadonlyArray<Html>,
-): Html =>
-  h.section(
-    [h.Class("rule-flow-step")],
-    [
-      h.span([h.Class("rule-step-number"), h.AriaHidden(true)], [number]),
-      h.div(
-        [h.Class("rule-flow-card")],
-        [h.h2([h.Class("rule-step-title")], [title]), ...children],
-      ),
-    ],
-  )
 
 /** A single-rule preview uses a real published policy evaluation, never changes labels. */
 export const previewAction = (
@@ -1108,81 +1084,92 @@ export const previewAction = (
   return `${describeResultAction(action)}: ${name} · ${change}`
 }
 
+const outcomeHeadline = (
+  outcome: Outcome,
+  reason: string | undefined,
+  reasonCode: string | undefined,
+): string =>
+  reason?.startsWith("Skipped by gate:")
+    ? "Skipped by gate"
+    : reason?.startsWith("Gate unresolved:")
+      ? "Gate unresolved · AI skipped"
+      : outcome === "unknown" && reasonCode
+        ? ["insufficient-evidence", "low-confidence"].includes(reasonCode)
+          ? "Insufficient evidence"
+          : "Could not evaluate"
+        : describeOutcome(outcome)
+
+/** The Janitor evaluated the rule against one item: everything here is its output. */
 const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
   const result = model.testResult
   if (result._tag === "Idle") return h.empty
   if (result._tag === "Running")
     return h.p(
-      [h.Role("status"), h.Class("text-xs text-muted-foreground")],
+      [h.Role("status"), h.Class("flex flex-col gap-0.5 text-body-sm text-ink-muted")],
       [
-        h.span([h.Class("font-medium")], ["Testing…"]),
         h.span(
-          [h.Class("ml-2")],
+          [h.Class("font-medium text-foreground")],
           [
+            "Testing… ",
             { submitting: "Submitting", queued: "Queued", running: "Evaluating" }[result.status] +
               (result.elapsedSeconds >= 5 ? ` · ${result.elapsedSeconds}s` : ""),
           ],
         ),
-        result.progress ? h.span([h.Class("block mt-1")], [result.progress]) : h.empty,
+        result.progress ? h.span([], [result.progress]) : h.empty,
         result.pollError
-          ? h.span([h.Class("block mt-1")], ["Unable to check progress. Retrying the same test…"])
+          ? h.span([], ["Unable to check progress. Retrying the same test…"])
           : result.status === "queued" && result.elapsedSeconds >= 5
-            ? h.span([h.Class("block mt-1")], ["Waiting for an evaluation slot."])
+            ? h.span([], ["Waiting for an evaluation slot."])
             : h.empty,
       ],
     )
   if (result._tag === "Failed")
-    return h.p([h.Role("alert"), h.Class("text-xs text-destructive")], [result.reason])
+    return h.p([h.Role("alert"), h.Class("text-body-sm text-destructive")], [result.reason])
   if (result.response._tag === "Rejected")
-    return h.p([h.Role("alert"), h.Class("text-xs text-destructive")], [result.response.message])
+    return h.p(
+      [h.Role("alert"), h.Class("text-body-sm text-destructive")],
+      [result.response.message],
+    )
   const entity = result.response.entities[0]
   if (!entity)
     return h.p(
-      [h.Class("text-xs text-muted-foreground")],
+      [h.Class("text-body-sm text-ink-muted")],
       ["This item is no longer available. Choose another item."],
     )
   const outcome = entity.evaluation?.outcome ?? "unknown"
   return h.div(
-    [h.Class("policy-test-result"), h.DataAttribute("outcome", outcome)],
+    [
+      h.Class(
+        "oc-agent-edge flex flex-col gap-2 border border-border bg-card py-2 pr-3 pl-2.5 text-body-sm",
+      ),
+      h.DataAttribute("outcome", outcome),
+    ],
     [
       h.div(
         [h.Class("flex items-center justify-between gap-3")],
         [
-          h.strong(
+          h.div(
+            [h.Class("flex items-center gap-2")],
             [
-              h.Class(
-                cn(
-                  "text-xs",
-                  outcome === "match"
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : outcome === "failed"
-                      ? "text-destructive"
-                      : "text-muted-foreground",
-                ),
-              ),
-            ],
-            [
-              entity.evaluation?.reason.startsWith("Skipped by gate:")
-                ? "Skipped by gate"
-                : entity.evaluation?.reason.startsWith("Gate unresolved:")
-                  ? "Gate unresolved · AI skipped"
-                  : outcome === "unknown" && entity.evaluation?.reasonCode
-                    ? ["insufficient-evidence", "low-confidence"].includes(
-                        entity.evaluation.reasonCode,
-                      )
-                      ? "Insufficient evidence"
-                      : "Could not evaluate"
-                    : describeOutcome(outcome),
+              Feed.agentBadge(h),
+              chip(h, {
+                variant:
+                  outcome === "match" ? "success" : outcome === "failed" ? "danger" : "neutral",
+                children: [
+                  outcomeHeadline(
+                    outcome,
+                    entity.evaluation?.reason,
+                    entity.evaluation?.reasonCode,
+                  ),
+                ],
+              }),
             ],
           ),
-          h.span([h.Class("text-xs text-muted-foreground")], [`#${entity.number}`]),
+          h.span([h.Class("font-mono text-mono-xs text-ink-subtle")], [`#${entity.number}`]),
         ],
       ),
       entity.evaluation?.cached && !entity.evaluation.inputReport
-        ? h.p(
-            [h.Class("text-xs text-muted-foreground")],
-            ["Input details unavailable for this earlier result."],
-          )
+        ? h.p([h.Class("text-ink-muted")], ["Input details unavailable for this earlier result."])
         : aiInputView(
             h,
             entity.evaluation?.inputReport,
@@ -1191,38 +1178,40 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
             !!result.testId,
           ),
       entity.evaluation?.reason
-        ? h.p([h.Class("text-xs text-muted-foreground")], [entity.evaluation.reason])
+        ? h.p([h.Class("text-ink-muted")], [entity.evaluation.reason])
         : h.empty,
       entity.evaluation?.confidence !== undefined
         ? h.p(
-            [h.Class("text-xs")],
+            [h.Class("font-mono text-mono-sm text-ink-muted")],
             [
-              `Confidence: ${Math.round(entity.evaluation.confidence * 100)}%${entity.evaluation.cached ? " · Cached" : ""}`,
+              `confidence ${Math.round(entity.evaluation.confidence * 100)}%${entity.evaluation.cached ? " · cached" : ""}`,
             ],
           )
         : h.empty,
-      h.ul(
-        [h.Class("policy-test-trace")],
-        (entity.evaluation?.trace ?? []).map((node) =>
-          h.li(
-            [],
-            [
-              h.span([], [node.reason]),
-              h.span(
-                [h.AriaLabel(describeOutcome(node.outcome))],
-                [node.outcome === "match" ? "✓" : node.outcome === "no-match" ? "−" : "?"],
+      (entity.evaluation?.trace ?? []).length === 0
+        ? h.empty
+        : h.ul(
+            [h.Class("flex flex-col gap-0.5 font-mono text-mono-sm text-ink-muted")],
+            (entity.evaluation?.trace ?? []).map((node) =>
+              h.li(
+                [h.Class("flex justify-between gap-3")],
+                [
+                  h.span([h.Class("min-w-0 truncate")], [node.reason]),
+                  h.span(
+                    [h.AriaLabel(describeOutcome(node.outcome)), h.Class("shrink-0")],
+                    [node.outcome === "match" ? "✓" : node.outcome === "no-match" ? "−" : "?"],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
       h.p(
-        [h.Class("rounded-md border p-2 text-xs")],
+        [h.Class("border-t border-border-subtle pt-2 text-foreground")],
         [previewAction(model, outcome, entity.labels)],
       ),
       model.group.trim()
         ? h.p(
-            [h.Class("text-xs text-muted-foreground")],
+            [h.Class("text-ink-muted")],
             [
               "Single-rule preview. Other rules in this exclusive group may change the final result.",
             ],
@@ -1230,6 +1219,294 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
         : h.empty,
     ],
   )
+}
+
+const actionOptions = ResultAction.literals.map(
+  (action) => [action, describeResultAction(action)] as const,
+)
+
+/** The rule as a blueprint: what the agent watches, what must hold, what it
+ *  does. Nodes carry the form controls; the layout is a fixed three-column
+ *  chain, which is the only graph shape a rule can take today. */
+const ruleGraph = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const policy = selectedPolicy(model)
+  const ai = model.ai
+  const labelOptions: ReadonlyArray<readonly [string, string]> = [
+    ["", "Choose a label…"],
+    ...model.labels
+      .filter(
+        (label) =>
+          label.availability !== "unavailable" ||
+          Option.contains(model.maybeLabelId, label.labelId),
+      )
+      .map(
+        (label) =>
+          [
+            label.labelId,
+            `${label.name}${label.availability === "unavailable" ? " (unavailable)" : ""}`,
+          ] as const,
+      ),
+  ]
+  const whenNodes = ai
+    ? [
+        Blueprint.node(h, {
+          kind: "Applies to",
+          children: [
+            selectField(h, {
+              id: "ai-target",
+              label: "Applies to",
+              isLabelHidden: true,
+              value: ai.target,
+              options: [
+                ["pull_request", "Pull requests"],
+                ["issue", "Issues"],
+              ],
+              onChange: (value) => Message.SelectedTarget({ value }),
+            }),
+          ],
+        }),
+        Blueprint.node(h, {
+          kind: "Gate policy",
+          children: [
+            selectField(h, {
+              id: "ai-gate",
+              label: "Gate policy",
+              isLabelHidden: true,
+              value: ai.gatePolicyId ?? "",
+              options: [
+                ["", "No gate · always evaluate"],
+                ...model.policies
+                  .filter(
+                    (p) =>
+                      p.publishedVersionId !== null &&
+                      p.target === ai.target &&
+                      p.publishedEvaluator === "Conditions",
+                  )
+                  .map((p) => [p.policyId, p.name] as const),
+              ],
+              onChange: (value) => Message.SelectedGate({ value }),
+            }),
+            h.p(
+              [h.Class("font-sans text-body-sm text-ink-muted")],
+              ["AI runs only when this policy matches. Otherwise, labels stay unchanged."],
+            ),
+          ],
+        }),
+      ]
+    : [
+        Blueprint.node(h, {
+          kind: "Policy matches",
+          children: [
+            selectField(h, {
+              id: "rule-policy",
+              label: "When policy matches",
+              isLabelHidden: true,
+              value: Option.getOrElse(model.maybePolicyId, () => ""),
+              options: [
+                ["", "Choose a published policy…"],
+                ...publishedPolicies(model).map(
+                  (policy) => [policy.policyId, policy.name] as const,
+                ),
+              ],
+              onChange: (value) => Message.UpdatedPolicy({ value }),
+            }),
+            policy
+              ? h.p(
+                  [h.Class("text-ink-muted")],
+                  [
+                    `${policy.target === "issue" ? "issues" : "pull_requests"} · published v${policy.publishedRevision}`,
+                  ],
+                )
+              : h.empty,
+            policy?.description
+              ? h.p([h.Class("font-sans text-body-sm text-ink-muted")], [policy.description])
+              : h.empty,
+          ],
+        }),
+      ]
+  const conditionNodes = ai
+    ? [
+        Blueprint.node(h, {
+          kind: "Classification",
+          isAgent: true,
+          className: "w-80",
+          children: [
+            h.div(
+              [h.Class("flex justify-between font-sans text-caption text-ink-subtle")],
+              [
+                h.label([h.For("ai-prompt")], ["Instructions"]),
+                h.span([h.Class("font-mono text-mono-xs")], [`${ai.prompt.length} / 4,000`]),
+              ],
+            ),
+            h.div(
+              [
+                h.Id("ai-prompt"),
+                h.DataAttribute("target", ai.target),
+                h.DataAttribute("catalog", JSON.stringify(model.catalog)),
+                h.Class("overflow-hidden rounded-xs border border-border"),
+                h.OnMount(MountAiPrompt({ source: ai.prompt, catalog: model.catalog })),
+              ],
+              [],
+            ),
+            h.p(
+              [h.Class("font-sans text-body-sm text-ink-muted")],
+              ["Type {{ to reference a fact. Only referenced facts are used as evidence."],
+            ),
+            h.div(
+              [
+                h.Class(
+                  "flex items-center justify-between gap-3 border-t border-border-subtle pt-2 font-sans",
+                ),
+              ],
+              [
+                h.label(
+                  [h.For("ai-confidence"), h.Class("text-label font-medium")],
+                  ["Minimum confidence"],
+                ),
+                h.span(
+                  [h.Class("font-mono text-numeral font-medium tabular-nums")],
+                  [`${Math.round(ai.minimumConfidence * 100)}%`],
+                ),
+              ],
+            ),
+            h.input([
+              h.Id("ai-confidence"),
+              h.Type("range"),
+              h.Min("0"),
+              h.Max("100"),
+              h.Step("5"),
+              h.Value(String(ai.minimumConfidence * 100)),
+              h.Class("ai-confidence w-full"),
+              h.OnInput((value) => Message.ChangedConfidence({ value })),
+            ]),
+            h.div(
+              [h.Class("flex items-center justify-between gap-2 font-sans")],
+              [
+                h.span(
+                  [h.Class("text-body-sm text-ink-muted")],
+                  ["Below this score, use the non-match action."],
+                ),
+                h.div(
+                  [h.Class("flex gap-1")],
+                  [70, 80, 95].map((value) =>
+                    Button.view(h, {
+                      variant: "secondary",
+                      size: "xs",
+                      className:
+                        ai.minimumConfidence * 100 === value ? "bg-primary-wash" : undefined,
+                      label: `${value}%`,
+                      onClick: Message.ChangedConfidence({ value: String(value) }),
+                      attributes: [
+                        h.Attribute("aria-pressed", String(ai.minimumConfidence * 100 === value)),
+                      ],
+                    }),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        }),
+      ]
+    : [
+        Blueprint.node(h, {
+          kind: "GitHub label",
+          children: [
+            selectField(h, {
+              id: "rule-label",
+              label: "GitHub label",
+              isLabelHidden: true,
+              value: Option.getOrElse(model.maybeLabelId, () => ""),
+              options: labelOptions,
+              onChange: (labelId) => Message.SelectedLabel({ labelId }),
+            }),
+            model.labels.length === 0
+              ? h.p(
+                  [h.Class("font-sans text-body-sm text-ink-muted")],
+                  ["No labels synchronized yet."],
+                )
+              : h.empty,
+          ],
+        }),
+      ]
+  const thenNodes = [
+    ...(ai
+      ? [
+          Blueprint.node(h, {
+            kind: "GitHub label",
+            children: [
+              selectField(h, {
+                id: "ai-label",
+                label: "GitHub label",
+                isLabelHidden: true,
+                value: Option.getOrElse(model.maybeLabelId, () => ""),
+                options: labelOptions,
+                onChange: (labelId) => Message.SelectedLabel({ labelId }),
+              }),
+            ],
+          }),
+        ]
+      : []),
+    Blueprint.node(h, {
+      kind: "On match",
+      children: [
+        selectField(h, {
+          id: "rule-on-match",
+          label: "When it matches",
+          isLabelHidden: true,
+          value: model.onMatch,
+          options: actionOptions,
+          onChange: (value) => Message.UpdatedOnMatch({ value }),
+        }),
+      ],
+    }),
+    Blueprint.node(h, {
+      kind: "On no match",
+      children: [
+        selectField(h, {
+          id: "rule-on-no-match",
+          label: "When it does not match",
+          isLabelHidden: true,
+          value: model.onNoMatch,
+          options: actionOptions,
+          onChange: (value) => Message.UpdatedOnNoMatch({ value }),
+        }),
+      ],
+    }),
+  ]
+  const nodeCount = whenNodes.length + conditionNodes.length + thenNodes.length
+  return panel(h, {
+    flush: true,
+    children: [
+      panelHeader(h, {
+        title: "Rule graph",
+        meta: ai ? "ai rule" : "policy rule",
+      }),
+      Blueprint.canvas(h, {
+        children: [
+          Blueprint.column(h, { label: "When", children: whenNodes }),
+          Blueprint.wire(h, { label: ai ? "gate" : "evaluate" }),
+          Blueprint.column(h, {
+            label: ai ? "If The Janitor classifies it" : "If every condition matches",
+            ...(ai ? { className: "w-80" } : {}),
+            children: conditionNodes,
+          }),
+          Blueprint.wire(h, {
+            paths: [
+              { fromY: 24, toY: ai ? 24 : 24, label: "match" },
+              { fromY: 24, toY: ai ? 138 : 82, label: "no match" },
+            ],
+          }),
+          Blueprint.column(h, { label: "Then", children: thenNodes }),
+        ],
+      }),
+      Blueprint.footer(h, {
+        summary: ai
+          ? "Applies to a target, runs the classification, then acts on the label"
+          : "Evaluates the policy, then acts on the label",
+        counts: `${nodeCount} nodes · 3 wires`,
+      }),
+    ],
+  })
 }
 
 export type ViewInputs = { readonly isDeleting?: boolean }
@@ -1242,46 +1519,32 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
     const label = model.labels.find((label) => Option.contains(model.maybeLabelId, label.labelId))
     return h.div(
       [
-        h.Class("rule-document"),
+        h.Class("flex min-w-0 flex-1 flex-col"),
         h.DataAttribute("editor", "rule"),
         ...(model.identity._tag === "New" ? [h.OnMount(PrepareCreation({}))] : []),
       ],
       [
         h.header(
-          [h.Class("rule-navigation")],
+          [h.Class("flex h-9 items-center gap-3 border-b border-border bg-card px-4")],
           [
             Button.view(h, {
-              variant: "outline",
+              variant: "ghost",
               size: "sm",
               onClick: Message.ClickedCancel(),
               isDisabled: busy,
-              label: h.span(
-                [h.Class("flex items-center gap-2")],
-                [Icon.view(h, ArrowLeft, "size-3.5"), "Back to rules"],
-              ),
+              label: h.span([h.Class("contents")], [Icon.view(h, ArrowLeft), "Back to rules"]),
             }),
-            Switch.view(
-              {
-                id: "rule-enabled",
-                isChecked: model.enabled,
-                isDisabled: busy,
-                onToggle: (isChecked) => Message.ToggledEnabled({ isChecked }),
-                toView: (attributes) =>
-                  h.div(
-                    [h.Class("ml-auto flex items-center gap-3")],
-                    [
-                      h.label(
-                        [...attributes.label, h.Class("cursor-pointer text-xs font-medium")],
-                        ["Enable"],
-                      ),
-                      h.button(
-                        [...attributes.button, h.Class("rule-enable-switch")],
-                        [h.span([h.AriaHidden(true)], [])],
-                      ),
-                    ],
-                  ),
-              },
-              h,
+            h.div(
+              [h.Class("ml-auto")],
+              [
+                SwitchControl.view(h, {
+                  id: "rule-enabled",
+                  label: "Enable",
+                  isChecked: model.enabled,
+                  isDisabled: busy,
+                  onToggle: (isChecked) => Message.ToggledEnabled({ isChecked }),
+                }),
+              ],
             ),
           ],
         ),
@@ -1289,23 +1552,17 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
           [h.Class("rule-editor-workspace")],
           [
             h.article(
-              [h.Class("rule-editor-main")],
+              [h.Class("flex min-w-0 flex-col gap-4 p-4 lg:p-5")],
               [
                 h.header(
-                  [h.Class("rule-document-heading")],
+                  [h.Class("flex flex-col gap-1")],
                   [
-                    h.h1(
-                      [h.Class("flex items-center gap-2 text-2xl font-semibold tracking-tight")],
-                      [
-                        Icon.view(h, Tag, "size-5 text-muted-foreground"),
-                        label?.name ?? "New rule",
-                      ],
-                    ),
+                    h.h1([h.Class("font-mono")], [label?.name ?? "New rule"]),
                     h.p(
-                      [h.Class("mt-2 text-xs leading-relaxed text-muted-foreground")],
+                      [h.Class("text-body-sm text-ink-muted")],
                       [
                         model.ai
-                          ? "Use the referenced facts to decide whether this label applies."
+                          ? "The Janitor uses the referenced facts to decide whether this label applies."
                           : policy && label
                             ? `Manage ${label.name} on ${policy.target === "issue" ? "issues" : "pull requests"} using ${policy.name}.`
                             : "Choose a published policy and the label it manages.",
@@ -1315,7 +1572,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                 ),
                 model.identity._tag === "New"
                   ? h.div(
-                      [h.Class("px-6 pt-4 max-w-sm")],
+                      [h.Class("max-w-xs")],
                       [
                         selectField(h, {
                           id: "rule-type",
@@ -1330,214 +1587,144 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                       ],
                     )
                   : h.empty,
-                h.div(
-                  [h.Class(model.ai ? "rule-flow ai-rule-document" : "rule-flow")],
+                ruleGraph(h, model),
+                h.p(
+                  [h.Class("text-body-sm text-ink-muted")],
                   [
-                    ...(model.ai
-                      ? [aiFields(h, model)]
-                      : [
-                          step(h, "1", "When", [
-                            selectField(h, {
-                              id: "rule-policy",
-                              label: "When policy matches",
-                              value: Option.getOrElse(model.maybePolicyId, () => ""),
-                              options: [
-                                ["", "Choose a published policy…"],
-                                ...publishedPolicies(model).map(
-                                  (policy) => [policy.policyId, policy.name] as const,
-                                ),
-                              ],
-                              onChange: (value) => Message.UpdatedPolicy({ value }),
-                            }),
-                            policy
-                              ? h.div(
-                                  [
-                                    h.Class(
-                                      "mt-3 flex items-center gap-2 text-xs text-muted-foreground",
-                                    ),
-                                  ],
-                                  [
-                                    Icon.view(h, FileCode2, "size-3"),
-                                    `${policy.target === "issue" ? "Issues" : "Pull requests"} · Published v${policy.publishedRevision}`,
-                                  ],
-                                )
-                              : h.empty,
-                            policy?.description
-                              ? h.p(
-                                  [h.Class("mt-3 text-xs leading-relaxed text-muted-foreground")],
-                                  [policy.description],
-                                )
-                              : h.empty,
-                          ]),
-                          step(h, "2", "Then", [
-                            selectField(h, {
-                              id: "rule-label",
-                              label: "GitHub label",
-                              value: Option.getOrElse(model.maybeLabelId, () => ""),
-                              options: [
-                                ["", "Choose a label…"],
-                                ...model.labels
-                                  .filter(
-                                    (label) =>
-                                      label.availability !== "unavailable" ||
-                                      Option.contains(model.maybeLabelId, label.labelId),
-                                  )
-                                  .map(
-                                    (label) =>
-                                      [
-                                        label.labelId,
-                                        `${label.name}${label.availability === "unavailable" ? " (unavailable)" : ""}`,
-                                      ] as const,
-                                  ),
-                              ],
-                              onChange: (labelId) => Message.SelectedLabel({ labelId }),
-                            }),
-                            h.p(
-                              [h.Class("mt-3 text-xs text-muted-foreground")],
-                              [
-                                model.labels.length
-                                  ? "Choose what happens to this label for each result below."
-                                  : "No labels synchronized yet.",
-                              ],
-                            ),
-                          ]),
-                        ]),
-                    step(h, "3", "Result actions", [
-                      ...(["match", "no-match"] as const).map((outcome) =>
-                        selectField(h, {
-                          id: outcome === "match" ? "rule-on-match" : "rule-on-no-match",
-                          label: outcome === "match" ? "When it matches" : "When it does not match",
-                          value: outcome === "match" ? model.onMatch : model.onNoMatch,
-                          options: ResultAction.literals.map(
-                            (action) => [action, describeResultAction(action)] as const,
-                          ),
-                          onChange: (value) =>
-                            outcome === "match"
-                              ? Message.UpdatedOnMatch({ value })
-                              : Message.UpdatedOnNoMatch({ value }),
-                        }),
-                      ),
-                      h.p(
-                        [h.Class("mt-3 text-xs text-muted-foreground")],
-                        [
-                          "Ensure present restores manually removed labels. Ensure absent removes manually added labels. Take no action makes no label request.",
-                        ],
-                      ),
-                    ]),
-                    Disclosure.view(
-                      {
-                        id: "rule-grouping",
-                        isOpen: model.groupOpen,
-                        onToggle: (isOpen) => Message.ToggledGroup({ isOpen }),
-                        toView: ({ button, panel }) =>
-                          h.section(
-                            [h.Class("rule-grouping")],
-                            [
-                              h.button(
-                                [...button, h.Class("flex w-full items-center gap-2 py-2 text-xs")],
-                                [
-                                  Icon.view(
-                                    h,
-                                    ChevronRight,
-                                    cn("size-3", model.groupOpen && "rotate-90"),
-                                  ),
-                                  "Exclusive group",
-                                  h.span(
-                                    [h.Class("ml-auto text-muted-foreground")],
-                                    [model.group.trim() || "None"],
-                                  ),
-                                ],
-                              ),
-                              model.groupOpen
-                                ? h.div(
-                                    [...panel, h.Class("mt-3 flex flex-col gap-3")],
-                                    [
-                                      input(h, {
-                                        id: "rule-group",
-                                        label: "Group",
-                                        value: model.group,
-                                        placeholder: "optional",
-                                        onInput: (value) => Message.UpdatedGroup({ value }),
-                                        labelClass,
-                                      }),
-                                      groupOrderView(h, model),
-                                      input(h, {
-                                        id: "rule-priority",
-                                        label: "Priority",
-                                        value: model.priority,
-                                        type: "number",
-                                        onInput: (value) => Message.UpdatedPriority({ value }),
-                                        labelClass,
-                                      }),
-                                      h.p(
-                                        [h.Class("text-xs text-muted-foreground")],
-                                        [
-                                          "Larger priorities take precedence. The group keeps only the highest-priority label requesting presence and removes all other group labels, including disabled rules.",
-                                        ],
-                                      ),
-                                    ],
-                                  )
-                                : h.empty,
-                            ],
-                          ),
-                      },
-                      h,
-                    ),
-                    submissionView(h, model.submission),
-                    issues.length
-                      ? h.p(
-                          [h.Class("text-xs text-destructive"), h.Role("status")],
-                          [issues.join(". ")],
-                        )
-                      : h.empty,
+                    "Ensure present restores manually removed labels. Ensure absent removes manually added labels. Take no action makes no label request.",
                   ],
                 ),
+                Disclosure.view(
+                  {
+                    id: "rule-grouping",
+                    isOpen: model.groupOpen,
+                    onToggle: (isOpen) => Message.ToggledGroup({ isOpen }),
+                    toView: ({ button, panel: panelAttributes }) =>
+                      h.section(
+                        [
+                          h.Class("rounded-sm border border-border bg-card"),
+                          h.DataAttribute("slot", "card"),
+                        ],
+                        [
+                          h.button(
+                            [
+                              ...button,
+                              h.Class(
+                                "flex w-full items-center gap-2 px-3 py-2 text-left text-body-md hover:bg-surface-muted",
+                              ),
+                            ],
+                            [
+                              Icon.view(
+                                h,
+                                ChevronRight,
+                                cn("size-3.5 text-ink-subtle", model.groupOpen && "rotate-90"),
+                              ),
+                              h.span([h.Class("font-medium")], ["Exclusive group"]),
+                              h.span(
+                                [h.Class("ml-auto font-mono text-mono-sm text-ink-subtle")],
+                                [model.group.trim() || "none"],
+                              ),
+                            ],
+                          ),
+                          model.groupOpen
+                            ? h.div(
+                                [
+                                  ...panelAttributes,
+                                  h.Class(
+                                    "flex max-w-md flex-col gap-3 border-t border-border-subtle px-3 py-3",
+                                  ),
+                                ],
+                                [
+                                  input(h, {
+                                    id: "rule-group",
+                                    label: "Group",
+                                    value: model.group,
+                                    placeholder: "optional",
+                                    className: "font-mono",
+                                    onInput: (value) => Message.UpdatedGroup({ value }),
+                                  }),
+                                  groupOrderView(h, model),
+                                  input(h, {
+                                    id: "rule-priority",
+                                    label: "Priority",
+                                    value: model.priority,
+                                    type: "number",
+                                    className: "font-mono",
+                                    onInput: (value) => Message.UpdatedPriority({ value }),
+                                    description:
+                                      "Larger priorities take precedence. The group keeps only the highest-priority label requesting presence and removes all other group labels, including disabled rules.",
+                                  }),
+                                ],
+                              )
+                            : h.empty,
+                        ],
+                      ),
+                  },
+                  h,
+                ),
+                submissionView(h, model.submission),
+                issues.length
+                  ? h.p(
+                      [h.Class("text-body-sm text-destructive"), h.Role("status")],
+                      [issues.join(". ")],
+                    )
+                  : h.empty,
               ],
             ),
             h.aside(
-              [h.Class("rule-inspector"), h.AriaLabel("Rule controls and testing")],
+              [
+                h.Class("flex min-w-0 flex-col border-border bg-card"),
+                h.DataAttribute("slot", "inspector"),
+                h.AriaLabel("Rule controls and testing"),
+              ],
               [
                 dirty
-                  ? h.div(
-                      [h.Class("rule-save-actions")],
+                  ? h.section(
+                      [h.DataAttribute("slot", "inspector-section")],
                       [
-                        Button.view(h, {
-                          size: "sm",
-                          className: "flex-1",
-                          onClick: Message.ClickedSave(),
-                          isDisabled: issues.length > 0 || busy,
-                          label: busy
-                            ? "Saving…"
-                            : model.identity._tag === "New"
-                              ? "Create rule"
-                              : "Save changes",
-                          attributes: [h.DataAttribute("action", "save")],
-                        }),
-                        Button.view(h, {
-                          size: "sm",
-                          variant: "outline",
-                          onClick: Message.ClickedCancel(),
-                          isDisabled: busy,
-                          label: "Cancel",
-                        }),
+                        h.h3([h.DataAttribute("slot", "inspector-heading")], ["Changes"]),
+                        h.div(
+                          [h.Class("flex gap-2")],
+                          [
+                            Button.view(h, {
+                              size: "sm",
+                              className: "flex-1",
+                              onClick: Message.ClickedSave(),
+                              isDisabled: issues.length > 0 || busy,
+                              label: busy
+                                ? "Saving…"
+                                : model.identity._tag === "New"
+                                  ? "Create rule"
+                                  : "Save changes",
+                              attributes: [h.DataAttribute("action", "save")],
+                            }),
+                            Button.view(h, {
+                              size: "sm",
+                              variant: "secondary",
+                              onClick: Message.ClickedCancel(),
+                              isDisabled: busy,
+                              label: "Cancel",
+                            }),
+                          ],
+                        ),
                       ],
                     )
                   : h.empty,
                 h.section(
-                  [h.Class("rule-test-card")],
+                  [h.DataAttribute("slot", "inspector-section")],
                   [
-                    h.h2([h.Class("rule-test-heading")], ["Test bench"]),
+                    h.h3([h.DataAttribute("slot", "inspector-heading")], ["Test bench"]),
                     h.div(
-                      [h.Class("flex flex-col gap-3 p-4")],
+                      [h.Class("flex flex-col gap-3")],
                       [
                         model.testCandidates._tag === "Failed"
                           ? h.p(
-                              [h.Class("text-xs text-destructive")],
+                              [h.Class("text-body-sm text-destructive")],
                               ["Could not load test items. Retrying on the next refresh."],
                             )
                           : testItems(model).length === 0
                             ? h.p(
-                                [h.Class("text-xs text-muted-foreground")],
+                                [h.Class("text-body-sm text-ink-muted")],
                                 [
                                   policy || model.ai
                                     ? "No open items are available for this policy."
@@ -1548,8 +1735,8 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                 id: "rule-test-item",
                                 label:
                                   (model.ai?.target ?? policy?.target) === "issue"
-                                    ? "Issues"
-                                    : "Pull Requests",
+                                    ? "Issue"
+                                    : "Pull request",
                                 value: String(selectedTestItem(model)?.number ?? ""),
                                 options: testItems(model).map((item) => [
                                   String(item.number),
@@ -1559,16 +1746,17 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                   Message.SelectedTestItem({ number: Number(value) }),
                               }),
                         Button.view(h, {
-                          variant: "outline",
+                          variant: "secondary",
                           size: "sm",
+                          className: "self-start",
                           onClick: Message.ClickedTest(),
                           isDisabled:
                             issues.length > 0 ||
                             !selectedTestItem(model) ||
                             model.testResult._tag === "Running",
                           label: h.span(
-                            [h.Class("flex items-center gap-2")],
-                            [Icon.view(h, Play, "size-3"), "Test rule"],
+                            [h.Class("contents")],
+                            [Icon.view(h, Play), "Run as a test"],
                           ),
                         }),
                         testResultView(h, model),
@@ -1577,21 +1765,18 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                   ],
                 ),
                 model.identity._tag === "Existing"
-                  ? h.div(
-                      [h.Class("rule-delete-actions")],
+                  ? h.section(
+                      [h.DataAttribute("slot", "inspector-section")],
                       [
+                        h.h3([h.DataAttribute("slot", "inspector-heading")], ["Delete"]),
                         Button.view(h, {
                           variant: "destructive",
-                          size: "lg",
-                          className: "w-full h-10",
+                          size: "sm",
                           onClick: Message.ClickedDelete(),
                           isDisabled: busy,
                           label: h.span(
-                            [h.Class("flex items-center gap-1.5")],
-                            [
-                              Icon.view(h, Trash2, "size-4"),
-                              isDeleting ? "Deleting rule…" : "Delete rule",
-                            ],
+                            [h.Class("contents")],
+                            [Icon.view(h, Trash2), isDeleting ? "Deleting rule…" : "Delete rule"],
                           ),
                           attributes: [h.DataAttribute("action", "delete-rule")],
                         }),
@@ -1609,55 +1794,31 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
           toParentMessage: (message) => Message.GotDeleteDialogMessage({ message }),
           viewInputs: {
             toView: (render) =>
-              h.dialog(
-                [
-                  ...render.dialog,
-                  h.Class(
-                    "fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none bg-transparent p-0 text-foreground",
-                  ),
+              DialogChrome.view(h, {
+                dialog: render.dialog,
+                backdrop: render.backdrop,
+                panel: render.panel,
+                title: render.title,
+                description: render.description,
+                isVisible: render.isVisible,
+                titleText: "Delete rule?",
+                descriptionText:
+                  'Delete "' + (label?.name ?? "this rule") + '"? This cannot be undone.',
+                actions: [
+                  Button.view(h, {
+                    label: "Cancel",
+                    variant: "secondary",
+                    attributes: [h.Id("cancel-delete-rule")],
+                    onClick: Message.CancelledDelete(),
+                  }),
+                  Button.view(h, {
+                    label: "Delete rule",
+                    variant: "destructive",
+                    isDisabled: busy,
+                    onClick: Message.ConfirmedDelete(),
+                  }),
                 ],
-                render.isVisible
-                  ? [
-                      h.div([...render.backdrop, h.Class("fixed inset-0 bg-black/40")], []),
-                      h.div(
-                        [
-                          ...render.panel,
-                          h.Class(
-                            "relative mx-auto mt-[20vh] w-[calc(100%-2rem)] max-w-md rounded-xl border bg-background p-5 shadow-xl space-y-4",
-                          ),
-                        ],
-                        [
-                          h.h2([...render.title, h.Class("font-semibold")], ["Delete rule?"]),
-                          h.p(
-                            [...render.description, h.Class("text-sm text-muted-foreground")],
-                            [
-                              'Delete "' +
-                                (label?.name ?? "this rule") +
-                                '"? This cannot be undone.',
-                            ],
-                          ),
-                          h.div(
-                            [h.Class("flex justify-end gap-2")],
-                            [
-                              Button.view(h, {
-                                label: "Cancel",
-                                variant: "outline",
-                                attributes: [h.Id("cancel-delete-rule")],
-                                onClick: Message.CancelledDelete(),
-                              }),
-                              Button.view(h, {
-                                label: "Delete rule",
-                                variant: "destructive",
-                                isDisabled: busy,
-                                onClick: Message.ConfirmedDelete(),
-                              }),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ]
-                  : [],
-              ),
+              }),
           },
         }),
       ],
@@ -1711,137 +1872,6 @@ const MountAiPrompt = Mount.defineStream("MountAiPrompt", {
       ),
     ),
 })
-const aiFields = (h: HtmlBuilder<Message>, model: Model): Html => {
-  const ai = model.ai!
-  return h.div(
-    [h.Class("flex flex-col gap-5")],
-    [
-      h.div(
-        [h.Class("grid grid-cols-1 gap-4 md:grid-cols-2")],
-        [
-          selectField(h, {
-            id: "ai-target",
-            label: "Applies to",
-            value: ai.target,
-            options: [
-              ["pull_request", "Pull requests"],
-              ["issue", "Issues"],
-            ],
-            onChange: (value) => Message.SelectedTarget({ value }),
-          }),
-          selectField(h, {
-            id: "ai-label",
-            label: "GitHub label",
-            value: Option.getOrElse(model.maybeLabelId, () => ""),
-            options: [
-              ["", "Choose a label…"],
-              ...model.labels
-                .filter((l) => l.availability !== "unavailable")
-                .map((l) => [l.labelId, l.name] as const),
-            ],
-            onChange: (labelId) => Message.SelectedLabel({ labelId }),
-          }),
-        ],
-      ),
-      selectField(h, {
-        id: "ai-gate",
-        label: "Gate policy",
-        value: ai.gatePolicyId ?? "",
-        options: [
-          ["", "No gate · always evaluate"],
-          ...model.policies
-            .filter(
-              (p) =>
-                p.publishedVersionId !== null &&
-                p.target === ai.target &&
-                p.publishedEvaluator === "Conditions",
-            )
-            .map((p) => [p.policyId, p.name] as const),
-        ],
-        onChange: (value) => Message.SelectedGate({ value }),
-      }),
-      h.p(
-        [h.Class("-mt-3 text-xs text-muted-foreground")],
-        ["AI runs only when this policy matches. Otherwise, labels stay unchanged."],
-      ),
-      h.div(
-        [h.Class("flex flex-col gap-2")],
-        [
-          h.div(
-            [h.Class("flex justify-between text-xs")],
-            [
-              h.span([], ["Instructions"]),
-              h.span([h.Class("text-muted-foreground")], [`${ai.prompt.length} / 4,000`]),
-            ],
-          ),
-          h.div(
-            [
-              h.Id("ai-prompt"),
-              h.DataAttribute("target", ai.target),
-              h.DataAttribute("catalog", JSON.stringify(model.catalog)),
-              h.Class("rounded-md border overflow-hidden"),
-              h.OnMount(MountAiPrompt({ source: ai.prompt, catalog: model.catalog })),
-            ],
-            [],
-          ),
-          h.p(
-            [h.Class("text-xs text-muted-foreground")],
-            ["Type {{ to reference a fact. Only referenced facts are used as evidence."],
-          ),
-        ],
-      ),
-      h.div(
-        [h.Class("rounded-lg border bg-muted/20 p-5")],
-        [
-          h.div(
-            [h.Class("flex justify-between items-center")],
-            [
-              h.div(
-                [],
-                [
-                  h.label(
-                    [h.For("ai-confidence"), h.Class("text-sm font-medium")],
-                    ["Minimum confidence"],
-                  ),
-                  h.p(
-                    [h.Class("text-xs text-muted-foreground mt-1")],
-                    ["Below this score, use the non-match action."],
-                  ),
-                ],
-              ),
-              h.span(
-                [h.Class("text-2xl tabular-nums")],
-                [`${Math.round(ai.minimumConfidence * 100)}%`],
-              ),
-            ],
-          ),
-          h.input([
-            h.Id("ai-confidence"),
-            h.Type("range"),
-            h.Min("0"),
-            h.Max("100"),
-            h.Step("5"),
-            h.Value(String(ai.minimumConfidence * 100)),
-            h.Class("ai-confidence w-full my-5"),
-            h.OnInput((value) => Message.ChangedConfidence({ value })),
-          ]),
-          h.div(
-            [h.Class("flex justify-end gap-2")],
-            [70, 80, 95].map((value) =>
-              Button.view(h, {
-                variant: ai.minimumConfidence * 100 === value ? "secondary" : "outline",
-                size: "sm",
-                label: `${value}%`,
-                onClick: Message.ChangedConfidence({ value: String(value) }),
-              }),
-            ),
-          ),
-        ],
-      ),
-    ],
-  )
-}
-
 const RuleTestJob = Schema.Struct({
   testId: Schema.String,
   status: Schema.Literals(["queued", "running", "done", "failed"]),

@@ -709,19 +709,12 @@ describe("rules workspace", () => {
   })
 })
 
-describe("GitHub label badge colors", () => {
-  it("uses the GitHub color with readable foregrounds and rejects invalid CSS", () => {
-    expect(Workspace.labelBadgeStyle("ffffff")).toMatchObject({
-      backgroundColor: "#ffffff",
-      color: "#111111",
-    })
-    expect(Workspace.labelBadgeStyle("000000")).toMatchObject({
-      backgroundColor: "#000000",
-      color: "#ffffff",
-    })
-    expect(Workspace.labelBadgeStyle("d73a4a").backgroundColor).toBe("#d73a4a")
-    expect(Workspace.labelBadgeStyle("red;display:none")).toEqual({})
-    expect(Workspace.labelBadgeStyle(null)).toEqual({})
+describe("GitHub label colours", () => {
+  it("uses the GitHub colour as a dot and rejects invalid CSS", () => {
+    expect(Workspace.labelDotStyle("ffffff")).toEqual({ backgroundColor: "#ffffff" })
+    expect(Workspace.labelDotStyle("d73a4a")).toEqual({ backgroundColor: "#d73a4a" })
+    expect(Workspace.labelDotStyle("red;display:none")).toEqual({})
+    expect(Workspace.labelDotStyle(null)).toEqual({})
   })
 })
 

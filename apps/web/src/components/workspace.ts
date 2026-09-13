@@ -1,7 +1,6 @@
 import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Live from "./live"
 import * as Activity from "@/components/activity"
-import * as Switch from "@foldkit/ui/switch"
 import * as Menu from "@foldkit/ui/menu"
 import * as Effect from "effect/Effect"
 import * as Clock from "effect/Clock"
@@ -21,8 +20,13 @@ import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
 import * as Icon from "@/lib/icons"
-import { Plus, Search, FileCode2, MousePointer2, Ellipsis, Pencil, Tags } from "lucide"
-import { input } from "@/components/ui/input"
+import { Plus, Search, Ellipsis, Pencil } from "lucide"
+import { inputGroup, inputGroupAddon, inputGroupInput } from "@/components/ui/input-group"
+import { chip } from "@/components/ui/chip"
+import { emptyPanel, panel, panelHeader } from "@/components/ui/panel"
+import * as Overlay from "@/components/ui/overlay"
+import * as SwitchControl from "@/components/ui/switch"
+import * as Table from "@/components/ui/table"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as RuleEditor from "@/components/rule-editor"
 import {
@@ -1246,10 +1250,8 @@ export const subscriptions = Subscription.aggregate<Model, Message>()(
 
 // VIEW
 
-const badgeClass = "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
-
 const sectionTitle = <M>(h: HtmlBuilder<M>, text: string): Html =>
-  h.h2([h.Class("text-sm font-semibold tracking-tight")], [text])
+  h.h2([h.Class("text-h2 font-semibold")], [text])
 
 const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
   const creating =
@@ -1276,11 +1278,11 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
             [h.Class("flex items-center justify-between gap-2")],
             [
               h.h2(
-                [h.Class("text-xs font-semibold")],
+                [h.Class("text-caption font-medium text-ink-subtle")],
                 [
                   "All policies",
                   h.span(
-                    [h.Class("ml-2 font-normal text-muted-foreground")],
+                    [h.Class("ml-2 font-mono text-mono-xs font-normal")],
                     [String(view.policies.length + (creating ? 1 : 0))],
                   ),
                 ],
@@ -1288,7 +1290,7 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
               Button.view(h, {
                 variant: "ghost",
                 size: "icon-sm",
-                label: Icon.view(h, Plus, "size-4"),
+                label: Icon.view(h, Plus),
                 onClick: Message.ClickedNewPolicy(),
                 attributes: [
                   h.AriaLabel("New policy"),
@@ -1298,20 +1300,18 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
               }),
             ],
           ),
-          h.div(
-            [h.Class("policy-search-field")],
-            [
-              Icon.view(h, Search, "size-3.5"),
-              input(h, {
+          inputGroup(h, {
+            children: [
+              inputGroupAddon(h, { children: [Icon.view(h, Search)] }),
+              inputGroupInput(h, {
                 id: "policy-search",
-                label: "Search policies",
-                labelClass: "sr-only",
+                ariaLabel: "Search policies",
                 placeholder: "Find a policy…",
                 value: model.policySearch,
                 onInput: (value) => Message.UpdatedPolicySearch({ value }),
               }),
             ],
-          ),
+          }),
         ],
       ),
       h.ul(
@@ -1437,7 +1437,7 @@ const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: Configurat
         ],
       ),
       policies.length === 0 && view.policies.length > 0
-        ? h.p([h.Class("p-4 text-xs text-muted-foreground")], ["No policies match your search."])
+        ? h.p([h.Class("p-3 text-body-sm text-ink-muted")], ["No policies match your search."])
         : h.empty,
     ],
   )
@@ -1465,19 +1465,35 @@ const ruleType = (view: ConfigurationView, rule: RuleRecord): string =>
     ? "AI"
     : "Policy"
 
-export const labelBadgeStyle = (color: string | null | undefined): Record<string, string> => {
-  if (!color || !/^[0-9a-f]{6}$/i.test(color)) return {}
-  const channels = [0, 2, 4].map((offset) => {
-    const value = parseInt(color.slice(offset, offset + 2), 16) / 255
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+/** GitHub label colours are user data, the one value the interface renders
+ *  that does not come from the theme. They appear only as a 6px dot. */
+export const labelDotStyle = (color: string | null | undefined): Record<string, string> =>
+  !color || !/^[0-9a-f]{6}$/i.test(color) ? {} : { backgroundColor: `#${color}` }
+
+export const labelBadge = <M>(
+  h: HtmlBuilder<M>,
+  name: string,
+  color: string | null | undefined,
+  className?: string,
+): Html =>
+  chip(h, {
+    ...(className === undefined ? {} : { className }),
+    children: [
+      ...(Object.keys(labelDotStyle(color)).length === 0
+        ? []
+        : [
+            h.span(
+              [
+                h.Class("size-1.5 shrink-0 rounded-full"),
+                h.Style(labelDotStyle(color)),
+                h.AriaHidden(true),
+              ],
+              [],
+            ),
+          ]),
+      name,
+    ],
   })
-  const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
-  return {
-    backgroundColor: `#${color}`,
-    borderColor: `#${color}`,
-    color: luminance > 0.179 ? "#111111" : "#ffffff",
-  }
-}
 
 const ruleRow = (
   h: HtmlBuilder<Message>,
@@ -1493,102 +1509,74 @@ const ruleRow = (
       mutation.subjectId === rule.id &&
       (mutation.kind === "RuleToggle" || mutation.kind === "RuleDelete"),
   )
-  return h.tr(
-    [h.DataAttribute("rule-id", rule.id)],
-    [
-      h.td(
-        [],
-        [
-          Switch.view(
-            {
-              id: `rule-toggle-${rule.id}`,
-              isChecked: rule.enabled,
-              isDisabled: pending !== undefined,
-              onToggle: () => Message.ClickedToggleRule({ ruleId: rule.id }),
-              toView: (attributes) =>
-                h.div(
-                  [],
-                  [
-                    h.span([...attributes.label, h.Class("sr-only")], [`Enable ${name}`]),
-                    h.button(
-                      [
-                        ...attributes.button,
-                        h.Class("rule-enable-switch rule-table-switch"),
-                        h.AriaBusy(pending !== undefined),
-                      ],
-                      [h.span([h.AriaHidden(true)], [])],
-                    ),
-                    pending
-                      ? h.span(
-                          [h.Class("sr-only"), h.Role("status")],
-                          [
-                            pending.kind === "RuleDelete"
-                              ? "Deleting…"
-                              : rule.enabled
-                                ? "Enabling…"
-                                : "Disabling…",
-                          ],
-                        )
-                      : h.empty,
-                  ],
-                ),
-            },
+  const policy = view.policies.find((policy) => policy.policyId === rule.policyId)
+  const isAi = ruleType(view, rule) === "AI"
+  return Table.row(h, {
+    attributes: [h.DataAttribute("rule-id", rule.id)],
+    children: [
+      Table.cell(h, {
+        children: [
+          SwitchControl.view(h, {
+            id: `rule-toggle-${rule.id}`,
+            label: `Enable ${name}`,
+            isLabelHidden: true,
+            isChecked: rule.enabled,
+            isDisabled: pending !== undefined,
+            isBusy: pending !== undefined,
+            onToggle: () => Message.ClickedToggleRule({ ruleId: rule.id }),
+          }),
+          pending
+            ? h.span(
+                [h.Class("sr-only"), h.Role("status")],
+                [
+                  pending.kind === "RuleDelete"
+                    ? "Deleting…"
+                    : rule.enabled
+                      ? "Enabling…"
+                      : "Disabling…",
+                ],
+              )
+            : h.empty,
+        ],
+      }),
+      Table.cell(h, {
+        children: [
+          isAi
+            ? chip(h, { variant: "agent", children: ["AI"] })
+            : chip(h, { children: ["policy"] }),
+        ],
+      }),
+      Table.cell(h, {
+        children: [
+          labelBadge(
             h,
+            name,
+            label?.color,
+            rule.labelStatus === "missing" ? "line-through" : undefined,
           ),
         ],
-      ),
-      h.td(
-        [],
-        [
+      }),
+      Table.cell(h, {
+        code: true,
+        children: [
           h.span(
-            [h.Class("inline-flex items-center gap-1.5 text-xs text-muted-foreground")],
-            [Icon.view(h, FileCode2, "size-3.5"), ruleType(view, rule)],
-          ),
-        ],
-      ),
-      h.td(
-        [],
-        [
-          h.span(
-            [
-              h.Class(cn(badgeClass, rule.labelStatus === "missing" && "line-through")),
-              h.Style(labelBadgeStyle(label?.color)),
-            ],
-            [name],
-          ),
-        ],
-      ),
-      h.td(
-        [],
-        [
-          h.span(
-            [
-              h.Class("block truncate text-xs text-muted-foreground"),
-              h.Title(rule.group ?? "No exclusive group"),
-            ],
+            [h.Title(rule.group ?? "No exclusive group")],
             [rule.group ? `${rule.group} / ${rule.priority}` : "—"],
           ),
         ],
-      ),
-      h.td(
-        [],
-        [
-          h.p(
-            [h.Class("truncate text-xs"), h.Title(ruleBehavior(view, rule))],
+      }),
+      Table.cell(h, {
+        className: "max-w-0",
+        children: [
+          h.span(
+            [h.Class("block truncate"), h.Title(policy?.description || ruleBehavior(view, rule))],
             [ruleBehavior(view, rule)],
           ),
-          h.p(
-            [h.Class("mt-1 truncate text-xs text-muted-foreground")],
-            [
-              view.policies.find((policy) => policy.policyId === rule.policyId)?.description ||
-                policyName(view.policies, rule.policyId),
-            ],
-          ),
         ],
-      ),
-      h.td(
-        [],
-        [
+      }),
+      Table.cell(h, {
+        className: "w-10 text-right",
+        children: [
           h.submodel({
             slotId: `rule-menu-${rule.id}`,
             model: ruleMenuModel(model, rule.id),
@@ -1600,31 +1588,31 @@ const ruleRow = (
                 "RuleDelete",
                 "RuleToggle",
               ]),
-              buttonContent: Icon.view(h, Ellipsis, "size-4"),
-              buttonClassName: "rule-row-menu-button",
+              buttonContent: Icon.view(h, Ellipsis),
+              buttonClassName: cn(
+                Overlay.menuButtonClass,
+                "size-6 border-transparent bg-transparent",
+              ),
               buttonAttributes: childAttributes([
                 h.AriaLabel(`Actions for ${name}`),
                 h.Title("Rule actions"),
               ]),
-              itemsClassName: "z-50 min-w-36 rounded-lg border bg-popover p-1 shadow-md",
+              itemsClassName: Overlay.menuItemsClass,
               anchor: { placement: "bottom-end", gap: 4 },
               itemToConfig: (_item, { isActive }) => ({
-                className: cn(
-                  "flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-xs",
-                  isActive && "bg-accent",
-                ),
+                className: cn(Overlay.menuItemClass, isActive && Overlay.menuItemActiveClass),
                 content: h.span(
                   [h.Class("flex items-center gap-2"), h.DataAttribute("action", "edit-rule")],
-                  [Icon.view(h, Pencil, "size-3"), "Edit rule"],
+                  [Icon.view(h, Pencil), "Edit rule"],
                 ),
               }),
             },
             toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId: rule.id, message }),
           }),
         ],
-      ),
+      }),
     ],
-  )
+  })
 }
 const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
   const query = model.ruleSearch.trim().toLowerCase()
@@ -1634,117 +1622,107 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
       .includes(query),
   )
   return h.section(
-    [h.Class("rules-library")],
+    [h.Class("flex flex-col gap-4 p-4 lg:p-5")],
     [
       h.header(
-        [h.Class("flex items-center justify-between gap-4")],
+        [h.Class("flex items-start justify-between gap-4")],
         [
           h.div(
-            [],
+            [h.Class("flex flex-col gap-1")],
             [
-              h.h1([h.Class("text-xl font-semibold tracking-tight")], ["Labeling rules"]),
+              h.h1([], ["Labeling rules"]),
               h.p(
-                [h.Class("mt-1 text-xs text-muted-foreground")],
+                [h.Class("text-body-sm text-ink-muted")],
                 ["Connect policies to the labels they manage."],
               ),
             ],
           ),
           Button.view(h, {
-            variant: "outline",
             size: "sm",
             onClick: Message.ClickedNewRule(),
-            label: h.span(
-              [h.Class("flex items-center gap-2")],
-              [Icon.view(h, Plus, "size-3.5"), "New rule"],
-            ),
+            label: h.span([h.Class("contents")], [Icon.view(h, Plus), "New rule"]),
             attributes: [h.DataAttribute("action", "new-rule")],
           }),
         ],
       ),
-      h.div(
-        [h.Class("my-5 flex items-center justify-between gap-3")],
-        [
-          h.div(
-            [h.Class("relative w-72 max-w-full")],
-            [
-              Icon.view(
-                h,
-                Search,
-                "pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground",
-              ),
-              input(h, {
-                id: "rule-search",
-                label: "Search rules",
-                labelClass: "sr-only",
-                value: model.ruleSearch,
-                placeholder: "Find a rule…",
-                onInput: (value) => Message.UpdatedRuleSearch({ value }),
-                className: "h-8 pl-8",
-                attributes: [h.AriaLabel("Search rules")],
-              }),
-            ],
-          ),
-          h.span([h.Class("text-xs text-muted-foreground")], [`${view.rules.length} rules`]),
-        ],
-      ),
       view.rules.length === 0
-        ? h.div(
-            [
-              h.Class(
-                "flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center",
-              ),
-            ],
-            [
-              Icon.view(h, Tags, "size-8 text-muted-foreground"),
-              h.h2([h.Class("text-sm font-semibold")], ["Create your first labeling rule"]),
-              h.p(
-                [h.Class("max-w-sm text-xs text-muted-foreground")],
+        ? emptyPanel(h, {
+            children: [
+              h.div(
+                [h.Class("flex flex-wrap items-center justify-between gap-3")],
                 [
-                  "Choose a published policy, select a label, and decide what happens when it doesn't match.",
+                  h.span(
+                    [h.Class("text-foreground")],
+                    ["No rules yet. Choose a published policy and the label it manages."],
+                  ),
+                  Button.view(h, {
+                    size: "sm",
+                    label: "New rule",
+                    onClick: Message.ClickedNewRule(),
+                  }),
                 ],
               ),
-              Button.view(h, {
-                size: "sm",
-                label: "Create rule",
-                onClick: Message.ClickedNewRule(),
-              }),
             ],
-          )
-        : h.div(
-            [h.Class("overflow-x-auto")],
-            [
-              h.table(
-                [h.Class("rules-table")],
+          })
+        : panel(h, {
+            flush: true,
+            children: [
+              panelHeader(h, {
+                title: "Rules",
+                meta: `${rules.length} of ${view.rules.length}`,
+                actions: [
+                  inputGroup(h, {
+                    className: "w-64",
+                    children: [
+                      inputGroupAddon(h, { children: [Icon.view(h, Search)] }),
+                      inputGroupInput(h, {
+                        id: "rule-search",
+                        ariaLabel: "Search rules",
+                        value: model.ruleSearch,
+                        placeholder: "Find a rule…",
+                        onInput: (value) => Message.UpdatedRuleSearch({ value }),
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+              h.div(
+                [h.Class("overflow-x-auto")],
                 [
-                  h.thead(
-                    [],
-                    [
-                      h.tr(
-                        [],
-                        ["Enabled", "Type", "Label", "Exclusive group", "Behavior", ""].map(
-                          (title) =>
-                            h.th(
-                              [h.Scope("col")],
-                              [title || h.span([h.Class("sr-only")], ["Actions"])],
-                            ),
-                        ),
+                  Table.table(h, {
+                    className: "min-w-2xl",
+                    children: [
+                      Table.head(h, [
+                        Table.row(h, {
+                          children: [
+                            Table.headCell(h, { className: "w-14", children: ["Enabled"] }),
+                            Table.headCell(h, { className: "w-16", children: ["Type"] }),
+                            Table.headCell(h, { className: "w-48", children: ["Label"] }),
+                            Table.headCell(h, { className: "w-36", children: ["Exclusive group"] }),
+                            Table.headCell(h, { children: ["Behavior"] }),
+                            Table.headCell(h, {
+                              className: "w-10",
+                              children: [h.span([h.Class("sr-only")], ["Actions"])],
+                            }),
+                          ],
+                        }),
+                      ]),
+                      Table.body(
+                        h,
+                        rules.map((rule) => ruleRow(h, model, view, rule)),
                       ),
                     ],
-                  ),
-                  h.tbody(
-                    [],
-                    rules.map((rule) => ruleRow(h, model, view, rule)),
-                  ),
+                  }),
+                  rules.length === 0
+                    ? h.p(
+                        [h.Class("px-3 py-2 text-body-sm text-ink-muted")],
+                        ["No rules match your search."],
+                      )
+                    : h.empty,
                 ],
               ),
-              rules.length === 0
-                ? h.p(
-                    [h.Class("p-6 text-center text-xs text-muted-foreground")],
-                    ["No rules match your search."],
-                  )
-                : h.empty,
             ],
-          ),
+          }),
     ],
   )
 }
@@ -1752,7 +1730,8 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
 const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.section(
     [
-      h.Class("flex flex-col gap-2"),
+      h.Class("flex flex-col gap-2 rounded-sm border border-border bg-card p-4"),
+      h.DataAttribute("slot", "card"),
       h.DataAttribute(
         "consent",
         Option.map(model.maybeConsent, (consent) => consent.state).pipe(
@@ -1769,8 +1748,8 @@ const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
             onNone: () => h.empty,
             onSome: (consent) =>
               Button.view(h, {
-                variant: consent.state === "enabled" ? "destructive" : "outline",
-                size: "xs",
+                variant: consent.state === "enabled" ? "destructive" : "secondary",
+                size: "sm",
                 onClick: Message.ClickedToggleConsent(),
                 isDisabled:
                   hasMutation(model, consent.repositoryId, consent.repositoryId, ["Consent"]) ||
@@ -1791,13 +1770,16 @@ const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
       ),
       Option.isSome(model.consentError)
         ? h.div(
-            [h.Role("alert"), h.Class("text-sm text-destructive")],
+            [
+              h.Role("alert"),
+              h.Class("flex flex-wrap items-center gap-2 text-body-sm text-destructive"),
+            ],
             [
               model.consentError.value,
               Button.view(h, {
                 label: "Retry AI consent",
-                variant: "outline",
-                size: "xs",
+                variant: "secondary",
+                size: "sm",
                 onClick: Message.ClickedRetryConsent(),
                 isDisabled: Option.isSome(model.maybeConsentRequest),
               }),
@@ -1808,10 +1790,10 @@ const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
         onNone: () =>
           Option.isSome(model.consentError)
             ? h.empty
-            : h.div([h.Class("text-muted-foreground text-xs")], ["Loading"]),
+            : h.div([h.Class("text-body-sm text-ink-muted")], ["Loading"]),
         onSome: (consent) =>
           h.div(
-            [h.Class("text-muted-foreground flex flex-col gap-1 text-xs")],
+            [h.Class("flex flex-col gap-1 text-body-sm text-ink-muted")],
             [
               h.span(
                 [],
@@ -1840,9 +1822,12 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
     case "Closed":
       return h.empty
     case "Unavailable":
-      return h.p([h.Class("p-6 text-sm text-destructive"), h.Role("alert")], [model.panel.message])
+      return h.p(
+        [h.Class("p-4 text-body-sm text-destructive"), h.Role("alert")],
+        [model.panel.message],
+      )
     case "LoadingPolicy":
-      return h.div([h.Class("text-muted-foreground text-sm")], ["Loading the policy"])
+      return h.div([h.Class("p-4 text-body-sm text-ink-muted")], ["Loading the policy"])
     case "PolicyEditor": {
       const editor = model.panel.editor
       return h.submodel({
@@ -1885,7 +1870,7 @@ const overview = (h: HtmlBuilder<Message>, model: Model): Html => {
   if (!repository)
     return h.p(
       [
-        h.Class("p-6 text-sm text-muted-foreground"),
+        h.Class("p-4 text-body-sm text-ink-muted"),
         h.Role(Option.isSome(model.repositoriesError) ? "alert" : "status"),
       ],
       [
@@ -1899,46 +1884,73 @@ const overview = (h: HtmlBuilder<Message>, model: Model): Html => {
       ],
     )
   return h.section(
-    [
-      h.Class("flex min-h-[60vh] flex-1 items-center justify-center px-6 pb-24 pt-12"),
-      h.AriaLabel("Repository overview"),
-    ],
+    [h.Class("flex flex-col gap-4 p-4 lg:p-5"), h.AriaLabel("Repository overview")],
     [
       h.div(
-        [h.Class("text-center")],
+        [h.Class("flex flex-col gap-1")],
         [
-          h.span(
-            [
-              h.Class(
-                "mx-auto mb-4 grid size-11 place-items-center rounded-xl border bg-card text-sm text-muted-foreground",
-              ),
-              h.AriaHidden(true),
-            ],
-            [repository.owner.slice(0, 1).toUpperCase()],
-          ),
-          h.h1(
-            [h.Class("text-base font-medium tracking-tight")],
-            [repository.owner + " / " + repository.repo],
-          ),
+          h.h1([h.Class("font-mono")], [repository.owner + " / " + repository.repo]),
           h.p(
-            [h.Class("mb-5 mt-2 text-xs text-muted-foreground")],
+            [h.Class("text-body-sm text-ink-muted")],
             [
               repository.access === "accessible"
                 ? "Your repository is connected."
                 : "Repository access needs attention.",
             ],
           ),
-          h.a(
-            [
-              h.Href(Routes.rules({ repositoryId: repository.repositoryId })),
-              h.Class(
-                "inline-flex items-center justify-center gap-3 rounded-md border px-3 py-2 text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring",
-              ),
-            ],
-            ["View rules", h.span([h.AriaHidden(true)], ["→"])],
-          ),
         ],
       ),
+      panel(h, {
+        flush: true,
+        children: [
+          panelHeader(h, {
+            title: "Configuration",
+            meta:
+              repository.configuredRevision === null
+                ? "no revision"
+                : `rev ${repository.configuredRevision}`,
+          }),
+          h.div(
+            [h.Class("flex flex-wrap items-center gap-x-6 gap-y-2 px-3 py-2.5 text-body-sm")],
+            [
+              h.span(
+                [h.Class("flex items-center gap-1.5")],
+                [
+                  h.span([h.Class("text-ink-muted")], ["Rules"]),
+                  h.span(
+                    [h.Class("font-mono text-numeral font-medium")],
+                    [String(repository.ruleCount)],
+                  ),
+                ],
+              ),
+              h.span(
+                [h.Class("flex items-center gap-1.5")],
+                [
+                  h.span([h.Class("text-ink-muted")], ["Policies"]),
+                  h.span(
+                    [h.Class("font-mono text-numeral font-medium")],
+                    [String(repository.policyCount)],
+                  ),
+                ],
+              ),
+              h.span(
+                [h.Class("flex items-center gap-1.5")],
+                [
+                  h.span([h.Class("text-ink-muted")], ["Automation"]),
+                  chip(h, { children: [repository.enabled ? "active" : "paused"] }),
+                ],
+              ),
+              h.a(
+                [
+                  h.Href(Routes.rules({ repositoryId: repository.repositoryId })),
+                  h.Class("ml-auto"),
+                ],
+                ["View rules"],
+              ),
+            ],
+          ),
+        ],
+      }),
     ],
   )
 }
@@ -1947,7 +1959,7 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
   Option.match(model.detail, {
     onNone: () =>
       h.div(
-        [h.Class("p-6 text-sm text-muted-foreground")],
+        [h.Class("p-4 text-body-sm text-ink-muted")],
         [
           Option.getOrElse(model.detailError, () =>
             Option.getOrElse(model.repositoriesError, () =>
@@ -1971,7 +1983,7 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
                   onNone: () => h.empty,
                   onSome: (reason) =>
                     h.p(
-                      [h.Class("p-3 text-xs text-destructive"), h.Role("alert")],
+                      [h.Class("p-3 text-body-sm text-destructive"), h.Role("alert")],
                       [`Refresh failed: ${reason}`],
                     ),
                 }),
@@ -1982,38 +1994,18 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
                   : h.div(
                       [h.Class("policy-empty")],
                       [
-                        h.div(
-                          [h.Class("policy-empty-icon")],
-                          [
-                            Icon.view(
-                              h,
-                              detail.configuration.policies.length === 0
-                                ? FileCode2
-                                : MousePointer2,
-                              "size-6",
-                            ),
-                          ],
-                        ),
-                        h.h2(
-                          [h.Class("text-lg font-semibold")],
-                          [
-                            detail.configuration.policies.length === 0
-                              ? "Create your first policy"
-                              : "Select a policy",
-                          ],
-                        ),
                         h.p(
-                          [h.Class("max-w-sm text-sm text-muted-foreground")],
+                          [h.Class("text-body-md")],
                           [
                             detail.configuration.policies.length === 0
-                              ? "Define when an issue or pull request matches, then test it against your repository."
-                              : "Choose a policy from the list to edit its conditions and test your changes.",
+                              ? "No policies yet. Define when an issue or pull request matches, then test it against your repository."
+                              : "Select a policy to edit its conditions and test your changes.",
                           ],
                         ),
                         detail.configuration.policies.length === 0
                           ? Button.view(h, {
                               size: "sm",
-                              label: "Create policy",
+                              label: "New policy",
                               onClick: Message.ClickedNewPolicy(),
                             })
                           : h.empty,
@@ -2034,12 +2026,8 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
           ],
         )
       return h.div(
-        [h.Class("flex min-w-0 flex-col gap-6 overflow-auto p-6")],
-        [
-          section === "Settings"
-            ? h.div([h.Class("flex flex-col gap-8")], [consentSection(h, model)])
-            : h.empty,
-        ],
+        [h.Class("flex min-w-0 flex-col gap-4 overflow-auto")],
+        [section === "Settings" ? consentSection(h, model) : h.empty],
       )
     },
   })

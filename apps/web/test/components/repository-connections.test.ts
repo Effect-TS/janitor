@@ -31,9 +31,8 @@ describe("Repository connections", () => {
         Connections.Load,
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [failed] } }),
       ),
-      Scene.expect(
-        Scene.text("test/example · Automation blocked by synchronization failure"),
-      ).toExist(),
+      Scene.expect(Scene.text("test/example")).toExist(),
+      Scene.expect(Scene.text("Automation blocked by synchronization failure")).toExist(),
       Scene.expect(Scene.role("button", { name: "Retry sync" })).toExist(),
       Scene.expect(
         Scene.text(

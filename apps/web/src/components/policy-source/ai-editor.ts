@@ -11,6 +11,7 @@ import { linter, forceLinting } from "@codemirror/lint"
 import { githubDark, githubLight } from "@uiw/codemirror-theme-github"
 import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReferences"
 import type { FactDescription } from "../labeling-wire"
+import { hostTheme } from "./editor"
 
 export const aiCompletion =
   (catalog: ReadonlyArray<FactDescription>, target: string) => (context: CompletionContext) => {
@@ -46,7 +47,7 @@ export const aiCompletion =
 const marks = (view: EditorView) =>
   Decoration.set(
     [...view.state.doc.toString().matchAll(/\{\{fact:[a-zA-Z]+\}\}/g)].map((m) =>
-      Decoration.mark({ class: "ai-fact-reference" }).range(m.index, m.index + m[0].length),
+      Decoration.mark({ class: "policy-fact-reference" }).range(m.index, m.index + m[0].length),
     ),
   )
 export const createAiPromptEditor = (
@@ -91,10 +92,11 @@ export const createAiPromptEditor = (
       EditorView.lineWrapping,
       EditorView.contentAttributes.of({ "aria-label": "AI rule instructions" }),
       EditorView.theme({
-        "&": { minHeight: "20rem", fontSize: "13px" },
-        ".cm-content": { padding: "16px", lineHeight: "1.8" },
+        "&": { minHeight: "20rem", fontSize: "var(--text-mono-md)" },
+        ".cm-content": { padding: "12px", lineHeight: "1.6" },
         ".cm-scroller": { overflow: "auto" },
       }),
+      hostTheme,
       autocompletion({
         override: [
           (context) =>
