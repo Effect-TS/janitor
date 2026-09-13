@@ -24,3 +24,7 @@ Move the `.jn-tag` and `.jn-switch` rules from the mockup stylesheet into `style
 
 - A scratch page or the Account page (ticket 06) renders a sign, a panel, a rack with three tags and two platform marks using only these helpers.
 - `vp check` passes.
+
+## Comments
+
+Done: `ui/sign.ts`, `ui/panel.ts` (with `emptyPanel`), `ui/rack.ts`, `ui/mark.ts` (`platformMark`, `avatar`, `initialsOf`). The tag and switch CSS landed in `styles.css` under ticket 01.
