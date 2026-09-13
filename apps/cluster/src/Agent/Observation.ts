@@ -21,6 +21,7 @@ import { homeThreadUrl } from "../Slack/HomeThread.ts"
 import { describeError } from "../SqlErrors.ts"
 import { AgentSessionError, AgentSessionNotFound } from "./Sessions.ts"
 import { AgentSessionId } from "./RunnerProtocol.ts"
+import { recoveryStatus } from "./RecoveryStatus.ts"
 
 export const DEFAULT_PAGE_SIZE = 25
 export const MAX_PAGE_SIZE = 100
@@ -224,6 +225,7 @@ export class SessionObservation extends Context.Service<
           WHERE session_id = ${sessionId} AND state <> 'sent'
           ORDER BY platform
         `.pipe(wrap("detail"))
+        const recovery = yield* recoveryStatus(sql, sessionId).pipe(wrap("detail"))
         const summary = summarize(row)
         // Later accepted work supersedes an older rejection, as it does an older failed turn.
         const latestError =
@@ -239,6 +241,7 @@ export class SessionObservation extends Context.Service<
           lastInputAt: counts.last_input_at,
           latestError,
           pendingDelivery,
+          recovery,
         } satisfies SessionDetail
       })
 

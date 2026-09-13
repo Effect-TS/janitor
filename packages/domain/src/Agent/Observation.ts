@@ -111,6 +111,28 @@ export const DeliveryItem = Schema.Struct({
 })
 export type DeliveryItem = typeof DeliveryItem.Type
 
+/**
+ * What a platform's recovery scan can and cannot promise for this session.
+ * Overdue and incomplete are stated separately so a scan that is running late
+ * is not mistaken for one that has caught up with nothing missing.
+ */
+export const RecoveryStatus = Schema.Struct({
+  platform: Schema.Literals(["slack", "github"]),
+  /** When the scan last completed; null when it has never run for this session. */
+  completedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  /** The periodic scan has not completed within the last cycle; missed events may be waiting. */
+  overdue: Schema.Boolean,
+  /** A scan or payload capture is still in progress; its results are not all in yet. */
+  incomplete: Schema.Boolean,
+  /** GitHub feedback contributions whose comments are still being fetched. */
+  hydrating: Schema.Int,
+  /** The latest platform problem the scan or hydration is retrying past. */
+  warning: Schema.NullOr(Schema.String),
+  /** What can never be recovered for this platform; stated rather than claimed. */
+  gap: Schema.NullOr(Schema.String),
+})
+export type RecoveryStatus = typeof RecoveryStatus.Type
+
 export const SessionDetail = Schema.Struct({
   ...SessionSummary.fields,
   /** Accepted inputs the runner has not yet confirmed. */
@@ -121,5 +143,7 @@ export const SessionDetail = Schema.Struct({
   latestError: Schema.NullOr(Schema.String),
   /** Outputs not yet confirmed on their platform. */
   pendingDelivery: Schema.Array(DeliveryItem),
+  /** One entry per platform that can miss events for this session. */
+  recovery: Schema.Array(RecoveryStatus),
 })
 export type SessionDetail = typeof SessionDetail.Type

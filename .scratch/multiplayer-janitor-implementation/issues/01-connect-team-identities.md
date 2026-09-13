@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** needs-triage
 
 Source: [Accepted implementation handoff](../spec.md). Implement this slice within its accepted contracts and evidence limits.
 
@@ -19,3 +19,5 @@ Source: [Accepted implementation handoff](../spec.md). Implement this slice with
 ## Comments
 
 2026-09-12: Implemented. Migration `0022_teammates.sql` adds teammates, links, single-use link attempts and audit. `Teammates` (admission, roles, removal/restoration, links, transactional `authorize`) and `AccountLinking` (Slack OIDC with bound state/nonce and workspace validation; GitHub App user authorization with numeric user lookup) sit behind the new membership middleware, which every human route now requires in addition to Access. Routes live under `/api/v1/account` and `/api/v1/team`; the web app gains an Account page with connected accounts and the admin roster. Tests cover callback replay, conflicting concurrent links, replacement, member/admin boundaries, last-admin races, removal/relinking and the authorization-versus-removal transaction; browser expiry is checked independently of links in the middleware tests. Setup instructions are in the README and `.env.example`. No verified deployed Access mapping supplies GitHub identity, so explicit user authorization is used. Real Slack and GitHub callbacks were exercised against stubbed platforms only; a live round trip still needs the apps described in the README.
+
+2026-09-13: Status set to needs-triage: the implementation is complete and awaits maintainer evaluation, as with the other implemented tickets.

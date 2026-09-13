@@ -232,3 +232,15 @@ caused it; catch-up reads and delivery cron wakes then forward it. The
 projection's own `freshness_at` heartbeat, thread cursors and leases are
 bookkeeping and do not notify. No data changes; existing sessions appear on the dashboard
 once their next projection read commits.
+
+## Recovery observation
+
+`0029_recovery_observation.sql` puts recovery health on the `sessions` live
+channel. The dashboard states when each platform's recovery scan last
+completed, whether it is overdue or incomplete, what it is retrying past and
+what it can never bring back. Triggers on the GitHub scan record, retained
+delivery attempts, the thread's Slack scan columns and feedback hydration fire
+only when a health column actually changes, because the scans rewrite those
+columns together with cursors, due times and leases on every page. Lateness
+that comes from time alone has no trigger; the browser's fallback refresh
+picks it up. No data changes.

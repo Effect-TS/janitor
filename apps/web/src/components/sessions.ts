@@ -1,5 +1,6 @@
 import {
   type ExecutionState,
+  type RecoveryStatus,
   SessionCursor,
   SessionDetail,
   SessionPage,
@@ -486,6 +487,53 @@ const fact = (h: HtmlBuilder<Message>, label: string, value: ReadonlyArray<Html 
     [h.dt([h.Class("text-xs text-muted-foreground")], [label]), h.dd([h.Class("text-sm")], value)],
   )
 
+/**
+ * One line per platform, stating what the scan is doing rather than what it
+ * found. A caught-up scan with nothing pending says so; a gap is shown next
+ * to it because being caught up never means nothing was lost.
+ */
+const describeRecovery = (status: RecoveryStatus): string => {
+  const parts: Array<string> = []
+  if (status.completedAt === null) parts.push("not scanned yet")
+  else if (status.overdue) parts.push(`scan overdue, last ${formatTime(status.completedAt)}`)
+  if (status.incomplete) parts.push("results still arriving")
+  if (status.hydrating > 0)
+    parts.push(
+      `fetching comments for ${formatCount(status.hydrating)} contribution${status.hydrating === 1 ? "" : "s"}`,
+    )
+  if (status.warning !== null) parts.push(`retrying past: ${status.warning}`)
+  return `${platformName(status.platform)}: ${parts.length === 0 ? `caught up, last scan ${formatTime(status.completedAt!)}` : parts.join("; ")}`
+}
+
+const recoveryView = (h: HtmlBuilder<Message>, recovery: ReadonlyArray<RecoveryStatus>): Html =>
+  recovery.length === 0
+    ? h.empty
+    : h.section(
+        [h.Class("rounded-lg border p-5 space-y-2")],
+        [
+          h.h2([h.Class("text-base font-semibold")], ["Recovery"]),
+          h.ul(
+            [h.Class("text-sm space-y-2")],
+            recovery.map((status) =>
+              h.li(
+                [h.Class("space-y-0.5")],
+                [
+                  h.p(
+                    status.overdue || status.incomplete || status.warning !== null
+                      ? [h.Class("text-amber-700 dark:text-amber-300")]
+                      : [],
+                    [describeRecovery(status)],
+                  ),
+                  status.gap === null
+                    ? h.empty
+                    : h.p([h.Class("text-xs text-muted-foreground")], [status.gap]),
+                ],
+              ),
+            ),
+          ),
+        ],
+      )
+
 const detailView = (h: HtmlBuilder<Message>, detail: SessionDetail): Html =>
   h.div(
     [h.Class("space-y-5")],
@@ -547,6 +595,7 @@ const detailView = (h: HtmlBuilder<Message>, detail: SessionDetail): Html =>
               ),
             ],
           ),
+      recoveryView(h, detail.recovery),
       h.p([h.Class("text-xs text-muted-foreground")], [describeFreshness(detail)]),
     ],
   )

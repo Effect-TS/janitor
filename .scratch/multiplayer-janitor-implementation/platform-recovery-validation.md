@@ -28,7 +28,7 @@ This check does not exercise a deployed Janitor worker, browser dashboard, real 
 
 ## Dependency and recovery limits
 
-Ticket 04's paginated dashboard and subscriptions are not implemented in the starting tree. This change exposes recovery health and independent Slack delivery warnings through `AgentSessions.view`; browser visibility remains dependent on ticket 04. Existing feedback rows expose incomplete hydration independently.
+Ticket 04's dashboard landed after the backend recovery work. Recovery health now reaches the browser through the session detail read: `SessionObservation.detail` and `AgentSessions.view` share one recovery query, and the session page shows a Recovery section with each platform's overdue, incomplete, hydrating, warning and gap facts. A scan counts as overdue after two five-minute cycles. The independent Slack delivery warning appears in both the list and the detail view.
 
 Expired GitHub delivery history, deleted uncaptured Slack text, edited originals that were never captured, and never-received start mentions cannot be reconstructed. A missing publication marker does not establish a failed send and never authorizes reposting.
 
