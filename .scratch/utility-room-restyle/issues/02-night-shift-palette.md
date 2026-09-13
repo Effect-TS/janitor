@@ -23,3 +23,7 @@ The theme file's `.dark` block turns the wall navy-deep and every card navy, whi
 
 - Switching to Dark in the app shows a warm charcoal wall, cream text, cobalt signs and yellow on-states, with no navy fills on cards or the sidebar.
 - Contrast check passes for `#a8a08e` on `#2a2823` and `#e0705c` on `#2a2823` (both above 4.5:1).
+
+## Comments
+
+Done. The night palette shipped inside the ticket 01 stylesheet rewrite (`.dark` block with `--nt-*` tokens, `--jn-outline` lifted to `#7b7466`, dark brick SVG). Contrast: muted `#a8a08e` on card `#2a2823` = 6.05, rust `#e0705c` on card = 4.63, ink on card = 12.4.

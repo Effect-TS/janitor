@@ -25,3 +25,7 @@ Swap the shadcn oklch palette in `apps/web/src/styles.css` for the Utility Room 
 
 - `vp dev` renders the app on the cinderblock wall with Archivo body text and no oklch values left in `styles.css`.
 - `docs/design/DESIGN.md` records the two deviations.
+
+## Comments
+
+Done in commit "Replace theme tokens with Utility Room palette and fonts (01)". Fonts are the variable fontsource builds, so the family names are "Archivo Variable", "Big Shoulders Display Variable" and "Spline Sans Mono Variable".
