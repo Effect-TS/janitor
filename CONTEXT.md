@@ -141,6 +141,15 @@ The persisted promise, kept per agent session, to read the runner's durable even
 **Automatic PR review handling**:
 Agent work prompted by an authorized teammate's PR review feedback, with changes and replies made on GitHub without another request in the session's home thread. Outside contributors' feedback requires an authorized teammate's request before the agent acts on it.
 
+**Recovery scan**:
+The periodic, per-platform read of retained GitHub delivery history or of a session's Slack home thread that catches up on feedback Janitor missed. A scan is overdue when it has not completed within two of its five-minute cycles and incomplete while a page or a retained payload is still being fetched; neither says anything was lost.
+
+**Recovery gap**:
+What a recovery scan can never bring back: expired GitHub delivery history, deleted text that was never captured, edited originals that were never captured, and start mentions that never arrived. The dashboard states the gap next to the scan's status rather than claiming recovery.
+
+**Feedback hydration**:
+Fetching the comments of an accepted GitHub review contribution page by page before the agent acts on it. A contribution is hydrating until every page is in; the dashboard counts hydrating contributions and shows the problem the fetch is retrying past.
+
 **Janitor dashboard**:
 The team-wide observation view of agent sessions and their usage, including token usage, independent of home-channel membership. Collaboration with agents takes place in their home threads.
 

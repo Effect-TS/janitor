@@ -41,6 +41,26 @@ const detail: SessionDetail = {
   lastInputAt: at,
   latestError: "provider down",
   pendingDelivery: [{ platform: "slack", state: "pending", error: "not_in_channel" }],
+  recovery: [
+    {
+      platform: "github",
+      completedAt: at,
+      overdue: true,
+      incomplete: true,
+      hydrating: 2,
+      warning: "GitHub asked us to slow down",
+      gap: "Only retained GitHub deliveries can be recovered",
+    },
+    {
+      platform: "slack",
+      completedAt: at,
+      overdue: false,
+      incomplete: false,
+      hydrating: 0,
+      warning: null,
+      gap: "Deleted uncaptured text cannot be recovered",
+    },
+  ],
 }
 
 const loaded = (model: Sessions.Model, sessions: ReadonlyArray<SessionSummary>) =>
@@ -102,6 +122,61 @@ describe("Sessions dashboard", () => {
       Scene.expect(Scene.text("Confirmed 2026-09-13 10:00 UTC")).toExist(),
       Scene.expect(Scene.text("Slack reply pending: not_in_channel")).toExist(),
       Scene.expect(Scene.role("link", { name: "All sessions" })).toExist(),
+    )
+  })
+
+  it("states overdue scans, incomplete capture, hydration and known gaps without claiming recovery", () => {
+    const entered = Sessions.enter(Sessions.init(), "ses-working")
+    const model = Sessions.update(
+      entered.model,
+      Sessions.Message.LoadedDetail({ generation: entered.model.generation, detail }),
+    ).model
+    scene(
+      model,
+      Scene.expect(Scene.text("Recovery")).toExist(),
+      Scene.expect(
+        Scene.text(
+          "GitHub: scan overdue, last 2026-09-13 10:00 UTC; results still arriving; fetching comments for 2 contributions; retrying past: GitHub asked us to slow down",
+        ),
+      ).toExist(),
+      Scene.expect(Scene.text("Only retained GitHub deliveries can be recovered")).toExist(),
+      Scene.expect(Scene.text("Slack: caught up, last scan 2026-09-13 10:00 UTC")).toExist(),
+      Scene.expect(Scene.text("Deleted uncaptured text cannot be recovered")).toExist(),
+    )
+    const caughtUp = Sessions.update(
+      entered.model,
+      Sessions.Message.LoadedDetail({
+        generation: entered.model.generation,
+        detail: {
+          ...detail,
+          recovery: [
+            {
+              platform: "github",
+              completedAt: at,
+              overdue: false,
+              incomplete: false,
+              hydrating: 1,
+              warning: null,
+              gap: null,
+            },
+            {
+              platform: "slack",
+              completedAt: null,
+              overdue: false,
+              incomplete: false,
+              hydrating: 0,
+              warning: null,
+              gap: null,
+            },
+          ],
+        },
+      }),
+    ).model
+    // A thread that was never scanned is not called caught up.
+    scene(
+      caughtUp,
+      Scene.expect(Scene.text("GitHub: fetching comments for 1 contribution")).toExist(),
+      Scene.expect(Scene.text("Slack: not scanned yet")).toExist(),
     )
   })
 
