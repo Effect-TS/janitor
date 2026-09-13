@@ -151,7 +151,11 @@ describe("maintenance hold", () => {
     await session.create()
     await session.admit({ inputId: "msg_hold_1", text: "long work" })
     await sleep(300)
-    const held = await session.maintenance({ hold: true, epoch: 3 })
+    const held = await waitFor(
+      () => session.maintenance({ hold: true, epoch: 3 }),
+      (state) => state.quiescent,
+      { label: "maintenance drain before restart" },
+    )
     expect(held).toMatchObject({ held: true, epoch: 3, quiescent: true, uncertain: false })
     // Repeating the hold is idempotent and an older epoch never overrides it.
     expect(await session.maintenance({ hold: true, epoch: 3 })).toMatchObject({ epoch: 3 })

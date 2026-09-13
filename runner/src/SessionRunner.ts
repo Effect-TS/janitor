@@ -20,6 +20,7 @@ import {
 import {
   DEFAULT_MODEL_INACTIVITY,
   ModelConfigurationError,
+  withCredentialRedaction,
   findRecord,
   parseModelConfigurations,
   withInactivityDeadline,
@@ -202,6 +203,18 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     const blockers = this.store.blockers
     if (blockers.length > 0) return blockers[0]!
     if (this.configurations instanceof ModelConfigurationError) return this.configurations.message
+    const modelId =
+      this.store.session?.modelConfigurationId ?? this.store.intendedModelConfigurationId
+    if (modelId !== undefined) {
+      const record = findRecord(this.configurations, modelId)
+      if (record === undefined)
+        return `Model configuration ${modelId} is unavailable. Restore its record or start a new session if the model was retired.`
+      if (
+        this.store.modelConfigurationSnapshot !== undefined &&
+        this.store.modelConfigurationSnapshot !== JSON.stringify(record)
+      )
+        return `Model configuration ${modelId} changed. Restore the original record; use a new configuration ID for new sessions.`
+    }
     const decision = decideCompatibility({
       record: this.store.compatibility,
       nativeInitialized: this.store.nativeInitialized,
@@ -273,6 +286,12 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     }
     this.requireRunnable()
     const configurations = this.configurations as ModelConfigurations
+    // Older sessions predate snapshots. Establish their baseline before starting
+    // the host; deployment must retain the original records during this upgrade.
+    const modelId =
+      this.store.session?.modelConfigurationId ?? this.store.intendedModelConfigurationId
+    if (modelId !== undefined && this.store.modelConfigurationSnapshot === undefined)
+      this.store.modelConfigurationSnapshot = JSON.stringify(findRecord(configurations, modelId))
     const recorded = this.store.compatibility
     const decision = decideCompatibility({
       record: recorded,
@@ -315,9 +334,11 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
         const value = this.env[binding]
         return typeof value === "string" ? value : undefined
       },
-      httpClient: withInactivityDeadline(
-        this.heldTransport(),
-        Duration.millis(this.options().modelInactivityMs),
+      httpClient: withCredentialRedaction(
+        withInactivityDeadline(
+          this.heldTransport(),
+          Duration.millis(this.options().modelInactivityMs),
+        ),
       ),
       journal: (kind, data) => this.store.journal(kind, data),
     }).then((host) => {

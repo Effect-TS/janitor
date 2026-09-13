@@ -18,7 +18,13 @@ const settle = (session: ReturnType<Harness["session"]>, timeoutMs = 60_000) =>
   )
 
 describe("model transport", () => {
-  for (const mode of ["before-first", "midstream", "disconnect", "retry-after"] as const) {
+  for (const mode of [
+    "before-first",
+    "midstream",
+    "disconnect",
+    "retry-after",
+    "error-stall",
+  ] as const) {
     it(`retries natively after ${mode} and completes`, async () => {
       const session = harness.session(uniqueSessionId(mode))
       await session.faults({ intervalMs: 500, modelInactivityMs: 300 })

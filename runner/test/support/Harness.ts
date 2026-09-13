@@ -36,6 +36,7 @@ export const testConfigurations = {
 }
 
 export interface HarnessOptions {
+  readonly outboundService?: (request: Request) => Promise<Response>
   readonly serviceBindings?: Record<string, (request: Request) => Promise<Response>>
   readonly persist?: string
   readonly secret?: string | undefined
@@ -62,6 +63,7 @@ export const makeMiniflare = (options: HarnessOptions = {}) =>
     r2Buckets: ["WORKSPACE_CHECKPOINTS"],
     ...(options.persist === undefined ? {} : { r2Persist: path.join(options.persist, "r2") }),
     serviceBindings: options.serviceBindings,
+    outboundService: options.outboundService,
     ...(options.persist === undefined ? {} : { durableObjectsPersist: options.persist }),
   })
 
@@ -85,8 +87,9 @@ export class Harness {
   }
 
   /** Simulates process replacement: the same durable storage, a fresh runtime. */
-  async restart() {
+  async restart(update: HarnessOptions = {}) {
     await this.mf.dispose()
+    Object.assign(this.options, update)
     this.mf = makeMiniflare(this.options)
     await this.mf.ready
   }

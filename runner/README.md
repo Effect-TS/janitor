@@ -42,6 +42,8 @@ Janitor needs `JANITOR_AGENT_RUNNER_URL`, the agent runner's HTTPS base URL, and
 
 A session selects the default record at creation and keeps it; changing the default affects new sessions only. A missing secret or retired record is a visible execution failure, never a substitute model.
 
+See [deployment model validation](MODEL-VALIDATION.md) for the provider-backed configuration, local checks, bounded live check and rotation procedure.
+
 Use `JANITOR_AGENT_RUNNER_MODEL_API_KEY` for the provider secret and set the model record's `secretBinding` to that name. Other explicit binding names remain supported. In GitHub's `production` environment, store the URL and model configurations as variables, and the service token and provider key as secrets. Set `JANITOR_AGENT_RUNNER_RELEASE` from the deployed commit SHA. CI must explicitly pass each value to the corresponding deployment.
 
 ## Command boundary

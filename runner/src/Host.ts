@@ -18,6 +18,7 @@ import { ServerWorkerd } from "@opencode/server/workerd"
 import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { makeMemoryDriver } from "@opencode/core/environment/index"
 import { resolverLayer, type ModelConfigurations, type SecretReader } from "./ModelConfiguration.ts"
+import { redactModelEvents } from "./ModelCredentials.ts"
 import {
   DEFAULT_TOOL_TIMEOUT_MS,
   REPOSITORY_TOOLS,
@@ -127,7 +128,24 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
   const executor = RequestExecutor.layer.pipe(
     Layer.provide(Layer.succeed(HttpClient.HttpClient, deps.httpClient)),
   )
-  const client = LLMClient.layer.pipe(Layer.provide(executor))
+  const client = Layer.effect(
+    LLMClient.Service,
+    Effect.gen(function* () {
+      const native = yield* LLMClient.Service
+      return {
+        ...native,
+        stream: (request, options) => {
+          const record = deps.configurations.records.find(
+            (record) => record.id === deps.selection(),
+          )
+          return redactModelEvents(
+            native.stream(request, options),
+            record && deps.secrets(record.secretBinding),
+          )
+        },
+      } satisfies typeof native
+    }),
+  ).pipe(Layer.provide(LLMClient.layer.pipe(Layer.provide(executor))))
   const inspectionTools = NativeTool.node.mapLayer((layer) =>
     Layer.effect(
       NativeTool.Service,
