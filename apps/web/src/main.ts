@@ -1,6 +1,7 @@
 import * as Live from "./components/live"
 import * as Connections from "@/components/repository-connections"
 import * as Account from "@/components/account"
+import * as Sessions from "@/components/sessions"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -18,7 +19,7 @@ import * as RepositorySwitcher from "@/components/repository-switcher"
 import * as Sidebar from "@/components/ui/sidebar"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
-import { House, FileCode2, Tags, Activity, Settings, UserRound } from "lucide"
+import { House, FileCode2, Tags, Activity, Settings, UserRound, Bot } from "lucide"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
@@ -39,6 +40,7 @@ export const AppToast = Toast.make(ToastPayload)
 export const Model = Schema.Struct({
   connections: Connections.Model,
   account: Account.Model,
+  sessions: Sessions.Model,
   navigation: Navigation.Model,
   lastRepositoryId: Schema.Option(Schema.String),
   sidebar: Sidebar.Model,
@@ -54,6 +56,7 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   GotConnectionsMessage: { message: Connections.Message },
   GotAccountMessage: { message: Account.Message },
+  GotSessionsMessage: { message: Sessions.Message },
   GotNavigationMessage: { message: Navigation.Message },
   PersistedRepository: {},
   GotSidebarMessage: {
@@ -149,6 +152,26 @@ const isAccountRoute = (
 ): route is Extract<Routes.AppRoute, { _tag: "Account" | "AccountReturn" }> =>
   route._tag === "Account" || route._tag === "AccountReturn"
 
+const isSessionsRoute = (
+  route: Routes.AppRoute,
+): route is Extract<Routes.AppRoute, { _tag: "Sessions" | "Session" }> =>
+  route._tag === "Sessions" || route._tag === "Session"
+
+/** The dashboard owns its reads; the page only tells it which session, if any, is open. */
+const enterSessions = (model: Model, route: Routes.AppRoute): Step => {
+  const entered = Sessions.enter(model.sessions, route._tag === "Session" ? route.sessionId : null)
+  return {
+    model: evo(model, {
+      navigation: (navigation) => Navigation.enter(navigation, route),
+      sessions: () => entered.model,
+      workspace: () => evo(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
+    }),
+    commands: Command.mapMessages(entered.commands ?? [], (message) =>
+      Message.GotSessionsMessage({ message }),
+    ),
+  }
+}
+
 /** A platform callback with both parameters completes the link; anything else just opens the page. */
 const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
   const entered =
@@ -180,6 +203,11 @@ const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
 }
 
 const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
+  if (isSessionsRoute(route)) return enterSessions(model, route)
+  return enterOtherRoute(evo(model, { sessions: (sessions) => Sessions.leave(sessions) }), route)
+}
+
+const enterOtherRoute = (model: Model, route: Routes.AppRoute): Step => {
   if (isAccountRoute(route)) return enterAccount(model, route)
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return {
@@ -282,6 +310,13 @@ const foldAccount = Update.foldChild({
   write: (model, next) => evo(model, { account: () => next }),
   toParentMessage: (message) => Message.GotAccountMessage({ message }),
   foldOutMessage: foldAccountOutMessage,
+})
+
+const foldSessions = Update.foldChild({
+  update: Sessions.update,
+  read: (model: Model) => Option.some(model.sessions),
+  write: (model, next) => evo(model, { sessions: () => next }),
+  toParentMessage: (message) => Message.GotSessionsMessage({ message }),
 })
 
 const foldSidebar = Update.foldChild({
@@ -684,6 +719,7 @@ export const update = (model: Model, message: Message) =>
       return { model: updated, commands }
     },
     GotAccountMessage: ({ message }) => foldAccount(model, message),
+    GotSessionsMessage: ({ message }) => foldSessions(model, message),
     GotNavigationMessage: ({ message }) => updateNavigation(model, message),
     PersistedRepository: () => ({ model }),
     GotSidebarMessage: ({ message }) => foldSidebar(model, message),
@@ -708,7 +744,7 @@ export const update = (model: Model, message: Message) =>
             live: { ...model.live, retry: model.live.retry + 1, status: "connecting" },
           },
         }
-      if (!Option.contains(model.workspace.dataRepositoryId, message.repositoryId)) return { model }
+      if (!Option.contains(model.workspace.dataRepositoryId, message.channel)) return { model }
       if (message._tag === "Disconnected")
         return {
           model: {
@@ -755,6 +791,7 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
       }),
     ),
     account: Account.init(),
+    sessions: Sessions.init(),
     navigation: Navigation.init(flags.historyIndex ?? 0),
     lastRepositoryId: flags.lastRepositoryId ?? Option.none(),
     sidebar,
@@ -795,11 +832,20 @@ const themeSubscriptions = Subscription.lift(ThemeSwitcher.subscriptions)<Model,
 })
 
 const liveSubscriptions = Subscription.lift(Live.subscriptions)<Model, Message>({
-  toChildModel: (model) => ({
-    ...model.live,
-    repositoryId: Option.getOrElse(model.workspace.dataRepositoryId, () => ""),
-  }),
+  toChildModel: (model) => {
+    const repositoryId = Option.getOrElse(model.workspace.dataRepositoryId, () => "")
+    return {
+      ...model.live,
+      channel: repositoryId,
+      endpoint: Live.repositoryEndpoint(repositoryId),
+    }
+  },
   toParentMessage: (message) => Message.GotLiveMessage({ message }),
+})
+
+const sessionsSubscriptions = Subscription.lift(Sessions.subscriptions)<Model, Message>({
+  toChildModel: (model) => model.sessions,
+  toParentMessage: (message) => Message.GotSessionsMessage({ message }),
 })
 
 const workspaceSubscriptions = Subscription.lift(Workspace.subscriptions)<Model, Message>({
@@ -835,6 +881,7 @@ export const subscriptions = Subscription.aggregate<Model, Message, AppServices>
   sidebarSubscriptions,
   themeSubscriptions,
   liveSubscriptions,
+  sessionsSubscriptions,
   workspaceSubscriptions,
   navigationSubscriptions,
 )
@@ -958,6 +1005,34 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
         ],
       )
 
+const teamNav = (h: HtmlBuilder<Message>, model: Model): Html =>
+  Sidebar.group(h, {
+    children: [
+      Sidebar.groupLabel(h, { children: ["Team"] }),
+      Sidebar.menu(h, {
+        children: [
+          Sidebar.menuItem(h, {
+            children: [
+              h.a(
+                [
+                  h.Href(Routes.sessions()),
+                  h.Class(
+                    cn(
+                      Sidebar.sidebarMenuButtonClass,
+                      isSessionsRoute(model.navigation.route) && "bg-sidebar-accent font-medium",
+                    ),
+                  ),
+                  h.AriaCurrent(isSessionsRoute(model.navigation.route) ? "page" : "false"),
+                ],
+                [Icon.view(h, Bot, "size-4 shrink-0"), h.span([], ["Sessions"])],
+              ),
+            ],
+          }),
+        ],
+      }),
+    ],
+  })
+
 const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
   Sidebar.menu(h, {
     children: [
@@ -983,7 +1058,7 @@ const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
 
 const sidebarPanel = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> => [
   Sidebar.header(h, { children: [sidebarMenu(h, model)] }),
-  Sidebar.content(h, { children: [navMain(h, model)] }),
+  Sidebar.content(h, { children: [navMain(h, model), teamNav(h, model)] }),
   Sidebar.footer(h, { children: [accountLink(h, model)] }),
 ]
 
@@ -1025,11 +1100,13 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                     ? "Connect repository"
                     : isAccountRoute(model.navigation.route)
                       ? "Account"
-                      : model.navigation.route._tag === "Home"
-                        ? "Repositories"
-                        : model.navigation.route._tag === "NotFound"
-                          ? "Page not found"
-                          : Routes.section(model.navigation.route),
+                      : isSessionsRoute(model.navigation.route)
+                        ? "Sessions"
+                        : model.navigation.route._tag === "Home"
+                          ? "Repositories"
+                          : model.navigation.route._tag === "NotFound"
+                            ? "Page not found"
+                            : Routes.section(model.navigation.route),
                 ],
               ),
             ],
@@ -1129,6 +1206,14 @@ const connectionView = (h: HtmlBuilder<Message>, model: Model, repositoryId: str
         model.navigation.route._tag === "ConnectReturn" ? (model.navigation.route.state ?? "") : "",
     },
   })
+const sessionsView = (h: HtmlBuilder<Message>, model: Model) =>
+  h.submodel({
+    slotId: "sessions",
+    model: model.sessions,
+    view: Sessions.view,
+    toParentMessage: (message) => Message.GotSessionsMessage({ message }),
+    viewInputs: {},
+  })
 const accountView = (h: HtmlBuilder<Message>, model: Model) =>
   h.submodel({
     slotId: "account",
@@ -1141,6 +1226,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.navigation.route
   const repositories = Option.getOrElse(model.workspace.repositories, () => [])
   if (isAccountRoute(route)) return accountView(h, model)
+  if (isSessionsRoute(route)) return sessionsView(h, model)
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")
@@ -1251,7 +1337,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
+  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isSessionsRoute(model.navigation.route) ? "Sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

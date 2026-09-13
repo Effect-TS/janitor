@@ -15,6 +15,8 @@ export const Topic = Schema.Literals([
   "consent",
   "test",
   "repository",
+  "sessions",
+  "membership",
 ])
 class HeartbeatTimeout extends Schema.TaggedError<HeartbeatTimeout>()("HeartbeatTimeout", {}) {}
 const Frame = Schema.Union([
@@ -28,21 +30,30 @@ export const Model = Schema.Struct({
 })
 export type Model = typeof Model.Type
 export const init = (): Model => ({ visible: true, status: "connecting", retry: 0 })
+/**
+ * A channel names what the browser is watching: a repository ID, or the
+ * team-wide `sessions` channel. Messages carry it so a late frame from a
+ * channel the page has left can be ignored.
+ */
 export const Message = defineMessageUnion({
-  Received: { repositoryId: Schema.String, topics: Schema.Array(Topic), connected: Schema.Boolean },
-  Disconnected: { repositoryId: Schema.String, denied: Schema.Boolean },
+  Received: { channel: Schema.String, topics: Schema.Array(Topic), connected: Schema.Boolean },
+  Disconnected: { channel: Schema.String, denied: Schema.Boolean },
   Visibility: { visible: Schema.Boolean },
   Retry: {},
-  Fallback: { repositoryId: Schema.String },
+  Fallback: { channel: Schema.String },
 })
 export type Message = typeof Message.Type
-export type State = Model & { repositoryId: string }
+export type State = Model & { channel: string; endpoint: string }
+
+export const repositoryEndpoint = (repositoryId: string) =>
+  `/api/v1/repositories/${encodeURIComponent(repositoryId)}/live`
+export const SESSIONS_CHANNEL = "sessions"
+export const sessionsEndpoint = "/api/v1/sessions/live"
 
 /** Effect Socket owns the browser connection and closes it when this subscription is cancelled. */
-const connection = (repositoryId: string) =>
+const connection = (channel: string, endpoint: string) =>
   Stream.callback<Message, never, HttpClient.HttpClient>((queue) =>
     Effect.gen(function* () {
-      const endpoint = `/api/v1/repositories/${encodeURIComponent(repositoryId)}/live`
       let attempt = 0
       while (true) {
         const available = yield* HttpClient.get(endpoint).pipe(
@@ -55,7 +66,7 @@ const connection = (repositoryId: string) =>
             available.success.status === 403 ||
             available.success.status === 200)
         ) {
-          yield* Queue.offer(queue, Message.Disconnected({ repositoryId, denied: true }))
+          yield* Queue.offer(queue, Message.Disconnected({ channel, denied: true }))
           return yield* Effect.never
         }
         if (available._tag === "Success" && available.success.status === 204) {
@@ -92,7 +103,7 @@ const connection = (repositoryId: string) =>
                   yield* Queue.offer(
                     queue,
                     Message.Received({
-                      repositoryId,
+                      channel,
                       connected: frame._tag === "Ready",
                       topics: frame._tag === "Ready" ? [] : frame.topics,
                     }),
@@ -111,6 +122,8 @@ const connection = (repositoryId: string) =>
               )
             }),
           ).pipe(Effect.result)
+          // 4003 is the server's refusal to continue: the repository was
+          // disconnected, or this teammate's membership was removed.
           if (
             result._tag === "Failure" &&
             result.failure._tag === "SocketError" &&
@@ -119,13 +132,13 @@ const connection = (repositoryId: string) =>
           ) {
             yield* Queue.offer(
               queue,
-              Message.Received({ repositoryId, connected: false, topics: ["repository"] }),
+              Message.Received({ channel, connected: false, topics: ["repository"] }),
             )
-            yield* Queue.offer(queue, Message.Disconnected({ repositoryId, denied: true }))
+            yield* Queue.offer(queue, Message.Disconnected({ channel, denied: true }))
             return yield* Effect.never
           }
         }
-        yield* Queue.offer(queue, Message.Disconnected({ repositoryId, denied: false }))
+        yield* Queue.offer(queue, Message.Disconnected({ channel, denied: false }))
         const delay = Math.min(60000, 1000 * 2 ** Math.min(attempt++, 6))
         yield* Effect.sleep(delay * (0.75 + Math.random() * 0.5))
       }
@@ -135,30 +148,36 @@ const connection = (repositoryId: string) =>
 export const subscriptions = Subscription.make<State, Message, HttpClient.HttpClient>()(
   (entry) => ({
     liveSocket: entry(
-      { repositoryId: Schema.String, visible: Schema.Boolean, retry: Schema.Int },
+      {
+        channel: Schema.String,
+        endpoint: Schema.String,
+        visible: Schema.Boolean,
+        retry: Schema.Int,
+      },
       {
         modelToDependencies: (model) => ({
-          repositoryId: model.repositoryId,
+          channel: model.channel,
+          endpoint: model.endpoint,
           visible: model.visible,
           retry: model.retry,
         }),
-        dependenciesToStream: ({ repositoryId, visible }) =>
-          repositoryId && visible ? connection(repositoryId) : Stream.empty,
+        dependenciesToStream: ({ channel, endpoint, visible }) =>
+          channel && visible ? connection(channel, endpoint) : Stream.empty,
       },
     ),
     liveFallback: entry(
-      { repositoryId: Schema.String, visible: Schema.Boolean, status: Model.fields.status },
+      { channel: Schema.String, visible: Schema.Boolean, status: Model.fields.status },
       {
         modelToDependencies: (model) => ({
-          repositoryId: model.repositoryId,
+          channel: model.channel,
           visible: model.visible,
           status: model.status,
         }),
-        dependenciesToStream: ({ repositoryId, visible, status }) =>
-          repositoryId && visible && status !== "connected" && status !== "denied"
+        dependenciesToStream: ({ channel, visible, status }) =>
+          channel && visible && status !== "connected" && status !== "denied"
             ? Stream.tick("60 seconds").pipe(
                 Stream.drop(1),
-                Stream.map(() => Message.Fallback({ repositoryId })),
+                Stream.map(() => Message.Fallback({ channel })),
               )
             : Stream.empty,
       },

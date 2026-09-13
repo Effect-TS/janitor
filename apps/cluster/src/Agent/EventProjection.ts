@@ -160,7 +160,8 @@ export class AgentEventProjection extends Context.Service<
               activity = event.created
               break
             case "session.inbox.enqueued":
-              if (execution === "idle") {
+              // New accepted work supersedes a historical failure.
+              if (execution === "idle" || execution === "failed") {
                 execution = "working"
                 reason = "input pending"
               }

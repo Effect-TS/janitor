@@ -28,6 +28,8 @@ export const AppRoute = Route.defineRouteUnion({
   Rule: { ...repository, ruleId: Schema.String },
   Activity: repository,
   Settings: repository,
+  Sessions: {},
+  Session: { sessionId: Schema.String },
   Account: { section: AccountSection },
   AccountReturn: {
     platform: Schema.String,
@@ -108,6 +110,12 @@ export const settings = pipe(
   Route.slash(Route.literal("settings")),
   Route.mapTo(AppRoute.Settings),
 )
+export const sessions = pipe(Route.literal("sessions"), Route.mapTo(AppRoute.Sessions))
+export const session = pipe(
+  Route.literal("sessions"),
+  Route.slash(idSegment("sessionId")),
+  Route.mapTo(AppRoute.Session),
+)
 const isAccountSection = (segment: string): segment is AccountSection =>
   segment === "you" || segment === "accounts" || segment === "team"
 // An optional section segment. Bare /account is the connected-accounts section.
@@ -162,6 +170,8 @@ export const parse = Route.parseUrlWithFallback(
     rule,
     activity,
     settings,
+    session,
+    sessions,
     accountReturn,
     account,
   ),
@@ -181,6 +191,8 @@ export const path = (route: AppRoute): string =>
     Rule: rule,
     Activity: activity,
     Settings: settings,
+    Sessions: sessions,
+    Session: session,
     Account: account,
     AccountReturn: accountReturn,
     NotFound: ({ path }) => path,

@@ -20,6 +20,8 @@ describe("SPA routes", () => {
     ["/repositories/701/rules/r1", "Rule"],
     ["/repositories/701/activity", "Activity"],
     ["/repositories/701/settings", "Settings"],
+    ["/sessions", "Sessions"],
+    ["/sessions/ses%201", "Session"],
     ["/account", "Account"],
     ["/account/you", "Account"],
     ["/account/team", "Account"],
@@ -68,6 +70,7 @@ describe("SPA routes", () => {
     "/unknown",
     "/repositories",
     "/account/slack",
+    "/sessions/ses-1/extra",
     "/repositories/701/unknown",
     "/repositories/701/policies/p1/extra",
   ])("shows not found for %s", (path) => {

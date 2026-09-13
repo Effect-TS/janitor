@@ -9,6 +9,7 @@ import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Singleton from "effect/unstable/cluster/Singleton"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { flushLive } from "../LiveUpdates.ts"
 import { WorkflowDispatcher } from "../WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import { AgentEventProjection } from "./EventProjection.ts"
@@ -62,11 +63,14 @@ export const AgentCatchUpCronLayer = Singleton.make(
     }
     for (;;) {
       const summaries = yield* projection.processDue(50)
-      if (summaries.length > 0)
+      if (summaries.length > 0) {
         yield* Effect.logInfo("Caught up agent sessions", {
           sessions: summaries.length,
           applied: summaries.reduce((sum, summary) => sum + summary.applied, 0),
         })
+        // Projection changes committed their invalidation intent; forward it now.
+        yield* flushLive
+      }
       const next = yield* projection.nextDueIn
       const remaining = WAKE_BUDGET_MS - ((yield* Clock.currentTimeMillis) - started)
       if (next === null || next > remaining) break

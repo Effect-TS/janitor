@@ -26,7 +26,7 @@ import { avatar, platformMark } from "@/components/ui/mark"
 import { emptyPanel, panel } from "@/components/ui/panel"
 import { rack } from "@/components/ui/rack"
 import { sign } from "@/components/ui/sign"
-import { reasonOf, request } from "@/lib/api"
+import { readFailure, reasonOf, request } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
 
@@ -119,14 +119,7 @@ export const Load = Command.define("LoadAccount", {
       Effect.flatMap((response) =>
         response.status === 200
           ? HttpIncomingMessage.schemaBodyJson(AccountView)(response)
-          : HttpIncomingMessage.schemaBodyJson(Schema.Struct({ message: Schema.String }))(
-              response,
-            ).pipe(
-              Effect.orElseSucceed(() => ({
-                message: "Could not load your account. Retry to continue.",
-              })),
-              Effect.flatMap((data) => Effect.fail(new Error(data.message))),
-            ),
+          : readFailure(response, "Could not load your account. Retry to continue."),
       ),
       Effect.map((view) => Message.Loaded({ view, requestId })),
       Effect.catch((error) =>

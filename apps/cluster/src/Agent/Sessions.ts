@@ -9,9 +9,11 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import type { RecoveryStatus } from "@janitor/domain/Agent/Observation"
 import { describeError } from "../SqlErrors.ts"
 import { WorkflowOutbox, type WorkflowOutboxError } from "../WorkflowOutbox.ts"
 import { handoffRequest } from "./Handoff.ts"
+import { recoveryStatus } from "./RecoveryStatus.ts"
 import {
   AgentSessionId,
   InputSource,
@@ -99,13 +101,7 @@ export interface AcceptInput {
 }
 
 export interface SessionView {
-  readonly recovery: ReadonlyArray<{
-    platform: string
-    overdue: boolean
-    incomplete: boolean
-    warning: string | null
-    gap: string | null
-  }>
+  readonly recovery: ReadonlyArray<RecoveryStatus>
   readonly slackDelivery: ReadonlyArray<{ id: string; state: string; error: string | null }>
   readonly deliveryWarning: string | null
   readonly feedback: ReadonlyArray<{ key: string; state: string; warning: string | null }>
@@ -282,6 +278,15 @@ export class AgentSessions extends Context.Service<
               RETURNING ${inputColumns}
             `.pipe(Effect.flatMap(decodeInputs), wrap("accept"))
               yield* outbox.enqueue(handoffRequest(input.sessionId, sequence))
+              // Accepted work is meaningful activity, and it is work in flight until the
+              // runner reports otherwise: a historical failure does not outrank new input.
+              yield* sql`
+              UPDATE agent_session_projection SET
+                activity_at = GREATEST(COALESCE(activity_at, to_timestamp(0)), CLOCK_TIMESTAMP()),
+                execution = CASE WHEN execution IN ('idle', 'failed') THEN 'working' ELSE execution END,
+                reason = CASE WHEN execution IN ('idle', 'failed') THEN 'input pending' ELSE reason END
+              WHERE session_id = ${input.sessionId}
+            `.pipe(wrap("accept"))
               // Reads accelerate on new work; the obligation already exists.
               yield* sql`
               UPDATE agent_catchup SET due_at = LEAST(due_at, CLOCK_TIMESTAMP()), cadence = 'active'
@@ -333,18 +338,7 @@ export class AgentSessions extends Context.Service<
         }>`SELECT output_id AS id,state,error FROM github_feedback_output WHERE session_id=${sessionId} AND state<>'sent' ORDER BY sequence`.pipe(
           wrap("view"),
         )
-        const recovery = yield* sql<{
-          platform: string
-          overdue: boolean
-          incomplete: boolean
-          warning: string | null
-          gap: string | null
-        }>`
-          SELECT 'github' AS platform,completed_at IS NULL OR completed_at<CLOCK_TIMESTAMP()-interval '5 minutes' AS overdue,
-            cursor<>'' OR EXISTS(SELECT 1 FROM github_recovery_attempt WHERE state='pending') AS incomplete,warning,gap FROM platform_recovery WHERE scan_id='github'
-          UNION ALL SELECT 'slack',recovery_completed_at IS NULL OR recovery_completed_at<CLOCK_TIMESTAMP()-interval '5 minutes',recovery_cursor<>'',recovery_warning,
-            'Deleted uncaptured text and never-received start mentions cannot be recovered' FROM slack_thread WHERE session_id=${sessionId}
-        `.pipe(wrap("view"))
+        const recovery = yield* recoveryStatus(sql, sessionId).pipe(wrap("view"))
         const slackDelivery = yield* sql<{
           id: string
           state: string

@@ -24,6 +24,19 @@ export const request = (method: "POST" | "PUT" | "DELETE" | "PATCH", url: string
     return response
   })
 
+/**
+ * A read that came back with an error status. The `{ message }` body becomes
+ * the failure's message; anything else shows the caller's fallback.
+ */
+export const readFailure = (
+  response: HttpIncomingMessage.HttpIncomingMessage<unknown>,
+  fallback: string,
+): Effect.Effect<never, Error> =>
+  HttpIncomingMessage.schemaBodyJson(Schema.Struct({ message: Schema.String }))(response).pipe(
+    Effect.orElseSucceed(() => ({ message: fallback })),
+    Effect.flatMap((data) => Effect.fail(new Error(data.message))),
+  )
+
 /** The message a failed request should show. */
 export const reasonOf = (error: unknown): string =>
   error instanceof Error ? error.message : FALLBACK_REASON
