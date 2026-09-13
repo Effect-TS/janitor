@@ -28,7 +28,7 @@ const regular = (path) => {
 const directory = (path) => {
   if (!lstatSync(path).isDirectory()) refuse("Git directory was replaced")
 }
-const branchName = (value) =>
+export const branchName = (value) =>
   typeof value === "string" &&
   /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/.test(value) &&
   !value.includes("..") &&
@@ -71,7 +71,9 @@ export async function publishGit(root, origin, action, input) {
   if (
     !/^[A-Za-z0-9_.-]+$/.test(input.owner ?? "") ||
     !/^[A-Za-z0-9_.-]+$/.test(input.repo ?? "") ||
-    !/^janitor\/[a-f0-9]{64}$/.test(input.branch ?? "") ||
+    !(input.existing === true
+      ? branchName(input.branch)
+      : /^janitor\/[a-f0-9]{64}$/.test(input.branch ?? "")) ||
     !branchName(input.base) ||
     input.branch === input.base ||
     typeof input.token !== "string" ||
@@ -174,6 +176,8 @@ export async function publishGit(root, origin, action, input) {
         }),
     )
     const remoteHead = remote.get(`refs/heads/${input.branch}`) ?? null
+    if (input.existing === true && !remoteHead)
+      refuse("Existing PR branch is unavailable; no replacement branch was created")
     const baseCommit = remote.get(`refs/heads/${input.base}`)
     if (!baseCommit || !oid.test(baseCommit) || (remoteHead && !oid.test(remoteHead)))
       refuse("Publication base is unavailable")
@@ -284,10 +288,12 @@ export async function publishGit(root, origin, action, input) {
     writeFileSync(join(repo, "index"), originalIndex)
     await run([`--work-tree=${work}`, "read-tree", "-m", "-u", head, commit])
     copyObjects(join(repo, "objects"), join(source, "objects"))
-    const branchDir = join(source, "refs", "heads", "janitor")
-    for (const path of [join(source, "refs"), join(source, "refs", "heads"), branchDir]) {
+    const parts = ["refs", "heads", ...input.branch.split("/").slice(0, -1)]
+    for (let index = 1; index <= parts.length; index++) {
+      const path = join(source, ...parts.slice(0, index))
       if (!existsSync(path)) mkdirSync(path)
       directory(path)
+      if (realpathSync(path) !== path) refuse("Workspace ref directory was redirected")
     }
     for (const [path, contents] of [
       [join(source, "refs", "heads", input.branch), `${commit}\n`],

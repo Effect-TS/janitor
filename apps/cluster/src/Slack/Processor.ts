@@ -147,7 +147,7 @@ export class SlackProcessor extends Context.Service<
                         )
                         .map((r) => ({
                           id: r.repository_id,
-                          pr: reference[3] === "pull" ? reference[4]! : null,
+                          pr: reference[3] === "pull" ? BigInt(reference[4]!).toString() : null,
                         })),
                     )
                     if (references.length > 0) {
@@ -175,10 +175,15 @@ export class SlackProcessor extends Context.Service<
                       thread,
                       "Which connected repository should I use? Reply with owner/repository or a GitHub issue or PR link.",
                     )
+                  if (pr !== null && (BigInt(pr) <= 0n || BigInt(pr) > 2147483647n))
+                    return yield* warn(
+                      thread,
+                      "That PR number is invalid. Please send the existing PR link.",
+                    )
                   if (pr !== null) {
                     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([repositoryId, pr])},1))`
                     const homes =
-                      yield* sql<Thread>`SELECT * FROM slack_thread WHERE repository_id=${repositoryId} AND pr_number=${pr} AND session_id<>${sessionId} AND state<>'redirected'`
+                      yield* sql<Thread>`SELECT * FROM slack_thread WHERE repository_id=${repositoryId} AND pr_number::numeric=${pr}::numeric AND session_id<>${sessionId} AND state<>'redirected'`
                     if (homes[0]) {
                       yield* enqueueOutput(
                         sql,
@@ -206,6 +211,31 @@ export class SlackProcessor extends Context.Service<
                   title: inputs[0]?.text.slice(0, 200) ?? "Slack conversation",
                 })
                 for (const input of inputs.filter((input) => !input.forwarded)) {
+                  let redirected = false
+                  if (input.text.includes(`<@${config.botUserId}>`)) {
+                    const references = input.text.matchAll(
+                      /(?:https:\/\/github\.com\/)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/(\d+)/g,
+                    )
+                    for (const reference of references) {
+                      const homes = yield* sql<Thread>`SELECT t.* FROM slack_thread t
+                        JOIN github_repository r ON r.repository_id=t.repository_id
+                        WHERE lower(r.owner)=lower(${reference[1]!}) AND lower(r.repo)=lower(${reference[2]!})
+                          AND t.pr_number::numeric=${reference[3]!}::numeric AND t.session_id<>${sessionId} AND t.state<>'redirected'`
+                      if (homes[0]) {
+                        yield* enqueueOutput(
+                          sql,
+                          sessionId,
+                          "question",
+                          `Continue this PR in its home thread: ${homeLink(homes[0])}`,
+                        )
+                        redirected = true
+                      }
+                    }
+                  }
+                  if (redirected) {
+                    yield* sql`UPDATE slack_contribution SET forwarded=true WHERE sequence=${input.sequence}::bigint`
+                    continue
+                  }
                   const first = input.sequence === inputs[0]?.sequence
                   const history =
                     first && context.length > 0

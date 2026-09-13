@@ -258,15 +258,19 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
                     name: "publish",
                     options: { permission: "publish", codemode: false },
                     description:
-                      "Publish committed, tested repository work on this session's designated new-work branch and open one reviewable GitHub PR. Commit changes with shell first. Include a substantive summary and validation in body. Humans decide whether to merge. Retry this tool to reconcile lost responses; never use shell to push or create competing PRs.",
+                      "Publish committed, tested repository work to this session's existing PR branch, or create a PR on its designated branch for new work. Commit changes with shell first. Include a substantive summary and validation in body. Humans decide whether to merge. Retry this tool to reconcile lost responses; never use shell to push or create competing PRs.",
                     input: Schema.Struct({
                       title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
                       body: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10000)),
                       base: Schema.optionalKey(Schema.String),
                     }),
-                    execute: (input) =>
+                    execute: (input, context) =>
                       Effect.tryPromise({
-                        try: () => deps.repository!.publication.publish(input),
+                        try: () =>
+                          deps.repository!.publication.publish(
+                            input,
+                            `${context.messageID}:${context.id}`,
+                          ),
                         catch: checkpointError,
                       }),
                   })

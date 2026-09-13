@@ -2,8 +2,8 @@
   "bridgeProtocol": 1,
   "sandboxSdk": "0.12.9",
   "baseImage": "cloudflare/sandbox:0.12.9@sha256:4a56a37a3cfd9b38d65bb4b5d0b341e6490a3a4c0226274ae4c1cca4948e85fe",
-  "imageDigest": "sha256:b6c707b4bfb9fd509429e7b2924f9f5734fa48890f4cbb8977f3d357a03a2b4e",
-  "imageId": "b1726deeb98ef0f763226387b3316dc2f416864891327ee934b31b9f12733b02",
+  "imageDigest": "sha256:863e5a200b0c484bd4a3b3f8ebffb3f2eadc5e178d96d200a3f56d3383107b94",
+  "imageId": "02d1682c72fa8f3848985d38ea590cb76fdd177766ff1f60c74dc909419f8492",
   "buildEngine": "5.8.6",
   "node": "v22.23.2",
   "packages": "ca-certificates\t20260601~22.04.1\ncoreutils\t8.32-4.1ubuntu1.4\nfindutils\t4.8.0-1ubuntu3\ngit\t1:2.34.1-1ubuntu1.17\nripgrep\t13.0.0-2ubuntu0.1\nutil-linux\t2.37.2-4ubuntu3.6\n"

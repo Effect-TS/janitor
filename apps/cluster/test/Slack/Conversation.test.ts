@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { SlackDelivery } from "../../src/Slack/Delivery.ts"
 import { SlackProcessor } from "../../src/Slack/Processor.ts"
 import { SlackTransport } from "../../src/Slack/Transport.ts"
 import { AgentSessions } from "../../src/Agent/Sessions.ts"
@@ -52,7 +53,7 @@ const slack: SlackTransport["Service"] = {
       onboarding.push(user)
     }),
 }
-const services = Layer.mergeAll(SlackWebhook.layer, SlackProcessor.layer).pipe(
+const services = Layer.mergeAll(SlackWebhook.layer, SlackProcessor.layer, SlackDelivery.layer).pipe(
   Layer.provideMerge(Layer.succeed(SlackTransport, slack)),
   Layer.provideMerge(SlackConversation.layer),
   Layer.provideMerge(
@@ -342,6 +343,120 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
             "redirected",
           )
         }
+      }),
+  )
+  it.effect(
+    "simultaneous teammate starts choose one blog PR home and retain its observation link",
+    () =>
+      Effect.gen(function* () {
+        const webhook = yield* SlackWebhook
+        const conversation = yield* SlackConversation
+        const processor = yield* SlackProcessor
+        const ids: string[] = []
+        for (const [index, user] of ["U2", "U3"].entries()) {
+          const channel = "CBLOG" + index
+          yield* webhook.receive(
+            yield* signed(
+              {
+                type: "app_mention",
+                channel,
+                user,
+                ts: "900.000001",
+                text:
+                  "<@UBOT> improve https://github.com/team/repo/pull/" +
+                  (index === 0 ? "007" : "7"),
+              },
+              "blog-start-" + index,
+            ),
+          )
+          ids.push((yield* conversation.inspect(channel, "900.000001")).thread!.session_id)
+        }
+        yield* Effect.all(
+          ids.map((id) => processor.process(id)),
+          { concurrency: 2 },
+        )
+        const views = yield* Effect.all([
+          conversation.inspect("CBLOG0", "900.000001"),
+          conversation.inspect("CBLOG1", "900.000001"),
+        ])
+        assert.deepEqual(views.map((view) => view.thread!.state).sort(), ["ready", "redirected"])
+        const home = views.find((view) => view.thread!.state === "ready")!.thread!
+        const redirect = views.find((view) => view.thread!.state === "redirected")!.thread!
+        assert.strictEqual(
+          (yield* (yield* AgentSessions).view(redirect.session_id).pipe(Effect.flip))._tag,
+          "@janitor/cluster/Agent/AgentSessionNotFound",
+        )
+        const view = yield* (yield* AgentSessions).view(home.session_id)
+        assert.strictEqual(view.inputs.length, 1)
+        assert.deepEqual(view.pullRequests, [
+          { repositoryId: "12345", number: 7, url: "https://github.com/team/repo/pull/7" },
+        ])
+        yield* webhook.receive(
+          yield* signed(
+            {
+              type: "message",
+              channel_type: "group",
+              channel: home.channel_id,
+              user: "U3",
+              ts: "900.000002",
+              thread_ts: "900.000001",
+              text: "Please improve the examples too",
+            },
+            "blog-followup",
+          ),
+        )
+        yield* processor.process(home.session_id)
+        assert.strictEqual((yield* (yield* AgentSessions).view(home.session_id)).inputs.length, 2)
+        runner.push(home.session_id, {
+          type: "session.tool.success",
+          data: {
+            metadata: {
+              publication: {
+                operationId: "a".repeat(64),
+                repositoryId: "12345",
+                number: 7,
+                url: "https://github.com/team/repo/pull/7",
+                title: "Blog examples",
+                body: "Improved both examples and checked the links.",
+              },
+            },
+          },
+        })
+        const delivery = yield* SlackDelivery
+        yield* delivery.catchUp(home.session_id)
+        yield* delivery.catchUp(home.session_id)
+        assert.strictEqual(
+          (yield* delivery.inspect(home.session_id)).filter((output) =>
+            output.text.includes("Improved both examples"),
+          ).length,
+          1,
+        )
+        const other = (yield* conversation.inspect("C2", "200.000001")).thread!
+        const beforeMention = (yield* (yield* AgentSessions).view(other.session_id)).inputs.length
+        yield* webhook.receive(
+          yield* signed(
+            {
+              type: "message",
+              channel_type: "group",
+              channel: "C2",
+              user: "U2",
+              ts: "901.000001",
+              thread_ts: "200.000001",
+              text: "<@UBOT> improve https://github.com/team/repo/pull/7",
+            },
+            "blog-other-session",
+          ),
+        )
+        yield* processor.process(other.session_id)
+        assert.strictEqual(
+          (yield* (yield* AgentSessions).view(other.session_id)).inputs.length,
+          beforeMention,
+        )
+        assert.isTrue(
+          (yield* delivery.inspect(other.session_id)).some((output) =>
+            output.text.includes(home.channel_id),
+          ),
+        )
       }),
   )
 })

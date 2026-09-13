@@ -130,10 +130,9 @@ layer(service)("Repository execution authority", (it) => {
         yield* sql`INSERT INTO slack_thread(session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context,repository_id,pr_number) VALUES('inspect','T1','C1','1.000000','1.000000','ready','[]','9100','7')`
         assert.isUndefined((yield* access.authorize({ ...request, token: false })).token)
         assert.strictEqual(
-          (yield* access
-            .authorize({ ...request, token: false, publication: true })
-            .pipe(Effect.result))._tag,
-          "Failure",
+          (yield* access.authorize({ ...request, token: false, publication: true }))
+            .pullRequestNumber,
+          7,
         )
         yield* sql`UPDATE agent_session SET runner_state = 'disconnected' WHERE session_id = 'inspect'`
         assert.strictEqual((yield* access.authorize(request).pipe(Effect.result))._tag, "Failure")
