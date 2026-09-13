@@ -57,10 +57,11 @@ const adminView: AccountView = {
 
 const scene = (
   view: AccountView,
+  section: Account.ViewInputs["section"],
   ...steps: Array<Scene.SceneStep<Account.Model, Account.Message, Account.OutMessage>>
 ) =>
   Scene.scene(
-    { update: Account.update, view: Scene.withViewInputs(Account.view, {})() },
+    { update: Account.update, view: Scene.withViewInputs(Account.view, { section })() },
     Scene.given(Account.init()),
     Scene.Mount.resolve(Account.Open, Account.Message.LoadRequested()),
     Scene.Command.resolve(Account.Load, Account.Message.Loaded({ requestId: 1, view })),
@@ -71,7 +72,7 @@ describe("Account page", () => {
   it("shows connected accounts and only configured platforms can be connected", () => {
     scene(
       memberView,
-      Scene.expect(Scene.text("me@example.com")).toExist(),
+      "accounts",
       Scene.expect(Scene.text("Connected as Me in workspace T1.")).toExist(),
       Scene.expect(Scene.role("button", { name: "Replace Slack account" })).toExist(),
       Scene.expect(Scene.role("button", { name: "Disconnect" })).toExist(),
@@ -84,6 +85,7 @@ describe("Account page", () => {
   it("lets admins change roles, remove and restore teammates", () => {
     scene(
       adminView,
+      "team",
       Scene.expect(Scene.text("me@example.com (you)")).toExist(),
       Scene.expect(Scene.text("Admin · Active")).toExist(),
       Scene.expect(Scene.text("Member · Active · Slack: Me")).toExist(),
@@ -97,7 +99,10 @@ describe("Account page", () => {
 
   it("explains a removed membership instead of an empty page", () => {
     Scene.scene(
-      { update: Account.update, view: Scene.withViewInputs(Account.view, {})() },
+      {
+        update: Account.update,
+        view: Scene.withViewInputs(Account.view, { section: "accounts" })(),
+      },
       Scene.given(Account.init()),
       Scene.Mount.resolve(Account.Open, Account.Message.LoadRequested()),
       Scene.Command.resolve(

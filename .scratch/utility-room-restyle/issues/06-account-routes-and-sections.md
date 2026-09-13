@@ -29,3 +29,7 @@ Give the Account page three URL-addressable sections and render them behind a se
 - Visiting `/account/team` as an admin shows the Team pane with the Team tag current; `/account` shows Connected accounts.
 - Completing a Slack or GitHub return lands on `/account/accounts` with the notice visible.
 - `vp test` passes for `routes.test.ts`; `account.test.ts` may fail until ticket 08.
+
+## Comments
+
+Done. `Account` route carries `section`; bare `/account` parses as `accounts` and prints back without a segment. `Routes.accountSection` / `accountSectionOf` added. The Account view takes `{ section }` and renders a rack plus one pane; `showRemoved` and `ToggledRemoved` added for ticket 07. One account test fails until ticket 08 splits assertions per section.

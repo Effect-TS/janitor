@@ -21,6 +21,8 @@ describe("SPA routes", () => {
     ["/repositories/701/activity", "Activity"],
     ["/repositories/701/settings", "Settings"],
     ["/account", "Account"],
+    ["/account/you", "Account"],
+    ["/account/team", "Account"],
     ["/account/slack/return?code=abc&state=xyz", "AccountReturn"],
   ])("round-trips %s without confusing reserved paths with IDs", (path, tag) => {
     const route = parse(path)
@@ -38,6 +40,14 @@ describe("SPA routes", () => {
     const route = parse(path)
     expect(route).toMatchObject({ _tag: "Policy", policyId: "p 1", q: "docs & tests", item: "214" })
     expect(Routes.documentPath(route)).toBe(Routes.policy({ repositoryId: "701", policyId: "p 1" }))
+  })
+
+  it("defaults the account page to connected accounts and keeps section deep links", () => {
+    expect(parse("/account")).toMatchObject({ _tag: "Account", section: "accounts" })
+    expect(parse("/account/accounts")).toMatchObject({ _tag: "Account", section: "accounts" })
+    expect(Routes.accountSection("accounts")).toBe("/account")
+    expect(Routes.accountSection("team")).toBe("/account/team")
+    expect(Routes.accountSectionOf(parse("/account/you"))).toBe("you")
   })
 
   it("keeps the platform and callback parameters of an account return", () => {

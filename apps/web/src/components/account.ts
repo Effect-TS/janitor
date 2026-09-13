@@ -20,9 +20,11 @@ import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import { emptyPanel, panel } from "@/components/ui/panel"
+import { rack } from "@/components/ui/rack"
+import { sign } from "@/components/ui/sign"
 import { reasonOf, request } from "@/lib/api"
-import * as Icon from "@/lib/icons"
-import { UserRound } from "lucide"
+import * as Routes from "@/routes"
 
 /**
  * The account page: who the signed-in teammate is, which Slack and GitHub
@@ -53,6 +55,8 @@ export const Model = Schema.Struct({
   ),
   nextRequestId: Schema.Int,
   maybeLoadRequest: Schema.Option(Schema.Int),
+  /** Whether the Team section lists removed teammates. View-local, not persisted. */
+  showRemoved: Schema.Boolean,
 })
 export type Model = typeof Model.Type
 
@@ -65,6 +69,7 @@ export const init = (): Model => ({
   pending: Option.none(),
   nextRequestId: 1,
   maybeLoadRequest: Option.none(),
+  showRemoved: false,
 })
 
 export const Message = defineMessageUnion({
@@ -80,6 +85,7 @@ export const Message = defineMessageUnion({
   Changed: { operationId: Schema.Int, notice: Schema.String },
   Returned: { operationId: Schema.Int, linked: LinkedAccount },
   Failed: { reason: Schema.String, operationId: Schema.Int },
+  ToggledRemoved: {},
 })
 export type Message = typeof Message.Type
 
@@ -323,6 +329,7 @@ export const update = (model: Model, message: Message): Step =>
             ...settle(model, `${platformName(linked.platform)} account connected.`),
             outMessage: OutMessage.FinishedReturn(),
           },
+    ToggledRemoved: () => ({ model: evo(model, { showRemoved: (shown) => !shown }) }),
     Failed: ({ reason, operationId }) => {
       if (!matchesOperation(model, operationId)) return { model }
       const wasReturn = Option.exists(model.pending, (pending) => pending.action === "return")
@@ -477,80 +484,134 @@ const rosterRow = (
   )
 }
 
-const section = (h: HtmlBuilder<Message>, title: string, children: ReadonlyArray<Html>): Html =>
+export type ViewInputs = {
+  readonly section: Routes.AccountSection
+}
+
+const sectionTitle: Record<Routes.AccountSection, string> = {
+  you: "You",
+  accounts: "Connected accounts",
+  team: "Team",
+}
+
+/** The section rack. Team hangs only for admins, who receive a roster. */
+const sectionRack = (
+  h: HtmlBuilder<Message>,
+  current: Routes.AccountSection,
+  hasTeam: boolean,
+): Html =>
+  rack(h, {
+    label: "Account settings",
+    className: "md:w-[200px]",
+    items: (["you", "accounts", ...(hasTeam ? ["team" as const] : [])] as const).map((section) => ({
+      href: Routes.accountSection(section),
+      label: sectionTitle[section],
+      isCurrent: section === current,
+    })),
+  })
+
+const pane = (
+  h: HtmlBuilder<Message>,
+  section: Routes.AccountSection,
+  lede: string,
+  children: ReadonlyArray<Html>,
+): Html =>
   h.section(
-    [h.Class("rounded-lg border p-5 space-y-2")],
-    [h.h2([h.Class("text-base font-semibold")], [title]), ...children],
+    [h.Attribute("aria-labelledby", `account-${section}`), h.Class("flex flex-col gap-3.5")],
+    [
+      sign(h, { id: `account-${section}`, children: [sectionTitle[section]] }),
+      h.p([h.Class("text-muted-foreground")], [lede]),
+      ...children,
+    ],
   )
 
-export const view = Submodel.defineView<Model, Message, Record<string, never>>(
-  (model, _inputs, h) =>
-    h.div(
-      [h.Class("mx-auto w-full max-w-2xl p-6 space-y-5"), h.OnMount(Open({}))],
-      [
-        h.div(
-          [h.Class("flex items-center gap-3")],
+const youPane = (h: HtmlBuilder<Message>, view: AccountView): Html =>
+  pane(h, "you", "How Janitor knows you. Sign-in is handled by Cloudflare Access.", [
+    panel(h, {
+      children: [
+        h.p([h.Class("text-sm")], [displayName(view.teammate)]),
+        h.p(
+          [h.Class("text-xs text-muted-foreground")],
           [
-            Icon.view(h, UserRound, "size-6 text-muted-foreground"),
-            h.h1([h.Class("text-lg font-semibold")], ["Account"]),
+            `${view.teammate.role === "admin" ? "Admin" : "Member"} · signed in through ${view.teammate.issuer}`,
           ],
         ),
-        Option.isSome(model.error)
-          ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.error.value])
-          : h.empty,
-        Option.isSome(model.loadError)
-          ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.loadError.value])
-          : h.empty,
-        model.notice
-          ? h.p([h.Role("status"), h.Class("text-sm text-muted-foreground")], [model.notice])
-          : h.empty,
-        Option.match(model.view, {
-          onNone: () =>
-            Option.isNone(model.loadError)
-              ? h.p([h.Role("status")], ["Loading your account…"])
-              : h.empty,
-          onSome: (view) =>
-            h.div(
-              [h.Class("space-y-5")],
-              [
-                section(h, "You", [
-                  h.p([h.Class("text-sm")], [displayName(view.teammate)]),
-                  h.p(
-                    [h.Class("text-xs text-muted-foreground")],
-                    [
-                      `${view.teammate.role === "admin" ? "Admin" : "Member"} · signed in through ${view.teammate.issuer}`,
-                    ],
-                  ),
-                ]),
-                section(h, "Connected accounts", [
-                  h.p(
-                    [h.Class("text-sm text-muted-foreground")],
-                    [
-                      "Connected accounts may direct Janitor from Slack and GitHub until you disconnect them, independently of this browser session.",
-                    ],
-                  ),
-                  h.div(
-                    [h.Class("divide-y")],
-                    [platformRow(h, model, view, "slack"), platformRow(h, model, view, "github")],
-                  ),
-                ]),
-                view.team === null
-                  ? h.empty
-                  : section(h, "Team", [
-                      h.p(
-                        [h.Class("text-sm text-muted-foreground")],
-                        [
-                          "Removing a teammate disables their connected accounts and sign-in; their accepted work and attribution are kept. The last active admin cannot be removed or demoted.",
-                        ],
-                      ),
-                      h.div(
-                        [h.Class("divide-y")],
-                        view.team.map((entry) => rosterRow(h, model, view.teammate, entry)),
-                      ),
-                    ]),
-              ],
-            ),
-        }),
       ],
-    ),
+    }),
+  ])
+
+const accountsPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Html =>
+  pane(h, "accounts", "Accounts that can give Janitor instructions on your behalf.", [
+    panel(h, {
+      children: [
+        h.div(
+          [h.Class("divide-y")],
+          [platformRow(h, model, view, "github"), platformRow(h, model, view, "slack")],
+        ),
+      ],
+    }),
+  ])
+
+const teamPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Html =>
+  view.team === null
+    ? pane(h, "team", "Only admins can manage the team.", [
+        emptyPanel(h, {
+          children: [h.p([], ["Ask an admin if you need a role change or to remove someone."])],
+        }),
+      ])
+    : pane(h, "team", "Everyone who has signed in. New teammates start as members.", [
+        panel(h, {
+          children: [
+            h.div(
+              [h.Class("divide-y")],
+              view.team.map((entry) => rosterRow(h, model, view.teammate, entry)),
+            ),
+          ],
+        }),
+      ])
+
+export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>
+  h.div(
+    [
+      h.Class("flex flex-col gap-6 p-6 md:grid md:grid-cols-[200px_minmax(0,640px)] md:gap-10"),
+      h.OnMount(Open({})),
+    ],
+    [
+      sectionRack(
+        h,
+        inputs.section,
+        Option.exists(model.view, (view) => view.team !== null),
+      ),
+      h.div(
+        [h.Class("flex min-w-0 flex-col gap-3.5")],
+        [
+          Option.isSome(model.error)
+            ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.error.value])
+            : h.empty,
+          Option.isSome(model.loadError)
+            ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.loadError.value])
+            : h.empty,
+          model.notice
+            ? h.p([h.Role("status"), h.Class("text-sm text-muted-foreground")], [model.notice])
+            : h.empty,
+          Option.match(model.view, {
+            onNone: () =>
+              Option.isNone(model.loadError)
+                ? h.p([h.Role("status")], ["Loading your account…"])
+                : h.empty,
+            onSome: (view) => {
+              switch (inputs.section) {
+                case "you":
+                  return youPane(h, view)
+                case "accounts":
+                  return accountsPane(h, model, view)
+                case "team":
+                  return teamPane(h, model, view)
+              }
+            },
+          }),
+        ],
+      ),
+    ],
+  ),
 )

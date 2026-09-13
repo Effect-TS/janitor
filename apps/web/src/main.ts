@@ -272,7 +272,8 @@ const foldAccountOutMessage =
   (model) =>
     Account.OutMessage.match(outMessage, {
       OpenPlatform: ({ url }) => requestNavigation(model, url, false, false, true),
-      FinishedReturn: () => requestNavigation(model, Routes.account(), true, false),
+      FinishedReturn: () =>
+        requestNavigation(model, Routes.accountSection("accounts"), true, false),
     })
 
 const foldAccount = Update.foldChild({
@@ -964,7 +965,7 @@ const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
         children: [
           h.a(
             [
-              h.Href(Routes.account()),
+              h.Href(Routes.accountSection("accounts")),
               h.Class(
                 cn(
                   Sidebar.sidebarMenuButtonClass,
@@ -1134,7 +1135,7 @@ const accountView = (h: HtmlBuilder<Message>, model: Model) =>
     model: model.account,
     view: Account.view,
     toParentMessage: (message) => Message.GotAccountMessage({ message }),
-    viewInputs: {},
+    viewInputs: { section: Routes.accountSectionOf(model.navigation.route) },
   })
 const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.navigation.route

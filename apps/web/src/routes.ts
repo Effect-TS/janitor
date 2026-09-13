@@ -5,6 +5,9 @@ import * as Route from "foldkit/route"
 import type * as Url from "foldkit/url"
 
 const repository = { repositoryId: Schema.String }
+/** The account page's sections; "accounts" is the default and prints as bare /account. */
+export const AccountSection = Schema.Literals(["you", "accounts", "team"])
+export type AccountSection = typeof AccountSection.Type
 const policyQuery = {
   q: Schema.optionalKey(Schema.String),
   item: Schema.optionalKey(Schema.String),
@@ -25,7 +28,7 @@ export const AppRoute = Route.defineRouteUnion({
   Rule: { ...repository, ruleId: Schema.String },
   Activity: repository,
   Settings: repository,
-  Account: {},
+  Account: { section: AccountSection },
   AccountReturn: {
     platform: Schema.String,
     code: Schema.optionalKey(Schema.String),
@@ -105,7 +108,31 @@ export const settings = pipe(
   Route.slash(Route.literal("settings")),
   Route.mapTo(AppRoute.Settings),
 )
-export const account = pipe(Route.literal("account"), Route.mapTo(AppRoute.Account))
+const isAccountSection = (segment: string): segment is AccountSection =>
+  segment === "you" || segment === "accounts" || segment === "team"
+// An optional section segment. Bare /account is the connected-accounts section.
+const accountSectionSegment: Route.Biparser<{ section: AccountSection }> = {
+  parse: (segments) => {
+    const head = segments[0]
+    if (head === undefined) return Effect.succeed([{ section: "accounts" }, segments])
+    if (isAccountSection(head)) return Effect.succeed([{ section: head }, segments.slice(1)])
+    return Effect.fail(new Route.ParseError({ message: "Unknown account section" }))
+  },
+  print: (value, state) =>
+    Effect.succeed(
+      value.section === "accounts"
+        ? state
+        : { ...state, segments: [...state.segments, value.section] },
+    ),
+}
+export const account = pipe(
+  Route.literal("account"),
+  Route.slash(accountSectionSegment),
+  Route.mapTo(AppRoute.Account),
+)
+export const accountSection = (section: AccountSection): string => account({ section })
+export const accountSectionOf = (route: AppRoute): AccountSection =>
+  route._tag === "Account" ? route.section : "accounts"
 // Platforms send the browser back here with `code` and `state`, or `error`.
 export const accountReturn = pipe(
   Route.literal("account"),
