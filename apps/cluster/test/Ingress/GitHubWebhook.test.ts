@@ -1,5 +1,6 @@
 import { RepositoryActivity } from "../../src/RepositoryActivity.ts"
-import { GitHubWebhookJournal } from "../../src/GitHub/WebhookJournal.ts"
+import { GitHubFeedback } from "../../src/GitHub/Feedback.ts"
+import { GitHubWebhookJournal, GitHubWebhookJournalError } from "../../src/GitHub/WebhookJournal.ts"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as Option from "effect/Option"
 import { assert, describe, it } from "@effect/vitest"
@@ -67,6 +68,8 @@ const makeHandler = (
   enqueue: (envelope: GitHubWebhookEnvelopeV1) => Effect.Effect<void, EnqueueError>,
   store: StoreStub = {},
   paused = false,
+  feedback: string[] = [],
+  journalFails = false,
 ) =>
   Effect.acquireRelease(
     Effect.sync(() =>
@@ -86,16 +89,31 @@ const makeHandler = (
           disableLogger: true,
           middleware: (app) =>
             app.pipe(
+              Effect.provideService(GitHubFeedback, {
+                record: (_id, name) =>
+                  Effect.sync(() => {
+                    feedback.push(name)
+                  }),
+                processDue: Effect.void,
+                inspect: () => Effect.succeed([]),
+              }),
               Effect.provideService(RepositoryActivity, {
                 run: (_id, effect) =>
                   paused ? Effect.succeedNone : Effect.map(effect, Option.some),
               }),
               Effect.provideService(GitHubWebhookJournal, {
                 record: () =>
-                  Effect.succeed({
-                    sequence: GitHubWebhookJournalSequence.make("1"),
-                    duplicate: false,
-                  }),
+                  journalFails
+                    ? Effect.fail(
+                        new GitHubWebhookJournalError({
+                          deliveryId: "delivery-1",
+                          message: "Journal unavailable",
+                        }),
+                      )
+                    : Effect.succeed({
+                        sequence: GitHubWebhookJournalSequence.make("1"),
+                        duplicate: false,
+                      }),
                 load: () => Effect.succeedNone,
                 markProjection: () => Effect.void,
               }),
@@ -131,6 +149,55 @@ const sha256 = (bytes: Uint8Array<ArrayBuffer>) =>
   )
 
 describe("GitHubWebhookRoutes", () => {
+  it.effect("does not capture feedback when the encrypted journal write fails", () =>
+    Effect.gen(function* () {
+      const received: string[] = []
+      const handler = yield* makeHandler(() => Effect.void, {}, false, received, true)
+      const response = yield* post(handler, {
+        headers: headers({ "x-github-event": "pull_request_review" }),
+        body: JSON.stringify({ repository: { id: 456 } }),
+      })
+      assert.strictEqual(response.status, 503)
+      assert.deepStrictEqual(received, [])
+    }),
+  )
+  it.effect(
+    "routes review and comment feedback only after signature verification and repository fencing",
+    () =>
+      Effect.gen(function* () {
+        const received: string[] = []
+        const handler = yield* makeHandler(() => Effect.void, {}, false, received)
+        for (const name of [
+          "pull_request_review",
+          "pull_request_review_comment",
+          "issue_comment",
+        ]) {
+          const body = JSON.stringify({ repository: { id: 456 } })
+          assert.strictEqual(
+            (yield* post(handler, {
+              headers: headers({ "x-github-event": name, "x-hub-signature-256": "invalid" }),
+              body,
+            })).status,
+            401,
+          )
+          assert.strictEqual(
+            (yield* post(handler, { headers: headers({ "x-github-event": name }), body })).status,
+            202,
+          )
+        }
+        assert.deepStrictEqual(received, [
+          "pull_request_review",
+          "pull_request_review_comment",
+          "issue_comment",
+        ])
+        const paused = yield* makeHandler(() => Effect.void, {}, true, received)
+        yield* post(paused, {
+          headers: headers({ "x-github-event": "issue_comment" }),
+          body: JSON.stringify({ repository: { id: 456 } }),
+        })
+        assert.strictEqual(received.length, 3)
+      }),
+  )
   it.effect("acknowledges paused repository payloads without queue or overflow storage", () =>
     Effect.gen(function* () {
       const handler = yield* makeHandler(

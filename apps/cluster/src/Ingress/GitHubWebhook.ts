@@ -1,4 +1,5 @@
 import { RepositoryActivity } from "../RepositoryActivity.ts"
+import { GitHubFeedback } from "../GitHub/Feedback.ts"
 import { GitHubWebhookJournal } from "../GitHub/WebhookJournal.ts"
 import * as Option from "effect/Option"
 import { GitHubWebhookEventName } from "@janitor/domain/GitHub/WebhookEvent"
@@ -200,6 +201,7 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           }),
         )(parsed.value)
         const accept = Effect.gen(function* () {
+          const feedback = yield* Effect.serviceOption(GitHubFeedback)
           const payloadSha256 = yield* sha256Hex(body)
 
           const encrypted = yield* cipher.encrypt(deliveryId, body).pipe(
@@ -238,12 +240,12 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
                 payload: ciphertext,
               })
               .pipe(
-                Effect.as(acceptedResponse),
-                Effect.catchCause((cause) =>
-                  Effect.logError("Failed to journal repository webhook", cause).pipe(
-                    Effect.as(serviceUnavailableResponse),
-                  ),
+                Effect.andThen(
+                  Option.isSome(feedback)
+                    ? feedback.value.record(deliveryId, eventName, parsed.value)
+                    : Effect.void,
                 ),
+                Effect.as(acceptedResponse),
               )
           }
 

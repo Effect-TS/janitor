@@ -105,6 +105,9 @@ import { SlackWebhook } from "./Slack/Webhook.ts"
 import { SlackTransport } from "./Slack/Transport.ts"
 import { SlackProcessor } from "./Slack/Processor.ts"
 import { SlackDelivery } from "./Slack/Delivery.ts"
+import { GitHubFeedback, GitHubFeedbackConfig } from "./GitHub/Feedback.ts"
+import { GitHubDelivery } from "./GitHub/FeedbackDelivery.ts"
+import { GitHubFeedbackHttpLayer } from "./GitHub/FeedbackHttp.ts"
 import { SlackCronLayer, SlackCronName } from "./Slack/Cron.ts"
 import { SlackWebhookRoutes } from "./Ingress/SlackWebhook.ts"
 
@@ -282,11 +285,27 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     }
     let notifyOutbox: Effect.Effect<void> = Effect.void
     let notifyCatchUp: Effect.Effect<void> = Effect.void
+    const feedbackBotLogin = yield* Config.String("JANITOR_GITHUB_APP_LOGIN").pipe(
+      Config.withDefault(""),
+    )
     const SlackLayers = slackConfigured
       ? Layer.mergeAll(SlackCronLayer, SlackWebhook.layer).pipe(
           Layer.provideMerge(
-            Layer.mergeAll(SlackProcessor.layer, SlackDelivery.layer, SlackConversation.layer),
+            Layer.mergeAll(
+              SlackProcessor.layer,
+              SlackDelivery.layer,
+              SlackConversation.layer,
+              GitHubFeedback.layer,
+              GitHubDelivery.layer,
+            ),
           ),
+          Layer.provideMerge(
+            GitHubFeedbackHttpLayer.pipe(
+              Layer.provide(RepositoryAccess.layer),
+              Layer.provide(FetchHttpClient.layer),
+            ),
+          ),
+          Layer.provide(Layer.succeed(GitHubFeedbackConfig, { botLogin: feedbackBotLogin })),
           Layer.provideMerge(SlackTransport.layer),
           Layer.provide(
             Layer.succeed(SlackConfig, {

@@ -413,10 +413,14 @@ it("two turns update the existing blog PR and explain unavailable writes without
   try {
     const session = harness.session("existing-blog")
     await session.create({ repositoryId: "123" })
-    const turn = async (id: string, tools: any[]) => {
+    const turn = async (id: string, tools: any[], source: "slack" | "github" = "slack") => {
       const after = (await session.allEvents()).next
       await session.model({ mode: "repository-work", tools })
-      await session.admit({ inputId: id, text: "Improve our existing blog PR" })
+      await session.admit({
+        inputId: id,
+        text: "Improve our existing blog PR",
+        attribution: { source },
+      })
       await waitFor(
         async () =>
           (await session.allEvents()).events.some(
@@ -461,7 +465,20 @@ it("two turns update the existing blog PR and explain unavailable writes without
       ),
     ).toBe("Human contribution during agent work")
     await harness.restart()
-    const second = await turn("msg_blog_second", [edit("Second improvement"), publish])
+    const second = await turn("msg_blog_second", [edit("Second improvement"), publish], "github")
+    const feedbackEvents = (await session.allEvents()).events
+    const delivery = feedbackEvents.findIndex(
+      (event: any) =>
+        event.type === "session.inbox.delivered" && event.data.inboxID === "msg_blog_second",
+    )
+    expect(delivery).toBeGreaterThan(-1)
+    expect(
+      feedbackEvents
+        .slice(delivery + 1)
+        .some(
+          (event: any) => event.type === "session.tool.success" && event.data.metadata?.publication,
+        ),
+    ).toBe(true)
     expect(second).toContain("https://github.com/fixture/repo/pull/7")
     expect(
       docker(

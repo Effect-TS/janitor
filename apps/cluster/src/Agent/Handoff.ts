@@ -162,6 +162,13 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
       `).pipe(Effect.flatMap(decodeUnsettled), Effect.mapError(dbError))
       const next = unsettled[0]
       if (next === undefined) return "settled" as const
+      const held = yield* query(
+        sql`SELECT 1 FROM github_feedback_output WHERE session_id=${sessionId} AND state IN ('uncertain','problem') LIMIT 1`,
+      )
+      if (held.length > 0) {
+        yield* markSession("blocked", "GitHub feedback reply needs delivery reconciliation")
+        return "blocked" as const
+      }
       // Record the attempt before sending: a crash mid-request leaves `uncertain`, never `pending`.
       yield* query(sql`
         UPDATE agent_input SET handoff_state = 'uncertain', handoff_attempts = handoff_attempts + 1
