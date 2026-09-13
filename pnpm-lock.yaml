@@ -244,13 +244,10 @@ catalogs:
     '@foldkit/vite-plugin':
       specifier: ^0.20.1
       version: 0.20.1
-    '@fontsource-variable/archivo':
+    '@fontsource-variable/inter':
       specifier: ^5.3.0
       version: 5.3.0
-    '@fontsource-variable/big-shoulders-display':
-      specifier: ^5.3.0
-      version: 5.3.0
-    '@fontsource-variable/spline-sans-mono':
+    '@fontsource-variable/jetbrains-mono':
       specifier: ^5.3.0
       version: 5.3.0
     '@lezer/common':
@@ -429,13 +426,10 @@ importers:
       '@foldkit/ui':
         specifier: 'catalog:'
         version: 0.157.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(foldkit@0.157.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))
-      '@fontsource-variable/archivo':
+      '@fontsource-variable/inter':
         specifier: 'catalog:'
         version: 5.3.0
-      '@fontsource-variable/big-shoulders-display':
-        specifier: 'catalog:'
-        version: 5.3.0
-      '@fontsource-variable/spline-sans-mono':
+      '@fontsource-variable/jetbrains-mono':
         specifier: 'catalog:'
         version: 5.3.0
       '@janitor/domain':
@@ -1236,14 +1230,11 @@ packages:
       foldkit: '>=0.153.0'
       vite: ^7.0.0 || ^8.0.0
 
-  '@fontsource-variable/archivo@5.3.0':
-    resolution: {integrity: sha512-HogK8FJelrD1o7TlZlkIVtHgc20bO5PZRWE7mUeUTdMN055alznQV6/00J00IBeu8FQAH4s3zW9UJNvKExXf+g==}
+  '@fontsource-variable/inter@5.3.0':
+    resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
 
-  '@fontsource-variable/big-shoulders-display@5.3.0':
-    resolution: {integrity: sha512-7k1REXMZFEa7gSWOURbmCJW5Gv9D0EbEFQgosZidM8Ob/qpPlK96vqyIzCTnNZ/C0XFZWxeKU53D3QdeHctYCA==}
-
-  '@fontsource-variable/spline-sans-mono@5.3.0':
-    resolution: {integrity: sha512-dH/qBj/MCE4ObiuCwlA9X1o3AftMO9dwfFgoRVYjy6VCPYkpWAlEtK/RjeyICgsR8rW763IAQARskVgShBY5JA==}
+  '@fontsource-variable/jetbrains-mono@5.3.0':
+    resolution: {integrity: sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -4945,11 +4936,9 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@fontsource-variable/archivo@5.3.0': {}
+  '@fontsource-variable/inter@5.3.0': {}
 
-  '@fontsource-variable/big-shoulders-display@5.3.0': {}
-
-  '@fontsource-variable/spline-sans-mono@5.3.0': {}
+  '@fontsource-variable/jetbrains-mono@5.3.0': {}
 
   '@grpc/grpc-js@1.14.4':
     dependencies:

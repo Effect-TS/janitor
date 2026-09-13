@@ -51,7 +51,7 @@ const editorTheme = EditorView.theme({
   "&": { minHeight: "18rem", maxHeight: "36rem", fontSize: "13px" },
   ".cm-scroller": {
     overflow: "auto",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    fontFamily: "var(--font-mono)",
   },
   ".cm-content": { padding: "12px 0" },
   "&.cm-focused": { outline: "none" },

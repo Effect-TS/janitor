@@ -1,168 +1,146 @@
+/* ============================================================================
+   The Janitor — "Ops Console" theme
+   Tailwind v4. Implements docs/design/DESIGN.md (alpha).
+
+   Fonts: Inter (variable) and JetBrains Mono (variable) via Fontsource.
+   Every colour, radius, shadow and font stack in the app resolves here.
+   ========================================================================= */
+
 @import "tailwindcss";
-@import "tw-animate-css";
-@import "@fontsource-variable/archivo";
-@import "@fontsource-variable/big-shoulders-display";
-@import "@fontsource-variable/spline-sans-mono";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
 
-/* ----------------------------------------------------------------------------
-   Utility Room — brand palette. Normative values from docs/design/DESIGN.md.
-   Prefer the semantic tokens below in app code; reach for these only for
-   hardware (rails, clips, screws) and the utilities at the bottom.
----------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   1. Palette — normative values from DESIGN.md.
+   Prefer the semantic tokens in §2 in application code.
+--------------------------------------------------------------------------- */
 :root {
-  --jn-cobalt: #1e5fd0;
-  --jn-cobalt-dark: #174ca8;
-  --jn-cobalt-light: #4a8af0;
+  --oc-blue: #1e5fd0;
+  --oc-blue-hover: #174ca8;
+  --oc-blue-wash: #edf3fd;
+  --oc-blue-line: #b9cdf0;
+  --oc-on-blue: #ffffff;
 
-  --jn-navy: #12225c;
-  --jn-navy-deep: #0b1436;
-  --jn-panel: #0e1b4a;
-  --jn-inset: #0a1233;
+  --oc-agent: #ffce1b;
+  --oc-agent-ink: #8a6a05;
+  --oc-agent-wash: #fff8e0;
+  --oc-agent-line: #f0dfa0;
 
-  --jn-yellow: #ffce1b;
-  --jn-yellow-dark: #e0a800;
+  --oc-canvas: #f4f6f8;
+  --oc-surface: #ffffff;
+  --oc-surface-muted: #fafbfc;
 
-  --jn-cream: #f6efdd;
-  --jn-cream-hi: #fffbf0;
+  --oc-ink: #1b2027;
+  --oc-ink-muted: #59606b;
+  --oc-ink-subtle: #6c747f;
+  --oc-ink-faint: #a8afb9; /* non-text marks only */
 
-  --jn-wall: #ddd8c9;
-  --jn-mortar: #c7c1b0;
-  --jn-board: #b9ae93;
+  --oc-line: #d6dbe1;
+  --oc-line-subtle: #e8ebef;
+  --oc-wire: #a9bcdc;
+  --oc-grid: rgb(30 95 208 / 0.055);
 
-  --jn-rust: #b23a2b;
-  --jn-rust-dark: #8e2c20;
+  --oc-success: #1a7f37;
+  --oc-danger: #b23a2b;
+  --oc-danger-hover: #8e2c20;
 
-  --jn-metal: #8e97ae;
-  --jn-metal-dark: #4c5570;
-
-  --jn-muted-ink: #4a5478;
-  --jn-muted-panel-ink: #9daad0;
-
-  /* Outline colour for mounted objects; night shift lifts it to a warm grey. */
-  --jn-outline: var(--jn-navy);
-
-  /* Depth primitives — DESIGN.md § Elevation & Depth */
-  --jn-edge: 0 3px 0 var(--jn-navy-deep);
-  --jn-mount: 0 3px 0 var(--jn-navy-deep), 0 6px 14px rgb(11 20 54 / 0.28);
-  --jn-recess: inset 0 3px 6px rgb(11 20 54 / 0.55);
-  --jn-ease: cubic-bezier(0.3, 1.6, 0.6, 1);
-
-  /* Wall: running-bond cinderblock, deliberately near-subliminal */
-  --jn-wall-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='152' height='76'><rect width='152' height='76' fill='%23DDD8C9'/><g stroke='%23C7C1B0' stroke-width='2' fill='none'><path d='M0 1 H152 M0 39 H152 M0 75 H152'/><path d='M1 1 V39 M77 39 V76'/></g></svg>");
-  --jn-noise-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>");
+  /* Overlays are the only shadowed elements in this system. */
+  --oc-overlay-shadow: 0 6px 16px rgb(27 32 39 / 0.12), 0 0 0 1px var(--oc-line);
+  --oc-scrim: rgb(27 32 39 / 0.45);
 }
 
-/* ----------------------------------------------------------------------------
-   Semantic tokens — day shift. Names are unchanged so existing utilities such
-   as bg-card and text-muted-foreground keep working.
----------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   2. Semantic tokens — light
+--------------------------------------------------------------------------- */
 :root {
-  --radius: 6px;
+  --radius: 5px;
 
-  --background: var(--jn-wall);
-  --foreground: var(--jn-navy);
+  --background: var(--oc-canvas);
+  --foreground: var(--oc-ink);
 
-  --card: var(--jn-cream);
-  --card-foreground: var(--jn-navy);
-  --popover: var(--jn-cream-hi);
-  --popover-foreground: var(--jn-navy);
+  --card: var(--oc-surface);
+  --card-foreground: var(--oc-ink);
+  --popover: var(--oc-surface);
+  --popover-foreground: var(--oc-ink);
 
-  /* Primary = safety yellow: the primary action. Cobalt is structure. */
-  --primary: var(--jn-yellow);
-  --primary-foreground: var(--jn-navy);
+  /* Blue is primary here. Interactive affordance, nothing else. */
+  --primary: var(--oc-blue);
+  --primary-foreground: var(--oc-on-blue);
 
-  --secondary: var(--jn-cream);
-  --secondary-foreground: var(--jn-navy);
+  --secondary: var(--oc-surface-muted);
+  --secondary-foreground: var(--oc-ink);
 
-  --muted: var(--jn-mortar);
-  --muted-foreground: var(--jn-muted-ink);
+  --muted: var(--oc-surface-muted);
+  --muted-foreground: var(--oc-ink-subtle);
 
-  --accent: var(--jn-cobalt);
-  --accent-foreground: var(--jn-cream-hi);
+  --accent: var(--oc-blue-wash);
+  --accent-foreground: var(--oc-blue-hover);
 
-  --destructive: var(--jn-rust);
-  --destructive-foreground: var(--jn-cream-hi);
+  --destructive: var(--oc-danger);
+  --destructive-foreground: var(--oc-on-blue);
 
-  --border: var(--jn-navy);
-  --input: var(--jn-navy);
-  --ring: var(--jn-yellow);
+  --border: var(--oc-line);
+  --input: var(--oc-line);
+  --ring: var(--oc-blue);
 
-  --chart-1: var(--jn-cobalt);
-  --chart-2: var(--jn-yellow);
-  --chart-3: var(--jn-navy);
-  --chart-4: var(--jn-cobalt-light);
-  --chart-5: var(--jn-rust);
+  --chart-1: var(--oc-blue);
+  --chart-2: #7fa6e8;
+  --chart-3: var(--oc-ink-subtle);
+  --chart-4: var(--oc-success);
+  --chart-5: var(--oc-danger);
 
-  --sidebar: var(--jn-wall);
-  --sidebar-foreground: var(--jn-navy);
-  --sidebar-primary: var(--jn-yellow);
-  --sidebar-primary-foreground: var(--jn-navy);
-  --sidebar-accent: var(--jn-cream);
-  --sidebar-accent-foreground: var(--jn-navy);
-  --sidebar-border: var(--jn-navy);
-  --sidebar-ring: var(--jn-yellow);
+  --sidebar: var(--oc-surface);
+  --sidebar-foreground: var(--oc-ink);
+  --sidebar-primary: var(--oc-blue);
+  --sidebar-primary-foreground: var(--oc-on-blue);
+  --sidebar-accent: var(--oc-blue-wash);
+  --sidebar-accent-foreground: var(--oc-ink);
+  --sidebar-border: var(--oc-line);
+  --sidebar-ring: var(--oc-blue);
 }
 
-/* ----------------------------------------------------------------------------
-   Night shift. The room goes dark, not blue: warm charcoal walls, cream ink,
-   and the same cobalt, yellow and rust plates mounted on top.
----------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   3. Dark — same structure, same semantics, less light
+--------------------------------------------------------------------------- */
 .dark {
-  --nt-wall: #1c1b18;
-  --nt-mortar: #262420;
-  --nt-card: #2a2823;
-  --nt-card-hi: #34312b;
-  --nt-inset: #14130f;
-  --nt-line: #5a554b;
-  --nt-line-strong: #7b7466;
-  --nt-ink: #f6efdd;
-  --nt-muted: #a8a08e;
-  --nt-rust: #e0705c;
+  --oc-canvas: #0d1117;
+  --oc-surface: #151b23;
+  --oc-surface-muted: #1b222c;
 
-  --background: var(--nt-wall);
-  --foreground: var(--nt-ink);
+  --oc-ink: #e4e9ef;
+  --oc-ink-muted: #aeb7c2;
+  --oc-ink-subtle: #909aa6;
+  --oc-ink-faint: #4d5663;
 
-  --card: var(--nt-card);
-  --card-foreground: var(--nt-ink);
-  --popover: var(--nt-card-hi);
-  --popover-foreground: var(--nt-ink);
+  --oc-line: #2b333e;
+  --oc-line-subtle: #222932;
+  --oc-wire: #46587a;
+  --oc-grid: rgb(122 165 240 / 0.07);
 
-  --primary: var(--jn-yellow);
-  --primary-foreground: var(--jn-navy);
+  --oc-blue: #6fa3f5;
+  --oc-blue-hover: #8fb9f8;
+  --oc-blue-wash: #16243c;
+  --oc-blue-line: #2f4a78;
+  --oc-on-blue: #0d1117;
+  --oc-agent-ink: #e8c65a;
+  --oc-agent-wash: #2a2413;
+  --oc-agent-line: #4d431f;
 
-  --secondary: var(--nt-card-hi);
-  --secondary-foreground: var(--nt-ink);
+  --oc-success: #46b566;
+  --oc-danger: #e0705f;
+  --oc-danger-hover: #ea8778;
 
-  --muted: var(--nt-mortar);
-  --muted-foreground: var(--nt-muted);
+  --chart-2: #4d7cc4;
 
-  --accent: var(--jn-cobalt-light);
-  --accent-foreground: var(--nt-inset);
-
-  --destructive: var(--nt-rust);
-  --destructive-foreground: var(--nt-inset);
-
-  --border: var(--nt-line);
-  --input: var(--nt-line-strong);
-  --ring: var(--jn-yellow);
-
-  --sidebar: var(--nt-wall);
-  --sidebar-foreground: var(--nt-ink);
-  --sidebar-accent: var(--nt-card-hi);
-  --sidebar-accent-foreground: var(--nt-ink);
-  --sidebar-border: var(--nt-line);
-
-  --jn-outline: var(--nt-line-strong);
-  --jn-mount: 0 3px 0 #000, 0 6px 14px rgb(0 0 0 / 0.5);
-  --jn-edge: 0 3px 0 #000;
-  --jn-wall-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='152' height='76'><rect width='152' height='76' fill='%231C1B18'/><g stroke='%23262420' stroke-width='2' fill='none'><path d='M0 1 H152 M0 39 H152 M0 75 H152'/><path d='M1 1 V39 M77 39 V76'/></g></svg>");
+  --oc-overlay-shadow: 0 6px 18px rgb(0 0 0 / 0.5), 0 0 0 1px var(--oc-line);
+  --oc-scrim: rgb(0 0 0 / 0.6);
 }
 
-/* ----------------------------------------------------------------------------
-   Theme mapping — exposes tokens as Tailwind utilities
----------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   4. Theme mapping — exposes tokens as Tailwind utilities
+--------------------------------------------------------------------------- */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -197,133 +175,142 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Brand-named colours: bg-cobalt, text-rust, border-navy, … */
-  --color-cobalt: var(--jn-cobalt);
-  --color-cobalt-dark: var(--jn-cobalt-dark);
-  --color-cobalt-light: var(--jn-cobalt-light);
-  --color-navy: var(--jn-navy);
-  --color-navy-deep: var(--jn-navy-deep);
-  --color-panel: var(--jn-panel);
-  --color-inset: var(--jn-inset);
-  --color-yellow-safety: var(--jn-yellow);
-  --color-yellow-safety-dark: var(--jn-yellow-dark);
-  --color-cream: var(--jn-cream);
-  --color-cream-hi: var(--jn-cream-hi);
-  --color-wall: var(--jn-wall);
-  --color-mortar: var(--jn-mortar);
-  --color-board: var(--jn-board);
-  --color-rust: var(--jn-rust);
-  --color-rust-dark: var(--jn-rust-dark);
-  --color-metal: var(--jn-metal);
-  --color-metal-dark: var(--jn-metal-dark);
-  --color-outline: var(--jn-outline);
+  /* Semantic extras this identity needs beyond the shadcn set */
+  --color-surface-muted: var(--oc-surface-muted);
+  --color-border-subtle: var(--oc-line-subtle);
+  --color-ink-muted: var(--oc-ink-muted);
+  --color-ink-subtle: var(--oc-ink-subtle);
+  --color-ink-faint: var(--oc-ink-faint);
+  --color-success: var(--oc-success);
+  --color-primary-hover: var(--oc-blue-hover);
+  --color-primary-wash: var(--oc-blue-wash);
+  --color-primary-line: var(--oc-blue-line);
+  --color-wire: var(--oc-wire);
+  --color-scrim: var(--oc-scrim);
 
-  /* Type */
-  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-sign: "Big Shoulders Display Variable", "Archivo Narrow", sans-serif;
-  --font-mono: "Spline Sans Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+  /* Agent authorship. Use only where The Janitor produced the thing. */
+  --color-agent: var(--oc-agent);
+  --color-agent-ink: var(--oc-agent-ink);
+  --color-agent-wash: var(--oc-agent-wash);
+  --color-agent-line: var(--oc-agent-line);
 
-  --text-body-sm: 0.8125rem;
-  --text-body-sm--line-height: 1.45;
-  --text-body-md: 0.9375rem;
-  --text-body-md--line-height: 1.5;
-  --text-label: 0.90625rem;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1.35;
+  --text-mono-xs: 0.65625rem;
+  --text-mono-xs--line-height: 1.3;
+  --text-mono-xs--letter-spacing: 0.01em;
+  --text-mono-sm: 0.71875rem;
+  --text-mono-sm--line-height: 1.35;
+  --text-numeral: 0.71875rem;
+  --text-numeral--line-height: 1.3;
+  --text-body-sm: 0.75rem;
+  --text-body-sm--line-height: 1.4;
+  --text-mono-md: 0.78125rem;
+  --text-mono-md--line-height: 1.4;
+  --text-label: 0.78125rem;
   --text-label--line-height: 1.4;
-  --text-button: 0.875rem;
-  --text-button--line-height: 1.2;
-  --text-h3: 1rem;
-  --text-h3--line-height: 1.35;
-  --text-h2: 1.25rem;
-  --text-h2--line-height: 1.3;
-  --text-sign: 1.5625rem;
-  --text-sign--line-height: 1.1;
-  --text-sign--letter-spacing: 0.09em;
-  --text-numeral: 1.6875rem;
-  --text-numeral--line-height: 1.1;
-  --text-stamp: 2.125rem;
-  --text-stamp--line-height: 1.15;
-  --text-stamp--letter-spacing: 0.09em;
-  --text-display: 2.75rem;
-  --text-display--line-height: 1;
-  --text-mono-sm: 0.6875rem;
-  --text-mono-sm--letter-spacing: 0.02em;
-  --text-mono-md: 0.90625rem;
+  --text-body-md: 0.8125rem;
+  --text-body-md--line-height: 1.45;
+  --text-h3: 0.8125rem;
+  --text-h3--line-height: 1.4;
+  --text-h2: 0.875rem;
+  --text-h2--line-height: 1.35;
+  --text-h1: 1.125rem;
+  --text-h1--line-height: 1.3;
+  --text-h1--letter-spacing: -0.01em;
 
-  /* Shape. Small and deliberately inconsistent; see DESIGN.md § Shapes. */
   --radius-xs: 3px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 14px;
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-sm: 5px;
+  --radius-md: 8px;
 
-  /* Depth — shadow-mount / shadow-edge / shadow-recess */
-  --shadow-mount: var(--jn-mount);
-  --shadow-edge: var(--jn-edge);
-  --shadow-recess: var(--jn-recess);
+  --shadow-overlay: var(--oc-overlay-shadow);
+  --ease-ui: cubic-bezier(0.2, 0, 0.2, 1);
 
-  /* Motion */
-  --ease-switch: var(--jn-ease);
-
-  @keyframes accordion-down {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--radix-accordion-content-height, var(--accordion-panel-height, auto));
-    }
-  }
-
-  @keyframes accordion-up {
-    from {
-      height: var(--radix-accordion-content-height, var(--accordion-panel-height, auto));
-    }
-
-    to {
-      height: 0;
-    }
-  }
+  /* Layout dimensions from DESIGN.md § Layout */
+  --spacing-sidebar: 216px;
+  --spacing-inspector: 292px;
+  --spacing-app-bar: 46px;
 }
 
+/* ---------------------------------------------------------------------------
+   5. Base
+--------------------------------------------------------------------------- */
 @layer base {
   * {
-    @apply border-border outline-ring/50;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-    background-image: var(--jn-wall-image);
-    -webkit-font-smoothing: antialiased;
-  }
-
-  /* Fractal grain over the cinderblock. Felt, not read. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    opacity: 0.05;
-    background-image: var(--jn-noise-image);
-  }
-  .dark body::before {
-    opacity: 0.04;
+    @apply border-border;
   }
 
   html {
     @apply font-sans;
   }
 
-  /* Focus is always safety yellow, never a soft blue halo. */
-  :focus-visible {
-    outline: 3px solid var(--ring);
-    outline-offset: 2px;
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: var(--text-body-md);
+    line-height: 1.45;
+    /* Inter: stylistic sets off, tabular figures handled per element. */
+    font-feature-settings:
+      "cv05" 0,
+      "ss01" 0;
   }
 
-  [data-leave] {
-    --tw-animation-fill-mode: both;
+  /* Tabular figures everywhere numbers line up. */
+  table,
+  .tabular,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1 {
+    font-size: var(--text-h1);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+  }
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  h3 {
+    font-size: var(--text-h3);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  p {
+    max-width: 66ch;
+  }
+
+  a {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    @apply font-mono;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+    border-radius: 3px;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -345,256 +332,621 @@
   }
 }
 
-/* ----------------------------------------------------------------------------
-   Utility Room primitives. Composable utilities, not components.
----------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   6. Blueprint primitives
+   For graph views only. Must not appear on ordinary pages.
+--------------------------------------------------------------------------- */
 
-/* Every raised object gets exactly this. Sameness is the point. */
-@utility jn-mount {
-  border: 3px solid var(--jn-outline);
-  border-radius: var(--radius-md);
-  box-shadow: var(--jn-mount);
+/* 22px lattice. Put on the canvas container. */
+@utility oc-canvas {
+  background-color: var(--card);
+  background-image:
+    linear-gradient(var(--oc-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--oc-grid) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
-/* Controls that things sit inside: switch tracks, inputs, checkboxes. */
-@utility jn-recess {
-  box-shadow: var(--jn-recess);
-}
-
-/* Enamel section sign. Pair with font-sign + uppercase + text-sign. */
-@utility jn-sign {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 20px 9px;
-  color: var(--jn-cream-hi);
-  background: linear-gradient(
-    180deg,
-    var(--jn-cobalt-light) 0%,
-    var(--jn-cobalt) 22%,
-    var(--jn-cobalt-dark) 100%
-  );
-  border: 3px solid var(--jn-navy-deep);
-  border-radius: var(--radius-md);
-  box-shadow:
-    inset 0 0 0 2px rgb(246 239 221 / 0.9),
-    var(--jn-mount);
-}
-
-/* Mounting-screw dot. Put one inside .jn-sign as the first child. */
-@utility jn-screw {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 9999px;
-  background: rgb(246 239 221 / 0.75);
-}
-
-/* Buttons travel into the surface when pressed. The whole motion budget. */
-@utility jn-press {
-  box-shadow: var(--jn-edge);
+/* A step in a rule graph. */
+@utility oc-node {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 7px 9px;
+  text-align: left;
   transition:
-    transform 80ms,
-    box-shadow 80ms;
+    border-color 120ms var(--ease-ui),
+    box-shadow 120ms var(--ease-ui);
 
-  &:active {
-    transform: translateY(3px);
-    box-shadow: 0 0 0 currentColor;
+  &:hover {
+    border-color: var(--oc-blue-line);
+  }
+  &[aria-pressed="true"],
+  &[data-selected="true"],
+  &:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--oc-blue-wash);
   }
 }
 
-/* Destructive-zone marker. Top edge of a region only — never on a button. */
-@utility jn-hazard {
-  height: 16px;
-  border-bottom: 3px solid var(--jn-navy);
-  background: repeating-linear-gradient(45deg, var(--jn-yellow) 0 14px, var(--jn-navy) 14px 28px);
+/* Junction label sitting on a connector spine. */
+@utility oc-junction {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 1px 7px;
+  font-size: var(--text-caption);
+  color: var(--oc-ink-muted);
+  white-space: nowrap;
 }
 
-/* Brushed steel: hook rails, clipboard clips. Hardware only, never text. */
-@utility jn-steel {
-  background: linear-gradient(180deg, #d2d8e6, var(--jn-metal) 55%, var(--jn-metal-dark));
-  border: 2px solid var(--jn-navy-deep);
+/* Marker-pen note attached to a node by a dashed leader. */
+@utility oc-annotation {
+  background: var(--oc-agent-wash);
+  border: 1px dashed var(--oc-agent-line);
+  border-radius: var(--radius-xs);
+  padding: 7px 9px;
+  font-size: var(--text-body-sm);
+  color: var(--oc-agent-ink);
+  max-width: 262px;
 }
 
-/* Perforated card stock for the punch card. */
-@utility jn-perforated {
-  background:
-    radial-gradient(circle at 10px 0, transparent 5px, var(--jn-cream-hi) 5.5px) 0 0 / 20px 12px
-      repeat-x,
-    var(--jn-cream-hi);
+/* Apply to SVG connector groups: stroke inherits the wire color. */
+@utility oc-wire {
+  stroke: var(--oc-wire);
+  stroke-width: 1.25;
+  fill: none;
 }
 
-/* Empty-state fill: dashed top edge + faint hatch. */
-@utility jn-empty {
-  border-top: 2px dashed color-mix(in srgb, var(--foreground) 30%, transparent);
-  background-image: repeating-linear-gradient(
-    135deg,
-    transparent 0 9px,
-    color-mix(in srgb, var(--foreground) 5%, transparent) 9px 18px
-  );
+/* ---------------------------------------------------------------------------
+   7. Agent authorship
+   The only correct use of yellow. Never for warnings.
+--------------------------------------------------------------------------- */
+
+/* Left rule on anything the agent produced: a node, a diff, a feed group. */
+@utility oc-agent-edge {
+  border-left: 3px solid var(--oc-agent);
 }
 
-/* Marks work the agent did itself, in timelines and diffs. Semantic. */
-@utility jn-agent {
-  border-left: 3px solid var(--jn-cobalt-light);
+/* 7px dot for feed entries and status pills. */
+@utility oc-agent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--oc-agent);
+  outline: 1px solid var(--oc-agent-ink);
+  flex: none;
 }
 
-/* ----------------------------------------------------------------------------
-   Density switch. Past eight rows, contents go quiet while the panel stays an
-   object. Apply .jn-dense to the list container.
----------------------------------------------------------------------------- */
-.jn-dense {
-  --jn-row-py: 8px;
+/* 7px dot for human entries. Non-text mark, so faint is allowed. */
+@utility oc-human-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--oc-ink-faint);
+  flex: none;
 }
+
+/* Small badge, e.g. "written by The Janitor". */
+@utility oc-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--oc-agent-wash);
+  border: 1px solid var(--oc-agent-line);
+  border-radius: var(--radius-xs);
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono-xs);
+  line-height: 1.3;
+  color: var(--oc-agent-ink);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   8. Dense table
+   Rows within a region use border-subtle; the region uses border.
+--------------------------------------------------------------------------- */
+@layer components {
+  [data-slot="table"] {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-body-md);
+    font-variant-numeric: tabular-nums;
+  }
+  [data-slot="table-head"] {
+    height: 24px;
+    padding: 5px 12px;
+    font-size: var(--text-caption);
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: left;
+    color: var(--oc-ink-subtle);
+    border-bottom: 1px solid var(--oc-line-subtle);
+    white-space: nowrap;
+  }
+  [data-slot="table-cell"] {
+    height: 28px;
+    padding: 5px 12px;
+    vertical-align: middle;
+  }
+  [data-slot="table-head"][data-numeric],
+  [data-slot="table-cell"][data-numeric] {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: var(--text-numeral);
+    font-weight: 500;
+    color: var(--oc-ink-muted);
+  }
+  [data-slot="table-cell"][data-code] {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono-sm);
+    color: var(--oc-ink-muted);
+  }
+  [data-slot="table-row"] {
+    border-bottom: 1px solid var(--oc-line-subtle);
+    transition: background-color 120ms var(--ease-ui);
+  }
+  [data-slot="table-row"]:last-child {
+    border-bottom: 0;
+  }
+  [data-slot="table-row"]:hover {
+    background: var(--oc-surface-muted);
+  }
+  [data-slot="table-row"][data-state="selected"],
+  [data-slot="table-row"][aria-selected="true"] {
+    background: var(--oc-blue-wash);
+    box-shadow: inset 2px 0 0 var(--primary);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   9. Primitive overrides (data-slot selectors, not forks)
+--------------------------------------------------------------------------- */
+@layer components {
+  [data-slot="button"] {
+    height: 28px;
+    padding-inline: 11px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-label);
+    font-weight: 500;
+    line-height: 1.2;
+    box-shadow: none;
+    transition:
+      background-color 120ms var(--ease-ui),
+      border-color 120ms var(--ease-ui),
+      color 120ms var(--ease-ui);
+  }
+  [data-slot="button"][data-size="sm"],
+  [data-slot="button"][data-size="xs"] {
+    height: 24px;
+    padding-inline: 8px;
+    font-size: var(--text-body-sm);
+  }
+  [data-slot="button"][data-size="icon"] {
+    width: 28px;
+    padding-inline: 0;
+  }
+  [data-slot="button"][data-size="icon-sm"],
+  [data-slot="button"][data-size="icon-xs"] {
+    width: 24px;
+    height: 24px;
+    padding-inline: 0;
+  }
+
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="select-trigger"] {
+    background: var(--oc-surface-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-body-md);
+    box-shadow: none;
+    transition:
+      border-color 120ms var(--ease-ui),
+      background-color 120ms var(--ease-ui);
+  }
+  [data-slot="input"],
+  [data-slot="select-trigger"] {
+    height: 28px;
+    padding-inline: 9px;
+  }
+  [data-slot="textarea"] {
+    padding: 6px 9px;
+  }
+  [data-slot="input"]::placeholder,
+  [data-slot="textarea"]::placeholder {
+    color: var(--oc-ink-subtle);
+  }
+  [data-slot="input"]:focus-visible,
+  [data-slot="textarea"]:focus-visible,
+  [data-slot="select-trigger"]:focus-visible {
+    border-color: var(--primary);
+    background: var(--card);
+  }
+  [data-slot="input"][aria-invalid="true"],
+  [data-slot="textarea"][aria-invalid="true"],
+  [data-slot="select-trigger"][aria-invalid="true"] {
+    border-color: var(--destructive);
+  }
+  [data-slot="label"] {
+    font-size: var(--text-label);
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  [data-slot="card"] {
+    background: var(--card);
+    color: var(--card-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: none;
+  }
+  [data-slot="card-header"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--oc-surface-muted);
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    padding: 8px 12px;
+    font-size: var(--text-h3);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  [data-slot="card-meta"] {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono-sm);
+    font-weight: 400;
+    color: var(--oc-ink-subtle);
+  }
+
+  [data-slot="badge"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 18px;
+    border-radius: var(--radius-xs);
+    padding: 0 5px;
+    font-family: var(--font-mono);
+    font-size: var(--text-mono-xs);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    border: 1px solid var(--border);
+    background: var(--oc-surface-muted);
+    color: var(--oc-ink-muted);
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  [data-slot="badge"][data-variant="selected"] {
+    border-radius: 9999px;
+    border-color: var(--oc-blue-line);
+    background: var(--oc-blue-wash);
+    color: var(--oc-blue-hover);
+  }
+  [data-slot="badge"][data-variant="success"] {
+    border-color: var(--oc-success);
+    background: var(--oc-success);
+    color: var(--oc-on-blue);
+  }
+  [data-slot="badge"][data-variant="danger"] {
+    border-color: var(--destructive);
+    background: var(--destructive);
+    color: var(--destructive-foreground);
+  }
+  [data-slot="badge"][data-variant="agent"] {
+    border-color: var(--oc-agent-line);
+    background: var(--oc-agent-wash);
+    color: var(--oc-agent-ink);
+  }
+
+  [data-slot="switch"] {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    width: 26px;
+    height: 15px;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: var(--oc-ink-faint);
+    cursor: pointer;
+    transition: background-color 120ms var(--ease-ui);
+  }
+  [data-slot="switch"][data-state="checked"],
+  [data-slot="switch"][aria-checked="true"] {
+    background: var(--primary);
+  }
+  [data-slot="switch"][disabled],
+  [data-slot="switch"][aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: default;
+  }
+  [data-slot="switch-thumb"] {
+    display: block;
+    width: 11px;
+    height: 11px;
+    margin: 0;
+    border-radius: 9999px;
+    background: var(--oc-surface);
+    transform: translateX(2px);
+    transition: transform 120ms var(--ease-ui);
+  }
+  [data-slot="switch"][data-state="checked"] [data-slot="switch-thumb"],
+  [data-slot="switch"][aria-checked="true"] [data-slot="switch-thumb"] {
+    transform: translateX(13px);
+  }
+
+  [data-slot="tabs-list"] {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  [data-slot="tabs-trigger"] {
+    margin-bottom: -1px;
+    border-radius: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    box-shadow: none;
+    padding: 7px 11px;
+    font-size: var(--text-body-md);
+    color: var(--oc-ink-muted);
+    transition:
+      color 120ms var(--ease-ui),
+      border-color 120ms var(--ease-ui);
+  }
+  [data-slot="tabs-trigger"]:hover {
+    color: var(--foreground);
+  }
+  [data-slot="tabs-trigger"][data-state="active"],
+  [data-slot="tabs-trigger"][aria-selected="true"],
+  [data-slot="tabs-trigger"][aria-current="page"] {
+    color: var(--foreground);
+    font-weight: 600;
+    border-bottom-color: var(--primary);
+    background: transparent;
+  }
+
+  [data-slot="separator"] {
+    background: var(--oc-line-subtle);
+  }
+
+  /* Overlays: the only shadowed elements in the system. */
+  [data-slot="dialog-content"],
+  [data-slot="sheet-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="menu-content"],
+  [data-slot="select-content"],
+  [data-slot="tooltip-content"],
+  [data-slot="toast"] {
+    background: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--oc-overlay-shadow);
+  }
+  [data-slot="sheet-content"] {
+    border-radius: var(--radius-md);
+  }
+  [data-slot="tooltip-content"] {
+    padding: 4px 8px;
+    font-size: var(--text-body-sm);
+  }
+  [data-slot="dialog-overlay"],
+  [data-slot="sheet-overlay"] {
+    background: var(--oc-scrim);
+    backdrop-filter: none;
+  }
+
+  /* Static block, not a shimmer. */
+  [data-slot="skeleton"] {
+    background: var(--oc-surface-muted);
+    border-radius: var(--radius-xs);
+    animation: none;
+  }
+
+  /* Inspector key/value rows. */
+  [data-slot="inspector-section"] {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  [data-slot="inspector-section"]:last-child {
+    border-bottom: 0;
+  }
+  [data-slot="inspector-heading"] {
+    margin-bottom: 8px;
+    font-size: var(--text-caption);
+    font-weight: 500;
+    color: var(--oc-ink-subtle);
+  }
+  [data-slot="inspector-row"] {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 8px;
+    padding: 3px 0;
+    font-size: var(--text-body-sm);
+  }
+  [data-slot="inspector-key"] {
+    color: var(--oc-ink-muted);
+  }
+  [data-slot="inspector-value"] {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono-sm);
+    color: var(--foreground);
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   10. Dense list. Kept from the previous identity; now the default look.
+--------------------------------------------------------------------------- */
 .jn-dense [data-slot="row"] {
-  padding-block: var(--jn-row-py);
-  border-bottom: 1px solid var(--muted);
+  padding-block: 5px;
+  border-bottom: 1px solid var(--oc-line-subtle);
   box-shadow: none;
 }
 .jn-dense [data-slot="row"]:last-child {
   border-bottom: 0;
 }
-.jn-dense [data-slot="row"] :is(code, .font-mono) {
-  font-size: var(--text-body-sm);
+
+/* ===========================================================================
+   ALIASES — Utility Room names pointing at Ops Console values.
+   Every rule in this block is deleted in Phase 4. Do not add to it.
+   ======================================================================== */
+:root,
+.dark {
+  --jn-cobalt: var(--oc-blue);
+  --jn-cobalt-dark: var(--oc-blue-hover);
+  --jn-cobalt-light: var(--oc-blue-line);
+  --jn-navy: var(--oc-line);
+  --jn-navy-deep: var(--oc-line);
+  --jn-panel: var(--oc-surface-muted);
+  --jn-inset: var(--oc-surface-muted);
+  --jn-yellow: var(--oc-agent);
+  --jn-yellow-dark: var(--oc-agent-line);
+  --jn-cream: var(--oc-surface);
+  --jn-cream-hi: var(--oc-surface);
+  --jn-wall: var(--oc-canvas);
+  --jn-mortar: var(--oc-line-subtle);
+  --jn-board: var(--oc-surface-muted);
+  --jn-rust: var(--oc-danger);
+  --jn-rust-dark: var(--oc-danger-hover);
+  --jn-metal: var(--oc-line);
+  --jn-metal-dark: var(--oc-line);
+  --jn-muted-ink: var(--oc-ink-muted);
+  --jn-muted-panel-ink: var(--oc-ink-subtle);
+  --jn-outline: var(--oc-line);
+  --jn-edge: none;
+  --jn-mount: none;
+  --jn-recess: none;
+  --jn-ease: var(--ease-ui);
 }
 
-/* ----------------------------------------------------------------------------
-   Hook-rack navigation tag
----------------------------------------------------------------------------- */
+@theme inline {
+  --color-cobalt: var(--jn-cobalt);
+  --color-cobalt-dark: var(--jn-cobalt-dark);
+  --color-cobalt-light: var(--jn-cobalt-light);
+  --color-navy: var(--foreground);
+  --color-navy-deep: var(--foreground);
+  --color-panel: var(--jn-panel);
+  --color-inset: var(--jn-inset);
+  --color-yellow-safety: var(--jn-yellow);
+  --color-yellow-safety-dark: var(--jn-yellow-dark);
+  --color-cream: var(--jn-cream);
+  --color-cream-hi: var(--jn-cream-hi);
+  --color-wall: var(--jn-wall);
+  --color-mortar: var(--jn-mortar);
+  --color-board: var(--jn-board);
+  --color-rust: var(--jn-rust);
+  --color-rust-dark: var(--jn-rust-dark);
+  --color-metal: var(--jn-metal);
+  --color-metal-dark: var(--jn-metal-dark);
+  --color-outline: var(--jn-outline);
+
+  --font-sign: var(--font-sans);
+  --text-button: var(--text-label);
+  --text-button--line-height: 1.2;
+  --text-sign: var(--text-h2);
+  --text-sign--line-height: 1.35;
+  --text-stamp: var(--text-h1);
+  --text-display: var(--text-h1);
+  --radius-lg: var(--radius-md);
+  --radius-xl: var(--radius-md);
+  --radius-2xl: var(--radius-md);
+  --radius-3xl: var(--radius-md);
+  --radius-4xl: var(--radius-md);
+  --shadow-mount: none;
+  --shadow-edge: none;
+  --shadow-recess: none;
+  --ease-switch: var(--ease-ui);
+}
+
+@utility jn-mount {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+@utility jn-recess {
+  box-shadow: none;
+}
+@utility jn-sign {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--text-h2);
+}
+@utility jn-screw {
+  display: none;
+}
+@utility jn-press {
+  box-shadow: none;
+}
+@utility jn-hazard {
+  display: none;
+}
+@utility jn-steel {
+  background: transparent;
+  border: 0;
+}
+@utility jn-perforated {
+  background: var(--card);
+}
+@utility jn-empty {
+  border-top: 1px dashed var(--border);
+  background-image: none;
+}
+@utility jn-agent {
+  border-left: 3px solid var(--oc-agent);
+}
+
 @layer components {
   .jn-tag {
     display: flex;
     align-items: center;
-    gap: 9px;
-    padding: 9px 12px 10px;
-    color: var(--card-foreground);
-    background: var(--card);
-    border: 2px solid var(--jn-outline);
-    border-radius: 4px 4px 14px 14px;
-    box-shadow: 0 3px 0 rgb(11 20 54 / 0.22);
-    font-weight: 600;
-    font-size: var(--text-label);
+    gap: 8px;
+    height: 26px;
+    padding: 0 8px;
+    color: var(--foreground);
+    background: transparent;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    box-shadow: none;
+    font-weight: 400;
+    font-size: var(--text-body-sm);
     text-decoration: none;
-    transform: rotate(-0.9deg);
-    transform-origin: 22px -6px;
-    transition:
-      transform 160ms ease,
-      background 160ms ease;
-  }
-  .jn-tag::before {
-    content: "";
-    flex: none;
-    width: 9px;
-    height: 9px;
-    border: 2px solid currentColor;
-    border-radius: 9999px;
-    background: var(--background);
+    transform: none;
+    transition: background-color 120ms var(--ease-ui);
   }
   .jn-tag:hover {
-    transform: rotate(0deg) translateY(-1px);
+    background: var(--oc-surface-muted);
+    transform: none;
   }
   .jn-tag[aria-current="page"] {
-    color: var(--jn-navy);
-    background: var(--jn-yellow);
-    border-color: var(--jn-yellow-dark);
-    box-shadow: 0 3px 0 var(--jn-yellow-dark);
-    transform: rotate(0deg);
+    color: var(--foreground);
+    background: var(--oc-blue-wash);
+    border-left-color: var(--primary);
+    font-weight: 600;
   }
   .jn-tag[data-variant="danger"] {
     color: var(--destructive);
-    border-color: var(--destructive);
-  }
-  .dark .jn-tag {
-    box-shadow: 0 3px 0 #000;
-  }
-
-  /* Breaker switch. Wrap a real checkbox:
-       <label class="jn-switch"><input type="checkbox">
-         <span class="jn-switch-track">on</span><span class="jn-switch-knob"></span></label> */
-  .jn-switch {
-    position: relative;
-    flex: none;
-    width: 70px;
-    height: 36px;
-    cursor: pointer;
-  }
-  .jn-switch input {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    margin: 0;
-    opacity: 0;
-    cursor: inherit;
-  }
-  .jn-switch-track {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding-inline: 9px;
-    border: 2px solid var(--jn-navy-deep);
-    border-radius: var(--radius-sm);
-    background: var(--jn-inset);
-    box-shadow: var(--jn-recess);
-    color: #606c93;
-    font-family: var(--font-mono);
-    font-size: var(--text-mono-sm);
-    font-weight: 600;
-  }
-  .jn-switch-knob {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 32px;
-    height: 26px;
-    border: 2px solid var(--jn-navy-deep);
-    border-radius: var(--radius-xs);
-    background: linear-gradient(180deg, var(--jn-cream-hi), #dcd3bc);
-    box-shadow: 0 2px 0 rgb(0 0 0 / 0.4);
-    transition: transform 130ms var(--jn-ease);
-  }
-  .jn-switch-knob::after {
-    content: "";
-    position: absolute;
-    inset: 5px 8px;
-    background: repeating-linear-gradient(
-      90deg,
-      rgb(18 34 92 / 0.32) 0 1.5px,
-      transparent 1.5px 4px
-    );
-  }
-  .jn-switch input:checked ~ .jn-switch-track {
-    justify-content: flex-start;
-    background: var(--jn-yellow);
-    color: var(--jn-navy);
-  }
-  .jn-switch input:checked ~ .jn-switch-knob {
-    transform: translateX(31px);
-  }
-  .jn-switch input:focus-visible ~ .jn-switch-track {
-    outline: 3px solid var(--ring);
-    outline-offset: 3px;
-  }
-  .jn-switch:has(input:disabled) {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  @media (width < 620px) {
-    .jn-switch {
-      width: 56px;
-      height: 30px;
-    }
-    .jn-switch-knob {
-      width: 26px;
-      height: 22px;
-    }
-    .jn-switch input:checked ~ .jn-switch-knob {
-      transform: translateX(24px);
-    }
   }
 }
 
+/* ===========================================================================
+   Page CSS carried over from the previous identity. Restyled screen by
+   screen in Phase 3; anything left below this line in Phase 4 is a bug.
+   ======================================================================== */
 /* Policy document workspace */
 .repository-workspace {
   min-width: 0;
@@ -1296,7 +1648,7 @@
   border-radius: 50%;
   background: var(--jn-cream-hi);
   border: 1px solid var(--jn-navy-deep);
-  box-shadow: 0 1px 0 rgb(0 0 0 / 0.35);
+  box-shadow: none;
   transition: transform 160ms ease;
 }
 .rule-enable-switch[aria-checked="true"] > span {

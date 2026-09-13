@@ -66,28 +66,28 @@ inside rules: `#606c93` (switch track text, :540), `#dcd3bc` (knob gradient,
 
 **Outside the theme file.**
 
-| Location | Value | Purpose |
-| --- | --- | --- |
-| `repository-switcher.ts:153-155` | 12 hexes (`#e3d9ff` `#54368f` `#55427a` `#f0e7ff` `#d1e7ff` `#285579` `#28516d` `#e0f1ff` `#d5ece4` `#285d49` `#29594b` `#d9fff0`) | Repository tile tone ramp, chosen by name hash |
-| `repository-switcher.ts:185` | `#277346`, `#8acaa1` | "Active" status text, light/dark |
-| `ui/input.ts:7`, `ui/input-group.ts:11`, `ui/textarea.ts:6` | `rgb(18 34 92 / 0.1)` | Inset lip shadow, copy-pasted three times |
-| `workspace.ts:1476-1478` | `#111111`, `#ffffff`, `` `#${color}` `` | GitHub label badge: bg/border from GitHub's hex, contrast text computed by luminance |
-| `activity.ts:408` | `` `#${color}70` ``, `` `#${color}18` `` | GitHub label pill with hardcoded alpha suffixes |
-| `activity.ts:474` | `` `#${color}` `` | Rule dot |
-| `public/site.webmanifest:16-17` | `#0d47a1`, `#ffffff` | `theme_color` (stock Material blue, unrelated to the palette), `background_color` |
-| `test/components/workspace.test.ts:714-724` | `#ffffff` `#111111` `#000000` `#d73a4a` | Assertions on the label badge helper |
+| Location                                                    | Value                                                                                                                              | Purpose                                                                              |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `repository-switcher.ts:153-155`                            | 12 hexes (`#e3d9ff` `#54368f` `#55427a` `#f0e7ff` `#d1e7ff` `#285579` `#28516d` `#e0f1ff` `#d5ece4` `#285d49` `#29594b` `#d9fff0`) | Repository tile tone ramp, chosen by name hash                                       |
+| `repository-switcher.ts:185`                                | `#277346`, `#8acaa1`                                                                                                               | "Active" status text, light/dark                                                     |
+| `ui/input.ts:7`, `ui/input-group.ts:11`, `ui/textarea.ts:6` | `rgb(18 34 92 / 0.1)`                                                                                                              | Inset lip shadow, copy-pasted three times                                            |
+| `workspace.ts:1476-1478`                                    | `#111111`, `#ffffff`, `` `#${color}` ``                                                                                            | GitHub label badge: bg/border from GitHub's hex, contrast text computed by luminance |
+| `activity.ts:408`                                           | `` `#${color}70` ``, `` `#${color}18` ``                                                                                           | GitHub label pill with hardcoded alpha suffixes                                      |
+| `activity.ts:474`                                           | `` `#${color}` ``                                                                                                                  | Rule dot                                                                             |
+| `public/site.webmanifest:16-17`                             | `#0d47a1`, `#ffffff`                                                                                                               | `theme_color` (stock Material blue, unrelated to the palette), `background_color`    |
+| `test/components/workspace.test.ts:714-724`                 | `#ffffff` `#111111` `#000000` `#d73a4a`                                                                                            | Assertions on the label badge helper                                                 |
 
 **Stock Tailwind palette classes (bypass tokens entirely).**
 
-| Class | Locations |
-| --- | --- |
-| `text-emerald-600/400` | `activity.ts:381`, `policy-editor.ts:1288`, `rule-editor.ts:1157`, `test-bench.ts:179` |
-| `text-emerald-700/300`, `bg-emerald-500/15` | `sessions.ts:350` |
-| `text-amber-700/400` | `activity.ts:385,391`, `ai-input-view.ts:40,74` |
-| `text-amber-600/400` | `policy-editor.ts:822`, `rule-editor.ts:1052`, `test-bench.ts:183` |
-| `text-amber-700/300`, `bg-amber-500/15` | `sessions.ts:352,454,523,556` |
-| `text-amber-500` | `sync-button.ts:370` |
-| `bg-black/40` | `policy-editor.ts:1346`, `repository-connections.ts:461`, `rule-editor.ts:1621` (dialog scrims; `ui/sheet.ts` uses `bg-navy-deep/55` instead) |
+| Class                                       | Locations                                                                                                                                     |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text-emerald-600/400`                      | `activity.ts:381`, `policy-editor.ts:1288`, `rule-editor.ts:1157`, `test-bench.ts:179`                                                        |
+| `text-emerald-700/300`, `bg-emerald-500/15` | `sessions.ts:350`                                                                                                                             |
+| `text-amber-700/400`                        | `activity.ts:385,391`, `ai-input-view.ts:40,74`                                                                                               |
+| `text-amber-600/400`                        | `policy-editor.ts:822`, `rule-editor.ts:1052`, `test-bench.ts:183`                                                                            |
+| `text-amber-700/300`, `bg-amber-500/15`     | `sessions.ts:352,454,523,556`                                                                                                                 |
+| `text-amber-500`                            | `sync-button.ts:370`                                                                                                                          |
+| `bg-black/40`                               | `policy-editor.ts:1346`, `repository-connections.ts:461`, `rule-editor.ts:1621` (dialog scrims; `ui/sheet.ts` uses `bg-navy-deep/55` instead) |
 
 No `hsl()`, `oklch()` or named colors appear outside the theme file. There is
 no `<meta name="theme-color">` in `index.html`.
@@ -102,7 +102,7 @@ no `<meta name="theme-color">` in `index.html`.
   (`ui/sign.ts:6`); `font-mono` 10 times.
 - Hardcoded stack outside the theme: `policy-source/editor.ts:54` sets
   `.cm-scroller` to `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-  monospace`, so the YAML editor does not use the app mono face.
+monospace`, so the YAML editor does not use the app mono face.
 - Type scale (`styles.css:218-241`): body-sm 13px, body-md 15px, label 14.5px,
   button 14px, h3 16px, h2 20px, sign 25px, numeral 27px, stamp 34px, display
   44px, mono-sm 11px, mono-md 14.5px. Base body is 15px; target is 13px.
@@ -128,16 +128,16 @@ computed from `--radius` (`styles.css:243-251`). Utilities used in TS:
 The current identity is built on hard drop edges and insets, which the target
 removes entirely.
 
-| Source | Value | Where |
-| --- | --- | --- |
-| `--jn-edge` | `0 3px 0 navy-deep` | `shadow-edge` on every button (`ui/button.ts:58`), `main.ts:1263` |
-| `--jn-mount` | edge + `0 6px 14px rgb(11 20 54 / .28)` | `jn-mount` utility (panels), `shadow-mount` (`ui/sheet.ts`, `ui/sidebar.ts:228,791`) |
-| `--jn-recess` | `inset 0 3px 6px rgb(11 20 54 / .55)` | switch tracks |
-| inline | `inset 0 2px 0 rgb(18 34 92/0.1)` | input, input-group, textarea |
-| inline | `0 3px 0 var(--jn-rust-dark)` | destructive button |
-| inline | `0 0 0 2px var(--sidebar-border)` | `ui/sidebar.ts:555` |
-| stock | `shadow-md` (`workspace.ts:1609`, `sync-button.ts:381`), `shadow-lg` (`repository-switcher.ts:273`), `shadow-xl` (three dialogs) | overlays |
-| CSS | `.jn-sign` inset keyline + mount, `.jn-tag` `0 3px 0`, knob `0 2px 0`, view-toggle `0 0 0 2px` | component rules |
+| Source        | Value                                                                                                                            | Where                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `--jn-edge`   | `0 3px 0 navy-deep`                                                                                                              | `shadow-edge` on every button (`ui/button.ts:58`), `main.ts:1263`                    |
+| `--jn-mount`  | edge + `0 6px 14px rgb(11 20 54 / .28)`                                                                                          | `jn-mount` utility (panels), `shadow-mount` (`ui/sheet.ts`, `ui/sidebar.ts:228,791`) |
+| `--jn-recess` | `inset 0 3px 6px rgb(11 20 54 / .55)`                                                                                            | switch tracks                                                                        |
+| inline        | `inset 0 2px 0 rgb(18 34 92/0.1)`                                                                                                | input, input-group, textarea                                                         |
+| inline        | `0 3px 0 var(--jn-rust-dark)`                                                                                                    | destructive button                                                                   |
+| inline        | `0 0 0 2px var(--sidebar-border)`                                                                                                | `ui/sidebar.ts:555`                                                                  |
+| stock         | `shadow-md` (`workspace.ts:1609`, `sync-button.ts:381`), `shadow-lg` (`repository-switcher.ts:273`), `shadow-xl` (three dialogs) | overlays                                                                             |
+| CSS           | `.jn-sign` inset keyline + mount, `.jn-tag` `0 3px 0`, knob `0 2px 0`, view-toggle `0 0 0 2px`                                   | component rules                                                                      |
 
 Gradients: `jn-sign`, `jn-steel`, `jn-perforated`, `jn-hazard`, `jn-empty`
 hatch, switch knob, wall and noise images. All are out under the target.
@@ -206,21 +206,21 @@ All headless.
 
 Project-owned styled primitives in `apps/web/src/components/ui/`:
 
-| File | Renders | `data-slot` | Notes |
-| --- | --- | --- | --- |
-| `button.ts` | 6 variants, 8 sizes; 2.5px outline, hard edge, press travel | `button` | Default variant is yellow |
-| `chip.ts` | mono pill: neutral / on (yellow) / danger / agent (cobalt, unused) | `chip` | |
-| `command.ts` | palette container/input/list/item/group | `command*` | three `!` overrides |
-| `input-group.ts` | composite input shell, addons | `input-group*` | raw `onclick` string at :387 |
-| `input.ts` | label + input + description | `label`, `input` | inset lip shadow |
-| `mark.ts` | platform mark and avatar squares | none | only primitive without `data-slot` |
-| `panel.ts` | raised cream plate, `emptyPanel` | `panel` | `jn-mount`, `p-[18px]` |
-| `rack.ts` | hook-rail navigation with rotated tags | `rack` | rotation, steel gradient |
-| `sheet.ts` | side dialog; four identical panel strings | `sheet-*` | 40 arbitrary translates |
-| `sidebar.ts` | 797-line sidebar submodel and 20 view helpers | `sidebar*` | random skeleton width at :648 |
-| `sign.ts` | enamel section heading, uppercase | `sign` | |
-| `skeleton.ts` | `animate-pulse` block | `skeleton` | shimmer |
-| `textarea.ts` | label + textarea + description | `label`, `textarea` | |
+| File             | Renders                                                            | `data-slot`         | Notes                              |
+| ---------------- | ------------------------------------------------------------------ | ------------------- | ---------------------------------- |
+| `button.ts`      | 6 variants, 8 sizes; 2.5px outline, hard edge, press travel        | `button`            | Default variant is yellow          |
+| `chip.ts`        | mono pill: neutral / on (yellow) / danger / agent (cobalt, unused) | `chip`              |                                    |
+| `command.ts`     | palette container/input/list/item/group                            | `command*`          | three `!` overrides                |
+| `input-group.ts` | composite input shell, addons                                      | `input-group*`      | raw `onclick` string at :387       |
+| `input.ts`       | label + input + description                                        | `label`, `input`    | inset lip shadow                   |
+| `mark.ts`        | platform mark and avatar squares                                   | none                | only primitive without `data-slot` |
+| `panel.ts`       | raised cream plate, `emptyPanel`                                   | `panel`             | `jn-mount`, `p-[18px]`             |
+| `rack.ts`        | hook-rail navigation with rotated tags                             | `rack`              | rotation, steel gradient           |
+| `sheet.ts`       | side dialog; four identical panel strings                          | `sheet-*`           | 40 arbitrary translates            |
+| `sidebar.ts`     | 797-line sidebar submodel and 20 view helpers                      | `sidebar*`          | random skeleton width at :648      |
+| `sign.ts`        | enamel section heading, uppercase                                  | `sign`              |                                    |
+| `skeleton.ts`    | `animate-pulse` block                                              | `skeleton`          | shimmer                            |
+| `textarea.ts`    | label + textarea + description                                     | `label`, `textarea` |                                    |
 
 All of these were written for Utility Room; none are generated shadcn files,
 so "modified from generated form" does not apply. Every one will change in
@@ -257,20 +257,20 @@ Everything is in `styles.css`:
 
 ## 4. Surfaces outside the app tree
 
-| Surface | Location | Carries brand? |
-| --- | --- | --- |
-| Favicons and touch icon | `public/*.png`; `index.html:6` references `/favicon.ico`, which does not exist | Yes, mascot artwork; out of scope for CSS, noted in G6 |
-| Web manifest | `public/site.webmanifest` | `theme_color #0d47a1` must move to the new canvas or primary |
-| Mascot logo | `src/assets/janitor-logo-{light,dark}.png`, rendered once in the app header via `janitor-icon.ts` from `main.ts:893` | **Violates the target**: mascot must not appear in the application interface |
-| Settings mockups | `docs/settings-mockups/*.html`, `utility-room.css`, Google Fonts link | Static Utility Room artifacts; served separately (see memory note); leave as history or delete, G7 |
-| Design reference CSS | `docs/design/theme.css` | Utility Room copy of the theme; superseded |
-| GitHub comments | `apps/cluster/src/GitHub/FeedbackHttp.ts:196-224` | Plain agent text plus an HTML marker comment. No visible attribution; the GitHub App identity supplies the bot badge |
-| Pull requests | `runner/src/Publication.ts:529-530`, `:344` | Title and body from the agent plus a marker comment; no attribution line |
-| Slack messages | `apps/cluster/src/Slack/Transport.ts:163`, `Delivery.ts:100-146`, `Processor.ts` | `mrkdwn: false`, no Block Kit, plain sentences |
-| Emails, PDFs, OG images, Storybook, docs site | none | none exist |
-| Auth screen | none; Cloudflare Access handles sign-in | n/a |
-| Error pages | in-app only (`main.ts:1232-1243` 404, `:1302-1326` unavailable repository) | yes, restyled in Phase 3 |
-| Loading skeletons | `ui/skeleton.ts`, sidebar only; everything else uses "Loading…" text | shimmer to remove |
+| Surface                                       | Location                                                                                                             | Carries brand?                                                                                                       |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Favicons and touch icon                       | `public/*.png`; `index.html:6` references `/favicon.ico`, which does not exist                                       | Yes, mascot artwork; out of scope for CSS, noted in G6                                                               |
+| Web manifest                                  | `public/site.webmanifest`                                                                                            | `theme_color #0d47a1` must move to the new canvas or primary                                                         |
+| Mascot logo                                   | `src/assets/janitor-logo-{light,dark}.png`, rendered once in the app header via `janitor-icon.ts` from `main.ts:893` | **Violates the target**: mascot must not appear in the application interface                                         |
+| Settings mockups                              | `docs/settings-mockups/*.html`, `utility-room.css`, Google Fonts link                                                | Static Utility Room artifacts; served separately (see memory note); leave as history or delete, G7                   |
+| Design reference CSS                          | `docs/design/theme.css`                                                                                              | Utility Room copy of the theme; superseded                                                                           |
+| GitHub comments                               | `apps/cluster/src/GitHub/FeedbackHttp.ts:196-224`                                                                    | Plain agent text plus an HTML marker comment. No visible attribution; the GitHub App identity supplies the bot badge |
+| Pull requests                                 | `runner/src/Publication.ts:529-530`, `:344`                                                                          | Title and body from the agent plus a marker comment; no attribution line                                             |
+| Slack messages                                | `apps/cluster/src/Slack/Transport.ts:163`, `Delivery.ts:100-146`, `Processor.ts`                                     | `mrkdwn: false`, no Block Kit, plain sentences                                                                       |
+| Emails, PDFs, OG images, Storybook, docs site | none                                                                                                                 | none exist                                                                                                           |
+| Auth screen                                   | none; Cloudflare Access handles sign-in                                                                              | n/a                                                                                                                  |
+| Error pages                                   | in-app only (`main.ts:1232-1243` 404, `:1302-1326` unavailable repository)                                           | yes, restyled in Phase 3                                                                                             |
+| Loading skeletons                             | `ui/skeleton.ts`, sidebar only; everything else uses "Loading…" text                                                 | shimmer to remove                                                                                                    |
 
 ## 5. Agent-authorship inventory
 
@@ -282,35 +282,35 @@ greyscale and screen readers.
 
 ### 5.1 Entirely agent-authored surfaces
 
-| Surface | Location | What the agent did | Current marking |
-| --- | --- | --- | --- |
-| Activity feed, every event | `activity.ts:566-689` | Evaluated an issue or PR and reconciled labels. `ActivityEntry` has no actor field; everything is a Janitor run | none |
-| Applied label pills | `activity.ts:403-412`, `:522-561` | Added or removed a GitHub label | none; GitHub label color |
-| Per-rule decision cards | `activity.ts:413-521` | Matched / no-match / unknown / failed | `.activity-decision-*` tones incl. **yellow for "unknown"** |
-| AI reason prose | `activity.ts:513-515` | LLM wrote this sentence | none |
-| Evaluation summary and rules-revision footnote | `activity.ts:663-683` | | none |
-| Sessions list and detail | `sessions.ts:420-461`, `:537-578` | Agent conversation in a Slack home thread; title derived from first message (`Processor.ts:211`) | none |
-| Execution badge Working / Idle / Blocked / Failed | `sessions.ts:342-354`, `:376-387` | The "agent is running" pill | emerald / amber / destructive |
-| Recorded usage, latest error, pending delivery | `sessions.ts:364-367`, `:547-552`, `:579-597` | | none |
-| Recovery scan section | `sessions.ts:490-535`; server `Agent/RecoveryStatus.ts` | Agent re-read GitHub and Slack history | amber when overdue |
-| Session PR link | `sessions.ts:389-418` | The PR is agent-authored | plain link |
-| Rule test bench result | `rule-editor.ts:1111-1233` | Agent evaluated the rule against one item; reason, confidence, trace, preview action | none |
-| Test bench (draft and configuration modes) | `test-bench.ts:186-281`, `:359-439`, `:445-514` | Agent evaluated rules across recent items | outcome in emerald / amber |
-| AI input inspector | `ai-input-view.ts:16-161` | What was sent to the model, what was omitted | amber for omissions |
-| Sync status button and tooltip | `sync-button.ts:290-327`, `:344-375`; header mount `main.ts:1132-1143` | Janitor reading GitHub state; spinner while running | amber when failed |
-| Sync toasts | `main.ts:351-395` | | warning border yellow |
-| Live-channel banner | `main.ts:1117-1131` | Push channel for agent changes | muted |
+| Surface                                           | Location                                                               | What the agent did                                                                                              | Current marking                                             |
+| ------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Activity feed, every event                        | `activity.ts:566-689`                                                  | Evaluated an issue or PR and reconciled labels. `ActivityEntry` has no actor field; everything is a Janitor run | none                                                        |
+| Applied label pills                               | `activity.ts:403-412`, `:522-561`                                      | Added or removed a GitHub label                                                                                 | none; GitHub label color                                    |
+| Per-rule decision cards                           | `activity.ts:413-521`                                                  | Matched / no-match / unknown / failed                                                                           | `.activity-decision-*` tones incl. **yellow for "unknown"** |
+| AI reason prose                                   | `activity.ts:513-515`                                                  | LLM wrote this sentence                                                                                         | none                                                        |
+| Evaluation summary and rules-revision footnote    | `activity.ts:663-683`                                                  |                                                                                                                 | none                                                        |
+| Sessions list and detail                          | `sessions.ts:420-461`, `:537-578`                                      | Agent conversation in a Slack home thread; title derived from first message (`Processor.ts:211`)                | none                                                        |
+| Execution badge Working / Idle / Blocked / Failed | `sessions.ts:342-354`, `:376-387`                                      | The "agent is running" pill                                                                                     | emerald / amber / destructive                               |
+| Recorded usage, latest error, pending delivery    | `sessions.ts:364-367`, `:547-552`, `:579-597`                          |                                                                                                                 | none                                                        |
+| Recovery scan section                             | `sessions.ts:490-535`; server `Agent/RecoveryStatus.ts`                | Agent re-read GitHub and Slack history                                                                          | amber when overdue                                          |
+| Session PR link                                   | `sessions.ts:389-418`                                                  | The PR is agent-authored                                                                                        | plain link                                                  |
+| Rule test bench result                            | `rule-editor.ts:1111-1233`                                             | Agent evaluated the rule against one item; reason, confidence, trace, preview action                            | none                                                        |
+| Test bench (draft and configuration modes)        | `test-bench.ts:186-281`, `:359-439`, `:445-514`                        | Agent evaluated rules across recent items                                                                       | outcome in emerald / amber                                  |
+| AI input inspector                                | `ai-input-view.ts:16-161`                                              | What was sent to the model, what was omitted                                                                    | amber for omissions                                         |
+| Sync status button and tooltip                    | `sync-button.ts:290-327`, `:344-375`; header mount `main.ts:1132-1143` | Janitor reading GitHub state; spinner while running                                                             | amber when failed                                           |
+| Sync toasts                                       | `main.ts:351-395`                                                      |                                                                                                                 | warning border yellow                                       |
+| Live-channel banner                               | `main.ts:1117-1131`                                                    | Push channel for agent changes                                                                                  | muted                                                       |
 
 ### 5.2 Mixed surfaces (agent-shaped content inside human editing)
 
-| Surface | Location | Note |
-| --- | --- | --- |
-| AI rule type, prompt editor, gate, confidence | `rule-editor.ts:1304-1338`, `:1714-1843` | Human writes the prompt; the rule is executed by the agent. Mark the rule as AI-evaluated, not the prompt as agent-written |
-| Rules table Type column | `workspace.ts:1461-1466`, `:1540-1548` | "AI" and "Policy" share the same icon and color |
-| Rule behavior summary | `workspace.ts:1458-1459` | First line of the AI prompt |
-| `classify` node and inserted snippet | `policy-source/completion.ts:38`, `:308-310` | Editor-inserted template, not agent-authored; should not be yellow |
-| Fact references in prompts | `ai-editor.ts:46-51`, `styles.css:1514-1521` | Cobalt tint today; interactive-ish, decide in G5 |
-| AI consent panel (Settings) | `workspace.ts:1752-1836` | Human decision about the agent; "Draining" state is agent activity |
+| Surface                                       | Location                                     | Note                                                                                                                       |
+| --------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| AI rule type, prompt editor, gate, confidence | `rule-editor.ts:1304-1338`, `:1714-1843`     | Human writes the prompt; the rule is executed by the agent. Mark the rule as AI-evaluated, not the prompt as agent-written |
+| Rules table Type column                       | `workspace.ts:1461-1466`, `:1540-1548`       | "AI" and "Policy" share the same icon and color                                                                            |
+| Rule behavior summary                         | `workspace.ts:1458-1459`                     | First line of the AI prompt                                                                                                |
+| `classify` node and inserted snippet          | `policy-source/completion.ts:38`, `:308-310` | Editor-inserted template, not agent-authored; should not be yellow                                                         |
+| Fact references in prompts                    | `ai-editor.ts:46-51`, `styles.css:1514-1521` | Cobalt tint today; interactive-ish, decide in G5                                                                           |
+| AI consent panel (Settings)                   | `workspace.ts:1752-1836`                     | Human decision about the agent; "Draining" state is agent activity                                                         |
 
 ### 5.3 Human-authored content that must stay Inter and grey
 
@@ -321,17 +321,17 @@ session (`sessions.ts:570-572`).
 
 ### 5.4 Yellow today, classified
 
-| Use | Location | Class under target | Action |
-| --- | --- | --- | --- |
-| Global focus ring and 11 component overrides | `styles.css:320-323` and others | interactive | becomes blue `--ring` |
-| Default button variant, connect CTA | `ui/button.ts:20`, `main.ts:1263` | interactive | becomes blue primary |
-| `admin` role chip | `ui/chip.ts:13`, `account.ts:420,535` | decorative | neutral badge |
-| Active nav tag | `styles.css:496-502` | interactive | `primary-wash` + 2px blue edge |
-| Rule enable switch on-state | `styles.css:1286-1291` | interactive | blue |
-| Published policy badge | `styles.css:795-799` | on-state | neutral badge with text |
-| Activity "unknown" decision | `styles.css:1800-1803` | warning on an agent row | neutral; the row itself gets the agent mark |
-| Warning toast border | `main.ts:1164` | warning | neutral (no warning color exists) |
-| `jn-hazard`, `.jn-switch`, `--chart-2` | `styles.css:407,567,93` | unused | delete |
+| Use                                          | Location                              | Class under target      | Action                                      |
+| -------------------------------------------- | ------------------------------------- | ----------------------- | ------------------------------------------- |
+| Global focus ring and 11 component overrides | `styles.css:320-323` and others       | interactive             | becomes blue `--ring`                       |
+| Default button variant, connect CTA          | `ui/button.ts:20`, `main.ts:1263`     | interactive             | becomes blue primary                        |
+| `admin` role chip                            | `ui/chip.ts:13`, `account.ts:420,535` | decorative              | neutral badge                               |
+| Active nav tag                               | `styles.css:496-502`                  | interactive             | `primary-wash` + 2px blue edge              |
+| Rule enable switch on-state                  | `styles.css:1286-1291`                | interactive             | blue                                        |
+| Published policy badge                       | `styles.css:795-799`                  | on-state                | neutral badge with text                     |
+| Activity "unknown" decision                  | `styles.css:1800-1803`                | warning on an agent row | neutral; the row itself gets the agent mark |
+| Warning toast border                         | `main.ts:1164`                        | warning                 | neutral (no warning color exists)           |
+| `jn-hazard`, `.jn-switch`, `--chart-2`       | `styles.css:407,567,93`               | unused                  | delete                                      |
 
 Amber classes listed in 1.1 are all warnings or outcome tones and become
 neutral, danger, or success per the target's status rule.
@@ -341,51 +341,51 @@ neutral, danger, or success per the target's status rule.
 Rows marked **drift** keep a name but change meaning; these are the ones to
 watch when aliasing in Phase 1.
 
-| Existing | Target | Value change | Drift |
-| --- | --- | --- | --- |
-| `--primary` | `--primary` | `#ffce1b` → `#1e5fd0` | **drift**: yellow CTA → blue interactive |
-| `--primary-foreground` | `--primary-foreground` | navy → white | pairs with above |
-| `--accent` | `--accent` | cobalt `#1e5fd0` → `primary-wash #edf3fd` | **drift**: solid cobalt fill → pale selection wash; `bg-accent` hover rules stay valid, `text-accent-foreground` on it flips from cream to blue-hover |
-| `--accent-foreground` | `--accent-foreground` | cream-hi → `#174ca8` | |
-| `--ring` | `--ring` | yellow → blue | drift: focus color |
-| `--background` | `--background` | wall `#ddd8c9` → canvas `#f4f6f8` | wall image removed |
-| `--card` / `--popover` | same | cream → white | |
-| `--secondary` | `--secondary` | cream → `surface-muted #fafbfc` | |
-| `--muted` | `--muted` | mortar `#c7c1b0` → `#fafbfc` | **drift**: was a darker fill used for pills and toggles; becomes near-white. Anything relying on `bg-muted` for contrast against `bg-card` loses it |
-| `--muted-foreground` | `--muted-foreground` | `#4a5478` → `ink-subtle #6e7681` | lighter; only AA on white/surface-muted, check every use on darker fills |
-| `--border` / `--input` | same | navy `#12225c` → `#d6dbe1` | **drift**: was a 2 to 3px dark outline; becomes a hairline. All `border-2`, `border-[2.5px]`, `border-*-[3px]` must drop to 1px |
-| `--destructive` | `--destructive` | same rust | none |
-| `--sidebar*` | `--sidebar*` | wall/navy/yellow → surface/line/blue | same drifts as above |
-| `--chart-2` | `--chart-2` | yellow → `#7fa6e8` | |
-| `--radius` | `--radius` | 6px → 5px | |
-| `--radius-sm` | `--radius-sm` | 4px → 5px | |
-| `--radius-md` | `--radius-md` | 6px → 8px | **drift**: md moves from cards to sheets only |
-| `--radius-lg`, `xl`…`4xl` | none | removed | 8 `rounded-lg` and 5 `rounded-xl` uses need a target radius |
-| `--jn-cobalt` / `-dark` / `-light` | `--oc-blue` / `--oc-blue-hover` / none | same hex for the first two; `cobalt-light` has no target | `cobalt-light` was the agent color; its 5 uses move to `agent` tokens or `primary-line` |
-| `--jn-navy`, `-deep`, `-panel`, `-inset` | none | removed | used as border, text, gradients, scrim (`bg-navy-deep/55`) |
-| `--jn-yellow` / `-dark` | `--oc-agent` / none | same hex; meaning changes entirely | **drift**: CTA → agent authorship |
-| `--jn-cream`, `-hi`, `-wall`, `-mortar`, `-board` | `--oc-surface`, `-surface-muted`, `-canvas` | | one-to-many collapse |
-| `--jn-rust` / `-dark` | `--oc-danger` / `-hover` | same | |
-| `--jn-metal`, `-dark` | none | removed | `jn-steel` only |
-| `--jn-muted-ink` | `--oc-ink-muted` | `#4a5478` → `#59606b` | |
-| `--jn-muted-panel-ink` | none | removed | |
-| `--jn-outline` | `--border` | navy → hairline | |
-| `--jn-edge`, `-mount`, `-recess` | none | removed; overlays get `--oc-overlay-shadow` | |
-| `--jn-ease` (spring) | `--ease-ui` | overshoot → ease-out | |
-| `--jn-wall-image`, `-noise-image` | none | removed | |
-| `--font-sans` | `--font-sans` | Archivo → Inter | |
-| `--font-mono` | `--font-mono` | Spline Sans Mono → JetBrains Mono | |
-| `--font-sign` | none | removed | `ui/sign.ts` becomes a plain `h2` |
-| `--text-body-md` | `--text-body-md` | 15px → 13px | base size drop |
-| `--text-body-sm` | `--text-body-sm` | 13px → 12px | |
-| `--text-label` | `--text-label` | 14.5px → 12.5px | |
-| `--text-button` | `--text-label` | 14px → 12.5px | name removed |
-| `--text-h2` / `h3` | same | 20/16px → 14/13px | |
-| `--text-mono-sm` | `--text-mono-sm` | 11px → 11.5px | |
-| `--text-mono-md` | `--text-mono-md` | 14.5px → 12.5px | |
-| `--text-sign`, `-stamp`, `-display`, `-numeral` (27px) | none, none, none, `numeral` 11.5px | | **drift**: `numeral` survives as a name but shrinks from a 27px hero figure to an 11.5px table figure |
-| none | `--text-h1`, `--text-caption`, `--text-mono-xs` | new | |
-| none | `agent-ink`, `agent-wash`, `agent-line`, `wire`, `grid-line`, `success`, `primary-line`, `primary-wash`, `border-subtle`, `ink-faint` | new | `success` replaces the emerald classes |
+| Existing                                               | Target                                                                                                                                | Value change                                             | Drift                                                                                                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--primary`                                            | `--primary`                                                                                                                           | `#ffce1b` → `#1e5fd0`                                    | **drift**: yellow CTA → blue interactive                                                                                                              |
+| `--primary-foreground`                                 | `--primary-foreground`                                                                                                                | navy → white                                             | pairs with above                                                                                                                                      |
+| `--accent`                                             | `--accent`                                                                                                                            | cobalt `#1e5fd0` → `primary-wash #edf3fd`                | **drift**: solid cobalt fill → pale selection wash; `bg-accent` hover rules stay valid, `text-accent-foreground` on it flips from cream to blue-hover |
+| `--accent-foreground`                                  | `--accent-foreground`                                                                                                                 | cream-hi → `#174ca8`                                     |                                                                                                                                                       |
+| `--ring`                                               | `--ring`                                                                                                                              | yellow → blue                                            | drift: focus color                                                                                                                                    |
+| `--background`                                         | `--background`                                                                                                                        | wall `#ddd8c9` → canvas `#f4f6f8`                        | wall image removed                                                                                                                                    |
+| `--card` / `--popover`                                 | same                                                                                                                                  | cream → white                                            |                                                                                                                                                       |
+| `--secondary`                                          | `--secondary`                                                                                                                         | cream → `surface-muted #fafbfc`                          |                                                                                                                                                       |
+| `--muted`                                              | `--muted`                                                                                                                             | mortar `#c7c1b0` → `#fafbfc`                             | **drift**: was a darker fill used for pills and toggles; becomes near-white. Anything relying on `bg-muted` for contrast against `bg-card` loses it   |
+| `--muted-foreground`                                   | `--muted-foreground`                                                                                                                  | `#4a5478` → `ink-subtle #6e7681`                         | lighter; only AA on white/surface-muted, check every use on darker fills                                                                              |
+| `--border` / `--input`                                 | same                                                                                                                                  | navy `#12225c` → `#d6dbe1`                               | **drift**: was a 2 to 3px dark outline; becomes a hairline. All `border-2`, `border-[2.5px]`, `border-*-[3px]` must drop to 1px                       |
+| `--destructive`                                        | `--destructive`                                                                                                                       | same rust                                                | none                                                                                                                                                  |
+| `--sidebar*`                                           | `--sidebar*`                                                                                                                          | wall/navy/yellow → surface/line/blue                     | same drifts as above                                                                                                                                  |
+| `--chart-2`                                            | `--chart-2`                                                                                                                           | yellow → `#7fa6e8`                                       |                                                                                                                                                       |
+| `--radius`                                             | `--radius`                                                                                                                            | 6px → 5px                                                |                                                                                                                                                       |
+| `--radius-sm`                                          | `--radius-sm`                                                                                                                         | 4px → 5px                                                |                                                                                                                                                       |
+| `--radius-md`                                          | `--radius-md`                                                                                                                         | 6px → 8px                                                | **drift**: md moves from cards to sheets only                                                                                                         |
+| `--radius-lg`, `xl`…`4xl`                              | none                                                                                                                                  | removed                                                  | 8 `rounded-lg` and 5 `rounded-xl` uses need a target radius                                                                                           |
+| `--jn-cobalt` / `-dark` / `-light`                     | `--oc-blue` / `--oc-blue-hover` / none                                                                                                | same hex for the first two; `cobalt-light` has no target | `cobalt-light` was the agent color; its 5 uses move to `agent` tokens or `primary-line`                                                               |
+| `--jn-navy`, `-deep`, `-panel`, `-inset`               | none                                                                                                                                  | removed                                                  | used as border, text, gradients, scrim (`bg-navy-deep/55`)                                                                                            |
+| `--jn-yellow` / `-dark`                                | `--oc-agent` / none                                                                                                                   | same hex; meaning changes entirely                       | **drift**: CTA → agent authorship                                                                                                                     |
+| `--jn-cream`, `-hi`, `-wall`, `-mortar`, `-board`      | `--oc-surface`, `-surface-muted`, `-canvas`                                                                                           |                                                          | one-to-many collapse                                                                                                                                  |
+| `--jn-rust` / `-dark`                                  | `--oc-danger` / `-hover`                                                                                                              | same                                                     |                                                                                                                                                       |
+| `--jn-metal`, `-dark`                                  | none                                                                                                                                  | removed                                                  | `jn-steel` only                                                                                                                                       |
+| `--jn-muted-ink`                                       | `--oc-ink-muted`                                                                                                                      | `#4a5478` → `#59606b`                                    |                                                                                                                                                       |
+| `--jn-muted-panel-ink`                                 | none                                                                                                                                  | removed                                                  |                                                                                                                                                       |
+| `--jn-outline`                                         | `--border`                                                                                                                            | navy → hairline                                          |                                                                                                                                                       |
+| `--jn-edge`, `-mount`, `-recess`                       | none                                                                                                                                  | removed; overlays get `--oc-overlay-shadow`              |                                                                                                                                                       |
+| `--jn-ease` (spring)                                   | `--ease-ui`                                                                                                                           | overshoot → ease-out                                     |                                                                                                                                                       |
+| `--jn-wall-image`, `-noise-image`                      | none                                                                                                                                  | removed                                                  |                                                                                                                                                       |
+| `--font-sans`                                          | `--font-sans`                                                                                                                         | Archivo → Inter                                          |                                                                                                                                                       |
+| `--font-mono`                                          | `--font-mono`                                                                                                                         | Spline Sans Mono → JetBrains Mono                        |                                                                                                                                                       |
+| `--font-sign`                                          | none                                                                                                                                  | removed                                                  | `ui/sign.ts` becomes a plain `h2`                                                                                                                     |
+| `--text-body-md`                                       | `--text-body-md`                                                                                                                      | 15px → 13px                                              | base size drop                                                                                                                                        |
+| `--text-body-sm`                                       | `--text-body-sm`                                                                                                                      | 13px → 12px                                              |                                                                                                                                                       |
+| `--text-label`                                         | `--text-label`                                                                                                                        | 14.5px → 12.5px                                          |                                                                                                                                                       |
+| `--text-button`                                        | `--text-label`                                                                                                                        | 14px → 12.5px                                            | name removed                                                                                                                                          |
+| `--text-h2` / `h3`                                     | same                                                                                                                                  | 20/16px → 14/13px                                        |                                                                                                                                                       |
+| `--text-mono-sm`                                       | `--text-mono-sm`                                                                                                                      | 11px → 11.5px                                            |                                                                                                                                                       |
+| `--text-mono-md`                                       | `--text-mono-md`                                                                                                                      | 14.5px → 12.5px                                          |                                                                                                                                                       |
+| `--text-sign`, `-stamp`, `-display`, `-numeral` (27px) | none, none, none, `numeral` 11.5px                                                                                                    |                                                          | **drift**: `numeral` survives as a name but shrinks from a 27px hero figure to an 11.5px table figure                                                 |
+| none                                                   | `--text-h1`, `--text-caption`, `--text-mono-xs`                                                                                       | new                                                      |                                                                                                                                                       |
+| none                                                   | `agent-ink`, `agent-wash`, `agent-line`, `wire`, `grid-line`, `success`, `primary-line`, `primary-wash`, `border-subtle`, `ink-faint` | new                                                      | `success` replaces the emerald classes                                                                                                                |
 
 Utility names to alias during Phases 1-3 then delete in Phase 4:
 `cobalt*`, `navy*`, `panel`, `inset`, `yellow-safety*`, `cream*`, `wall`,
