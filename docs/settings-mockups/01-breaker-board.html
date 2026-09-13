@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · Breaker board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=Spline+Sans+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="utility-room.css">
+<script src="mockup.js" defer></script>
+</head>
+<body>
+
+<header class="rail">
+  <div class="brand"><span class="mark"></span>The Janitor <span class="muted" style="color:var(--jn-muted-panel-ink);font-weight:400">· team.cloudflareaccess.test</span></div>
+  <div class="who"><span class="dot"></span><b>founder@example.com</b> <span data-when="viewer=admin">· admin</span><span data-when="viewer=member">· member</span></div>
+</header>
+
+<div class="shell">
+  <aside class="rack">
+    <div class="rack-rail jn-steel"></div>
+    <nav aria-label="Sections">
+      <a class="jn-tag" href="#">Dashboard</a>
+      <a class="jn-tag" href="#">Repositories</a>
+      <a class="jn-tag" href="#">Agent sessions</a>
+      <a class="jn-tag" href="#" aria-current="page">Settings</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+
+    <!-- YOU -->
+    <section class="section" aria-labelledby="s-you">
+      <div class="sign-row"><h2 id="s-you" class="jn-sign t-sign"><span class="jn-screw"></span>You</h2></div>
+      <p class="lede">Signed in through Cloudflare Access. The verified issuer and subject are your identity; email is display only.</p>
+      <div class="panel">
+        <div class="cluster" style="justify-content:space-between;align-items:flex-start">
+          <div class="cluster" style="gap:14px">
+            <span class="avatar">FO</span>
+            <div>
+              <div class="t-h2">founder@example.com</div>
+              <div class="t-body-sm muted">
+                <span data-when="viewer=admin">Admin</span><span data-when="viewer=member">Member</span>
+                · signed in through <code class="t-mono-sm">https://team.cloudflareaccess.test</code>
+              </div>
+            </div>
+          </div>
+          <span class="chip" data-variant="on"><span data-when="viewer=admin">admin</span><span data-when="viewer=member">member</span></span>
+        </div>
+        <div class="separator" style="margin:14px 0"></div>
+        <dl class="kv">
+          <dt>Subject</dt><dd><code class="t-mono-md">9c1d4e2a-7b60-4f3e-a2c8-51d0e7f9a3b1</code></dd>
+          <dt>Teammate since</dt><dd>2 Jun 2026</dd>
+          <dt>Status</dt><dd>Active</dd>
+        </dl>
+      </div>
+    </section>
+
+    <!-- CONNECTED ACCOUNTS — the loud thing -->
+    <section class="section" aria-labelledby="s-accounts">
+      <div class="sign-row"><h2 id="s-accounts" class="jn-sign t-sign"><span class="jn-screw"></span>Connected accounts</h2></div>
+      <p class="lede">Connected accounts may direct Janitor from Slack and GitHub until you disconnect them, independently of this browser session.</p>
+
+      <div class="breaker-panel">
+        <p class="caption" style="margin-bottom:10px">Each breaker is one platform account you have proved. On means instructions from that account are accepted. Flip a breaker off to disconnect; connecting again means proving the account again.</p>
+
+        <!-- GitHub -->
+        <div class="breaker">
+          <div class="main">
+            <div class="cluster" style="gap:10px">
+              <span class="name">GitHub</span>
+              <span class="breaker-tape">github.com</span>
+            </div>
+            <div data-when="github=connected">
+              <div>Connected as <code class="t-mono-md">octocat</code> <span class="caption">· user ID <code class="t-mono-sm" style="color:var(--jn-muted-panel-ink)">4242</code> · linked 14 Aug 2026</span></div>
+              <p class="caption">GitHub login names may change without changing account ownership. The numeric ID is the identity.</p>
+            </div>
+            <div data-when="github=never">
+              <div>No GitHub account connected.</div>
+              <p class="caption">Connect once and Janitor will act on your pull request review feedback without another request in the home thread.</p>
+            </div>
+            <div data-when="github=disconnected">
+              <div>Disconnected 10 Sep 2026 <span class="caption">· was <code class="t-mono-sm" style="color:var(--jn-muted-panel-ink)">octocat</code></span></div>
+              <p class="caption">A self-disconnected account still requires linking again. Previously accepted work keeps its attribution.</p>
+            </div>
+          </div>
+          <div class="actions cluster" style="gap:14px">
+            <button class="btn" data-size="sm" data-when="github=connected">Replace GitHub account</button>
+            <button class="btn" data-variant="primary" data-size="sm" data-when="github=never,disconnected">Connect GitHub</button>
+            <label class="jn-switch" aria-label="GitHub account may direct Janitor">
+              <input type="checkbox" data-checked-when="github=connected" data-disabled-when="github=never,disconnected">
+              <span class="jn-switch-track">on</span><span class="jn-switch-knob"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Slack -->
+        <div class="breaker">
+          <div class="main">
+            <div class="cluster" style="gap:10px">
+              <span class="name">Slack</span>
+              <span class="breaker-tape">T0A1B2C3D</span>
+            </div>
+            <div data-when="slack=connected">
+              <div>Connected as <code class="t-mono-md">founder</code> <span class="caption">· member ID <code class="t-mono-sm" style="color:var(--jn-muted-panel-ink)">U04ABCD12</code> · linked 2 Jun 2026</span></div>
+              <p class="caption">Ordinary replies in a session's home thread are accepted as instructions from this account.</p>
+            </div>
+            <div data-when="slack=never">
+              <div>No Slack account connected.</div>
+              <p class="caption">Until you connect, mentions of the bot only get an ephemeral reminder to connect here.</p>
+            </div>
+            <div data-when="slack=disconnected">
+              <div>Disconnected 10 Sep 2026 <span class="caption">· was <code class="t-mono-sm" style="color:var(--jn-muted-panel-ink)">founder</code></span></div>
+              <p class="caption">A self-disconnected account still requires linking again. Shared sessions and accepted inputs are unaffected.</p>
+            </div>
+            <div data-when="slack=unavailable">
+              <div>Slack account linking is not configured for this deployment.</div>
+              <p class="caption">To enable it, set the Slack OAuth client and the workspace allowlist for this deployment.</p>
+            </div>
+          </div>
+          <div class="actions cluster" style="gap:14px">
+            <button class="btn" data-size="sm" data-when="slack=connected">Replace Slack account</button>
+            <button class="btn" data-variant="primary" data-size="sm" data-when="slack=never,disconnected">Connect Slack</button>
+            <label class="jn-switch" aria-label="Slack account may direct Janitor">
+              <input type="checkbox" data-checked-when="slack=connected" data-disabled-when="slack=never,disconnected,unavailable">
+              <span class="jn-switch-track">on</span><span class="jn-switch-knob"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TEAM -->
+    <section class="section" aria-labelledby="s-team">
+      <div class="sign-row"><h2 id="s-team" class="jn-sign t-sign"><span class="jn-screw"></span>Team</h2></div>
+      <p class="lede" data-when="viewer=admin">Removing a teammate disables their connected accounts and sign-in; their accepted work and attribution are kept. The last active admin cannot be removed or demoted.</p>
+      <p class="lede" data-when="viewer=member">Admins and members have equal control when collaborating with agents. Only an active admin can manage teammates.</p>
+
+      <div class="panel flush" data-when="viewer=admin">
+        <div class="panel-head">
+          <div class="t-h3">5 teammates <span class="muted t-body-sm" style="font-weight:400">· 4 active · 1 removed</span></div>
+          <span class="t-body-sm muted">New teammates are admitted as members on first sign-in.</span>
+        </div>
+        <div class="rows">
+          <div data-slot="row">
+            <span class="avatar">FO</span>
+            <div class="main">
+              <div class="t-h3">founder@example.com <span class="muted" style="font-weight:400">(you)</span></div>
+              <div class="meta">Admin · joined 2 Jun 2026 · Slack: <code>founder</code> · GitHub: <code>octocat</code></div>
+              <div class="meta rust">The last active admin cannot be removed or demoted.</div>
+            </div>
+            <span class="chip" data-variant="on">admin</span>
+            <div class="actions">
+              <button class="btn" data-size="sm" disabled>Make member</button>
+              <button class="btn" data-variant="destructive" data-size="sm" disabled>Remove</button>
+            </div>
+          </div>
+          <div data-slot="row">
+            <span class="avatar">SE</span>
+            <div class="main">
+              <div class="t-h3">second@example.com</div>
+              <div class="meta">Member · joined 9 Jun 2026 · Slack: <code>second</code> · GitHub: <code>second</code></div>
+            </div>
+            <span class="chip">member</span>
+            <div class="actions">
+              <button class="btn" data-size="sm">Make admin</button>
+              <button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+            </div>
+          </div>
+          <div data-slot="row">
+            <span class="avatar">TH</span>
+            <div class="main">
+              <div class="t-h3">third@example.com</div>
+              <div class="meta">Member · joined 21 Jul 2026 · Slack: not connected · GitHub: <code>third</code></div>
+            </div>
+            <span class="chip">member</span>
+            <div class="actions">
+              <button class="btn" data-size="sm">Make admin</button>
+              <button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+            </div>
+          </div>
+          <div data-slot="row">
+            <span class="avatar">a1</span>
+            <div class="main">
+              <div class="t-h3"><code class="t-mono-md">a1f9c0d2-5e77-4b8a-9d13-0c2f6e4b7a90</code></div>
+              <div class="meta">Member · joined 1 Sep 2026 · no email from Access · no accounts connected yet</div>
+            </div>
+            <span class="chip">member</span>
+            <div class="actions">
+              <button class="btn" data-size="sm">Make admin</button>
+              <button class="btn" data-variant="destructive" data-size="sm">Remove</button>
+            </div>
+          </div>
+          <div data-slot="row" style="background:var(--jn-mortar)">
+            <span class="avatar">IM</span>
+            <div class="main">
+              <div class="t-h3">impostor@example.com</div>
+              <div class="meta">Member · removed 30 Aug 2026 · Slack: <code>impostor</code> (disabled) · joined 3 Aug 2026</div>
+            </div>
+            <span class="chip" data-variant="danger">removed</span>
+            <div class="actions">
+              <button class="btn" data-size="sm">Restore</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel jn-empty" data-when="viewer=member">
+        <p>Only an active admin can manage teammates. Ask an admin if you need a role change.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>

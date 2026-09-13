@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · Card grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=Spline+Sans+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="utility-room.css">
+<script src="mockup.js" defer></script>
+<style>
+  /* Layout: full-width link ledger with history, then a grid of teammate cards with an Admin breaker each. */
+  .link-ledger { display: flex; flex-direction: column; }
+  .link-head { display: flex; align-items: center; gap: 16px; padding: 18px; }
+  .link-head .main { flex: 1 1 auto; min-width: 0; }
+  .link-head .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .history { background: var(--jn-cream-hi); border-top: 1px solid var(--jn-mortar); padding: 8px 18px 10px; }
+  .history .t-body-sm { display: flex; gap: 14px; flex-wrap: wrap; padding: 4px 0; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 22px; }
+  .card { display: flex; flex-direction: column; gap: 12px; }
+  .card .top { display: flex; align-items: center; gap: 12px; }
+  .card .top .name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .card .links { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-body-sm); }
+  .card .links .l { display: flex; gap: 8px; align-items: center; }
+  .card .role { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid rgb(18 34 92 / 0.14); }
+  .card .foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .card[data-removed] { background: var(--jn-mortar); }
+</style>
+</head>
+<body>
+
+<header class="rail">
+  <div class="brand"><span class="mark"></span>The Janitor</div>
+  <div class="who"><span class="dot"></span><b>founder@example.com</b> · <span data-when="viewer=admin">admin</span><span data-when="viewer=member">member</span></div>
+</header>
+
+<div class="shell">
+  <aside class="rack">
+    <div class="rack-rail jn-steel"></div>
+    <nav aria-label="Sections">
+      <a class="jn-tag" href="#">Dashboard</a>
+      <a class="jn-tag" href="#">Repositories</a>
+      <a class="jn-tag" href="#">Agent sessions</a>
+      <a class="jn-tag" href="#" aria-current="page">Settings</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <!-- Link ledger -->
+    <section class="section" aria-labelledby="s-accounts">
+      <h2 id="s-accounts" class="jn-sign t-sign"><span class="jn-screw"></span>Connected accounts</h2>
+      <p class="lede">Every account you have ever proved, newest first. Rows are never deleted: accepted work keeps pointing at the link that authorized it.</p>
+
+      <div class="panel flush link-ledger">
+        <!-- GitHub -->
+        <div class="link-head">
+          <span class="platform-mark t-mono-sm">GH</span>
+          <div class="main">
+            <div class="cluster" style="gap:10px">
+              <span class="t-label">GitHub</span>
+              <span class="chip" data-variant="on" data-when="github=connected">active</span>
+              <span class="chip" data-when="github=never">never linked</span>
+              <span class="chip" data-when="github=disconnected">disconnected</span>
+            </div>
+            <div data-when="github=connected"><code class="t-mono-md">octocat</code> <span class="t-body-sm muted">· user ID 4242 · github.com · linked 14 Aug 2026, 09:32 UTC</span></div>
+            <div class="t-body-sm muted" data-when="github=never">No GitHub account connected. Authorize the Janitor app once; only your numeric user ID and login are kept.</div>
+            <div data-when="github=disconnected"><code class="t-mono-md muted">octocat</code> <span class="t-body-sm muted">· disconnected 10 Sep 2026, 17:05 UTC · a self-disconnected account still requires linking again</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn" data-size="sm" data-when="github=connected">Replace GitHub account</button>
+            <button class="btn" data-variant="destructive" data-size="sm" data-when="github=connected">Disconnect</button>
+            <button class="btn" data-variant="primary" data-size="sm" data-when="github=never,disconnected">Connect GitHub</button>
+          </div>
+        </div>
+        <div class="history" data-when="github=connected,disconnected">
+          <div class="t-body-sm muted"><span style="min-width:96px">replaced</span><code>founder</code><span>user ID 583211</span><span>2 Jun 2026 → 14 Aug 2026</span></div>
+        </div>
+
+        <div style="border-top:2px solid var(--jn-navy)"></div>
+
+        <!-- Slack -->
+        <div class="link-head">
+          <span class="platform-mark t-mono-sm">SL</span>
+          <div class="main">
+            <div class="cluster" style="gap:10px">
+              <span class="t-label">Slack <span class="muted t-body-sm" style="font-weight:400">· workspace T0A1B2C3D</span></span>
+              <span class="chip" data-variant="on" data-when="slack=connected">active</span>
+              <span class="chip" data-when="slack=never">never linked</span>
+              <span class="chip" data-when="slack=disconnected">disconnected</span>
+              <span class="chip" data-when="slack=unavailable">unavailable</span>
+            </div>
+            <div data-when="slack=connected"><code class="t-mono-md">founder</code> <span class="t-body-sm muted">· member ID U04ABCD12 · linked 2 Jun 2026, 14:20 UTC</span></div>
+            <div class="t-body-sm muted" data-when="slack=never">No Slack account connected. Sign in with Slack; only your team ID, member ID and display name are kept.</div>
+            <div data-when="slack=disconnected"><code class="t-mono-md muted">founder</code> <span class="t-body-sm muted">· disconnected 10 Sep 2026, 17:06 UTC · shared sessions and accepted inputs are unaffected</span></div>
+            <div class="t-body-sm muted" data-when="slack=unavailable">Slack account linking is not configured for this deployment.</div>
+          </div>
+          <div class="actions">
+            <button class="btn" data-size="sm" data-when="slack=connected">Replace Slack account</button>
+            <button class="btn" data-variant="destructive" data-size="sm" data-when="slack=connected">Disconnect</button>
+            <button class="btn" data-variant="primary" data-size="sm" data-when="slack=never,disconnected">Connect Slack</button>
+            <button class="btn" data-size="sm" disabled data-when="slack=unavailable">Connect Slack</button>
+          </div>
+        </div>
+        <div class="history" data-when="slack=connected,disconnected">
+          <div class="t-body-sm muted"><span style="min-width:96px">disconnected</span><code>founder</code><span>member ID U04ABCD12</span><span>2 Jun 2026 → 5 Jun 2026</span><span>relinked 6 Jun 2026</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Team cards -->
+    <section class="section" aria-labelledby="s-team">
+      <h2 id="s-team" class="jn-sign t-sign"><span class="jn-screw"></span>Team</h2>
+      <p class="lede" data-when="viewer=admin">The admin breaker on each card changes the role immediately. Removing a teammate disables their connected accounts and sign-in; their accepted work and attribution are kept.</p>
+      <p class="lede" data-when="viewer=member">Only an active admin can manage teammates.</p>
+
+      <div class="cards" data-when="viewer=admin">
+        <div class="panel card">
+          <div class="top"><span class="avatar">FO</span><div class="name"><div class="t-h3">founder@example.com</div><div class="t-body-sm muted">you · since 2 Jun 2026</div></div></div>
+          <div class="links">
+            <div class="l"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">SL</span><code>founder</code></div>
+            <div class="l"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">GH</span><code>octocat</code></div>
+          </div>
+          <div class="role">
+            <div><div class="t-label">Admin</div><div class="t-body-sm rust">The last active admin cannot be demoted.</div></div>
+            <label class="jn-switch" aria-label="Admin role for founder@example.com"><input type="checkbox" checked disabled><span class="jn-switch-track">on</span><span class="jn-switch-knob"></span></label>
+          </div>
+          <div class="foot"><span class="t-body-sm rust">The last active admin cannot be removed.</span><button class="btn" data-variant="destructive" data-size="sm" disabled>Remove</button></div>
+        </div>
+
+        <div class="panel card">
+          <div class="top"><span class="avatar">SE</span><div class="name"><div class="t-h3">second@example.com</div><div class="t-body-sm muted">since 9 Jun 2026</div></div></div>
+          <div class="links">
+            <div class="l"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">SL</span><code>second</code></div>
+            <div class="l"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">GH</span><code>second</code></div>
+          </div>
+          <div class="role">
+            <div><div class="t-label">Admin</div><div class="t-body-sm muted">Can change roles and remove or restore teammates.</div></div>
+            <label class="jn-switch" aria-label="Admin role for second@example.com"><input type="checkbox"><span class="jn-switch-track">on</span><span class="jn-switch-knob"></span></label>
+          </div>
+          <div class="foot"><span class="t-body-sm muted">Member</span><button class="btn" data-variant="destructive" data-size="sm">Remove</button></div>
+        </div>
+
+        <div class="panel card">
+          <div class="top"><span class="avatar">TH</span><div class="name"><div class="t-h3">third@example.com</div><div class="t-body-sm muted">since 21 Jul 2026</div></div></div>
+          <div class="links">
+            <div class="l muted"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">SL</span>not connected</div>
+            <div class="l"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">GH</span><code>third</code></div>
+          </div>
+          <div class="role">
+            <div><div class="t-label">Admin</div><div class="t-body-sm muted">Can change roles and remove or restore teammates.</div></div>
+            <label class="jn-switch" aria-label="Admin role for third@example.com"><input type="checkbox"><span class="jn-switch-track">on</span><span class="jn-switch-knob"></span></label>
+          </div>
+          <div class="foot"><span class="t-body-sm muted">Member</span><button class="btn" data-variant="destructive" data-size="sm">Remove</button></div>
+        </div>
+
+        <div class="panel card">
+          <div class="top"><span class="avatar">a1</span><div class="name"><div class="t-h3"><code class="t-mono-md">a1f9c0d2…7a90</code></div><div class="t-body-sm muted">no email from Access · since 1 Sep 2026</div></div></div>
+          <div class="links">
+            <div class="l muted"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">SL</span>not connected</div>
+            <div class="l muted"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">GH</span>not connected</div>
+          </div>
+          <div class="role">
+            <div><div class="t-label">Admin</div><div class="t-body-sm muted">Can change roles and remove or restore teammates.</div></div>
+            <label class="jn-switch" aria-label="Admin role for a1f9c0d2"><input type="checkbox"><span class="jn-switch-track">on</span><span class="jn-switch-knob"></span></label>
+          </div>
+          <div class="foot"><span class="t-body-sm muted">Member</span><button class="btn" data-variant="destructive" data-size="sm">Remove</button></div>
+        </div>
+
+        <div class="panel card" data-removed>
+          <div class="top"><span class="avatar">IM</span><div class="name"><div class="t-h3">impostor@example.com</div><div class="t-body-sm muted">removed 30 Aug 2026 · since 3 Aug 2026</div></div><span class="chip" data-variant="danger">removed</span></div>
+          <div class="links">
+            <div class="l"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">SL</span><code>impostor</code> <span class="muted">disabled</span></div>
+            <div class="l muted"><span class="platform-mark t-mono-sm" style="width:22px;height:22px;font-size:9px">GH</span>not connected</div>
+          </div>
+          <div class="role">
+            <div><div class="t-label">Admin</div><div class="t-body-sm muted">Restore the teammate before changing their role.</div></div>
+            <label class="jn-switch" aria-label="Admin role for impostor@example.com"><input type="checkbox" disabled><span class="jn-switch-track">on</span><span class="jn-switch-knob"></span></label>
+          </div>
+          <div class="foot"><span class="t-body-sm muted">Accepted work and attribution are kept.</span><button class="btn" data-size="sm">Restore</button></div>
+        </div>
+      </div>
+
+      <div class="panel jn-empty" data-when="viewer=member">
+        <p>Only an active admin can manage teammates.</p>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

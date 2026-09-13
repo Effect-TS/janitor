@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · Punch card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=Spline+Sans+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="utility-room.css">
+<script src="mockup.js" defer></script>
+<style>
+  /* Layout: punch-card hero with tallies and a stamp, then one tall panel with hairline sections. */
+  .card-top { display: flex; justify-content: space-between; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+  .tally { display: flex; flex-wrap: wrap; gap: 26px 40px; margin-top: 26px; }
+  .tally .fig { display: flex; flex-direction: column; gap: 2px; }
+  .tally .fig .t-body-sm { color: var(--jn-muted-ink); }
+  .sheet-section { padding: 22px 18px; border-top: 2px solid var(--jn-navy); }
+  .sheet-section:first-child { border-top: 0; }
+  .sheet-section > h3 { margin-bottom: 4px; }
+  .sheet-section > .help { color: var(--jn-muted-ink); font-size: var(--text-body-sm); margin-bottom: 14px; }
+  .link-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--jn-mortar); }
+  .link-row .main { flex: 1 1 auto; min-width: 0; }
+  .link-row .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+</style>
+</head>
+<body>
+
+<header class="rail">
+  <div class="brand"><span class="mark"></span>The Janitor</div>
+  <div class="who"><span class="dot"></span><b>founder@example.com</b></div>
+</header>
+
+<div class="shell">
+  <aside class="rack">
+    <div class="rack-rail jn-steel"></div>
+    <nav aria-label="Sections">
+      <a class="jn-tag" href="#">Dashboard</a>
+      <a class="jn-tag" href="#">Repositories</a>
+      <a class="jn-tag" href="#">Agent sessions</a>
+      <a class="jn-tag" href="#" aria-current="page">Settings</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <!-- Punch card hero -->
+    <section class="punch-card jn-perforated" aria-label="Account summary">
+      <div class="card-top">
+        <div>
+          <div class="t-display">founder@example.com</div>
+          <div class="t-body-sm muted" style="margin-top:8px">
+            <span data-when="viewer=admin">Admin</span><span data-when="viewer=member">Member</span> · signed in through <code>https://team.cloudflareaccess.test</code> · teammate since 2 Jun 2026
+          </div>
+        </div>
+        <div>
+          <span class="stamp t-stamp" data-when="github=connected;slack=connected">All connected</span>
+          <span class="stamp t-stamp" data-when="github=never,disconnected">Connect GitHub</span>
+          <span class="stamp t-stamp" data-when="github=connected;slack=never,disconnected">Connect Slack</span>
+          <span class="stamp t-stamp" data-when="github=connected;slack=unavailable">GitHub only</span>
+        </div>
+      </div>
+      <div class="tally">
+        <div class="fig"><span class="t-numeral"><span data-when="github=connected;slack=connected">2</span><span data-when="github=connected;slack=never,disconnected,unavailable">1</span><span data-when="github=never,disconnected;slack=connected">1</span><span data-when="github=never,disconnected;slack=never,disconnected,unavailable">0</span></span><span class="t-body-sm">connected accounts</span></div>
+        <div class="fig" data-when="viewer=admin"><span class="t-numeral">4</span><span class="t-body-sm">active teammates</span></div>
+        <div class="fig" data-when="viewer=admin"><span class="t-numeral">1</span><span class="t-body-sm">admin</span></div>
+        <div class="fig" data-when="viewer=admin"><span class="t-numeral">1</span><span class="t-body-sm">removed</span></div>
+        <div class="fig"><span class="t-numeral">12</span><span class="t-body-sm">inputs accepted this week</span></div>
+      </div>
+    </section>
+
+    <!-- One tall panel -->
+    <div class="panel flush">
+      <!-- Accounts -->
+      <section class="sheet-section" aria-labelledby="h-accounts">
+        <h3 id="h-accounts" class="t-h2">Connected accounts</h3>
+        <p class="help">Connected accounts may direct Janitor from Slack and GitHub until you disconnect them, independently of this browser session.</p>
+
+        <div class="link-row" style="border-top:0">
+          <span class="platform-mark t-mono-sm">GH</span>
+          <div class="main">
+            <div data-when="github=connected"><div class="t-mono-md">octocat</div><div class="t-body-sm muted">GitHub · user ID 4242 · linked 14 Aug 2026</div></div>
+            <div data-when="github=never"><div class="t-label">GitHub</div><div class="t-body-sm muted">No GitHub account connected.</div></div>
+            <div data-when="github=disconnected"><div class="t-mono-md muted">octocat</div><div class="t-body-sm muted">GitHub · disconnected 10 Sep 2026 · a self-disconnected account still requires linking again</div></div>
+          </div>
+          <span class="chip" data-variant="on" data-when="github=connected">connected</span>
+          <span class="chip" data-when="github=never">not connected</span>
+          <span class="chip" data-when="github=disconnected">disconnected</span>
+          <div class="actions">
+            <button class="btn" data-size="sm" data-when="github=connected">Replace</button>
+            <button class="btn" data-variant="destructive" data-size="sm" data-when="github=connected">Disconnect</button>
+            <button class="btn" data-variant="primary" data-size="sm" data-when="github=never,disconnected">Connect GitHub</button>
+          </div>
+        </div>
+
+        <div class="link-row">
+          <span class="platform-mark t-mono-sm">SL</span>
+          <div class="main">
+            <div data-when="slack=connected"><div class="t-mono-md">founder</div><div class="t-body-sm muted">Slack · workspace T0A1B2C3D · member ID U04ABCD12 · linked 2 Jun 2026</div></div>
+            <div data-when="slack=never"><div class="t-label">Slack</div><div class="t-body-sm muted">No Slack account connected.</div></div>
+            <div data-when="slack=disconnected"><div class="t-mono-md muted">founder</div><div class="t-body-sm muted">Slack · disconnected 10 Sep 2026 · shared sessions and accepted inputs are unaffected</div></div>
+            <div data-when="slack=unavailable"><div class="t-label">Slack</div><div class="t-body-sm muted">Slack account linking is not configured for this deployment.</div></div>
+          </div>
+          <span class="chip" data-variant="on" data-when="slack=connected">connected</span>
+          <span class="chip" data-when="slack=never">not connected</span>
+          <span class="chip" data-when="slack=disconnected">disconnected</span>
+          <span class="chip" data-when="slack=unavailable">unavailable</span>
+          <div class="actions">
+            <button class="btn" data-size="sm" data-when="slack=connected">Replace</button>
+            <button class="btn" data-variant="destructive" data-size="sm" data-when="slack=connected">Disconnect</button>
+            <button class="btn" data-variant="primary" data-size="sm" data-when="slack=never,disconnected">Connect Slack</button>
+            <button class="btn" data-size="sm" disabled data-when="slack=unavailable">Connect Slack</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Identity -->
+      <section class="sheet-section" aria-labelledby="h-id">
+        <h3 id="h-id" class="t-h2">Sign-in identity</h3>
+        <p class="help">Access protects sign-in and account management. Successful account links persist independently of Access session expiry.</p>
+        <dl class="kv">
+          <dt>Issuer</dt><dd><code class="t-mono-md">https://team.cloudflareaccess.test</code></dd>
+          <dt>Subject</dt><dd><code class="t-mono-md">9c1d4e2a-7b60-4f3e-a2c8-51d0e7f9a3b1</code></dd>
+          <dt>Email</dt><dd>founder@example.com <span class="t-body-sm muted">· display only</span></dd>
+          <dt>Role</dt><dd><span data-when="viewer=admin">Admin</span><span data-when="viewer=member">Member</span></dd>
+        </dl>
+      </section>
+
+      <!-- Team -->
+      <section class="sheet-section" aria-labelledby="h-team" data-when="viewer=admin">
+        <h3 id="h-team" class="t-h2">Team</h3>
+        <p class="help">Removing a teammate disables their connected accounts and sign-in; their accepted work and attribution are kept. The last active admin cannot be removed or demoted.</p>
+        <div class="rows jn-dense" style="margin:0 -18px">
+          <div data-slot="row">
+            <span class="avatar">FO</span>
+            <div class="main"><div class="t-label">founder@example.com <span class="muted" style="font-weight:400">(you)</span></div><div class="meta">Slack <code>founder</code> · GitHub <code>octocat</code> · since 2 Jun 2026 · <span class="rust">last active admin</span></div></div>
+            <span class="chip" data-variant="on">admin</span>
+            <div class="actions"><button class="btn" data-size="sm" disabled>Make member</button><button class="btn" data-variant="destructive" data-size="sm" disabled>Remove</button></div>
+          </div>
+          <div data-slot="row">
+            <span class="avatar">SE</span>
+            <div class="main"><div class="t-label">second@example.com</div><div class="meta">Slack <code>second</code> · GitHub <code>second</code> · since 9 Jun 2026</div></div>
+            <span class="chip">member</span>
+            <div class="actions"><button class="btn" data-size="sm">Make admin</button><button class="btn" data-variant="destructive" data-size="sm">Remove</button></div>
+          </div>
+          <div data-slot="row">
+            <span class="avatar">TH</span>
+            <div class="main"><div class="t-label">third@example.com</div><div class="meta">Slack not connected · GitHub <code>third</code> · since 21 Jul 2026</div></div>
+            <span class="chip">member</span>
+            <div class="actions"><button class="btn" data-size="sm">Make admin</button><button class="btn" data-variant="destructive" data-size="sm">Remove</button></div>
+          </div>
+          <div data-slot="row">
+            <span class="avatar">a1</span>
+            <div class="main"><div class="t-label"><code>a1f9c0d2-5e77-4b8a-9d13-0c2f6e4b7a90</code></div><div class="meta">No email from Access · no accounts connected yet · since 1 Sep 2026</div></div>
+            <span class="chip">member</span>
+            <div class="actions"><button class="btn" data-size="sm">Make admin</button><button class="btn" data-variant="destructive" data-size="sm">Remove</button></div>
+          </div>
+          <div data-slot="row" data-removed style="background:var(--jn-mortar)">
+            <span class="avatar">IM</span>
+            <div class="main"><div class="t-label">impostor@example.com</div><div class="meta">Removed 30 Aug 2026 · Slack <code>impostor</code> disabled · since 3 Aug 2026</div></div>
+            <span class="chip" data-variant="danger">removed</span>
+            <div class="actions"><button class="btn" data-size="sm">Restore</button></div>
+          </div>
+        </div>
+      </section>
+      <section class="sheet-section jn-empty" data-when="viewer=member">
+        <p>Only an active admin can manage teammates.</p>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>
