@@ -2,16 +2,17 @@
 
 ## Candidate and evidence
 
-`model-configurations/groq-llama-3.1-8b.json` selects Groq's `llama-3.1-8b-instant` through the runner's native `OpenAIChat` route. It is a small open-weight candidate for the preference for inexpensive models. Account access, current price and repository-task quality still need acceptance. No personal subscription or labeling client participates.
+`model-configurations/openrouter-llama-3.1-8b.json` selects OpenRouter's `meta-llama/llama-3.1-8b-instruct` through the pinned SDK's native OpenRouter route. It is a small open-weight candidate for the preference for inexpensive models. Account access, current price and repository-task quality still need acceptance. No personal subscription or labeling client participates.
 
 Primary provider documentation checked on 2026-09-13:
 
-| Contract                                                                    | Evidence                                                                    |
-| --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| API identity, text input/output, 131,072-token context and maximum output   | [Groq model page](https://console.groq.com/docs/model/llama-3.1-8b-instant) |
-| Base URL `https://api.groq.com/openai/v1` and API key                       | [Groq compatibility guide](https://console.groq.com/docs/openai)            |
-| Bearer authentication, chat completion endpoint, streaming and usage fields | [Groq API reference](https://console.groq.com/docs/api-reference)           |
-| Local, parallel and streaming tool use                                      | [Groq tool support table](https://console.groq.com/docs/tool-use/overview)  |
+| Contract                                                             | Evidence                                                                                                       |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Model identity, text modalities and per-provider limits/capabilities | [OpenRouter endpoint metadata](https://openrouter.ai/api/v1/models/meta-llama/llama-3.1-8b-instruct/endpoints) |
+| Endpoint and bearer authentication                                   | [OpenRouter quickstart](https://openrouter.ai/docs/quickstart)                                                 |
+| Provider pinning and disabled fallback                               | [OpenRouter provider selection](https://openrouter.ai/docs/guides/routing/provider-selection)                  |
+
+The record pins the Groq upstream through OpenRouter with `only: ["groq"]`, `allow_fallbacks: false` and `require_parameters: true`. The endpoint metadata reports 131,072 context tokens, 117,964 maximum completion tokens and tool support for that upstream. Other upstreams have different limits; changing upstream requires a new configuration ID. Authentication and billing go through OpenRouter; no Groq key is required. The original direct-Groq record remains available unchanged.
 
 Provider documentation establishes advertised support. It does not prove the pinned native transport works with the account or model. The live check is still a release prerequisite.
 
@@ -25,7 +26,7 @@ These details come from the installed `@opencode/core` 2.0.2 implementation, par
 
 ## Credentials and activation
 
-Use a team-owned Groq API credential. Supply its value only as the runner secret binding `JANITOR_AGENT_RUNNER_MODEL_API_KEY`. Store the JSON configuration as `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS`. Do not put the key in that JSON, command arguments, repository files, Slack, CI output, container environment, or checkpoint configuration. The runner resolves the binding into a bearer header at request time.
+Use a team-owned OpenRouter API credential. Supply its value only as the runner secret binding `JANITOR_AGENT_RUNNER_MODEL_API_KEY`. Store the JSON configuration as `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS`. Do not put the key in that JSON, command arguments, repository files, Slack, CI output, container environment, or checkpoint configuration. The runner resolves the binding into a bearer header at request time.
 
 The runner snapshots the selected record before host construction and blocks changed or removed records before recovery. Sessions created by older releases establish their snapshot on first activation of this release. Preserve their original records during that activation; the runner cannot reconstruct metadata that earlier releases did not save.
 
@@ -59,7 +60,7 @@ No live-provider pass has been recorded. A team credential with model access and
 After authorization, supply `JANITOR_AGENT_RUNNER_MODEL_API_KEY` in the process environment through your secret manager. Do not paste the key into a command or repository file. Then run from `runner/`:
 
 ```sh
-JANITOR_ALLOW_MODEL_SMOKE=groq-llama-3.1-8b-v1 \
+JANITOR_ALLOW_MODEL_SMOKE=openrouter-llama-3.1-8b-v1 \
 JANITOR_MODEL_SMOKE_REPORT=/tmp/janitor-model-smoke.json \
 vp run test test/ModelProvider.live.test.ts
 ```

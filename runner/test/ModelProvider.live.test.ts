@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 import { writeFileSync } from "node:fs"
-import deployment from "../model-configurations/groq-llama-3.1-8b.json"
+import deployment from "../model-configurations/openrouter-llama-3.1-8b.json"
 import { Harness, uniqueSessionId, waitFor } from "./support/Harness.ts"
 import { modelRepository } from "./support/ModelRepository.ts"
 
@@ -44,8 +44,11 @@ const validate = async (live: boolean) => {
         if (
           ++requests > 8 ||
           controller.signal.aborted ||
-          request.url !== "https://api.groq.com/openai/v1/chat/completions" ||
-          parsed.model !== "llama-3.1-8b-instant" ||
+          request.url !== "https://openrouter.ai/api/v1/chat/completions" ||
+          parsed.model !== "meta-llama/llama-3.1-8b-instruct" ||
+          JSON.stringify(parsed.provider?.only) !== JSON.stringify(["groq"]) ||
+          parsed.provider?.allow_fallbacks !== false ||
+          parsed.provider?.require_parameters !== true ||
           parsed.stream !== true ||
           (parsed.max_completion_tokens ?? parsed.max_tokens) !== 2048 ||
           new TextEncoder().encode(body).byteLength > 131072

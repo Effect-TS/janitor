@@ -10,6 +10,7 @@ import { Duration, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { HttpClient, HttpClientError } from "effect/unstable/http"
 import { Auth } from "@opencode/ai/route"
 import { OpenAIChat } from "@opencode/ai/protocols"
+import * as OpenRouter from "@opencode/ai/providers/openrouter"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
 import { ModelResolver } from "@opencode/core/model-resolver"
 import { Model } from "@opencode/schema/model"
@@ -22,8 +23,10 @@ export const ModelConfigurationRecord = Schema.Struct({
   provider: Schema.String.check(Schema.isPattern(/^[a-z0-9-]{1,40}$/)),
   /** The provider API model identifier sent in requests; may differ from display identity. */
   apiModelId: Schema.String,
-  /** Native route/transport. Only the verified OpenAI-compatible chat route is supported. */
-  route: Schema.Literal("openai-chat"),
+  /** Native route/transport, including OpenRouter's provider routing options. */
+  route: Schema.Literals(["openai-chat", "openrouter"]),
+  /** OpenRouter upstream pinned to the record's advertised limits. */
+  upstreamProvider: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-z0-9/-]+$/))),
   /** Provider endpoint base URL. */
   endpoint: Schema.String.check(
     Schema.isPattern(/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1|[a-z0-9.-]+\.test)(:|\/)/),
@@ -80,6 +83,10 @@ export const parseModelConfigurations = (raw: string | undefined): ModelConfigur
   }
   const ids = new Set<string>()
   for (const record of parsed.records) {
+    if ((record.route === "openrouter") !== (record.upstreamProvider !== undefined))
+      throw new ModelConfigurationError(
+        "OpenRouter records require an upstreamProvider; other routes must omit it",
+      )
     let endpoint: URL
     try {
       endpoint = new URL(record.endpoint)
@@ -121,14 +128,27 @@ const credentialFor = (record: ModelConfigurationRecord, secrets: SecretReader) 
 
 /** Builds the native route model for a record. Secrets resolve lazily per request. */
 export const languageModelFor = (record: ModelConfigurationRecord, secrets: SecretReader) => {
-  const route = OpenAIChat.route.with({
+  const route = (record.route === "openrouter" ? OpenRouter.route : OpenAIChat.route).with({
     provider: record.provider,
     endpoint: { baseURL: record.endpoint },
     auth: Auth.bearer(credentialFor(record, secrets)),
   })
   return route.model({
     id: record.apiModelId,
-    ...(record.generation === undefined ? {} : { defaults: { generation: record.generation } }),
+    defaults: {
+      ...(record.generation === undefined ? {} : { generation: record.generation }),
+      ...(record.upstreamProvider === undefined
+        ? {}
+        : {
+            providerOptions: {
+              provider: {
+                only: [record.upstreamProvider],
+                allow_fallbacks: false,
+                require_parameters: true,
+              },
+            },
+          }),
+    },
   })
 }
 

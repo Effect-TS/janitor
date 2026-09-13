@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 import { Harness, testConfigurations, uniqueSessionId, waitFor } from "./support/Harness.ts"
-import deployment from "../model-configurations/groq-llama-3.1-8b.json"
+import deployment from "../model-configurations/openrouter-llama-3.1-8b.json"
 import { modelRepository } from "./support/ModelRepository.ts"
 
 it("redacts credentials split across text and tool argument events before writing files", async () => {
@@ -56,7 +56,7 @@ it("sends the deployment model and explicit output setting through the native re
     expect((await settled(session)).lastOutcome).toBe("succeeded")
     expect(
       (await session.state()).journal.find((entry: any) => entry.kind === "model-call").data,
-    ).toMatchObject({ model: "llama-3.1-8b-instant", maxTokens: 2048 })
+    ).toMatchObject({ model: "meta-llama/llama-3.1-8b-instruct", maxTokens: 2048 })
   } finally {
     await harness.dispose()
   }
@@ -258,7 +258,9 @@ it("compacts locally with the pinned deployment model and retained multi-tool hi
     const calls = (await session.state()).journal.filter(
       (entry: any) => entry.kind === "model-call",
     )
-    expect(calls.every((entry: any) => entry.data.model === "llama-3.1-8b-instant")).toBe(true)
+    expect(
+      calls.every((entry: any) => entry.data.model === "meta-llama/llama-3.1-8b-instruct"),
+    ).toBe(true)
     expect(
       calls.some((entry: any) => entry.data.toolResults === 2 || entry.data.retainedTool),
     ).toBe(true)
