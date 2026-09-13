@@ -158,11 +158,19 @@ export class RepositoryWorkspace {
         signal: AbortSignal.timeout(20000),
       }),
     )
-    if (!response.ok)
-      throw new ProtocolError(
-        "blocked",
-        "Selected repository is not ready or credentials are unavailable",
-      )
+    if (!response.ok) {
+      // Janitor names the fence (paused, access lost, synchronizing, ended). The
+      // reason reaches the agent's tool result and the dashboard through the
+      // blocked error; a body-less refusal keeps the generic explanation.
+      let reason = "Selected repository is not ready or credentials are unavailable"
+      try {
+        const body = (await response.json()) as { message?: unknown }
+        if (typeof body.message === "string" && body.message !== "") reason = body.message
+      } catch {
+        // No JSON body: the generic reason stands.
+      }
+      throw new ProtocolError("blocked", reason, reason)
+    }
     return response.json() as Promise<RepositoryCredential>
   }
   protected sandbox(binding: Binding): WorkspaceSandbox {

@@ -188,6 +188,26 @@ export class AgentSessions extends Context.Service<
         return yield* sql
           .withTransaction(
             Effect.gen(function* () {
+              // An identity still owed a runner cleanup is retired: reconnection allocates fresh ones.
+              const ended = yield* sql`
+              SELECT 1 FROM agent_session_cleanup WHERE session_id = ${input.sessionId}
+            `.pipe(wrap("start"))
+              if (ended.length > 0)
+                return yield* new AgentSessionError({
+                  operation: "start",
+                  message: "This session ended when its repository was disconnected",
+                })
+              if (input.repositoryId !== undefined) {
+                // The key-share lock waits for an in-flight disconnect, which holds the row for update.
+                const repositories = yield* sql<{ connected: boolean }>`
+                SELECT connected FROM github_repository WHERE repository_id = ${input.repositoryId} FOR KEY SHARE
+              `.pipe(wrap("start"))
+                if (repositories[0]?.connected !== true)
+                  return yield* new AgentSessionError({
+                    operation: "start",
+                    message: "This repository is not connected to Janitor",
+                  })
+              }
               const rows = yield* sql`
               INSERT INTO agent_session (session_id, title, repository_id) VALUES (${input.sessionId}, ${input.title}, ${input.repositoryId ?? null})
               ON CONFLICT (session_id) DO NOTHING

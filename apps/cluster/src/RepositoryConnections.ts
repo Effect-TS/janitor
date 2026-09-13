@@ -21,6 +21,7 @@ import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEncryptionKeyId } from "@janitor/domain/GitHub/WebhookEnvelope"
 import { PayloadCipher } from "./PayloadCipher.ts"
 import { repositoryOfPayload } from "./GitHub/RepositoryPayload.ts"
+import { AgentCatchUpWake } from "./Agent/EventProjection.ts"
 
 export class ConnectionError extends Schema.TaggedError<ConnectionError>()("ConnectionError", {
   message: Schema.String,
@@ -51,6 +52,7 @@ export class RepositoryConnections extends Context.Service<
     const transport = yield* GitHubTransport
     const readModel = yield* GitHubReadModel
     const cipher = yield* PayloadCipher
+    const wakeCleanup = yield* AgentCatchUpWake
     const inventory = sql`
     SELECT r.repository_id AS "repositoryId", r.installation_id AS "installationId", r.owner, r.repo,
       r.is_private AS "isPrivate", r.connected, r.enabled, (r.disconnected_at IS NOT NULL) AS reconnect,
@@ -58,6 +60,10 @@ export class RepositoryConnections extends Context.Service<
       i.access_error AS "accessError", i.status AS "installationStatus",
       (SELECT count(*)::int FROM labeling_policy p WHERE p.repository_id=r.repository_id) AS "policyCount",
       (SELECT count(*)::int FROM labeling_rule p WHERE p.repository_id=r.repository_id AND p.enabled) AS "ruleCount",
+      ((SELECT count(*)::int FROM agent_session s WHERE s.repository_id=r.repository_id)
+        + (SELECT count(*)::int FROM slack_thread t WHERE t.repository_id=r.repository_id AND t.state<>'redirected'
+            AND NOT EXISTS (SELECT 1 FROM agent_session s WHERE s.session_id=t.session_id))) AS "sessionCount",
+      (SELECT count(*)::int FROM agent_session_cleanup c WHERE c.repository_id=r.repository_id) AS "pendingCleanups",
       (SELECT COALESCE(t.last_error,t.blocked_reason) FROM sync_target t
         WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health='blocked')
         ORDER BY t.updated_at DESC LIMIT 1) AS "syncError",
@@ -299,7 +305,20 @@ export class RepositoryConnections extends Context.Service<
             }
           }),
         )
-        .pipe(wrap)
+        .pipe(
+          // Session cleanup tombstones are committed above; the wake only hurries
+          // the cron that owns them, so its failure is not the operator's problem.
+          Effect.tap(() =>
+            action === "disconnect"
+              ? wakeCleanup.pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Agent cleanup wake failed; cron will recover", cause),
+                  ),
+                )
+              : Effect.void,
+          ),
+          wrap,
+        )
     const github = (installationId: string | null, actor: Actor) =>
       Effect.gen(function* () {
         const response = yield* transport.request({

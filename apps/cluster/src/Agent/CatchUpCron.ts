@@ -4,7 +4,9 @@
 // obligations at the thirty-second active cadence. Notifications may wake it
 // early but are never the only discovery mechanism. The same wake runs the
 // five-minute recovery sweep that re-requests delivery for inputs whose
-// handoff execution was lost after the outbox accepted it.
+// handoff execution was lost after the outbox accepted it, and drives the
+// cleanup tombstones left by repository disconnection until the runner
+// confirms each ended session is gone.
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Singleton from "effect/unstable/cluster/Singleton"
@@ -12,6 +14,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { flushLive } from "../LiveUpdates.ts"
 import { WorkflowDispatcher } from "../WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
+import { AgentCleanup } from "./Cleanup.ts"
 import { AgentEventProjection } from "./EventProjection.ts"
 import { handoffSweepRequest } from "./Handoff.ts"
 import type { AgentSessionId } from "./RunnerProtocol.ts"
@@ -50,6 +53,7 @@ export const AgentCatchUpCronLayer = Singleton.make(
   AgentCatchUpCronName,
   Effect.gen(function* () {
     const projection = yield* AgentEventProjection
+    const cleanup = yield* AgentCleanup
     const dispatcher = yield* WorkflowDispatcher
     const started = yield* Clock.currentTimeMillis
     const swept = yield* sweepHandoffs().pipe(
@@ -62,6 +66,18 @@ export const AgentCatchUpCronLayer = Singleton.make(
       yield* dispatcher.dispatchDue({ limit: 50 }).pipe(Effect.ignore)
     }
     for (;;) {
+      const cleaned = yield* cleanup
+        .processDue(50)
+        .pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError("Agent session cleanup failed", cause).pipe(Effect.as([])),
+          ),
+        )
+      if (cleaned.length > 0)
+        yield* Effect.logInfo("Cleaned up ended agent sessions", {
+          sessions: cleaned.length,
+          completed: cleaned.filter((outcome) => outcome.completed).length,
+        })
       const summaries = yield* projection.processDue(50)
       if (summaries.length > 0) {
         yield* Effect.logInfo("Caught up agent sessions", {
@@ -71,7 +87,10 @@ export const AgentCatchUpCronLayer = Singleton.make(
         // Projection changes committed their invalidation intent; forward it now.
         yield* flushLive
       }
-      const next = yield* projection.nextDueIn
+      const dueTimes = [yield* projection.nextDueIn, yield* cleanup.nextDueIn].filter(
+        (delay) => delay !== null,
+      )
+      const next = dueTimes.length === 0 ? null : Math.min(...dueTimes)
       const remaining = WAKE_BUDGET_MS - ((yield* Clock.currentTimeMillis) - started)
       if (next === null || next > remaining) break
       yield* Effect.sleep(next)

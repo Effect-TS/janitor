@@ -109,7 +109,12 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
       AND (handoff_lease_until IS NULL OR handoff_lease_until <= CLOCK_TIMESTAMP())
     RETURNING session_id
   `)
-  if (acquired.length === 0) return "busy"
+  if (acquired.length === 0) {
+    // No row to lease: the session ended (its repository was disconnected) or
+    // another delivery loop holds it. Only the latter is worth waiting for.
+    const exists = yield* query(sql`SELECT 1 FROM agent_session WHERE session_id = ${sessionId}`)
+    return exists.length === 0 ? "settled" : "busy"
+  }
 
   const release = query(sql`
     UPDATE agent_session SET handoff_lease_token = NULL, handoff_lease_until = NULL
