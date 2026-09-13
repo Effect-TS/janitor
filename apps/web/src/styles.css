@@ -136,6 +136,40 @@
 
   --oc-overlay-shadow: 0 6px 18px rgb(0 0 0 / 0.5), 0 0 0 1px var(--oc-line);
   --oc-scrim: rgb(0 0 0 / 0.6);
+
+  /* Re-declared so a nested .dark container resolves against its own palette;
+     custom properties inherit as computed values, not as var() references. */
+  --background: var(--oc-canvas);
+  --foreground: var(--oc-ink);
+  --card: var(--oc-surface);
+  --card-foreground: var(--oc-ink);
+  --popover: var(--oc-surface);
+  --popover-foreground: var(--oc-ink);
+  --primary: var(--oc-blue);
+  --primary-foreground: var(--oc-on-blue);
+  --secondary: var(--oc-surface-muted);
+  --secondary-foreground: var(--oc-ink);
+  --muted: var(--oc-surface-muted);
+  --muted-foreground: var(--oc-ink-subtle);
+  --accent: var(--oc-blue-wash);
+  --accent-foreground: var(--oc-blue-hover);
+  --destructive: var(--oc-danger);
+  --destructive-foreground: var(--oc-on-blue);
+  --border: var(--oc-line);
+  --input: var(--oc-line);
+  --ring: var(--oc-blue);
+  --chart-1: var(--oc-blue);
+  --chart-3: var(--oc-ink-subtle);
+  --chart-4: var(--oc-success);
+  --chart-5: var(--oc-danger);
+  --sidebar: var(--oc-surface);
+  --sidebar-foreground: var(--oc-ink);
+  --sidebar-primary: var(--oc-blue);
+  --sidebar-primary-foreground: var(--oc-on-blue);
+  --sidebar-accent: var(--oc-blue-wash);
+  --sidebar-accent-foreground: var(--oc-ink);
+  --sidebar-border: var(--oc-line);
+  --sidebar-ring: var(--oc-blue);
 }
 
 /* ---------------------------------------------------------------------------
@@ -182,6 +216,7 @@
   --color-ink-subtle: var(--oc-ink-subtle);
   --color-ink-faint: var(--oc-ink-faint);
   --color-success: var(--oc-success);
+  --color-destructive-hover: var(--oc-danger-hover);
   --color-primary-hover: var(--oc-blue-hover);
   --color-primary-wash: var(--oc-blue-wash);
   --color-primary-line: var(--oc-blue-line);
@@ -673,6 +708,10 @@
     transform: translateX(2px);
     transition: transform 120ms var(--ease-ui);
   }
+  [data-slot="switch"]:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
   [data-slot="switch"][data-state="checked"] [data-slot="switch-thumb"],
   [data-slot="switch"][aria-checked="true"] [data-slot="switch-thumb"] {
     transform: translateX(13px);
@@ -733,6 +772,10 @@
   [data-slot="tooltip-content"] {
     padding: 4px 8px;
     font-size: var(--text-body-sm);
+  }
+  [data-slot="dialog-content"] {
+    margin-top: 20vh;
+    width: calc(100% - 32px);
   }
   [data-slot="dialog-overlay"],
   [data-slot="sheet-overlay"] {

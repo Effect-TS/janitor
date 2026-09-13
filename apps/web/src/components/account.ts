@@ -417,7 +417,7 @@ const youPane = (h: HtmlBuilder<Message>, view: AccountView): Html =>
               [],
               [
                 view.teammate.role === "admin"
-                  ? chip(h, { variant: "on", children: ["admin"] })
+                  ? chip(h, { children: ["admin"] })
                   : chip(h, { children: ["member"] }),
               ],
             ),
@@ -532,7 +532,7 @@ const rosterRow = (
       ]
     : [
         entry.role === "admin"
-          ? chip(h, { variant: "on", children: ["admin"] })
+          ? chip(h, { children: ["admin"] })
           : chip(h, { children: ["member"] }),
         ...(isSelf
           ? []

@@ -1,9 +1,8 @@
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import { cn } from "@/lib/utils"
 
-/** Enamel section sign: a cobalt plate with a mounting screw, set in the
- *  signage face, uppercase. One per section; it sits above its panel. */
-export const signClass = "jn-sign font-sign text-sign font-bold uppercase"
+/** Section heading. Sentence case h2, one per section, above its card. */
+export const signClass = "text-h2 font-semibold"
 
 export type SignConfig<M> = {
   readonly id?: string
@@ -17,8 +16,8 @@ export const sign = <M>(h: HtmlBuilder<M>, config: SignConfig<M>): Html =>
     [
       ...(config.id === undefined ? [] : [h.Id(config.id)]),
       h.Class(cn(signClass, config.className)),
-      h.DataAttribute("slot", "sign"),
+      h.DataAttribute("slot", "section-heading"),
       ...(config.attributes ?? []),
     ],
-    [h.span([h.Class("jn-screw"), h.AriaHidden(true)], []), ...config.children],
+    config.children,
   )

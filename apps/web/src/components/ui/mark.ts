@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 
 /** Small bordered squares carrying mono letters. No logos, no props. */
 const markClass =
-  "inline-flex shrink-0 items-center justify-center rounded-sm border-2 border-outline bg-popover font-mono font-semibold text-foreground"
+  "inline-flex shrink-0 items-center justify-center rounded-xs border border-border bg-surface-muted font-mono font-medium text-foreground"
 
 export const platformMark = <M>(
   h: HtmlBuilder<M>,
@@ -12,7 +12,7 @@ export const platformMark = <M>(
   className?: string,
 ): Html =>
   h.span(
-    [h.Class(cn(markClass, "size-[30px] text-mono-sm", className)), h.AriaHidden(true)],
+    [h.Class(cn(markClass, "size-7 text-mono-sm", className)), h.AriaHidden(true)],
     [platform === "github" ? "GH" : "SL"],
   )
 
@@ -27,6 +27,6 @@ export const initialsOf = (name: string): string => {
 
 export const avatar = <M>(h: HtmlBuilder<M>, name: string, className?: string): Html =>
   h.span(
-    [h.Class(cn(markClass, "size-[34px] text-body-sm", className)), h.AriaHidden(true)],
+    [h.Class(cn(markClass, "size-8 text-mono-sm", className)), h.AriaHidden(true)],
     [initialsOf(name)],
   )

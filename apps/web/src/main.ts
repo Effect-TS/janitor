@@ -2,6 +2,7 @@ import * as Live from "./components/live"
 import * as Connections from "@/components/repository-connections"
 import * as Account from "@/components/account"
 import * as Sessions from "@/components/sessions"
+import * as DesignSystem from "@/components/design-system"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -59,6 +60,7 @@ export const Message = defineMessageUnion({
   GotSessionsMessage: { message: Sessions.Message },
   GotNavigationMessage: { message: Navigation.Message },
   PersistedRepository: {},
+  NoOp: {},
   GotSidebarMessage: {
     message: Sidebar.Message,
   },
@@ -722,6 +724,7 @@ export const update = (model: Model, message: Message) =>
     GotSessionsMessage: ({ message }) => foldSessions(model, message),
     GotNavigationMessage: ({ message }) => updateNavigation(model, message),
     PersistedRepository: () => ({ model }),
+    NoOp: () => ({ model }),
     GotSidebarMessage: ({ message }) => foldSidebar(model, message),
     GotThemeSwitcherMessage: ({ message }) => foldThemeSwitcher(model, message),
     GotSyncButtonMessage: ({ message }) =>
@@ -1104,9 +1107,11 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                         ? "Sessions"
                         : model.navigation.route._tag === "Home"
                           ? "Repositories"
-                          : model.navigation.route._tag === "NotFound"
-                            ? "Page not found"
-                            : Routes.section(model.navigation.route),
+                          : model.navigation.route._tag === "DesignSystem"
+                            ? "Design system"
+                            : model.navigation.route._tag === "NotFound"
+                              ? "Page not found"
+                              : Routes.section(model.navigation.route),
                 ],
               ),
             ],
@@ -1227,6 +1232,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const repositories = Option.getOrElse(model.workspace.repositories, () => [])
   if (isAccountRoute(route)) return accountView(h, model)
   if (isSessionsRoute(route)) return sessionsView(h, model)
+  if (route._tag === "DesignSystem") return DesignSystem.view(h, { noop: Message.NoOp() })
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")
@@ -1337,7 +1343,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isSessionsRoute(model.navigation.route) ? "Sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
+  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isSessionsRoute(model.navigation.route) ? "Sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "DesignSystem" ? "Design system" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,
