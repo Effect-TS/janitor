@@ -7,11 +7,21 @@ export interface LiveNamespace {
   getByName(name: string): { fetch(input: string, init?: RequestInit): Promise<Response> }
 }
 
+/**
+ * The team-wide channel for session observation. It is keyed like a
+ * repository in `live_notification` but is not one: it never disconnects,
+ * and its membership topic carries the teammates whose sockets must close.
+ */
+export const SESSIONS_CHANNEL = "sessions"
+export const MEMBERSHIP_TOPIC = "membership"
+
 export class LiveUpdates extends Context.Service<
   LiveUpdates,
   {
     readonly flush: Effect.Effect<void>
     readonly connect: (repositoryId: string, expiresAt: number) => Effect.Effect<Response>
+    /** Subscribes an active teammate to session invalidations; removal closes it. */
+    readonly connectSessions: (teammateId: string, expiresAt: number) => Effect.Effect<Response>
   }
 >()("Janitor/LiveUpdates") {}
 
@@ -24,6 +34,9 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
     LiveUpdates,
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
+      const removedTeammates = sql<{ teammate_id: string }>`
+        SELECT teammate_id::text AS teammate_id FROM teammate WHERE status = 'removed'
+      `.pipe(Effect.map((rows) => rows.map((row) => row.teammate_id)))
       const flush = Effect.gen(function* () {
         const rows = yield* sql<{
           repository_id: string
@@ -31,7 +44,8 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
           revision: string
           disconnected: boolean
         }>`
-      SELECT n.repository_id,n.topic,n.revision::text,NOT COALESCE(r.connected AND r.access='accessible',false) AS disconnected
+      SELECT n.repository_id,n.topic,n.revision::text,
+        n.repository_id<>${SESSIONS_CHANNEL} AND NOT COALESCE(r.connected AND r.access='accessible',false) AS disconnected
       FROM live_notification n LEFT JOIN github_repository r USING(repository_id) ORDER BY n.revision LIMIT 500`
         const groups = new Map<string, (typeof rows)[number][]>()
         for (const row of rows) {
@@ -43,6 +57,11 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
           [...groups],
           ([repositoryId, entries]) =>
             Effect.gen(function* () {
+              const revoked =
+                repositoryId === SESSIONS_CHANNEL &&
+                entries.some((row) => row.topic === MEMBERSHIP_TOPIC)
+                  ? yield* removedTeammates
+                  : []
               const response = yield* Effect.tryPromise(() =>
                 namespace.getByName(repositoryId).fetch("https://live.internal/notify", {
                   method: "POST",
@@ -50,6 +69,7 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
                     revision: entries.at(-1)!.revision,
                     topics: entries.map((row) => row.topic),
                     disconnected: entries[0]!.disconnected,
+                    revoked,
                   }),
                 }),
               ).pipe(Effect.timeout("5 seconds"))
@@ -68,6 +88,13 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
         Effect.timeout("20 seconds"),
         Effect.catchCause((cause) => Effect.logWarning("Live notification dispatch failed", cause)),
       )
+      const upgrade = (channel: string, query: string) =>
+        Effect.promise(
+          async () =>
+            (await namespace.getByName(channel).fetch(`https://live.internal/connect?${query}`, {
+              headers: { Upgrade: "websocket" },
+            })) as unknown as Response,
+        )
       return {
         flush,
         connect: (repositoryId, expiresAt) =>
@@ -78,13 +105,21 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
               )
             if (!rows.length) return new Response(null, { status: 403 })
             if (expiresAt === 0) return new Response(null, { status: 204 })
-            return yield* Effect.promise(
-              async () =>
-                (await namespace
-                  .getByName(repositoryId)
-                  .fetch(`https://live.internal/connect?expiresAt=${expiresAt}`, {
-                    headers: { Upgrade: "websocket" },
-                  })) as unknown as Response,
+            return yield* upgrade(repositoryId, `expiresAt=${expiresAt}`)
+          }),
+        connectSessions: (teammateId, expiresAt) =>
+          Effect.gen(function* () {
+            // The route already admitted an active teammate; recheck at the boundary
+            // so a removal that raced the request cannot open a subscription.
+            const rows =
+              yield* sql`SELECT teammate_id FROM teammate WHERE teammate_id::text=${teammateId} AND status='active'`.pipe(
+                Effect.orDie,
+              )
+            if (!rows.length) return new Response(null, { status: 403 })
+            if (expiresAt === 0) return new Response(null, { status: 204 })
+            return yield* upgrade(
+              SESSIONS_CHANNEL,
+              `expiresAt=${expiresAt}&teammate=${encodeURIComponent(teammateId)}`,
             )
           }),
       }

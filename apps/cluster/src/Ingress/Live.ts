@@ -11,6 +11,18 @@ import { CurrentAccessIdentity } from "./Middleware.ts"
 import { SameOriginMiddleware } from "./Sync.ts"
 import * as Layer from "effect/Layer"
 
+/**
+ * A subscription lives for the shorter of the verified Access session and an
+ * hour; a plain GET only asks whether the channel is open, so it gets 0.
+ */
+export const liveExpiry = (
+  identity: { readonly expiresAt: DateTime.Utc },
+  request: Request.HttpServerRequest,
+): number =>
+  request.headers.upgrade?.toLowerCase() === "websocket"
+    ? Math.min(DateTime.toEpochMillis(identity.expiresAt), Date.now() + 3600000)
+    : 0
+
 export const LiveRoutesLayer = HttpRouter.add(
   "GET",
   "/repositories/:repositoryId/live",
@@ -22,11 +34,7 @@ export const LiveRoutesLayer = HttpRouter.add(
     const request = yield* Request.HttpServerRequest
     const service = yield* Effect.serviceOption(LiveUpdates)
     if (Option.isNone(service)) return Response.empty({ status: 503 })
-    const expiresAt =
-      request.headers.upgrade?.toLowerCase() === "websocket"
-        ? Math.min(DateTime.toEpochMillis(identity.expiresAt), Date.now() + 3600000)
-        : 0
-    const response = yield* service.value.connect(repositoryId, expiresAt)
+    const response = yield* service.value.connect(repositoryId, liveExpiry(identity, request))
     return Response.setBody(Response.empty({ status: response.status }), Body.raw(response))
   }),
 ).pipe(Layer.provide(SameOriginMiddleware))

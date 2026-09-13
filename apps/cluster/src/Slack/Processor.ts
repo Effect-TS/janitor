@@ -6,6 +6,7 @@ import { AgentSessions } from "../Agent/Sessions.ts"
 import { SlackConfig } from "./Config.ts"
 import { type Contribution, type Thread, SlackError, slackError } from "./Conversation.ts"
 import { SlackTransport, SlackTransportError } from "./Transport.ts"
+import { homeThreadUrl } from "./HomeThread.ts"
 import { enqueueOutput } from "./Outbox.ts"
 
 /** Decimal timestamps must never pass through a floating point number. */
@@ -21,8 +22,7 @@ export const compareTimestamp = (left: string, right: string): number => {
       ? 1
       : 0
 }
-const homeLink = (thread: Thread) =>
-  `https://app.slack.com/archives/${thread.channel_id}/p${thread.thread_ts.replace(".", "")}`
+const homeLink = (thread: Thread) => homeThreadUrl(thread.channel_id, thread.thread_ts)
 
 export class SlackProcessor extends Context.Service<
   SlackProcessor,

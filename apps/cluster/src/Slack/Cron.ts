@@ -7,6 +7,7 @@ import { SlackProcessor } from "./Processor.ts"
 import { SlackDelivery } from "./Delivery.ts"
 import { GitHubFeedback } from "../GitHub/Feedback.ts"
 import { GitHubDelivery } from "../GitHub/FeedbackDelivery.ts"
+import { flushLive } from "../LiveUpdates.ts"
 
 export const SlackCronName = "slack-conversations"
 export const SlackCronLayer = Singleton.make(
@@ -39,6 +40,8 @@ export const SlackCronLayer = Singleton.make(
       yield* github.processDue.pipe(
         Effect.catchCause((cause) => Effect.logError("GitHub feedback publication failed", cause)),
       )
+      // Delivery health and associations changed above commit their invalidation intent.
+      yield* flushLive
       yield* Effect.sleep(1000)
     }
   }),

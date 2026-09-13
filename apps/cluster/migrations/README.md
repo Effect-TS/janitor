@@ -219,3 +219,16 @@ events. Existing tables are unchanged.
 session. The identity stays available for external cleanup after repository
 removal. Session creation rejects a retry that changes the selection. Repository
 execution checks readiness through Janitor before cloning or dispatching tools.
+
+## Session observation
+
+`0028_session_observation.sql` adds the team-wide `sessions` live channel. It
+is keyed like a repository in `live_notification` but is not one: the
+dispatcher never marks it disconnected, and its `membership` topic carries the
+removed teammates whose open subscriptions must close. Triggers on the session
+projection, session identity, home-thread associations, delivery health and the
+catch-up obligation's last read commit invalidation intent with the change that
+caused it; catch-up reads and delivery cron wakes then forward it. The
+projection's own `freshness_at` heartbeat, thread cursors and leases are
+bookkeeping and do not notify. No data changes; existing sessions appear on the dashboard
+once their next projection read commits.
