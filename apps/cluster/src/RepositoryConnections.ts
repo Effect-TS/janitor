@@ -60,9 +60,7 @@ export class RepositoryConnections extends Context.Service<
       i.access_error AS "accessError", i.status AS "installationStatus",
       (SELECT count(*)::int FROM labeling_policy p WHERE p.repository_id=r.repository_id) AS "policyCount",
       (SELECT count(*)::int FROM labeling_rule p WHERE p.repository_id=r.repository_id AND p.enabled) AS "ruleCount",
-      ((SELECT count(*)::int FROM agent_session s WHERE s.repository_id=r.repository_id)
-        + (SELECT count(*)::int FROM slack_thread t WHERE t.repository_id=r.repository_id AND t.state<>'redirected'
-            AND NOT EXISTS (SELECT 1 FROM agent_session s WHERE s.session_id=t.session_id))) AS "sessionCount",
+      (SELECT count(*)::int FROM agent_session s WHERE s.repository_id=r.repository_id) AS "sessionCount",
       (SELECT count(*)::int FROM agent_session_cleanup c WHERE c.repository_id=r.repository_id) AS "pendingCleanups",
       (SELECT COALESCE(t.last_error,t.blocked_reason) FROM sync_target t
         WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health='blocked')

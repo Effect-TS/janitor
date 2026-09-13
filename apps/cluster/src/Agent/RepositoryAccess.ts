@@ -56,6 +56,9 @@ export class RepositoryAccess extends Context.Service<
       const http = yield* HttpClient.HttpClient
       const appId = yield* Config.String("JANITOR_GITHUB_APP_ID").pipe(Config.withDefault(""))
       const tokens = new Map<string, { token: Redacted.Redacted<string>; expiresAt: number }>()
+      const unreadable = Effect.mapError(
+        () => new RepositoryAccessError({ message: "Repository readiness could not be read" }),
+      )
       return {
         authorize: (request: typeof RepositoryRequest.Type) =>
           Effect.gen(function* () {
@@ -79,22 +82,12 @@ export class RepositoryAccess extends Context.Service<
           (SELECT t.pr_number FROM slack_thread t WHERE t.session_id = s.session_id) AS pr_number
         FROM agent_session s LEFT JOIN github_repository r ON r.repository_id = s.repository_id
         WHERE s.session_id = ${request.sessionId}
-      `.pipe(
-              Effect.mapError(
-                () =>
-                  new RepositoryAccessError({ message: "Repository readiness could not be read" }),
-              ),
-            )
+      `.pipe(unreadable)
             const session = rows[0]
             if (!session) {
               const ended =
                 yield* sql`SELECT 1 FROM agent_session_cleanup WHERE session_id = ${request.sessionId}`.pipe(
-                  Effect.mapError(
-                    () =>
-                      new RepositoryAccessError({
-                        message: "Repository readiness could not be read",
-                      }),
-                  ),
+                  unreadable,
                 )
               return yield* new RepositoryAccessError({
                 message:

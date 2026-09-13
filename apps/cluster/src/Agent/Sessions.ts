@@ -205,7 +205,7 @@ export class AgentSessions extends Context.Service<
                 if (repositories[0]?.connected !== true)
                   return yield* new AgentSessionError({
                     operation: "start",
-                    message: "This repository is not connected to Janitor",
+                    message: "This repository is not connected to Janitor.",
                   })
               }
               const rows = yield* sql`

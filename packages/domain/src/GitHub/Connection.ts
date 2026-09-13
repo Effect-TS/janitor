@@ -13,7 +13,7 @@ export const ConnectionCandidate = Schema.Struct({
   installationStatus: Schema.String,
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
-  /** Agent sessions working in this repository, including threads still selecting it. */
+  /** Agent sessions in this repository: the ones disconnection ends and whose workspaces it deletes. */
   sessionCount: Schema.Int,
   /** Ended sessions whose runner cleanup has not been confirmed yet. */
   pendingCleanups: Schema.Int,

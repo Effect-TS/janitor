@@ -8,8 +8,9 @@
 -- dies. A tombstone is deleted only once the runner confirms cleanup.
 
 -- The one reason agent work on a repository is blocked, or NULL when the
--- repository is ready. Deliberate pause outranks synchronization state:
--- restoring access leaves a paused repository paused.
+-- repository is ready. Lost access is named ahead of a pause because it needs
+-- action on GitHub; once access returns a deliberately paused repository is
+-- still paused, and resumption then needs fresh synchronization.
 CREATE FUNCTION repository_block_reason(id TEXT) RETURNS TEXT LANGUAGE SQL STABLE AS $$
   SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM github_repository WHERE repository_id = id)
     THEN 'This repository is not connected to Janitor.'

@@ -6,7 +6,7 @@ import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { RepositoryAccess } from "../../src/Agent/RepositoryAccess.ts"
+import { RepositoryAccess, RepositoryRequest } from "../../src/Agent/RepositoryAccess.ts"
 import { GitHubAppAuth } from "../../src/GitHub/AppAuth.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 
@@ -146,7 +146,7 @@ layer(service)("Repository execution authority", (it) => {
       yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence,automation_ready_at) VALUES('9102','77','test','lifecycle',TRUE,TRUE,'accessible',1,CLOCK_TIMESTAMP())`
       yield* sql`INSERT INTO agent_session(session_id,title,repository_id) VALUES('lifecycle','Lifecycle','9102')`
       const request = { sessionId: "lifecycle", repositoryId: "9102", generation: 1, token: false }
-      const reason = (invalid: typeof request) =>
+      const reason = (invalid: typeof RepositoryRequest.Type) =>
         access.authorize(invalid).pipe(
           Effect.flip,
           Effect.map((error) => error.message),
@@ -176,6 +176,11 @@ layer(service)("Repository execution authority", (it) => {
       // Disconnection deletes the session and leaves its cleanup tombstone as the fence.
       yield* sql`SELECT delete_repository_data('9102')`
       assert.include(yield* reason(request), "session has ended")
+      // A publication attempt caught by the disconnect is refused the same way.
+      assert.include(
+        yield* reason({ ...request, token: true, permission: "push", publication: true }),
+        "session has ended",
+      )
       assert.include(yield* reason({ ...request, sessionId: "never-started" }), "Unknown session")
     }),
   )
