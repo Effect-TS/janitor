@@ -218,6 +218,12 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       assert.include(outputs[0]!.error!, "positive author")
       assert.strictEqual(posts - before, 1)
       wrongAuthor = false
+      const deleted = messages.findIndex((message) => message.thread_ts === "601.000000")
+      messages.splice(deleted, 1)
+      yield* sql`UPDATE slack_channel_delivery SET due_at=CLOCK_TIMESTAMP()-interval '1 second' WHERE channel_id='C2'`
+      yield* delivery.deliver("uncertain")
+      assert.strictEqual((yield* delivery.inspect("uncertain"))[0]?.state, "uncertain")
+      assert.strictEqual(posts - before, 1)
     }),
   )
   it.effect(

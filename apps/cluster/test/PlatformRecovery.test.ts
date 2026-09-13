@@ -114,29 +114,42 @@ const due = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   yield* sql`UPDATE platform_recovery SET due_at=CLOCK_TIMESTAMP()-interval '1 second'`
 })
+const setup = Effect.gen(function* () {
+  fetched.length = 0
+  cursors.length = 0
+  summaries = []
+  cursor = ""
+  unavailable = false
+  throttle = false
+  slackMessages = []
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`TRUNCATE github_recovery_attempt,github_feedback_receipt,github_feedback,slack_receipt,slack_contribution CASCADE`
+  yield* sql`UPDATE platform_recovery SET cursor='',due_at=CLOCK_TIMESTAMP(),completed_at=NULL,warning=NULL,lease_until=NULL,lease_token=NULL`
+  yield* sql`UPDATE slack_thread SET recovery_cursor='',recovery_oldest=NULL,recovery_highwater=NULL,recovery_due_at=CLOCK_TIMESTAMP(),recovery_completed_at=NULL,recovery_lease_until=NULL,recovery_lease_token=NULL`
+  yield* sql`INSERT INTO github_installation (installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence,access_error) VALUES ('recovery-i','1','team','Organization','all','active','https://github.com/team',1,NULL) ON CONFLICT DO NOTHING`
+  yield* sql`INSERT INTO github_repository (repository_id,installation_id,owner,repo,access,enabled,projected_sequence,automation_ready_at) VALUES ('12345','recovery-i','team','repo','accessible',true,1,now()) ON CONFLICT DO NOTHING`
+  const sessions = yield* AgentSessions
+  yield* sessions.start({ sessionId: "recovery", title: "Recovery", repositoryId: "12345" })
+  yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,repository_id,pr_number,state,context) VALUES ('recovery','T1','C1','1.000001','1.000002','12345','7','ready','[]') ON CONFLICT DO NOTHING`
+  const teammates = yield* Teammates
+  const member = yield* teammates.admit({
+    issuer: "test",
+    subject: "member",
+    email: undefined,
+  })
+  yield* teammates.link(member.teammate.teammateId, {
+    platform: "github",
+    workspaceId: "github.com",
+    accountId: "42",
+    displayName: "Reviewer",
+  })
+})
 layer(services, { timeout: "3 minutes" })("Platform recovery", (it) => {
   it.effect(
     "retains exact attempt IDs and opaque page progress while deduplicating redelivery GUIDs",
     () =>
       Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient
-        yield* sql`INSERT INTO github_installation (installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence,access_error) VALUES ('recovery-i','1','team','Organization','all','active','https://github.com/team',1,NULL)`
-        yield* sql`INSERT INTO github_repository (repository_id,installation_id,owner,repo,access,enabled,projected_sequence,automation_ready_at) VALUES ('12345','recovery-i','team','repo','accessible',true,1,now())`
-        const sessions = yield* AgentSessions
-        yield* sessions.start({ sessionId: "recovery", title: "Recovery", repositoryId: "12345" })
-        yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,repository_id,pr_number,state,context) VALUES ('recovery','T1','C1','1.000001','1.000002','12345','7','ready','[]')`
-        const teammates = yield* Teammates
-        const member = yield* teammates.admit({
-          issuer: "test",
-          subject: "member",
-          email: undefined,
-        })
-        yield* teammates.link(member.teammate.teammateId, {
-          platform: "github",
-          workspaceId: "github.com",
-          accountId: "42",
-          displayName: "Reviewer",
-        })
+        yield* setup
         const recovery = yield* GitHubRecovery
         summaries = [
           summary("9007199254740993123", "same-guid"),
@@ -164,6 +177,7 @@ layer(services, { timeout: "3 minutes" })("Platform recovery", (it) => {
     "keeps throttled payloads pending and reports expired history without inventing feedback",
     () =>
       Effect.gen(function* () {
+        yield* setup
         const recovery = yield* GitHubRecovery
         const sessions = yield* AgentSessions
         summaries = [summary("9007199254740993125", "expired-guid")]
@@ -190,11 +204,12 @@ layer(services, { timeout: "3 minutes" })("Platform recovery", (it) => {
         )!
         assert.strictEqual(after.incomplete, false)
         assert.include(after.gap!, "expired")
-        assert.strictEqual((yield* (yield* GitHubFeedback).inspect("recovery")).length, 1)
+        assert.strictEqual((yield* (yield* GitHubFeedback).inspect("recovery")).length, 0)
       }),
   )
   it.effect("overlaps known threads without replaying rejected inputs or initial context", () =>
     Effect.gen(function* () {
+      yield* setup
       const conversation = yield* SlackConversation
       const message = {
         type: "message",
@@ -250,6 +265,7 @@ layer(services, { timeout: "3 minutes" })("Platform recovery", (it) => {
     "restarts through the real App HTTP adapter without rounding numeric attempt IDs or losing Retry-After",
     () =>
       Effect.gen(function* () {
+        yield* setup
         const requests: string[] = []
         const json =
           '{"id":9007199254740993999,"guid":"http-guid","event":"pull_request_review","action":"submitted","repository_id":12345,"delivered_at":"2026-09-12T00:00:00Z"}'
@@ -310,7 +326,7 @@ layer(services, { timeout: "3 minutes" })("Platform recovery", (it) => {
         limited = false
         yield* due
         yield* restarted
-        assert.strictEqual((yield* (yield* GitHubFeedback).inspect("recovery")).length, 2)
+        assert.strictEqual((yield* (yield* GitHubFeedback).inspect("recovery")).length, 1)
       }),
   )
 })

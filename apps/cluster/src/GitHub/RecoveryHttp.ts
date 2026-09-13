@@ -20,6 +20,10 @@ export class RecoveryError extends Schema.TaggedError<RecoveryError>()("Recovery
   retryAfter: Schema.Number,
   unavailable: Schema.Boolean,
 }) {}
+const recoveryFailure = (error: { readonly message: string }) =>
+  error instanceof RecoveryError
+    ? error
+    : new RecoveryError({ message: error.message, retryAfter: 30, unavailable: false })
 const Id = Schema.String.check(Schema.isPattern(/^\d+$/))
 export const DeliverySummary = Schema.Struct({
   id: Id,
@@ -104,14 +108,7 @@ export class GitHubRecoveryApi extends Context.Service<
             cursor: Option.getOrElse(nextLink(response.headers.link ?? ""), () => ""),
             retryAfter,
           }
-        }).pipe(
-          Effect.timeout("20 seconds"),
-          Effect.mapError((error) =>
-            error instanceof RecoveryError
-              ? error
-              : new RecoveryError({ message: error.message, retryAfter: 30, unavailable: false }),
-          ),
-        )
+        }).pipe(Effect.timeout("20 seconds"), Effect.mapError(recoveryFailure))
       return {
         list: (cursor) =>
           Effect.gen(function* () {
@@ -136,13 +133,7 @@ export class GitHubRecoveryApi extends Context.Service<
               result.data,
             )
             return { ...result, deliveries }
-          }).pipe(
-            Effect.mapError((error) =>
-              error instanceof RecoveryError
-                ? error
-                : new RecoveryError({ message: error.message, retryAfter: 30, unavailable: false }),
-            ),
-          ),
+          }).pipe(Effect.mapError(recoveryFailure)),
         payload: (id) =>
           Effect.gen(function* () {
             const result = yield* request(`${base}/${encodeURIComponent(id)}`)
@@ -151,13 +142,7 @@ export class GitHubRecoveryApi extends Context.Service<
               Schema.Struct({ request: Schema.Struct({ payload: Schema.Unknown }) }),
             )(result.data)
             return { delivery, payload: body.request.payload, retryAfter: result.retryAfter }
-          }).pipe(
-            Effect.mapError((error) =>
-              error instanceof RecoveryError
-                ? error
-                : new RecoveryError({ message: error.message, retryAfter: 30, unavailable: false }),
-            ),
-          ),
+          }).pipe(Effect.mapError(recoveryFailure)),
       }
     }),
   )
