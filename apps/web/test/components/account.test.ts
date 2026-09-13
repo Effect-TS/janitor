@@ -57,10 +57,11 @@ const adminView: AccountView = {
 
 const scene = (
   view: AccountView,
+  section: Account.ViewInputs["section"],
   ...steps: Array<Scene.SceneStep<Account.Model, Account.Message, Account.OutMessage>>
 ) =>
   Scene.scene(
-    { update: Account.update, view: Scene.withViewInputs(Account.view, {})() },
+    { update: Account.update, view: Scene.withViewInputs(Account.view, { section })() },
     Scene.given(Account.init()),
     Scene.Mount.resolve(Account.Open, Account.Message.LoadRequested()),
     Scene.Command.resolve(Account.Load, Account.Message.Loaded({ requestId: 1, view })),
@@ -68,36 +69,83 @@ const scene = (
   )
 
 describe("Account page", () => {
-  it("shows connected accounts and only configured platforms can be connected", () => {
+  it("shows each connected account with one status line and one action", () => {
     scene(
       memberView,
-      Scene.expect(Scene.text("me@example.com")).toExist(),
-      Scene.expect(Scene.text("Connected as Me in workspace T1.")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Replace Slack account" })).toExist(),
+      "accounts",
+      Scene.expect(Scene.text("Connected as Me")).toExist(),
       Scene.expect(Scene.role("button", { name: "Disconnect" })).toExist(),
-      Scene.expect(Scene.text("GitHub linking is not configured for this deployment.")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toBeAbsent(),
+      Scene.expect(Scene.role("button", { name: "Replace" })).toExist(),
+      Scene.expect(Scene.text("Not available in this deployment")).toExist(),
+      Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toExist(),
       Scene.expect(Scene.text("Team")).toBeAbsent(),
     )
   })
 
-  it("lets admins change roles, remove and restore teammates", () => {
+  it("offers Connect for platforms that are configured but not linked", () => {
     scene(
       adminView,
-      Scene.expect(Scene.text("me@example.com (you)")).toExist(),
-      Scene.expect(Scene.text("Admin · Active")).toExist(),
-      Scene.expect(Scene.text("Member · Active · Slack: Me")).toExist(),
-      Scene.expect(Scene.text("Member · Removed")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Make admin" })).toExist(),
-      Scene.expect(Scene.role("button", { name: "Restore" })).toExist(),
+      "accounts",
+      Scene.expect(Scene.text("Not connected")).toExist(),
       Scene.expect(Scene.role("button", { name: "Connect Slack" })).toExist(),
       Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Disconnect" })).toBeAbsent(),
+    )
+  })
+
+  it("shows who you are on the You section", () => {
+    scene(
+      memberView,
+      "you",
+      Scene.expect(Scene.text("me@example.com")).toExist(),
+      Scene.expect(Scene.text("member")).toExist(),
+      Scene.expect(Scene.role("button", { name: "Disconnect" })).toBeAbsent(),
+    )
+  })
+
+  it("lets admins change roles and remove teammates, but never themselves", () => {
+    scene(
+      adminView,
+      "team",
+      Scene.expect(Scene.text("me@example.com")).toExist(),
+      Scene.expect(Scene.text("(you)")).toExist(),
+      Scene.expect(Scene.text("No email on record")).toExist(),
+      Scene.expect(Scene.role("button", { name: "Make admin" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Remove" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Make member" })).toBeAbsent(),
+      Scene.expect(Scene.text("2 active")).toExist(),
+      Scene.expect(Scene.role("button", { name: "Restore" })).toBeAbsent(),
+    )
+  })
+
+  it("keeps removed teammates behind a toggle and lets admins restore them", () => {
+    scene(
+      adminView,
+      "team",
+      Scene.expect(Scene.role("button", { name: "Show 1 removed" })).toExist(),
+      Scene.click(Scene.role("button", { name: "Show 1 removed" })),
+      Scene.expect(Scene.role("button", { name: "Restore" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Hide removed" })).toExist(),
+      Scene.click(Scene.role("button", { name: "Hide removed" })),
+      Scene.expect(Scene.role("button", { name: "Restore" })).toBeAbsent(),
+    )
+  })
+
+  it("tells members the team is managed by admins", () => {
+    scene(
+      memberView,
+      "team",
+      Scene.expect(Scene.text("Only admins can manage the team.")).toExist(),
+      Scene.expect(Scene.role("button", { name: "Remove" })).toBeAbsent(),
     )
   })
 
   it("explains a removed membership instead of an empty page", () => {
     Scene.scene(
-      { update: Account.update, view: Scene.withViewInputs(Account.view, {})() },
+      {
+        update: Account.update,
+        view: Scene.withViewInputs(Account.view, { section: "accounts" })(),
+      },
       Scene.given(Account.init()),
       Scene.Mount.resolve(Account.Open, Account.Message.LoadRequested()),
       Scene.Command.resolve(

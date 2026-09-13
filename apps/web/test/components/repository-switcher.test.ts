@@ -112,7 +112,7 @@ describe("RepositorySwitcher", () => {
     Scene.scene(
       { update: RepositorySwitcher.update, view: sceneView() },
       Scene.given(RepositorySwitcher.init()),
-      Scene.expect(Scene.role("button")).toHaveClass("border"),
+      Scene.expect(Scene.role("button")).toHaveClass("border-2"),
       Scene.expect(Scene.role("button")).toHaveClass("bg-card"),
     )
   })

@@ -260,7 +260,7 @@ const menuItem = (
   h.div(
     [
       h.Class(
-        "flex items-center gap-2 bg-card px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted dark:hover:bg-input/50",
+        "flex items-center gap-2 bg-card px-3 py-2 text-sm text-foreground transition-colors hover:bg-popover",
       ),
     ],
     [
@@ -282,9 +282,8 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
       ariaLabel: "Theme",
       buttonContent: menuItemIcon(h, model.resolvedTheme),
       buttonClassName:
-        "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium outline-none transition-all hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:hover:bg-accent/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-      itemsClassName:
-        "z-50 w-full max-w-36 cursor-pointer rounded-md bg-card py-1 ring ring-border",
+        "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-sm border-2 border-outline bg-card text-card-foreground text-sm font-medium outline-none transition-colors hover:bg-popover disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+      itemsClassName: "z-50 w-full max-w-36 cursor-pointer overflow-hidden bg-card py-1 jn-mount",
       itemToConfig: (item) => ({
         content: menuItem(h, model.preferredTheme, item),
       }),

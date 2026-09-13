@@ -8,7 +8,7 @@ export type SkeletonConfig = {
   readonly children: ReadonlyArray<Child>
 }
 
-export const skeletonClass = "bg-muted rounded-md animate-pulse"
+export const skeletonClass = "bg-muted rounded-xs animate-pulse"
 
 export const skeleton = <M>(h: HtmlBuilder<M>, config: SkeletonConfig): Html =>
   h.div(
