@@ -25,3 +25,7 @@ Bring `apps/web/src/components/ui/*` and `theme-switcher.ts` onto the Utility Ro
 
 - Every page still renders with `vp dev`; no `rounded-lg` or `shadow-sm|md|lg` classes remain under `ui/`.
 - `vp check` passes.
+
+## Comments
+
+Done. Also restyled the repository switcher trigger and rows (they hard-coded the old outline classes) and updated its test to expect the 2px border. `ui/chip.ts` added.

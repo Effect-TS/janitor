@@ -9,7 +9,7 @@ import * as Button from "./button"
 type Child = Html | string
 
 export const commandClass =
-  "bg-popover text-popover-foreground rounded-xl! p-1 flex size-full flex-col overflow-hidden"
+  "bg-popover text-popover-foreground rounded-md! p-1 flex size-full flex-col overflow-hidden"
 
 export const commandInputClass =
   "w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
@@ -25,7 +25,7 @@ export const commandGroupHeadingClass =
   "text-muted-foreground px-2 py-1.5 text-xs font-medium overflow-hidden"
 
 export const commandItemClass =
-  "data-selected:bg-muted data-selected:text-foreground data-selected:*:[svg]:text-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! [&_svg:not([class*='size-'])]:size-4 group/command-item data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+  "data-selected:bg-muted data-selected:text-foreground data-selected:*:[svg]:text-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none in-data-[slot=dialog-content]:rounded-sm! [&_svg:not([class*='size-'])]:size-4 group/command-item data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0"
 
 export const commandSeparatorClass = "bg-border -mx-1 h-px"
 
@@ -67,7 +67,7 @@ export const input = <M>(h: HtmlBuilder<M>, config: CommandInputConfig<M>): Html
     [
       inputGroup(h, {
         className: cn(
-          "bg-input/30 border-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!",
+          "h-8! rounded-sm! shadow-none! *:data-[slot=input-group-addon]:pl-2!",
           config.groupClassName,
         ),
         children: [
