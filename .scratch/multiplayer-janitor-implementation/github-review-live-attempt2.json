@@ -1,0 +1,18 @@
+{
+  "repository": "Effect-TS/slopcop-sandbox",
+  "branch": "janitor-review-fixture-0127aa83-b3bc-47c8-963d-d74e299fb31c",
+  "startedAt": "2026-09-13T02:43:18.148Z",
+  "limits": "Live GitHub REST reviews, production hydration/admission and App reply reconciliation against local PostgreSQL. Webhook callback transport and native Git publication are covered by separate controlled tests; no model calls or deployment.",
+  "pr": "https://github.com/Effect-TS/slopcop-sandbox/pull/13",
+  "cleanup": [
+    "PR closed",
+    "Branch deleted"
+  ],
+  "finishedAt": "2026-09-13T02:43:29.912Z",
+  "cleanupVerified": {
+    "prState": "closed",
+    "merged": false,
+    "branchStatus": 404,
+    "verifiedAt": "2026-09-13T02:47:20.574Z"
+  }
+}

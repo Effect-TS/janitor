@@ -18,13 +18,14 @@ import { withRepositoryActivity } from "../RepositoryActivity.ts"
 import { FeedbackError, GitHubFeedbackApi } from "./Feedback.ts"
 import { GitHubCommentApi, GitHubCommentError } from "./FeedbackDelivery.ts"
 import { nextLink } from "./Link.ts"
+import { GitHubAppAuth } from "./AppAuth.ts"
 
 const Posted = Schema.Struct({ id: Id })
 const Published = Schema.Struct({
   id: Id,
   body: Schema.String,
-  user: Schema.Struct({ type: Schema.String }),
-  performed_via_github_app: Schema.NullOr(Schema.Struct({ id: Id })),
+  user: Schema.Struct({ type: Schema.String, id: Schema.optionalKey(Id) }),
+  performed_via_github_app: Schema.optionalKey(Schema.NullOr(Schema.Struct({ id: Id }))),
   in_reply_to_id: Schema.optionalKey(Id),
   issue_url: Schema.optionalKey(Schema.String),
   pull_request_url: Schema.optionalKey(Schema.String),
@@ -41,6 +42,8 @@ export const GitHubFeedbackHttpLayer = Layer.unwrap(
     const sql = yield* SqlClient.SqlClient
     const authority = yield* RepositoryAccess
     const http = yield* HttpClient.HttpClient
+    const appAuth = yield* Effect.serviceOption(GitHubAppAuth)
+    const botIdentities = new Map<string, string>()
     const access = (sessionId: string, write: boolean) =>
       Effect.gen(function* () {
         const [session] = yield* sql<{
@@ -109,6 +112,39 @@ export const GitHubFeedbackHttpLayer = Layer.unwrap(
           error instanceof GitHubCommentError
             ? error
             : problem(error.message, body === undefined ? "retry" : "uncertain"),
+        ),
+      )
+    const botIdentity = (credential: Access) =>
+      Effect.gen(function* () {
+        const cached = botIdentities.get(credential.appId!)
+        if (cached) return cached
+        if (Option.isNone(appAuth))
+          return yield* problem("App authentication is unavailable for bot identity verification")
+        const jwt = yield* appAuth.value.appJwt
+        const appResponse = yield* request(
+          { ...credential, token: jwt },
+          `${GITHUB_API_BASE_URL}/app`,
+        )
+        const app = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({ id: Id, slug: Schema.NonEmptyString }),
+        )(appResponse.data)
+        if (app.id !== credential.appId)
+          return yield* problem("Authenticated App does not match the publication App")
+        const login = `${app.slug}[bot]`
+        const userResponse = yield* request(
+          credential,
+          `${GITHUB_API_BASE_URL}/users/${encodeURIComponent(login)}`,
+        )
+        const user = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({ id: Id, login: Schema.String, type: Schema.Literal("Bot") }),
+        )(userResponse.data)
+        if (user.login.toLowerCase() !== login.toLowerCase())
+          return yield* problem("GitHub bot identity does not match the authenticated App")
+        botIdentities.set(app.id, user.id)
+        return user.id
+      }).pipe(
+        Effect.mapError((error) =>
+          error instanceof GitHubCommentError ? error : problem(error.message),
         ),
       )
     const page = (credential: Access, path: string, cursor: string) =>
@@ -203,10 +239,17 @@ export const GitHubFeedbackHttpLayer = Layer.unwrap(
             const comments = yield* Schema.decodeUnknownEffect(Schema.Array(Published))(
               result.data,
             ).pipe(Effect.mapError((error) => problem(error.message)))
+            const botId = comments.some(
+              (comment) => comment.user.type === "Bot" && comment.performed_via_github_app == null,
+            )
+              ? yield* botIdentity(credential)
+              : null
             const matches = comments.filter(
               (comment) =>
                 comment.user.type === "Bot" &&
-                comment.performed_via_github_app?.id === credential.appId &&
+                (comment.performed_via_github_app == null
+                  ? comment.user.id === botId
+                  : comment.performed_via_github_app.id === credential.appId) &&
                 comment.body.includes(`<!-- janitor-feedback:${marker} -->`) &&
                 (target === null
                   ? comment.issue_url === `${credential.base}/issues/${credential.number}`

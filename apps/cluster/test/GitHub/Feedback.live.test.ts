@@ -15,6 +15,7 @@ import { RepositoryAccess } from "../../src/Agent/RepositoryAccess.ts"
 import { GitHubFeedback, GitHubFeedbackConfig } from "../../src/GitHub/Feedback.ts"
 import { GitHubFeedbackHttpLayer } from "../../src/GitHub/FeedbackHttp.ts"
 import { GitHubCommentApi } from "../../src/GitHub/FeedbackDelivery.ts"
+import { GitHubAppAuth } from "../../src/GitHub/AppAuth.ts"
 import { agentLayers, fakeRunnerLayer, FakeRunner } from "../Agent/support.ts"
 
 it.skipIf(process.env.JANITOR_RUN_GITHUB_REVIEW_FIXTURE !== "1")(
@@ -26,11 +27,20 @@ it.skipIf(process.env.JANITOR_RUN_GITHUB_REVIEW_FIXTURE !== "1")(
       throw new Error("Set FIXTURE_GITHUB_REPOSITORY to a disposable owner/repo")
     for (const key of ["JANITOR_GITHUB_APP_ID", "GITHUB_REVIEWER_TOKEN"])
       if (!env[key]) throw new Error(`Set ${key} in .env.github-review-fixture`)
-    const privateKey = env.JANITOR_GITHUB_APP_PRIVATE_KEY
-      ? env.JANITOR_GITHUB_APP_PRIVATE_KEY.replaceAll("\\n", "\n")
-      : env.JANITOR_GITHUB_APP_PRIVATE_KEY_FILE
-        ? readFileSync(env.JANITOR_GITHUB_APP_PRIVATE_KEY_FILE, "utf8")
-        : undefined
+    const configuredKey =
+      env.JANITOR_GITHUB_APP_PRIVATE_KEY || env.JANITOR_GITHUB_APP_PRIVATE_KEY_FILE
+    let privateKey: string | undefined
+    if (configuredKey?.trimStart().startsWith("-----BEGIN ")) {
+      privateKey = configuredKey.replaceAll("\\n", "\n").trim()
+    } else if (configuredKey) {
+      try {
+        privateKey = readFileSync(configuredKey, "utf8")
+      } catch {
+        throw new Error(
+          "Cannot read the configured GitHub App private-key file. Supply a readable path or the complete PEM text.",
+        )
+      }
+    }
     if (!privateKey)
       throw new Error(
         "Set JANITOR_GITHUB_APP_PRIVATE_KEY or JANITOR_GITHUB_APP_PRIVATE_KEY_FILE in .env.github-review-fixture",
@@ -133,6 +143,13 @@ it.skipIf(process.env.JANITOR_RUN_GITHUB_REVIEW_FIXTURE !== "1")(
         Layer.provideMerge(
           GitHubFeedbackHttpLayer.pipe(
             Layer.provide(
+              Layer.succeed(GitHubAppAuth, {
+                appJwt: Effect.succeed(Redacted.make(jwt)),
+                installationToken: () => Effect.succeed(Redacted.make(token)),
+                invalidateInstallationToken: () => Effect.void,
+              }),
+            ),
+            Layer.provide(
               Layer.succeed(RepositoryAccess, {
                 authorize: () =>
                   Effect.succeed({
@@ -158,7 +175,7 @@ it.skipIf(process.env.JANITOR_RUN_GITHUB_REVIEW_FIXTURE !== "1")(
       await Effect.runPromise(
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient
-          yield* sql`INSERT INTO github_installation (installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES (${String(installation.id)},${String(repo.owner.id)},${repo.owner.login},${repo.owner.type},'all','active',${repo.owner.html_url},1)`
+          yield* sql`INSERT INTO github_installation (installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence,access_error) VALUES (${String(installation.id)},${String(repo.owner.id)},${repo.owner.login},${repo.owner.type},'all','active',${repo.owner.html_url},1,NULL)`
           yield* sql`INSERT INTO github_repository (repository_id,installation_id,owner,repo,access,enabled,projected_sequence,automation_ready_at) VALUES (${String(repo.id)},${String(installation.id)},${repo.owner.login},${repo.name},'accessible',true,1,now())`
           const sessions = yield* AgentSessions
           yield* sessions.start({

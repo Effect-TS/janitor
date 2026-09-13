@@ -8,21 +8,39 @@ import { RepositoryAccess } from "../../src/Agent/RepositoryAccess.ts"
 import { AgentSessions } from "../../src/Agent/Sessions.ts"
 import { GitHubFeedbackHttpLayer } from "../../src/GitHub/FeedbackHttp.ts"
 import { GitHubCommentApi } from "../../src/GitHub/FeedbackDelivery.ts"
+import { GitHubAppAuth } from "../../src/GitHub/AppAuth.ts"
 import { agentLayers, fakeRunnerLayer, FakeRunner } from "../Agent/support.ts"
 
 let body: unknown = []
 let status = 200
 let link = ""
+let verifiedAppId = "6"
 const base = "https://api.github.com/repos/team/repo"
 const http = HttpClient.make((request) =>
   Effect.succeed(
     HttpClientResponse.fromWeb(
       request,
-      new Response(JSON.stringify(body), { status, headers: { link } }),
+      new Response(
+        JSON.stringify(
+          request.url.endsWith("/app")
+            ? { id: verifiedAppId, slug: "janitor" }
+            : request.url.includes("/users/")
+              ? { id: "50", login: "janitor[bot]", type: "Bot" }
+              : body,
+        ),
+        { status, headers: { link } },
+      ),
     ),
   ),
 )
 const services = GitHubFeedbackHttpLayer.pipe(
+  Layer.provide(
+    Layer.succeed(GitHubAppAuth, {
+      appJwt: Effect.succeed(Redacted.make("app-jwt")),
+      installationToken: () => Effect.succeed(Redacted.make("scoped")),
+      invalidateInstallationToken: () => Effect.void,
+    }),
+  ),
   Layer.provide(Layer.succeed(HttpClient.HttpClient, http)),
   Layer.provide(
     Layer.succeed(RepositoryAccess, {
@@ -76,6 +94,28 @@ layer(services, { timeout: "3 minutes" })("GitHub feedback HTTP", (it) => {
         "Failure",
       )
       body = []
+      assert.isNull((yield* api.reconcile("http-feedback", "101", "marker", "")).id)
+    }),
+  )
+  it.effect("verifies the numeric App bot identity when review comments omit App metadata", () =>
+    Effect.gen(function* () {
+      const api = yield* GitHubCommentApi
+      status = 200
+      const comment = {
+        id: "910",
+        body: "<!-- janitor-feedback:marker -->",
+        user: { id: "50", type: "Bot" },
+        pull_request_url: `${base}/pulls/7`,
+        in_reply_to_id: "101",
+      }
+      body = [{ ...comment, user: { id: "42", type: "User" } }, comment]
+      assert.strictEqual(
+        (yield* api.reconcile("http-feedback", "101", "marker", "").pipe(Effect.result))._tag,
+        "Failure",
+      )
+      verifiedAppId = "5"
+      assert.strictEqual((yield* api.reconcile("http-feedback", "101", "marker", "")).id, "910")
+      body = [{ ...comment, user: { id: "51", type: "Bot" } }]
       assert.isNull((yield* api.reconcile("http-feedback", "101", "marker", "")).id)
     }),
   )

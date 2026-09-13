@@ -18,7 +18,8 @@ JANITOR_GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nYOUR_KEY_CONTEN
 ```
 
 Preserve the original PEM header and footer; some keys use `BEGIN PRIVATE KEY`
-instead. If both variables are populated, the string takes precedence.
+instead. PEM text also works in `JANITOR_GITHUB_APP_PRIVATE_KEY_FILE`. If both
+variables are populated, `JANITOR_GITHUB_APP_PRIVATE_KEY` takes precedence.
 
 Install the App on the named repository with Contents and Pull requests
 read/write. Use a separate human account's token with repository access and Pull
