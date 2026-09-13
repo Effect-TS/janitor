@@ -12,7 +12,7 @@ export const commandClass =
   "bg-popover text-popover-foreground rounded-sm p-1 flex size-full flex-col overflow-hidden"
 
 export const commandInputClass =
-  "w-full text-body-md outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
+  "w-full text-body-md disabled:cursor-not-allowed disabled:opacity-50"
 
 export const commandListClass =
   "no-scrollbar max-h-72 scroll-py-1 outline-none overflow-x-hidden overflow-y-auto"
@@ -25,7 +25,7 @@ export const commandGroupHeadingClass =
   "text-muted-foreground px-2 py-1.5 text-caption font-medium overflow-hidden"
 
 export const commandItemClass =
-  "data-selected:bg-primary-wash data-selected:text-foreground data-selected:*:[svg]:text-foreground relative flex cursor-default items-center gap-2 rounded-xs px-2 py-1 text-body-md outline-hidden select-none [&_svg:not([class*='size-'])]:size-3.5 group/command-item data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+  "data-selected:bg-primary-wash data-selected:text-foreground data-selected:*:[svg]:text-foreground relative flex cursor-default items-center gap-2 rounded-xs px-2 py-1 text-body-md select-none [&_svg:not([class*='size-'])]:size-3.5 group/command-item data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0"
 
 export const commandSeparatorClass = "bg-border-subtle -mx-1 h-px"
 

@@ -3,7 +3,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { cn } from "@/lib/utils"
 
 export const textareaClass =
-  "flex field-sizing-content min-h-16 w-full rounded-sm border border-border bg-surface-muted px-2 py-1.5 text-body-md text-foreground outline-none transition-colors duration-120 ease-ui placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-card aria-invalid:border-destructive aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50 disabled:cursor-not-allowed disabled:opacity-50"
+  "flex field-sizing-content min-h-16 w-full rounded-sm border border-border bg-surface-muted px-2 py-1.5 text-body-md text-foreground transition-colors duration-120 ease-ui placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-card aria-invalid:border-destructive aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50 disabled:cursor-not-allowed disabled:opacity-50"
 
 export const textareaLabelClass =
   "gap-2 text-label leading-none font-medium group-data-[disabled]:opacity-50 flex items-center select-none group-data-[disabled]/field:pointer-events-none group-data-[disabled]/field:cursor-not-allowed group-data-[disabled]/field:opacity-50"

@@ -1343,7 +1343,9 @@ const ruleGraph = (h: HtmlBuilder<Message>, model: Model): Html => {
                 h.Id("ai-prompt"),
                 h.DataAttribute("target", ai.target),
                 h.DataAttribute("catalog", JSON.stringify(model.catalog)),
-                h.Class("overflow-hidden rounded-xs border border-border"),
+                h.Class(
+                  "overflow-hidden rounded-xs border border-border transition-colors duration-120 ease-ui focus-within:border-primary focus-within:outline-2 focus-within:outline-ring focus-within:outline-offset-1",
+                ),
                 h.OnMount(MountAiPrompt({ source: ai.prompt, catalog: model.catalog })),
               ],
               [],
