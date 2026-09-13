@@ -685,20 +685,6 @@
   border: 1px solid var(--border);
   border-radius: 16px;
 }
-.repository-nav-link {
-  height: 36px;
-  gap: 10px;
-  padding-inline: 12px;
-  color: var(--muted-foreground);
-  transition:
-    background-color 120ms,
-    color 120ms;
-}
-.repository-nav-link:hover,
-.repository-nav-link[aria-current="page"] {
-  color: var(--sidebar-foreground);
-  background: var(--sidebar-accent);
-}
 .policy-document {
   display: flex;
   min-width: 0;

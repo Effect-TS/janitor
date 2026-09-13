@@ -21,3 +21,7 @@ Bring `apps/web/src/main.ts` sidebar and header in line with the mockup's shell 
 
 - The shell matches the mockup at 1400px and collapses correctly below 768px (existing `SIDEBAR_MOBILE_MEDIA_QUERY` behaviour unchanged).
 - `vp check` and `vp test` pass; `navigation.test.ts` and `routing.test.ts` are unaffected.
+
+## Comments
+
+Done. Brand icon and switcher trigger are bordered plates, repository nav links use classes instead of `.repository-nav-link` (rule deleted), the inset header is a cream bar with a 2px outline, toasts are mounted panels with rust, yellow-dark and cobalt edges.
