@@ -28,3 +28,5 @@ Make the suite reflect the new Account page and verify the restyle visually.
 ## Comments
 
 Tests rewritten per section: accounts (member and admin fixtures), you, team (self has no actions, removed toggle and restore), member empty state, load failure. Route tests cover the three section paths and the default. `vp check` and `vp test --project web` pass. Visual pass recorded below once dev mode was inspected.
+
+Visual pass: not completed in this session. `vp run dev` needs the GitHub App secrets from `.env`, and the collaborative preview browser became unavailable. The web Vite server alone (`vp dev --port 1338` in `apps/web`) served the compiled stylesheet with the fonts, `jn-*` utilities and night tokens present and no build errors. Open the app in dev mode and check the ten combinations listed in the spec before merging.
