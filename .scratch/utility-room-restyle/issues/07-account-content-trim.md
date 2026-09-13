@@ -28,3 +28,7 @@ Rebuild the three panes' content in `apps/web/src/components/account.ts` to matc
 
 - Each pane fits in a 1400×800 viewport with the default fixture data (four active, one removed).
 - All five state combinations from the spec's Validation section render correctly in day and night.
+
+## Comments
+
+Done. Panes match the mockup: You is a three-row grid, Connected accounts is one status line and one action per platform (Replace kept as a quiet link button), Team is a dense roster with removed teammates behind a footer toggle. Member viewers get the empty-state panel. Old copy replaced as listed above.

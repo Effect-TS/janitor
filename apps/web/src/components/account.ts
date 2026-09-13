@@ -6,6 +6,7 @@ import {
   TeammateRole,
   type TeammateSummary,
 } from "@janitor/domain/Team/Account"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -20,10 +21,13 @@ import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
+import { chip } from "@/components/ui/chip"
+import { avatar, platformMark } from "@/components/ui/mark"
 import { emptyPanel, panel } from "@/components/ui/panel"
 import { rack } from "@/components/ui/rack"
 import { sign } from "@/components/ui/sign"
 import { reasonOf, request } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
 
 /**
@@ -349,140 +353,19 @@ const displayName = (teammate: TeammateSummary): string => teammate.email ?? tea
 const activeLink = (links: ReadonlyArray<LinkedAccount>, platform: LinkPlatform) =>
   links.find((link) => link.platform === platform && link.status === "active")
 
-const platformRow = (
-  h: HtmlBuilder<Message>,
-  model: Model,
-  view: AccountView,
-  platform: LinkPlatform,
-): Html => {
-  const link = activeLink(view.links, platform)
-  const available = view.linking[platform]
-  const name = platformName(platform)
-  const busyWith = (action: PendingAction, subject: string) =>
-    Option.exists(
-      model.pending,
-      (pending) => pending.action === action && pending.subject === subject,
-    )
-  return h.div(
-    [h.Class("flex flex-wrap items-center justify-between gap-3 py-3")],
-    [
-      h.div(
-        [h.Class("min-w-0")],
-        [
-          h.p([h.Class("text-sm font-medium")], [name]),
-          h.p(
-            [h.Class("text-xs text-muted-foreground")],
-            [
-              link === undefined
-                ? available
-                  ? `No ${name} account connected.`
-                  : `${name} linking is not configured for this deployment.`
-                : `Connected as ${link.displayName}${platform === "slack" ? ` in workspace ${link.workspaceId}` : ""}.`,
-            ],
-          ),
-        ],
-      ),
-      h.div(
-        [h.Class("flex gap-2")],
-        available
-          ? [
-              Button.view(h, {
-                label: busyWith("connect", platform)
-                  ? "Opening…"
-                  : link === undefined
-                    ? `Connect ${name}`
-                    : `Replace ${name} account`,
-                onClick: Message.ClickedConnect({ platform }),
-                variant: link === undefined ? "default" : "outline",
-                size: "sm",
-                isDisabled: isBusy(model),
-              }),
-              link === undefined
-                ? h.empty
-                : Button.view(h, {
-                    label: busyWith("disconnect", link.linkId) ? "Disconnecting…" : "Disconnect",
-                    onClick: Message.ClickedDisconnect({ linkId: link.linkId }),
-                    variant: "destructive",
-                    size: "sm",
-                    isDisabled: isBusy(model),
-                  }),
-            ]
-          : [],
-      ),
-    ],
-  )
-}
+/** The newest link for a platform that is no longer active, if any. Links
+ *  arrive active-first, newest-first, so the first non-active hit is it. */
+const pastLink = (links: ReadonlyArray<LinkedAccount>, platform: LinkPlatform) =>
+  links.find((link) => link.platform === platform && link.status !== "active")
 
-const rosterRow = (
-  h: HtmlBuilder<Message>,
-  model: Model,
-  self: TeammateSummary,
-  entry: RosterEntry,
-): Html => {
-  const isSelf = entry.teammateId === self.teammateId
-  const removed = entry.status === "removed"
-  const busyWith = (action: PendingAction) =>
-    Option.exists(
-      model.pending,
-      (pending) => pending.action === action && pending.subject === entry.teammateId,
-    )
-  const connected = entry.links
-    .filter((link) => link.status === "active")
-    .map((link) => `${platformName(link.platform)}: ${link.displayName}`)
-  return h.div(
-    [h.Class("flex flex-wrap items-center justify-between gap-3 py-3")],
-    [
-      h.div(
-        [h.Class("min-w-0")],
-        [
-          h.p([h.Class("text-sm font-medium")], [`${displayName(entry)}${isSelf ? " (you)" : ""}`]),
-          h.p(
-            [h.Class("text-xs text-muted-foreground")],
-            [
-              `${entry.role === "admin" ? "Admin" : "Member"} · ${removed ? "Removed" : "Active"}${connected.length > 0 ? ` · ${connected.join(", ")}` : ""}`,
-            ],
-          ),
-        ],
-      ),
-      h.div(
-        [h.Class("flex gap-2")],
-        removed
-          ? [
-              Button.view(h, {
-                label: busyWith("restore") ? "Restoring…" : "Restore",
-                onClick: Message.ClickedRestore({ teammateId: entry.teammateId }),
-                variant: "outline",
-                size: "sm",
-                isDisabled: isBusy(model),
-              }),
-            ]
-          : [
-              Button.view(h, {
-                label: busyWith("role")
-                  ? "Updating…"
-                  : entry.role === "admin"
-                    ? "Make member"
-                    : "Make admin",
-                onClick: Message.ClickedSetRole({
-                  teammateId: entry.teammateId,
-                  role: entry.role === "admin" ? "member" : "admin",
-                }),
-                variant: "outline",
-                size: "sm",
-                isDisabled: isBusy(model),
-              }),
-              Button.view(h, {
-                label: busyWith("remove") ? "Removing…" : "Remove",
-                onClick: Message.ClickedRemove({ teammateId: entry.teammateId }),
-                variant: "destructive",
-                size: "sm",
-                isDisabled: isBusy(model),
-              }),
-            ],
-      ),
-    ],
+const formatDay = (at: DateTime.Utc): string =>
+  DateTime.formatUtc(at, { day: "numeric", month: "short", year: "numeric" })
+
+const busyWith = (model: Model, action: PendingAction, subject: string): boolean =>
+  Option.exists(
+    model.pending,
+    (pending) => pending.action === action && pending.subject === subject,
   )
-}
 
 export type ViewInputs = {
   readonly section: Routes.AccountSection
@@ -525,50 +408,243 @@ const pane = (
     ],
   )
 
+// YOU
+
 const youPane = (h: HtmlBuilder<Message>, view: AccountView): Html =>
   pane(h, "you", "How Janitor knows you. Sign-in is handled by Cloudflare Access.", [
     panel(h, {
       children: [
-        h.p([h.Class("text-sm")], [displayName(view.teammate)]),
-        h.p(
-          [h.Class("text-xs text-muted-foreground")],
+        h.dl(
+          [h.Class("grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-2.5")],
           [
-            `${view.teammate.role === "admin" ? "Admin" : "Member"} · signed in through ${view.teammate.issuer}`,
+            h.dt([h.Class("text-sm text-muted-foreground")], ["Email"]),
+            h.dd([], [displayName(view.teammate)]),
+            h.dt([h.Class("text-sm text-muted-foreground")], ["Role"]),
+            h.dd(
+              [],
+              [
+                view.teammate.role === "admin"
+                  ? chip(h, { variant: "on", children: ["admin"] })
+                  : chip(h, { children: ["member"] }),
+              ],
+            ),
+            h.dt([h.Class("text-sm text-muted-foreground")], ["Teammate since"]),
+            h.dd([], [formatDay(view.teammate.createdAt)]),
           ],
         ),
       ],
     }),
   ])
+
+// CONNECTED ACCOUNTS
+
+const platformRow = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  view: AccountView,
+  platform: LinkPlatform,
+): Html => {
+  const link = activeLink(view.links, platform)
+  const past = pastLink(view.links, platform)
+  const available = view.linking[platform]
+  const name = platformName(platform)
+  const status =
+    link !== undefined
+      ? h.span([], ["Connected as ", h.code([h.Class("font-mono")], [link.displayName])])
+      : !available
+        ? h.span([], ["Not available in this deployment"])
+        : past === undefined
+          ? h.span([], ["Not connected"])
+          : h.span([], ["Disconnected · was ", h.code([h.Class("font-mono")], [past.displayName])])
+  const connectLabel = busyWith(model, "connect", platform) ? "Opening…" : `Connect ${name}`
+  const actions =
+    link === undefined
+      ? [
+          Button.view(h, {
+            label: connectLabel,
+            onClick: Message.ClickedConnect({ platform }),
+            size: "sm",
+            isDisabled: !available || isBusy(model),
+          }),
+        ]
+      : [
+          Button.view(h, {
+            label: busyWith(model, "connect", platform) ? "Opening…" : "Replace",
+            onClick: Message.ClickedConnect({ platform }),
+            variant: "link",
+            size: "sm",
+            isDisabled: isBusy(model),
+          }),
+          Button.view(h, {
+            label: busyWith(model, "disconnect", link.linkId) ? "Disconnecting…" : "Disconnect",
+            onClick: Message.ClickedDisconnect({ linkId: link.linkId }),
+            variant: "destructive",
+            size: "sm",
+            isDisabled: isBusy(model),
+          }),
+        ]
+  return h.div(
+    [
+      h.Class("flex items-center gap-3.5 border-b-2 border-outline px-[18px] py-4 last:border-b-0"),
+      h.DataAttribute("slot", "row"),
+    ],
+    [
+      platformMark(h, platform),
+      h.div(
+        [h.Class("min-w-0 flex-1")],
+        [
+          h.p([h.Class("text-h3 font-semibold")], [name]),
+          h.p([h.Class("text-sm text-muted-foreground")], [status]),
+        ],
+      ),
+      h.div([h.Class("flex shrink-0 items-center gap-2.5")], actions),
+    ],
+  )
+}
 
 const accountsPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Html =>
   pane(h, "accounts", "Accounts that can give Janitor instructions on your behalf.", [
     panel(h, {
+      flush: true,
+      children: [platformRow(h, model, view, "github"), platformRow(h, model, view, "slack")],
+    }),
+    h.p(
+      [h.Class("text-sm text-muted-foreground")],
+      [
+        "Disconnecting stops new instructions from that account. Work it already contributed is kept.",
+      ],
+    ),
+  ])
+
+// TEAM
+
+const rosterRow = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  self: TeammateSummary,
+  entry: RosterEntry,
+): Html => {
+  const isSelf = entry.teammateId === self.teammateId
+  const removed = entry.status === "removed"
+  const actions = removed
+    ? [
+        chip(h, { variant: "danger", children: ["removed"] }),
+        Button.view(h, {
+          label: busyWith(model, "restore", entry.teammateId) ? "Restoring…" : "Restore",
+          onClick: Message.ClickedRestore({ teammateId: entry.teammateId }),
+          variant: "outline",
+          size: "sm",
+          isDisabled: isBusy(model),
+        }),
+      ]
+    : [
+        entry.role === "admin"
+          ? chip(h, { variant: "on", children: ["admin"] })
+          : chip(h, { children: ["member"] }),
+        ...(isSelf
+          ? []
+          : [
+              Button.view(h, {
+                label: busyWith(model, "role", entry.teammateId)
+                  ? "Updating…"
+                  : entry.role === "admin"
+                    ? "Make member"
+                    : "Make admin",
+                onClick: Message.ClickedSetRole({
+                  teammateId: entry.teammateId,
+                  role: entry.role === "admin" ? "member" : "admin",
+                }),
+                variant: "outline",
+                size: "sm",
+                isDisabled: isBusy(model),
+              }),
+              Button.view(h, {
+                label: busyWith(model, "remove", entry.teammateId) ? "Removing…" : "Remove",
+                onClick: Message.ClickedRemove({ teammateId: entry.teammateId }),
+                variant: "destructive",
+                size: "sm",
+                isDisabled: isBusy(model),
+              }),
+            ]),
+      ]
+  return h.div(
+    [
+      h.Class(
+        cn(
+          "flex items-center gap-3 px-[18px] py-2.5",
+          removed && "bg-muted/60 text-muted-foreground",
+        ),
+      ),
+      h.DataAttribute("slot", "row"),
+    ],
+    [
+      avatar(h, displayName(entry)),
+      h.div(
+        [h.Class("min-w-0 flex-1")],
+        [
+          h.p(
+            [h.Class("truncate")],
+            [
+              entry.email === null
+                ? h.code([h.Class("font-mono text-sm")], [entry.subject])
+                : entry.email,
+              isSelf ? h.span([h.Class("text-muted-foreground")], [" (you)"]) : h.empty,
+            ],
+          ),
+          entry.email === null && !removed
+            ? h.p([h.Class("text-sm text-muted-foreground")], ["No email on record"])
+            : h.empty,
+          removed && entry.removedAt !== null
+            ? h.p([h.Class("text-sm")], [`Removed ${formatDay(entry.removedAt)}`])
+            : h.empty,
+        ],
+      ),
+      h.div([h.Class("flex shrink-0 items-center gap-2")], actions),
+    ],
+  )
+}
+
+const teamPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Html => {
+  if (view.team === null)
+    return pane(h, "team", "Only admins can manage the team.", [
+      emptyPanel(h, {
+        children: [h.p([], ["Ask an admin if you need a role change or to remove someone."])],
+      }),
+    ])
+  const active = view.team.filter((entry) => entry.status !== "removed")
+  const removed = view.team.filter((entry) => entry.status === "removed")
+  return pane(h, "team", "Everyone who has signed in. New teammates start as members.", [
+    panel(h, {
+      flush: true,
+      className: "jn-dense",
       children: [
+        ...active.map((entry) => rosterRow(h, model, view.teammate, entry)),
+        ...(model.showRemoved
+          ? removed.map((entry) => rosterRow(h, model, view.teammate, entry))
+          : []),
         h.div(
-          [h.Class("divide-y")],
-          [platformRow(h, model, view, "github"), platformRow(h, model, view, "slack")],
+          [
+            h.Class(
+              "flex items-center justify-between gap-3 border-t-2 border-outline bg-popover px-[18px] py-2.5 text-sm text-muted-foreground",
+            ),
+          ],
+          [
+            h.span([], [`${active.length} active`]),
+            removed.length === 0
+              ? h.empty
+              : Button.view(h, {
+                  label: model.showRemoved ? "Hide removed" : `Show ${removed.length} removed`,
+                  onClick: Message.ToggledRemoved(),
+                  variant: "link",
+                  size: "sm",
+                  attributes: [h.AriaExpanded(model.showRemoved)],
+                }),
+          ],
         ),
       ],
     }),
   ])
-
-const teamPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Html =>
-  view.team === null
-    ? pane(h, "team", "Only admins can manage the team.", [
-        emptyPanel(h, {
-          children: [h.p([], ["Ask an admin if you need a role change or to remove someone."])],
-        }),
-      ])
-    : pane(h, "team", "Everyone who has signed in. New teammates start as members.", [
-        panel(h, {
-          children: [
-            h.div(
-              [h.Class("divide-y")],
-              view.team.map((entry) => rosterRow(h, model, view.teammate, entry)),
-            ),
-          ],
-        }),
-      ])
+}
 
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>
   h.div(
@@ -586,18 +662,49 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
         [h.Class("flex min-w-0 flex-col gap-3.5")],
         [
           Option.isSome(model.error)
-            ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.error.value])
+            ? h.p(
+                [
+                  h.Role("alert"),
+                  h.Class(
+                    "rounded-sm border-2 border-destructive bg-popover px-3.5 py-2.5 text-sm text-destructive",
+                  ),
+                ],
+                [model.error.value],
+              )
             : h.empty,
           Option.isSome(model.loadError)
-            ? h.p([h.Role("alert"), h.Class("text-sm text-destructive")], [model.loadError.value])
+            ? h.p(
+                [
+                  h.Role("alert"),
+                  h.Class(
+                    "rounded-sm border-2 border-destructive bg-popover px-3.5 py-2.5 text-sm text-destructive",
+                  ),
+                ],
+                [model.loadError.value],
+              )
             : h.empty,
           model.notice
-            ? h.p([h.Role("status"), h.Class("text-sm text-muted-foreground")], [model.notice])
+            ? h.p(
+                [
+                  h.Role("status"),
+                  h.Class(
+                    "rounded-sm border-2 border-dashed border-outline/40 bg-popover px-3.5 py-2.5 text-sm text-muted-foreground",
+                  ),
+                ],
+                [model.notice],
+              )
             : h.empty,
           Option.match(model.view, {
             onNone: () =>
               Option.isNone(model.loadError)
-                ? h.p([h.Role("status")], ["Loading your account…"])
+                ? panel(h, {
+                    children: [
+                      h.p(
+                        [h.Role("status"), h.Class("text-muted-foreground")],
+                        ["Loading your account…"],
+                      ),
+                    ],
+                  })
                 : h.empty,
             onSome: (view) => {
               switch (inputs.section) {
