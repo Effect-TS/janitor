@@ -7,6 +7,10 @@ import * as Schema from "effect/Schema"
 
 export const RUNNER_PROTOCOL_VERSION = 2
 export const RUNNER_PROTOCOL_HEADER = "x-janitor-runner-protocol"
+/** The runner state family this Janitor release is tested against (`runner/release-manifest.json`). */
+export const RUNNER_STATE_FAMILY = "janitor-runner-1"
+/** The durable event contract Janitor's projection consumes (`runner/release-manifest.json`). */
+export const RUNNER_EVENT_CONTRACT = 1
 
 export const AgentSessionId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,120}$/))
 export type AgentSessionId = typeof AgentSessionId.Type
@@ -116,12 +120,50 @@ export const EventsRead = Schema.Struct({
 })
 export type EventsRead = typeof EventsRead.Type
 
+export const MaintenanceRequest = Schema.Struct({
+  hold: Schema.Boolean,
+  epoch: Schema.Int,
+})
+export type MaintenanceRequest = typeof MaintenanceRequest.Type
+
+export const MaintenanceCheck = Schema.Struct({
+  name: Schema.Literals(["fence", "state", "checkpoint", "model", "bridge"]),
+  ok: Schema.Boolean,
+  detail: Schema.String,
+})
+export type MaintenanceCheck = typeof MaintenanceCheck.Type
+
 export const MaintenanceResult = Schema.Struct({
   held: Schema.Boolean,
   epoch: Schema.NullOr(Schema.Int),
+  /** No host-scoped execution can act and every upload has settled. */
   quiescent: Schema.Boolean,
+  /** An operation's outcome is unknown; the runner holds recovery for reconciliation. */
+  uncertain: Schema.Boolean,
+  /** The checks a release ran; a refused release stays held and names the failures. */
+  checks: Schema.Array(MaintenanceCheck),
 })
 export type MaintenanceResult = typeof MaintenanceResult.Type
+
+/** What a runner deployment answers on its health route: identity and pinned manifest. */
+export const RunnerHealth = Schema.Struct({
+  protocol: Schema.Int,
+  release: Schema.String,
+  manifest: Schema.Struct({
+    family: Schema.String,
+    readableFamilies: Schema.Array(Schema.String),
+    commandProtocol: Schema.Struct({ version: Schema.Int, accepted: Schema.Array(Schema.Int) }),
+    events: Schema.Struct({ contract: Schema.Int }),
+    bridge: Schema.Struct({
+      protocol: Schema.Int,
+      sourceHash: Schema.String,
+      imageDigest: Schema.String,
+    }),
+  }),
+  /** Disagreements between the pinned manifest and the compiled bundle. */
+  problems: Schema.Array(Schema.String),
+})
+export type RunnerHealth = typeof RunnerHealth.Type
 
 export const CleanupResult = Schema.Struct({ sessionId: AgentSessionId, cleaned: Schema.Boolean })
 export type CleanupResult = typeof CleanupResult.Type

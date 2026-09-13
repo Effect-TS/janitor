@@ -5,6 +5,9 @@
 // native conversation and share its SQLite durability. Every mutation here is
 // a short synchronous statement; nothing holds a lock across an await.
 import type { Generation, InputAttribution } from "./Protocol.ts"
+import type { Compatibility } from "./Compatibility.ts"
+
+export type { Compatibility, MigrationIntent } from "./Compatibility.ts"
 
 export interface SessionRecord {
   readonly sessionId: string
@@ -21,16 +24,6 @@ export interface Supervision {
   /** True while runnable or recoverable work may exist and the alarm must keep checking. */
   readonly obligation: boolean
   readonly dueAt: number | null
-}
-
-export interface Compatibility {
-  readonly formatVersion: number
-  readonly protocol: number
-  readonly release: string
-  /** Native migration ids the release that last initialized this database supports. */
-  readonly nativeMigrations: ReadonlyArray<string>
-  /** Set while a native initialization is in flight; survives a crash mid-migration. */
-  readonly inProgress: string | null
 }
 
 export interface MaintenanceState {
@@ -164,21 +157,21 @@ export class RunnerStorage {
     this.write("disconnection", value)
   }
 
-  /** Native tables exist once the SDK has bootstrapped this database. */
-  get nativeInitialized(): boolean {
+  tableExists(name: string): boolean {
     return (
       this.storage.sql
-        .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_v2'")
+        .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", name)
         .toArray().length === 1
     )
   }
 
+  /** Native tables exist once the SDK has bootstrapped this database. */
+  get nativeInitialized(): boolean {
+    return this.tableExists("session_v2")
+  }
+
   get nativeMigrations(): ReadonlyArray<string> {
-    const exists =
-      this.storage.sql
-        .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration'")
-        .toArray().length === 1
-    if (!exists) return []
+    if (!this.tableExists("migration")) return []
     return this.storage.sql
       .exec("SELECT id FROM migration ORDER BY id")
       .toArray()

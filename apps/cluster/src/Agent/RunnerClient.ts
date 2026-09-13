@@ -22,9 +22,11 @@ import {
   RUNNER_PROTOCOL_HEADER,
   RUNNER_PROTOCOL_VERSION,
   RunnerErrorBody,
+  RunnerHealth,
   type AdmitInputRequest,
   type AgentSessionId,
   type CreateSessionRequest,
+  type MaintenanceRequest,
   type RunnerErrorCode,
 } from "./RunnerProtocol.ts"
 
@@ -67,8 +69,10 @@ export class RunnerClient extends Context.Service<
     ) => Effect.Effect<EventsRead, RunnerClientError>
     readonly maintenance: (
       sessionId: AgentSessionId,
-      request: { readonly hold: boolean; readonly epoch: number },
+      request: MaintenanceRequest,
     ) => Effect.Effect<MaintenanceResult, RunnerClientError>
+    /** The deployed runner's release identity and pinned manifest. */
+    readonly health: Effect.Effect<RunnerHealth, RunnerClientError>
     readonly cleanup: (
       sessionId: AgentSessionId,
       generation: number,
@@ -167,6 +171,7 @@ export class RunnerClient extends Context.Service<
             ),
           maintenance: (sessionId, request) =>
             send("POST", `${sessionPath(sessionId)}/maintenance`, request, MaintenanceResult),
+          health: send("GET", "/v1/health", undefined, RunnerHealth),
           cleanup: (sessionId, generation) =>
             send("DELETE", sessionPath(sessionId), { generation }, CleanupResult),
         }

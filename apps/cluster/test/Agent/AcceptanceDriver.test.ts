@@ -16,6 +16,7 @@ import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { AgentEventProjection } from "../../src/Agent/EventProjection.ts"
 import { AgentHandoff } from "../../src/Agent/Handoff.ts"
+import { AgentMaintenance } from "../../src/Agent/Maintenance.ts"
 import { RunnerClient } from "../../src/Agent/RunnerClient.ts"
 import { RUNNER_PROTOCOL_HEADER, RUNNER_PROTOCOL_VERSION } from "../../src/Agent/RunnerProtocol.ts"
 import { AgentSessions } from "../../src/Agent/Sessions.ts"
@@ -339,6 +340,157 @@ describeDriver("Agent conversation acceptance driver", () => {
           }),
         ).pipe(Effect.provide(runnerLayer)),
       120000,
+    )
+
+    it.effect(
+      "holds a working session through a controlled upgrade and releases it with its queued input",
+      () =>
+        live(
+          Effect.gen(function* () {
+            const sessions = yield* AgentSessions
+            const projection = yield* AgentEventProjection
+            const dispatcher = yield* WorkflowDispatcher
+            const maintenance = yield* AgentMaintenance
+            const runnerClient = yield* RunnerClient
+            const sessionId = "driver-maintenance"
+            yield* Effect.promise(() => testRoute(sessionId, "faults", { intervalMs: 500 }))
+            yield* Effect.promise(() =>
+              testRoute(sessionId, "model", {
+                mode: "text",
+                delayMs: 4000,
+                answers: ["reply after upgrade"],
+              }),
+            )
+            yield* sessions.start({ sessionId, title: "Driver maintenance" })
+            const first = yield* sessions.accept({
+              sessionId,
+              contributionKey: "slack:1",
+              source: "slack",
+              author: { teammateId: "tm_a" },
+              text: "Start long work",
+            })
+            yield* dispatcher.dispatchDue({ limit: 10 })
+            yield* AgentHandoff.execute({ sessionId, sequence: first.sequence })
+            yield* poll(
+              runnerClient.inspect(sessionId),
+              (state) => state.execution === "working",
+              "model work in progress",
+            )
+
+            // 1. The barrier holds the runner while its model request is in flight.
+            const holding = yield* maintenance.hold({
+              reason: "Driver upgrade",
+              expectedRelease: "local",
+            })
+            // The in-flight request is interrupted as a shutdown; the barrier is held
+            // once the runner reports the session quiescent.
+            const held = yield* poll(
+              maintenance.advance.pipe(Effect.map((current) => current ?? holding)),
+              (current) => current.state === "held",
+              "runner quiescence",
+            )
+            // Every session of the deployment is held, including the earlier idle ones.
+            assert.strictEqual(held.epoch, holding.epoch)
+            assert.isTrue(held.sessions.length >= 3)
+            assert.isTrue(held.sessions.every((hold) => hold.state === "quiescent"))
+            assert.deepStrictEqual(
+              held.sessions
+                .filter((hold) => hold.sessionId === sessionId)
+                .map((hold) => [hold.state, hold.uncertain]),
+              [["quiescent", false]],
+            )
+            const blocked = yield* runnerClient.inspect(sessionId)
+            assert.strictEqual(blocked.execution, "blocked")
+            assert.strictEqual(blocked.reason, `maintenance hold epoch ${held.epoch}`)
+            assert.strictEqual(blocked.maintenanceEpoch, held.epoch)
+
+            // 2. A message during the hold is accepted durably and withheld from the runner.
+            const second = yield* sessions.accept({
+              sessionId,
+              contributionKey: "slack:2",
+              source: "slack",
+              author: { teammateId: "tm_b" },
+              text: "Queued during maintenance",
+            })
+            yield* dispatcher.dispatchDue({ limit: 10 })
+            assert.strictEqual(
+              yield* AgentHandoff.execute({ sessionId, sequence: second.sequence }),
+              "blocked",
+            )
+            let view = yield* sessions.view(sessionId)
+            assert.strictEqual(
+              view.inputs.find((input) => input.sequence === second.sequence)?.handoff_state,
+              "pending",
+            )
+            assert.strictEqual((yield* runnerClient.inspect(sessionId)).admittedInputs, 1)
+            yield* projection.catchUp(sessionId)
+            view = yield* sessions.view(sessionId)
+            assert.strictEqual(view.projection?.execution, "blocked")
+            assert.strictEqual(view.projection?.reason, `maintenance hold epoch ${held.epoch}`)
+
+            // 3. Process replacement under the hold changes nothing: the hold and the
+            // durable state are intact, and no work resumes.
+            yield* Effect.promise(async () => {
+              const port = Number(new URL(runner.url).port)
+              await stopRunner(runner)
+              runner = await startRunner(persist, port)
+            })
+            yield* Effect.sleep("1500 millis")
+            const restarted = yield* runnerClient.inspect(sessionId)
+            assert.strictEqual(restarted.execution, "blocked")
+            assert.strictEqual(restarted.reason, `maintenance hold epoch ${held.epoch}`)
+            assert.isTrue(restarted.wakeObligation)
+            assert.isNull(restarted.alarmAt)
+            assert.strictEqual(view.responses.length, 0)
+
+            // 4. Release verifies the deployed runner, then the turn resumes and the
+            // queued input follows in order.
+            const released = yield* maintenance.release({ epoch: held.epoch })
+            assert.strictEqual(released.state, "released")
+            assert.strictEqual(released.verifiedRelease, "local")
+            assert.isTrue(released.sessions.every((hold) => hold.state === "released"))
+            assert.isNull(yield* maintenance.status())
+            // The release re-requested delivery under its own key; the earlier
+            // execution for the queued input already answered "blocked".
+            yield* dispatcher.dispatchDue({ limit: 10 })
+            assert.strictEqual(
+              yield* AgentHandoff.execute({
+                sessionId,
+                sequence: null,
+                sweep: `maintenance:${held.epoch}`,
+              }),
+              "settled",
+            )
+            // Native recovery resumes the interrupted turn, and the input queued
+            // under the hold joins it before its final response, as it would after
+            // any restart: one reply answers both, nothing is replayed.
+            yield* poll(
+              projection.catchUp(sessionId).pipe(Effect.andThen(sessions.view(sessionId))),
+              (current) =>
+                current.responses.length >= 1 &&
+                current.projection?.execution === "idle" &&
+                current.inputs.every((input) => input.handoff_state === "admitted"),
+              "resumed turn after release",
+              300,
+            )
+            view = yield* sessions.view(sessionId)
+            assert.deepStrictEqual(
+              view.inputs.map((input) => [input.sequence, input.handoff_state]),
+              [
+                [1, "admitted"],
+                [2, "admitted"],
+              ],
+            )
+            assert.deepStrictEqual(
+              view.responses.map((response) => response.text),
+              ["reply after upgrade"],
+            )
+            const final = yield* runnerClient.inspect(sessionId)
+            assert.strictEqual(final.admittedInputs, 2)
+            assert.strictEqual(final.lastOutcome, "succeeded")
+          }),
+        ).pipe(Effect.provide(runnerLayer)),
+      240000,
     )
 
     it.effect(

@@ -15,6 +15,7 @@ import { flushLive } from "../LiveUpdates.ts"
 import { WorkflowDispatcher } from "../WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import { AgentCleanup } from "./Cleanup.ts"
+import { AgentMaintenance } from "./Maintenance.ts"
 import { AgentEventProjection } from "./EventProjection.ts"
 import { handoffSweepRequest } from "./Handoff.ts"
 import type { AgentSessionId } from "./RunnerProtocol.ts"
@@ -54,8 +55,24 @@ export const AgentCatchUpCronLayer = Singleton.make(
   Effect.gen(function* () {
     const projection = yield* AgentEventProjection
     const cleanup = yield* AgentCleanup
+    const maintenance = yield* AgentMaintenance
     const dispatcher = yield* WorkflowDispatcher
     const started = yield* Clock.currentTimeMillis
+    // An active barrier keeps asking runners it has not heard from, and holds
+    // sessions started since; the operator need not drive that by hand.
+    const barrier = yield* maintenance.advance.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logError("Agent maintenance advance failed", cause).pipe(Effect.as(null)),
+      ),
+    )
+    if (barrier !== null)
+      yield* Effect.logInfo("Agent maintenance barrier active", {
+        epoch: barrier.epoch,
+        state: barrier.state,
+        pending: barrier.sessions.filter(
+          (hold) => hold.state === "requested" || hold.state === "held",
+        ).length,
+      })
     const swept = yield* sweepHandoffs().pipe(
       Effect.catchCause((cause) =>
         Effect.logError("Agent handoff sweep failed", cause).pipe(Effect.as([])),

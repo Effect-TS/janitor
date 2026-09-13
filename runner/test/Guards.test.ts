@@ -131,9 +131,9 @@ describe("command boundary", () => {
 
     await harness.call("POST", `/__test/sessions/${session.id}/compatibility`, {
       ...before,
-      formatVersion: 2,
+      formatVersion: 99,
     })
-    expect((await session.inspect()).reason).toMatch(/format 2/)
+    expect((await session.inspect()).reason).toMatch(/format 99/)
 
     await harness.call("POST", `/__test/sessions/${session.id}/compatibility`, before)
     expect((await session.inspect()).execution).toBe("idle")

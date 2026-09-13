@@ -130,7 +130,17 @@ export class TestSessionRunner extends SessionRunner {
       }
       protected override sandbox(binding: Binding): WorkspaceSandbox {
         const stub: WorkspaceSandbox = {
-          getProcess: async () => null,
+          // The transport says whether the container for this resource is running.
+          getProcess: async () => {
+            const response = await transport!
+              .fetch(
+                new Request("http://sandbox/running", { method: "POST", body: binding.resource }),
+              )
+              .catch(() => undefined)
+            if (!response?.ok) return null
+            const body = (await response.json()) as { running?: boolean }
+            return body.running ? { waitForPort: async () => {} } : null
+          },
           startProcess: async (_command, options) => {
             const response = await transport!.fetch(
               new Request("http://sandbox/start", {
@@ -434,10 +444,30 @@ export class TestSessionRunner extends SessionRunner {
           native: row ?? null,
           journal: this.store.journalEntries,
           compatibility: this.store.compatibility ?? null,
+          maintenance: this.store.maintenance,
+          blockers: this.store.blockers,
+          checkpoint: this.ctx.storage.sql
+            .exec(
+              "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_janitor_checkpoint'",
+            )
+            .toArray().length
+            ? (this.ctx.storage.sql
+                .exec("SELECT key, sha256, manifest FROM _janitor_checkpoint WHERE id = 1")
+                .toArray()[0] ?? null)
+            : null,
         })
       }
       if (rest === "/compatibility" && request.method === "POST") {
         this.put("compatibility", await request.json())
+        return jsonResponse({ ok: true })
+      }
+      if (rest === "/checkpoint-manifest" && request.method === "POST") {
+        // Rewrites the committed pointer's manifest; a null body removes it.
+        const manifest = await request.json()
+        this.ctx.storage.sql.exec(
+          "UPDATE _janitor_checkpoint SET manifest = ? WHERE id = 1",
+          manifest === null ? null : JSON.stringify(manifest),
+        )
         return jsonResponse({ ok: true })
       }
       throw new ProtocolError(

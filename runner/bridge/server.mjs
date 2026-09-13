@@ -13,6 +13,7 @@ import {
   constants,
   readdirSync,
   lchownSync,
+  readFileSync,
 } from "node:fs"
 import { archive, restore } from "./archive.mjs"
 import { publishGit, branchName } from "./publication.mjs"
@@ -33,6 +34,15 @@ export const capabilities = [
   "existing-pr-v1",
 ]
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
+/** The source identity recorded when this image was built; absent on images built another way. */
+export const build = (() => {
+  try {
+    const parsed = JSON.parse(readFileSync(new URL("build.json", import.meta.url), "utf8"))
+    return typeof parsed.sourceHash === "string" ? { sourceHash: parsed.sourceHash } : null
+  } catch {
+    return null
+  }
+})()
 const fail = (status, message) => {
   throw Object.assign(new Error(message), { status })
 }
@@ -102,6 +112,7 @@ export async function startBridge({
           epoch,
           generation,
           protocol,
+          build,
           capabilities: [
             ...capabilities,
             ...(isolateProcesses ? ["pid-namespace-v1", "workspace-user-v1"] : []),

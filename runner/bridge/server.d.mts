@@ -7,3 +7,6 @@ export function startBridge(options: {
   port?: number
   host?: string
 }): Promise<{ url: string; epoch: string; close(): Promise<void> }>
+export const protocol: number
+export const capabilities: ReadonlyArray<string>
+export const build: { sourceHash: string } | null

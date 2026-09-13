@@ -3,10 +3,13 @@ import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
 import { makeRemoteSpawner, type BridgeRpc } from "./RemoteProcess.ts"
 import { ProtocolError } from "./Protocol.ts"
+import { RELEASE_MANIFEST } from "./ReleaseManifest.ts"
 import { RunnerStorage } from "./Storage.ts"
 import { WorkspaceCheckpoints, type Archive } from "./WorkspaceCheckpoints.ts"
 import { Publication, type CredentialPermission, type RepositoryCredential } from "./Publication.ts"
 
+/** The native shell's default command deadline; explicit finite timeouts may exceed it. */
+export const DEFAULT_TOOL_TIMEOUT_MS = 120000
 export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "read",
   "glob",
@@ -60,32 +63,32 @@ export interface WorkspaceSandbox {
   containerFetch(url: string, init: RequestInit, port: number): Promise<Response>
   destroy(): Promise<unknown>
 }
-interface Meta {
+export interface Meta {
   protocol: number
   generation: number
   epoch: string
   capabilities: string[]
+  /** Source identity recorded at image build; absent on images built before the manifest. */
+  build?: { sourceHash?: string } | null
 }
-const required = [
-  "process-v1",
-  "binary-stdin-v1",
-  "cursor-output-v1",
-  "journal-v1",
-  "generation-v1",
-  "repository-clone-v1",
-  "path-resolution-v1",
-  "pid-namespace-v1",
-  "workspace-user-v1",
-  "checkpoint-stream-v2",
-  "publication-v1",
-  "existing-pr-v1",
-]
+/**
+ * The running bridge must be the one this release was tested against: same
+ * protocol, every required capability and the pinned source identity. A
+ * deployment result says an image rollout started; only the reached container
+ * proves which image answered.
+ */
 export const checkBridge = (meta: Meta, generation: number) => {
+  const required = RELEASE_MANIFEST.bridge
   if (
-    meta.protocol !== 1 ||
-    !required.every((capability) => meta.capabilities?.includes(capability))
+    meta.protocol !== required.protocol ||
+    !required.required.every((capability) => meta.capabilities?.includes(capability))
   )
     throw new ProtocolError("blocked", "Running Sandbox image lacks required bridge capabilities")
+  if (meta.build?.sourceHash !== required.sourceHash)
+    throw new ProtocolError(
+      "blocked",
+      `Running Sandbox image ${meta.build?.sourceHash?.slice(0, 12) ?? "(unrecorded)"} is not the release's bridge ${required.sourceHash.slice(0, 12)}`,
+    )
   if (meta.generation !== generation)
     throw new ProtocolError("stale_generation", "Bridge generation changed")
 }
@@ -94,10 +97,58 @@ export const checkBridge = (meta: Meta, generation: number) => {
 export class RepositoryWorkspace {
   readonly checkpoints: WorkspaceCheckpoints
   readonly publication: Publication
-  private toolTimeout = 120000
+  private toolTimeout = DEFAULT_TOOL_TIMEOUT_MS
   private activeTool: string | undefined
   private connecting: Promise<Binding> | undefined
   private readonly inFlight = new Set<string>()
+  private publishing = 0
+  /**
+   * A foreground operation, publication or archive upload is in progress.
+   * Maintenance waits for this to clear so the result and checkpoint commit
+   * together instead of leaving an admitted operation uncertain.
+   */
+  get busy(): boolean {
+    return (
+      this.activeTool !== undefined ||
+      this.inFlight.size > 0 ||
+      this.publishing > 0 ||
+      this.checkpoints.settling
+    )
+  }
+  /** True when a workspace operation's outcome is unknown and must be reconciled. */
+  get uncertain(): boolean {
+    return (
+      this.checkpoints.uncertain() ||
+      this.storage.sql
+        .exec("SELECT id FROM _janitor_operation WHERE state = 'admitted' LIMIT 1")
+        .toArray().length > 0
+    )
+  }
+  /** The finite timeout of the admitted foreground tool, if one is active. */
+  get currentToolTimeout(): number | undefined {
+    return this.activeTool === undefined ? undefined : this.toolTimeout
+  }
+  /**
+   * The advertised identity of the bridge process, when one is running for this
+   * workspace, without starting a container or restoring anything.
+   */
+  async runningBridge(): Promise<Meta | undefined> {
+    const binding = await this.storage.get<Binding>("_janitor_workspace")
+    if (!binding?.epoch || binding.destroyed) return undefined
+    const sandbox = this.sandbox(binding)
+    const process = await sandbox.getProcess?.("janitor-bridge")
+    if (!process) return undefined
+    return (await this.raw(binding, "/meta")) as Meta
+  }
+  /** Runs a publication while counting it as active work. */
+  async publish<A>(run: () => Promise<A>): Promise<A> {
+    this.publishing++
+    try {
+      return await run()
+    } finally {
+      this.publishing--
+    }
+  }
   private hold(message: string): never {
     const store = new RunnerStorage(this.storage)
     store.blockers = [...new Set([...store.blockers, message])]
@@ -108,7 +159,7 @@ export class RepositoryWorkspace {
     private readonly env: WorkspaceEnvironment,
     readonly selected: RepositorySelection,
   ) {
-    this.checkpoints = new WorkspaceCheckpoints(storage, env.WORKSPACE_CHECKPOINTS)
+    this.checkpoints = new WorkspaceCheckpoints(storage, env.WORKSPACE_CHECKPOINTS, selected)
     this.publication = new Publication(storage, selected, {
       authorize: (token, permission, refresh) => this.authority(token, permission, refresh, true),
       fetch: (request) => env.GITHUB_PUBLICATION_API?.fetch(request) ?? fetch(request),
@@ -423,7 +474,11 @@ export class RepositoryWorkspace {
       if (id) this.inFlight.delete(id)
     }
   }
-  async admitTool(id: string, input: unknown, timeout = 120000) {
+  async admitTool(id: string, input: unknown, timeout = DEFAULT_TOOL_TIMEOUT_MS) {
+    // Under a maintenance hold no fresh tool operation is admitted: like a model
+    // request, it waits for the drain to dispose the runtime, which interrupts
+    // it as a shutdown. Nothing is recorded, so nothing becomes uncertain.
+    if (new RunnerStorage(this.storage).maintenance.held) await new Promise<never>(() => {})
     await this.publication.guard()
     await this.authority(false)
     const result = await this.checkpoints.admit(id, input)

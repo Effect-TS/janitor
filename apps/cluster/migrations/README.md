@@ -271,3 +271,18 @@ retrying with backoff while the runner is unreachable, and deletes the tombstone
 only once the runner confirms. Session start refuses an identity that still has
 a tombstone and a repository that is not connected. No data changes; existing
 sessions are unaffected until their repository is disconnected.
+
+## Maintenance barrier
+
+`0031_maintenance_barrier.sql` adds `agent_maintenance`, the durable barrier an
+operator establishes before a runner release that changes session storage or
+execution, and `agent_session_maintenance`, one row per session and barrier
+recording the hold request, the runner's acknowledgement (held, quiescent,
+uncertain), its release or refusal with the runner's checks, and the last
+error. A partial unique index allows one barrier that is not released; the
+handoff withholds every dispatch to the runner while it exists, so sessions
+started and inputs accepted after the barrier cannot escape it, while intake
+keeps accepting inputs in order. The session observation query names the
+barrier's reason ahead of repository fences and runner state. Hold rows are
+deleted with their session, so disconnection during a hold outranks release.
+No data changes.

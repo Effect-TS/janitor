@@ -17,16 +17,16 @@ import { SessionExecution } from "@opencode/core/session/execution"
 import { ServerWorkerd } from "@opencode/server/workerd"
 import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { makeMemoryDriver } from "@opencode/core/environment/index"
-import { migrations } from "@opencode/core/database/migration.gen"
 import { resolverLayer, type ModelConfigurations, type SecretReader } from "./ModelConfiguration.ts"
-import { REPOSITORY_TOOLS, type RepositoryWorkspace } from "./RepositoryWorkspace.ts"
+import {
+  DEFAULT_TOOL_TIMEOUT_MS,
+  REPOSITORY_TOOLS,
+  type RepositoryWorkspace,
+} from "./RepositoryWorkspace.ts"
 import { Tool as NativeTool } from "@opencode/core/tool"
 import { RipgrepBinary } from "@opencode/core/ripgrep/binary"
 
-/** Native migration ids this release's pinned SDK applies. Newer ids in storage mean newer code wrote it. */
-export const SUPPORTED_NATIVE_MIGRATIONS: ReadonlyArray<string> = migrations.map(
-  (migration) => migration.id,
-)
+export { SUPPORTED_NATIVE_MIGRATIONS } from "./ReleaseManifest.ts"
 
 /** The provider shared by repository-backed and conversation-only workspaces. */
 export const WORKSPACE_PROVIDER = "janitor"
@@ -68,8 +68,8 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
           create: (input, before) => {
             if (
               !toolActive ||
-              !Number.isFinite(input.timeout ?? 120000) ||
-              (input.timeout ?? 120000) <= 0
+              !Number.isFinite(input.timeout ?? DEFAULT_TOOL_TIMEOUT_MS) ||
+              (input.timeout ?? DEFAULT_TOOL_TIMEOUT_MS) <= 0
             )
               return Effect.die(new Error("Only admitted foreground tool commands are supported"))
             return native.create(input, (invocation) => {
@@ -152,7 +152,7 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
                           .execute(input)
                           .pipe(Effect.ensuring(Effect.promise(() => deps.repository!.thaw())))
                       const args = input.call.input as { timeout?: unknown; background?: unknown }
-                      const timeout = args?.timeout ?? 120000
+                      const timeout = args?.timeout ?? DEFAULT_TOOL_TIMEOUT_MS
                       if (
                         args?.background === true ||
                         typeof timeout !== "number" ||
@@ -267,9 +267,11 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
                     execute: (input, context) =>
                       Effect.tryPromise({
                         try: () =>
-                          deps.repository!.publication.publish(
-                            input,
-                            `${context.messageID}:${context.id}`,
+                          deps.repository!.publish(() =>
+                            deps.repository!.publication.publish(
+                              input,
+                              `${context.messageID}:${context.id}`,
+                            ),
                           ),
                         catch: checkpointError,
                       }),
