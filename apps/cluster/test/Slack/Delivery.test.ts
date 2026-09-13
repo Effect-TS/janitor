@@ -20,18 +20,31 @@ let lost = true
 let posts = 0
 let wrongAuthor = false
 let throttled = false
+let removed = false
+let paginated = false
 const updates: string[] = []
 const transport: SlackTransport["Service"] = {
   channel: () => Effect.succeed({ is_private: true, is_member: true }),
-  replies: () =>
+  replies: (_channel, _root, cursor) =>
     Effect.succeed({
-      messages: wrongAuthor
-        ? messages.map((message) => ({ ...message, user: "IMPOSTOR" }))
-        : messages,
-      cursor: "",
+      messages:
+        paginated && cursor === ""
+          ? messages.map((message) => ({ ...message, thread_ts: "999.000000" }))
+          : wrongAuthor
+            ? messages.map((message) => ({ ...message, user: "IMPOSTOR" }))
+            : messages,
+      cursor: paginated && cursor === "" ? "next-marker-page" : "",
     }),
   post: (_channel, root, text, marker) =>
     Effect.suspend(() => {
+      if (removed)
+        return Effect.fail(
+          new SlackTransportError({
+            message: "not_in_channel",
+            disposition: "denied",
+            retryAfter: 1,
+          }),
+        )
       if (throttled) {
         throttled = false
         return Effect.fail(
@@ -67,9 +80,9 @@ const transport: SlackTransport["Service"] = {
   ephemeral: () => Effect.void,
 }
 const services = SlackDelivery.layer.pipe(
-  Layer.provide(Layer.succeed(SlackTransport, transport)),
+  Layer.provideMerge(Layer.succeed(SlackTransport, transport)),
   Layer.provideMerge(agentLayers(fakeRunnerLayer(runner))),
-  Layer.provide(
+  Layer.provideMerge(
     Layer.succeed(SlackConfig, {
       workspaceId: "T1",
       appId: "A1",
@@ -84,6 +97,75 @@ const spacing = Effect.sleep(1100).pipe(
   Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
 )
 layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
+  it.effect("resumes paginated positive reconciliation after restart without reposting", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      yield* (yield* AgentSessions).start({ sessionId: "pages", title: "Pages" })
+      yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('pages','T1','CPAGES','620.000000','620.000000','ready','[]')`
+      runner.push("pages", { type: "session.text.ended", data: { text: "Find my marker" } })
+      const delivery = yield* SlackDelivery
+      yield* delivery.catchUp("pages")
+      lost = true
+      const before = posts
+      yield* delivery.deliver("pages")
+      paginated = true
+      yield* sql`UPDATE slack_channel_delivery SET due_at=CLOCK_TIMESTAMP()-interval '1 second' WHERE channel_id='CPAGES'`
+      yield* delivery.deliver("pages")
+      assert.strictEqual((yield* delivery.inspect("pages"))[0]?.state, "uncertain")
+      yield* sql`UPDATE slack_channel_delivery SET due_at=CLOCK_TIMESTAMP()-interval '1 second' WHERE channel_id='CPAGES'`
+      yield* Effect.gen(function* () {
+        yield* (yield* SlackDelivery).deliver("pages")
+      }).pipe(Effect.provide(Layer.fresh(SlackDelivery.layer)))
+      assert.strictEqual((yield* delivery.inspect("pages"))[0]?.state, "sent")
+      assert.strictEqual(posts - before, 1)
+      paginated = false
+      lost = true
+    }),
+  )
+  it.effect(
+    "retains the same replies across removal and service restart with an independent delivery warning",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient
+        const sessions = yield* AgentSessions
+        yield* sessions.start({ sessionId: "removed", title: "Removed" })
+        yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('removed','T1','CPRIVATE','610.000000','610.000000','ready','[]')`
+        runner.push(
+          "removed",
+          { type: "session.text.ended", data: { text: "Retained answer" } },
+          { type: "session.execution.failed", data: { error: { message: "Retained error" } } },
+        )
+        const delivery = yield* SlackDelivery
+        yield* delivery.catchUp("removed")
+        const original = yield* delivery.inspect("removed")
+        removed = true
+        yield* delivery.deliver("removed")
+        assert.strictEqual((yield* sessions.view("removed")).deliveryWarning, "not_in_channel")
+        removed = false
+        const before = posts
+        yield* Effect.gen(function* () {
+          yield* (yield* SlackDelivery).deliver("removed")
+        }).pipe(Effect.provide(Layer.fresh(SlackDelivery.layer)))
+        assert.strictEqual(posts, before)
+        yield* sql`UPDATE slack_channel_delivery SET due_at=CLOCK_TIMESTAMP()-interval '1 second' WHERE channel_id='CPRIVATE'`
+        lost = false
+        yield* Effect.gen(function* () {
+          yield* (yield* SlackDelivery).deliver("removed")
+        }).pipe(Effect.provide(Layer.fresh(SlackDelivery.layer)))
+        const retained = yield* delivery.inspect("removed")
+        assert.deepStrictEqual(
+          retained.map((row) => row.output_id),
+          original.map((row) => row.output_id),
+        )
+        assert.deepStrictEqual(
+          retained.map((row) => row.state),
+          ["sent", "pending", "pending"],
+        )
+        assert.strictEqual((yield* sessions.view("removed")).deliveryWarning, null)
+        assert.strictEqual(messages.at(-1)?.thread_ts, "610.000000")
+        lost = true
+      }),
+  )
   it.effect(
     "reconciles a lost send receipt by author, thread and durable marker without reposting",
     () =>
@@ -98,12 +180,13 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         })
         const delivery = yield* SlackDelivery
         yield* delivery.catchUp("delivery")
+        const before = posts
         yield* delivery.deliver("delivery")
         assert.strictEqual((yield* delivery.inspect("delivery"))[0]?.state, "uncertain")
         yield* spacing
         yield* delivery.deliver("delivery")
         assert.strictEqual((yield* delivery.inspect("delivery"))[0]?.state, "sent")
-        assert.strictEqual(posts, 1)
+        assert.strictEqual(posts - before, 1)
         yield* delivery.catchUp("delivery")
         assert.strictEqual((yield* delivery.inspect("delivery")).length, 1)
       }),

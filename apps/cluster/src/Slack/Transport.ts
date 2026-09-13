@@ -19,6 +19,8 @@ export const SlackMessage = Schema.Struct({
   thread_ts: Schema.optionalKey(Schema.String),
   user: Schema.optionalKey(Schema.String),
   bot_id: Schema.optionalKey(Schema.String),
+  subtype: Schema.optionalKey(Schema.String),
+  edited: Schema.optionalKey(Schema.Unknown),
   text: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(
     Schema.Struct({
@@ -49,6 +51,7 @@ export class SlackTransport extends Context.Service<
       root: string,
       cursor: string,
       latest?: string,
+      oldest?: string,
     ) => Effect.Effect<ThreadPage, SlackTransportError>
     readonly post: (
       channel: string,
@@ -174,7 +177,7 @@ export class SlackTransport extends Context.Service<
             ),
             Effect.map((body) => body.channel),
           ),
-        replies: (channel, root, cursor, latest) =>
+        replies: (channel, root, cursor, latest, oldest) =>
           call("conversations.replies", {
             channel,
             ts: root,
@@ -182,6 +185,7 @@ export class SlackTransport extends Context.Service<
             limit: 100,
             include_all_metadata: true,
             ...(latest === undefined ? {} : { latest, inclusive: true }),
+            ...(oldest === undefined ? {} : { oldest, inclusive: true }),
           }).pipe(
             Effect.flatMap(
               decode(

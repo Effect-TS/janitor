@@ -1,3 +1,6 @@
+import { SlackRecovery } from "./Slack/Recovery.ts"
+import { GitHubRecovery } from "./GitHub/Recovery.ts"
+import { GitHubRecoveryApi } from "./GitHub/RecoveryHttp.ts"
 import { RepositoryActivity } from "./RepositoryActivity.ts"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import { RepositoryLive } from "./LiveHub.ts"
@@ -290,6 +293,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
     const SlackLayers = slackConfigured
       ? Layer.mergeAll(SlackCronLayer, SlackWebhook.layer).pipe(
+          Layer.provide(Layer.mergeAll(SlackRecovery.layer, GitHubRecovery.layer)),
+          Layer.provide(GitHubRecoveryApi.layer.pipe(Layer.provide(FetchHttpClient.layer))),
           Layer.provideMerge(
             Layer.mergeAll(
               SlackProcessor.layer,
