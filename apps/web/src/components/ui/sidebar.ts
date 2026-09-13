@@ -222,7 +222,7 @@ export const sidebarMobilePanelClass =
   "bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden w-72"
 
 export const sidebarContainerClass =
-  "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-120 ease-ui data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] md:flex"
+  "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-120 ease-ui data-[side=left]:left-0 data-[side=right]:right-0 md:flex"
 
 export const sidebarInnerContainerClass =
   "bg-sidebar group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:rounded-sm flex size-full flex-col"
@@ -230,8 +230,7 @@ export const sidebarInnerContainerClass =
 export const sidebarContainerVariantClass = {
   docked:
     "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l border-sidebar-border",
-  padded:
-    "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]",
+  padded: "p-2",
 } as const satisfies Record<Padding, string>
 
 export const sidebarGapClass =
@@ -239,7 +238,7 @@ export const sidebarGapClass =
 
 export const sidebarIconWidthClass = {
   docked: "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
-  padded: "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]",
+  padded: "",
 } as const satisfies Record<Padding, string>
 
 export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h) => {
@@ -348,12 +347,14 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
         [
           h.div([
             h.DataAttribute("slot", "sidebar-gap"),
+            h.DataAttribute("padding", padding),
             h.Class(cn(sidebarGapClass, sidebarIconWidthClass[padding])),
           ]),
           h.div(
             [
               h.DataAttribute("slot", "sidebar-container"),
               h.DataAttribute("side", side),
+              h.DataAttribute("padding", padding),
               h.Class(
                 cn(
                   sidebarContainerClass,

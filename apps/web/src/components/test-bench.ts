@@ -222,10 +222,7 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
             [
               h.span(
                 [h.Class("truncate text-body-md font-medium")],
-                [
-                  h.span([h.Class("font-mono text-primary")], [`#${entity.number}`]),
-                  ` ${entity.title}`,
-                ],
+                [h.span([h.Class("font-mono")], [`#${entity.number}`]), ` ${entity.title}`],
               ),
               h.span([h.Class("text-body-sm text-ink-muted")], [meta.join(" · ")]),
               entity.labels.length === 0

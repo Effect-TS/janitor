@@ -34,7 +34,6 @@
     "@tailwindcss/vite": "catalog:",
     "happy-dom": "catalog:",
     "tailwindcss": "catalog:",
-    "tw-animate-css": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

@@ -783,6 +783,20 @@
     backdrop-filter: none;
   }
 
+  /* Sidebar geometry that Tailwind cannot express without arbitrary values. */
+  .group[data-collapsible="offcanvas"] [data-slot="sidebar-container"][data-side="left"] {
+    left: calc(var(--sidebar-width) * -1);
+  }
+  .group[data-collapsible="offcanvas"] [data-slot="sidebar-container"][data-side="right"] {
+    right: calc(var(--sidebar-width) * -1);
+  }
+  .group[data-collapsible="icon"] [data-slot="sidebar-container"][data-padding="padded"] {
+    width: calc(var(--sidebar-width-icon) + var(--spacing) * 4 + 2px);
+  }
+  .group[data-collapsible="icon"] [data-slot="sidebar-gap"][data-padding="padded"] {
+    width: calc(var(--sidebar-width-icon) + var(--spacing) * 4);
+  }
+
   /* Static block, not a shimmer. */
   [data-slot="skeleton"] {
     background: var(--oc-surface-muted);
@@ -822,170 +836,6 @@
   }
 }
 
-/* ---------------------------------------------------------------------------
-   10. Dense list. Kept from the previous identity; now the default look.
---------------------------------------------------------------------------- */
-.jn-dense [data-slot="row"] {
-  padding-block: 5px;
-  border-bottom: 1px solid var(--oc-line-subtle);
-  box-shadow: none;
-}
-.jn-dense [data-slot="row"]:last-child {
-  border-bottom: 0;
-}
-
-/* ===========================================================================
-   ALIASES — Utility Room names pointing at Ops Console values.
-   Every rule in this block is deleted in Phase 4. Do not add to it.
-   ======================================================================== */
-:root,
-.dark {
-  --jn-cobalt: var(--oc-blue);
-  --jn-cobalt-dark: var(--oc-blue-hover);
-  --jn-cobalt-light: var(--oc-blue-line);
-  --jn-navy: var(--oc-line);
-  --jn-navy-deep: var(--oc-line);
-  --jn-panel: var(--oc-surface-muted);
-  --jn-inset: var(--oc-surface-muted);
-  --jn-yellow: var(--oc-agent);
-  --jn-yellow-dark: var(--oc-agent-line);
-  --jn-cream: var(--oc-surface);
-  --jn-cream-hi: var(--oc-surface);
-  --jn-wall: var(--oc-canvas);
-  --jn-mortar: var(--oc-line-subtle);
-  --jn-board: var(--oc-surface-muted);
-  --jn-rust: var(--oc-danger);
-  --jn-rust-dark: var(--oc-danger-hover);
-  --jn-metal: var(--oc-line);
-  --jn-metal-dark: var(--oc-line);
-  --jn-muted-ink: var(--oc-ink-muted);
-  --jn-muted-panel-ink: var(--oc-ink-subtle);
-  --jn-outline: var(--oc-line);
-  --jn-edge: none;
-  --jn-mount: none;
-  --jn-recess: none;
-  --jn-ease: var(--ease-ui);
-}
-
-@theme inline {
-  --color-cobalt: var(--jn-cobalt);
-  --color-cobalt-dark: var(--jn-cobalt-dark);
-  --color-cobalt-light: var(--jn-cobalt-light);
-  --color-navy: var(--foreground);
-  --color-navy-deep: var(--foreground);
-  --color-panel: var(--jn-panel);
-  --color-inset: var(--jn-inset);
-  --color-yellow-safety: var(--jn-yellow);
-  --color-yellow-safety-dark: var(--jn-yellow-dark);
-  --color-cream: var(--jn-cream);
-  --color-cream-hi: var(--jn-cream-hi);
-  --color-wall: var(--jn-wall);
-  --color-mortar: var(--jn-mortar);
-  --color-board: var(--jn-board);
-  --color-rust: var(--jn-rust);
-  --color-rust-dark: var(--jn-rust-dark);
-  --color-metal: var(--jn-metal);
-  --color-metal-dark: var(--jn-metal-dark);
-  --color-outline: var(--jn-outline);
-
-  --font-sign: var(--font-sans);
-  --text-button: var(--text-label);
-  --text-button--line-height: 1.2;
-  --text-sign: var(--text-h2);
-  --text-sign--line-height: 1.35;
-  --text-stamp: var(--text-h1);
-  --text-display: var(--text-h1);
-  --radius-lg: var(--radius-md);
-  --radius-xl: var(--radius-md);
-  --radius-2xl: var(--radius-md);
-  --radius-3xl: var(--radius-md);
-  --radius-4xl: var(--radius-md);
-  --shadow-mount: none;
-  --shadow-edge: none;
-  --shadow-recess: none;
-  --ease-switch: var(--ease-ui);
-}
-
-@utility jn-mount {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: none;
-}
-@utility jn-recess {
-  box-shadow: none;
-}
-@utility jn-sign {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0;
-  color: var(--foreground);
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: var(--text-h2);
-}
-@utility jn-screw {
-  display: none;
-}
-@utility jn-press {
-  box-shadow: none;
-}
-@utility jn-hazard {
-  display: none;
-}
-@utility jn-steel {
-  background: transparent;
-  border: 0;
-}
-@utility jn-perforated {
-  background: var(--card);
-}
-@utility jn-empty {
-  border-top: 1px dashed var(--border);
-  background-image: none;
-}
-@utility jn-agent {
-  border-left: 3px solid var(--oc-agent);
-}
-
-@layer components {
-  .jn-tag {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 26px;
-    padding: 0 8px;
-    color: var(--foreground);
-    background: transparent;
-    border: 0;
-    border-left: 2px solid transparent;
-    border-radius: 0;
-    box-shadow: none;
-    font-weight: 400;
-    font-size: var(--text-body-sm);
-    text-decoration: none;
-    transform: none;
-    transition: background-color 120ms var(--ease-ui);
-  }
-  .jn-tag:hover {
-    background: var(--oc-surface-muted);
-    transform: none;
-  }
-  .jn-tag[aria-current="page"] {
-    color: var(--foreground);
-    background: var(--oc-blue-wash);
-    border-left-color: var(--primary);
-    font-weight: 600;
-  }
-  .jn-tag[data-variant="danger"] {
-    color: var(--destructive);
-  }
-}
-
 /* ===========================================================================
    Page CSS carried over from the previous identity. Restyled screen by
    screen in Phase 3; anything left below this line in Phase 4 is a bug.
@@ -1014,22 +864,6 @@
   gap: 8px;
   padding: 12px 12px 10px;
   border-bottom: 1px solid var(--border);
-}
-.policy-search-field {
-  position: relative;
-}
-.policy-search-field > svg {
-  position: absolute;
-  top: 50%;
-  left: 8px;
-  z-index: 1;
-  transform: translateY(-50%);
-  color: var(--oc-ink-subtle);
-  pointer-events: none;
-}
-.policy-search-field input {
-  padding-left: 26px;
-  font-size: var(--text-body-sm);
 }
 .policy-library-list {
   display: flex;
@@ -1121,9 +955,6 @@
   font-size: var(--text-body-sm);
   color: var(--oc-ink-muted);
 }
-.policy-empty-icon {
-  display: none;
-}
 /* The document: heading, toolbar strip, editor, inspector column. */
 .policy-document {
   display: flex;
@@ -1185,54 +1016,6 @@
 /* Native select in the inspector, styled like the input primitive. Shared
    with the test bench. */
 /* Test bench results (rendered by test-bench.ts and rule-editor.ts). */
-.policy-draft-bench {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.policy-test-result {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--card);
-}
-.policy-result-tag {
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  background: var(--oc-surface-muted);
-  color: var(--oc-ink-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-mono-xs);
-  font-weight: 500;
-}
-.policy-test-trace {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.policy-test-trace li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: var(--text-body-sm);
-}
-.policy-test-trace li > :last-child {
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-mono-sm);
-}
-.policy-test-bindings:not(:empty) {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--oc-line-subtle);
-  font-size: var(--text-body-sm);
-}
 /* CodeMirror chrome the theme object cannot reach. */
 .cm-foldGutter .cm-gutterElement {
   display: flex;
@@ -1334,27 +1117,11 @@
     border-top: 1px solid var(--border);
   }
 }
-.ai-fact-reference {
-  font-family: var(--font-mono);
-  font-size: var(--text-mono-sm);
-  color: var(--foreground);
-  background: var(--oc-surface-muted);
-  border: 1px solid var(--oc-line-subtle);
-  border-radius: var(--radius-xs);
-  padding: 0 3px;
-}
 .ai-confidence {
   accent-color: var(--primary);
   cursor: pointer;
 }
-.ai-rule-document {
-  max-width: none;
-  padding: 24px;
-}
 @media (max-width: 640px) {
-  .ai-rule-document {
-    padding: 16px 12px;
-  }
 }
 
 /* Activity owns the remaining inset height; only its list scrolls. */
