@@ -136,7 +136,9 @@ export class SessionObservation extends Context.Service<
       // session yet is shown waiting for its repository; a fenced session or
       // a redirected thread is not a session anyone can observe. A paused or
       // inaccessible repository fences new repository work, so its sessions
-      // read as blocked with that reason ahead of anything the runner says.
+      // read as blocked with that reason ahead of anything the runner says,
+      // and an active maintenance barrier ahead of that: nothing is dispatched
+      // while it stands, whatever the runner last reported.
       const summaries = (sessionId: string | null, cursor: SessionCursor | null, limit: number) =>
         sql`
           WITH base AS (
@@ -146,11 +148,13 @@ export class SessionObservation extends Context.Service<
               a.runner_state, a.runner_error,
               t.channel_id, t.thread_ts, t.pr_number, t.warning AS thread_warning, t.delivery_warning,
               CASE
-                WHEN a.session_id IS NULL OR a.runner_state = 'blocked' OR f.block_reason IS NOT NULL THEN 'blocked'
+                WHEN a.session_id IS NULL OR a.runner_state = 'blocked' OR f.block_reason IS NOT NULL
+                  OR m.reason IS NOT NULL THEN 'blocked'
                 ELSE COALESCE(p.execution, 'idle')
               END AS execution,
               CASE
                 WHEN a.session_id IS NULL THEN COALESCE(t.warning, ${WAITING_FOR_SELECTION})
+                WHEN m.reason IS NOT NULL THEN 'Maintenance in progress: ' || m.reason
                 WHEN f.block_reason IS NOT NULL THEN f.block_reason
                 WHEN a.runner_state = 'blocked' THEN COALESCE(a.runner_error, 'The runner refused work')
                 ELSE p.reason
@@ -167,6 +171,9 @@ export class SessionObservation extends Context.Service<
             LEFT JOIN LATERAL (
               SELECT CASE WHEN a.repository_id IS NULL THEN NULL ELSE repository_block_reason(a.repository_id) END AS block_reason
             ) f ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT reason FROM agent_maintenance WHERE state <> 'released' LIMIT 1
+            ) m ON a.session_id IS NOT NULL
             WHERE (a.session_id IS NULL OR a.runner_state <> 'disconnected')
               AND (t.session_id IS NULL OR t.state <> 'redirected')
           ), ranked AS (

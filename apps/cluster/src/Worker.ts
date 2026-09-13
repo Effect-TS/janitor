@@ -97,6 +97,7 @@ import { Teammates, TeammatesConfig } from "./Teammates.ts"
 import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
 import { AgentCatchUpCronLayer, AgentCatchUpCronName } from "./Agent/CatchUpCron.ts"
 import { AgentCleanup } from "./Agent/Cleanup.ts"
+import { AgentMaintenance } from "./Agent/Maintenance.ts"
 import { AgentCatchUpWake, AgentEventProjection } from "./Agent/EventProjection.ts"
 import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
 import { RunnerClient } from "./Agent/RunnerClient.ts"
@@ -329,7 +330,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const AgentLayers = runnerConfigured
       ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer, SlackLayers).pipe(
           Layer.provideMerge(
-            Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer, AgentCleanup.layer),
+            Layer.mergeAll(
+              AgentSessions.layer,
+              AgentEventProjection.layer,
+              AgentCleanup.layer,
+              AgentMaintenance.layer,
+            ),
           ),
           Layer.provideMerge(
             RunnerClient.layer({ baseUrl: runnerUrl, token: runnerToken }).pipe(

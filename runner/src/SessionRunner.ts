@@ -11,6 +11,12 @@ import { DurableObject } from "cloudflare:workers"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { AbsolutePath, Location, Session } from "@opencode/sdk/effect"
 import { createHost, SUPPORTED_NATIVE_MIGRATIONS, WORKSPACE_PROVIDER, type Host } from "./Host.ts"
+import { decideCompatibility } from "./Compatibility.ts"
+import {
+  JANITOR_STATE_FORMAT,
+  NATIVE_MIGRATION_TARGET,
+  RELEASE_MANIFEST,
+} from "./ReleaseManifest.ts"
 import {
   DEFAULT_MODEL_INACTIVITY,
   ModelConfigurationError,
@@ -32,6 +38,7 @@ import {
   type ExecutionState,
   type Inspection,
   type Maintenance,
+  type MaintenanceCheck,
   type MaintenanceResult,
   type SessionId,
   type UsageTotals,
@@ -41,6 +48,7 @@ import { RunnerStorage, payloadHash, type NativeSessionRow, type SessionRecord }
 import {
   RepositoryWorkspace,
   REPOSITORY_TOOLS,
+  checkBridge,
   type RepositorySelection,
   type WorkspaceEnvironment,
 } from "./RepositoryWorkspace.ts"
@@ -65,7 +73,8 @@ export const DEFAULT_OPTIONS: RunnerOptions = {
   modelInactivityMs: Duration.toMillis(DEFAULT_MODEL_INACTIVITY),
 }
 
-const COMPATIBILITY_FORMAT = 1
+/** How long past its finite timeout an admitted operation may take to settle before a hold gives up waiting. */
+const DRAIN_GRACE_MS = 30_000
 
 /** A native execution claim survives shutdown; its presence means work is owned or recoverable. */
 const claimHeld = (row: NativeSessionRow | undefined) =>
@@ -83,6 +92,8 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
   private creating: Promise<CreateSessionResult> | undefined
   private readonly configurations: ModelConfigurations | ModelConfigurationError
   private repository: RepositoryWorkspace | undefined
+  /** The in-flight maintenance drain; a hold answers from it instead of waiting on it. */
+  private draining: Promise<void> | undefined
 
   constructor(ctx: DurableObjectState, env: RunnerEnv) {
     super(ctx, env)
@@ -118,6 +129,25 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
   /** The model transport before the inactivity deadline is applied. */
   protected transport(): HttpClient.HttpClient {
     return Effect.runSync(Effect.provide(HttpClient.HttpClient, FetchHttpClient.layer))
+  }
+
+  /**
+   * Under a maintenance hold no fresh model request leaves the object: the
+   * request waits until the drain disposes the runtime, which interrupts it as
+   * a shutdown and keeps the native claim. Nothing is recorded as a provider
+   * failure, so native retry accounting is untouched.
+   */
+  private heldTransport(): HttpClient.HttpClient {
+    const base = this.transport()
+    return HttpClient.make((request) =>
+      Effect.suspend(() => {
+        if (this.store.maintenance.held) {
+          this.store.journal("model-request-held", { epoch: this.store.maintenance.epoch })
+          return Effect.never
+        }
+        return base.execute(request)
+      }),
+    )
   }
 
   protected get release(): string {
@@ -160,24 +190,43 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     if (this.store.disconnection !== undefined) return "disconnected"
     const maintenance = this.store.maintenance
     if (maintenance.held) return `maintenance hold epoch ${maintenance.epoch}`
+    return this.stateProblem()
+  }
+
+  /**
+   * Blockers other than the maintenance hold itself: persisted uncertainty,
+   * model configuration, the outer compatibility record against the native
+   * migration journal, and the committed checkpoint's manifest. Read-only.
+   */
+  private stateProblem(): string | null {
     const blockers = this.store.blockers
     if (blockers.length > 0) return blockers[0]!
     if (this.configurations instanceof ModelConfigurationError) return this.configurations.message
-    const compatibility = this.store.compatibility
-    if (this.store.nativeInitialized) {
-      if (compatibility === undefined)
-        return "native state has no compatibility record; operator migration required"
-      if (compatibility.formatVersion !== COMPATIBILITY_FORMAT)
-        return `compatibility record format ${compatibility.formatVersion} is not supported by this release`
-      if (compatibility.inProgress !== null)
-        return `native initialization for ${compatibility.inProgress} did not complete; operator repair required`
-      const unknown = this.store.nativeMigrations.filter(
-        (id) => !SUPPORTED_NATIVE_MIGRATIONS.includes(id),
-      )
-      if (unknown.length > 0)
-        return `native state contains newer migrations (${unknown.join(", ")})`
-    }
+    const decision = decideCompatibility({
+      record: this.store.compatibility,
+      nativeInitialized: this.store.nativeInitialized,
+      applied: this.store.nativeMigrations,
+    })
+    if (decision.kind === "blocked") return decision.reason
+    if (!decision.upgradeFormat && this.store.compatibility !== undefined)
+      return this.checkpointProblem()
     return null
+  }
+
+  private checkpointIdentity() {
+    const session = this.store.session
+    const repositoryId = this.store.intendedRepositoryId
+    if (session === undefined || !repositoryId) return undefined
+    return { sessionId: session.sessionId, generation: session.generation, repositoryId }
+  }
+
+  private checkpointProblem(): string | null {
+    if (WorkspaceCheckpoints.needsFormatUpgrade(this.ctx.storage)) return null
+    return new WorkspaceCheckpoints(
+      this.ctx.storage,
+      this.env.WORKSPACE_CHECKPOINTS,
+      this.checkpointIdentity(),
+    ).validate()
   }
 
   private requireRunnable() {
@@ -225,20 +274,36 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     this.requireRunnable()
     const configurations = this.configurations as ModelConfigurations
     const recorded = this.store.compatibility
-    const migrated =
-      recorded !== undefined &&
-      recorded.nativeMigrations.length === SUPPORTED_NATIVE_MIGRATIONS.length &&
-      recorded.nativeMigrations.every((id, index) => id === SUPPORTED_NATIVE_MIGRATIONS[index])
-    if (!migrated) {
-      // Persist intent before native initialization so a crash mid-migration blocks for repair.
+    const decision = decideCompatibility({
+      record: recorded,
+      nativeInitialized: this.store.nativeInitialized,
+      applied: this.store.nativeMigrations,
+    })
+    if (decision.kind === "blocked")
+      throw new ProtocolError("blocked", decision.reason, decision.reason)
+    if (decision.initialize) {
+      // Intent persists before native initialization. Each native step commits on
+      // its own, so a crash leaves a partially migrated database behind: the intent
+      // names the target so only the same release can resume it, and everything
+      // else stays blocked for repair.
+      const intent =
+        decision.resume && recorded !== undefined && typeof recorded.inProgress === "object"
+          ? recorded.inProgress!
+          : { target: NATIVE_MIGRATION_TARGET, release: this.release, startedAt: Date.now() }
       this.store.compatibility = {
-        formatVersion: COMPATIBILITY_FORMAT,
+        formatVersion: JANITOR_STATE_FORMAT,
+        family: RELEASE_MANIFEST.family,
         protocol: PROTOCOL_VERSION,
         release: this.release,
         nativeMigrations: recorded?.nativeMigrations ?? [],
-        inProgress: this.release,
+        inProgress: intent,
       }
       await this.ctx.storage.sync()
+      this.store.journal(decision.resume ? "migration-resumed" : "migration-started", {
+        target: intent.target,
+        upgradeFormat: decision.upgradeFormat,
+        applied: this.store.nativeMigrations.length,
+      })
     }
     return createHost({
       repository: this.repository,
@@ -251,7 +316,7 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
         return typeof value === "string" ? value : undefined
       },
       httpClient: withInactivityDeadline(
-        this.transport(),
+        this.heldTransport(),
         Duration.millis(this.options().modelInactivityMs),
       ),
       journal: (kind, data) => this.store.journal(kind, data),
@@ -260,13 +325,27 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
       const unknown = applied.filter((id) => !SUPPORTED_NATIVE_MIGRATIONS.includes(id))
       if (unknown.length > 0)
         throw new Error(`Native initialization produced unknown migrations ${unknown.join(", ")}`)
-      this.store.compatibility = {
-        formatVersion: COMPATIBILITY_FORMAT,
-        protocol: PROTOCOL_VERSION,
-        release: this.release,
-        nativeMigrations: SUPPORTED_NATIVE_MIGRATIONS,
-        inProgress: null,
+      if (applied.length !== SUPPORTED_NATIVE_MIGRATIONS.length || !this.store.nativeInitialized)
+        throw new Error(
+          `Native initialization recorded ${applied.length} of ${SUPPORTED_NATIVE_MIGRATIONS.length} migrations`,
+        )
+      // The Janitor-owned step of the upgrade runs after the native set is complete
+      // and is idempotent, so a restart between it and the completion record repeats it.
+      if (decision.upgradeFormat || WorkspaceCheckpoints.needsFormatUpgrade(this.ctx.storage)) {
+        WorkspaceCheckpoints.upgradeFormat(this.ctx.storage, this.checkpointIdentity())
+        this.store.journal("state-upgraded", { format: JANITOR_STATE_FORMAT })
       }
+      const problem = this.checkpointProblem()
+      if (problem !== null) throw new ProtocolError("blocked", problem, problem)
+      if (decision.initialize)
+        this.store.compatibility = {
+          formatVersion: JANITOR_STATE_FORMAT,
+          family: RELEASE_MANIFEST.family,
+          protocol: PROTOCOL_VERSION,
+          release: this.release,
+          nativeMigrations: SUPPORTED_NATIVE_MIGRATIONS,
+          inProgress: null,
+        }
       this.host = host
       this.store.journal("host-created", { incarnation: this.incarnation })
       return host
@@ -696,30 +775,187 @@ export class SessionRunner extends DurableObject<RunnerEnv> {
     }
   }
 
+  /**
+   * Operator maintenance. A hold persists first, so alarms and restarts cannot
+   * resume work, then drains: admitted foreground operations finish or reach
+   * their finite timeout and commit their result and checkpoint, and only then
+   * is the runtime disposed. Disposal is shutdown interruption, which keeps the
+   * native execution claim for recovery. The hold answers immediately with
+   * whether the object is quiescent; the caller asks again until it is.
+   *
+   * A release must carry the held epoch and passes only after the state,
+   * checkpoint, model credential and bridge checks; otherwise the hold stays.
+   * A newer disconnection outranks any release.
+   */
   protected async maintenance(body: Maintenance): Promise<MaintenanceResult> {
     const current = this.store.maintenance
     if (body.hold) {
       if (current.held && current.epoch !== null && current.epoch > body.epoch)
-        return { held: true, epoch: current.epoch, quiescent: this.host === undefined }
-      this.store.maintenance = { held: true, epoch: body.epoch }
-      await this.ctx.storage.sync()
-      // Disposing the runtime is shutdown interruption: native claims survive for recovery.
-      await this.disposeHost()
+        return this.maintenanceStatus(current, [])
+      if (!current.held || current.epoch !== body.epoch) {
+        this.store.maintenance = { held: true, epoch: body.epoch }
+        await this.ctx.storage.sync()
+        this.store.journal("maintenance-held", { epoch: body.epoch })
+      }
       await this.ctx.storage.deleteAlarm()
-      this.store.journal("maintenance-held", { epoch: body.epoch })
-      return { held: true, epoch: body.epoch, quiescent: true }
+      if (
+        this.draining === undefined &&
+        (this.host !== undefined || this.hostPromise !== undefined || this.repository?.busy)
+      ) {
+        this.draining = this.drain().finally(() => {
+          this.draining = undefined
+        })
+        this.ctx.waitUntil(this.draining)
+      }
+      // Give a drain with nothing to wait for the chance to finish before answering.
+      if (this.draining !== undefined)
+        await Promise.race([this.draining, new Promise((resolve) => setTimeout(resolve, 50))])
+      return this.maintenanceStatus(this.store.maintenance, [])
     }
-    if (!current.held)
-      return { held: false, epoch: current.epoch, quiescent: this.host === undefined }
+    if (this.store.disconnection !== undefined)
+      return this.maintenanceStatus(current, [
+        {
+          name: "fence",
+          ok: false,
+          detail: "session was disconnected; the fence outranks release",
+        },
+      ])
+    if (!current.held) return this.maintenanceStatus(current, [])
     if (current.epoch !== body.epoch)
       throw new ProtocolError(
         "invalid_request",
         `Maintenance epoch ${body.epoch} does not match the held epoch ${current.epoch}`,
       )
+    const checks = await this.releaseChecks()
+    if (checks.some((check) => !check.ok)) {
+      this.store.journal("maintenance-release-refused", { epoch: body.epoch, checks })
+      return this.maintenanceStatus(current, checks)
+    }
     this.store.maintenance = { held: false, epoch: body.epoch }
     this.store.journal("maintenance-released", { epoch: body.epoch })
     if (this.store.supervision.obligation && this.guardReason() === null) await this.rearm()
-    return { held: false, epoch: body.epoch, quiescent: this.host === undefined }
+    return this.maintenanceStatus(this.store.maintenance, checks)
+  }
+
+  private maintenanceStatus(
+    state: { held: boolean; epoch: number | null },
+    checks: ReadonlyArray<MaintenanceCheck>,
+  ): MaintenanceResult {
+    const repository = this.repository
+    return {
+      held: state.held,
+      epoch: state.epoch,
+      quiescent:
+        this.host === undefined &&
+        this.hostPromise === undefined &&
+        this.draining === undefined &&
+        !(repository?.busy ?? false),
+      uncertain:
+        this.store.blockers.length > 0 || (repository?.uncertain ?? this.persistedUncertainty()),
+      checks,
+    }
+  }
+
+  /** Uncertainty visible without a workspace object: admitted tool or bridge operations. */
+  private persistedUncertainty(): boolean {
+    return (
+      new WorkspaceCheckpoints(this.ctx.storage, this.env.WORKSPACE_CHECKPOINTS).uncertain() ||
+      (this.ctx.storage.sql
+        .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_janitor_operation'")
+        .toArray().length === 1 &&
+        this.ctx.storage.sql
+          .exec("SELECT id FROM _janitor_operation WHERE state = 'admitted' LIMIT 1")
+          .toArray().length > 0)
+    )
+  }
+
+  /** Waits for admitted work to settle within its finite deadline, then disposes the runtime. */
+  private async drain() {
+    const started = Date.now()
+    const deadline = started + this.toolDeadline() + DRAIN_GRACE_MS
+    while (this.repository?.busy && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    const settled = !this.repository?.busy
+    // Beyond the deadline the operation stays admitted: its outcome is uncertain,
+    // and recovery holds it for reconciliation instead of guessing.
+    await this.disposeHost()
+    await this.ctx.storage.deleteAlarm()
+    this.store.journal("maintenance-quiescent", { waitedMs: Date.now() - started, settled })
+  }
+
+  /** The longest finite timeout an admitted foreground operation may still be using. */
+  protected toolDeadline(): number {
+    return this.repository?.currentToolTimeout ?? 120_000
+  }
+
+  /** Verifications a release requires; every failure keeps the hold. */
+  private async releaseChecks(): Promise<ReadonlyArray<MaintenanceCheck>> {
+    const checks: Array<MaintenanceCheck> = []
+    const state = this.stateProblem()
+    checks.push({ name: "state", ok: state === null, detail: state ?? "compatible" })
+    const checkpoint = WorkspaceCheckpoints.needsFormatUpgrade(this.ctx.storage)
+      ? null
+      : this.checkpointProblem()
+    checks.push({
+      name: "checkpoint",
+      ok: checkpoint === null,
+      detail: checkpoint ?? "committed checkpoint is restorable or absent",
+    })
+    checks.push(this.modelCheck())
+    checks.push(await this.bridgeCheck())
+    return checks
+  }
+
+  private modelCheck(): MaintenanceCheck {
+    if (this.configurations instanceof ModelConfigurationError)
+      return { name: "model", ok: false, detail: this.configurations.message }
+    const id =
+      this.store.session?.modelConfigurationId ??
+      this.store.intendedModelConfigurationId ??
+      this.configurations.default
+    const record = findRecord(this.configurations, id)
+    if (record === undefined)
+      return { name: "model", ok: false, detail: `model configuration ${id} is not available` }
+    const secret = this.env[record.secretBinding]
+    if (typeof secret !== "string" || secret === "")
+      return {
+        name: "model",
+        ok: false,
+        detail: `secret binding ${record.secretBinding} for model configuration ${id} is not set`,
+      }
+    return { name: "model", ok: true, detail: `model configuration ${id} has its credential` }
+  }
+
+  /**
+   * The bridge this session would dispatch to must be the release's image. A
+   * container that is not running is verified on its next start, before any
+   * dispatch; one that answers must match now.
+   */
+  private async bridgeCheck(): Promise<MaintenanceCheck> {
+    const selected = await this.ctx.storage.get<RepositorySelection>("_janitor_repository")
+    if (!selected) return { name: "bridge", ok: true, detail: "no repository workspace" }
+    const repository = (this.repository ??= this.makeRepository(selected))
+    try {
+      const meta = await repository.runningBridge()
+      if (meta === undefined)
+        return {
+          name: "bridge",
+          ok: true,
+          detail: "bridge not running; verified before next dispatch",
+        }
+      checkBridge(meta, selected.generation)
+      return {
+        name: "bridge",
+        ok: true,
+        detail: `bridge ${meta.build?.sourceHash?.slice(0, 12)} matches the release`,
+      }
+    } catch (error) {
+      return {
+        name: "bridge",
+        ok: false,
+        detail: error instanceof ProtocolError ? (error.reason ?? error.message) : String(error),
+      }
+    }
   }
 
   protected async cleanup(sessionId: SessionId, body: Cleanup): Promise<CleanupResult> {

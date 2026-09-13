@@ -27,24 +27,39 @@ export const HandoffPayload = Schema.Struct({
   sessionId: AgentSessionId,
   /** The accepted input this execution answers for; null for session creation. */
   sequence: Schema.NullOr(Schema.Int),
+  /**
+   * A re-request of delivery distinct from creation and from every input: the
+   * recovery sweep's epoch or a maintenance release. It gives the execution its
+   * own idempotency key, so the engine runs it rather than answering from the
+   * completed creation execution.
+   */
+  sweep: Schema.optionalKey(Schema.String),
 })
 export type HandoffPayload = typeof HandoffPayload.Type
+
+export const handoffKey = ({ sessionId, sequence, sweep }: HandoffPayload) =>
+  `${sessionId}:${sweep ?? sequence ?? "create"}`
 
 export const handoffRequest = (
   sessionId: AgentSessionId,
   sequence: number | null,
 ): OutboxRequest => ({
   workflowTag: AGENT_HANDOFF_TAG,
-  executionKey: `${sessionId}:${sequence ?? "create"}`,
+  executionKey: handoffKey({ sessionId, sequence }),
   payload: { sessionId, sequence },
 })
 
 /** A recovery sweep re-requests delivery under a new execution key. */
-export const handoffSweepRequest = (sessionId: AgentSessionId, epoch: number): OutboxRequest => ({
-  workflowTag: AGENT_HANDOFF_TAG,
-  executionKey: `${sessionId}:sweep:${epoch}`,
-  payload: { sessionId, sequence: null },
-})
+export const handoffSweepRequest = (sessionId: AgentSessionId, epoch: number): OutboxRequest => {
+  const payload: HandoffPayload = { sessionId, sequence: null, sweep: `sweep:${epoch}` }
+  return { workflowTag: AGENT_HANDOFF_TAG, executionKey: handoffKey(payload), payload }
+}
+
+/** A maintenance release re-requests delivery of everything withheld under its barrier. */
+export const handoffReleaseRequest = (sessionId: AgentSessionId, epoch: number): OutboxRequest => {
+  const payload: HandoffPayload = { sessionId, sequence: null, sweep: `maintenance:${epoch}` }
+  return { workflowTag: AGENT_HANDOFF_TAG, executionKey: handoffKey(payload), payload }
+}
 
 export class HandoffError extends Schema.TaggedError<HandoffError>()(
   "@janitor/cluster/Agent/HandoffError",
@@ -130,6 +145,13 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
     UPDATE agent_catchup SET due_at = CLOCK_TIMESTAMP(), cadence = 'active' WHERE session_id = ${sessionId}
   `).pipe(Effect.andThen(wake), Effect.ignore)
 
+  // A maintenance barrier withholds every dispatch to the runner: creation and
+  // admission alike. Inputs stay accepted and ordered; release re-requests
+  // delivery. The runner's own hold is the second fence behind this one.
+  const withheld = query(
+    sql`SELECT 1 FROM agent_maintenance WHERE state <> 'released' LIMIT 1`,
+  ).pipe(Effect.map((rows) => rows.length > 0))
+
   return yield* Effect.gen(function* () {
     const sessions = yield* query(sql`
       SELECT generation::int AS generation, title, native_session_id, runner_state, repository_id FROM agent_session WHERE session_id = ${sessionId}
@@ -139,6 +161,7 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
 
     // Native creation is idempotent on the deterministic session identity.
     if (session.native_session_id === null) {
+      if (yield* withheld) return "blocked" as const
       const created = yield* runner
         .createSession(sessionId, {
           generation: session.generation,
@@ -174,6 +197,7 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
         yield* markSession("blocked", "GitHub feedback reply needs delivery reconciliation")
         return "blocked" as const
       }
+      if (yield* withheld) return "blocked" as const
       // Record the attempt before sending: a crash mid-request leaves `uncertain`, never `pending`.
       yield* query(sql`
         UPDATE agent_input SET handoff_state = 'uncertain', handoff_attempts = handoff_attempts + 1
@@ -264,12 +288,16 @@ export const AgentHandoff = Workflow.make(AGENT_HANDOFF_TAG, {
   payload: HandoffPayload,
   success: HandoffOutcome,
   error: HandoffError,
-  idempotencyKey: ({ sessionId, sequence }) => `${sessionId}:${sequence ?? "create"}`,
+  idempotencyKey: handoffKey,
 })
 
 const settled = (sessionId: AgentSessionId, sequence: number | null) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
+    // Under a maintenance barrier nothing settles until release; the release
+    // re-requests delivery, so this execution has nothing left to wait for.
+    const barrier = yield* sql`SELECT 1 FROM agent_maintenance WHERE state <> 'released' LIMIT 1`
+    if (barrier.length > 0) return true
     if (sequence === null) {
       const rows = yield* sql<{ done: boolean }>`
         SELECT (native_session_id IS NOT NULL OR runner_state IN ('blocked', 'disconnected')) AS done

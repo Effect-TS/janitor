@@ -16,6 +16,7 @@ import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncRoutesLayer } from "./Sync.ts"
 import { ReadinessRoutesLayer } from "./Readiness.ts"
 import { RepositoryExecutionRoutes } from "./RepositoryExecution.ts"
+import { MaintenanceRoutesLayer } from "./Maintenance.ts"
 import { SessionRoutesLayer } from "./Sessions.ts"
 
 const ApiRouterLayer = Layer.effect(
@@ -24,7 +25,9 @@ const ApiRouterLayer = Layer.effect(
 )
 
 /**
- * The webhook route stays outside Access and relies on the GitHub signature.
+ * The webhook route stays outside Access and relies on the GitHub signature,
+ * as do the runner's credential authority and the operator maintenance routes,
+ * which carry their own service tokens.
  * Every human route sits behind the Access assertion check and requires an
  * active Janitor membership. The readiness probe needs Access only: a probe
  * is not a person, and must not be admitted as a teammate.
@@ -37,6 +40,7 @@ export const makeRoutesLayer = (
   Layer.mergeAll(
     makeGitHubWebHookRoutesLayer(secrets),
     RepositoryExecutionRoutes,
+    MaintenanceRoutesLayer,
     Layer.mergeAll(
       LiveRoutesLayer,
       SyncRoutesLayer,

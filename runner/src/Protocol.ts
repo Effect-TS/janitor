@@ -138,11 +138,27 @@ export const Maintenance = Schema.Struct({
 })
 export type Maintenance = typeof Maintenance.Type
 
+/** One verification performed before a hold is released. */
+export const MaintenanceCheck = Schema.Struct({
+  name: Schema.Literals(["fence", "state", "checkpoint", "model", "bridge"]),
+  ok: Schema.Boolean,
+  detail: Schema.String,
+})
+export type MaintenanceCheck = typeof MaintenanceCheck.Type
+
 export const MaintenanceResult = Schema.Struct({
   held: Schema.Boolean,
   epoch: Schema.NullOr(Schema.Int),
-  /** True once no host-scoped execution owned by this object can act. */
+  /**
+   * True once no host-scoped execution owned by this object can act and every
+   * archive it was uploading has settled. A hold answers false while an
+   * admitted foreground operation is still finishing; the caller asks again.
+   */
   quiescent: Schema.Boolean,
+  /** An operation's outcome is unknown; recovery stays blocked for reconciliation. */
+  uncertain: Schema.Boolean,
+  /** The checks a release ran; a refused release reports the failing ones and stays held. */
+  checks: Schema.Array(MaintenanceCheck),
 })
 export type MaintenanceResult = typeof MaintenanceResult.Type
 
