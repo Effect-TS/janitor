@@ -205,6 +205,9 @@ layer(agentLayers(fakeRunnerLayer(runner)), { timeout: "3 minutes" })(
             ["admitted", null],
           ],
         )
+        // The dashboard sees the terminal rejection instead of a pending input forever.
+        assert.strictEqual(view.projection?.execution, "failed")
+        assert.strictEqual(view.projection?.reason, "Input rejected: malformed")
       }),
     )
 

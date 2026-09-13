@@ -282,6 +282,15 @@ export class AgentSessions extends Context.Service<
               RETURNING ${inputColumns}
             `.pipe(Effect.flatMap(decodeInputs), wrap("accept"))
               yield* outbox.enqueue(handoffRequest(input.sessionId, sequence))
+              // Accepted work is meaningful activity, and it is work in flight until the
+              // runner reports otherwise: a historical failure does not outrank new input.
+              yield* sql`
+              UPDATE agent_session_projection SET
+                activity_at = GREATEST(COALESCE(activity_at, to_timestamp(0)), CLOCK_TIMESTAMP()),
+                execution = CASE WHEN execution IN ('idle', 'failed') THEN 'working' ELSE execution END,
+                reason = CASE WHEN execution IN ('idle', 'failed') THEN 'input pending' ELSE reason END
+              WHERE session_id = ${input.sessionId}
+            `.pipe(wrap("accept"))
               // Reads accelerate on new work; the obligation already exists.
               yield* sql`
               UPDATE agent_catchup SET due_at = LEAST(due_at, CLOCK_TIMESTAMP()), cadence = 'active'

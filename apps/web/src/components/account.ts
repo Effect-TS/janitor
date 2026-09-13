@@ -20,7 +20,7 @@ import { evo } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
-import { reasonOf, request } from "@/lib/api"
+import { readFailure, reasonOf, request } from "@/lib/api"
 import * as Icon from "@/lib/icons"
 import { UserRound } from "lucide"
 
@@ -109,14 +109,7 @@ export const Load = Command.define("LoadAccount", {
       Effect.flatMap((response) =>
         response.status === 200
           ? HttpIncomingMessage.schemaBodyJson(AccountView)(response)
-          : HttpIncomingMessage.schemaBodyJson(Schema.Struct({ message: Schema.String }))(
-              response,
-            ).pipe(
-              Effect.orElseSucceed(() => ({
-                message: "Could not load your account. Retry to continue.",
-              })),
-              Effect.flatMap((data) => Effect.fail(new Error(data.message))),
-            ),
+          : readFailure(response, "Could not load your account. Retry to continue."),
       ),
       Effect.map((view) => Message.Loaded({ view, requestId })),
       Effect.catch((error) =>

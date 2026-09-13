@@ -25,6 +25,8 @@ export const AppRoute = Route.defineRouteUnion({
   Rule: { ...repository, ruleId: Schema.String },
   Activity: repository,
   Settings: repository,
+  Sessions: {},
+  Session: { sessionId: Schema.String },
   Account: {},
   AccountReturn: {
     platform: Schema.String,
@@ -105,6 +107,12 @@ export const settings = pipe(
   Route.slash(Route.literal("settings")),
   Route.mapTo(AppRoute.Settings),
 )
+export const sessions = pipe(Route.literal("sessions"), Route.mapTo(AppRoute.Sessions))
+export const session = pipe(
+  Route.literal("sessions"),
+  Route.slash(idSegment("sessionId")),
+  Route.mapTo(AppRoute.Session),
+)
 export const account = pipe(Route.literal("account"), Route.mapTo(AppRoute.Account))
 // Platforms send the browser back here with `code` and `state`, or `error`.
 export const accountReturn = pipe(
@@ -135,6 +143,8 @@ export const parse = Route.parseUrlWithFallback(
     rule,
     activity,
     settings,
+    session,
+    sessions,
     accountReturn,
     account,
   ),
@@ -154,6 +164,8 @@ export const path = (route: AppRoute): string =>
     Rule: rule,
     Activity: activity,
     Settings: settings,
+    Sessions: sessions,
+    Session: session,
     Account: account,
     AccountReturn: accountReturn,
     NotFound: ({ path }) => path,

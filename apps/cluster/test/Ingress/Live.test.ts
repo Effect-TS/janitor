@@ -22,6 +22,7 @@ it.effect("checks origin and bounds websocket lifetime to the verified Access se
         }).pipe(
           Context.add(LiveUpdates, {
             flush: Effect.void,
+            connectSessions: () => Effect.succeed(new Response(null, { status: 500 })),
             connect: (repositoryId, expiry) =>
               Effect.sync(() => {
                 assert.strictEqual(repositoryId, "701")

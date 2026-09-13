@@ -16,7 +16,7 @@ it("never polls connected, hidden, or denied sessions", async () => {
   ] as const) {
     const messages = await Effect.runPromise(
       Live.subscriptions.liveFallback
-        .dependenciesToStream({ repositoryId: "701", ...state })
+        .dependenciesToStream({ channel: "701", ...state })
         .pipe(Stream.runCollect, Effect.provide(FetchHttpClient.layer)),
     )
     expect(messages).toEqual([])
@@ -28,7 +28,7 @@ it("waits a minute before a disconnected fallback refresh", async () => {
     const messages: Live.Message[] = []
     const done = Effect.runPromise(
       Live.subscriptions.liveFallback
-        .dependenciesToStream({ repositoryId: "701", visible: true, status: "disconnected" })
+        .dependenciesToStream({ channel: "701", visible: true, status: "disconnected" })
         .pipe(
           Stream.take(1),
           Stream.runForEach((message) =>
@@ -43,7 +43,7 @@ it("waits a minute before a disconnected fallback refresh", async () => {
     expect(messages).toEqual([])
     await vi.advanceTimersByTimeAsync(1)
     await done
-    expect(messages).toEqual([Live.Message.Fallback({ repositoryId: "701" })])
+    expect(messages).toEqual([Live.Message.Fallback({ channel: "701" })])
   } finally {
     vi.useRealTimers()
   }
@@ -53,9 +53,9 @@ it("fences old repositories and coalesces activity notifications during a fetch"
     { theme: { preferredTheme: "System", systemTheme: "Light" } },
     Option.getOrThrow(Url.fromString("https://janitor.test/repositories/701/activity")),
   ).model
-  const message = (repositoryId: string) =>
+  const message = (channel: string) =>
     Main.Message.GotLiveMessage({
-      message: Live.Message.Received({ repositoryId, connected: false, topics: ["activity"] }),
+      message: Live.Message.Received({ channel, connected: false, topics: ["activity"] }),
     })
   expect(Main.update(initial, message("other")).model).toBe(initial)
   const first = Main.update(initial, message("701"))

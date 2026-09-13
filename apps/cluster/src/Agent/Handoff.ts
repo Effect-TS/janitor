@@ -206,6 +206,12 @@ export const deliverSession = Effect.fn("AgentHandoff.deliverSession")(function*
           UPDATE agent_input SET handoff_state = 'rejected', handoff_error = ${failure.message}
           WHERE session_id = ${sessionId} AND sequence = ${next.sequence}
         `)
+        // Admission reached a terminal failure: the dashboard must not keep showing
+        // the input as pending. A later admission moves the session back to working.
+        yield* query(sql`
+          UPDATE agent_session_projection SET execution = 'failed', reason = ${`Input rejected: ${failure.message}`}
+          WHERE session_id = ${sessionId} AND execution = 'working' AND reason = 'input pending'
+        `)
         continue
       }
       yield* query(sql`
