@@ -57,7 +57,7 @@ export class GitHubRecoveryApi extends Context.Service<
       const auth = yield* GitHubAppAuth
       const http = yield* HttpClient.HttpClient
       const base = `${GITHUB_API_BASE_URL}/app/hook/deliveries`
-      const request = (url: string) =>
+      const request = (url: string, cursorRequest = false) =>
         Effect.gen(function* () {
           const jwt = yield* auth.appJwt
           const response = yield* http.execute(
@@ -83,7 +83,10 @@ export class GitHubRecoveryApi extends Context.Service<
             return yield* new RecoveryError({
               message: `GitHub retained-delivery request failed (${response.status})`,
               retryAfter: Math.max(30, retryAfter),
-              unavailable: response.status === 404 || response.status === 410,
+              unavailable:
+                response.status === 404 ||
+                response.status === 410 ||
+                (cursorRequest && (response.status === 400 || response.status === 422)),
             })
           const raw = yield* response.text
           // JSON reviver source preserves integer IDs before IEEE-754 rounding. The runtime is Node 24 / Workers.
@@ -128,7 +131,7 @@ export class GitHubRecoveryApi extends Context.Service<
                 retryAfter: 300,
                 unavailable: false,
               })
-            const result = yield* request(url)
+            const result = yield* request(url, cursor !== "")
             const deliveries = yield* Schema.decodeUnknownEffect(Schema.Array(DeliverySummary))(
               result.data,
             )

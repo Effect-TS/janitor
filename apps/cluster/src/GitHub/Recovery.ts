@@ -84,7 +84,19 @@ export class GitHubRecovery extends Context.Service<
             )
             return
           }
-          const page = yield* api.list(scan.cursor)
+          const listed = yield* api.list(scan.cursor).pipe(Effect.result)
+          if (listed._tag === "Failure") {
+            if (!listed.failure.unavailable || scan.cursor === "") return yield* listed.failure
+            delay = Math.max(300, listed.failure.retryAfter)
+            yield* sql.withTransaction(
+              Effect.gen(function* () {
+                if (!(yield* ownsScan)) return
+                yield* sql`UPDATE platform_recovery SET cursor='',gap='Saved delivery cursor is unavailable; restarting the retained window cannot recover expired history',due_at=CLOCK_TIMESTAMP()+make_interval(secs=>${delay}) WHERE scan_id='github'`
+              }),
+            )
+            return
+          }
+          const page = listed.success
           delay = Math.max(page.cursor === "" ? 300 : 1, page.retryAfter)
           yield* sql.withTransaction(
             Effect.gen(function* () {

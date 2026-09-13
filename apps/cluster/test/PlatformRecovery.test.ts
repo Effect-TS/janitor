@@ -26,6 +26,7 @@ let summaries: DeliverySummary[] = []
 let cursor = ""
 let unavailable = false
 let throttle = false
+let expiredCursor = false
 const fetched: string[] = []
 const cursors: string[] = []
 let slackMessages: SlackMessage[] = []
@@ -46,9 +47,13 @@ const services = Layer.mergeAll(GitHubRecovery.layer, SlackRecovery.layer).pipe(
   Layer.provide(
     Layer.succeed(GitHubRecoveryApi, {
       list: (after) =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
           cursors.push(after)
-          return { deliveries: summaries, cursor, retryAfter: 0 }
+          if (expiredCursor && after !== "")
+            return Effect.fail(
+              new RecoveryError({ message: "Cursor expired", retryAfter: 30, unavailable: true }),
+            )
+          return Effect.succeed({ deliveries: summaries, cursor, retryAfter: 0 })
         }),
       payload: (id) =>
         Effect.suspend(() => {
@@ -121,6 +126,7 @@ const setup = Effect.gen(function* () {
   cursor = ""
   unavailable = false
   throttle = false
+  expiredCursor = false
   slackMessages = []
   const sql = yield* SqlClient.SqlClient
   yield* sql`TRUNCATE github_recovery_attempt,github_feedback_receipt,github_feedback,slack_receipt,slack_contribution CASCADE`
@@ -145,6 +151,28 @@ const setup = Effect.gen(function* () {
   })
 })
 layer(services, { timeout: "3 minutes" })("Platform recovery", (it) => {
+  it.effect("records expired cursor gaps and resumes discovery of the retained window", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const recovery = yield* GitHubRecovery
+      cursor = "expired-page"
+      yield* recovery.processDue
+      expiredCursor = true
+      yield* due
+      yield* recovery.processDue
+      expiredCursor = false
+      cursor = ""
+      yield* due
+      yield* recovery.processDue
+      assert.deepStrictEqual(cursors, ["", "expired-page", ""])
+      assert.include(
+        (yield* (yield* AgentSessions).view("recovery")).recovery.find(
+          (row) => row.platform === "github",
+        )!.gap!,
+        "cursor",
+      )
+    }),
+  )
   it.effect(
     "retains exact attempt IDs and opaque page progress while deduplicating redelivery GUIDs",
     () =>
