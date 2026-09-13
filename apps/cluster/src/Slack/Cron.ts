@@ -1,3 +1,5 @@
+import { SlackRecovery } from "./Recovery.ts"
+import { GitHubRecovery } from "../GitHub/Recovery.ts"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Singleton from "effect/unstable/cluster/Singleton"
@@ -14,9 +16,17 @@ export const SlackCronLayer = Singleton.make(
     const delivery = yield* SlackDelivery
     const feedback = yield* GitHubFeedback
     const github = yield* GitHubDelivery
+    const slackRecovery = yield* SlackRecovery
+    const githubRecovery = yield* GitHubRecovery
     const started = yield* Clock.currentTimeMillis
     // Durable rows survive missed wakes; the minute cron always restarts discovery.
     while ((yield* Clock.currentTimeMillis) - started < 50_000) {
+      yield* slackRecovery.processDue.pipe(
+        Effect.catchCause((cause) => Effect.logError("Slack recovery failed", cause)),
+      )
+      yield* githubRecovery.processDue.pipe(
+        Effect.catchCause((cause) => Effect.logError("GitHub recovery failed", cause)),
+      )
       yield* feedback.processDue.pipe(
         Effect.catchCause((cause) => Effect.logError("GitHub feedback hydration failed", cause)),
       )

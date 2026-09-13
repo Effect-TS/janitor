@@ -1,0 +1,8 @@
+{
+  "phase": "passed",
+  "root": "1789298115.880799",
+  "outputIds": ["1cb714fc-5f12-4ca0-a409-016570f42420", "12d17149-b699-4d02-9543-ea9ed2686be0"],
+  "removalWarning": "channel_not_found",
+  "delivered": true,
+  "cleanup": ["deleted 1789298429.270669", "deleted 1789298428.063779", "deleted 1789298115.880799"]
+}

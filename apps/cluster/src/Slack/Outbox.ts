@@ -29,14 +29,15 @@ export const enqueueOutput = (
   text: string,
 ) =>
   Effect.gen(function* () {
-    if (kind === "progress") {
+    const parts = chunks(text)
+    if (kind === "progress" && parts.length === 1) {
       const replaced =
         yield* sql`UPDATE slack_output SET text=${text} WHERE kind='progress' AND state='pending' AND output_id=(
       SELECT output_id FROM slack_output WHERE session_id=${sessionId} ORDER BY sequence DESC LIMIT 1
     ) RETURNING output_id`
       if (replaced.length > 0) return
     }
-    for (const chunk of chunks(text)) {
+    for (const chunk of parts) {
       const [row] = yield* sql<{
         sequence: string
       }>`UPDATE slack_thread SET next_output=next_output+1 WHERE session_id=${sessionId} RETURNING (next_output-1)::text AS sequence`
