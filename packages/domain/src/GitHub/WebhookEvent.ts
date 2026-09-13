@@ -1,4 +1,8 @@
 import * as Schema from "effect/Schema"
+import {
+  IssueCommentWebhookEvent,
+  PullRequestReviewCommentWebhookEvent,
+} from "./WebhookEvent/Comment.ts"
 import { PingWebhookEvent } from "./WebhookEvent/Ping.ts"
 import {
   InstallationRepositoriesWebhookEvent,
@@ -29,6 +33,8 @@ export const GitHubWebhookEvent = Schema.Union([
   PullRequestWebhookEvent,
   IssueWebhookEvent,
   PullRequestReviewWebhookEvent,
+  PullRequestReviewCommentWebhookEvent,
+  IssueCommentWebhookEvent,
   CheckRunWebhookEvent,
   CheckSuiteWebhookEvent,
   CommitStatusWebhookEvent,

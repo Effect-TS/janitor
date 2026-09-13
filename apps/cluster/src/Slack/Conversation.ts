@@ -36,6 +36,7 @@ export interface Thread {
   readonly warning: string | null
   readonly progress_ts: string | null
   readonly publication_cursor: string
+  readonly active_contribution: string | null
 }
 export interface Contribution {
   readonly sequence: string

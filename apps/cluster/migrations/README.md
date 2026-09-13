@@ -147,6 +147,13 @@ requests are ineligible. Recovery does not replay blocked events or label existi
 items. Future repository automations must check repository readiness and retain
 an event's admission boundary through their external-write fence.
 
+`0026_github_feedback.sql` adds review membership, frozen authorization decisions,
+and GitHub reply intents for ongoing agent sessions. The accepted collaboration
+contract preserves agent inputs through readiness holds; labeling's event
+invalidation rule does not discard accepted agent work. Repository operations
+require current readiness, and reply publication holds the repository fence
+through authorization and the complete external write attempt.
+
 ## Repository disconnection
 
 `0020_repository_disconnection.sql` adds repository attribution for webhook

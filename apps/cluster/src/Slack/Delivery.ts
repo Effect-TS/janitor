@@ -6,7 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { RunnerClient } from "../Agent/RunnerClient.ts"
 import { SlackConfig } from "./Config.ts"
 import { SlackError, slackError, type Thread } from "./Conversation.ts"
-import { enqueueOutput } from "./Outbox.ts"
+import { enqueueAgentOutput } from "../Agent/Output.ts"
 import { SlackTransport } from "./Transport.ts"
 
 export interface Output {
@@ -21,6 +21,7 @@ export interface Output {
   readonly reconcile_cursor: string
 }
 const Fields = Schema.Struct({
+  inboxID: Schema.optionalKey(Schema.String),
   text: Schema.optionalKey(Schema.String),
   error: Schema.optionalKey(Schema.Struct({ message: Schema.optionalKey(Schema.String) })),
   metadata: Schema.optionalKey(
@@ -76,35 +77,38 @@ export class SlackDelivery extends Context.Service<
               if (!current) return
               let cursor = Number(current.publication_cursor)
               let publishedPr = current.pr_number
+              let contribution = current.active_contribution
+              const enqueueOutput = (
+                kind: "progress" | "response" | "error" | "question",
+                text: string,
+                overall = false,
+              ) => enqueueAgentOutput(sql, sessionId, contribution, kind, text, overall)
               for (const event of page.events) {
                 if (event.seq <= cursor) continue
                 const decoded = Schema.decodeUnknownOption(Fields)(event.data)
                 const fields = decoded._tag === "Some" ? decoded.value : {}
                 switch (event.type) {
                   case "session.tool.failed":
-                    if (fields.error?.message)
-                      yield* enqueueOutput(sql, sessionId, "error", fields.error.message)
+                    if (fields.error?.message) yield* enqueueOutput("error", fields.error.message)
                     break
                   case "session.text.ended":
-                    if (fields.text) yield* enqueueOutput(sql, sessionId, "response", fields.text)
+                    if (fields.text) yield* enqueueOutput("response", fields.text)
                     break
                   case "session.execution.failed":
                     yield* enqueueOutput(
-                      sql,
-                      sessionId,
                       "error",
                       fields.error?.message ?? "The agent could not finish this turn.",
                     )
-                    yield* enqueueOutput(
-                      sql,
-                      sessionId,
-                      "progress",
-                      "Work failed. See the error in this thread.",
-                    )
+                    yield* enqueueOutput("progress", "Work failed. See the error in this thread.")
                     break
-                  case "session.execution.started":
-                    yield* enqueueOutput(sql, sessionId, "progress", "Working on your request.")
+                  case "session.inbox.delivered": {
+                    const [input] = yield* sql<{
+                      contribution_key: string
+                    }>`SELECT contribution_key FROM agent_input WHERE session_id=${sessionId} AND runner_message_id=${fields.inboxID ?? ""}`
+                    if (input) contribution = input.contribution_key
+                    yield* enqueueOutput("progress", "Working on your request.")
                     break
+                  }
                   case "session.tool.success":
                     if (fields.metadata?.publication) {
                       const pr = fields.metadata.publication
@@ -118,8 +122,6 @@ export class SlackDelivery extends Context.Service<
                             yield* sql`SELECT 1 FROM slack_thread WHERE repository_id=${current.repository_id} AND pr_number=${String(pr.number)} AND session_id<>${sessionId} AND state<>'redirected'`
                           if (homes.length > 0) {
                             yield* enqueueOutput(
-                              sql,
-                              sessionId,
                               "error",
                               "This PR already belongs to another home thread. Its association needs reconciliation.",
                             )
@@ -129,42 +131,26 @@ export class SlackDelivery extends Context.Service<
                         }
                         publishedPr = String(pr.number)
                         yield* enqueueOutput(
-                          sql,
-                          sessionId,
                           "response",
                           `${pr.title}\n\n${pr.body}\n\nReview: ${pr.url}\nA teammate can review and merge this PR.`,
+                          true,
                         )
                       }
                     }
-                    yield* enqueueOutput(
-                      sql,
-                      sessionId,
-                      "progress",
-                      "Completed a step; continuing work.",
-                    )
+                    yield* enqueueOutput("progress", "Completed a step; continuing work.")
                     break
                   case "session.retry.scheduled":
-                    yield* enqueueOutput(
-                      sql,
-                      sessionId,
-                      "progress",
-                      "Waiting to retry the model request.",
-                    )
+                    yield* enqueueOutput("progress", "Waiting to retry the model request.")
                     break
                   case "session.execution.succeeded":
-                    yield* enqueueOutput(
-                      sql,
-                      sessionId,
-                      "progress",
-                      "Finished this turn. Reply here to continue.",
-                    )
+                    yield* enqueueOutput("progress", "Finished this turn. Reply here to continue.")
                     break
                   default:
                     break
                 }
                 cursor = event.seq
               }
-              yield* sql`UPDATE slack_thread SET publication_cursor=${cursor}::bigint,publication_due_at=CLOCK_TIMESTAMP()+make_interval(secs=>${page.execution === "working" || page.events.length > 0 ? 30 : 300}) WHERE session_id=${sessionId}`
+              yield* sql`UPDATE slack_thread SET active_contribution=${contribution},publication_cursor=${cursor}::bigint,publication_due_at=CLOCK_TIMESTAMP()+make_interval(secs=>${page.execution === "working" || page.events.length > 0 ? 30 : 300}) WHERE session_id=${sessionId}`
             }),
           )
         }).pipe(slackError)
