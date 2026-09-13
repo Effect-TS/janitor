@@ -588,7 +588,7 @@ const rosterRow = (
               entry.email === null
                 ? h.code([h.Class("font-mono text-sm")], [entry.subject])
                 : entry.email,
-              isSelf ? h.span([h.Class("text-muted-foreground")], [" (you)"]) : h.empty,
+              isSelf ? h.span([h.Class("ml-1 text-muted-foreground")], ["(you)"]) : h.empty,
             ],
           ),
           entry.email === null && !removed
