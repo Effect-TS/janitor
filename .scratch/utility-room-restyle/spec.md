@@ -17,12 +17,12 @@ The app uses shadcn semantic tokens (`bg-card`, `text-muted-foreground`, `bg-sid
 
 ## Sources of truth
 
-| Item | Source | Where it lands |
-| --- | --- | --- |
-| Design tokens and component specs | `docs/design/DESIGN.md` (checked in from the review attachment) | Update in ticket 01 with the recorded deviations |
-| Tailwind v4 theme | `docs/design/theme.css` (Tailwind + shadcn mapping, checked in) | `apps/web/src/styles.css`, replacing the oklch palette |
-| Night palette | `docs/settings-mockups/utility-room.css`, "Night shift" block | `apps/web/src/styles.css` `.dark` block |
-| Layout and content of the Account page | `docs/settings-mockups/07-sidebar-sections.html` | `apps/web/src/components/account.ts` |
+| Item                                   | Source                                                          | Where it lands                                         |
+| -------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------ |
+| Design tokens and component specs      | `docs/design/DESIGN.md` (checked in from the review attachment) | Update in ticket 01 with the recorded deviations       |
+| Tailwind v4 theme                      | `docs/design/theme.css` (Tailwind + shadcn mapping, checked in) | `apps/web/src/styles.css`, replacing the oklch palette |
+| Night palette                          | `docs/settings-mockups/utility-room.css`, "Night shift" block   | `apps/web/src/styles.css` `.dark` block                |
+| Layout and content of the Account page | `docs/settings-mockups/07-sidebar-sections.html`                | `apps/web/src/components/account.ts`                   |
 
 ## Recorded deviations from DESIGN.md
 
@@ -52,12 +52,12 @@ Tickets 01 to 05 are safe to ship independently; each leaves the app working wit
 
 `AppRoute.Account` gains a `section` field: `"you" | "accounts" | "team"`. Paths:
 
-| Path | Section |
-| --- | --- |
-| `/account` | `accounts` (default; redirect-free, just the default parse) |
-| `/account/you` | `you` |
-| `/account/accounts` | `accounts` |
-| `/account/team` | `team` |
+| Path                                         | Section                                                                     |
+| -------------------------------------------- | --------------------------------------------------------------------------- |
+| `/account`                                   | `accounts` (default; redirect-free, just the default parse)                 |
+| `/account/you`                               | `you`                                                                       |
+| `/account/accounts`                          | `accounts`                                                                  |
+| `/account/team`                              | `team`                                                                      |
 | `/account/:platform/return?code&state&error` | unchanged `AccountReturn`; after completion navigate to `/account/accounts` |
 
 `accountReturn` stays first in `Route.oneOf` so `/account/slack/return` never parses as a section. `Routes.section` / `Routes.sectionPath` are repository-scoped and must not be reused.
@@ -71,12 +71,14 @@ Each section is: one enamel sign (`h2`, uppercase, Big Shoulders), one lede sent
 ### Section content (what is shown, and nothing else)
 
 **You**
+
 - Email (or subject when email is null)
 - Role chip: `admin` (yellow on-state) or `member`
 - Teammate since `createdAt`
 - Lede: "How Janitor knows you. Sign-in is handled by Cloudflare Access."
 
 **Connected accounts**
+
 - Lede: "Accounts that can give Janitor instructions on your behalf."
 - One row per platform (GitHub, Slack) with a 30px platform mark, the platform name, and exactly one status line:
   - active link: "Connected as `displayName`"
@@ -89,6 +91,7 @@ Each section is: one enamel sign (`h2`, uppercase, Big Shoulders), one lede sent
 - Removed from today's view: workspace IDs, account IDs, linked dates, "in workspace T1" phrasing.
 
 **Team** (admin only; `view.team !== null`)
+
 - Lede: "Everyone who has signed in. New teammates start as members."
 - Dense list (`.jn-dense`): avatar initials, email (or subject with a "No email on record" sub-line), role chip, and for other active teammates **Make admin / Make member** and filled rust **Remove**. Your own row shows no actions.
 - Removed teammates are collapsed. Panel footer: "N active" on the left, a link-style "Show N removed / Hide removed" toggle on the right (view-local boolean in the Account model, not persisted). Removed rows show `removed` danger chip and **Restore**.

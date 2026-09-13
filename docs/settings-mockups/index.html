@@ -1,62 +1,201 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Settings mockups · The Janitor</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=Spline+Sans+Mono:wght@400;600&display=swap">
-<link rel="stylesheet" href="utility-room.css">
-<style>
-  .wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 34px; display: flex; flex-direction: column; gap: 26px; }
-  .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 22px; }
-  .item { display: flex; flex-direction: column; gap: 10px; }
-  .item .states { display: flex; flex-wrap: wrap; gap: 6px; }
-  .item .states a { font-size: var(--text-body-sm); }
-</style>
-</head>
-<body>
-<header class="rail"><div class="brand"><span class="mark"></span>The Janitor · Settings mockups</div><div class="who">docs/settings-mockups</div></header>
-<div class="wrap">
-  <div class="panel">
-    <h1 class="t-h2">Settings screen, six layouts</h1>
-    <p style="margin-top:8px">Each page covers the same states: GitHub connected, never linked or disconnected; Slack connected, never linked, disconnected or not configured; and team management as an admin or as a member. Use the control bar at the top of each page to switch states and between day and night shift, or the deep links below.</p>
-    <p class="t-body-sm muted" style="margin-top:8px">Data shown is what the account view returns today: issuer, subject, email, role, status, timestamps, and per-platform links with workspace ID, account ID, display name, status, linked and ended times. No avatars, no token expiry, no invitations exist in the model, so none are shown.</p>
-  </div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings mockups · The Janitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Big+Shoulders+Display:wght@600;700;800&family=Spline+Sans+Mono:wght@400;600&display=swap"
+    />
+    <link rel="stylesheet" href="utility-room.css" />
+    <style>
+      .wrap {
+        position: relative;
+        z-index: 1;
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 34px;
+        display: flex;
+        flex-direction: column;
+        gap: 26px;
+      }
+      .list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 22px;
+      }
+      .item {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .item .states {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .item .states a {
+        font-size: var(--text-body-sm);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="rail">
+      <div class="brand"><span class="mark"></span>The Janitor · Settings mockups</div>
+      <div class="who">docs/settings-mockups</div>
+    </header>
+    <div class="wrap">
+      <div class="panel">
+        <h1 class="t-h2">Settings screen, six layouts</h1>
+        <p style="margin-top: 8px">
+          Each page covers the same states: GitHub connected, never linked or disconnected; Slack
+          connected, never linked, disconnected or not configured; and team management as an admin
+          or as a member. Use the control bar at the top of each page to switch states and between
+          day and night shift, or the deep links below.
+        </p>
+        <p class="t-body-sm muted" style="margin-top: 8px">
+          Data shown is what the account view returns today: issuer, subject, email, role, status,
+          timestamps, and per-platform links with workspace ID, account ID, display name, status,
+          linked and ended times. No avatars, no token expiry, no invitations exist in the model, so
+          none are shown.
+        </p>
+      </div>
 
-  <div class="list">
-    <div class="panel item">
-      <a class="t-h3" href="07-sidebar-sections.html">07 · Sidebar sections</a>
-      <p class="t-body-sm muted">Grounded in the real app shell. A settings rack on the left switches between Account, Connected accounts and Team; each section is trimmed to fit one screen.</p>
-      <div class="states"><a href="07-sidebar-sections.html?github=connected&slack=connected&viewer=admin#accounts">all connected</a> · <a href="07-sidebar-sections.html?github=never&slack=never&viewer=admin#accounts">never linked</a> · <a href="07-sidebar-sections.html?github=disconnected&slack=disconnected&viewer=admin#accounts">disconnected</a> · <a href="07-sidebar-sections.html?github=connected&slack=unavailable&viewer=member#team">member, Slack unavailable</a> · <a href="07-sidebar-sections.html?github=connected&slack=connected&viewer=admin&theme=night#accounts">night shift</a></div>
+      <div class="list">
+        <div class="panel item">
+          <a class="t-h3" href="07-sidebar-sections.html">07 · Sidebar sections</a>
+          <p class="t-body-sm muted">
+            Grounded in the real app shell. A settings rack on the left switches between Account,
+            Connected accounts and Team; each section is trimmed to fit one screen.
+          </p>
+          <div class="states">
+            <a
+              href="07-sidebar-sections.html?github=connected&slack=connected&viewer=admin#accounts"
+              >all connected</a
+            >
+            ·
+            <a href="07-sidebar-sections.html?github=never&slack=never&viewer=admin#accounts"
+              >never linked</a
+            >
+            ·
+            <a
+              href="07-sidebar-sections.html?github=disconnected&slack=disconnected&viewer=admin#accounts"
+              >disconnected</a
+            >
+            ·
+            <a href="07-sidebar-sections.html?github=connected&slack=unavailable&viewer=member#team"
+              >member, Slack unavailable</a
+            >
+            ·
+            <a
+              href="07-sidebar-sections.html?github=connected&slack=connected&viewer=admin&theme=night#accounts"
+              >night shift</a
+            >
+          </div>
+        </div>
+        <div class="panel item">
+          <a class="t-h3" href="01-breaker-board.html">01 · Breaker board</a>
+          <p class="t-body-sm muted">
+            Canonical DESIGN.md shell. Connected accounts live on the navy breaker panel as two
+            switches. Team is a chunky data-row list.
+          </p>
+          <div class="states">
+            <a href="01-breaker-board.html?github=connected&slack=connected&viewer=admin"
+              >all connected</a
+            >
+            ·
+            <a href="01-breaker-board.html?github=never&slack=never&viewer=admin">never linked</a> ·
+            <a href="01-breaker-board.html?github=disconnected&slack=disconnected&viewer=admin"
+              >disconnected</a
+            >
+            ·
+            <a href="01-breaker-board.html?github=connected&slack=unavailable&viewer=member"
+              >member, Slack unavailable</a
+            >
+          </div>
+        </div>
+        <div class="panel item">
+          <a class="t-h3" href="02-ledger.html">02 · Ledger</a>
+          <p class="t-body-sm muted">
+            Hook tags along the top. Sticky summary column for you and your accounts; the roster is
+            a dense table with a role select, plus the audit trail.
+          </p>
+          <div class="states">
+            <a href="02-ledger.html?github=connected&slack=connected&viewer=admin">all connected</a>
+            · <a href="02-ledger.html?github=never&slack=never&viewer=admin">never linked</a> ·
+            <a href="02-ledger.html?github=disconnected&slack=disconnected&viewer=admin"
+              >disconnected</a
+            >
+            ·
+            <a href="02-ledger.html?github=connected&slack=unavailable&viewer=member"
+              >member, Slack unavailable</a
+            >
+          </div>
+        </div>
+        <div class="panel item">
+          <a class="t-h3" href="03-clipboard.html">03 · Clipboard roster</a>
+          <p class="t-body-sm muted">
+            One enamel sign per platform, side by side. The team is a duty roster held on the
+            clipboard, the loud object.
+          </p>
+          <div class="states">
+            <a href="03-clipboard.html?github=connected&slack=connected&viewer=admin"
+              >all connected</a
+            >
+            · <a href="03-clipboard.html?github=never&slack=never&viewer=admin">never linked</a> ·
+            <a href="03-clipboard.html?github=disconnected&slack=disconnected&viewer=admin"
+              >disconnected</a
+            >
+            ·
+            <a href="03-clipboard.html?github=connected&slack=unavailable&viewer=member"
+              >member, Slack unavailable</a
+            >
+          </div>
+        </div>
+        <div class="panel item">
+          <a class="t-h3" href="04-punch-card.html">04 · Punch card</a>
+          <p class="t-body-sm muted">
+            Punch-card hero with tallies and a stamp that names the next action. Everything else is
+            one tall panel with hairline sections.
+          </p>
+          <div class="states">
+            <a href="04-punch-card.html?github=connected&slack=connected&viewer=admin"
+              >all connected</a
+            >
+            · <a href="04-punch-card.html?github=never&slack=never&viewer=admin">never linked</a> ·
+            <a href="04-punch-card.html?github=disconnected&slack=disconnected&viewer=admin"
+              >disconnected</a
+            >
+            ·
+            <a href="04-punch-card.html?github=connected&slack=unavailable&viewer=member"
+              >member, Slack unavailable</a
+            >
+          </div>
+        </div>
+        <div class="panel item">
+          <a class="t-h3" href="05-card-grid.html">05 · Card grid</a>
+          <p class="t-body-sm muted">
+            Full-width link ledger with replaced and disconnected history. Teammates are cards with
+            an Admin breaker each.
+          </p>
+          <div class="states">
+            <a href="05-card-grid.html?github=connected&slack=connected&viewer=admin"
+              >all connected</a
+            >
+            · <a href="05-card-grid.html?github=never&slack=never&viewer=admin">never linked</a> ·
+            <a href="05-card-grid.html?github=disconnected&slack=disconnected&viewer=admin"
+              >disconnected</a
+            >
+            ·
+            <a href="05-card-grid.html?github=connected&slack=unavailable&viewer=member"
+              >member, Slack unavailable</a
+            >
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="panel item">
-      <a class="t-h3" href="01-breaker-board.html">01 · Breaker board</a>
-      <p class="t-body-sm muted">Canonical DESIGN.md shell. Connected accounts live on the navy breaker panel as two switches. Team is a chunky data-row list.</p>
-      <div class="states"><a href="01-breaker-board.html?github=connected&slack=connected&viewer=admin">all connected</a> · <a href="01-breaker-board.html?github=never&slack=never&viewer=admin">never linked</a> · <a href="01-breaker-board.html?github=disconnected&slack=disconnected&viewer=admin">disconnected</a> · <a href="01-breaker-board.html?github=connected&slack=unavailable&viewer=member">member, Slack unavailable</a></div>
-    </div>
-    <div class="panel item">
-      <a class="t-h3" href="02-ledger.html">02 · Ledger</a>
-      <p class="t-body-sm muted">Hook tags along the top. Sticky summary column for you and your accounts; the roster is a dense table with a role select, plus the audit trail.</p>
-      <div class="states"><a href="02-ledger.html?github=connected&slack=connected&viewer=admin">all connected</a> · <a href="02-ledger.html?github=never&slack=never&viewer=admin">never linked</a> · <a href="02-ledger.html?github=disconnected&slack=disconnected&viewer=admin">disconnected</a> · <a href="02-ledger.html?github=connected&slack=unavailable&viewer=member">member, Slack unavailable</a></div>
-    </div>
-    <div class="panel item">
-      <a class="t-h3" href="03-clipboard.html">03 · Clipboard roster</a>
-      <p class="t-body-sm muted">One enamel sign per platform, side by side. The team is a duty roster held on the clipboard, the loud object.</p>
-      <div class="states"><a href="03-clipboard.html?github=connected&slack=connected&viewer=admin">all connected</a> · <a href="03-clipboard.html?github=never&slack=never&viewer=admin">never linked</a> · <a href="03-clipboard.html?github=disconnected&slack=disconnected&viewer=admin">disconnected</a> · <a href="03-clipboard.html?github=connected&slack=unavailable&viewer=member">member, Slack unavailable</a></div>
-    </div>
-    <div class="panel item">
-      <a class="t-h3" href="04-punch-card.html">04 · Punch card</a>
-      <p class="t-body-sm muted">Punch-card hero with tallies and a stamp that names the next action. Everything else is one tall panel with hairline sections.</p>
-      <div class="states"><a href="04-punch-card.html?github=connected&slack=connected&viewer=admin">all connected</a> · <a href="04-punch-card.html?github=never&slack=never&viewer=admin">never linked</a> · <a href="04-punch-card.html?github=disconnected&slack=disconnected&viewer=admin">disconnected</a> · <a href="04-punch-card.html?github=connected&slack=unavailable&viewer=member">member, Slack unavailable</a></div>
-    </div>
-    <div class="panel item">
-      <a class="t-h3" href="05-card-grid.html">05 · Card grid</a>
-      <p class="t-body-sm muted">Full-width link ledger with replaced and disconnected history. Teammates are cards with an Admin breaker each.</p>
-      <div class="states"><a href="05-card-grid.html?github=connected&slack=connected&viewer=admin">all connected</a> · <a href="05-card-grid.html?github=never&slack=never&viewer=admin">never linked</a> · <a href="05-card-grid.html?github=disconnected&slack=disconnected&viewer=admin">disconnected</a> · <a href="05-card-grid.html?github=connected&slack=unavailable&viewer=member">member, Slack unavailable</a></div>
-    </div>
-  </div>
-</div>
-</body>
+  </body>
 </html>

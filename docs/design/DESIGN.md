@@ -328,14 +328,14 @@ and a breaker panel with real switches on it.
 The metaphor is load-bearing, not costume. Every physical object in the UI maps
 to something that is genuinely physical in the product's model:
 
-| Object | What it holds |
-| --- | --- |
-| Breaker panel | Standing permissions — binary, consequential, rarely changed |
-| Clipboard | Schedules and preferences — a duty roster you fill in |
-| Enamel sign | Section boundaries you can find by scanning, not reading |
-| Hazard stripes | Destructive actions only |
-| Punch card | Agent status and recent activity |
-| Key tags on a rail | Navigation — things you take down and carry |
+| Object             | What it holds                                                |
+| ------------------ | ------------------------------------------------------------ |
+| Breaker panel      | Standing permissions — binary, consequential, rarely changed |
+| Clipboard          | Schedules and preferences — a duty roster you fill in        |
+| Enamel sign        | Section boundaries you can find by scanning, not reading     |
+| Hazard stripes     | Destructive actions only                                     |
+| Punch card         | Agent status and recent activity                             |
+| Key tags on a rail | Navigation — things you take down and carry                  |
 
 Three rules keep it from becoming a theme park.
 
@@ -405,6 +405,12 @@ All foreground/background pairs in `components` clear WCAG AA (4.5:1). The
 tightest pair is `danger` on `surface` at 5.15:1; do not darken the cream or
 lighten the rust without re-checking.
 
+**Night shift.** The dark theme is warm charcoal, never navy. Wall `#1c1b18`,
+mortar `#262420`, card `#2a2823`, raised `#34312b`, inset `#14130f`, outlines
+`#5a554b` and `#7b7466`, ink `#f6efdd`, muted `#a8a08e`, rust `#e0705c`.
+Enamel signs, yellow on-states and the hazard stripe keep their day colours;
+they are plates mounted on the wall, and the wall is what changes.
+
 ## Typography
 
 Three families, each with a job that maps to a physical thing.
@@ -429,19 +435,19 @@ a dense operational tool rather than a marketing page. Display sizes jump hard
 away from the body sizes so headings act as landmarks rather than as slightly
 bigger paragraphs.
 
-| Token | Size | Use |
-| --- | --- | --- |
-| `display` | 44px | Punch-card headline, one per page |
-| `stamp` | 34px | Rotated status stamp |
-| `sign` | 25px | Enamel section plates, save bar |
-| `numeral` | 27px | Tally figures on the punch card |
-| `h2` | 20px | Panel headings inside a section |
-| `h3` | 16px | Row titles, breaker names |
-| `label` | 14.5px | Form labels |
-| `body-md` | 15px | Default |
-| `body-sm` | 13px | Help text, row metadata |
-| `mono-md` | 14.5px | Repository and branch names |
-| `mono-sm` | 11px | Tape labels, chips, run IDs |
+| Token     | Size   | Use                               |
+| --------- | ------ | --------------------------------- |
+| `display` | 44px   | Punch-card headline, one per page |
+| `stamp`   | 34px   | Rotated status stamp              |
+| `sign`    | 25px   | Enamel section plates, save bar   |
+| `numeral` | 27px   | Tally figures on the punch card   |
+| `h2`      | 20px   | Panel headings inside a section   |
+| `h3`      | 16px   | Row titles, breaker names         |
+| `label`   | 14.5px | Form labels                       |
+| `body-md` | 15px   | Default                           |
+| `body-sm` | 13px   | Help text, row metadata           |
+| `mono-md` | 14.5px | Repository and branch names       |
+| `mono-sm` | 11px   | Tape labels, chips, run IDs       |
 
 Body copy caps at 62 characters. Help text sits directly under its label at
 `on-surface-muted`, never in a tooltip.
@@ -497,8 +503,9 @@ mounted on the wall, recessed into a plate, or printed flat.
 
 ```css
 border: 3px solid var(--color-secondary);
-box-shadow: 0 3px 0 var(--color-secondary-hover),
-            0 6px 14px rgb(11 20 54 / 0.28);
+box-shadow:
+  0 3px 0 var(--color-secondary-hover),
+  0 6px 14px rgb(11 20 54 / 0.28);
 ```
 
 A hard navy drop edge does the work; the soft shadow only grounds it against the
@@ -589,8 +596,9 @@ the right, hairline divider between. Used for schedules and notifications.
 ### Buttons
 
 Four variants, all with a 2.5px border and a 3px hard drop edge in the border
-color. Primary is yellow, secondary is cream with a navy border, danger is cream
-with a rust border that inverts to a rust fill on hover, and ghost is a dashed
+color. Primary is yellow, secondary is cream with a navy border, danger is a
+rust fill with cream text and a rust-dark border and edge that darkens on hover
+(so it reads as the primary button in a different paint), and ghost is a dashed
 transparent outline with no drop edge and no press travel.
 
 Labels are sentence case verbs that name the outcome: "Save changes", "Pause

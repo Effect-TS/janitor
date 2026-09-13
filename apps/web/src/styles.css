@@ -1,9 +1,168 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/archivo";
+@import "@fontsource-variable/big-shoulders-display";
+@import "@fontsource-variable/spline-sans-mono";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ----------------------------------------------------------------------------
+   Utility Room — brand palette. Normative values from docs/design/DESIGN.md.
+   Prefer the semantic tokens below in app code; reach for these only for
+   hardware (rails, clips, screws) and the utilities at the bottom.
+---------------------------------------------------------------------------- */
+:root {
+  --jn-cobalt: #1e5fd0;
+  --jn-cobalt-dark: #174ca8;
+  --jn-cobalt-light: #4a8af0;
+
+  --jn-navy: #12225c;
+  --jn-navy-deep: #0b1436;
+  --jn-panel: #0e1b4a;
+  --jn-inset: #0a1233;
+
+  --jn-yellow: #ffce1b;
+  --jn-yellow-dark: #e0a800;
+
+  --jn-cream: #f6efdd;
+  --jn-cream-hi: #fffbf0;
+
+  --jn-wall: #ddd8c9;
+  --jn-mortar: #c7c1b0;
+  --jn-board: #b9ae93;
+
+  --jn-rust: #b23a2b;
+  --jn-rust-dark: #8e2c20;
+
+  --jn-metal: #8e97ae;
+  --jn-metal-dark: #4c5570;
+
+  --jn-muted-ink: #4a5478;
+  --jn-muted-panel-ink: #9daad0;
+
+  /* Outline colour for mounted objects; night shift lifts it to a warm grey. */
+  --jn-outline: var(--jn-navy);
+
+  /* Depth primitives — DESIGN.md § Elevation & Depth */
+  --jn-edge: 0 3px 0 var(--jn-navy-deep);
+  --jn-mount: 0 3px 0 var(--jn-navy-deep), 0 6px 14px rgb(11 20 54 / 0.28);
+  --jn-recess: inset 0 3px 6px rgb(11 20 54 / 0.55);
+  --jn-ease: cubic-bezier(0.3, 1.6, 0.6, 1);
+
+  /* Wall: running-bond cinderblock, deliberately near-subliminal */
+  --jn-wall-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='152' height='76'><rect width='152' height='76' fill='%23DDD8C9'/><g stroke='%23C7C1B0' stroke-width='2' fill='none'><path d='M0 1 H152 M0 39 H152 M0 75 H152'/><path d='M1 1 V39 M77 39 V76'/></g></svg>");
+  --jn-noise-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>");
+}
+
+/* ----------------------------------------------------------------------------
+   Semantic tokens — day shift. Names are unchanged so existing utilities such
+   as bg-card and text-muted-foreground keep working.
+---------------------------------------------------------------------------- */
+:root {
+  --radius: 6px;
+
+  --background: var(--jn-wall);
+  --foreground: var(--jn-navy);
+
+  --card: var(--jn-cream);
+  --card-foreground: var(--jn-navy);
+  --popover: var(--jn-cream-hi);
+  --popover-foreground: var(--jn-navy);
+
+  /* Primary = safety yellow: the primary action. Cobalt is structure. */
+  --primary: var(--jn-yellow);
+  --primary-foreground: var(--jn-navy);
+
+  --secondary: var(--jn-cream);
+  --secondary-foreground: var(--jn-navy);
+
+  --muted: var(--jn-mortar);
+  --muted-foreground: var(--jn-muted-ink);
+
+  --accent: var(--jn-cobalt);
+  --accent-foreground: var(--jn-cream-hi);
+
+  --destructive: var(--jn-rust);
+  --destructive-foreground: var(--jn-cream-hi);
+
+  --border: var(--jn-navy);
+  --input: var(--jn-navy);
+  --ring: var(--jn-yellow);
+
+  --chart-1: var(--jn-cobalt);
+  --chart-2: var(--jn-yellow);
+  --chart-3: var(--jn-navy);
+  --chart-4: var(--jn-cobalt-light);
+  --chart-5: var(--jn-rust);
+
+  --sidebar: var(--jn-wall);
+  --sidebar-foreground: var(--jn-navy);
+  --sidebar-primary: var(--jn-yellow);
+  --sidebar-primary-foreground: var(--jn-navy);
+  --sidebar-accent: var(--jn-cream);
+  --sidebar-accent-foreground: var(--jn-navy);
+  --sidebar-border: var(--jn-navy);
+  --sidebar-ring: var(--jn-yellow);
+}
+
+/* ----------------------------------------------------------------------------
+   Night shift. The room goes dark, not blue: warm charcoal walls, cream ink,
+   and the same cobalt, yellow and rust plates mounted on top.
+---------------------------------------------------------------------------- */
+.dark {
+  --nt-wall: #1c1b18;
+  --nt-mortar: #262420;
+  --nt-card: #2a2823;
+  --nt-card-hi: #34312b;
+  --nt-inset: #14130f;
+  --nt-line: #5a554b;
+  --nt-line-strong: #7b7466;
+  --nt-ink: #f6efdd;
+  --nt-muted: #a8a08e;
+  --nt-rust: #e0705c;
+
+  --background: var(--nt-wall);
+  --foreground: var(--nt-ink);
+
+  --card: var(--nt-card);
+  --card-foreground: var(--nt-ink);
+  --popover: var(--nt-card-hi);
+  --popover-foreground: var(--nt-ink);
+
+  --primary: var(--jn-yellow);
+  --primary-foreground: var(--jn-navy);
+
+  --secondary: var(--nt-card-hi);
+  --secondary-foreground: var(--nt-ink);
+
+  --muted: var(--nt-mortar);
+  --muted-foreground: var(--nt-muted);
+
+  --accent: var(--jn-cobalt-light);
+  --accent-foreground: var(--nt-inset);
+
+  --destructive: var(--nt-rust);
+  --destructive-foreground: var(--nt-inset);
+
+  --border: var(--nt-line);
+  --input: var(--nt-line-strong);
+  --ring: var(--jn-yellow);
+
+  --sidebar: var(--nt-wall);
+  --sidebar-foreground: var(--nt-ink);
+  --sidebar-accent: var(--nt-card-hi);
+  --sidebar-accent-foreground: var(--nt-ink);
+  --sidebar-border: var(--nt-line);
+
+  --jn-outline: var(--nt-line-strong);
+  --jn-mount: 0 3px 0 #000, 0 6px 14px rgb(0 0 0 / 0.5);
+  --jn-edge: 0 3px 0 #000;
+  --jn-wall-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='152' height='76'><rect width='152' height='76' fill='%231C1B18'/><g stroke='%23262420' stroke-width='2' fill='none'><path d='M0 1 H152 M0 39 H152 M0 75 H152'/><path d='M1 1 V39 M77 39 V76'/></g></svg>");
+}
+
+/* ----------------------------------------------------------------------------
+   Theme mapping — exposes tokens as Tailwind utilities
+---------------------------------------------------------------------------- */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -29,19 +188,6 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --font-sans:
-    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
-    "Noto Color Emoji";
-  --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-    monospace;
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -50,6 +196,76 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Brand-named colours: bg-cobalt, text-rust, border-navy, … */
+  --color-cobalt: var(--jn-cobalt);
+  --color-cobalt-dark: var(--jn-cobalt-dark);
+  --color-cobalt-light: var(--jn-cobalt-light);
+  --color-navy: var(--jn-navy);
+  --color-navy-deep: var(--jn-navy-deep);
+  --color-panel: var(--jn-panel);
+  --color-inset: var(--jn-inset);
+  --color-yellow-safety: var(--jn-yellow);
+  --color-yellow-safety-dark: var(--jn-yellow-dark);
+  --color-cream: var(--jn-cream);
+  --color-cream-hi: var(--jn-cream-hi);
+  --color-wall: var(--jn-wall);
+  --color-mortar: var(--jn-mortar);
+  --color-board: var(--jn-board);
+  --color-rust: var(--jn-rust);
+  --color-rust-dark: var(--jn-rust-dark);
+  --color-metal: var(--jn-metal);
+  --color-metal-dark: var(--jn-metal-dark);
+  --color-outline: var(--jn-outline);
+
+  /* Type */
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sign: "Big Shoulders Display Variable", "Archivo Narrow", sans-serif;
+  --font-mono: "Spline Sans Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+
+  --text-body-sm: 0.8125rem;
+  --text-body-sm--line-height: 1.45;
+  --text-body-md: 0.9375rem;
+  --text-body-md--line-height: 1.5;
+  --text-label: 0.90625rem;
+  --text-label--line-height: 1.4;
+  --text-button: 0.875rem;
+  --text-button--line-height: 1.2;
+  --text-h3: 1rem;
+  --text-h3--line-height: 1.35;
+  --text-h2: 1.25rem;
+  --text-h2--line-height: 1.3;
+  --text-sign: 1.5625rem;
+  --text-sign--line-height: 1.1;
+  --text-sign--letter-spacing: 0.09em;
+  --text-numeral: 1.6875rem;
+  --text-numeral--line-height: 1.1;
+  --text-stamp: 2.125rem;
+  --text-stamp--line-height: 1.15;
+  --text-stamp--letter-spacing: 0.09em;
+  --text-display: 2.75rem;
+  --text-display--line-height: 1;
+  --text-mono-sm: 0.6875rem;
+  --text-mono-sm--letter-spacing: 0.02em;
+  --text-mono-md: 0.90625rem;
+
+  /* Shape. Small and deliberately inconsistent; see DESIGN.md § Shapes. */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 14px;
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Depth — shadow-mount / shadow-edge / shadow-recess */
+  --shadow-mount: var(--jn-mount);
+  --shadow-edge: var(--jn-edge);
+  --shadow-recess: var(--jn-recess);
+
+  /* Motion */
+  --ease-switch: var(--jn-ease);
 
   @keyframes accordion-down {
     from {
@@ -71,77 +287,6 @@
   }
 }
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.97 0.01 17);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.371 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.58 0.22 27);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -149,14 +294,45 @@
 
   body {
     @apply bg-background text-foreground;
+    background-image: var(--jn-wall-image);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Fractal grain over the cinderblock. Felt, not read. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: var(--jn-noise-image);
+  }
+  .dark body::before {
+    opacity: 0.04;
   }
 
   html {
     @apply font-sans;
   }
 
+  /* Focus is always safety yellow, never a soft blue halo. */
+  :focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+
   [data-leave] {
     --tw-animation-fill-mode: both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -168,6 +344,257 @@
     display: none;
   }
 }
+
+/* ----------------------------------------------------------------------------
+   Utility Room primitives. Composable utilities, not components.
+---------------------------------------------------------------------------- */
+
+/* Every raised object gets exactly this. Sameness is the point. */
+@utility jn-mount {
+  border: 3px solid var(--jn-outline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--jn-mount);
+}
+
+/* Controls that things sit inside: switch tracks, inputs, checkboxes. */
+@utility jn-recess {
+  box-shadow: var(--jn-recess);
+}
+
+/* Enamel section sign. Pair with font-sign + uppercase + text-sign. */
+@utility jn-sign {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px 9px;
+  color: var(--jn-cream-hi);
+  background: linear-gradient(
+    180deg,
+    var(--jn-cobalt-light) 0%,
+    var(--jn-cobalt) 22%,
+    var(--jn-cobalt-dark) 100%
+  );
+  border: 3px solid var(--jn-navy-deep);
+  border-radius: var(--radius-md);
+  box-shadow:
+    inset 0 0 0 2px rgb(246 239 221 / 0.9),
+    var(--jn-mount);
+}
+
+/* Mounting-screw dot. Put one inside .jn-sign as the first child. */
+@utility jn-screw {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: rgb(246 239 221 / 0.75);
+}
+
+/* Buttons travel into the surface when pressed. The whole motion budget. */
+@utility jn-press {
+  box-shadow: var(--jn-edge);
+  transition:
+    transform 80ms,
+    box-shadow 80ms;
+
+  &:active {
+    transform: translateY(3px);
+    box-shadow: 0 0 0 currentColor;
+  }
+}
+
+/* Destructive-zone marker. Top edge of a region only — never on a button. */
+@utility jn-hazard {
+  height: 16px;
+  border-bottom: 3px solid var(--jn-navy);
+  background: repeating-linear-gradient(45deg, var(--jn-yellow) 0 14px, var(--jn-navy) 14px 28px);
+}
+
+/* Brushed steel: hook rails, clipboard clips. Hardware only, never text. */
+@utility jn-steel {
+  background: linear-gradient(180deg, #d2d8e6, var(--jn-metal) 55%, var(--jn-metal-dark));
+  border: 2px solid var(--jn-navy-deep);
+}
+
+/* Perforated card stock for the punch card. */
+@utility jn-perforated {
+  background:
+    radial-gradient(circle at 10px 0, transparent 5px, var(--jn-cream-hi) 5.5px) 0 0 / 20px 12px
+      repeat-x,
+    var(--jn-cream-hi);
+}
+
+/* Empty-state fill: dashed top edge + faint hatch. */
+@utility jn-empty {
+  border-top: 2px dashed color-mix(in srgb, var(--foreground) 30%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 9px,
+    color-mix(in srgb, var(--foreground) 5%, transparent) 9px 18px
+  );
+}
+
+/* Marks work the agent did itself, in timelines and diffs. Semantic. */
+@utility jn-agent {
+  border-left: 3px solid var(--jn-cobalt-light);
+}
+
+/* ----------------------------------------------------------------------------
+   Density switch. Past eight rows, contents go quiet while the panel stays an
+   object. Apply .jn-dense to the list container.
+---------------------------------------------------------------------------- */
+.jn-dense {
+  --jn-row-py: 8px;
+}
+.jn-dense [data-slot="row"] {
+  padding-block: var(--jn-row-py);
+  border-bottom: 1px solid var(--muted);
+  box-shadow: none;
+}
+.jn-dense [data-slot="row"]:last-child {
+  border-bottom: 0;
+}
+.jn-dense [data-slot="row"] :is(code, .font-mono) {
+  font-size: var(--text-body-sm);
+}
+
+/* ----------------------------------------------------------------------------
+   Hook-rack navigation tag
+---------------------------------------------------------------------------- */
+@layer components {
+  .jn-tag {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 12px 10px;
+    color: var(--card-foreground);
+    background: var(--card);
+    border: 2px solid var(--jn-outline);
+    border-radius: 4px 4px 14px 14px;
+    box-shadow: 0 3px 0 rgb(11 20 54 / 0.22);
+    font-weight: 600;
+    font-size: var(--text-label);
+    text-decoration: none;
+    transform: rotate(-0.9deg);
+    transform-origin: 22px -6px;
+    transition:
+      transform 160ms ease,
+      background 160ms ease;
+  }
+  .jn-tag::before {
+    content: "";
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border: 2px solid currentColor;
+    border-radius: 9999px;
+    background: var(--background);
+  }
+  .jn-tag:hover {
+    transform: rotate(0deg) translateY(-1px);
+  }
+  .jn-tag[aria-current="page"] {
+    color: var(--jn-navy);
+    background: var(--jn-yellow);
+    border-color: var(--jn-yellow-dark);
+    box-shadow: 0 3px 0 var(--jn-yellow-dark);
+    transform: rotate(0deg);
+  }
+  .jn-tag[data-variant="danger"] {
+    color: var(--destructive);
+    border-color: var(--destructive);
+  }
+  .dark .jn-tag {
+    box-shadow: 0 3px 0 #000;
+  }
+
+  /* Breaker switch. Wrap a real checkbox:
+       <label class="jn-switch"><input type="checkbox">
+         <span class="jn-switch-track">on</span><span class="jn-switch-knob"></span></label> */
+  .jn-switch {
+    position: relative;
+    flex: none;
+    width: 70px;
+    height: 36px;
+    cursor: pointer;
+  }
+  .jn-switch input {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+  }
+  .jn-switch-track {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-inline: 9px;
+    border: 2px solid var(--jn-navy-deep);
+    border-radius: var(--radius-sm);
+    background: var(--jn-inset);
+    box-shadow: var(--jn-recess);
+    color: #606c93;
+    font-family: var(--font-mono);
+    font-size: var(--text-mono-sm);
+    font-weight: 600;
+  }
+  .jn-switch-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 32px;
+    height: 26px;
+    border: 2px solid var(--jn-navy-deep);
+    border-radius: var(--radius-xs);
+    background: linear-gradient(180deg, var(--jn-cream-hi), #dcd3bc);
+    box-shadow: 0 2px 0 rgb(0 0 0 / 0.4);
+    transition: transform 130ms var(--jn-ease);
+  }
+  .jn-switch-knob::after {
+    content: "";
+    position: absolute;
+    inset: 5px 8px;
+    background: repeating-linear-gradient(
+      90deg,
+      rgb(18 34 92 / 0.32) 0 1.5px,
+      transparent 1.5px 4px
+    );
+  }
+  .jn-switch input:checked ~ .jn-switch-track {
+    justify-content: flex-start;
+    background: var(--jn-yellow);
+    color: var(--jn-navy);
+  }
+  .jn-switch input:checked ~ .jn-switch-knob {
+    transform: translateX(31px);
+  }
+  .jn-switch input:focus-visible ~ .jn-switch-track {
+    outline: 3px solid var(--ring);
+    outline-offset: 3px;
+  }
+  .jn-switch:has(input:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  @media (width < 620px) {
+    .jn-switch {
+      width: 56px;
+      height: 30px;
+    }
+    .jn-switch-knob {
+      width: 26px;
+      height: 22px;
+    }
+    .jn-switch input:checked ~ .jn-switch-knob {
+      transform: translateX(24px);
+    }
+  }
+}
+
 /* Policy document workspace */
 .repository-workspace {
   min-width: 0;

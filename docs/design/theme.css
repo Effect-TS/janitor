@@ -389,11 +389,7 @@
 @utility jn-hazard {
   height: 16px;
   border-bottom: 3px solid var(--jn-navy);
-  background: repeating-linear-gradient(
-    45deg,
-    var(--jn-yellow) 0 14px,
-    var(--jn-navy) 14px 28px
-  );
+  background: repeating-linear-gradient(45deg, var(--jn-yellow) 0 14px, var(--jn-navy) 14px 28px);
 }
 
 /* Brushed steel: hook rails, clipboard clips. Hardware only, never text. */
@@ -413,11 +409,7 @@
 /* Empty-state fill: dashed top edge + faint hatch. */
 @utility jn-empty {
   border-top: 2px dashed rgb(18 34 92 / 0.3);
-  background: repeating-linear-gradient(
-    135deg,
-    transparent 0 9px,
-    rgb(18 34 92 / 0.05) 9px 18px
-  );
+  background: repeating-linear-gradient(135deg, transparent 0 9px, rgb(18 34 92 / 0.05) 9px 18px);
 }
 
 /* Marks work the agent did itself, in timelines and diffs. Semantic. */
@@ -502,11 +494,7 @@
   content: "";
   position: absolute;
   inset: 5px 8px;
-  background: repeating-linear-gradient(
-    90deg,
-    rgb(18 34 92 / 0.32) 0 1.5px,
-    transparent 1.5px 4px
-  );
+  background: repeating-linear-gradient(90deg, rgb(18 34 92 / 0.32) 0 1.5px, transparent 1.5px 4px);
 }
 .jn-switch input:checked ~ .jn-switch-track,
 .jn-switch [data-state="checked"] .jn-switch-track {
