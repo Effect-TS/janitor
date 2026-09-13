@@ -244,3 +244,30 @@ only when a health column actually changes, because the scans rewrite those
 columns together with cursors, due times and leases on every page. Lateness
 that comes from time alone has no trigger; the browser's fallback refresh
 picks it up. No data changes.
+
+## Repository access lifecycle
+
+`0030_repository_access_lifecycle.sql` adds `repository_block_reason`, the one
+concrete reason agent work on a repository is fenced: disconnected, GitHub access
+unavailable, paused, synchronization failed or synchronization in progress. The
+repository credential authority refuses with that reason, the runner reports it
+in its blocked error, and the dashboard shows sessions of a fenced repository
+as blocked with it. Pause and access loss retain session data and workspaces;
+restoring access leaves a deliberately paused repository paused, and resumption
+needs fresh synchronization before work continues.
+
+The migration also adds `agent_session_cleanup` and replaces
+`delete_repository_data` so explicit disconnection ends the repository's agent
+sessions. Cleanup tombstones (session identity, generation and native session
+id) are inserted first, then home threads, sessions and everything cascading
+from them (inputs, projections, cursors, catch-up obligations, responses,
+feedback and pending outputs) are deleted together with their handoff requests
+in the outbox and the repository's retained recovery attempts. Slack receipts
+and contributions are keyed by thread and stay, so a redelivered start cannot
+revive an ended session; a thread started again derives a fresh session
+identity from its new start message. The agent catch-up cron asks the runner to
+remove each tombstoned session's native conversation, workspace and checkpoints,
+retrying with backoff while the runner is unreachable, and deletes the tombstone
+only once the runner confirms. Session start refuses an identity that still has
+a tombstone and a repository that is not connected. No data changes; existing
+sessions are unaffected until their repository is disconnected.

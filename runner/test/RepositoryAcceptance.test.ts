@@ -107,8 +107,13 @@ it("native edits and foreground tests checkpoint isolated workspaces and restore
     serviceBindings: {
       REPOSITORY_TEST_TRANSPORT: service,
       REPOSITORY_AUTHORITY: async (request) => {
-        if (request.headers.get("authorization") !== "Bearer authority-token" || !ready)
+        if (request.headers.get("authorization") !== "Bearer authority-token")
           return new Response(null, { status: 423 })
+        if (!ready)
+          return Response.json(
+            { message: "This repository is paused in Janitor. Resume it to continue." },
+            { status: 423 },
+          )
         return Response.json({ owner: "fixture", repo: "fixture" })
       },
     },
@@ -236,7 +241,8 @@ it("native edits and foreground tests checkpoint isolated workspaces and restore
     await first.create({ repositoryId: "123", generation: 0 }, 409)
     expect([...processRequests.values()].filter((count) => count === 2)).toHaveLength(1)
     ready = false
-    await harness.session("not-ready").create({ repositoryId: "123" }, 423)
+    const fenced = await harness.session("not-ready").create({ repositoryId: "123" }, 423)
+    expect(fenced.reason).toBe("This repository is paused in Janitor. Resume it to continue.")
     expect(resources.size).toBe(2)
     ready = true
     oldImage = true

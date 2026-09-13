@@ -15,6 +15,8 @@ const candidate = {
   installationStatus: "active",
   policyCount: 2,
   ruleCount: 3,
+  sessionCount: 0,
+  pendingCleanups: 0,
   syncState: "ready",
 }
 const settings = { repositoryId: "701", state: "" }
@@ -99,6 +101,64 @@ describe("Repository connections", () => {
       ).toExist(),
       Scene.expect(Scene.role("button", { name: "Cancel" })).toExist(),
     )
+  })
+  it("warns that disconnecting ends sessions and loses unpublished work", () => {
+    const busy = { ...candidate, sessionCount: 2 }
+    Scene.scene(
+      { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
+      Scene.given({
+        ...Connections.update(Connections.init(), Connections.Message.ClickedDisconnect()).model,
+        inventory: Option.some({ repositories: [busy] }),
+      }),
+      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Command.resolve(
+        Connections.Load,
+        Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [busy] } }),
+      ),
+      Scene.expect(
+        Scene.text(
+          "2 agent sessions are working in this repository. Disconnecting ends them and deletes their saved workspaces, including unpublished work such as edits and commits never pushed. Pull requests and branches already on GitHub stay.",
+        ),
+      ).toExist(),
+    )
+    expect(Connections.unpublishedWorkNotice(0)).toContain("Disconnecting ends any agent sessions")
+    expect(Connections.unpublishedWorkNotice(1)).toContain("1 agent session is working")
+  })
+  it("reports ended sessions whose remote cleanup is still pending", () => {
+    const disconnected = {
+      ...candidate,
+      connected: false,
+      enabled: false,
+      reconnect: true,
+      pendingCleanups: 1,
+    }
+    Scene.scene(
+      { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
+      Scene.given({
+        ...Connections.init(),
+        inventory: Option.some({ repositories: [disconnected] }),
+      }),
+      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Command.resolve(
+        Connections.Load,
+        Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [disconnected] } }),
+      ),
+      Scene.expect(Scene.text(Connections.cleanupNotice(1))).toExist(),
+      Scene.expect(Scene.role("button", { name: "Reconnect" })).toExist(),
+    )
+    const busy = { ...candidate, sessionCount: 3 }
+    const pending = Connections.update(
+      { ...Connections.init(), inventory: Option.some({ repositories: [busy] }) },
+      Connections.Message.ClickedChange({ id: "701", action: "disconnect" }),
+    ).model
+    const completed = Connections.update(
+      pending,
+      Connections.Message.Changed({ id: "701", action: "disconnect", operationId: 1 }),
+    )
+    expect(Option.getOrThrow(completed.model.inventory).repositories[0]).toMatchObject({
+      sessionCount: 0,
+      pendingCleanups: 3,
+    })
   })
   it("offers GitHub access when inventory is empty", () => {
     Scene.scene(

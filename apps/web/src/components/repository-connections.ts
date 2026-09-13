@@ -157,6 +157,17 @@ const Github = Command.define("OpenGitHubInstallation", {
       Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
+/** The explicit loss notice: disconnecting ends sessions and deletes their unpublished work. */
+export const unpublishedWorkNotice = (sessionCount: number) =>
+  `${
+    sessionCount === 0
+      ? "Disconnecting ends any agent sessions in this repository"
+      : sessionCount === 1
+        ? "1 agent session is working in this repository. Disconnecting ends it"
+        : `${sessionCount} agent sessions are working in this repository. Disconnecting ends them`
+  } and deletes ${sessionCount === 1 ? "its" : "their"} saved workspaces, including unpublished work such as edits and commits never pushed. Pull requests and branches already on GitHub stay.`
+export const cleanupNotice = (pendingCleanups: number) =>
+  `Cleanup of ${pendingCleanups} ended ${pendingCleanups === 1 ? "session" : "sessions"} is still in progress. Remote workspaces are removed once the runner confirms; Janitor keeps retrying.`
 const mapDialog = (model: Model, result: ReturnType<typeof Dialog.open>) => ({
   model: evo(model, { dialog: () => result.model }),
   commands: Command.mapMessages(result.commands, (message) =>
@@ -259,6 +270,11 @@ export const update = (model: Model, message: Message) =>
                     reconnect: row.reconnect || action === "disconnect",
                     policyCount: action === "disconnect" ? 0 : row.policyCount,
                     ruleCount: action === "disconnect" ? 0 : row.ruleCount,
+                    sessionCount: action === "disconnect" ? 0 : row.sessionCount,
+                    pendingCleanups:
+                      action === "disconnect"
+                        ? row.pendingCleanups + row.sessionCount
+                        : row.pendingCleanups,
                     syncState: action === "connect" || action === "resume" ? "syncing" : "paused",
                     syncError: null,
                   },
@@ -412,6 +428,12 @@ export const view = Submodel.defineView<
                     : h.empty,
                 ],
               ),
+              current.pendingCleanups > 0
+                ? h.p(
+                    [h.Role("status"), h.Class("text-sm text-muted-foreground")],
+                    [cleanupNotice(current.pendingCleanups)],
+                  )
+                : h.empty,
               !current.enabled && current.reconnect
                 ? h.p(
                     [h.Class("text-sm text-muted-foreground")],
@@ -454,6 +476,10 @@ export const view = Submodel.defineView<
                                   [
                                     `Disconnect permanently deletes all policies, drafts, published history, labeling rules and groups, stored facts, event history and cached evaluations. GitHub labels stay unchanged. Reconnecting starts empty and requires synchronization. Pause and access loss retain your configuration.`,
                                   ],
+                                ),
+                                h.p(
+                                  [h.Role("alert"), h.Class("text-sm font-medium")],
+                                  [unpublishedWorkNotice(current.sessionCount)],
                                 ),
                                 Option.isSome(model.error)
                                   ? h.p(

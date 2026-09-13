@@ -134,7 +134,9 @@ export class SessionObservation extends Context.Service<
 
       // Sessions and pending threads share one identity. A thread with no
       // session yet is shown waiting for its repository; a fenced session or
-      // a redirected thread is not a session anyone can observe.
+      // a redirected thread is not a session anyone can observe. A paused or
+      // inaccessible repository fences new repository work, so its sessions
+      // read as blocked with that reason ahead of anything the runner says.
       const summaries = (sessionId: string | null, cursor: SessionCursor | null, limit: number) =>
         sql`
           WITH base AS (
@@ -144,11 +146,12 @@ export class SessionObservation extends Context.Service<
               a.runner_state, a.runner_error,
               t.channel_id, t.thread_ts, t.pr_number, t.warning AS thread_warning, t.delivery_warning,
               CASE
-                WHEN a.session_id IS NULL OR a.runner_state = 'blocked' THEN 'blocked'
+                WHEN a.session_id IS NULL OR a.runner_state = 'blocked' OR f.block_reason IS NOT NULL THEN 'blocked'
                 ELSE COALESCE(p.execution, 'idle')
               END AS execution,
               CASE
                 WHEN a.session_id IS NULL THEN COALESCE(t.warning, ${WAITING_FOR_SELECTION})
+                WHEN f.block_reason IS NOT NULL THEN f.block_reason
                 WHEN a.runner_state = 'blocked' THEN COALESCE(a.runner_error, 'The runner refused work')
                 ELSE p.reason
               END AS reason,
@@ -161,6 +164,9 @@ export class SessionObservation extends Context.Service<
             FULL JOIN slack_thread t ON t.session_id = a.session_id
             LEFT JOIN agent_session_projection p ON p.session_id = a.session_id
             LEFT JOIN agent_catchup c ON c.session_id = a.session_id
+            LEFT JOIN LATERAL (
+              SELECT CASE WHEN a.repository_id IS NULL THEN NULL ELSE repository_block_reason(a.repository_id) END AS block_reason
+            ) f ON TRUE
             WHERE (a.session_id IS NULL OR a.runner_state <> 'disconnected')
               AND (t.session_id IS NULL OR t.state <> 'redirected')
           ), ranked AS (

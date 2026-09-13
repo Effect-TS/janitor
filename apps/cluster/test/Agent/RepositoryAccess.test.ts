@@ -6,7 +6,7 @@ import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { RepositoryAccess } from "../../src/Agent/RepositoryAccess.ts"
+import { RepositoryAccess, RepositoryRequest } from "../../src/Agent/RepositoryAccess.ts"
 import { GitHubAppAuth } from "../../src/GitHub/AppAuth.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 
@@ -137,5 +137,51 @@ layer(service)("Repository execution authority", (it) => {
         yield* sql`UPDATE agent_session SET runner_state = 'disconnected' WHERE session_id = 'inspect'`
         assert.strictEqual((yield* access.authorize(request).pipe(Effect.result))._tag, "Failure")
       }),
+  )
+
+  it.effect("names the concrete block and keeps a deliberate pause across access restoration", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const access = yield* RepositoryAccess
+      yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence,automation_ready_at) VALUES('9102','77','test','lifecycle',TRUE,TRUE,'accessible',1,CLOCK_TIMESTAMP())`
+      yield* sql`INSERT INTO agent_session(session_id,title,repository_id) VALUES('lifecycle','Lifecycle','9102')`
+      const request = { sessionId: "lifecycle", repositoryId: "9102", generation: 1, token: false }
+      const reason = (invalid: typeof RepositoryRequest.Type) =>
+        access.authorize(invalid).pipe(
+          Effect.flip,
+          Effect.map((error) => error.message),
+        )
+      yield* access.authorize(request)
+      yield* sql`UPDATE github_repository SET enabled = FALSE WHERE repository_id = '9102'`
+      assert.strictEqual(
+        yield* reason(request),
+        "This repository is paused in Janitor. Resume it to continue.",
+      )
+      yield* sql`UPDATE github_repository SET access = 'lost' WHERE repository_id = '9102'`
+      assert.include(yield* reason(request), "GitHub access to this repository is unavailable")
+      // Restoring access leaves a paused repository paused; resumption then needs fresh synchronization.
+      yield* sql`UPDATE github_repository SET access = 'accessible' WHERE repository_id = '9102'`
+      assert.include(yield* reason(request), "paused")
+      yield* sql`UPDATE github_repository SET enabled = TRUE WHERE repository_id = '9102'`
+      assert.include(yield* reason(request), "synchronization is in progress")
+      yield* sql`INSERT INTO sync_target(scope_key,scope,last_error) VALUES('lifecycle-labels','{"_tag":"RepositoryTrack","repositoryId":"9102","track":"labels"}','GitHub timeout')`
+      yield* sql`UPDATE github_repository SET automation_ready_at = CLOCK_TIMESTAMP() WHERE repository_id = '9102'`
+      assert.include(yield* reason(request), "synchronization failed")
+      yield* sql`DELETE FROM sync_target WHERE scope_key = 'lifecycle-labels'`
+      yield* access.authorize(request)
+      assert.include(yield* reason({ ...request, generation: 2 }), "generation")
+      assert.include(yield* reason({ ...request, repositoryId: "9100" }), "selection")
+      yield* sql`UPDATE github_repository SET connected = FALSE WHERE repository_id = '9102'`
+      assert.include(yield* reason(request), "disconnected")
+      // Disconnection deletes the session and leaves its cleanup tombstone as the fence.
+      yield* sql`SELECT delete_repository_data('9102')`
+      assert.include(yield* reason(request), "session has ended")
+      // A publication attempt caught by the disconnect is refused the same way.
+      assert.include(
+        yield* reason({ ...request, token: true, permission: "push", publication: true }),
+        "session has ended",
+      )
+      assert.include(yield* reason({ ...request, sessionId: "never-started" }), "Unknown session")
+    }),
   )
 })

@@ -185,6 +185,12 @@ The re-enabling of a paused repository, requiring successful synchronization aga
 **Repository disconnection**:
 Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Disconnection also ends its agent sessions and deletes their session data and saved workspaces, including unpublished work. Work and labels already published on GitHub remain unchanged.
 
+**Cleanup tombstone**:
+The record Janitor keeps for an agent session ended by repository disconnection until the runner confirms its native conversation, workspace and checkpoints are gone. It carries the session identity, generation and native session id, fences stale work for that identity, and is deleted on confirmation; Janitor retries the remote cleanup with backoff while the runner is unreachable.
+
+**Repository block reason**:
+The one concrete reason new repository work in an agent session is fenced: the repository is disconnected, its GitHub access is unavailable, it is paused, its synchronization failed or synchronization is still in progress. Pause and access loss retain session data and workspaces; the reason is shown on the dashboard and reported to the agent when a repository operation is refused.
+
 **Repository reconnection**:
 A fresh connection of a previously disconnected repository, starting without its former policies, labeling rules, or stored data. Successful synchronization is required before automation becomes ready, and existing GitHub labels remain unchanged.
 

@@ -13,6 +13,10 @@ export const ConnectionCandidate = Schema.Struct({
   installationStatus: Schema.String,
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
+  /** Agent sessions in this repository: the ones disconnection ends and whose workspaces it deletes. */
+  sessionCount: Schema.Int,
+  /** Ended sessions whose runner cleanup has not been confirmed yet. */
+  pendingCleanups: Schema.Int,
   syncState: Schema.String,
   syncError: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })

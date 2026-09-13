@@ -159,10 +159,13 @@ export class FakeRunner {
         this.calls.push({ method: "maintenance", sessionId })
         return Effect.succeed({ held: false, epoch: null, quiescent: true })
       }),
-    cleanup: (sessionId) =>
+    cleanup: (sessionId, generation) =>
       Effect.suspend(() => {
-        this.calls.push({ method: "cleanup", sessionId })
+        this.calls.push({ method: "cleanup", sessionId, detail: { generation } })
+        const failure = this.failure("cleanup")
+        if (failure !== undefined) return Effect.fail(failure)
         this.sessions.delete(sessionId)
+        this.inputs.delete(sessionId)
         return Effect.succeed({ sessionId, cleaned: true })
       }),
   }

@@ -459,4 +459,30 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
         )
       }),
   )
+  it.effect("allocates a fresh session identity when a disconnected thread is started again", () =>
+    Effect.gen(function* () {
+      const webhook = yield* SlackWebhook
+      const conversation = yield* SlackConversation
+      const sql = yield* SqlClient.SqlClient
+      const mention = {
+        type: "app_mention",
+        channel: "CFRESH",
+        user: "U2",
+        ts: "950.000002",
+        thread_ts: "950.000001",
+        text: "<@UBOT> start",
+      }
+      yield* webhook.receive(yield* signed(mention, "fresh-1"))
+      const first = (yield* conversation.inspect("CFRESH", "950.000001")).thread!.session_id
+      // Disconnection deletes the home thread and its session; the thread's receipts stay.
+      yield* sql`DELETE FROM slack_thread WHERE session_id = ${first}`
+      // Slack redelivers the original start: the same contribution revives nothing.
+      yield* webhook.receive(yield* signed(mention, "fresh-1-again"))
+      assert.isNull((yield* conversation.inspect("CFRESH", "950.000001")).thread)
+      yield* webhook.receive(yield* signed({ ...mention, ts: "950.000003" }, "fresh-2"))
+      const second = (yield* conversation.inspect("CFRESH", "950.000001")).thread!
+      assert.notStrictEqual(second.session_id, first)
+      assert.strictEqual(second.boundary_ts, "950.000003")
+    }),
+  )
 })

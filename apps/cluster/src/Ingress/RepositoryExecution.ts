@@ -36,7 +36,13 @@ export const RepositoryExecutionRoutes = HttpRouter.add(
           { headers: { "cache-control": "no-store" } },
         ),
       ),
-      Effect.catch(() => Effect.succeed(HttpServerResponse.empty({ status: 423 }))),
+      // The concrete fence travels with the refusal so the runner can report it.
+      Effect.catch((error) =>
+        HttpServerResponse.schemaJson(Schema.Struct({ message: Schema.String }))(
+          { message: error.message },
+          { status: 423 },
+        ),
+      ),
     )
   }),
 )

@@ -1,6 +1,7 @@
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
@@ -59,6 +60,9 @@ const services = GitHubFeedbackHttpLayer.pipe(
 layer(services, { timeout: "3 minutes" })("GitHub feedback HTTP", (it) => {
   it.effect("reconciles only the App marker at the exact PR and inline parent across pages", () =>
     Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`INSERT INTO github_installation (installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence,access_error) VALUES ('http-i','1','team','Organization','all','active','https://github.com/team',1,NULL)`
+      yield* sql`INSERT INTO github_repository (repository_id,installation_id,owner,repo,access,enabled,projected_sequence,automation_ready_at) VALUES ('12345','http-i','team','repo','accessible',true,1,now())`
       yield* (yield* AgentSessions).start({
         sessionId: "http-feedback",
         title: "Review",

@@ -96,6 +96,7 @@ import * as AccountLinking from "./AccountLinking.ts"
 import { Teammates, TeammatesConfig } from "./Teammates.ts"
 import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
 import { AgentCatchUpCronLayer, AgentCatchUpCronName } from "./Agent/CatchUpCron.ts"
+import { AgentCleanup } from "./Agent/Cleanup.ts"
 import { AgentCatchUpWake, AgentEventProjection } from "./Agent/EventProjection.ts"
 import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
 import { RunnerClient } from "./Agent/RunnerClient.ts"
@@ -327,16 +328,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       : Layer.empty
     const AgentLayers = runnerConfigured
       ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer, SlackLayers).pipe(
-          Layer.provideMerge(Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer)),
+          Layer.provideMerge(
+            Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer, AgentCleanup.layer),
+          ),
           Layer.provideMerge(
             RunnerClient.layer({ baseUrl: runnerUrl, token: runnerToken }).pipe(
               Layer.provide(FetchHttpClient.layer),
-            ),
-          ),
-          Layer.provide(
-            Layer.succeed(
-              AgentCatchUpWake,
-              Effect.suspend(() => notifyCatchUp),
             ),
           ),
         )
@@ -416,6 +413,14 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         Layer.succeed(
           OutboxWake,
           Effect.suspend(() => notifyOutbox),
+        ),
+      ),
+      // Repository disconnection hurries the same wake so session cleanup starts
+      // without waiting for the minute cron; the cron remains the guarantee.
+      Layer.provide(
+        Layer.succeed(
+          AgentCatchUpWake,
+          Effect.suspend(() => notifyCatchUp),
         ),
       ),
     )

@@ -56,29 +56,74 @@ export class RepositoryAccess extends Context.Service<
       const http = yield* HttpClient.HttpClient
       const appId = yield* Config.String("JANITOR_GITHUB_APP_ID").pipe(Config.withDefault(""))
       const tokens = new Map<string, { token: Redacted.Redacted<string>; expiresAt: number }>()
+      const unreadable = Effect.mapError(
+        () => new RepositoryAccessError({ message: "Repository readiness could not be read" }),
+      )
       return {
         authorize: (request: typeof RepositoryRequest.Type) =>
           Effect.gen(function* () {
+            // The session row is read with its repository so the refusal names the
+            // concrete fence: a paused or inaccessible repository, stale generation,
+            // changed selection, or a session that disconnection already ended.
             const rows = yield* sql<{
-              owner: string
-              repo: string
-              installation_id: string
+              generation: number
+              runner_state: string
+              selected: string | null
+              owner: string | null
+              repo: string | null
+              installation_id: string | null
+              reason: string | null
               pr_number: string | null
             }>`
-        SELECT r.owner, r.repo, r.installation_id, (SELECT t.pr_number FROM slack_thread t WHERE t.session_id=s.session_id) AS pr_number FROM agent_session s
-        JOIN github_repository r ON r.repository_id = s.repository_id
-        WHERE s.session_id = ${request.sessionId} AND s.generation = ${request.generation}
-          AND s.repository_id = ${request.repositoryId} AND s.runner_state <> 'disconnected'
-          AND r.connected AND r.sync_enabled AND r.automation_ready_at IS NOT NULL
-          AND repository_access_available(r.repository_id)
-          AND NOT EXISTS (SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId' = r.repository_id
-            AND (t.last_error IS NOT NULL OR t.health = 'blocked'))
-      `
-            const repository = rows[0]
-            if (!repository)
+        SELECT s.generation::int AS generation, s.runner_state, s.repository_id AS selected,
+          r.owner, r.repo, r.installation_id,
+          CASE WHEN s.repository_id IS NULL THEN 'This session has no repository selected.'
+            ELSE repository_block_reason(s.repository_id) END AS reason,
+          (SELECT t.pr_number FROM slack_thread t WHERE t.session_id = s.session_id) AS pr_number
+        FROM agent_session s LEFT JOIN github_repository r ON r.repository_id = s.repository_id
+        WHERE s.session_id = ${request.sessionId}
+      `.pipe(unreadable)
+            const session = rows[0]
+            if (!session) {
+              const ended =
+                yield* sql`SELECT 1 FROM agent_session_cleanup WHERE session_id = ${request.sessionId}`.pipe(
+                  unreadable,
+                )
               return yield* new RepositoryAccessError({
-                message: "Selected repository is not ready",
+                message:
+                  ended.length > 0
+                    ? "This repository was disconnected from Janitor; the session has ended."
+                    : "Unknown session",
               })
+            }
+            if (session.runner_state === "disconnected")
+              return yield* new RepositoryAccessError({
+                message:
+                  "This session was disconnected; a reconnected repository starts a new session.",
+              })
+            if (session.generation !== request.generation)
+              return yield* new RepositoryAccessError({
+                message: `Session generation ${request.generation} is stale; the session is at generation ${session.generation}.`,
+              })
+            if (session.selected !== request.repositoryId)
+              return yield* new RepositoryAccessError({
+                message: "Session repository selection does not match the requested repository.",
+              })
+            if (
+              session.reason !== null ||
+              session.owner === null ||
+              session.repo === null ||
+              session.installation_id === null
+            )
+              return yield* new RepositoryAccessError({
+                message: session.reason ?? "Selected repository is not ready",
+              })
+            const repository = {
+              owner: session.owner,
+              repo: session.repo,
+              installation_id: session.installation_id,
+              pr_number: session.pr_number,
+            }
             const identity = {
               owner: repository.owner,
               repo: repository.repo,
@@ -146,11 +191,12 @@ export class RepositoryAccess extends Context.Service<
               token,
             }
           }).pipe(
-            Effect.mapError(
-              () =>
-                new RepositoryAccessError({
-                  message: "Selected repository is not ready or scoped credentials are unavailable",
-                }),
+            Effect.mapError((error) =>
+              Schema.is(RepositoryAccessError)(error)
+                ? error
+                : new RepositoryAccessError({
+                    message: "Scoped repository credentials are unavailable",
+                  }),
             ),
           ),
       }

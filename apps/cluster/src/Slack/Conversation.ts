@@ -106,12 +106,15 @@ export class SlackConversation extends Context.Service<
         VALUES (${config.workspaceId},${message.channel},${root},${message.ts},${message.user},${JSON.stringify(accepted ? { teammateId: authority.teammateId, displayName: authority.displayName } : {})}::jsonb,${message.text},${accepted ? "accepted" : "rejected"},${!accepted && (mentioned || homes.length > 0)})`
               if (!accepted) return
               if (mentioned) {
+                // The identity covers the start message as well as the thread: a thread
+                // started again after its repository was disconnected gets a fresh session,
+                // while a redelivered start dedupes on its contribution and revives nothing.
                 // Hex encoding avoids delimiter collisions and stays below the runner's identity limit.
                 const digest = yield* Effect.promise(() =>
                   crypto.subtle.digest(
                     "SHA-256",
                     new TextEncoder().encode(
-                      JSON.stringify([config.workspaceId, message.channel, root]),
+                      JSON.stringify([config.workspaceId, message.channel, root, message.ts]),
                     ),
                   ),
                 )

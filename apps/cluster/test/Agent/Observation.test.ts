@@ -30,7 +30,9 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       const projection = yield* AgentEventProjection
       const observation = yield* SessionObservation
       const sql = yield* SqlClient.SqlClient
-      yield* sql`INSERT INTO github_repository (repository_id, installation_id, owner, repo, access, projected_sequence) VALUES ('901', '1', 'acme', 'widgets', 'accessible', 0) ON CONFLICT DO NOTHING`
+      yield* sql`INSERT INTO github_installation (installation_id, account_database_id, account_handle, account_type, repository_selection, status, html_url, projected_sequence, access_error) VALUES ('1', '1', 'acme', 'Organization', 'all', 'active', 'https://github.com/acme', 1, NULL) ON CONFLICT DO NOTHING`
+      // A ready repository: sessions on a fenced repository read as blocked instead.
+      yield* sql`INSERT INTO github_repository (repository_id, installation_id, owner, repo, access, enabled, projected_sequence, automation_ready_at) VALUES ('901', '1', 'acme', 'widgets', 'accessible', TRUE, 0, CLOCK_TIMESTAMP()) ON CONFLICT DO NOTHING`
       for (const id of ["o-idle-old", "o-idle-new", "o-working", "o-failed"]) {
         yield* sessions.start({ sessionId: id, title: `Session ${id}`, repositoryId: "901" })
         runner.sessions.set(id, { generation: 1, nativeSessionId: `ses_${id}` })
@@ -127,7 +129,9 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       const projection = yield* AgentEventProjection
       const observation = yield* SessionObservation
       const sql = yield* SqlClient.SqlClient
-      yield* sql`INSERT INTO github_repository (repository_id, installation_id, owner, repo, access, projected_sequence) VALUES ('902', '1', 'acme', 'gadgets', 'accessible', 0) ON CONFLICT DO NOTHING`
+      yield* sql`INSERT INTO github_installation (installation_id, account_database_id, account_handle, account_type, repository_selection, status, html_url, projected_sequence, access_error) VALUES ('1', '1', 'acme', 'Organization', 'all', 'active', 'https://github.com/acme', 1, NULL) ON CONFLICT DO NOTHING`
+      // A ready repository: sessions on a fenced repository read as blocked instead.
+      yield* sql`INSERT INTO github_repository (repository_id, installation_id, owner, repo, access, enabled, projected_sequence, automation_ready_at) VALUES ('902', '1', 'acme', 'gadgets', 'accessible', TRUE, 0, CLOCK_TIMESTAMP()) ON CONFLICT DO NOTHING`
       yield* sessions.start({ sessionId: "o-delivery", title: "Delivery", repositoryId: "902" })
       runner.sessions.set("o-delivery", { generation: 1, nativeSessionId: "ses_d" })
       yield* sql`INSERT INTO slack_thread (session_id, workspace_id, channel_id, thread_ts, boundary_ts, repository_id, pr_number, state)
@@ -262,7 +266,9 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       const sessions = yield* AgentSessions
       const observation = yield* SessionObservation
       const sql = yield* SqlClient.SqlClient
-      yield* sql`INSERT INTO github_repository (repository_id, installation_id, owner, repo, access, projected_sequence) VALUES ('903', '1', 'acme', 'gizmos', 'accessible', 0) ON CONFLICT DO NOTHING`
+      yield* sql`INSERT INTO github_installation (installation_id, account_database_id, account_handle, account_type, repository_selection, status, html_url, projected_sequence, access_error) VALUES ('1', '1', 'acme', 'Organization', 'all', 'active', 'https://github.com/acme', 1, NULL) ON CONFLICT DO NOTHING`
+      // A ready repository: sessions on a fenced repository read as blocked instead.
+      yield* sql`INSERT INTO github_repository (repository_id, installation_id, owner, repo, access, enabled, projected_sequence, automation_ready_at) VALUES ('903', '1', 'acme', 'gizmos', 'accessible', TRUE, 0, CLOCK_TIMESTAMP()) ON CONFLICT DO NOTHING`
       yield* sessions.start({ sessionId: "o-recovery", title: "Recovery", repositoryId: "903" })
       yield* sql`INSERT INTO slack_thread (session_id, workspace_id, channel_id, thread_ts, boundary_ts, repository_id, state)
         VALUES ('o-recovery', 'T1', 'C4', '1700001000.000400', '1700001000.000400', '903', 'ready')`
