@@ -83,7 +83,13 @@ Clone credentials exist only in the controlled Git process environment. Credenti
 
 ## New-work publication
 
-After committing and testing changes, the agent calls `publish` with a title, a substantive body including validation, and an optional base branch. The default base comes from GitHub. The session, generation and repository determine one stable `janitor/<sha256>` branch. Slack conversations already associated with a PR cannot use this new-work path; existing-PR updates belong to the next implementation slice. Repeated calls after completion return the recorded PR.
+After committing and testing changes, the agent calls `publish` with a title, a substantive body including validation, and an optional base branch. The default base comes from GitHub. The session, generation and repository determine one stable `janitor/<sha256>` branch. For new work, repeated calls after completion return the recorded PR.
+
+A Slack start targeting an existing PR retains that PR as its review destination. The credential authority supplies its number, and the runner records its repository, head/base refs and commits before cloning. Each later publication turn updates the same branch and returns the same PR link. Publication rechecks the PR identity, incorporates human commits, and refuses branch replacement, force pushing and automatic merging. The bridge must advertise `existing-pr-v1`; rebuild and replace older bridge images before enabling this runner.
+
+Fork PRs are checked out through the base repository's `refs/pull/<number>/head`. The base-repository token does not authorize pushing to the fork. Those edits remain in the workspace, with an explanation on the original PR when comment access is available. A separate proposal requires explicit teammate direction.
+
+Conflicts and denied writes produce a durable PR comment intent. Lost comment responses are reconciled by marker, destination and `performed_via_github_app.id`, using `JANITOR_GITHUB_APP_ID` from the credential authority. Uncertain comments hold subsequent repository work until a `publish` retry confirms delivery. Definitively denied comments remain pending for retry. Missing markers never authorize a duplicate POST.
 
 Publication stops workspace processes and copies regular Git object files into a private temporary repository. It ignores workspace Git config, hooks, replacement refs and alternates. Credentials reach only controlled network Git commands, and push uses an explicit repository URL and branch refspec without force. A private worktree merge supports the image's Git 2.34, incorporates fetched human commits, and reports conflicts without changing the agent's work. The designated local branch and merged commit are checkpointed before push.
 

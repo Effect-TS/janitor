@@ -1,4 +1,5 @@
 import * as Context from "effect/Context"
+import * as Config from "effect/Config"
 import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -40,6 +41,8 @@ export class RepositoryAccess extends Context.Service<
         owner: string
         repo: string
         token?: Redacted.Redacted<string>
+        pullRequestNumber?: number
+        appId?: string
       },
       RepositoryAccessError
     >
@@ -51,17 +54,21 @@ export class RepositoryAccess extends Context.Service<
       const sql = yield* SqlClient.SqlClient
       const auth = yield* GitHubAppAuth
       const http = yield* HttpClient.HttpClient
+      const appId = yield* Config.String("JANITOR_GITHUB_APP_ID").pipe(Config.withDefault(""))
       const tokens = new Map<string, { token: Redacted.Redacted<string>; expiresAt: number }>()
       return {
         authorize: (request: typeof RepositoryRequest.Type) =>
           Effect.gen(function* () {
-            const rows = yield* sql<{ owner: string; repo: string; installation_id: string }>`
-        SELECT r.owner, r.repo, r.installation_id FROM agent_session s
+            const rows = yield* sql<{
+              owner: string
+              repo: string
+              installation_id: string
+              pr_number: string | null
+            }>`
+        SELECT r.owner, r.repo, r.installation_id, (SELECT t.pr_number FROM slack_thread t WHERE t.session_id=s.session_id) AS pr_number FROM agent_session s
         JOIN github_repository r ON r.repository_id = s.repository_id
         WHERE s.session_id = ${request.sessionId} AND s.generation = ${request.generation}
           AND s.repository_id = ${request.repositoryId} AND s.runner_state <> 'disconnected'
-          AND (${request.publication !== true} OR NOT EXISTS (
-            SELECT 1 FROM slack_thread t WHERE t.session_id = s.session_id AND t.pr_number IS NOT NULL))
           AND r.connected AND r.sync_enabled AND r.automation_ready_at IS NOT NULL
           AND repository_access_available(r.repository_id)
           AND NOT EXISTS (SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId' = r.repository_id
@@ -72,7 +79,15 @@ export class RepositoryAccess extends Context.Service<
               return yield* new RepositoryAccessError({
                 message: "Selected repository is not ready",
               })
-            if (!request.token) return { owner: repository.owner, repo: repository.repo }
+            const identity = {
+              owner: repository.owner,
+              repo: repository.repo,
+              ...(appId ? { appId } : {}),
+              ...(repository.pr_number === null
+                ? {}
+                : { pullRequestNumber: Number(repository.pr_number) }),
+            }
+            if (!request.token) return identity
             const numericId = Number(request.repositoryId)
             if (!Number.isSafeInteger(numericId))
               return yield* new RepositoryAccessError({
@@ -84,7 +99,10 @@ export class RepositoryAccess extends Context.Service<
                 ? { contents: "write" }
                 : request.permission === "pull_request"
                   ? { contents: "read", pull_requests: "write" }
-                  : { contents: "read" }
+                  : {
+                      contents: "read",
+                      ...(repository.pr_number === null ? {} : { pull_requests: "read" }),
+                    }
             const key = JSON.stringify([repository.installation_id, numericId, permissions])
             const now = yield* Clock.currentTimeMillis
             // Readiness is checked even on cache hits. A denied Git/GitHub operation
@@ -93,8 +111,7 @@ export class RepositoryAccess extends Context.Service<
             for (const [identity, cached] of tokens)
               if (cached.expiresAt <= now + 60000) tokens.delete(identity)
             const cached = tokens.get(key)
-            if (cached)
-              return { owner: repository.owner, repo: repository.repo, token: cached.token }
+            if (cached) return { ...identity, token: cached.token }
             const jwt = yield* auth.appJwt
             const response = yield* HttpClientRequest.post(
               `${GITHUB_API_BASE_URL}/app/installations/${repository.installation_id}/access_tokens`,
@@ -125,8 +142,7 @@ export class RepositoryAccess extends Context.Service<
             const token = Redacted.make(response.token)
             tokens.set(key, { token, expiresAt })
             return {
-              owner: repository.owner,
-              repo: repository.repo,
+              ...identity,
               token,
             }
           }).pipe(

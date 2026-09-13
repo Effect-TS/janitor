@@ -5,7 +5,7 @@ import { makeRemoteSpawner, type BridgeRpc } from "./RemoteProcess.ts"
 import { ProtocolError } from "./Protocol.ts"
 import { RunnerStorage } from "./Storage.ts"
 import { WorkspaceCheckpoints, type Archive } from "./WorkspaceCheckpoints.ts"
-import { Publication, type CredentialPermission } from "./Publication.ts"
+import { Publication, type CredentialPermission, type RepositoryCredential } from "./Publication.ts"
 
 export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "read",
@@ -78,6 +78,7 @@ const required = [
   "workspace-user-v1",
   "checkpoint-stream-v2",
   "publication-v1",
+  "existing-pr-v1",
 ]
 export const checkBridge = (meta: Meta, generation: number) => {
   if (
@@ -162,7 +163,7 @@ export class RepositoryWorkspace {
         "blocked",
         "Selected repository is not ready or credentials are unavailable",
       )
-    return response.json() as Promise<{ owner: string; repo: string; token?: string }>
+    return response.json() as Promise<RepositoryCredential>
   }
   protected sandbox(binding: Binding): WorkspaceSandbox {
     if (!this.env.SANDBOXES)
@@ -238,6 +239,15 @@ export class RepositoryWorkspace {
   }
   private async open(): Promise<Binding> {
     await this.authority(false)
+    const association = await this.publication.workspace()
+    const checkout = association
+      ? {
+          branch: association.branch,
+          ...(association.headRepositoryId !== this.selected.repositoryId
+            ? { pullRequestNumber: association.number }
+            : {}),
+        }
+      : {}
     let binding = await this.storage.get<Binding>("_janitor_workspace")
     if (binding?.destroyed) throw new ProtocolError("stale_generation", "Workspace was destroyed")
     if (!binding) {
@@ -299,6 +309,7 @@ export class RepositoryWorkspace {
         owner: repository.owner,
         repo: repository.repo,
         repositoryId: this.selected.repositoryId,
+        ...checkout,
       }
       const identity = await payloadHash(payload)
       const prior = this.storage.sql
@@ -315,7 +326,12 @@ export class RepositoryWorkspace {
         JSON.stringify(payload),
       )
       await this.storage.sync()
-      await this.raw(binding, "/clone", repository)
+      await this.raw(binding, "/clone", {
+        owner: repository.owner,
+        repo: repository.repo,
+        token: repository.token,
+        ...checkout,
+      })
     }
     this.storage.sql.exec(
       "UPDATE _janitor_operation SET state = 'complete', result = ? WHERE id = 'clone'",

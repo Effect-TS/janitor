@@ -15,7 +15,7 @@ import {
   lchownSync,
 } from "node:fs"
 import { archive, restore } from "./archive.mjs"
-import { publishGit } from "./publication.mjs"
+import { publishGit, branchName } from "./publication.mjs"
 import { resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
@@ -30,6 +30,7 @@ export const capabilities = [
   "path-resolution-v1",
   "checkpoint-stream-v2",
   "publication-v1",
+  "existing-pr-v1",
 ]
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 const fail = (status, message) => {
@@ -222,11 +223,20 @@ export async function startBridge({
         if (
           !/^[A-Za-z0-9_.-]+$/.test(input.owner ?? "") ||
           !/^[A-Za-z0-9_.-]+$/.test(input.repo ?? "") ||
+          (input.branch !== undefined && !branchName(input.branch)) ||
+          (input.pullRequestNumber !== undefined &&
+            (!Number.isSafeInteger(input.pullRequestNumber) ||
+              input.pullRequestNumber <= 0 ||
+              !input.branch)) ||
           typeof input.token !== "string" ||
           !input.token
         )
           fail(400, "invalid repository credential")
-        const identity = `${input.owner}/${input.repo}`
+        const repository = `${input.owner}/${input.repo}`
+        const identity =
+          input.branch === undefined
+            ? repository
+            : JSON.stringify([repository, input.branch, input.pullRequestNumber ?? null])
         const previous = db.prepare("SELECT * FROM repository WHERE id = 1").get()
         if (previous) {
           if (previous.identity !== identity || previous.state !== "ready")
@@ -237,45 +247,70 @@ export async function startBridge({
         // Only this controlled Git process receives the scoped short-lived credential.
         // The constant helper reads its environment; neither URL nor config file contains it.
         const target = `${root}/.janitor-clone`
-        const child = spawn(
-          "git",
+        const commands = [
           [
-            "-c",
-            "credential.helper=",
-            "-c",
-            'credential.helper=!f() { printf "username=x-access-token\\npassword=%s\\n" "$JANITOR_GIT_TOKEN"; }; f',
             "clone",
+            ...(input.pullRequestNumber
+              ? ["--no-checkout"]
+              : input.branch === undefined
+                ? []
+                : ["--branch", input.branch]),
             "--",
-            `${cloneOrigin}/${identity}.git`,
+            `${cloneOrigin}/${repository}.git`,
             target,
           ],
-          {
-            env: {
-              PATH: process.env.PATH,
-              HOME: "/nonexistent",
-              GIT_CONFIG_NOSYSTEM: "1",
-              GIT_CONFIG_GLOBAL: "/dev/null",
-              GIT_TERMINAL_PROMPT: "0",
-              JANITOR_GIT_TOKEN: input.token,
+          ...(input.pullRequestNumber
+            ? [
+                [
+                  "-C",
+                  target,
+                  "fetch",
+                  "--no-tags",
+                  "origin",
+                  `refs/pull/${input.pullRequestNumber}/head`,
+                ],
+                ["-C", target, "checkout", "-B", input.branch, "FETCH_HEAD"],
+              ]
+            : []),
+        ]
+        for (const command of commands) {
+          const child = spawn(
+            "git",
+            [
+              "-c",
+              "credential.helper=",
+              "-c",
+              'credential.helper=!f() { printf "username=x-access-token\\npassword=%s\\n" "$JANITOR_GIT_TOKEN"; }; f',
+              ...command,
+            ],
+            {
+              env: {
+                PATH: process.env.PATH,
+                HOME: "/nonexistent",
+                GIT_CONFIG_NOSYSTEM: "1",
+                GIT_CONFIG_GLOBAL: "/dev/null",
+                GIT_TERMINAL_PROMPT: "0",
+                JANITOR_GIT_TOKEN: input.token,
+              },
+              stdio: ["ignore", "ignore", "ignore"],
+              detached: true,
             },
-            stdio: ["ignore", "ignore", "ignore"],
-            detached: true,
-          },
-        )
-        const timer = setTimeout(() => {
-          try {
-            process.kill(-child.pid, "SIGKILL")
-          } catch {}
-        }, 120000)
-        const code = await new Promise((resolveClone) => {
-          child.once("error", () => resolveClone(-1))
-          child.once("close", resolveClone)
-        })
-        clearTimeout(timer)
-        if (code !== 0) {
-          rmSync(target, { recursive: true, force: true })
-          db.prepare("UPDATE repository SET state = 'failed' WHERE id = 1").run()
-          fail(403, "repository clone failed")
+          )
+          const timer = setTimeout(() => {
+            try {
+              process.kill(-child.pid, "SIGKILL")
+            } catch {}
+          }, 120000)
+          const code = await new Promise((resolveClone) => {
+            child.once("error", () => resolveClone(-1))
+            child.once("close", resolveClone)
+          })
+          clearTimeout(timer)
+          if (code !== 0) {
+            rmSync(target, { recursive: true, force: true })
+            db.prepare("UPDATE repository SET state = 'failed' WHERE id = 1").run()
+            fail(403, "repository clone failed")
+          }
         }
         // The repository directory is the native session's cwd. Atomic rename avoids partial adoption.
         if (existsSync(`${root}/repository`)) fail(409, "repository destination exists")

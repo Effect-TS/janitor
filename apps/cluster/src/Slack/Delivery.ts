@@ -108,8 +108,25 @@ export class SlackDelivery extends Context.Service<
                   case "session.tool.success":
                     if (fields.metadata?.publication) {
                       const pr = fields.metadata.publication
-                      if (pr.repositoryId === current.repository_id && publishedPr === null) {
-                        yield* sql`UPDATE slack_thread SET pr_number=${String(pr.number)} WHERE session_id=${sessionId} AND pr_number IS NULL`
+                      if (
+                        pr.repositoryId === current.repository_id &&
+                        (publishedPr === null || publishedPr === String(pr.number))
+                      ) {
+                        if (publishedPr === null) {
+                          yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([current.repository_id, String(pr.number)])},1))`
+                          const homes =
+                            yield* sql`SELECT 1 FROM slack_thread WHERE repository_id=${current.repository_id} AND pr_number=${String(pr.number)} AND session_id<>${sessionId} AND state<>'redirected'`
+                          if (homes.length > 0) {
+                            yield* enqueueOutput(
+                              sql,
+                              sessionId,
+                              "error",
+                              "This PR already belongs to another home thread. Its association needs reconciliation.",
+                            )
+                            break
+                          }
+                          yield* sql`UPDATE slack_thread SET pr_number=${String(pr.number)} WHERE session_id=${sessionId} AND pr_number IS NULL`
+                        }
                         publishedPr = String(pr.number)
                         yield* enqueueOutput(
                           sql,

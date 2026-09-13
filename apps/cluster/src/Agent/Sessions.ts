@@ -99,6 +99,11 @@ export interface AcceptInput {
 }
 
 export interface SessionView {
+  readonly pullRequests: ReadonlyArray<{
+    readonly repositoryId: string
+    readonly number: number
+    readonly url: string
+  }>
   readonly session: AgentSessionRow
   readonly inputs: ReadonlyArray<AgentInputRow>
   readonly projection: ProjectionRow | null
@@ -285,7 +290,13 @@ export class AgentSessions extends Context.Service<
         const responses = yield* sql`
           SELECT seq::int AS seq, assistant_message_id, ordinal, text FROM agent_response WHERE session_id = ${sessionId} ORDER BY seq
         `.pipe(Effect.flatMap(decodeResponses), wrap("view"))
-        return { session, inputs, projection: projections[0] ?? null, responses }
+        const pullRequests = yield* sql<{ repositoryId: string; number: number; url: string }>`
+          SELECT t.repository_id AS "repositoryId", t.pr_number::int AS number,
+            'https://github.com/' || r.owner || '/' || r.repo || '/pull/' || t.pr_number AS url
+          FROM slack_thread t JOIN github_repository r ON r.repository_id=t.repository_id
+          WHERE t.session_id=${sessionId} AND t.pr_number IS NOT NULL AND t.state <> 'redirected'
+        `.pipe(wrap("view"))
+        return { session, inputs, projection: projections[0] ?? null, responses, pullRequests }
       })
 
       return { start, accept, view }
