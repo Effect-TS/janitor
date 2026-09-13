@@ -12,13 +12,17 @@ Both scanners persist due times and lease ownership. A stale worker cannot commi
 
 `Slack/Delivery.test.ts` covers retained substantive/error output after simulated removal and service restart, independent delivery warnings, stable output IDs and destination, uncertain-send reconciliation, ordered output, coalesced progress, throttling and valid Unicode splitting. This is simulated membership evidence.
 
-Repository checks and the full suite will be recorded after review.
+`vp check --fix` passed with no errors and 476 warnings. The full `vp test` run passed 602 tests, with 6 skipped, across 108 passing test files and 3 skipped files. After that run, an expired-cursor regression failed as expected; the fix passed all 5 recovery service tests and a scoped `vp check` with no errors. The full suite was not repeated after that isolated fix.
+
+The two-axis review used starting commit `f023941`. Standards found duplicated error conversion and dependent test setup; both were fixed and the follow-up found no remaining findings. The HTTP restart test also passed by itself. Spec review found no implementation defect, but recorded the dashboard prerequisite and pending live acceptance as partial requirements. A follow-up review of the expired-cursor fix found no additional issue.
 
 ## Live evidence
 
 `Slack/Recovery.live.test.ts` is opt-in. It uses the production Slack transport and delivery services with a temporary PostgreSQL database and synthetic runner events. A participant removes and reinvites the installed bot in the existing private `janitor-test` channel. The test checks retained output IDs, delivery warnings, restored delivery to the same thread, and marker readback. It creates one root and two replies and deletes known created messages afterward. It advances only the fixture database's denial deadline after reinvite.
 
-The live check is pending and will run last. It does not exercise a deployed Janitor worker, browser dashboard, real runner execution, or GitHub recovery against live retained history. No live bot-removal evidence is claimed until its result is recorded.
+The live check ran last on 2026-09-12 and stopped at `auth.test` with Slack's `account_inactive` error. It created no messages and did not reach removal or reinvite. The installed fixture app or saved bot token must be restored before retrying. See [live result](platform-recovery-live.json). No live bot-removal evidence is claimed.
+
+This check does not exercise a deployed Janitor worker, browser dashboard, real runner execution, or GitHub recovery against live retained history.
 
 ## Dependency and recovery limits
 

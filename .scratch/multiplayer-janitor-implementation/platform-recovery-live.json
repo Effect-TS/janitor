@@ -1,0 +1,11 @@
+{
+  "date": "2026-09-12",
+  "phase": "blocked-at-authentication",
+  "method": "auth.test",
+  "error": "account_inactive",
+  "evidence": "Live Slack HTTP response",
+  "platformWrites": 0,
+  "removalVerified": false,
+  "reinviteVerified": false,
+  "retainedDeliveryVerified": false
+}
