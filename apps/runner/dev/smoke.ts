@@ -1,5 +1,9 @@
-import { Config, Effect } from "effect"
+import { Config, Data, Effect, Schedule } from "effect"
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
+
+class LocalRunnerUnavailable extends Data.TaggedError("LocalRunnerUnavailable")<{
+  readonly message: string
+}> {}
 
 const program = Effect.gen(function* () {
   const base = yield* Config.String("JANITOR_LOCAL_RUNNER_URL").pipe(
@@ -69,6 +73,12 @@ const program = Effect.gen(function* () {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: AbortSignal.timeout(120_000),
         })
+        if ([502, 503, 504].includes(response.status)) {
+          await response.body?.cancel()
+          throw new LocalRunnerUnavailable({
+            message: `${method} ${path}: local runner unavailable (${response.status})`,
+          })
+        }
         if (!response.ok)
           throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`)
         return (await response.json()) as {
@@ -77,8 +87,19 @@ const program = Effect.gen(function* () {
           events?: Array<{ type: string; data: unknown }>
         }
       },
-      catch: (cause) => cause,
-    })
+      catch: (cause) =>
+        cause instanceof TypeError
+          ? new LocalRunnerUnavailable({ message: "Local runner connection lost" })
+          : cause,
+    }).pipe(
+      // These commands retain the same generation/input identity after a lost proxy response.
+      // The local container-destruction endpoint is deliberately excluded from automatic replay.
+      Effect.retry({
+        times: 4,
+        schedule: Schedule.spaced("500 millis"),
+        while: (error) => path !== "/local-restart" && error instanceof LocalRunnerUnavailable,
+      }),
+    )
   const idle = Effect.gen(function* () {
     for (let attempt = 0; attempt < 180; attempt++) {
       const state = yield* call("GET", "")
@@ -101,23 +122,24 @@ const program = Effect.gen(function* () {
       text,
       attribution: { source: "driver" },
     })
-  yield* admit("initial", "Validate the disposable local repository.")
-  yield* idle
-  yield* call("POST", "/local-restart", {})
-  yield* admit("restored", "Validate restore by reading local-validation.txt.")
-  yield* idle
-  const events = yield* call("GET", "/events?after=0&limit=500")
-  if (
-    !events.events?.some(
-      (event) =>
-        event.type === "session.tool.success" &&
-        JSON.stringify(event.data).includes("Local checkpoint survived"),
+  yield* Effect.gen(function* () {
+    yield* admit("initial", "Validate the disposable local repository.")
+    yield* idle
+    yield* call("POST", "/local-restart", {})
+    yield* admit("restored", "Validate restore by reading local-validation.txt.")
+    yield* idle
+    const events = yield* call("GET", "/events?after=0&limit=500")
+    if (
+      !events.events?.some(
+        (event) =>
+          event.type === "session.tool.success" &&
+          JSON.stringify(event.data).includes("Local checkpoint survived"),
+      )
     )
-  )
-    return yield* Effect.die(
-      new Error("Restored workspace content was not observed in native tool results"),
-    )
-  yield* call("DELETE", "", { generation: 1 })
+      return yield* Effect.die(
+        new Error("Restored workspace content was not observed in native tool results"),
+      )
+  }).pipe(Effect.ensuring(call("DELETE", "", { generation: 1 }).pipe(Effect.orDie)))
   yield* Effect.logInfo(
     "Passed: local clone, native model tools, file edit, streamed checkpoint, container replacement, restore and cleanup",
   )
