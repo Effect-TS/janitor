@@ -40,6 +40,11 @@ const validate = async (live: boolean) => {
       outboundService: async (request) => {
         const body = await request.text()
         const parsed = JSON.parse(body)
+        // OpenRouter strict routing must not exclude Groq with OpenAI-only options.
+        expect(parsed).not.toHaveProperty("store")
+        expect(parsed).not.toHaveProperty("prompt_cache_key")
+        expect(parsed).not.toHaveProperty("max_completion_tokens")
+        expect(parsed.max_tokens).toBe(2048)
         // Every retry and compaction request spends this same allowance. No body rewrite.
         if (
           ++requests > 8 ||
