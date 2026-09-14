@@ -718,21 +718,52 @@ describe("GitHub label colours", () => {
   })
 })
 
-it("renders the minimal repository Overview with a rules link", () => {
+it("renders the Overview dashboard from the loaded configuration", () => {
   Scene.scene(
     {
       update: Workspace.update,
       view: Scene.withViewInputs(Workspace.view, { section: "Overview" })(),
     },
     Scene.given(opened()),
-    Scene.expect(Scene.text("Your repository is connected.")).toExist(),
-    Scene.expect(Scene.role("link", { name: "View rules" })).toExist(),
+    Scene.expect(Scene.text("Automation active · synchronized")).toExist(),
+    Scene.expect(Scene.text("1 enabled · 0 AI")).toExist(),
+    Scene.expect(Scene.text("1 published · 0 drafts")).toExist(),
+    Scene.expect(Scene.text("active rev 1")).toExist(),
+    Scene.expect(Scene.text("verified against GitHub")).toExist(),
+    Scene.expect(Scene.role("link", { name: "View all rules" })).toExist(),
+    Scene.expect(Scene.role("link", { name: "View all policies" })).toExist(),
+    Scene.expect(Scene.role("link", { name: "Edit bug" })).toExist(),
+    Scene.expect(Scene.text("Published · v1")).toExist(),
     Scene.expect(Scene.text("Recent activity")).toBeAbsent(),
   )
 })
 
+it("describes a paused repository and one whose access is lost", () => {
+  const paused = { ...opened(), repositories: Option.some([{ ...one, enabled: false }, two]) }
+  Scene.scene(
+    {
+      update: Workspace.update,
+      view: Scene.withViewInputs(Workspace.view, { section: "Overview" })(),
+    },
+    Scene.given(paused),
+    Scene.expect(Scene.text("Paused")).toExist(),
+  )
+  const lost = {
+    ...opened(),
+    repositories: Option.some([{ ...one, access: "lost" as const }, two]),
+  }
+  Scene.scene(
+    {
+      update: Workspace.update,
+      view: Scene.withViewInputs(Workspace.view, { section: "Overview" })(),
+    },
+    Scene.given(lost),
+    Scene.expect(Scene.text("Access needs attention")).toExist(),
+  )
+})
+
 it.each(["pending", "failed"] as const)(
-  "renders Overview while unrelated repository details are %s",
+  "renders the Overview header while the configuration is %s",
   (state) => {
     Scene.scene(
       {
@@ -744,10 +775,15 @@ it.each(["pending", "failed"] as const)(
         detail: Option.none(),
         detailError: state === "failed" ? Option.some("Detail request failed") : Option.none(),
       }),
-      Scene.expect(Scene.text("Your repository is connected.")).toExist(),
-      Scene.expect(Scene.role("link", { name: "View rules" })).toExist(),
-      Scene.expect(Scene.text("Loading repository…")).toBeAbsent(),
-      Scene.expect(Scene.text("Detail request failed")).toBeAbsent(),
+      Scene.expect(Scene.text("effect / one")).toExist(),
+      Scene.expect(
+        Scene.text(
+          state === "failed"
+            ? "The configuration could not be loaded. Detail request failed"
+            : "Loading configuration…",
+        ),
+      ).toExist(),
+      Scene.expect(Scene.role("link", { name: "View all rules" })).toBeAbsent(),
     )
   },
 )
@@ -781,7 +817,71 @@ it.each(["pending", "failed"] as const)(
       Scene.expect(
         Scene.text(state === "failed" ? "Repository list failed" : "Loading repository…"),
       ).toExist(),
-      Scene.expect(Scene.role("link", { name: "View rules" })).toBeAbsent(),
+      Scene.expect(Scene.role("link", { name: "View all rules" })).toBeAbsent(),
     )
   },
 )
+
+describe("rules page", () => {
+  it("selects a row to show its graph and details, and keeps the row controls", () => {
+    Scene.scene(
+      {
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Rules" })(),
+      },
+      Scene.given(ready()),
+      Scene.expect(Scene.text("Select a rule to see its details.")).toExist(),
+      Scene.expect(Scene.role("columnheader", { name: "Priority" })).toExist(),
+      Scene.expect(Scene.role("columnheader", { name: "Behavior" })).toBeAbsent(),
+      Scene.expect(Scene.role("link", { name: "Edit bug" })).toExist(),
+      Scene.expect(Scene.role("switch", { name: "Enable bug" })).toExist(),
+      Scene.click(Scene.role("cell", { name: "Base is main" })),
+      Scene.expect(Scene.text("Select a rule to see its details.")).toBeAbsent(),
+      Scene.expect(Scene.role("region", { name: "Rule bug" })).toExist(),
+      Scene.expect(Scene.text("Evaluates the policy, then acts on the label")).toExist(),
+      Scene.expect(Scene.text("2026-09-03 14:00")).toExist(),
+      Scene.expect(Scene.role("link", { name: "Edit" })).toExist(),
+    )
+    const selected = Workspace.update(
+      ready(),
+      Workspace.Message.SelectedRule({ ruleId: "r1" }),
+    ).model
+    expect(selected.selectedRuleId).toBe("r1")
+    expect(
+      Workspace.update(selected, Workspace.Message.Selected({ repositoryId: "702" })).model
+        .selectedRuleId,
+    ).toBeNull()
+  })
+
+  it("describes ages and timestamps", () => {
+    const now = DateTime.toEpochMillis(DateTime.makeUnsafe("2026-09-14T12:00:00.000Z"))
+    expect(Workspace.describeAge(at, now)).toBe("11 days ago")
+    expect(Workspace.describeAge(DateTime.makeUnsafe("2026-09-14T11:00:00.000Z"), now)).toBe(
+      "1 hour ago",
+    )
+    expect(Workspace.describeAge(DateTime.makeUnsafe("2026-06-01T00:00:00.000Z"), now)).toBe(
+      "Jun 1, 2026",
+    )
+    expect(Workspace.formatTimestamp(at)).toBe("2026-09-03 14:00")
+  })
+})
+
+describe("settings", () => {
+  it("renders the AI classification card with its state chip and provider", () => {
+    const loaded = Workspace.update(
+      ready(),
+      Workspace.Message.GotConsent({ repositoryId: "701", requestId: 2, consent }),
+    ).model
+    Scene.scene(
+      {
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Settings" })(),
+      },
+      Scene.given(loaded),
+      Scene.expect(Scene.text("AI classification")).toExist(),
+      Scene.expect(Scene.text("openai · gpt-5.6-luna")).toExist(),
+      Scene.expect(Scene.text("Disabled")).toExist(),
+      Scene.expect(Scene.role("button", { name: "Enable" })).toExist(),
+    )
+  })
+})

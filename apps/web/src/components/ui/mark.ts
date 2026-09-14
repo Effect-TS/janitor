@@ -12,7 +12,7 @@ export const platformMark = <M>(
   className?: string,
 ): Html =>
   h.span(
-    [h.Class(cn(markClass, "size-7 text-mono-sm", className)), h.AriaHidden(true)],
+    [h.Class(cn(markClass, "size-9 text-mono-sm", className)), h.AriaHidden(true)],
     [platform === "github" ? "GH" : "SL"],
   )
 

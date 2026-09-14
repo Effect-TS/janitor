@@ -49,7 +49,35 @@ describe("Activity", () => {
     expect(Activity.rows(withNewSubject).at(-1)?.kind).toBe("group")
     const journal = Activity.update(model, Activity.Message.ChangedMode({ mode: "journal" })).model
     const expanded = Activity.update(journal, Activity.Message.ToggledEvent({ id: "a" })).model
-    expect(Activity.rowHeight(Activity.rows(expanded)[0]!)).toBe(420)
+    expect(Activity.rowHeight(Activity.rows(expanded)[0]!)).toBe(Activity.RUN_ROW + 28)
+  })
+  it("sizes rows by the rules a run touched and opens the newest run with its subject", () => {
+    const evaluations = [
+      { ruleId: "r1", outcome: "match", reason: "baseRef equals main" },
+      { ruleId: "r2", outcome: "no-match", reason: "labels is not empty" },
+    ]
+    const model = {
+      ...loaded(),
+      entries: [{ ...entry("a"), evaluations }, entry("b"), entry("c", 6)],
+    }
+    expect(Activity.rows(model).map(Activity.rowHeight)).toEqual([
+      Activity.SUBJECT_ROW,
+      Activity.SUBJECT_ROW,
+    ])
+    const opened = Activity.update(model, Activity.Message.ToggledGroup({ number: 5 })).model
+    expect(opened.expanded).toEqual(["a"])
+    expect(Activity.openRun(opened)?.id).toBe("a")
+    expect(Activity.rows(opened).map(Activity.rowHeight)).toEqual([
+      Activity.SUBJECT_ROW,
+      Activity.RUN_ROW + Activity.TABLE_HEAD + Activity.TABLE_RULE * 2,
+      Activity.RUN_ROW,
+      Activity.SUBJECT_ROW,
+    ])
+    const closed = Activity.update(opened, Activity.Message.ToggledGroup({ number: 5 })).model
+    expect(Activity.openRun(closed)).toBeUndefined()
+    const refreshed = Activity.update(closed, Activity.Message.ClickedRefresh())
+    expect(refreshed.commands?.length).toBe(1)
+    expect(refreshed.model.loading).toBe(true)
   })
   it("stages new activity without moving the current list and accepts it explicitly", () => {
     const model = {

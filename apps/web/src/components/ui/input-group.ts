@@ -36,10 +36,10 @@ export const inputGroupButtonSizeKeys: ReadonlyArray<InputGroupButtonSize> = [
 export const inputGroupButtonClass = "gap-2 text-body-sm flex items-center shadow-none"
 
 export const inputGroupButtonSizeClasses = {
-  xs: "h-6 gap-1 rounded-xs px-1.5 [&>svg:not([class*='size-'])]:size-3.5",
+  xs: "h-7 gap-1 rounded-sm px-2 [&>svg:not([class*='size-'])]:size-3.5",
   sm: "gap-1",
-  "icon-xs": "size-6 rounded-xs p-0 has-[>svg]:p-0",
-  "icon-sm": "size-6 p-0 has-[>svg]:p-0",
+  "icon-xs": "size-7 rounded-sm p-0 has-[>svg]:p-0",
+  "icon-sm": "size-7 p-0 has-[>svg]:p-0",
 } as const satisfies Record<InputGroupButtonSize, string>
 
 export type InputGroupTextareaConfig<M> = {

@@ -10,13 +10,13 @@ export const dialogRootClass =
 export const dialogOverlayClass = "fixed inset-0 z-50 bg-scrim"
 
 export const dialogContentClass =
-  "relative z-50 mx-auto flex max-w-md flex-col gap-3 rounded-sm border border-border bg-popover p-4 text-popover-foreground shadow-overlay"
+  "relative z-50 mx-auto flex max-w-lg flex-col gap-4 rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-overlay"
 
 export const dialogTitleClass = "text-h2 font-semibold"
 
 export const dialogDescriptionClass = "text-body-sm text-ink-muted"
 
-export const dialogActionsClass = "flex justify-end gap-2 pt-1"
+export const dialogActionsClass = "flex justify-end gap-2 pt-2"
 
 type Attributes<M> = ReadonlyArray<Attribute<M> | ChildAttribute>
 

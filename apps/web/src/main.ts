@@ -3,6 +3,7 @@ import * as Connections from "@/components/repository-connections"
 import * as Account from "@/components/account"
 import * as Sessions from "@/components/sessions"
 import * as DesignSystem from "@/components/design-system"
+import * as PrototypeIdentity from "@/components/prototype-identity"
 import * as Overlay from "@/components/ui/overlay"
 import { buttonBase, buttonSizes, buttonVariants } from "@/components/ui/button"
 import * as Effect from "effect/Effect"
@@ -20,6 +21,8 @@ import * as JanitorIcon from "@/components/janitor-icon"
 import * as Workspace from "@/components/workspace"
 import * as RepositorySwitcher from "@/components/repository-switcher"
 import * as Sidebar from "@/components/ui/sidebar"
+import * as Page from "@/components/ui/page"
+import { labelName, type RepositoryOverview } from "@/components/labeling-wire"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
 import { House, FileCode2, Tags, Activity, Settings, UserRound, Bot } from "lucide"
@@ -206,7 +209,19 @@ const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
   }
 }
 
-const enterRoute = (model: Model, route: Routes.AppRoute): Step => {
+/** The rule editor is the one screen that collapses the sidebar to the icon
+ *  rail so its three-column canvas fits (DESIGN.md § Layout). The rail state
+ *  changes only on the way in and out, so a manual toggle elsewhere survives. */
+const isEditorRoute = (route: Routes.AppRoute): boolean =>
+  route._tag === "Rule" || route._tag === "NewRule"
+
+const enterRoute = (previous: Model, route: Routes.AppRoute): Step => {
+  const wasEditor = isEditorRoute(previous.navigation.route)
+  const willBeEditor = isEditorRoute(route)
+  const model =
+    wasEditor === willBeEditor || previous.sidebar.isMobile
+      ? previous
+      : evo(previous, { sidebar: (sidebar) => Sidebar.setOpen(sidebar, !willBeEditor) })
   if (isSessionsRoute(route)) return enterSessions(model, route)
   return enterOtherRoute(evo(model, { sessions: (sessions) => Sessions.leave(sessions) }), route)
 }
@@ -892,15 +907,15 @@ export const subscriptions = Subscription.aggregate<Model, Message, AppServices>
 )
 
 /** Sidebar destinations are rows, not links: foreground text, primary wash
- *  and a 2px primary edge when current, `aria-current` carrying the state. */
-const navLinkClass = "text-foreground no-underline hover:no-underline"
-const navLinkActiveClass = "border-primary bg-sidebar-accent font-semibold"
+ *  when current (no left edge), `aria-current` carrying the state. */
+const navLinkClass = "h-9 text-foreground no-underline hover:no-underline"
+const navLinkActiveClass = "bg-sidebar-accent font-medium"
 
 const brandHeader = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class("flex gap-2 items-center")],
     [
-      JanitorIcon.view(h, { className: "size-7" }),
+      JanitorIcon.view(h, { className: "size-8" }),
       h.div(
         [h.Class("flex flex-col")],
         [
@@ -913,12 +928,27 @@ const brandHeader = (h: HtmlBuilder<Message>): Html =>
 
 /** Everything the switcher renders. It groups and filters the list itself; the
  *  page only owns which repository is current. */
+type Section = ReturnType<typeof Routes.section>
+
+/** The repository the shell is "in": the route's when it has one, otherwise
+ *  the last one visited, so Sessions and Account keep the repository nav. */
+const currentRepositoryId = (model: Model): Option.Option<string> =>
+  "repositoryId" in model.navigation.route
+    ? Option.some(model.navigation.route.repositoryId)
+    : Option.filter(model.lastRepositoryId, (id) =>
+        Option.exists(model.workspace.repositories, (repositories) =>
+          repositories.some((repo) => repo.repositoryId === id && repo.access === "accessible"),
+        ),
+      )
+
+const currentRepository = (model: Model): RepositoryOverview | undefined =>
+  Option.getOrElse(model.workspace.repositories, () => []).find((repo) =>
+    Option.contains(currentRepositoryId(model), repo.repositoryId),
+  )
+
 const switcherInputs = (model: Model): RepositorySwitcher.ViewInputs => ({
   repositories: Option.getOrElse(model.workspace.repositories, () => []),
-  maybeSelectedId:
-    "repositoryId" in model.navigation.route
-      ? Option.some(model.navigation.route.repositoryId)
-      : Option.none(),
+  maybeSelectedId: currentRepositoryId(model),
 })
 
 const repositorySwitcher = (h: HtmlBuilder<Message>, model: Model): Html =>
@@ -945,7 +975,7 @@ const sidebarMenu = (h: HtmlBuilder<Message>, model: Model): Html =>
         children: [
           Sidebar.menuButton(h, {
             size: "lg",
-            className: "border-l-0 px-1.5 hover:bg-transparent",
+            className: "px-1.5 hover:bg-transparent",
             children: [brandHeader(h)],
           }),
         ],
@@ -954,65 +984,76 @@ const sidebarMenu = (h: HtmlBuilder<Message>, model: Model): Html =>
     ],
   })
 
-const navMain = (h: HtmlBuilder<Message>, model: Model): Html =>
-  !("repositoryId" in model.navigation.route)
-    ? h.empty
-    : h.div(
-        [],
-        [
-          Sidebar.group(h, {
-            children: [
-              Sidebar.groupLabel(h, { children: ["Repository"] }),
-              Sidebar.menu(h, {
-                children: (["Overview", "Policies", "Rules", "Activity", "Settings"] as const).map(
-                  (section) =>
-                    Sidebar.menuItem(h, {
-                      children: [
-                        h.a(
-                          [
-                            h.Href(
-                              "repositoryId" in model.navigation.route
-                                ? Routes.sectionPath(model.navigation.route.repositoryId, section)
-                                : Routes.home(),
-                            ),
-                            h.Class(
-                              cn(
-                                Sidebar.sidebarMenuButtonClass,
-                                navLinkClass,
-                                Routes.section(model.navigation.route) === section &&
-                                  navLinkActiveClass,
-                              ),
-                            ),
-                            h.AriaCurrent(
-                              "repositoryId" in model.navigation.route &&
-                                Routes.section(model.navigation.route) === section
-                                ? "page"
-                                : "false",
-                            ),
-                          ],
-                          [
-                            Icon.view(
-                              h,
-                              {
-                                Overview: House,
-                                Policies: FileCode2,
-                                Rules: Tags,
-                                Activity,
-                                Settings,
-                              }[section],
-                              "size-3.5 shrink-0 text-ink-subtle",
-                            ),
-                            h.span([], [section]),
-                          ],
+const navMain = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const repository = currentRepository(model)
+  if (repository === undefined) return h.empty
+  const current = "repositoryId" in model.navigation.route
+  const counts: Partial<Record<Section, number>> = {
+    Policies: repository.policyCount,
+    Rules: repository.ruleCount,
+  }
+  return h.div(
+    [],
+    [
+      Sidebar.group(h, {
+        children: [
+          Sidebar.groupLabel(h, { children: ["Repository"] }),
+          Sidebar.menu(h, {
+            children: (["Overview", "Policies", "Rules", "Activity", "Settings"] as const).map(
+              (section) => {
+                const active = current && Routes.section(model.navigation.route) === section
+                const count = counts[section]
+                return Sidebar.menuItem(h, {
+                  children: [
+                    h.a(
+                      [
+                        h.Href(Routes.sectionPath(repository.repositoryId, section)),
+                        h.Class(
+                          cn(
+                            Sidebar.sidebarMenuButtonClass,
+                            navLinkClass,
+                            active && navLinkActiveClass,
+                          ),
                         ),
+                        h.AriaCurrent(active ? "page" : "false"),
                       ],
-                    }),
-                ),
-              }),
-            ],
+                      [
+                        Icon.view(
+                          h,
+                          {
+                            Overview: House,
+                            Policies: FileCode2,
+                            Rules: Tags,
+                            Activity,
+                            Settings,
+                          }[section],
+                          "size-4 shrink-0 text-ink-subtle",
+                        ),
+                        h.span([h.Class("flex-1 truncate")], [section]),
+                        ...(count === undefined || count === 0
+                          ? []
+                          : [
+                              h.span(
+                                [
+                                  h.Class(
+                                    "font-mono text-mono-xs text-ink-subtle tabular-nums group-data-[collapsible=icon]:hidden",
+                                  ),
+                                ],
+                                [String(count)],
+                              ),
+                            ]),
+                      ],
+                    ),
+                  ],
+                })
+              },
+            ),
           }),
         ],
-      )
+      }),
+    ],
+  )
+}
 
 const teamNav = (h: HtmlBuilder<Message>, model: Model): Html =>
   Sidebar.group(h, {
@@ -1034,7 +1075,22 @@ const teamNav = (h: HtmlBuilder<Message>, model: Model): Html =>
                   ),
                   h.AriaCurrent(isSessionsRoute(model.navigation.route) ? "page" : "false"),
                 ],
-                [Icon.view(h, Bot, "size-3.5 shrink-0 text-ink-subtle"), h.span([], ["Sessions"])],
+                [
+                  Icon.view(h, Bot, "size-4 shrink-0 text-ink-subtle"),
+                  h.span([h.Class("flex-1 truncate")], ["Sessions"]),
+                  ...(model.sessions.loaded && model.sessions.sessions.length > 0
+                    ? [
+                        h.span(
+                          [
+                            h.Class(
+                              "font-mono text-mono-xs text-ink-subtle tabular-nums group-data-[collapsible=icon]:hidden",
+                            ),
+                          ],
+                          [String(model.sessions.sessions.length)],
+                        ),
+                      ]
+                    : []),
+                ],
               ),
             ],
           }),
@@ -1060,7 +1116,7 @@ const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
               ),
               h.AriaCurrent(isAccountRoute(model.navigation.route) ? "page" : "false"),
             ],
-            [Icon.view(h, UserRound, "size-3.5 shrink-0 text-ink-subtle"), h.span([], ["Account"])],
+            [Icon.view(h, UserRound, "size-4 shrink-0 text-ink-subtle"), h.span([], ["Account"])],
           ),
         ],
       }),
@@ -1083,12 +1139,104 @@ const repositorySyncDisabled = (model: Model): boolean =>
     ),
   )
 
+/** Breadcrumb (DESIGN.md § Typography): Inter, owner and repo as links, the
+ *  current page in semibold; only a rule or policy name is mono. */
+const breadcrumb = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const route = model.navigation.route
+  const repository = currentRepository(model)
+  const configuration = Option.map(model.workspace.detail, (detail) => detail.configuration)
+  const crumbLink = (href: string, text: string) =>
+    h.a([h.Href(href), h.Class("text-primary hover:underline")], [text])
+  const leaf = (text: string, mono = false) =>
+    h.span([h.Class(cn("font-semibold", mono && "font-mono"))], [text])
+  const separator = () => h.span([h.Class("text-ink-faint")], ["/"])
+  const repositoryCrumbs: ReadonlyArray<Html> =
+    repository === undefined
+      ? []
+      : [
+          crumbLink(Routes.home(), repository.owner),
+          separator(),
+          crumbLink(
+            Routes.repositoryHome({ repositoryId: repository.repositoryId }),
+            repository.repo,
+          ),
+          separator(),
+        ]
+  const sectionCrumbs = (section: Section, tail: ReadonlyArray<Html>): ReadonlyArray<Html> =>
+    repository === undefined || tail.length === 0
+      ? [leaf(section)]
+      : [
+          crumbLink(Routes.sectionPath(repository.repositoryId, section), section),
+          separator(),
+          ...tail,
+        ]
+  const tail: ReadonlyArray<Html> =
+    route._tag === "Connect" || route._tag === "ConnectReturn"
+      ? [leaf("Connect repository")]
+      : isAccountRoute(route)
+        ? [leaf("Account")]
+        : route._tag === "Session"
+          ? [
+              crumbLink(Routes.sessions(), "Sessions"),
+              separator(),
+              leaf(model.sessions.detail?.title ?? "Session"),
+            ]
+          : isSessionsRoute(route)
+            ? [leaf("Sessions")]
+            : route._tag === "Home"
+              ? [leaf("Repositories")]
+              : route._tag === "DesignSystem"
+                ? [leaf("Design system")]
+                : route._tag === "NotFound"
+                  ? [leaf("Page not found")]
+                  : route._tag === "Prototype"
+                    ? [leaf("Prototype")]
+                    : route._tag === "Rule"
+                      ? sectionCrumbs("Rules", [
+                          leaf(
+                            Option.map(configuration, (view) =>
+                              labelName(
+                                view.labels,
+                                view.rules.find((rule) => rule.id === route.ruleId)?.labelId ?? "",
+                              ),
+                            ).pipe(Option.getOrElse(() => "Rule")),
+                            true,
+                          ),
+                        ])
+                      : route._tag === "NewRule"
+                        ? sectionCrumbs("Rules", [leaf("New rule")])
+                        : route._tag === "Policy"
+                          ? sectionCrumbs("Policies", [
+                              leaf(
+                                Option.map(
+                                  configuration,
+                                  (view) =>
+                                    view.policies.find(
+                                      (policy) => policy.policyId === route.policyId,
+                                    )?.name ?? "Policy",
+                                ).pipe(Option.getOrElse(() => "Policy")),
+                                true,
+                              ),
+                            ])
+                          : route._tag === "NewPolicy"
+                            ? sectionCrumbs("Policies", [leaf("New policy")])
+                            : [leaf(Routes.section(route))]
+  const crumbs =
+    route._tag === "Home" || route._tag === "NotFound" || route._tag === "DesignSystem"
+      ? tail
+      : [...repositoryCrumbs, ...tail]
+  return h.nav(
+    [h.AriaLabel("Breadcrumb"), h.Class("flex min-w-0 items-center gap-2 text-body-md")],
+    crumbs,
+  )
+}
+
 const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
   h.header(
     [h.Class("flex h-app-bar shrink-0 items-center gap-2 border-b border-border bg-card")],
     [
       h.div(
-        [h.Class("flex w-full justify-between px-3.5")],
+        [h.Class("flex w-full justify-between px-5")],
         [
           h.div(
             [h.Class("flex items-center gap-1 lg:gap-2")],
@@ -1099,25 +1247,7 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
                   h.OnClick(Message.GotSidebarMessage({ message: Sidebar.Message.Toggled() })),
                 ],
               }),
-              h.span(
-                [h.Class("text-body-md font-semibold")],
-                [
-                  model.navigation.route._tag === "Connect" ||
-                  model.navigation.route._tag === "ConnectReturn"
-                    ? "Connect repository"
-                    : isAccountRoute(model.navigation.route)
-                      ? "Account"
-                      : isSessionsRoute(model.navigation.route)
-                        ? "Sessions"
-                        : model.navigation.route._tag === "Home"
-                          ? "Repositories"
-                          : model.navigation.route._tag === "DesignSystem"
-                            ? "Design system"
-                            : model.navigation.route._tag === "NotFound"
-                              ? "Page not found"
-                              : Routes.section(model.navigation.route),
-                ],
-              ),
+              breadcrumb(h, model),
             ],
           ),
           h.div(
@@ -1235,6 +1365,8 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   if (isAccountRoute(route)) return accountView(h, model)
   if (isSessionsRoute(route)) return sessionsView(h, model)
   if (route._tag === "DesignSystem") return DesignSystem.view(h, { noop: Message.NoOp() })
+  // PROTOTYPE (throwaway): rendered without the shell in `view`; never reached.
+  if (route._tag === "Prototype") return h.div([], [])
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")
@@ -1349,15 +1481,43 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
     viewInputs: { section: Routes.section(route) },
     toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
   })
-  return route._tag === "Settings"
-    ? h.div(
-        [h.Class("flex flex-col gap-4 p-4 lg:p-5")],
-        [connectionView(h, model, route.repositoryId), content],
-      )
-    : content
+  if (route._tag !== "Settings") return content
+  const repository = repositories.find((repo) => repo.repositoryId === route.repositoryId)
+  return Page.layout(h, {
+    main: [
+      Page.header(h, {
+        title: "Settings",
+        lede:
+          repository === undefined
+            ? "Connection, automation and AI classification."
+            : h.span(
+                [],
+                [
+                  h.span([h.Class("font-mono")], [`${repository.owner}/${repository.repo}`]),
+                  " · connection, automation and AI classification.",
+                ],
+              ),
+      }),
+      connectionView(h, model, route.repositoryId),
+      content,
+    ],
+  })
 }
 
-export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
+export const view = (model: Model, h: HtmlBuilder<Message>): Document =>
+  // PROTOTYPE (throwaway): identity mockups render without the app shell,
+  // because the shell itself is what the mockups reconsider.
+  model.navigation.route._tag === "Prototype" && import.meta.env.DEV
+    ? {
+        title: "Identity prototype · The Janitor",
+        body: PrototypeIdentity.view(h, {
+          variant: model.navigation.route.variant,
+          screen: model.navigation.route.screen,
+        }),
+      }
+    : shellView(model, h)
+
+const shellView = (model: Model, h: HtmlBuilder<Message>): Document => ({
   title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isSessionsRoute(model.navigation.route) ? "Sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "DesignSystem" ? "Design system" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",

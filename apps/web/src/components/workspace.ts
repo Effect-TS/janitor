@@ -4,6 +4,7 @@ import * as Activity from "@/components/activity"
 import * as Menu from "@foldkit/ui/menu"
 import * as Effect from "effect/Effect"
 import * as Clock from "effect/Clock"
+import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
@@ -24,6 +25,8 @@ import { Plus, Search, Ellipsis, Pencil } from "lucide"
 import { inputGroup, inputGroupAddon, inputGroupInput } from "@/components/ui/input-group"
 import { chip } from "@/components/ui/chip"
 import { emptyPanel, panel, panelHeader } from "@/components/ui/panel"
+import * as Page from "@/components/ui/page"
+import * as Blueprint from "@/components/ui/blueprint"
 import * as Overlay from "@/components/ui/overlay"
 import * as SwitchControl from "@/components/ui/switch"
 import * as Table from "@/components/ui/table"
@@ -43,6 +46,7 @@ import {
   PolicyDetail,
   policyEndpoint,
   policyName,
+  PolicyRecord,
   ReconciliationRecord,
   REPOSITORIES_ENDPOINT,
   RepositoryOverview,
@@ -106,6 +110,8 @@ export const Model = Schema.Struct({
   consentError: Schema.Option(Schema.String),
   policySearch: Schema.String,
   ruleSearch: Schema.String,
+  /** The rule whose graph and details the rules page shows. */
+  selectedRuleId: Schema.NullOr(Schema.String),
   ruleMenus: Schema.Record(Schema.String, Menu.Model),
   repositories: Schema.Option(Schema.Array(RepositoryOverview)),
   repositoriesError: Schema.Option(Schema.String),
@@ -151,6 +157,7 @@ export const Message = defineMessageUnion({
   ClickedDeletePolicy: { policyId: Schema.String, version: Schema.Int },
   ClickedNewRule: {},
   UpdatedRuleSearch: { value: Schema.String },
+  SelectedRule: { ruleId: Schema.String },
   GotRuleMenuMessage: { ruleId: Schema.String, message: Menu.Message },
   ClickedEditRule: { ruleId: Schema.String },
   ClickedToggleRule: { ruleId: Schema.String },
@@ -399,6 +406,7 @@ export const init = (): UpdateReturn => ({
       consentError: Option.none(),
       policySearch: "",
       ruleSearch: "",
+      selectedRuleId: null,
       ruleMenus: {},
       repositories: Option.none(),
       repositoriesError: Option.none(),
@@ -789,6 +797,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             evo(closed(model), {
               dataRepositoryId: () => Option.some(repositoryId),
               policySearch: () => "",
+              selectedRuleId: () => null,
               detail: () => Option.none(),
               detailError: () => Option.none(),
               maybeConsent: () => Option.none(),
@@ -1049,6 +1058,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedDeletePolicy: ({ policyId, version }) =>
       deleteSubject(model, "policy", policyId, version),
     UpdatedRuleSearch: ({ value }) => ({ model: evo(model, { ruleSearch: () => value }) }),
+    SelectedRule: ({ ruleId }) => ({ model: evo(model, { selectedRuleId: () => ruleId }) }),
     GotRuleMenuMessage: ({ ruleId, message }) => foldRuleMenu(ruleId)(model, message),
     ClickedNewRule: () => ({ model: openRuleEditor(model, Option.none()) }),
     ClickedEditRule: ({ ruleId }) =>
@@ -1249,9 +1259,6 @@ export const subscriptions = Subscription.aggregate<Model, Message>()(
 )
 
 // VIEW
-
-const sectionTitle = <M>(h: HtmlBuilder<M>, text: string): Html =>
-  h.h2([h.Class("text-h2 font-semibold")], [text])
 
 const policiesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
   const creating =
@@ -1495,11 +1502,64 @@ export const labelBadge = <M>(
     ],
   })
 
+const relativeFormat = new Intl.RelativeTimeFormat("en", { numeric: "always" })
+
+/** "3 days ago" for table cells; past a month the date itself reads better. */
+export const describeAge = (at: DateTime.Utc, nowMillis: number): string => {
+  const seconds = Math.max(0, Math.round((nowMillis - DateTime.toEpochMillis(at)) / 1000))
+  const minutes = Math.round(seconds / 60)
+  const hours = Math.round(minutes / 60)
+  const days = Math.round(hours / 24)
+  if (seconds < 45) return "just now"
+  if (minutes < 60) return relativeFormat.format(-minutes, "minute")
+  if (hours < 24) return relativeFormat.format(-hours, "hour")
+  if (days < 31) return relativeFormat.format(-days, "day")
+  return DateTime.formatUtc(at, { day: "numeric", month: "short", year: "numeric" })
+}
+
+/** `2026-09-05 11:05`, the machine form for inspector rows. */
+export const formatTimestamp = (at: DateTime.Utc): string =>
+  DateTime.formatIso(at).slice(0, 16).replace("T", " ")
+
+const describeTarget = (target: PolicyRecord["target"]): string =>
+  target === "issue" ? "issues" : "pull_requests"
+
+/** A link dressed as a button, for actions that are navigation. */
+const linkButton = <M>(
+  h: HtmlBuilder<M>,
+  config: {
+    readonly href: string
+    readonly label: ReadonlyArray<Html | string>
+    readonly variant?: Button.ButtonVariant
+    readonly size?: Button.ButtonSize
+    readonly attributes?: ReadonlyArray<Parameters<typeof h.a>[0][number]>
+  },
+): Html =>
+  h.a(
+    [
+      h.Href(config.href),
+      h.Class(
+        cn(
+          Button.buttonBase,
+          "inline-flex items-center justify-center shrink-0 whitespace-nowrap [&_svg]:shrink-0",
+          Button.buttonVariants[config.variant ?? "secondary"],
+          Button.buttonSizes[config.size ?? "default"],
+        ),
+      ),
+      h.DataAttribute("slot", "button"),
+      h.DataAttribute("size", config.size ?? "default"),
+      h.DataAttribute("variant", config.variant ?? "secondary"),
+      ...(config.attributes ?? []),
+    ],
+    config.label,
+  )
+
 const ruleRow = (
   h: HtmlBuilder<Message>,
   model: Model,
   view: ConfigurationView,
   rule: RuleRecord,
+  nowMillis: number,
 ): Html => {
   const name = labelName(view.labels, rule.labelId)
   const label = view.labels.find((label) => label.labelId === rule.labelId)
@@ -1509,9 +1569,16 @@ const ruleRow = (
       mutation.subjectId === rule.id &&
       (mutation.kind === "RuleToggle" || mutation.kind === "RuleDelete"),
   )
-  const policy = view.policies.find((policy) => policy.policyId === rule.policyId)
   const isAi = ruleType(view, rule) === "AI"
+  const isSelected = model.selectedRuleId === rule.id
+  // Clicking the informational cells selects the row; the switch and the
+  // action buttons keep their own behaviour, so they carry no handler.
+  const select: ReadonlyArray<Parameters<typeof h.td>[0][number]> = [
+    h.OnClick(Message.SelectedRule({ ruleId: rule.id })),
+  ]
   return Table.row(h, {
+    isSelected,
+    className: "cursor-pointer",
     attributes: [h.DataAttribute("rule-id", rule.id)],
     children: [
       Table.cell(h, {
@@ -1540,6 +1607,7 @@ const ruleRow = (
         ],
       }),
       Table.cell(h, {
+        attributes: select,
         children: [
           isAi
             ? chip(h, { variant: "agent", children: ["AI"] })
@@ -1547,73 +1615,238 @@ const ruleRow = (
         ],
       }),
       Table.cell(h, {
+        attributes: select,
         children: [
           labelBadge(
             h,
             name,
             label?.color,
-            rule.labelStatus === "missing" ? "line-through" : undefined,
+            rule.labelStatus === "missing" ? "line-through text-ink-subtle" : undefined,
+          ),
+        ],
+      }),
+      // Label and Policy share the leftover width (fixed layout) and truncate.
+      Table.cell(h, {
+        code: true,
+        attributes: select,
+        children: [
+          h.span(
+            [h.Class("block truncate"), h.Title(policyName(view.policies, rule.policyId))],
+            [policyName(view.policies, rule.policyId)],
           ),
         ],
       }),
       Table.cell(h, {
         code: true,
-        children: [
-          h.span(
-            [h.Title(rule.group ?? "No exclusive group")],
-            [rule.group ? `${rule.group} / ${rule.priority}` : "—"],
-          ),
-        ],
+        attributes: select,
+        children: [h.span([h.Title(rule.group ?? "No exclusive group")], [rule.group ?? "–"])],
       }),
       Table.cell(h, {
-        className: "max-w-0",
-        children: [
-          h.span(
-            [h.Class("block truncate"), h.Title(policy?.description || ruleBehavior(view, rule))],
-            [ruleBehavior(view, rule)],
-          ),
-        ],
+        code: true,
+        numeric: true,
+        attributes: select,
+        children: [String(rule.priority)],
       }),
       Table.cell(h, {
-        className: "w-10 text-right",
+        className: "whitespace-nowrap text-ink-muted",
+        attributes: [...select, h.Title(formatTimestamp(rule.updatedAt))],
+        children: [describeAge(rule.updatedAt, nowMillis)],
+      }),
+      Table.cell(h, {
+        className: "w-20 py-1",
         children: [
-          h.submodel({
-            slotId: `rule-menu-${rule.id}`,
-            model: ruleMenuModel(model, rule.id),
-            view: RuleMenu.view,
-            viewInputs: {
-              items: ["Edit"],
-              ariaLabel: `Actions for ${name}`,
-              isButtonDisabled: hasMutation(model, rule.repositoryId, rule.id, [
-                "RuleDelete",
-                "RuleToggle",
-              ]),
-              buttonContent: Icon.view(h, Ellipsis),
-              buttonClassName: cn(
-                Overlay.menuButtonClass,
-                "size-6 border-transparent bg-transparent",
-              ),
-              buttonAttributes: childAttributes([
-                h.AriaLabel(`Actions for ${name}`),
-                h.Title("Rule actions"),
-              ]),
-              itemsClassName: Overlay.menuItemsClass,
-              anchor: { placement: "bottom-end", gap: 4 },
-              itemToConfig: (_item, { isActive }) => ({
-                className: cn(Overlay.menuItemClass, isActive && Overlay.menuItemActiveClass),
-                content: h.span(
-                  [h.Class("flex items-center gap-2"), h.DataAttribute("action", "edit-rule")],
-                  [Icon.view(h, Pencil), "Edit rule"],
-                ),
+          h.div(
+            [h.Class("flex items-center justify-end gap-1")],
+            [
+              linkButton(h, {
+                href: Routes.rule({ repositoryId: rule.repositoryId, ruleId: rule.id }),
+                variant: "ghost",
+                size: "icon-xs",
+                label: [Icon.view(h, Pencil, "size-4 text-ink-subtle")],
+                attributes: [
+                  h.AriaLabel(`Edit ${name}`),
+                  h.Title("Edit rule"),
+                  h.DataAttribute("action", "edit-rule"),
+                ],
               }),
-            },
-            toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId: rule.id, message }),
-          }),
+              h.submodel({
+                slotId: `rule-menu-${rule.id}`,
+                model: ruleMenuModel(model, rule.id),
+                view: RuleMenu.view,
+                viewInputs: {
+                  items: ["Edit"],
+                  ariaLabel: `Actions for ${name}`,
+                  isButtonDisabled: hasMutation(model, rule.repositoryId, rule.id, [
+                    "RuleDelete",
+                    "RuleToggle",
+                  ]),
+                  buttonContent: Icon.view(h, Ellipsis),
+                  buttonClassName: cn(
+                    Overlay.menuButtonClass,
+                    "size-7 border-transparent bg-transparent",
+                  ),
+                  buttonAttributes: childAttributes([
+                    h.AriaLabel(`Actions for ${name}`),
+                    h.Title("Rule actions"),
+                  ]),
+                  itemsClassName: Overlay.menuItemsClass,
+                  anchor: { placement: "bottom-end", gap: 4 },
+                  itemToConfig: (_item, { isActive }) => ({
+                    className: cn(Overlay.menuItemClass, isActive && Overlay.menuItemActiveClass),
+                    content: h.span(
+                      [h.Class("flex items-center gap-2"), h.DataAttribute("action", "edit-rule")],
+                      [Icon.view(h, Pencil), "Edit rule"],
+                    ),
+                  }),
+                },
+                toParentMessage: (message) =>
+                  Message.GotRuleMenuMessage({ ruleId: rule.id, message }),
+              }),
+            ],
+          ),
         ],
       }),
     ],
   })
 }
+
+/** The selected rule as a read-only blueprint: what it watches, what must
+ *  hold, what it does. Mirrors the editor's graph without the controls. */
+const ruleDetailCard = (
+  h: HtmlBuilder<Message>,
+  view: ConfigurationView,
+  rule: RuleRecord,
+): Html => {
+  const name = labelName(view.labels, rule.labelId)
+  const policy = view.policies.find((policy) => policy.policyId === rule.policyId)
+  const ai = rule.ai ?? undefined
+  const target = ai?.target ?? policy?.target ?? "issue"
+  const gate = ai?.gatePolicyId
+    ? view.policies.find((policy) => policy.policyId === ai.gatePolicyId)
+    : undefined
+  const whenNodes = [
+    Blueprint.node(h, { kind: "Event", children: [describeTarget(target)] }),
+    ...(gate === undefined
+      ? []
+      : [Blueprint.node(h, { kind: "Gate policy", children: [gate.name] })]),
+  ]
+  const conditionNodes = [
+    Blueprint.node(h, { kind: "Policy", children: [policyName(view.policies, rule.policyId)] }),
+    ...(ai === undefined
+      ? []
+      : [
+          Blueprint.node(h, {
+            kind: "Agent",
+            isAgent: true,
+            isSelected: true,
+            children: [
+              h.div([], [`confidence ≥ ${ai.minimumConfidence.toFixed(2)}`]),
+              h.div(
+                [h.Class("mt-1 whitespace-pre-wrap wrap-anywhere text-ink-muted")],
+                [ai.prompt],
+              ),
+            ],
+          }),
+        ]),
+  ]
+  const thenNodes = [
+    Blueprint.node(h, { kind: "Match", children: [describeResultAction(rule.onMatch)] }),
+    Blueprint.node(h, { kind: "No match", children: [describeResultAction(rule.onNoMatch)] }),
+  ]
+  const nodeCount = whenNodes.length + conditionNodes.length + thenNodes.length
+  return panel(h, {
+    flush: true,
+    attributes: [
+      h.DataAttribute("rule-detail", rule.id),
+      h.Role("region"),
+      h.AriaLabel(`Rule ${name}`),
+    ],
+    children: [
+      panelHeader(h, {
+        title: h.span([h.Class("font-mono")], [name]),
+        meta: `v${rule.version}`,
+        actions: [
+          linkButton(h, {
+            href: Routes.rule({ repositoryId: rule.repositoryId, ruleId: rule.id }),
+            label: [Icon.view(h, Pencil), "Edit"],
+            attributes: [h.DataAttribute("action", "edit-rule")],
+          }),
+        ],
+      }),
+      // The graph scrolls inside its card; without `contain` its natural width
+      // would still widen the page and push the inspector off screen.
+      Blueprint.canvas(h, {
+        className: "contain-inline-size",
+        children: [
+          Blueprint.column(h, { label: "When", children: whenNodes }),
+          Blueprint.wire(h, { label: ai ? "gate" : "evaluate" }),
+          Blueprint.column(h, {
+            label: ai ? "If The Janitor classifies it" : "If every condition matches",
+            ...(ai ? { className: "w-72" } : {}),
+            children: conditionNodes,
+          }),
+          Blueprint.wire(h, {
+            paths: [
+              { fromY: 24, toY: 24, label: "match" },
+              { fromY: 24, toY: 110, label: "no match" },
+            ],
+          }),
+          Blueprint.column(h, { label: "Then", children: thenNodes }),
+        ],
+      }),
+      Blueprint.footer(h, {
+        summary: ai
+          ? "Applies to a target, runs the classification, then acts on the label"
+          : "Evaluates the policy, then acts on the label",
+        counts: `${nodeCount} nodes · 3 wires`,
+      }),
+    ],
+  })
+}
+
+const ruleSelectionCard = (
+  h: HtmlBuilder<Message>,
+  view: ConfigurationView,
+  rule: RuleRecord | undefined,
+): Html =>
+  Page.inspectorCard(h, {
+    heading: "Selection",
+    children:
+      rule === undefined
+        ? [h.p([h.Class("text-body-md text-ink-muted")], ["Select a rule to see its details."])]
+        : [
+            h.div(
+              [h.Class("flex flex-wrap items-center gap-2")],
+              [
+                labelBadge(
+                  h,
+                  labelName(view.labels, rule.labelId),
+                  view.labels.find((label) => label.labelId === rule.labelId)?.color,
+                  rule.labelStatus === "missing" ? "line-through text-ink-subtle" : undefined,
+                ),
+                ruleType(view, rule) === "AI"
+                  ? chip(h, { variant: "agent", children: ["AI"] })
+                  : h.empty,
+              ],
+            ),
+            h.div(
+              [h.Class("mt-3")],
+              [
+                Page.kvList(h, [
+                  Page.kv(h, "Policy", policyName(view.policies, rule.policyId)),
+                  Page.kv(h, "Group", rule.group ?? "–"),
+                  Page.kv(h, "Priority", String(rule.priority)),
+                  ...(rule.ai
+                    ? [Page.kv(h, "Confidence", `≥ ${rule.ai.minimumConfidence.toFixed(2)}`)]
+                    : []),
+                  Page.kv(h, "Version", String(rule.version)),
+                  Page.kv(h, "Updated", formatTimestamp(rule.updatedAt)),
+                ]),
+              ],
+            ),
+          ],
+  })
+
 const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: ConfigurationView): Html => {
   const query = model.ruleSearch.trim().toLowerCase()
   const rules = view.rules.filter((rule) =>
@@ -1621,28 +1854,34 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
       .toLowerCase()
       .includes(query),
   )
-  return h.section(
-    [h.Class("flex flex-col gap-4 p-4 lg:p-5")],
-    [
-      h.header(
-        [h.Class("flex items-start justify-between gap-4")],
+  const selected = view.rules.find((rule) => rule.id === model.selectedRuleId)
+  const nowMillis = Date.now()
+  const newRule = Button.view(h, {
+    onClick: Message.ClickedNewRule(),
+    label: h.span([h.Class("contents")], [Icon.view(h, Plus), "New rule"]),
+    attributes: [h.DataAttribute("action", "new-rule")],
+  })
+  return Page.layout(h, {
+    attributes: [h.AriaLabel("Labeling rules")],
+    main: [
+      Page.header(h, {
+        title: "Labeling rules",
+        lede: "Connect policies to the labels they manage. Rules run top to bottom; the first match in a group wins.",
+        actions: [newRule],
+      }),
+      h.div(
+        [h.DataAttribute("slot", "tabs-list"), h.Role("tablist")],
         [
-          h.div(
-            [h.Class("flex flex-col gap-1")],
+          h.button(
             [
-              h.h1([], ["Labeling rules"]),
-              h.p(
-                [h.Class("text-body-sm text-ink-muted")],
-                ["Connect policies to the labels they manage."],
-              ),
+              h.Type("button"),
+              h.Role("tab"),
+              h.DataAttribute("slot", "tabs-trigger"),
+              h.DataAttribute("state", "active"),
+              h.AriaSelected(true),
             ],
+            ["Rules"],
           ),
-          Button.view(h, {
-            size: "sm",
-            onClick: Message.ClickedNewRule(),
-            label: h.span([h.Class("contents")], [Icon.view(h, Plus), "New rule"]),
-            attributes: [h.DataAttribute("action", "new-rule")],
-          }),
         ],
       ),
       view.rules.length === 0
@@ -1679,7 +1918,7 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
                         id: "rule-search",
                         ariaLabel: "Search rules",
                         value: model.ruleSearch,
-                        placeholder: "Find a rule…",
+                        placeholder: "Find a rule",
                         onInput: (value) => Message.UpdatedRuleSearch({ value }),
                       }),
                     ],
@@ -1687,21 +1926,27 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
                 ],
               }),
               h.div(
-                [h.Class("overflow-x-auto")],
+                [h.Class("overflow-x-auto contain-inline-size")],
                 [
                   Table.table(h, {
-                    className: "min-w-2xl",
+                    className: "min-w-2xl table-fixed",
                     children: [
                       Table.head(h, [
                         Table.row(h, {
                           children: [
-                            Table.headCell(h, { className: "w-14", children: ["Enabled"] }),
-                            Table.headCell(h, { className: "w-16", children: ["Type"] }),
-                            Table.headCell(h, { className: "w-48", children: ["Label"] }),
-                            Table.headCell(h, { className: "w-36", children: ["Exclusive group"] }),
-                            Table.headCell(h, { children: ["Behavior"] }),
+                            Table.headCell(h, { className: "w-16", children: ["Enabled"] }),
+                            Table.headCell(h, { className: "w-20", children: ["Type"] }),
+                            Table.headCell(h, { children: ["Label"] }),
+                            Table.headCell(h, { children: ["Policy"] }),
+                            Table.headCell(h, { className: "w-24", children: ["Group"] }),
                             Table.headCell(h, {
-                              className: "w-10",
+                              className: "w-20",
+                              numeric: true,
+                              children: ["Priority"],
+                            }),
+                            Table.headCell(h, { className: "w-28", children: ["Updated"] }),
+                            Table.headCell(h, {
+                              className: "w-20",
                               children: [h.span([h.Class("sr-only")], ["Actions"])],
                             }),
                           ],
@@ -1709,13 +1954,13 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
                       ]),
                       Table.body(
                         h,
-                        rules.map((rule) => ruleRow(h, model, view, rule)),
+                        rules.map((rule) => ruleRow(h, model, view, rule, nowMillis)),
                       ),
                     ],
                   }),
                   rules.length === 0
                     ? h.p(
-                        [h.Class("px-3 py-2 text-body-sm text-ink-muted")],
+                        [h.Class("px-4 py-3 text-body-sm text-ink-muted")],
                         ["No rules match your search."],
                       )
                     : h.empty,
@@ -1723,99 +1968,120 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
               ),
             ],
           }),
+      ...(selected === undefined ? [] : [ruleDetailCard(h, view, selected)]),
     ],
-  )
+    inspector: [ruleSelectionCard(h, view, selected)],
+  })
 }
 
-const consentSection = (h: HtmlBuilder<Message>, model: Model): Html =>
-  h.section(
-    [
-      h.Class("flex flex-col gap-2 rounded-sm border border-border bg-card p-4"),
-      h.DataAttribute("slot", "card"),
-      h.DataAttribute(
-        "consent",
-        Option.map(model.maybeConsent, (consent) => consent.state).pipe(
-          Option.getOrElse(() => "unknown"),
-        ),
-      ),
+/** The AI classification card alone; the shell provides the page around it. */
+const consentSection = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const consent = Option.getOrUndefined(model.maybeConsent)
+  const busy =
+    consent !== undefined &&
+    hasMutation(model, consent.repositoryId, consent.repositoryId, ["Consent"])
+  return panel(h, {
+    flush: true,
+    attributes: [
+      h.DataAttribute("consent", consent?.state ?? "unknown"),
+      h.AriaLabel("AI classification"),
     ],
-    [
+    children: [
+      panelHeader(h, {
+        title: "AI classification",
+        ...(consent === undefined || consent.provider === "none"
+          ? {}
+          : { meta: `${consent.provider} · ${consent.model}` }),
+        actions:
+          consent === undefined
+            ? []
+            : [
+                Button.view(h, {
+                  variant: consent.state === "enabled" ? "destructive" : "secondary",
+                  size: "sm",
+                  onClick: Message.ClickedToggleConsent(),
+                  isDisabled: busy || consent.state === "draining",
+                  label: busy
+                    ? consent.state === "enabled"
+                      ? "Revoking…"
+                      : "Enabling…"
+                    : consent.state === "enabled"
+                      ? "Revoke"
+                      : consent.state === "draining"
+                        ? "Draining"
+                        : "Enable",
+                  attributes: [h.DataAttribute("action", "toggle-consent")],
+                }),
+              ],
+      }),
       h.div(
-        [h.Class("flex items-center justify-between gap-2")],
+        [h.Class("flex flex-col gap-2 px-4 py-3")],
         [
-          sectionTitle(h, "AI classification"),
-          Option.match(model.maybeConsent, {
-            onNone: () => h.empty,
-            onSome: (consent) =>
-              Button.view(h, {
-                variant: consent.state === "enabled" ? "destructive" : "secondary",
-                size: "sm",
-                onClick: Message.ClickedToggleConsent(),
-                isDisabled:
-                  hasMutation(model, consent.repositoryId, consent.repositoryId, ["Consent"]) ||
-                  consent.state === "draining",
-                label: hasMutation(model, consent.repositoryId, consent.repositoryId, ["Consent"])
-                  ? consent.state === "enabled"
-                    ? "Revoking…"
-                    : "Enabling…"
-                  : consent.state === "enabled"
-                    ? "Revoke"
-                    : consent.state === "draining"
-                      ? "Draining"
-                      : "Enable",
-                attributes: [h.DataAttribute("action", "toggle-consent")],
-              }),
-          }),
-        ],
-      ),
-      Option.isSome(model.consentError)
-        ? h.div(
-            [
-              h.Role("alert"),
-              h.Class("flex flex-wrap items-center gap-2 text-body-sm text-destructive"),
-            ],
-            [
-              model.consentError.value,
-              Button.view(h, {
-                label: "Retry AI consent",
-                variant: "secondary",
-                size: "sm",
-                onClick: Message.ClickedRetryConsent(),
-                isDisabled: Option.isSome(model.maybeConsentRequest),
-              }),
-            ],
-          )
-        : h.empty,
-      Option.match(model.maybeConsent, {
-        onNone: () =>
           Option.isSome(model.consentError)
-            ? h.empty
-            : h.div([h.Class("text-body-sm text-ink-muted")], ["Loading"]),
-        onSome: (consent) =>
-          h.div(
-            [h.Class("flex flex-col gap-1 text-body-sm text-ink-muted")],
-            [
-              h.span(
-                [],
+            ? h.div(
                 [
-                  consent.state === "enabled"
-                    ? `Enabled for ${consent.provider} ${consent.model}. Classifier policies send only the evidence facts they name, with no credentials or repository access, and their answers use each rule's configured match and non-match actions.`
-                    : consent.state === "draining"
-                      ? `Revoked. ${consent.activeLeases} call${consent.activeLeases === 1 ? "" : "s"} already in flight cannot be recalled; no new ones start, and this becomes disabled when they finish.`
-                      : `Disabled. Classifier policies evaluate as unknown, which preserves labels. Enabling sends the evidence facts a classifier names to ${consent.provider === "none" ? "the configured provider" : `${consent.provider} ${consent.model}`}.`,
+                  h.Role("alert"),
+                  h.Class("flex flex-wrap items-center gap-2 text-body-sm text-destructive"),
+                ],
+                [
+                  model.consentError.value,
+                  Button.view(h, {
+                    label: "Retry AI consent",
+                    variant: "secondary",
+                    size: "sm",
+                    onClick: Message.ClickedRetryConsent(),
+                    isDisabled: Option.isSome(model.maybeConsentRequest),
+                  }),
+                ],
+              )
+            : h.empty,
+          consent === undefined
+            ? Option.isSome(model.consentError)
+              ? h.empty
+              : h.p([h.Class("text-body-md text-ink-muted")], ["Loading"])
+            : h.div(
+                [h.Class("flex flex-col gap-2")],
+                [
+                  h.div(
+                    [h.Class("flex items-center gap-2")],
+                    [
+                      chip(h, {
+                        variant: consent.state === "enabled" ? "success" : "neutral",
+                        children: [
+                          consent.state === "enabled"
+                            ? "Enabled"
+                            : consent.state === "draining"
+                              ? "Draining"
+                              : "Disabled",
+                        ],
+                      }),
+                    ],
+                  ),
+                  h.p(
+                    [h.Class("text-body-md text-ink-muted")],
+                    [
+                      consent.state === "enabled"
+                        ? `Enabled for ${consent.provider} ${consent.model}. Classifier policies send only the evidence facts they name, with no credentials or repository access, and their answers use each rule's configured match and non-match actions.`
+                        : consent.state === "draining"
+                          ? `Revoked. ${consent.activeLeases} call${consent.activeLeases === 1 ? "" : "s"} already in flight cannot be recalled; no new ones start, and this becomes disabled when they finish.`
+                          : `Disabled. Classifier policies evaluate as unknown, which preserves labels. Enabling sends the evidence facts a classifier names to ${consent.provider === "none" ? "the configured provider" : `${consent.provider} ${consent.model}`}.`,
+                    ],
+                  ),
+                  consent.provider === "none" && consent.state !== "enabled"
+                    ? h.p(
+                        [h.Class("text-body-md text-ink-muted")],
+                        [
+                          "No provider key is configured on the server, so enabling has no effect yet.",
+                        ],
+                      )
+                    : h.empty,
                 ],
               ),
-              consent.provider === "none" && consent.state !== "enabled"
-                ? h.span(
-                    [],
-                    ["No provider key is configured on the server, so enabling has no effect yet."],
-                  )
-                : h.empty,
-            ],
-          ),
-      }),
+        ],
+      ),
     ],
-  )
+  })
+}
 
 const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
   switch (model.panel._tag) {
@@ -1862,7 +2128,202 @@ const panelView = (h: HtmlBuilder<Message>, model: Model): Html => {
   }
 }
 
-/** Overview needs only the repository list, never editor or activity data. */
+const describeFreshness = (freshness: ConfigurationView["labelFreshness"]): string => {
+  switch (freshness) {
+    case "verified":
+      return "verified against GitHub"
+    case "syncing":
+      return "synchronizing now"
+    case "stale":
+      return "stale, re-sync needed"
+    case "blocked":
+      return "sync blocked"
+    case "projected":
+      return "projected, not yet verified"
+  }
+}
+
+const describeStatus = (
+  repository: RepositoryOverview,
+  configuration: ConfigurationView | undefined,
+): string => {
+  if (repository.access !== "accessible") return "Access needs attention"
+  if (!repository.enabled) return "Paused"
+  const sync =
+    configuration === undefined
+      ? "loading configuration"
+      : configuration.labelFreshness === "verified"
+        ? "synchronized"
+        : describeFreshness(configuration.labelFreshness)
+  return `Automation active · ${sync}`
+}
+
+const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`
+
+const statTile = (
+  h: HtmlBuilder<Message>,
+  config: { readonly label: string; readonly value: string; readonly note: string },
+): Html =>
+  panel(h, {
+    className: "flex flex-col gap-1",
+    attributes: [h.DataAttribute("stat", config.label.toLowerCase())],
+    children: [
+      h.span([h.Class("text-caption font-medium text-ink-subtle")], [config.label]),
+      h.span(
+        [h.Class("font-mono text-h1 font-semibold tabular-nums text-foreground")],
+        [config.value],
+      ),
+      h.span([h.Class("text-body-sm text-ink-muted")], [config.note]),
+    ],
+  })
+
+const OVERVIEW_ROWS = 6
+
+const viewAllLink = (h: HtmlBuilder<Message>, href: string, label: string): Html =>
+  h.a(
+    [h.Href(href), h.Class("text-body-md text-primary hover:underline")],
+    ["View all", h.span([h.Class("sr-only")], [` ${label}`])],
+  )
+
+const moreRow = (h: HtmlBuilder<Message>, remaining: number, href: string): Html =>
+  remaining <= 0
+    ? h.empty
+    : h.a(
+        [
+          h.Href(href),
+          h.Class("block px-4 py-2 font-mono text-mono-sm text-ink-subtle hover:text-foreground"),
+        ],
+        [`+${remaining} more`],
+      )
+
+const overviewRules = (h: HtmlBuilder<Message>, view: ConfigurationView): Html => {
+  const href = Routes.rules({ repositoryId: view.repositoryId })
+  const shown = view.rules.slice(0, OVERVIEW_ROWS)
+  return panel(h, {
+    flush: true,
+    attributes: [h.AriaLabel("Rules summary")],
+    children: [
+      panelHeader(h, {
+        title: "Rules",
+        meta: String(view.rules.length),
+        actions: [viewAllLink(h, href, "rules")],
+      }),
+      view.rules.length === 0
+        ? h.p([h.Class("px-4 py-3 text-body-sm text-ink-muted")], ["No rules yet."])
+        : h.ul(
+            [h.Class("flex flex-col divide-y divide-border-subtle")],
+            shown.map((rule) => {
+              const name = labelName(view.labels, rule.labelId)
+              const label = view.labels.find((label) => label.labelId === rule.labelId)
+              return h.li(
+                [h.Class("flex h-10 items-center gap-3 px-4"), h.DataAttribute("rule-id", rule.id)],
+                [
+                  h.span(
+                    [
+                      h.Class(
+                        cn(
+                          "size-2 shrink-0 rounded-full",
+                          rule.enabled ? "bg-success" : "bg-ink-faint",
+                        ),
+                      ),
+                      h.Role("img"),
+                      h.AriaLabel(rule.enabled ? "Enabled" : "Disabled"),
+                    ],
+                    [],
+                  ),
+                  labelBadge(
+                    h,
+                    name,
+                    label?.color,
+                    rule.labelStatus === "missing" ? "line-through text-ink-subtle" : undefined,
+                  ),
+                  ruleType(view, rule) === "AI"
+                    ? chip(h, { variant: "agent", children: ["AI"] })
+                    : chip(h, { children: ["policy"] }),
+                  h.span(
+                    [h.Class("min-w-0 truncate font-mono text-mono-sm text-ink-muted")],
+                    [policyName(view.policies, rule.policyId)],
+                  ),
+                  linkButton(h, {
+                    href: Routes.rule({ repositoryId: rule.repositoryId, ruleId: rule.id }),
+                    variant: "ghost",
+                    size: "icon",
+                    label: [Icon.view(h, Pencil, "size-4 text-ink-subtle")],
+                    attributes: [
+                      h.Class("ml-auto"),
+                      h.AriaLabel(`Edit ${name}`),
+                      h.Title("Edit rule"),
+                    ],
+                  }),
+                ],
+              )
+            }),
+          ),
+      moreRow(h, view.rules.length - shown.length, href),
+    ],
+  })
+}
+
+const overviewPolicies = (h: HtmlBuilder<Message>, view: ConfigurationView): Html => {
+  const href = Routes.policies({ repositoryId: view.repositoryId })
+  const shown = view.policies.slice(0, OVERVIEW_ROWS)
+  return panel(h, {
+    flush: true,
+    attributes: [h.AriaLabel("Policies summary")],
+    children: [
+      panelHeader(h, {
+        title: "Policies",
+        meta: String(view.policies.length),
+        actions: [viewAllLink(h, href, "policies")],
+      }),
+      view.policies.length === 0
+        ? h.p([h.Class("px-4 py-3 text-body-sm text-ink-muted")], ["No policies yet."])
+        : h.ul(
+            [h.Class("flex flex-col divide-y divide-border-subtle")],
+            shown.map((policy) =>
+              h.li(
+                [
+                  h.Class("flex h-10 items-center gap-3 px-4"),
+                  h.DataAttribute("policy-id", policy.policyId),
+                ],
+                [
+                  h.a(
+                    [
+                      h.Href(
+                        Routes.policy({
+                          repositoryId: view.repositoryId,
+                          policyId: policy.policyId,
+                        }),
+                      ),
+                      h.Class("min-w-0 truncate text-body-md font-medium hover:underline"),
+                    ],
+                    [policy.name],
+                  ),
+                  h.span(
+                    [h.Class("shrink-0 font-mono text-mono-sm text-ink-muted")],
+                    [describeTarget(policy.target)],
+                  ),
+                  h.span(
+                    [h.Class("ml-auto shrink-0")],
+                    [
+                      PolicyStatus.view(h, {
+                        published: policy.publishedRevision !== null,
+                        revision: policy.publishedRevision,
+                        changes: policy.draftDiffers ?? false,
+                      }),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+      moreRow(h, view.policies.length - shown.length, href),
+    ],
+  })
+}
+
+/** Overview: the repository's status, four counts, and the first rows of
+ *  its rules and policies. Needs the repository list and its configuration. */
 const overview = (h: HtmlBuilder<Message>, model: Model): Html => {
   const repository = Option.getOrElse(model.repositories, () => []).find((repo) =>
     Option.contains(model.dataRepositoryId, repo.repositoryId),
@@ -1883,76 +2344,71 @@ const overview = (h: HtmlBuilder<Message>, model: Model): Html => {
         ),
       ],
     )
-  return h.section(
-    [h.Class("flex flex-col gap-4 p-4 lg:p-5"), h.AriaLabel("Repository overview")],
-    [
-      h.div(
-        [h.Class("flex flex-col gap-1")],
-        [
-          h.h1([h.Class("font-mono")], [repository.owner + " / " + repository.repo]),
-          h.p(
-            [h.Class("text-body-sm text-ink-muted")],
-            [
-              repository.access === "accessible"
-                ? "Your repository is connected."
-                : "Repository access needs attention.",
-            ],
-          ),
-        ],
-      ),
-      panel(h, {
-        flush: true,
-        children: [
-          panelHeader(h, {
-            title: "Configuration",
-            meta:
-              repository.configuredRevision === null
-                ? "no revision"
-                : `rev ${repository.configuredRevision}`,
-          }),
-          h.div(
-            [h.Class("flex flex-wrap items-center gap-x-6 gap-y-2 px-3 py-2.5 text-body-sm")],
-            [
-              h.span(
-                [h.Class("flex items-center gap-1.5")],
-                [
-                  h.span([h.Class("text-ink-muted")], ["Rules"]),
-                  h.span(
-                    [h.Class("font-mono text-numeral font-medium")],
-                    [String(repository.ruleCount)],
-                  ),
-                ],
-              ),
-              h.span(
-                [h.Class("flex items-center gap-1.5")],
-                [
-                  h.span([h.Class("text-ink-muted")], ["Policies"]),
-                  h.span(
-                    [h.Class("font-mono text-numeral font-medium")],
-                    [String(repository.policyCount)],
-                  ),
-                ],
-              ),
-              h.span(
-                [h.Class("flex items-center gap-1.5")],
-                [
-                  h.span([h.Class("text-ink-muted")], ["Automation"]),
-                  chip(h, { children: [repository.enabled ? "active" : "paused"] }),
-                ],
-              ),
-              h.a(
-                [
-                  h.Href(Routes.rules({ repositoryId: repository.repositoryId })),
-                  h.Class("ml-auto"),
-                ],
-                ["View rules"],
-              ),
-            ],
-          ),
-        ],
-      }),
-    ],
+  const configuration = Option.getOrUndefined(
+    Option.map(model.detail, (detail) => detail.configuration),
   )
+  const body: ReadonlyArray<Html> =
+    configuration === undefined
+      ? [
+          h.p(
+            [
+              h.Class("text-body-md text-ink-muted"),
+              h.Role(Option.isSome(model.detailError) ? "alert" : "status"),
+            ],
+            [
+              Option.match(model.detailError, {
+                onNone: () => "Loading configuration…",
+                onSome: (reason) => `The configuration could not be loaded. ${reason}`,
+              }),
+            ],
+          ),
+        ]
+      : [
+          h.div(
+            [h.Class("grid grid-cols-4 gap-4 max-[900px]:grid-cols-2")],
+            [
+              statTile(h, {
+                label: "Rules",
+                value: String(configuration.rules.length),
+                note: `${configuration.rules.filter((rule) => rule.enabled).length} enabled · ${configuration.rules.filter((rule) => ruleType(configuration, rule) === "AI").length} AI`,
+              }),
+              statTile(h, {
+                label: "Policies",
+                value: String(configuration.policies.length),
+                note: `${configuration.policies.filter((policy) => policy.publishedRevision !== null).length} published · ${plural(configuration.policies.filter((policy) => policy.publishedRevision === null || policy.draftDiffers === true).length, "draft")}`,
+              }),
+              statTile(h, {
+                label: "Configuration",
+                value: `rev ${configuration.configuredRevision}`,
+                note:
+                  configuration.activeRevision === configuration.configuredRevision
+                    ? `active rev ${configuration.activeRevision}`
+                    : configuration.activeRevision === null
+                      ? "publish pending"
+                      : `active rev ${configuration.activeRevision} · publish pending`,
+              }),
+              statTile(h, {
+                label: "Labels",
+                value: String(configuration.labels.length),
+                note: describeFreshness(configuration.labelFreshness),
+              }),
+            ],
+          ),
+          h.div(
+            [h.Class("grid grid-cols-2 items-start gap-4 max-[1240px]:grid-cols-1")],
+            [overviewRules(h, configuration), overviewPolicies(h, configuration)],
+          ),
+        ]
+  return Page.layout(h, {
+    attributes: [h.AriaLabel("Repository overview")],
+    main: [
+      Page.header(h, {
+        title: h.h1([h.Class("font-mono")], [repository.owner + " / " + repository.repo]),
+        lede: describeStatus(repository, configuration),
+      }),
+      ...body,
+    ],
+  })
 }
 
 const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): Html =>
@@ -2025,10 +2481,8 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
               : rulesSection(h, model, detail.configuration),
           ],
         )
-      return h.div(
-        [h.Class("flex min-w-0 flex-col gap-4 overflow-auto")],
-        [section === "Settings" ? consentSection(h, model) : h.empty],
-      )
+      // The shell wraps Settings in its own page layout, so this is the card alone.
+      return section === "Settings" ? consentSection(h, model) : h.empty
     },
   })
 

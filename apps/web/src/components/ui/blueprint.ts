@@ -21,7 +21,7 @@ export const canvas = <M>(
       h.DataAttribute("slot", "blueprint-canvas"),
       ...(config.attributes ?? []),
     ],
-    [h.div([h.Class("flex w-max min-w-full items-start gap-0 px-6 py-5")], config.children)],
+    [h.div([h.Class("flex w-max min-w-full items-start gap-0 p-6")], config.children)],
   )
 
 /** A column: caption label above a stack of nodes. */
@@ -35,7 +35,7 @@ export const column = <M>(
 ): Html =>
   h.div(
     [
-      h.Class(cn("flex w-64 shrink-0 flex-col gap-3", config.className)),
+      h.Class(cn("flex w-56 shrink-0 flex-col gap-4", config.className)),
       h.DataAttribute("slot", "blueprint-column"),
     ],
     [
@@ -58,19 +58,21 @@ export type NodeConfig<M> = {
 export const node = <M>(h: HtmlBuilder<M>, config: NodeConfig<M>): Html =>
   h.div(
     [
-      h.Class(
-        cn("oc-node flex flex-col gap-1", config.isAgent && "oc-agent-edge", config.className),
-      ),
+      h.Class(cn("oc-node flex flex-col gap-2", config.className)),
       h.DataAttribute("slot", "blueprint-node"),
       ...(config.isSelected === true ? [h.DataAttribute("selected", "true")] : []),
       ...(config.attributes ?? []),
     ],
     [
       h.div(
-        [h.Class("flex items-center gap-1.5 text-caption font-medium text-ink-subtle")],
         [
-          config.kind,
-          ...(config.isAgent ? [h.span([h.Class("oc-agent-badge")], ["The Janitor"])] : []),
+          h.Class(
+            "flex items-center justify-between gap-2 text-caption font-medium text-ink-subtle",
+          ),
+        ],
+        [
+          h.span([], [config.kind]),
+          ...(config.isAgent ? [h.span([h.Class("oc-agent-badge")], ["AI"])] : []),
         ],
       ),
       h.div([h.Class("font-mono text-mono-sm text-foreground")], config.children),
@@ -176,7 +178,7 @@ export const footer = <M>(
   h.div(
     [
       h.Class(
-        "flex min-h-7 items-center gap-3 border-t border-border bg-surface-muted px-3 py-1 text-body-sm text-ink-muted",
+        "flex min-h-10 items-center gap-3 border-t border-border bg-surface-muted px-4 py-1.5 text-body-md text-ink-muted",
       ),
       h.DataAttribute("slot", "blueprint-footer"),
     ],

@@ -30,7 +30,7 @@ export const actorName = <M>(h: HtmlBuilder<M>, actor: FeedActor): Html =>
 export const marker = <M>(h: HtmlBuilder<M>, actor: FeedActor): Html =>
   h.span(
     [
-      h.Class(cn("mt-1.5", actor.kind === "agent" ? "oc-agent-dot" : "oc-human-dot")),
+      h.Class(cn("mt-[7px]", actor.kind === "agent" ? "oc-agent-dot" : "oc-human-dot")),
       h.AriaHidden(true),
     ],
     [],
@@ -41,7 +41,7 @@ export const item = <M>(h: HtmlBuilder<M>, config: FeedItemConfig<M>): Html =>
     [
       h.Class(
         cn(
-          "flex items-start gap-2.5 border-b border-border-subtle px-3 py-2 text-body-md last:border-b-0",
+          "flex items-start gap-3 border-b border-border-subtle px-4 py-3 text-body-md last:border-b-0",
           config.className,
         ),
       ),

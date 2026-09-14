@@ -89,7 +89,8 @@ describe("Sessions dashboard", () => {
     expect(entered.commands?.map((command) => command.name)).toEqual(["FetchSessions"])
     scene(
       loaded(entered.model, [working, pending]),
-      Scene.expect(Scene.text("Working")).toExist(),
+      Scene.expect(Scene.text("working")).toExist(),
+      Scene.expect(Scene.text("2 · 1 working")).toExist(),
       Scene.expect(Scene.role("link", { name: "Fix the flaky test" })).toExist(),
       Scene.expect(Scene.text("acme/widgets")).toExist(),
       Scene.expect(Scene.text("input pending")).toExist(),
@@ -97,32 +98,57 @@ describe("Sessions dashboard", () => {
       Scene.expect(Scene.text("Delivery: Janitor is no longer in the channel")).toExist(),
       Scene.expect(Scene.role("link", { name: "Home thread" })).toExist(),
       Scene.expect(Scene.role("link", { name: "PR #17" })).toExist(),
-      Scene.expect(Scene.text("Blocked")).toExist(),
+      Scene.expect(Scene.text("blocked")).toExist(),
       Scene.expect(Scene.text("Waiting for repository selection")).toExist(),
       Scene.expect(Scene.text("No repository yet")).toExist(),
-      Scene.expect(Scene.text("No usage recorded yet")).toExist(),
+      Scene.expect(Scene.text("—")).toExist(),
+      Scene.expect(
+        Scene.text("Select a session to see its inputs, delivery and recovery."),
+      ).toExist(),
       Scene.expect(Scene.role("button", { name: "Load more" })).toBeAbsent(),
     )
   })
 
-  it("shows a session's facts without conversation history", () => {
+  it("shows a session's facts in the inspector, keeping the table on screen", () => {
     const entered = Sessions.enter(Sessions.init(), "ses-working")
-    expect(entered.commands?.map((command) => command.name)).toEqual(["FetchSession"])
+    expect(entered.commands?.map((command) => command.name)).toEqual([
+      "FetchSessions",
+      "FetchSession",
+    ])
     const model = Sessions.update(
-      entered.model,
+      loaded(entered.model, [working, pending]),
       Sessions.Message.LoadedDetail({ generation: entered.model.generation, detail }),
     ).model
     scene(
       model,
-      Scene.expect(Scene.text("Failed")).toExist(),
+      Scene.expect(Scene.role("link", { name: "Fix the flaky test" })).toExist(),
+      Scene.expect(Scene.role("link", { name: "Slack conversation" })).toExist(),
+      Scene.expect(Scene.text("failed")).toExist(),
       Scene.expect(Scene.text("Latest error: provider down")).toExist(),
-      Scene.expect(
-        Scene.text("3 accepted, 1 awaiting the runner, last 2026-09-13 10:00 UTC"),
-      ).toExist(),
-      Scene.expect(Scene.text("Confirmed 2026-09-13 10:00 UTC")).toExist(),
-      Scene.expect(Scene.text("Slack reply pending: not_in_channel")).toExist(),
-      Scene.expect(Scene.role("link", { name: "All sessions" })).toExist(),
+      Scene.expect(Scene.text("Pending inputs")).toExist(),
+      Scene.expect(Scene.text("Accepted")).toExist(),
+      Scene.expect(Scene.text("Runner read")).toExist(),
+      Scene.expect(Scene.text("Slack home thread")).toExist(),
+      Scene.expect(Scene.text("Janitor is no longer in the channel")).toExist(),
+      Scene.expect(Scene.text("Slack reply")).toExist(),
+      Scene.expect(Scene.text("not_in_channel")).toExist(),
     )
+  })
+
+  it("filters the table by state without re-reading", () => {
+    const model = loaded(Sessions.enter(Sessions.init(), null).model, [working, pending])
+    const filtered = Sessions.update(model, Sessions.Message.ChangedFilter({ value: "blocked" }))
+    expect(filtered.commands).toBeUndefined()
+    scene(
+      filtered.model,
+      Scene.expect(Scene.role("link", { name: "Slack conversation" })).toExist(),
+      Scene.expect(Scene.role("link", { name: "Fix the flaky test" })).toBeAbsent(),
+    )
+    const cleared = Sessions.update(filtered.model, Sessions.Message.ChangedFilter({ value: "" }))
+    expect(cleared.model.filter).toBeNull()
+    const refreshed = Sessions.update(cleared.model, Sessions.Message.ClickedRefresh())
+    expect(refreshed.commands?.map((command) => command.name)).toEqual(["FetchSessions"])
+    expect(refreshed.model.live.retry).toBe(cleared.model.live.retry)
   })
 
   it("states overdue scans, incomplete capture, hydration and known gaps without claiming recovery", () => {

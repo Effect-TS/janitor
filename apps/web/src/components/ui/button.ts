@@ -18,7 +18,7 @@ export const buttonVariants: Record<ButtonVariant, string> = {
   // irreversible actions only, outline and secondary are the plain surface
   // button, ghost has no border, link is blue text.
   default:
-    "bg-primary text-primary-foreground border-primary hover:bg-primary-hover hover:border-primary-hover",
+    "bg-action text-action-foreground border-action hover:bg-action-hover hover:border-action-hover",
   destructive:
     "bg-destructive text-destructive-foreground border-destructive hover:bg-destructive-hover hover:border-destructive-hover",
   outline:
@@ -43,20 +43,20 @@ export const buttonSizeKeys = [
 ] as const
 
 export const buttonSizes: Record<ButtonSize, string> = {
-  default: "h-7 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-  xs: "h-6 gap-1 px-2 text-body-sm has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-  sm: "h-6 gap-1 px-2 text-body-sm has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-  lg: "h-8 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-  icon: "size-7 p-0",
-  "icon-xs": "size-6 p-0 [&_svg:not([class*='size-'])]:size-3",
-  "icon-sm": "size-6 p-0",
-  "icon-lg": "size-8 p-0",
+  default: "h-8 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
+  xs: "h-7 gap-1 px-2.5 text-body-sm has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3.5",
+  sm: "h-7 gap-1 px-2.5 text-body-sm has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3.5",
+  lg: "h-9 gap-1.5 px-3.5 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+  icon: "size-8 p-0",
+  "icon-xs": "size-7 p-0 [&_svg:not([class*='size-'])]:size-3.5",
+  "icon-sm": "size-7 p-0",
+  "icon-lg": "size-9 p-0",
 }
 
-/** Flat: a 1px border, no shadow, no press travel. The only feedback is the
- *  background change. */
+/** Flat: a 1px border, no shadow. Feedback is the background change plus a
+ *  0.96 press scale (styles.css § 9). */
 export const buttonBase =
-  "aria-invalid:border-destructive rounded-sm border text-label font-medium leading-none shadow-none transition-colors duration-120 ease-ui [&_svg:not([class*='size-'])]:size-3.5 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
+  "aria-invalid:border-destructive rounded-md border text-label font-medium leading-none shadow-none transition-[transform,background-color,border-color,color] duration-120 ease-ui [&_svg:not([class*='size-'])]:size-4 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
 
 export type ButtonConfig<M> = {
   readonly type?: "button" | "submit" | "reset" | undefined

@@ -32,7 +32,7 @@ describe("Repository connections", () => {
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [failed] } }),
       ),
       Scene.expect(Scene.text("test/example")).toExist(),
-      Scene.expect(Scene.text("Automation blocked by synchronization failure")).toExist(),
+      Scene.expect(Scene.text("Blocked by sync failure")).toExist(),
       Scene.expect(Scene.role("button", { name: "Retry sync" })).toExist(),
       Scene.expect(
         Scene.text(
@@ -172,7 +172,7 @@ describe("Repository connections", () => {
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [] } }),
       ),
       Scene.expect(Scene.role("button", { name: "Grant access on GitHub" })).toExist(),
-      Scene.expect(Scene.role("button", { name: "Cancel" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Back" })).toExist(),
       Scene.expect(Scene.role("button", { name: "Connect repository" })).toBeAbsent(),
     )
   })

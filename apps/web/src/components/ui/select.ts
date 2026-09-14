@@ -5,7 +5,7 @@ import { inputLabelClass, inputDescriptionClass, inputWrapperClass } from "./inp
 
 /** Native select styled like an input: surface-muted fill, 1px border, 28px. */
 export const selectClass =
-  "h-7 w-full min-w-0 appearance-none rounded-sm border border-border bg-surface-muted pr-7 pl-2 text-body-md text-foreground transition-colors duration-120 ease-ui focus-visible:border-primary focus-visible:bg-card aria-invalid:border-destructive disabled:cursor-not-allowed disabled:opacity-50"
+  "h-8 w-full min-w-0 appearance-none rounded-md border border-border bg-card pr-8 pl-2.5 text-body-md text-foreground transition-colors duration-120 ease-ui focus-visible:border-primary focus-visible:bg-card aria-invalid:border-destructive disabled:cursor-not-allowed disabled:opacity-50"
 
 export type SelectConfig<M> = {
   readonly id: string
@@ -25,7 +25,7 @@ const chevron = <M>(h: HtmlBuilder<M>): Html =>
     [
       h.AriaHidden(true),
       h.Class(
-        "pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground",
+        "pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground",
       ),
       h.Xmlns("http://www.w3.org/2000/svg"),
       h.Fill("none"),

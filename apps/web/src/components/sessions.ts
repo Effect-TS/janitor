@@ -1,5 +1,6 @@
 import {
-  type ExecutionState,
+  type DeliveryItem,
+  ExecutionState,
   type RecoveryStatus,
   SessionCursor,
   SessionDetail,
@@ -24,22 +25,33 @@ import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
 import { chip, type ChipVariant } from "@/components/ui/chip"
-import * as Feed from "@/components/ui/feed"
-import { emptyPanel, panel } from "@/components/ui/panel"
-import { sign } from "@/components/ui/sign"
+import * as Page from "@/components/ui/page"
+import { panel, panelHeader } from "@/components/ui/panel"
+import * as Select from "@/components/ui/select"
+import * as Table from "@/components/ui/table"
 import * as Live from "@/components/live"
 import { readFailure, reasonOf } from "@/lib/api"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
-import { CircleAlert, Clock, ExternalLink, GitPullRequest, MessageSquare } from "lucide"
+import {
+  CircleAlert,
+  Clock,
+  ExternalLink,
+  GitPullRequest,
+  MessageSquare,
+  RotateCw,
+  Sparkles,
+  TriangleAlert,
+} from "lucide"
 
 /**
- * The Janitor dashboard: every teammate sees the same compact list of agent
- * sessions and can open a session's facts. Data comes from plain HTTP reads;
- * the live channel only says when to read again. A failed refresh keeps the
- * last known data on screen and says so, because a stale read is not a
- * runner failure.
+ * The Janitor dashboard: every teammate sees the same table of agent
+ * sessions; opening one keeps the table on screen and fills the inspector
+ * with that session's facts. Data comes from plain HTTP reads; the live
+ * channel only says when to read again. A failed refresh keeps the last
+ * known data on screen and says so, because a stale read is not a runner
+ * failure.
  */
 
 export const Model = Schema.Struct({
@@ -49,8 +61,13 @@ export const Model = Schema.Struct({
   sessions: Schema.Array(SessionSummary),
   cursor: Schema.NullOr(SessionCursor),
   detail: Schema.NullOr(SessionDetail),
+  /** Client-side state filter for the table; null shows every state. */
+  filter: Schema.NullOr(ExecutionState),
   loaded: Schema.Boolean,
+  /** The list is being read. */
   loading: Schema.Boolean,
+  /** The selected session's facts are being read. */
+  loadingDetail: Schema.Boolean,
   loadingMore: Schema.Boolean,
   error: Schema.NullOr(Schema.String),
   /** The screen shows data an attempted refresh could not replace. */
@@ -68,8 +85,10 @@ export const init = (): Model => ({
   sessions: [],
   cursor: null,
   detail: null,
+  filter: null,
   loaded: false,
   loading: false,
+  loadingDetail: false,
   loadingMore: false,
   error: null,
   stale: false,
@@ -80,7 +99,9 @@ export const init = (): Model => ({
 
 export const Message = defineMessageUnion({
   ClickedRetry: {},
+  ClickedRefresh: {},
   ClickedMore: {},
+  ChangedFilter: { value: Schema.String },
   LoadedList: { generation: Schema.Int, page: SessionPage, append: Schema.Boolean },
   ListFailed: { generation: Schema.Int, reason: Schema.String },
   LoadedDetail: { generation: Schema.Int, detail: SessionDetail },
@@ -132,36 +153,40 @@ export const FetchDetail = Command.define("FetchSession", {
 
 type Step = Update.Return<Model, Message, HttpClient.HttpClient>
 
+const reading = (model: Model): boolean => model.loading || model.loadingDetail
+
 /**
- * Reads whatever the screen shows again; older replies are fenced by the
- * generation. A list refresh re-reads as many rows as are on screen, so
- * pages loaded with "Load more" survive an invalidation.
+ * Reads whatever the screen shows again: the table always, plus the selected
+ * session's facts. Older replies are fenced by the generation. A list
+ * refresh re-reads as many rows as are on screen, so pages loaded with
+ * "Load more" survive an invalidation.
  */
 const refresh = (model: Model): Step => {
   const generation = model.generation + 1
   const next = evo(model, {
     generation: () => generation,
     loading: () => true,
+    loadingDetail: () => model.selected !== null,
     invalidated: () => false,
   })
   return {
     model: next,
     commands: [
-      model.selected === null
-        ? FetchList({
-            generation,
-            cursor: null,
-            limit: Math.min(MAX_REFRESH, Math.max(PAGE_SIZE, model.sessions.length)),
-          })
-        : FetchDetail({ generation, sessionId: model.selected }),
+      FetchList({
+        generation,
+        cursor: null,
+        limit: Math.min(MAX_REFRESH, Math.max(PAGE_SIZE, model.sessions.length)),
+      }),
+      ...(model.selected === null ? [] : [FetchDetail({ generation, sessionId: model.selected })]),
     ],
   }
 }
 
-/** A read finished: apply an invalidation that arrived meanwhile. */
-const settle = (model: Model): Step => (model.invalidated ? refresh(model) : { model })
+/** A read finished: apply an invalidation that arrived meanwhile once every read has landed. */
+const settle = (model: Model): Step =>
+  model.invalidated && !reading(model) ? refresh(model) : { model }
 
-/** Entering a sessions route: the list, or one session's facts. */
+/** Entering a sessions route: the table, plus one session's facts when one is selected. */
 export const enter = (model: Model, sessionId: string | null): Step =>
   refresh(
     evo(model, {
@@ -177,6 +202,9 @@ export const enter = (model: Model, sessionId: string | null): Step =>
 export const leave = (model: Model): Model =>
   model.active ? evo(model, { active: () => false, invalidated: () => false }) : model
 
+const parseFilter = (value: string): ExecutionState | null =>
+  Schema.is(ExecutionState)(value) ? value : null
+
 export const update = (model: Model, message: Message): Step =>
   Message.match<Step>(message, {
     ClickedRetry: () =>
@@ -185,8 +213,10 @@ export const update = (model: Model, message: Message): Step =>
           live: (live) => ({ ...live, retry: live.retry + 1, status: "connecting" as const }),
         }),
       ),
+    ClickedRefresh: () => refresh(model),
+    ChangedFilter: ({ value }) => ({ model: evo(model, { filter: () => parseFilter(value) }) }),
     ClickedMore: () =>
-      model.cursor === null || model.loadingMore || model.selected !== null
+      model.cursor === null || model.loadingMore
         ? { model }
         : {
             model: evo(model, {
@@ -236,9 +266,7 @@ export const update = (model: Model, message: Message): Step =>
         : settle(
             evo(model, {
               detail: () => detail,
-              loading: () => false,
-              stale: () => false,
-              error: () => null,
+              loadingDetail: () => false,
             }),
           ),
     DetailFailed: ({ generation, reason }) =>
@@ -246,7 +274,7 @@ export const update = (model: Model, message: Message): Step =>
         ? { model }
         : settle(
             evo(model, {
-              loading: () => false,
+              loadingDetail: () => false,
               stale: () => model.detail !== null,
               error: () => reason,
             }),
@@ -286,7 +314,7 @@ export const update = (model: Model, message: Message): Step =>
         message.connected ||
         message.topics.includes(Live.SESSIONS_CHANNEL)
       if (!relevant) return { model: connected }
-      return connected.loading
+      return reading(connected)
         ? { model: evo(connected, { invalidated: () => true }) }
         : refresh(connected)
     },
@@ -343,20 +371,29 @@ export const subscriptions = Subscription.make<Model, Message, HttpClient.HttpCl
 
 // VIEW
 
-const EXECUTION_LABEL: Record<ExecutionState, string> = {
-  working: "Working",
-  idle: "Idle",
-  blocked: "Blocked",
-  failed: "Failed",
-}
+const EXECUTION_STATES: ReadonlyArray<ExecutionState> = ["working", "idle", "blocked", "failed"]
 
-/** Working is the agent running, so it takes the agent mark; blocked is a
- *  neutral state whose reason sits beside it; failed is genuine failure. */
+/** Working is the agent running, so it takes the agent mark; idle, blocked
+ *  and failed are neutral chips, the latter two with danger ink. */
 const EXECUTION_VARIANT: Record<ExecutionState, ChipVariant> = {
   working: "agent",
   idle: "neutral",
   blocked: "neutral",
-  failed: "danger",
+  failed: "neutral",
+}
+
+const EXECUTION_CLASS: Record<ExecutionState, string> = {
+  working: "",
+  idle: "text-ink-muted",
+  blocked: "text-destructive",
+  failed: "text-destructive",
+}
+
+const EXECUTION_DOT: Record<ExecutionState, string> = {
+  working: "bg-agent",
+  idle: "bg-ink-faint",
+  blocked: "bg-destructive",
+  failed: "bg-destructive",
 }
 
 export const formatTime = (time: DateTime.Utc): string =>
@@ -383,100 +420,119 @@ export const describeFreshness = (session: SessionSummary): string =>
 const mono = (h: HtmlBuilder<Message>, text: string, className?: string): Html =>
   h.span([h.Class(cn("font-mono text-mono-sm", className))], [text])
 
-const agentDot = (h: HtmlBuilder<Message>): Html =>
-  h.span([h.Class("oc-agent-dot"), h.AriaHidden(true)], [])
-
-const badge = (h: HtmlBuilder<Message>, session: SessionSummary): Html =>
+const statusPill = (h: HtmlBuilder<Message>, state: ExecutionState): Html =>
   chip(h, {
-    variant: EXECUTION_VARIANT[session.execution],
-    className: "shrink-0",
+    variant: EXECUTION_VARIANT[state],
+    className: cn("shrink-0 font-normal", EXECUTION_CLASS[state]),
     children: [
-      ...(session.execution === "working" ? [agentDot(h)] : []),
-      EXECUTION_LABEL[session.execution],
+      h.span([h.Class(cn("size-1.5 rounded-full", EXECUTION_DOT[state])), h.AriaHidden(true)], []),
+      state,
     ],
   })
 
-const externalLink = (
-  h: HtmlBuilder<Message>,
-  url: string,
-  label: ReadonlyArray<Html | string>,
-): Html =>
+const externalLink = (h: HtmlBuilder<Message>, url: string, icon: Html, label: string): Html =>
   h.a(
     [
       h.Href(url),
       h.Target("_blank"),
       h.Rel("noreferrer"),
-      h.Class("inline-flex items-center gap-1 text-primary"),
+      h.Class("inline-flex items-center gap-1 text-body-md text-primary hover:underline"),
     ],
-    [...label, Icon.view(h, ExternalLink, "size-3 shrink-0")],
+    [icon, label, Icon.view(h, ExternalLink, "size-3 text-ink-subtle")],
   )
 
 const links = (h: HtmlBuilder<Message>, session: SessionSummary): ReadonlyArray<Html> => [
   ...(session.homeThread === null
     ? []
     : [
-        h.span(
-          [h.Class("inline-flex items-center gap-1")],
-          [Icon.view(h, MessageSquare), externalLink(h, session.homeThread.url, ["Home thread"])],
+        externalLink(
+          h,
+          session.homeThread.url,
+          Icon.view(h, MessageSquare, "size-3.5"),
+          "Home thread",
         ),
       ]),
   ...session.pullRequests.map((pr) =>
-    h.span(
-      [h.Class("inline-flex items-center gap-1")],
-      [
-        Icon.view(h, GitPullRequest),
-        externalLink(h, pr.url, ["PR ", mono(h, `#${pr.number}`, "text-primary")]),
-      ],
-    ),
+    externalLink(h, pr.url, Icon.view(h, GitPullRequest, "size-3.5"), `PR #${pr.number}`),
   ),
 ]
 
-/** A warning is neutral text with an icon; there is no warning colour. */
-const warning = (h: HtmlBuilder<Message>, text: string): ReadonlyArray<Html | string> => [
-  Icon.view(h, CircleAlert),
-  text,
-]
+const repositoryName = (session: SessionSummary): string | null =>
+  session.repository === null ? null : `${session.repository.owner}/${session.repository.repo}`
 
-const row = (h: HtmlBuilder<Message>, session: SessionSummary): Html =>
-  h.li(
-    [h.Class("flex flex-col gap-1 border-b border-border-subtle px-3 py-2 last:border-b-0")],
-    [
-      h.div(
-        [h.Class("flex flex-wrap items-center gap-2")],
-        [
-          agentDot(h),
-          badge(h, session),
-          h.a(
+const CELL = "py-3"
+
+const sessionRow = (h: HtmlBuilder<Message>, session: SessionSummary, selected: boolean): Html => {
+  const repository = repositoryName(session)
+  const rowLinks = links(h, session)
+  return Table.row(h, {
+    isSelected: selected,
+    children: [
+      Table.cell(h, {
+        className: cn(CELL, "whitespace-nowrap"),
+        children: [statusPill(h, session.execution)],
+      }),
+      Table.cell(h, {
+        className: CELL,
+        children: [
+          h.div(
+            [h.Class("flex flex-col gap-0.5")],
             [
-              h.Href(Routes.session({ sessionId: session.sessionId })),
-              h.Class("text-body-md font-medium"),
-            ],
-            [session.title],
-          ),
-          session.repository === null
-            ? h.span([h.Class("text-body-sm text-ink-subtle")], ["No repository yet"])
-            : mono(h, `${session.repository.owner}/${session.repository.repo}`, "text-ink-subtle"),
-        ],
-      ),
-      session.reason === null
-        ? h.empty
-        : h.p([h.Class("text-body-sm text-ink-muted")], [session.reason]),
-      h.div(
-        [h.Class("flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm text-ink-subtle")],
-        [
-          h.span([], ["Activity ", mono(h, formatTime(session.activityAt), "text-mono-xs")]),
-          mono(h, describeUsage(session.usage), "text-mono-xs"),
-          session.deliveryWarning === null
-            ? h.empty
-            : h.span(
-                [h.Class("inline-flex items-center gap-1 text-ink-muted")],
-                warning(h, `Delivery: ${session.deliveryWarning}`),
+              h.div(
+                [h.Class("flex flex-wrap items-center gap-2")],
+                [
+                  h.a(
+                    [
+                      h.Href(Routes.session({ sessionId: session.sessionId })),
+                      h.Class(
+                        "whitespace-nowrap text-body-md font-medium text-primary hover:underline",
+                      ),
+                    ],
+                    [session.title],
+                  ),
+                  repository === null
+                    ? h.span([h.Class("text-body-sm text-ink-subtle")], ["No repository yet"])
+                    : mono(h, repository, "text-ink-subtle"),
+                ],
               ),
-          ...links(h, session),
+              session.reason === null
+                ? h.empty
+                : h.p([h.Class("text-body-md text-ink-muted")], [session.reason]),
+              session.deliveryWarning === null
+                ? h.empty
+                : h.p(
+                    [h.Class("flex items-center gap-1.5 text-body-md text-destructive")],
+                    [
+                      Icon.view(h, TriangleAlert, "size-3.5"),
+                      `Delivery: ${session.deliveryWarning}`,
+                    ],
+                  ),
+              rowLinks.length === 0
+                ? h.empty
+                : h.div([h.Class("mt-1 flex flex-wrap items-center gap-3")], rowLinks),
+            ],
+          ),
         ],
-      ),
+      }),
+      Table.cell(h, {
+        className: cn(CELL, "whitespace-nowrap"),
+        children: [mono(h, formatTime(session.activityAt), "text-ink-muted tabular-nums")],
+      }),
+      Table.cell(h, {
+        numeric: true,
+        className: cn(CELL, "whitespace-nowrap"),
+        children: [
+          session.usage === null
+            ? h.span(
+                [h.Class("font-sans text-body-md text-ink-subtle"), h.Title(USAGE_UNAVAILABLE)],
+                ["—"],
+              )
+            : mono(h, describeUsage(session.usage), "text-ink-muted tabular-nums"),
+        ],
+      }),
     ],
-  )
+  })
+}
 
 const liveStatus = (h: HtmlBuilder<Message>, model: Model): Html => {
   const status = model.live.status
@@ -508,15 +564,6 @@ const alert = (h: HtmlBuilder<Message>, text: string): Html =>
     children: [h.div([h.Class("font-medium text-destructive")], [text])],
   })
 
-const fact = (h: HtmlBuilder<Message>, label: string, value: ReadonlyArray<Html | string>) =>
-  h.div(
-    [h.Class("flex flex-col gap-0.5")],
-    [
-      h.dt([h.Class("text-caption font-medium text-ink-subtle")], [label]),
-      h.dd([h.Class("text-body-md")], value),
-    ],
-  )
-
 /**
  * One line per platform, stating what the scan is doing rather than what it
  * found. A caught-up scan with nothing pending says so; a gap is shown next
@@ -545,18 +592,17 @@ const describeRecovery = (
 }
 
 const recoveryRow = (h: HtmlBuilder<Message>, status: RecoveryStatus): Html =>
-  h.li(
-    [
-      h.Class(
-        "flex items-start gap-2 border-b border-border-subtle px-3 py-2 text-body-md last:border-b-0",
-      ),
-    ],
+  h.div(
+    [h.Class("flex items-start gap-2 py-1.5 text-body-md")],
     [
       status.overdue
-        ? Icon.view(h, Clock, "mt-0.5 size-3.5 shrink-0 text-ink-muted")
+        ? Icon.view(h, Clock, "mt-1 size-3.5 shrink-0 text-ink-muted")
         : status.incomplete
-          ? Icon.view(h, CircleAlert, "mt-0.5 size-3.5 shrink-0 text-ink-muted")
-          : h.empty,
+          ? Icon.view(h, CircleAlert, "mt-1 size-3.5 shrink-0 text-ink-muted")
+          : h.span(
+              [h.Class("mt-2 size-1.5 shrink-0 rounded-full bg-success"), h.AriaHidden(true)],
+              [],
+            ),
       h.div(
         [h.Class("flex min-w-0 flex-col gap-0.5")],
         [
@@ -572,178 +618,275 @@ const recoveryRow = (h: HtmlBuilder<Message>, status: RecoveryStatus): Html =>
     ],
   )
 
-const recoveryView = (h: HtmlBuilder<Message>, recovery: ReadonlyArray<RecoveryStatus>): Html =>
-  recovery.length === 0
-    ? h.empty
-    : h.section(
-        [h.Class("flex flex-col gap-3")],
-        [
-          sign(h, { children: ["Recovery"] }),
-          panel(h, {
-            flush: true,
-            children: [
-              h.ul(
-                [],
-                recovery.map((status) => recoveryRow(h, status)),
-              ),
-            ],
-          }),
-        ],
-      )
+const recoveryCard = (h: HtmlBuilder<Message>, recovery: ReadonlyArray<RecoveryStatus>): Html =>
+  Page.inspectorCard(h, {
+    heading: "Recovery",
+    children:
+      recovery.length === 0
+        ? [h.p([h.Class("text-body-md text-ink-muted")], ["No recovery scan covers this session."])]
+        : [
+            Page.kvList(
+              h,
+              recovery.map((status) => recoveryRow(h, status)),
+            ),
+          ],
+  })
 
-const pendingDeliveryView = (h: HtmlBuilder<Message>, detail: SessionDetail): Html =>
-  detail.pendingDelivery.length === 0
-    ? h.empty
-    : h.section(
-        [h.Class("flex flex-col gap-3")],
-        [
-          sign(h, { children: ["Pending delivery"] }),
-          panel(h, {
-            flush: true,
-            children: [
-              h.ul(
-                [],
-                detail.pendingDelivery.map((item) =>
-                  h.li(
-                    [
-                      h.Class(
-                        "flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-2 text-body-md last:border-b-0",
-                      ),
-                    ],
-                    [
-                      `${platformName(item.platform)} reply ${item.state}${item.error === null ? "" : ": "}`,
-                      ...(item.error === null ? [] : [mono(h, item.error, "text-destructive")]),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          }),
-        ],
-      )
-
-const detailView = (h: HtmlBuilder<Message>, detail: SessionDetail): Html =>
-  h.div(
-    [h.Class("flex flex-col gap-4")],
+const healthDot = (h: HtmlBuilder<Message>, healthy: boolean): Html =>
+  h.span(
     [
-      h.a([h.Href(Routes.sessions()), h.Class("self-start text-body-sm")], ["All sessions"]),
+      h.Class(cn("size-2 shrink-0 rounded-full", healthy ? "bg-success" : "bg-destructive")),
+      h.AriaHidden(true),
+    ],
+    [],
+  )
+
+const deliveryRow = (
+  h: HtmlBuilder<Message>,
+  healthy: boolean,
+  label: string,
+  state: string,
+  note: string | null,
+): Html =>
+  h.div(
+    [h.Class("flex flex-col gap-1 py-1.5")],
+    [
       h.div(
-        [h.Class("flex flex-wrap items-center gap-2")],
-        [h.h1([], [detail.title]), Feed.agentBadge(h), badge(h, detail)],
+        [h.Class("flex items-center gap-2 text-body-md")],
+        [
+          healthDot(h, healthy),
+          label,
+          mono(h, state, cn("ml-auto", healthy ? "text-ink-subtle" : "text-destructive")),
+        ],
       ),
-      detail.reason === null
-        ? h.empty
-        : h.p([h.Class("text-body-md text-ink-muted")], [detail.reason]),
-      detail.latestError === null ? h.empty : alert(h, `Latest error: ${detail.latestError}`),
-      detail.deliveryWarning === null
+      note === null ? h.empty : h.p([h.Class("text-body-sm text-destructive")], [note]),
+    ],
+  )
+
+const pendingRow = (h: HtmlBuilder<Message>, item: DeliveryItem): Html =>
+  deliveryRow(
+    h,
+    false,
+    `${platformName(item.platform)} reply`,
+    item.state,
+    item.error === null ? null : item.error,
+  )
+
+/** The home thread's health first, then every reply the runner still owes. */
+const deliveryCard = (h: HtmlBuilder<Message>, detail: SessionDetail): Html => {
+  const homeIssue =
+    detail.deliveryWarning ??
+    detail.pendingDelivery.find((item) => item.platform === "slack")?.error ??
+    null
+  return Page.inspectorCard(h, {
+    heading: "Delivery",
+    children:
+      detail.homeThread === null && detail.pendingDelivery.length === 0
+        ? [h.p([h.Class("text-body-md text-ink-muted")], ["No home thread yet."])]
+        : [
+            Page.kvList(h, [
+              ...(detail.homeThread === null
+                ? []
+                : [
+                    deliveryRow(
+                      h,
+                      homeIssue === null,
+                      `${platformName(detail.homeThread.platform)} home thread`,
+                      homeIssue === null ? "ok" : "warning",
+                      homeIssue,
+                    ),
+                  ]),
+              ...detail.pendingDelivery.map((item) => pendingRow(h, item)),
+            ]),
+          ],
+  })
+}
+
+const sessionCard = (h: HtmlBuilder<Message>, detail: SessionDetail): Html => {
+  const repository = repositoryName(detail)
+  return Page.inspectorCard(h, {
+    heading: "Session",
+    children: [
+      h.div(
+        [h.Class("mb-3 flex flex-wrap items-center gap-2")],
+        [
+          statusPill(h, detail.execution),
+          h.span([h.Class("text-body-md font-medium")], [detail.title]),
+        ],
+      ),
+      detail.latestError === null
         ? h.empty
         : h.p(
-            [h.Role("alert"), h.Class("flex items-center gap-1 text-body-sm text-ink-muted")],
-            warning(h, `Delivery: ${detail.deliveryWarning}`),
+            [h.Role("alert"), h.Class("mb-3 text-body-sm text-destructive")],
+            [`Latest error: ${detail.latestError}`],
           ),
-      panel(h, {
+      Page.kvList(h, [
+        repository === null
+          ? Page.kv(h, "Repository", "Not selected yet", { mono: false })
+          : Page.kv(h, "Repository", repository),
+        Page.kv(h, "Pending inputs", formatCount(detail.pendingInputs)),
+        Page.kv(h, "Accepted", formatCount(detail.acceptedInputs)),
+        Page.kv(
+          h,
+          "Last input",
+          detail.lastInputAt === null ? "—" : formatTime(detail.lastInputAt),
+        ),
+        Page.kv(
+          h,
+          "Runner read",
+          detail.freshness.error !== null
+            ? `failed: ${detail.freshness.error}`
+            : detail.freshness.readAt === null
+              ? "not yet"
+              : formatTime(detail.freshness.readAt),
+        ),
+        Page.kv(h, "Usage", describeUsage(detail.usage)),
+      ]),
+      h.p([h.Class("mt-3 text-body-sm text-ink-subtle")], [USAGE_NOTE]),
+    ],
+  })
+}
+
+const inspector = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> => {
+  if (model.selected === null)
+    return [
+      Page.inspectorCard(h, {
+        heading: "Session",
         children: [
-          h.dl(
-            [h.Class("grid gap-4 sm:grid-cols-2")],
-            [
-              fact(h, "Repository", [
-                detail.repository === null
-                  ? "Not selected yet"
-                  : mono(h, `${detail.repository.owner}/${detail.repository.repo}`),
-              ]),
-              fact(h, "Links", [
-                h.span(
-                  [h.Class("flex flex-wrap items-center gap-x-4 gap-y-1")],
-                  links(h, detail).length === 0 ? ["None"] : links(h, detail),
-                ),
-              ]),
-              fact(h, "Latest activity", [mono(h, formatTime(detail.activityAt))]),
-              fact(h, "Projection", [describeFreshness(detail)]),
-              fact(h, "Inputs", [
-                mono(h, formatCount(detail.acceptedInputs)),
-                " accepted, ",
-                mono(h, formatCount(detail.pendingInputs)),
-                " awaiting the runner",
-                ...(detail.lastInputAt === null
-                  ? []
-                  : [", last ", mono(h, formatTime(detail.lastInputAt))]),
-              ]),
-              fact(h, "Recorded usage", [
-                mono(h, describeUsage(detail.usage)),
-                h.p([h.Class("text-body-sm text-ink-muted")], [USAGE_NOTE]),
-              ]),
-            ],
+          h.p(
+            [h.Class("text-body-md text-ink-muted")],
+            ["Select a session to see its inputs, delivery and recovery."],
           ),
         ],
       }),
-      pendingDeliveryView(h, detail),
-      recoveryView(h, detail.recovery),
-      h.p([h.Class("text-body-sm text-ink-subtle")], [describeFreshness(detail)]),
-    ],
-  )
+    ]
+  if (model.detail === null)
+    return [
+      Page.inspectorCard(h, {
+        heading: "Session",
+        children: [
+          model.loadingDetail
+            ? h.p([h.Role("status"), h.Class("text-body-md text-ink-muted")], ["Loading session…"])
+            : h.p(
+                [h.Class("text-body-md text-ink-muted")],
+                ["The session could not be loaded. Retry to continue."],
+              ),
+        ],
+      }),
+    ]
+  return [
+    sessionCard(h, model.detail),
+    deliveryCard(h, model.detail),
+    recoveryCard(h, model.detail.recovery),
+  ]
+}
 
-const listView = (h: HtmlBuilder<Message>, model: Model): Html =>
-  h.div(
-    [h.Class("flex flex-col gap-4")],
-    [
-      h.div(
-        [h.Class("flex flex-col gap-1")],
-        [
-          h.div(
-            [h.Class("flex flex-wrap items-center gap-2")],
-            [h.h1([], ["Sessions"]), Feed.agentBadge(h)],
-          ),
-          h.p(
-            [h.Class("text-body-sm text-ink-muted")],
-            [
-              "Every teammate sees the same sessions. Collaborate with an agent in its home thread; usage totals are recorded by OpenCode and are not a bill.",
-            ],
+const filterSelect = (h: HtmlBuilder<Message>, model: Model): Html =>
+  Select.view(h, {
+    id: "sessions-state-filter",
+    label: "State",
+    isLabelHidden: true,
+    value: model.filter ?? "",
+    options: [["", "All states"], ...EXECUTION_STATES.map((state) => [state, state] as const)],
+    wrapperClass: "w-40",
+    onChange: (value) => Message.ChangedFilter({ value }),
+  })
+
+const sessionsTable = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const rows = model.sessions.filter(
+    (session) => model.filter === null || session.execution === model.filter,
+  )
+  return rows.length === 0
+    ? h.p(
+        [h.Class("px-4 py-6 text-body-sm text-ink-muted")],
+        [model.filter === null ? "No agent sessions yet." : `No ${model.filter} sessions.`],
+      )
+    : Table.table(h, {
+        children: [
+          Table.head(h, [
+            h.tr(
+              [],
+              [
+                Table.headCell(h, { children: ["State"] }),
+                Table.headCell(h, { className: "w-full", children: ["Session"] }),
+                Table.headCell(h, { children: ["Last activity"] }),
+                Table.headCell(h, { numeric: true, children: ["Usage"] }),
+              ],
+            ),
+          ]),
+          Table.body(
+            h,
+            rows.map((session) => sessionRow(h, session, session.sessionId === model.selected)),
           ),
         ],
-      ),
+      })
+}
+
+const sessionsCard = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const working = model.sessions.filter((session) => session.execution === "working").length
+  return panel(h, {
+    flush: true,
+    children: [
+      panelHeader(h, {
+        title: "Sessions",
+        meta: `${formatCount(model.sessions.length)} · ${formatCount(working)} working`,
+        actions: [filterSelect(h, model)],
+      }),
       !model.loaded && model.loading
-        ? h.p([h.Role("status"), h.Class("text-body-sm text-ink-muted")], ["Loading sessions…"])
-        : model.loaded && model.sessions.length === 0
-          ? emptyPanel(h, { children: ["No agent sessions yet."] })
-          : panel(h, {
-              flush: true,
-              children: [
-                h.ul(
-                  [],
-                  model.sessions.map((session) => row(h, session)),
-                ),
-              ],
-            }),
-      model.cursor === null
-        ? h.empty
-        : Button.view(h, {
-            label: model.loadingMore ? "Loading…" : "Load more",
-            onClick: Message.ClickedMore(),
-            variant: "secondary",
-            size: "sm",
-            className: "self-start",
-            isDisabled: model.loadingMore,
-          }),
+        ? h.p(
+            [h.Role("status"), h.Class("px-4 py-6 text-body-sm text-ink-muted")],
+            ["Loading sessions…"],
+          )
+        : sessionsTable(h, model),
     ],
-  )
+  })
+}
+
+const header = (h: HtmlBuilder<Message>): Html =>
+  Page.header(h, {
+    title: h.div(
+      [h.Class("flex items-center gap-3")],
+      [
+        h.h1([], ["Sessions"]),
+        chip(h, {
+          variant: "agent",
+          className: "h-5 px-1.5 text-mono-xs font-normal",
+          children: [Icon.view(h, Sparkles, "size-3"), "AI"],
+        }),
+      ],
+    ),
+    lede: "Every teammate sees the same sessions. Collaborate with an agent in its home thread; usage totals are recorded by OpenCode and are not a bill.",
+    actions: [
+      Button.view(h, {
+        variant: "secondary",
+        label: h.span(
+          [h.Class("inline-flex items-center gap-1.5")],
+          [Icon.view(h, RotateCw, "size-4"), "Refresh"],
+        ),
+        onClick: Message.ClickedRefresh(),
+      }),
+    ],
+  })
 
 export const view = Submodel.defineView<Model, Message, Record<string, never>>(
   (model, _inputs, h) =>
-    h.div(
-      [h.Class("flex w-full max-w-3xl flex-col gap-4 p-4 lg:p-5")],
-      [
+    Page.layout(h, {
+      main: [
+        header(h),
         liveStatus(h, model),
         model.error !== null && !model.stale ? alert(h, model.error) : h.empty,
-        model.selected === null
-          ? listView(h, model)
-          : model.detail === null
-            ? model.loading
-              ? h.p(
-                  [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
-                  ["Loading session…"],
-                )
-              : h.a([h.Href(Routes.sessions()), h.Class("text-body-sm")], ["All sessions"])
-            : detailView(h, model.detail),
+        sessionsCard(h, model),
+        model.cursor === null
+          ? h.empty
+          : Button.view(h, {
+              label: model.loadingMore ? "Loading…" : "Load more",
+              onClick: Message.ClickedMore(),
+              variant: "secondary",
+              size: "sm",
+              className: "self-start",
+              isDisabled: model.loadingMore,
+            }),
       ],
-    ),
+      inspector: inspector(h, model),
+    }),
 )

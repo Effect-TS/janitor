@@ -1604,7 +1604,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                     toView: ({ button, panel: panelAttributes }) =>
                       h.section(
                         [
-                          h.Class("rounded-sm border border-border bg-card"),
+                          h.Class("rounded-md border border-border bg-card"),
                           h.DataAttribute("slot", "card"),
                         ],
                         [

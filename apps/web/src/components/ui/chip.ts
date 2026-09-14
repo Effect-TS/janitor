@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 export type ChipVariant = "neutral" | "selected" | "success" | "danger" | "agent"
 
 export const chipClass =
-  "inline-flex h-4.5 max-w-full items-center gap-1 truncate whitespace-nowrap rounded-xs border border-border bg-surface-muted px-1.5 font-mono text-mono-xs font-medium leading-none text-ink-muted"
+  "inline-flex h-6 max-w-full items-center gap-1.5 truncate whitespace-nowrap rounded-xs border border-border bg-surface-muted px-2 font-mono text-mono-sm font-medium leading-none text-foreground"
 
 export const chipVariants: Record<ChipVariant, string> = {
   neutral: "",

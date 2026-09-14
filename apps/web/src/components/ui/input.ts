@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 /** Input: surface-muted fill, 1px border, 28px tall, brightens to surface
  *  and takes a primary border on focus. */
 export const inputClass =
-  "h-7 w-full min-w-0 rounded-sm border border-border bg-surface-muted px-2 py-1 text-body-md text-foreground transition-colors duration-120 ease-ui placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-card aria-invalid:border-destructive file:inline-flex file:h-5 file:border-0 file:bg-transparent file:text-body-sm file:font-medium file:text-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+  "h-8 w-full min-w-0 rounded-md border border-border bg-card px-2.5 py-1 text-body-md text-foreground transition-colors duration-120 ease-ui placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-card aria-invalid:border-destructive file:inline-flex file:h-5 file:border-0 file:bg-transparent file:text-body-sm file:font-medium file:text-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
 
 /** Same string as the `label` item's component classes (upstream label.tsx). */
 /** Upstream string re-keyed for foldkit: the label precedes the control, so
