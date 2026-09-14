@@ -1,6 +1,6 @@
 {
-  // Deployment packaging for the runner Worker. Bindings and secrets are
-  // provisioned per stage; see README.md. This file is not used by tests.
+  // Standalone packaging reference. Production is managed by ../alchemy.run.ts;
+  // do not deploy this over the Alchemy-owned Worker. Not used by tests.
   "name": "janitor-agent-runner",
   "main": "dist/worker.mjs",
   "compatibility_date": "2026-09-05",

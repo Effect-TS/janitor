@@ -34,6 +34,8 @@ export interface ReleaseManifest {
     readonly imageDigest: string
     readonly imageId: string
     readonly baseImage: string
+    /** Observed from the exact published image during an Alchemy deployment build. */
+    readonly tools?: { readonly node: string; readonly packages: string }
   }
   readonly build: {
     readonly opencode: string

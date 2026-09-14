@@ -10,7 +10,7 @@ import { ActivityReader } from "./Labeling/Activity.ts"
 import * as Schema from "effect/Schema"
 import { RuleTestJobLayer, RuleTestJobRegistration, RuleTestJobs } from "./Labeling/RuleTestJob.ts"
 import { RepositoryConnections } from "./RepositoryConnections.ts"
-import { deployment } from "./Deployment.ts"
+import { deployment, agentRunnerConnection } from "./Deployment.ts"
 import { Readiness } from "./Ingress/Readiness.ts"
 import {
   DiscoverInstallationsLayer,
@@ -233,10 +233,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // The session runner is a separately deployed Worker; its base URL and
     // service token arrive as deployment configuration. Agent sessions are
     // unavailable, not degraded, when the runner is not configured.
-    const runnerUrl = yield* Config.String("JANITOR_AGENT_RUNNER_URL").pipe(Config.withDefault(""))
-    const runnerToken = yield* Config.Redacted("JANITOR_AGENT_RUNNER_TOKEN").pipe(
-      Config.withDefault(Redacted.make("")),
-    )
+    // Reading these during init also registers both machine-route secrets.
+    const connection = yield* agentRunnerConnection
+    const runnerUrl = connection.url
+    const runnerToken = connection.token
     const runnerConfigured = runnerUrl !== "" && Redacted.value(runnerToken) !== ""
     const slackWorkspace = yield* Config.String("JANITOR_SLACK_WORKSPACE_ID").pipe(
       Config.withDefault(""),
