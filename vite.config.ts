@@ -12,8 +12,7 @@ export default defineConfig({
     // Feasibility fixtures run with isolated Cloudflare/OpenCode dependencies.
     // Checking them against Janitor's dependency graph produces invalid diagnostics.
     ignorePatterns: [
-      ".scratch/multiplayer-janitor-technical/prototype/repository-fixture/**",
-      ".scratch/multiplayer-janitor-technical/prototype/runner-fixture/**",
+      ".scratch",
       // The runner is an independent workspace with its own dependency graph
       // and checks (`runner/package.json`); its vendored OpenCode source and
       // bundles are not application code.
