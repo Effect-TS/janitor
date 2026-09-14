@@ -62,8 +62,8 @@ export class FakeRunner {
     protocol: 2,
     release: "fake",
     manifest: {
-      family: "janitor-runner-1",
-      readableFamilies: ["janitor-runner-1"],
+      family: "janitor-runner-sqlite-1",
+      readableFamilies: ["janitor-runner-sqlite-1"],
       commandProtocol: { version: 2, accepted: [2] },
       events: { contract: 1 },
       bridge: { protocol: 1, sourceHash: "f".repeat(64), imageDigest: "sha256:fake" },

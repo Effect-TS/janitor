@@ -13,13 +13,12 @@ import {
 } from "../ReleaseManifest.ts"
 import { PROTOCOL_VERSION, ProtocolError } from "../Protocol.ts"
 import type { RunnerStorage } from "../Storage.ts"
-import { WorkspaceCheckpoints } from "../WorkspaceCheckpoints.ts"
+import { WORKSPACE_FORMAT } from "./WorkspaceStore.ts"
 
 type Ready = Extract<CompatibilityDecision, { kind: "ready" }>
 interface Dependencies {
   store: RunnerStorage
   storage: DurableObjectStorage
-  bucket: R2Bucket | undefined
   configurations: ModelConfigurations | ModelConfigurationError
   release: () => string
 }
@@ -28,7 +27,7 @@ export class SessionCompatibility extends Context.Service<
   SessionCompatibility,
   {
     readonly stateProblem: Effect.Effect<string | null>
-    readonly checkpointProblem: Effect.Effect<string | null>
+    readonly workspaceProblem: Effect.Effect<string | null>
     readonly begin: Effect.Effect<Ready, unknown>
     readonly complete: (decision: Ready) => Effect.Effect<void, unknown>
   }
@@ -36,7 +35,6 @@ export class SessionCompatibility extends Context.Service<
   static make({
     store,
     storage,
-    bucket,
     configurations,
     release,
   }: Dependencies): SessionCompatibility["Service"] {
@@ -61,25 +59,29 @@ export class SessionCompatibility extends Context.Service<
         applied: store.nativeMigrations,
       })
       if (decision.kind === "blocked") return decision.reason
-      if (!decision.upgradeFormat && store.compatibility !== undefined) return checkpointProblem()
+      if (!decision.upgradeFormat && store.compatibility !== undefined) return workspaceProblem()
       return null
     }
 
-    const checkpointIdentity = () => {
-      const session = store.session
-      const repositoryId = store.intendedRepositoryId
-      if (session === undefined || !repositoryId) return undefined
-      return { sessionId: session.sessionId, generation: session.generation, repositoryId }
-    }
-
-    const checkpointProblem = (): string | null => {
-      if (WorkspaceCheckpoints.needsFormatUpgrade(storage)) return null
-      return new WorkspaceCheckpoints(storage, bucket, checkpointIdentity()).validate()
+    const workspaceProblem = (): string | null => {
+      if (!store.tableExists("_janitor_sql_workspace")) return null
+      const row = storage.sql
+        .exec<{ state: string }>("SELECT state FROM _janitor_sql_workspace WHERE id=1")
+        .toArray()[0]
+      if (!row) return null
+      const state = JSON.parse(row.state)
+      if (state.format !== WORKSPACE_FORMAT) return "Workspace format is not supported"
+      if (
+        state.repositoryId !== store.intendedRepositoryId ||
+        state.generation !== (store.session?.generation ?? store.intendedGeneration)
+      )
+        return "Workspace identity differs from the session"
+      return null
     }
 
     return {
       stateProblem: Effect.sync(stateProblem),
-      checkpointProblem: Effect.sync(checkpointProblem),
+      workspaceProblem: Effect.sync(workspaceProblem),
       begin: Effect.tryPromise({
         try: async () => {
           const recorded = store.compatibility
@@ -134,11 +136,10 @@ export class SessionCompatibility extends Context.Service<
               )
             // The Janitor-owned step of the upgrade runs after the native set is complete
             // and is idempotent, so a restart between it and the completion record repeats it.
-            if (decision.upgradeFormat || WorkspaceCheckpoints.needsFormatUpgrade(storage)) {
-              WorkspaceCheckpoints.upgradeFormat(storage, checkpointIdentity())
+            if (decision.upgradeFormat) {
               store.journal("state-upgraded", { format: JANITOR_STATE_FORMAT })
             }
-            const problem = checkpointProblem()
+            const problem = workspaceProblem()
             if (problem !== null) throw new ProtocolError("blocked", problem, problem)
             if (decision.initialize)
               store.compatibility = {

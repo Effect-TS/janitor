@@ -214,7 +214,7 @@ layer(Services, { timeout: "3 minutes" })("Agent maintenance barrier", (it) => {
           // The deployed runner qualifies; one session's own checks fail and it stays held.
           runner.health = {
             ...runner.health,
-            manifest: { ...runner.health.manifest, family: "janitor-runner-1" },
+            manifest: { ...runner.health.manifest, family: "janitor-runner-sqlite-1" },
           }
           runner.holds.get("m-two")!.releaseChecks = [
             { name: "state", ok: false, detail: "checkpoint manifest disagrees with its pointer" },

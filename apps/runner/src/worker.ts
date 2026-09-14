@@ -7,7 +7,6 @@ import { checkProtocol, errorResponse, jsonResponse, sessionIdOf } from "./Route
 import { SessionRunner, type RunnerEnv } from "./SessionRunner.ts"
 
 export { SessionRunner }
-export { Sandbox } from "@cloudflare/sandbox"
 
 export interface WorkerEnv extends RunnerEnv {
   readonly SESSIONS: DurableObjectNamespace<SessionRunner>

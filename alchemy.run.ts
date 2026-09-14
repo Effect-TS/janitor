@@ -1,6 +1,6 @@
+import { cloudflareProviders } from "./deployment/RetiredRunnerResources.ts"
 import * as Config from "effect/Config"
 import { localState } from "alchemy/State"
-import { runnerImageProviders } from "./deployment/RunnerImage.ts"
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Command from "alchemy/Command"
@@ -14,7 +14,6 @@ import { JanitorDatabase } from "@janitor/cluster/Database"
 import ClusterWorker from "@janitor/cluster/Worker"
 import { deployment } from "@janitor/cluster/Deployment"
 import { Stage } from "alchemy/Stage"
-import { cloudflareProviders } from "./deployment/CloudflareProviders.ts"
 
 import { AgentRunner } from "./stacks/runner.ts"
 
@@ -29,7 +28,6 @@ const DockerProviders = Layer.effect(
 const Providers = Layer.mergeAll(
   cloudflareProviders(),
   Command.providers(),
-  runnerImageProviders(),
   DockerProviders,
   Neon.providers(),
 )

@@ -1,18 +1,26 @@
-import { timed } from "./services/Telemetry.ts"
-import { SandboxBridge } from "./services/SandboxBridge.ts"
-import { RepositoryAuthority as CredentialAuthority } from "./services/RepositoryAuthority.ts"
+import { LegacyWorkspace } from "./services/LegacyWorkspace.ts"
 import { Effect } from "effect"
 import { WorkspaceDriver } from "@opencode/core/workspace/driver"
-import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
-import { makeRemoteSpawner, type BridgeRpc } from "./RemoteProcess.ts"
+import {
+  Failed,
+  NotFound,
+  makeMemoryDriver,
+  type DirEntry,
+  type FilesImpl,
+} from "@opencode/core/environment/index"
 import { ProtocolError } from "./Protocol.ts"
-import { RELEASE_MANIFEST } from "./ReleaseManifest.ts"
 import { RunnerStorage } from "./Storage.ts"
-import { WorkspaceCheckpoints, type Archive } from "./WorkspaceCheckpoints.ts"
 import { Publication, type CredentialPermission } from "./Publication.ts"
-
-/** The native shell's default command deadline; explicit finite timeouts may exceed it. */
-export const DEFAULT_TOOL_TIMEOUT_MS = 120000
+import { checksum } from "./Hash.ts"
+import { RepositoryAuthority as CredentialAuthority } from "./services/RepositoryAuthority.ts"
+import { GitHubRepository } from "./services/GitHubRepository.ts"
+import { WorkspacePublication } from "./services/WorkspacePublication.ts"
+import {
+  WorkspaceStore,
+  WORKSPACE_FORMAT,
+  gitBlobSha,
+  repositoryPath,
+} from "./services/WorkspaceStore.ts"
 
 export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "read",
@@ -20,488 +28,412 @@ export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "grep",
   "edit",
   "write",
-  "shell",
+  "delete",
+  "diff",
   "publish",
 ]
-const payloadHash = async (value: unknown) => {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(JSON.stringify(value)),
-  )
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
-}
-
 export interface RepositorySelection {
   readonly sessionId: string
   readonly generation: number
   readonly repositoryId: string
 }
-// 220 hash bits plus the prefix fit the Sandbox SDK's 63-character ID limit.
-const resourceName = async (selected: RepositorySelection) =>
-  `janitor-${(await payloadHash(selected)).slice(0, 55)}`
 export interface RepositoryAuthority {
   readonly fetch: (request: Request) => Promise<Response>
 }
 export interface WorkspaceEnvironment {
-  readonly WORKSPACE_CHECKPOINTS?: R2Bucket
-  readonly SANDBOXES?: DurableObjectNamespace<Sandbox>
   readonly REPOSITORY_AUTHORITY?: RepositoryAuthority
   readonly REPOSITORY_SERVICE_TOKEN?: string
-  readonly GITHUB_PUBLICATION_API?: RepositoryAuthority
+  /** Native HTTP fixture in local/test Workers; production uses GitHub directly. */
+  readonly GITHUB_API?: RepositoryAuthority
+  /** Read only during migration of pre-SQLite workspaces. */
+  readonly WORKSPACE_CHECKPOINTS?: R2Bucket
 }
-export interface Binding {
-  resource: string
-  token: string
-  epoch?: string
-  selected: RepositorySelection
-  destroyed?: boolean
-}
-export interface WorkspaceSandbox {
-  getProcess?(
-    id: string,
-  ): Promise<{ waitForPort(port: number, options: { mode: "tcp" }): Promise<unknown> } | null>
-  startProcess(
-    command: string,
-    options: { processId: string; env: Record<string, string> },
-  ): Promise<{ waitForPort(port: number, options: { mode: "tcp" }): Promise<unknown> }>
-  containerFetch(url: string, init: RequestInit, port: number): Promise<Response>
-  destroy(): Promise<unknown>
-}
-export interface Meta {
-  protocol: number
-  generation: number
-  epoch: string
-  capabilities: string[]
-  /** Source identity recorded at image build; absent on images built before the manifest. */
-  build?: { sourceHash?: string } | null
-}
-/**
- * The running bridge must be the one this release was tested against: same
- * protocol, every required capability and the pinned source identity. A
- * deployment result says an image rollout started; only the reached container
- * proves which image answered.
- */
-export const checkBridge = (meta: Meta, generation: number) => {
-  const required = RELEASE_MANIFEST.bridge
-  if (
-    meta.protocol !== required.protocol ||
-    !required.required.every((capability) => meta.capabilities?.includes(capability))
-  )
-    throw new ProtocolError("blocked", "Running Sandbox image lacks required bridge capabilities")
-  if (meta.build?.sourceHash !== required.sourceHash)
-    throw new ProtocolError(
-      "blocked",
-      `Running Sandbox image ${meta.build?.sourceHash?.slice(0, 12) ?? "(unrecorded)"} is not the release's bridge ${required.sourceHash.slice(0, 12)}`,
-    )
-  if (meta.generation !== generation)
-    throw new ProtocolError("stale_generation", "Bridge generation changed")
+export interface WorkspaceToolInput {
+  path?: string
+  content?: string
+  oldText?: string
+  newText?: string
+  replaceAll?: boolean
+  pattern?: string
+  offset?: number
+  limit?: number
 }
 
-/** Runner-owned provisioning identity and admission evidence survive container loss. */
+/** Coordinates one durable workspace; local mutations never leave the session's SQLite database. */
 export class RepositoryWorkspace {
-  private readonly bridge: SandboxBridge["Service"]
-  private readonly credentials: CredentialAuthority["Service"]
-  readonly checkpoints: WorkspaceCheckpoints
+  readonly files: WorkspaceStore["Service"]
   readonly publication: Publication
-  private toolTimeout = DEFAULT_TOOL_TIMEOUT_MS
-  private activeTool: string | undefined
-  private connecting: Promise<Binding> | undefined
-  private readonly inFlight = new Set<string>()
-  private publishing = 0
-  /**
-   * A foreground operation, publication or archive upload is in progress.
-   * Maintenance waits for this to clear so the result and checkpoint commit
-   * together instead of leaving an admitted operation uncertain.
-   */
-  get busy(): boolean {
-    return (
-      this.activeTool !== undefined ||
-      this.inFlight.size > 0 ||
-      this.publishing > 0 ||
-      this.checkpoints.settling
-    )
+  readonly github: GitHubRepository["Service"]
+  private readonly legacy: LegacyWorkspace["Service"]
+  private readonly credentials: CredentialAuthority["Service"]
+  private connecting: Promise<void> | undefined
+  private active = 0
+  get busy() {
+    return this.active > 0
   }
-  /** True when a workspace operation's outcome is unknown and must be reconciled. */
-  get uncertain(): boolean {
-    return (
-      this.checkpoints.uncertain() ||
-      this.storage.sql
-        .exec("SELECT id FROM _janitor_operation WHERE state = 'admitted' LIMIT 1")
-        .toArray().length > 0
-    )
+  get uncertain() {
+    return this.legacy.uncertain()
   }
-  /** The finite timeout of the admitted foreground tool, if one is active. */
-  get currentToolTimeout(): number | undefined {
-    return this.activeTool === undefined ? undefined : this.toolTimeout
+  get currentToolTimeout() {
+    return this.busy ? 120000 : undefined
   }
-  /**
-   * The advertised identity of the bridge process, when one is running for this
-   * workspace, without starting a container or restoring anything.
-   */
-  async runningBridge(): Promise<Meta | undefined> {
-    const binding = await this.storage.get<Binding>("_janitor_workspace")
-    if (!binding?.epoch || binding.destroyed) return undefined
-    if (!(await Effect.runPromise(this.bridge.running(binding)))) return undefined
-    return (await this.raw(binding, "/meta")) as Meta
-  }
-  /** Runs a publication while counting it as active work. */
-  async publish<A>(run: () => Promise<A>): Promise<A> {
-    this.publishing++
-    try {
-      return await run()
-    } finally {
-      this.publishing--
-    }
-  }
-  private hold(message: string): never {
-    const store = new RunnerStorage(this.storage)
-    store.blockers = [...new Set([...store.blockers, message])]
-    throw new ProtocolError("blocked", message)
-  }
+
   constructor(
     private readonly storage: DurableObjectStorage,
-    private readonly env: WorkspaceEnvironment,
+    env: WorkspaceEnvironment,
     readonly selected: RepositorySelection,
   ) {
-    this.bridge = SandboxBridge.make((binding) => this.sandbox(binding))
+    this.files = WorkspaceStore.make(storage)
+    this.legacy = LegacyWorkspace.make(storage, env.WORKSPACE_CHECKPOINTS, selected)
     this.credentials = CredentialAuthority.make(
       env.REPOSITORY_AUTHORITY,
       env.REPOSITORY_SERVICE_TOKEN,
     )
-    this.checkpoints = new WorkspaceCheckpoints(storage, env.WORKSPACE_CHECKPOINTS, selected)
-    this.publication = new Publication(storage, selected, {
-      authorize: (token, permission, refresh) => this.authority(token, permission, refresh, true),
-      fetch: (request) => env.GITHUB_PUBLICATION_API?.fetch(request) ?? fetch(request),
-      fence: async () => {
-        if (
-          new RunnerStorage(storage).disconnection !== undefined ||
-          (await storage.get<Binding>("_janitor_workspace"))?.destroyed
-        )
-          throw new ProtocolError("stale_generation", "Late publication completion fenced")
-      },
-      git: async <A>(action: string, input: unknown): Promise<A> => {
-        const binding = await storage.get<Binding>("_janitor_workspace")
-        if (!binding?.epoch) throw new ProtocolError("blocked", "Workspace is unavailable")
-        const meta = (await this.raw(binding, "/meta")) as Meta
-        checkBridge(meta, selected.generation)
-        if (meta.epoch !== binding.epoch)
-          throw new ProtocolError("blocked", "Bridge changed during publication")
-        // Credentials never enter the ordinary process operation journal.
-        return (await this.raw(binding, `/git/${action}`, input)) as A
-      },
-      checkpoint: async () => {
-        const binding = await storage.get<Binding>("_janitor_workspace")
-        if (!binding?.epoch) throw new ProtocolError("blocked", "Workspace is unavailable")
-        await this.checkpoints.commit(await this.snapshot(binding), binding.resource)
-      },
+    this.github = GitHubRepository.make(
+      (request) => env.GITHUB_API?.fetch(request) ?? fetch(request),
+      () => this.fence(),
+    )
+    const git = WorkspacePublication.make({
+      storage,
+      files: this.files,
+      github: this.github,
+      authorize: (permission) => this.authority(true, permission, true),
+      fence: () => this.fence(),
     })
-    storage.sql.exec(`CREATE TABLE IF NOT EXISTS _janitor_operation (
-      id TEXT PRIMARY KEY, epoch TEXT NOT NULL, payload_hash TEXT NOT NULL,
-      payload TEXT NOT NULL, state TEXT NOT NULL, result TEXT)`)
+    this.publication = new Publication(storage, selected, {
+      authorize: (token, permission, refresh) => this.authority(token, permission, true, refresh),
+      fetch: (request) => env.GITHUB_API?.fetch(request) ?? fetch(request),
+      fence: () => this.fence(),
+      git: <A>(action: string, input: unknown) =>
+        Effect.runPromise(git.execute(action, input)) as Promise<A>,
+      checkpoint: () => storage.sync(),
+    })
   }
-  private async authority(
+  private authority(
     token: boolean,
     permission: CredentialPermission = "read",
-    refresh = false,
     publication = false,
+    refresh = false,
   ) {
     return Effect.runPromise(
-      this.credentials.authorize({ ...this.selected, token, permission, refresh, publication }),
+      this.credentials.authorize({ ...this.selected, token, permission, publication, refresh }),
     )
   }
-  protected sandbox(binding: Binding): WorkspaceSandbox {
-    if (!this.env.SANDBOXES)
-      throw new ProtocolError("blocked", "Sandbox namespace is not configured")
-    return getSandbox(this.env.SANDBOXES, binding.resource)
-  }
-  private async request(binding: Binding, path: string, input?: unknown, archive?: Archive) {
-    const current = await this.storage.get<Binding>("_janitor_workspace")
+  private async fence() {
+    if (new RunnerStorage(this.storage).disconnection)
+      throw new ProtocolError("stale_generation", "Workspace was disconnected")
+    const state = this.files.state()
     if (
-      current?.destroyed ||
-      (path.startsWith("/git/") && new RunnerStorage(this.storage).disconnection !== undefined)
+      state &&
+      (state.repositoryId !== this.selected.repositoryId ||
+        state.generation !== this.selected.generation)
     )
-      throw new ProtocolError("stale_generation", "Workspace was destroyed")
-    const response = await Effect.runPromise(this.bridge.request(binding, path, input, archive))
-    if (
-      (await this.storage.get<Binding>("_janitor_workspace"))?.destroyed ||
-      (path.startsWith("/git/") && new RunnerStorage(this.storage).disconnection !== undefined)
-    )
-      throw new ProtocolError("stale_generation", "Late workspace response fenced")
-    return response
-  }
-  private async raw(binding: Binding, path: string, input?: unknown) {
-    return (await this.request(binding, path, input)).json()
-  }
-  private async snapshot(
-    binding: Binding,
-    captures: ReadonlyArray<{ name: string; base64: string }> = [],
-  ): Promise<Archive> {
-    const response = await this.request(binding, "/checkpoint", { captures })
-    const sha256 = response.headers.get("x-archive-sha256")
-    const size = Number(response.headers.get("content-length"))
-    if (
-      !response.body ||
-      !sha256 ||
-      !/^[a-f0-9]{64}$/.test(sha256) ||
-      !Number.isSafeInteger(size) ||
-      size <= 0
-    )
-      throw new ProtocolError("blocked", "Invalid bridge archive headers")
-    return { body: response.body, sha256, size }
-  }
-  async connect(): Promise<Binding> {
-    if (this.connecting) return this.connecting
-    this.connecting = this.open().finally(() => {
-      this.connecting = undefined
-    })
-    return this.connecting
-  }
-  private async open(): Promise<Binding> {
-    await this.authority(false)
-    const association = await this.publication.workspace()
-    const checkout = association
-      ? {
-          branch: association.branch,
-          ...(association.headRepositoryId !== this.selected.repositoryId
-            ? { pullRequestNumber: association.number }
-            : {}),
-        }
-      : {}
-    let binding = await this.storage.get<Binding>("_janitor_workspace")
-    if (binding?.destroyed) throw new ProtocolError("stale_generation", "Workspace was destroyed")
-    if (!binding) {
-      binding = {
-        resource: await resourceName(this.selected),
-        token: crypto.randomUUID(),
-        selected: this.selected,
-      }
-      await this.storage.put("_janitor_workspace", binding)
-    }
-    if (JSON.stringify(binding.selected) !== JSON.stringify(this.selected))
       throw new ProtocolError("stale_generation", "Workspace selection changed")
-    await Effect.runPromise(this.bridge.start(binding))
-    const meta = (await this.raw(binding, "/meta")) as Meta
-    checkBridge(meta, this.selected.generation)
-    if (this.checkpoints.uncertain() && !this.activeTool)
-      this.hold("Tool operation requires reconciliation before native recovery")
-    if (binding.epoch && binding.epoch !== meta.epoch) {
-      if (this.checkpoints.uncertain())
-        this.hold("Bridge epoch changed during an admitted tool operation")
-      if (
-        this.storage.sql
-          .exec("SELECT id FROM _janitor_operation WHERE state = 'admitted' LIMIT 1")
-          .toArray().length
-      )
-        this.hold("Bridge epoch changed; workspace operations require reconciliation")
-      const archive = await this.checkpoints.restore()
-      if (!archive) this.hold("Bridge epoch changed without a committed workspace")
-      await this.request({ ...binding, epoch: meta.epoch }, "/restore", undefined, archive)
-    }
-    // Native tool execution can lazily connect its environment after tool admission.
-    if (this.activeTool && binding.epoch === meta.epoch) return binding
-    binding.epoch = meta.epoch
-    await this.storage.put("_janitor_workspace", binding)
-    if (
-      this.storage.sql
-        .exec(
-          "SELECT id FROM _janitor_operation WHERE state = 'admitted' AND id <> 'clone' LIMIT 1",
-        )
-        .toArray().length
-    )
-      this.hold("An admitted bridge operation requires reconciliation before native recovery")
-    const clone = (await this.raw(binding, "/repository")) as { ready: boolean }
-    if (!clone.ready) {
-      const repository = await this.authority(true)
-      if (!repository.token) throw new ProtocolError("blocked", "Repository credential missing")
-      // The token is never persisted in the runner's operation payload or Sandbox journal.
-      const payload = {
-        owner: repository.owner,
-        repo: repository.repo,
-        repositoryId: this.selected.repositoryId,
-        ...checkout,
-      }
-      const identity = await payloadHash(payload)
-      const prior = this.storage.sql
-        .exec<{ payload_hash: string; epoch: string }>(
-          "SELECT * FROM _janitor_operation WHERE id = 'clone'",
-        )
-        .toArray()[0]
-      if (prior && (prior.payload_hash !== identity || prior.epoch !== binding.epoch))
-        this.hold("Clone identity changed before its outcome was reconciled")
-      this.storage.sql.exec(
-        "INSERT OR IGNORE INTO _janitor_operation VALUES ('clone', ?, ?, ?, 'admitted', NULL)",
-        binding.epoch,
-        identity,
-        JSON.stringify(payload),
-      )
-      await this.storage.sync()
-      await Effect.runPromise(
-        Effect.tryPromise({
-          try: () =>
-            this.raw(binding, "/clone", {
-              owner: repository.owner,
-              repo: repository.repo,
-              token: repository.token,
-              ...checkout,
-            }),
-          catch: (cause) => cause,
-        }).pipe(
-          timed("repository.clone", {
-            sessionId: this.selected.sessionId,
-            generation: this.selected.generation,
-          }),
-        ),
-      )
-    }
-    this.storage.sql.exec(
-      "UPDATE _janitor_operation SET state = 'complete', result = ? WHERE id = 'clone'",
-      JSON.stringify({ ready: true }),
-    )
-    await this.storage.sync()
-    if (!this.checkpoints.current()) {
-      const archive = await this.snapshot(binding)
-      await this.checkpoints.commit(archive, binding.resource)
-    }
-    await this.raw(binding, "/thaw", {})
-    await this.checkpoints.prune()
-    return binding
   }
-  readonly rpc: BridgeRpc = async <A>(path: string, input?: unknown): Promise<A> => {
-    if (path === "/process") input = { ...(input as object), timeout: this.toolTimeout }
-    if (path === "/process" || path === "/resolve") await this.authority(false)
-    const binding = await this.storage.get<Binding>("_janitor_workspace")
-    if (!binding?.epoch || binding.destroyed)
-      throw new ProtocolError("blocked", "Workspace is not connected")
-    const meta = (await this.raw(binding, "/meta")) as Meta
-    checkBridge(meta, this.selected.generation)
-    if (meta.epoch !== binding.epoch) this.hold("Bridge epoch changed; replay refused")
-    let id: string | undefined
-    if (input !== undefined && path !== "/resolve") {
-      const identity = await payloadHash({ path, input })
-      const body = input as { id?: string; seq?: number }
-      id = path === "/process" ? `process:${body.id}` : `${path}:${body.seq ?? identity}`
-      if (
-        path === "/process" &&
-        this.storage.sql
-          .exec<{ id: string }>(
-            "SELECT id FROM _janitor_operation WHERE state = 'admitted' AND id <> ?",
-            id,
-          )
-          .toArray()
-          .some((row) => !this.inFlight.has(row.id))
-      )
-        this.hold("An earlier bridge operation requires reconciliation")
-      const previous = this.storage.sql
-        .exec<{ payload_hash: string; epoch: string; state: string; result: string | null }>(
-          "SELECT * FROM _janitor_operation WHERE id = ?",
-          id,
-        )
-        .toArray()[0]
-      if (previous && (previous.payload_hash !== identity || previous.epoch !== binding.epoch))
-        throw new ProtocolError("blocked", "Operation payload or epoch changed; replay refused")
-      if (previous?.state === "complete") return JSON.parse(previous.result!) as A
-      this.storage.sql.exec(
-        "INSERT OR IGNORE INTO _janitor_operation VALUES (?, ?, ?, ?, 'admitted', NULL)",
-        id,
-        binding.epoch,
-        identity,
-        JSON.stringify({ path, input }),
-      )
-      this.inFlight.add(id)
-      await this.storage.sync().catch((cause) => {
-        this.inFlight.delete(id!)
-        throw cause
-      })
-    }
-    try {
-      const result = await this.raw(binding, path, input).catch(async (cause) => {
-        if (cause instanceof ProtocolError && cause.code !== "transport") throw cause
-        const current = (await this.raw(binding, "/meta")) as Meta
-        checkBridge(current, this.selected.generation)
-        if (current.epoch !== binding.epoch) this.hold("Bridge epoch changed after a lost reply")
-        // Reuse the exact admitted identity. The same-epoch bridge retrieves its journal receipt.
-        return this.raw(binding, path, input)
-      })
-      if (id) {
-        this.storage.sql.exec(
-          "UPDATE _janitor_operation SET state = 'complete', result = ? WHERE id = ?",
-          JSON.stringify(result),
-          id,
-        )
-        await this.storage.sync()
-      }
-      return result as A
-    } finally {
-      if (id) this.inFlight.delete(id)
-    }
+  connect(): Promise<void> {
+    return (this.connecting ??= this.open().finally(() => {
+      this.connecting = undefined
+    }))
   }
-  async admitTool(id: string, input: unknown, timeout = DEFAULT_TOOL_TIMEOUT_MS) {
-    // Under a maintenance hold no fresh tool operation is admitted: like a model
-    // request, it waits for the drain to dispose the runtime, which interrupts
-    // it as a shutdown. Nothing is recorded, so nothing becomes uncertain.
-    if (new RunnerStorage(this.storage).maintenance.held) await new Promise<never>(() => {})
-    await this.publication.guard()
+  private async open() {
+    await this.fence()
     await this.authority(false)
-    const result = await this.checkpoints.admit(id, input)
-    this.toolTimeout = timeout
-    if (result === undefined) this.activeTool = id
-    return result
+    const state = this.files.state()
+    if (state) {
+      if (state.format !== WORKSPACE_FORMAT)
+        throw new ProtocolError("blocked", "Workspace format is not supported")
+      return
+    }
+    const credential = await this.authority(true)
+    const metadata = await Effect.runPromise(this.github.metadata(credential))
+    if (String(metadata.id) !== this.selected.repositoryId)
+      throw new ProtocolError("blocked", "GitHub repository identity changed")
+    const association = await this.publication.workspace()
+    const branch = association?.branch ?? metadata.default_branch
+    const legacy = await this.legacy.read(this.files, branch)
+    const commit =
+      legacy?.commit ??
+      association?.headCommit ??
+      (await Effect.runPromise(this.github.ref(credential, branch)))
+    const head = commit
+      ? await Effect.runPromise(this.github.commit(credential, commit))
+      : undefined
+    const entries = head ? await Effect.runPromise(this.github.tree(credential, head.tree.sha)) : []
+    await this.fence()
+    this.storage.transactionSync(() => {
+      this.files.initialize(
+        {
+          repositoryId: this.selected.repositoryId,
+          generation: this.selected.generation,
+          commit,
+          tree: head?.tree.sha ?? null,
+          branch,
+        },
+        entries,
+      )
+      if (legacy) {
+        const original = new Map(entries.map((entry) => [entry.path, entry]))
+        for (const [path, file] of legacy.entries) {
+          if (original.get(path)?.sha === file.sha && original.get(path)?.mode === file.mode)
+            continue
+          this.storage.sql.exec(
+            "INSERT INTO _janitor_workspace_file (path,base_sha,work_sha,mode,type,size,dirty,deleted) VALUES (?,?,?,?, 'blob',?,1,0) ON CONFLICT(path) DO UPDATE SET work_sha=excluded.work_sha,mode=excluded.mode,size=excluded.size,dirty=1,deleted=0",
+            path,
+            original.get(path)?.sha ?? null,
+            file.sha,
+            file.mode,
+            file.size,
+          )
+        }
+        for (const entry of entries)
+          if (entry.type === "blob" && !legacy.entries.has(entry.path))
+            this.storage.sql.exec(
+              "UPDATE _janitor_workspace_file SET dirty=1,deleted=1 WHERE path=?",
+              entry.path,
+            )
+      }
+    })
+    await this.storage.sync()
   }
-  async finishTool(
-    id: string,
-    result: string,
-    captures: ReadonlyArray<{ name: string; base64: string }>,
-  ) {
-    const binding = await this.storage.get<Binding>("_janitor_workspace")
-    if (!binding?.epoch || binding.destroyed) this.hold("Workspace unavailable before checkpoint")
+  private async bytes(path: string, base = false): Promise<Uint8Array> {
+    const file = this.files.file(path)
+    if (!file || (!base && file.deleted))
+      throw new ProtocolError("invalid_request", `Repository file ${path} was not found`)
+    if (file.type !== "blob" || file.mode === "120000")
+      throw new ProtocolError("blocked", "Symlink and submodule contents are not followed")
+    const sha = base ? file.base_sha : file.dirty ? file.work_sha : file.base_sha
+    if (!sha) return new Uint8Array()
+    const cached = this.files.blob(sha)
+    if (cached) return cached
+    const bytes = await Effect.runPromise(this.github.blob(await this.authority(true), sha))
+    await this.fence()
+    this.files.cache(sha, bytes)
+    return bytes
+  }
+  private async text(path: string, base = false) {
+    const bytes = await this.bytes(path, base)
+    if (bytes.includes(0))
+      throw new ProtocolError("blocked", "Binary file content is not a text tool input")
     try {
-      const archive = await this.snapshot(binding, captures)
-      await this.checkpoints.commit(archive, binding.resource, { id, result })
-      await this.raw(binding, "/thaw", {})
-    } catch (cause) {
-      this.hold(`Workspace checkpoint failed; operation requires reconciliation: ${String(cause)}`)
-    } finally {
-      this.activeTool = undefined
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+    } catch {
+      throw new ProtocolError("blocked", "File is not UTF-8 text")
     }
   }
-  releaseTool() {
-    this.activeTool = undefined
+  /** The returned text and any mutation are committed with the stable native tool identity. */
+  async tool(id: string, name: string, input: WorkspaceToolInput): Promise<{ content: string }> {
+    if (new RunnerStorage(this.storage).maintenance.held) await new Promise<never>(() => {})
+    this.active++
+    try {
+      await this.fence()
+      await this.authority(false)
+      const identity = await checksum(JSON.stringify({ name, input }))
+      const prior = this.files.receipt(id, identity)
+      if (prior !== undefined) return JSON.parse(prior)
+      await this.publication.guard()
+      let content: string
+      let mutation: { path: string; sha: string | null; bytes?: Uint8Array } | undefined
+      if (["read", "write", "edit", "delete"].includes(name)) {
+        const path = repositoryPath(input.path ?? "")
+        if (name === "read") {
+          const text = await this.text(path)
+          const offset = input.offset ?? 0,
+            limit = Math.min(input.limit ?? 16000, 64000)
+          if (
+            !Number.isSafeInteger(offset) ||
+            offset < 0 ||
+            !Number.isSafeInteger(limit) ||
+            limit < 1
+          )
+            throw new ProtocolError(
+              "invalid_request",
+              "Read offset must be nonnegative and limit must be positive",
+            )
+          content =
+            text.slice(offset, offset + limit) +
+            (offset + limit < text.length ? "\n[Truncated; use offset to read more.]" : "")
+        } else if (name === "delete") {
+          if (!this.files.file(path) || this.files.file(path)!.deleted)
+            throw new ProtocolError("invalid_request", "Cannot delete a missing file")
+          mutation = { path, sha: null }
+          content = `Deleted ${path}`
+        } else {
+          let text = input.content ?? ""
+          if (name === "edit") {
+            if (!input.oldText)
+              throw new ProtocolError("invalid_request", "An edit requires nonempty oldText")
+            const previous = await this.text(path)
+            const parts = previous.split(input.oldText)
+            if (parts.length === 1 || (!input.replaceAll && parts.length !== 2))
+              throw new ProtocolError(
+                "blocked",
+                "Edit text must match exactly once; read the current file before retrying",
+              )
+            text = parts.join(input.newText ?? "")
+          }
+          const bytes = new TextEncoder().encode(text)
+          mutation = { path, bytes, sha: await gitBlobSha(bytes) }
+          content = `${name === "edit" ? "Edited" : "Wrote"} ${path}`
+        }
+      } else if (name === "glob") {
+        const pattern = input.pattern ?? "*"
+        if (pattern.length > 512 || pattern.includes(".."))
+          throw new ProtocolError("invalid_request", "Invalid file pattern")
+        const prefix = repositoryPath(input.path ?? ".", true)
+        const matches = this.files.matching(prefix ? `${prefix}/${pattern}` : pattern, 501)
+        content =
+          matches
+            .slice(0, 500)
+            .map((file) => file.path)
+            .join("\n") + (matches.length > 500 ? "\n[Truncated; narrow the pattern.]" : "")
+      } else if (name === "grep") {
+        if (!input.pattern || input.pattern.length > 1000)
+          throw new ProtocolError("invalid_request", "Search requires a bounded literal pattern")
+        const path = repositoryPath(input.path ?? ".", true)
+        const candidates = this.files.file(path)
+          ? [this.files.file(path)!]
+          : this.files.matching(path ? `${path}/*` : "*", 501)
+        const matches: string[] = []
+        let searched = 0,
+          bytes = 0
+        for (const file of candidates) {
+          if (file.deleted || file.mode === "120000" || file.type !== "blob") continue
+          if (searched >= 500 || bytes + file.size > 8 * 1024 * 1024 || matches.length >= 100) break
+          const text = await this.text(file.path).catch((error) => {
+            if (
+              error instanceof ProtocolError &&
+              ["Binary file content is not a text tool input", "File is not UTF-8 text"].includes(
+                error.message,
+              )
+            )
+              return ""
+            throw error
+          })
+          searched++
+          bytes += text.length
+          for (const [index, line] of text.split("\n").entries())
+            if (line.includes(input.pattern)) {
+              matches.push(`${file.path}:${index + 1}: ${line.slice(0, 1000)}`)
+              if (matches.length >= 100) break
+            }
+        }
+        content =
+          matches.join("\n") +
+          `\nSearched ${searched} files; ${searched < candidates.length || matches.length >= 100 ? "results are bounded, narrow the path to continue" : "search complete"}.`
+      } else if (name === "diff") {
+        const changes: string[] = []
+        for (const file of this.files.files().filter((entry) => entry.dirty)) {
+          const before = file.base_sha ? await this.text(file.path, true) : ""
+          const after = file.deleted ? "" : await this.text(file.path)
+          if (before === after) continue
+          changes.push(
+            `--- a/${file.path}\n+++ b/${file.path}\n${before
+              .split("\n")
+              .map((line) => "-" + line)
+              .join("\n")}\n${after
+              .split("\n")
+              .map((line) => "+" + line)
+              .join("\n")}`,
+          )
+          if (changes.join("\n").length > 64000) break
+        }
+        const result = changes.join("\n")
+        content =
+          result.slice(0, 64000) + (result.length > 64000 ? "\n[Diff truncated.]" : "") ||
+          "No local changes."
+      } else
+        throw new ProtocolError(
+          "invalid_request",
+          "This workspace has no shell or executable repository tools",
+        )
+      await this.fence()
+      const result = { content }
+      this.files.commitTool(id, identity, JSON.stringify(result), mutation)
+      await this.storage.sync()
+      return result
+    } finally {
+      this.active--
+    }
   }
-  async thaw() {
-    const binding = await this.storage.get<Binding>("_janitor_workspace")
-    if (binding?.epoch && !binding.destroyed) await this.raw(binding, "/thaw", {})
+  async publish<A>(run: () => Promise<A>): Promise<A> {
+    if (new RunnerStorage(this.storage).maintenance.held) await new Promise<never>(() => {})
+    this.active++
+    try {
+      await this.fence()
+      return await run()
+    } finally {
+      this.active--
+    }
   }
   async destroy() {
-    let binding = await this.storage.get<Binding>("_janitor_workspace")
-    if (!binding)
-      binding = {
-        resource: await resourceName(this.selected),
-        token: "",
-        selected: this.selected,
-      }
-    await this.storage.put("_janitor_workspace", { ...binding, destroyed: true })
-    await Effect.runPromise(this.bridge.destroy(binding))
-    await this.checkpoints.prune(true)
+    await this.legacy.destroy()
+    this.files.clear()
+    await this.storage.sync()
   }
   driver() {
-    const attempt = <A>(run: () => Promise<A>) =>
-      Effect.tryPromise({
-        try: run,
-        catch: (cause) => new WorkspaceDriver.Error({ message: String(cause) }),
-      })
+    const attempt = <A>(path: string, operation: () => Promise<A>) =>
+      Effect.tryPromise({ try: operation, catch: (cause) => new Failed({ path, cause }) })
+    const files: FilesImpl = {
+      read: (path, range) =>
+        attempt(path, async () => {
+          const bytes = await this.bytes(repositoryPath(path))
+          return {
+            info: { type: "file", size: bytes.length, mtimeMs: 0 },
+            bytes: range ? bytes.slice(range.offset, range.offset + range.length) : bytes,
+          }
+        }),
+      stat: (path) =>
+        Effect.suspend((): ReturnType<FilesImpl["stat"]> => {
+          const relative = repositoryPath(path, true),
+            file = this.files.file(relative)
+          if (file && !file.deleted)
+            return Effect.succeed({
+              type: file.mode === "120000" ? ("symlink" as const) : ("file" as const),
+              size: file.size,
+              mtimeMs: 0,
+            })
+          if (
+            !relative ||
+            this.files.files().some((file) => !file.deleted && file.path.startsWith(relative + "/"))
+          )
+            return Effect.succeed({ type: "directory" as const, size: 0, mtimeMs: 0 })
+          return Effect.fail(new NotFound({ path }))
+        }),
+      list: (path) =>
+        Effect.sync(() => {
+          const relative = repositoryPath(path, true),
+            prefix = relative ? relative + "/" : "",
+            entries = new Map<string, DirEntry>()
+          for (const file of this.files.files())
+            if (!file.deleted && file.path.startsWith(prefix)) {
+              const rest = file.path.slice(prefix.length),
+                name = rest.split("/")[0]!
+              entries.set(name, {
+                name,
+                type: rest.includes("/")
+                  ? "directory"
+                  : file.mode === "120000"
+                    ? "symlink"
+                    : "file",
+              })
+            }
+          return [...entries.values()]
+        }),
+      write: (path) =>
+        Effect.fail(new Failed({ path, cause: "Use an admitted workspace tool to change files" })),
+      remove: (path) => Effect.fail(new Failed({ path, cause: "Use the delete tool" })),
+      move: (path) =>
+        Effect.fail(new Failed({ path, cause: "Use admitted read/write/delete tools" })),
+      mkdir: (path) =>
+        Effect.sync(() => {
+          repositoryPath(path, true)
+        }),
+    }
     return WorkspaceDriver.make({
-      create: () =>
-        attempt(async () => {
-          const binding = await this.connect()
-          return { binding: { resource: binding.resource } }
-        }),
-      connect: () =>
-        attempt(async () => {
-          await this.connect()
-          return { spawner: makeRemoteSpawner(this.rpc) }
-        }),
+      create: () => Effect.succeed({ binding: { repositoryId: this.selected.repositoryId } }),
+      connect: () => Effect.succeed({ ...makeMemoryDriver(), overrides: files }),
       suspendForIdle: () => Effect.void,
-      destroy: () => attempt(() => this.destroy()),
+      destroy: () => Effect.promise(() => this.destroy()),
     })
   }
 }

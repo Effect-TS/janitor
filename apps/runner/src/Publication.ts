@@ -1,5 +1,5 @@
 import { ProtocolError } from "./Protocol.ts"
-import { checksum } from "./WorkspaceCheckpoints.ts"
+import { checksum } from "./Hash.ts"
 import type { RepositorySelection } from "./RepositoryWorkspace.ts"
 
 export type CredentialPermission = "read" | "push" | "pull_request"
@@ -148,6 +148,26 @@ export class Publication {
   private async save(plan: Plan) {
     await this.deps.fence()
     await this.storage.put(key, plan)
+    if (
+      plan.phase === "complete" &&
+      !plan.existing &&
+      plan.number &&
+      plan.url &&
+      plan.commit &&
+      plan.baseCommit
+    ) {
+      await this.storage.put(associationKey, {
+        number: plan.number,
+        url: plan.url,
+        owner: plan.owner,
+        repo: plan.repo,
+        branch: plan.branch,
+        base: plan.base,
+        headRepositoryId: plan.repositoryId,
+        headCommit: plan.commit,
+        baseCommit: plan.baseCommit,
+      } satisfies Association)
+    }
     await this.storage.sync()
   }
   private async guardNotices() {
@@ -446,6 +466,7 @@ export class Publication {
         branch: plan.branch,
         base: plan.base,
         prepareId: plan.prepareId,
+        title: plan.title,
         existing: plan.existing,
       })
       if (prepared.status === "conflict" || prepared.status === "blocked") {
@@ -492,7 +513,7 @@ export class Publication {
         )
       }
       if (response?.status === "unconfirmed" && !(await this.inspectPush(plan)).contains) {
-        // The bridge has confirmed that this invocation exited. Reuse the same
+        // GitHub rejected this ref update without accepting it. Reuse the same
         // commit and branch after checking refs, with refreshed credentials.
         await this.save({ ...plan, phase: "prepared" })
         blocked(

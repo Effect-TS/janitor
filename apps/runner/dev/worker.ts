@@ -1,15 +1,11 @@
 import { Effect } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
-import { getSandbox } from "@cloudflare/sandbox"
+import { makeRepositoryFixture } from "./RepositoryFixture.ts"
 import { SessionRunner as NativeRunner, type RunnerEnv } from "../src/SessionRunner.ts"
 import { SessionController } from "../src/SessionController.ts"
-import {
-  RepositoryWorkspace,
-  type Binding,
-  type RepositorySelection,
-} from "../src/RepositoryWorkspace.ts"
+import { RepositoryWorkspace, type RepositorySelection } from "../src/RepositoryWorkspace.ts"
 import { handle, type WorkerEnv } from "../src/worker.ts"
-export { Sandbox } from "@cloudflare/sandbox"
+const fixture = makeRepositoryFixture()
 
 class LocalSession extends SessionController {
   protected override options() {
@@ -18,31 +14,18 @@ class LocalSession extends SessionController {
   protected override makeRepository(selected: RepositorySelection) {
     if (selected.repositoryId !== "123")
       throw new Error("Local development only supports repositoryId 123")
-    return new (class extends RepositoryWorkspace {
-      protected override sandbox(binding: Binding) {
-        const sandbox = super.sandbox(binding)
-        return {
-          getProcess: (id: string) => sandbox.getProcess?.(id) ?? Promise.resolve(null),
-          startProcess: (
-            _command: string,
-            options: { processId: string; env: Record<string, string> },
-          ) => sandbox.startProcess("node /opt/janitor/dev-bridge.mjs", options),
-          containerFetch: (url: string, init: RequestInit, port: number) =>
-            sandbox.containerFetch(url, init, port),
-          destroy: () => sandbox.destroy(),
-        }
-      }
-    })(
+    return new RepositoryWorkspace(
       this.ctx.storage,
       {
         ...this.env,
+        GITHUB_API: { fetch: async (request: Request) => (await fixture).fetch(request) },
         REPOSITORY_SERVICE_TOKEN: "local-fixture",
         REPOSITORY_AUTHORITY: {
           fetch: async (request) => {
             const body = (await request.json()) as { permission: string }
             return body.permission !== "read"
               ? Response.json({ message: "Local publication is disabled" }, { status: 403 })
-              : Response.json({ owner: "local", repo: "fixture", token: "local-fixture" })
+              : Response.json({ owner: "fixture", repo: "fixture", token: "local-fixture" })
           },
         },
       },
@@ -109,11 +92,7 @@ class LocalSession extends SessionController {
   }
   override async fetch(request: Request) {
     if (new URL(request.url).pathname.endsWith("/local-restart") && request.method === "POST") {
-      const binding = await this.ctx.storage.get<Binding>("_janitor_workspace")
-      if (!binding || !this.env.SANDBOXES)
-        return new Response("No local workspace", { status: 404 })
       await this.disposeHost()
-      await getSandbox(this.env.SANDBOXES, binding.resource).destroy()
       return Response.json({ restarted: true })
     }
     return super.fetch(request)

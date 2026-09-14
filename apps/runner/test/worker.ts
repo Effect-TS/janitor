@@ -3,7 +3,6 @@
 // none of this; the acceptance driver and the runner tests build this file.
 import { Effect } from "effect"
 import { Session } from "@opencode/schema/session"
-import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { ProtocolError } from "../src/Protocol.ts"
 import { errorResponse, jsonResponse, sessionIdOf, type Command } from "../src/Router.ts"
@@ -13,9 +12,7 @@ import { authenticate, handle as productionHandle, type WorkerEnv } from "../src
 import {
   RepositoryWorkspace,
   type RepositorySelection,
-  type Binding,
-  type WorkspaceSandbox,
-  type RepositoryAuthority,
+  type WorkspaceToolInput,
 } from "../src/RepositoryWorkspace.ts"
 
 export interface ModelScript {
@@ -52,8 +49,7 @@ export interface ModelScript {
 }
 
 export interface TestFaults {
-  readonly abortAfterArchiveUpload?: boolean
-  readonly abortAfterCheckpointCommit?: boolean
+  readonly abortAfterWorkspaceCommit?: boolean
   readonly intervalMs?: number
   readonly modelInactivityMs?: number
   readonly lostReplyOnce?: boolean
@@ -99,86 +95,18 @@ const toolCall = (name: string, args: unknown) =>
 
 class TestSessionController extends SessionController {
   protected override makeRepository(selected: RepositorySelection) {
-    const transport = this.env.REPOSITORY_TEST_TRANSPORT as RepositoryAuthority | undefined
-    if (!transport) return super.makeRepository(selected)
     const runner = this
-    const bucket = this.env.WORKSPACE_CHECKPOINTS!
-    const environment = {
-      ...this.env,
-      WORKSPACE_CHECKPOINTS: new Proxy(bucket, {
-        get(target, property) {
-          if (property === "put")
-            return async (...args: Parameters<R2Bucket["put"]>) => {
-              const result = await target.put(...args)
-              if (runner.faults.abortAfterArchiveUpload) {
-                runner.setFaults({ abortAfterArchiveUpload: false })
-                await runner.ctx.storage.sync()
-                runner.ctx.abort("test: archive uploaded before pointer commit")
-              }
-              return result
-            }
-          const value = Reflect.get(target, property)
-          return typeof value === "function" ? value.bind(target) : value
-        },
-      }),
-    }
     return new (class extends RepositoryWorkspace {
-      override async finishTool(
-        id: string,
-        result: string,
-        captures: ReadonlyArray<{ name: string; base64: string }>,
-      ) {
-        await super.finishTool(id, result, captures)
-        if (runner.faults.abortAfterCheckpointCommit) {
-          runner.setFaults({ abortAfterCheckpointCommit: false })
+      override async tool(id: string, name: string, input: WorkspaceToolInput) {
+        const result = await super.tool(id, name, input)
+        if (runner.faults.abortAfterWorkspaceCommit) {
+          runner.setFaults({ abortAfterWorkspaceCommit: false })
           await runner.ctx.storage.sync()
-          runner.ctx.abort("test: pointer committed before native tool result")
+          runner.ctx.abort("test: SQLite edit committed before native result")
         }
+        return result
       }
-      protected override sandbox(binding: Binding): WorkspaceSandbox {
-        const stub: WorkspaceSandbox = {
-          // The transport says whether the container for this resource is running.
-          getProcess: async () => {
-            const response = await transport!
-              .fetch(
-                new Request("http://sandbox/running", { method: "POST", body: binding.resource }),
-              )
-              .catch(() => undefined)
-            if (!response?.ok) return null
-            const body = (await response.json()) as { running?: boolean }
-            return body.running ? { waitForPort: async () => {} } : null
-          },
-          startProcess: async (_command, options) => {
-            const response = await transport!.fetch(
-              new Request("http://sandbox/start", {
-                method: "POST",
-                body: JSON.stringify({ resource: binding.resource, env: options.env }),
-              }),
-            )
-            if (!response.ok) throw new Error("test Sandbox startup failed")
-            return { waitForPort: async () => {} }
-          },
-          containerFetch: async (url, init) =>
-            transport!.fetch(
-              new Request(url, {
-                ...init,
-                headers: { ...init.headers, "x-test-resource": binding.resource },
-              }),
-            ),
-          destroy: async () =>
-            transport!.fetch(
-              new Request("http://sandbox/destroy", { method: "POST", body: binding.resource }),
-            ),
-        }
-        // Exercise the pinned SDK's ID validation and method wrappers before
-        // crossing the test-only container transport boundary.
-        const namespace = {
-          idFromName: (name: string) => ({ toString: () => name }),
-          get: () => stub,
-        } as unknown as DurableObjectNamespace<Sandbox>
-        return getSandbox(namespace, binding.resource)
-      }
-    })(this.ctx.storage, environment, selected)
+    })(this.ctx.storage, this.env, selected)
   }
   private meta<T>(key: string, fallback: T): T {
     const row = this.ctx.storage.sql
@@ -571,6 +499,36 @@ class TestSessionController extends SessionController {
       }
       if (rest === "/compatibility" && request.method === "POST") {
         this.put("compatibility", await request.json())
+        return jsonResponse({ ok: true })
+      }
+      if (rest === "/legacy-workspace" && request.method === "POST") {
+        await this.disposeHost()
+        const body = (await request.json()) as {
+          archive: string
+          sha256: string
+          uncertain?: boolean
+        }
+        const key = "legacy-fixture"
+        await this.env.WORKSPACE_CHECKPOINTS!.put(key, body.archive)
+        this.ctx.storage.sql.exec(
+          "DELETE FROM _janitor_workspace_file; DELETE FROM _janitor_sql_workspace",
+        )
+        this.ctx.storage.sql.exec(
+          "CREATE TABLE IF NOT EXISTS _janitor_checkpoint (id INTEGER PRIMARY KEY, key TEXT NOT NULL, sha256 TEXT NOT NULL, manifest TEXT)",
+        )
+        this.ctx.storage.sql.exec(
+          "INSERT OR REPLACE INTO _janitor_checkpoint VALUES (1, ?, ?, NULL)",
+          key,
+          body.sha256,
+        )
+        if (body.uncertain) {
+          this.ctx.storage.sql.exec(
+            "CREATE TABLE IF NOT EXISTS _janitor_tool_operation (id TEXT PRIMARY KEY, state TEXT)",
+          )
+          this.ctx.storage.sql.exec(
+            "INSERT INTO _janitor_tool_operation VALUES ('legacy-unknown','admitted')",
+          )
+        }
         return jsonResponse({ ok: true })
       }
       if (rest === "/checkpoint-manifest" && request.method === "POST") {

@@ -131,7 +131,7 @@ describe("compatibility guards", () => {
     )
     const state = await session.state()
     expect(state.compatibility).toMatchObject({
-      formatVersion: 2,
+      formatVersion: RELEASE_MANIFEST.janitorState.format,
       family: RELEASE_MANIFEST.family,
       release: "test",
       inProgress: null,
@@ -179,9 +179,8 @@ describe("maintenance hold", () => {
     expect(released.held).toBe(false)
     expect(released.checks.map((check: any) => [check.name, check.ok])).toEqual([
       ["state", true],
-      ["checkpoint", true],
+      ["workspace", true],
       ["model", true],
-      ["bridge", true],
     ])
     const done = await waitFor(
       () => session.inspect(),

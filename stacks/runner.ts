@@ -1,6 +1,4 @@
 import { runnerWorkerName } from "@janitor/cluster/Agent/RunnerBinding"
-import { RunnerImage } from "../deployment/RunnerImage.ts"
-import { hashDirectory } from "alchemy/Command/Memo"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Command from "alchemy/Command"
 import * as Effect from "effect/Effect"
@@ -44,41 +42,10 @@ export const AgentRunner = Effect.gen(function* () {
               .pipe(Effect.orDie),
           ),
         )
-  const manifest = JSON.parse(
-    yield* fs.readFileString("apps/runner/release-manifest.json").pipe(Effect.orDie),
-  ) as {
-    bridge: { sourceHash: string }
-  }
-  const image = local
-    ? undefined
-    : yield* RunnerImage("AgentSandboxImage", {
-        context: "apps/runner/bridge",
-        sourceHash: manifest.bridge.sourceHash,
-        contentHash: yield* hashDirectory({
-          cwd: "apps/runner/bridge",
-          memo: { include: ["Dockerfile", "*.mjs", "build.json"] },
-        }).pipe(Effect.orDie),
-        accountId: yield* Config.String("CLOUDFLARE_ACCOUNT_ID"),
-      }).pipe(retain())
   const build = yield* Command.Build("AgentRunnerBuild", {
     cwd: "apps/runner",
-    command: local ? "vp run --no-cache build:dev" : "vp run --no-cache build:deploy",
+    command: local ? "vp run --no-cache build:dev" : "vp run --no-cache build",
     outdir: local ? "dist-dev" : "dist",
-    env:
-      image === undefined
-        ? {}
-        : {
-            JANITOR_RUNNER_IMAGE: Output.all(
-              image.imageRef,
-              image.imageId,
-              image.sourceHash,
-              image.tools,
-            ).pipe(
-              Output.map(([imageRef, imageId, sourceHash, tools]) =>
-                JSON.stringify({ imageRef, imageId, sourceHash, tools }),
-              ),
-            ),
-          },
     memo: {
       include: [
         "src/**",
@@ -88,7 +55,6 @@ export const AgentRunner = Effect.gen(function* () {
         "../../pnpm-workspace.yaml",
         "../../patches/**",
         "release-manifest.json",
-        "bridge/**",
         "dev/**",
       ],
     },
@@ -107,18 +73,6 @@ export const AgentRunner = Effect.gen(function* () {
     observability: { enabled: true },
     env: {
       SESSIONS: Cloudflare.DurableObject("AgentSessions", { className: "SessionRunner" }),
-      SANDBOXES: Cloudflare.Container("AgentSandboxes", {
-        className: "Sandbox",
-        ...(image
-          ? { image: image.imageRef }
-          : {
-              context: "apps/runner/bridge",
-              env: { ALCHEMY_LOCAL_ALLOW_USER_NAMESPACES: "true" },
-              dockerfile: new URL("../apps/runner/bridge/dev/Dockerfile", import.meta.url).pathname,
-            }),
-        instanceType: "standard-1",
-        maxInstances: 10,
-      }),
       WORKSPACE_CHECKPOINTS: checkpoints,
       REPOSITORY_AUTHORITY: cluster,
       JANITOR_AGENT_RUNNER_TOKEN: connection.token,

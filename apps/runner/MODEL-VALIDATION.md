@@ -44,7 +44,7 @@ Controlled tests must use the runner command boundary and native model HTTP boun
 
 Credential redaction covers both HTTP error bodies and decoded native stream events. It holds potential credential prefixes between text, reasoning and tool-argument deltas, and sanitizes final parsed tool inputs before execution. A native write/read test verifies that a fragmented provider echo cannot write the credential into a repository file. The pinned runner uses streaming for turns and local compaction; any future use of the separate native `generate` method must apply the same redaction.
 
-`ModelProvider.live.test.ts` first runs the complete bounded driver with controlled responses through the production FetchHttpClient, native route/resolver, Workerd session, disposable repository, real bridge and R2 checkpoints. It checks usage normalization against independent HTTP usage fields, successful tool results and continuation after native manual compaction. Its second test uses the real provider only when explicitly enabled.
+`ModelProvider.live.test.ts` first runs the complete bounded driver with controlled responses through the production FetchHttpClient, native route/resolver, Workerd session, SQLite repository workspace and controlled GitHub HTTP transport. It checks usage normalization against independent HTTP usage fields, successful tool results and continuation after native manual compaction. Its second test uses the real provider only when explicitly enabled.
 
 From `apps/runner/`, run:
 

@@ -6,8 +6,6 @@
 // the native suspended-session recovery sweep immediately, so callers must run
 // every pre-host guard before calling `createHost`.
 import { Effect, Layer, ManagedRuntime, Stream, Semaphore, Schema, type Scope } from "effect"
-import { readFile } from "node:fs/promises"
-import { Shell } from "@opencode/core/shell"
 import { HttpClient } from "effect/unstable/http"
 import { OpenCode, Tool } from "@opencode/sdk/effect"
 import { LLMClient, RequestExecutor } from "@opencode/ai/route"
@@ -19,13 +17,7 @@ import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { makeMemoryDriver } from "@opencode/core/environment/index"
 import { resolverLayer, type ModelConfigurations, type SecretReader } from "./ModelConfiguration.ts"
 import { redactModelEvents } from "./ModelCredentials.ts"
-import {
-  DEFAULT_TOOL_TIMEOUT_MS,
-  REPOSITORY_TOOLS,
-  type RepositoryWorkspace,
-} from "./RepositoryWorkspace.ts"
-import { Tool as NativeTool } from "@opencode/core/tool"
-import { RipgrepBinary } from "@opencode/core/ripgrep/binary"
+import { type RepositoryWorkspace, type WorkspaceToolInput } from "./RepositoryWorkspace.ts"
 
 export { SUPPORTED_NATIVE_MIGRATIONS } from "./ReleaseManifest.ts"
 
@@ -56,64 +48,6 @@ export interface Host {
 }
 
 export const createHost = (deps: HostDependencies): Promise<Host> => {
-  let toolActive = false
-  let captures: Array<{ name: string; base64: string }> = []
-  const checkpointError = (cause: unknown) => new Tool.Error({ message: String(cause) })
-  const durableShell = Shell.node.mapLayer((layer) =>
-    Layer.effect(
-      Shell.Service,
-      Effect.gen(function* () {
-        const native = yield* Shell.Service
-        return {
-          ...native,
-          create: (input, before) => {
-            if (
-              !toolActive ||
-              !Number.isFinite(input.timeout ?? DEFAULT_TOOL_TIMEOUT_MS) ||
-              (input.timeout ?? DEFAULT_TOOL_TIMEOUT_MS) <= 0
-            )
-              return Effect.die(new Error("Only admitted foreground tool commands are supported"))
-            return native.create(input, (invocation) => {
-              // Workerd can populate process.env from secret bindings. Shell commands
-              // receive only the container's public execution environment.
-              invocation.env = {
-                PATH: "/usr/local/bin:/usr/bin:/bin",
-                HOME: "/workspace",
-                LANG: "C.UTF-8",
-                TERM: "xterm-256color",
-                OPENCODE_TERMINAL: "1",
-              }
-              return before ? before(invocation) : Effect.void
-            })
-          },
-          timeout: (id, duration) =>
-            duration > 0 && Number.isFinite(duration)
-              ? native.timeout(id, duration)
-              : Effect.die(new Error("Background shell execution is unavailable")),
-          result: (started) =>
-            native.result(started).pipe(
-              Effect.flatMap((result) =>
-                Effect.promise(async () => {
-                  const bytes = await readFile(result.info.file)
-                  const name = `${crypto.randomUUID()}.out`
-                  captures.push({ name, base64: bytes.toString("base64") })
-                  return {
-                    ...result,
-                    capture: result.capture && {
-                      ...result.capture,
-                      output: result.capture.output.replaceAll(
-                        result.info.file,
-                        `/workspace/.janitor-captures/${name}`,
-                      ),
-                    },
-                  }
-                }),
-              ),
-            ),
-        }
-      }),
-    ).pipe(Layer.provide(layer)),
-  )
   let captured: SessionExecution.Interface | undefined
   const execution = SessionExecution.node.mapLayer((layer) =>
     Layer.effect(
@@ -146,87 +80,6 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
       } satisfies typeof native
     }),
   ).pipe(Layer.provide(LLMClient.layer.pipe(Layer.provide(executor))))
-  const inspectionTools = NativeTool.node.mapLayer((layer) =>
-    Layer.effect(
-      NativeTool.Service,
-      Effect.gen(function* () {
-        const native = yield* NativeTool.Service
-        const gate = yield* Semaphore.make(1)
-        return {
-          ...native,
-          snapshot: (rules) =>
-            native
-              .snapshot([...(rules ?? []), { action: "execute", resource: "*", effect: "deny" }])
-              .pipe(
-                Effect.map((snapshot) => ({
-                  ...snapshot,
-                  execute: (input) =>
-                    Effect.gen(function* () {
-                      if (!deps.repository) return yield* snapshot.execute(input)
-                      // Publication has its own durable intent/result journal. Replaying
-                      // a lost native result reconciles that record before any new write.
-                      if (input.call.name === "publish")
-                        return yield* snapshot
-                          .execute(input)
-                          .pipe(Effect.ensuring(Effect.promise(() => deps.repository!.thaw())))
-                      const args = input.call.input as { timeout?: unknown; background?: unknown }
-                      const timeout = args?.timeout ?? DEFAULT_TOOL_TIMEOUT_MS
-                      if (
-                        args?.background === true ||
-                        typeof timeout !== "number" ||
-                        !Number.isFinite(timeout) ||
-                        timeout <= 0
-                      )
-                        return yield* Effect.fail(
-                          checkpointError(
-                            "Commands require a positive finite timeout and foreground execution",
-                          ),
-                        )
-                      const id = `${input.messageID}:${input.call.id}`
-                      const prior = yield* Effect.tryPromise({
-                        try: () => deps.repository!.admitTool(id, input.call, timeout),
-                        catch: checkpointError,
-                      })
-                      if (prior) {
-                        const saved = JSON.parse(prior)
-                        if (saved.error) return yield* Effect.fail(checkpointError(saved.error))
-                        return saved.value as NativeTool.NormalizedResult
-                      }
-                      toolActive = true
-                      captures = []
-                      const result = yield* snapshot.execute(input).pipe(
-                        Effect.map((value) => ({ value, error: undefined as string | undefined })),
-                        Effect.catch((error) =>
-                          Effect.succeed({ value: undefined, error: error.message }),
-                        ),
-                        Effect.ensuring(
-                          Effect.sync(() => {
-                            toolActive = false
-                          }),
-                        ),
-                      )
-                      yield* Effect.tryPromise({
-                        try: () =>
-                          deps.repository!.finishTool(id, JSON.stringify(result), captures),
-                        catch: checkpointError,
-                      })
-                      if (result.error !== undefined)
-                        return yield* Effect.fail(checkpointError(result.error))
-                      return result.value!
-                    }).pipe(
-                      Effect.ensuring(
-                        Effect.sync(() => {
-                          deps.repository?.releaseTool()
-                        }),
-                      ),
-                      gate.withPermits(1),
-                    ),
-                })),
-              ),
-        }
-      }),
-    ).pipe(Layer.provide(layer)),
-  )
   const driver =
     deps.repository?.driver() ??
     WorkspaceDriver.make({
@@ -252,11 +105,6 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
           {
             overrides: [
               ...ServerWorkerd.replacements(options),
-              NativeTool.node.replace(inspectionTools),
-              Shell.node.replace(durableShell),
-              RipgrepBinary.node.replace(
-                Layer.succeed(RipgrepBinary.Service, { filepath: Effect.succeed("/usr/bin/rg") }),
-              ),
               SessionExecution.node.replace(execution),
               llmClient.replace(client),
               SessionRunnerModel.node.replace(
@@ -265,88 +113,111 @@ export const createHost = (deps: HostDependencies): Promise<Host> => {
             ],
           },
         )
-        // Ordinary conversational questions: the structured form tool is not advertised.
         yield* sdk.plugin({
-          id: "janitor-repository-inspection",
+          id: "janitor-sqlite-workspace",
           effect: (context) =>
             Effect.gen(function* () {
+              const gate = yield* Semaphore.make(1)
               yield* context.tool.transform((editor) => {
-                if (deps.repository)
+                for (const tool of editor.list()) editor.remove(tool.id)
+                if (!deps.repository) return
+                const tool = (name: string, description: string, input: Schema.Codec<unknown>) =>
                   editor.add({
-                    name: "publish",
-                    options: { permission: "publish", codemode: false },
-                    description:
-                      "Publish committed, tested repository work to this session's existing PR branch, or create a PR on its designated branch for new work. Commit changes with shell first. Include a substantive summary and validation in body. Humans decide whether to merge. Retry this tool to reconcile lost responses; never use shell to push or create competing PRs.",
-                    input: Schema.Struct({
-                      title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
-                      body: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10000)),
-                      base: Schema.optionalKey(Schema.String),
-                    }),
-                    execute: (input, context) =>
+                    name,
+                    description,
+                    input,
+                    options: { permission: name, codemode: false },
+                    execute: (input, execution) =>
                       Effect.tryPromise({
                         try: () =>
-                          deps.repository!.publish(() =>
-                            deps.repository!.publication.publish(
-                              input,
-                              `${context.messageID}:${context.id}`,
-                            ),
+                          deps.repository!.tool(
+                            execution.messageID + ":" + execution.id,
+                            name,
+                            input as WorkspaceToolInput,
                           ),
-                        catch: checkpointError,
-                      }),
+                        catch: (cause) =>
+                          new Tool.Error({
+                            message:
+                              cause instanceof Error ? cause.message : "Repository tool failed",
+                          }),
+                      }).pipe(gate.withPermits(1)),
                   })
-                for (const tool of editor.list())
-                  if (!deps.repository || !REPOSITORY_TOOLS.includes(tool.id))
-                    editor.remove(tool.id)
-              })
-              yield* context.tool.hook("execute.before", (event) => {
-                const input = event.input as { path?: string } | undefined
-                if (!deps.repository)
-                  return Effect.fail(
-                    new Tool.Error({ message: "Select a ready repository before using tools" }),
-                  )
-                if (["edit", "write", "shell", "publish"].includes(event.tool)) return Effect.void
-                return Effect.tryPromise({
-                  try: () =>
-                    deps.repository!.rpc("/resolve", {
-                      path: input?.path?.startsWith("/")
-                        ? input.path
-                        : `/workspace/repository/${input?.path ?? "."}`,
-                    }),
-                  catch: () =>
-                    new Tool.Error({
-                      message: "Repository path is unavailable or outside the workspace",
-                    }),
-                }).pipe(Effect.asVoid)
-              })
-            }),
-        })
-        yield* sdk.plugin({
-          id: "janitor-plain-questions",
-          effect: (context) => context.tool.transform((editor) => editor.remove("question")),
-        })
-        // Foreground-only commands with finite timeouts, rejected before the shell boundary.
-        yield* sdk.plugin({
-          id: "janitor-foreground-shell",
-          effect: (context) =>
-            context.tool.hook("execute.before", (event) => {
-              if (event.tool !== "shell") return Effect.void
-              const input = event.input as
-                | { readonly timeout?: unknown; readonly background?: unknown }
-                | undefined
-              const timeout = input?.timeout
-              const unlimited =
-                timeout !== undefined &&
-                (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0)
-              if (input?.background === true || unlimited) {
-                deps.journal("shell-rejected", { input })
-                return Effect.fail(
-                  new Tool.Error({
-                    message:
-                      "Janitor runs commands in the foreground with a finite timeout. Retry without `background` and with a positive `timeout` in milliseconds.",
+                tool(
+                  "read",
+                  "Read UTF-8 repository content. offset/limit are character offsets. Files persist in SQLite across restarts.",
+                  Schema.Struct({
+                    path: Schema.String,
+                    offset: Schema.optionalKey(Schema.Int),
+                    limit: Schema.optionalKey(Schema.Int),
                   }),
                 )
-              }
-              return Effect.void
+                tool(
+                  "write",
+                  "Create or replace a UTF-8 repository file. This stores an edit; it does not execute the file.",
+                  Schema.Struct({ path: Schema.String, content: Schema.String }),
+                )
+                tool(
+                  "edit",
+                  "Replace exact text in a repository file. oldText must occur once unless replaceAll is true.",
+                  Schema.Struct({
+                    path: Schema.String,
+                    oldText: Schema.String,
+                    newText: Schema.String,
+                    replaceAll: Schema.optionalKey(Schema.Boolean),
+                  }),
+                )
+                tool(
+                  "delete",
+                  "Delete a repository file from the proposed changes.",
+                  Schema.Struct({ path: Schema.String }),
+                )
+                tool(
+                  "glob",
+                  "List repository paths using SQLite glob syntax (*, ?, character classes). * can span directories. Results are bounded.",
+                  Schema.Struct({
+                    pattern: Schema.String,
+                    path: Schema.optionalKey(Schema.String),
+                  }),
+                )
+                tool(
+                  "grep",
+                  "Search for literal text in repository files. This is not a regular expression or shell command; narrow path for large repositories.",
+                  Schema.Struct({
+                    pattern: Schema.String,
+                    path: Schema.optionalKey(Schema.String),
+                  }),
+                )
+                tool(
+                  "diff",
+                  "Show proposed file edits relative to the repository snapshot. This does not run tests.",
+                  Schema.Struct({}),
+                )
+                editor.add({
+                  name: "publish",
+                  options: { permission: "publish", codemode: false },
+                  description:
+                    "Publish workspace edits through GitHub to the session's existing PR or designated branch. Describe changes and actual validation. No shell, dependencies, builds or project tests run in this workspace; GitHub CI supplies executable checks. Never claim tests passed unless their results were observed. Retry this tool to reconcile uncertain responses. Humans decide whether to merge.",
+                  input: Schema.Struct({
+                    title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+                    body: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(10000)),
+                    base: Schema.optionalKey(Schema.String),
+                  }),
+                  execute: (input, execution) =>
+                    Effect.tryPromise({
+                      try: () =>
+                        deps.repository!.publish(() =>
+                          deps.repository!.publication.publish(
+                            input,
+                            execution.messageID + ":" + execution.id,
+                          ),
+                        ),
+                      catch: (cause) =>
+                        new Tool.Error({
+                          message: cause instanceof Error ? cause.message : "Publication failed",
+                        }),
+                    }).pipe(gate.withPermits(1)),
+                })
+              })
             }),
         })
         return sdk

@@ -55,8 +55,7 @@ export default defineConfig({
         cache: false,
       },
       "check:all": {
-        command:
-          "vp check && vp run runner:check && vp run runner:build && vp test && vp run runner:test:bridge",
+        command: "vp check && vp run runner:check && vp run runner:build && vp test",
         cache: false,
       },
       dev: {
@@ -94,7 +93,6 @@ export default defineConfig({
       },
       "./apps/web/vite.config.ts",
       "./apps/runner/vite.config.ts",
-      "./apps/runner/bridge/vite.config.ts",
     ],
     exclude: [".direnv", "**/node_modules/**"],
     server: {

@@ -23,5 +23,5 @@
     "isolatedModules": true,
     "allowJs": false
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "dev/**/*.ts", "bridge/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "dev/**/*.ts"]
 }

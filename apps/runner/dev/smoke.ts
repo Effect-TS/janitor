@@ -141,7 +141,7 @@ const program = Effect.gen(function* () {
       )
   }).pipe(Effect.ensuring(call("DELETE", "", { generation: 1 }).pipe(Effect.orDie)))
   yield* Effect.logInfo(
-    "Passed: local clone, native model tools, file edit, streamed checkpoint, container replacement, restore and cleanup",
+    "Passed: GitHub fixture, native model tools, SQLite file edit, host replacement, retained files and cleanup",
   )
 })
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeServices.layer)))

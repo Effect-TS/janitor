@@ -1,50 +1,42 @@
-import { it, expect } from "vite-plus/test"
-import { Effect } from "effect"
-import { execDefaults } from "@opencode/core/environment/exec-defaults"
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { startBridge } from "../bridge/server.mjs"
-import { makeRemoteSpawner, type BridgeRpc } from "../src/RemoteProcess.ts"
+import { expect, it } from "vite-plus/test"
+import { Harness, uniqueSessionId, waitFor } from "./support/Harness.ts"
+import { modelRepository } from "./support/ModelRepository.ts"
 
-it("native filesystem reads and lists repository files through the authenticated process bridge", async () => {
-  const root = mkdtempSync(join(tmpdir(), "janitor-native-"))
-  const cwd = join(root, "repository")
-  mkdirSync(cwd)
-  writeFileSync(join(cwd, "README.md"), "Native repository answer\n")
-  const bridge = await startBridge({
-    token: "native-test",
-    generation: 1,
-    cwd,
-    journalPath: join(root, "journal.sqlite"),
-    isolateProcesses: false,
-  })
+it("offers bounded repository tools without shell execution or paths outside the repository", async () => {
+  const repository = modelRepository()
+  const harness = await Harness.start({ ...repository, secret: "model-secret" })
   try {
-    const rpc: BridgeRpc = async (path, input) => {
-      const response = await fetch(bridge.url + path, {
-        method: input === undefined ? "GET" : "POST",
-        headers: {
-          authorization: "Bearer native-test",
-          "x-janitor-generation": "1",
-          "x-bridge-epoch": bridge.epoch,
-        },
-        body: input === undefined ? undefined : JSON.stringify(input),
-      })
-      if (!response.ok) throw new Error(await response.text())
-      return response.json() as never
+    const session = harness.session(uniqueSessionId("files"))
+    await session.faults({ intervalMs: 100 })
+    await session.model({
+      mode: "repository-work",
+      tools: [
+        { name: "glob", input: { pattern: "*.md" } },
+        { name: "grep", input: { pattern: "apricot" } },
+        { name: "read", input: { path: "/etc/passwd" } },
+        { name: "write", input: { path: "../outside", content: "bad" } },
+        { name: "read", input: { path: ".git/config" } },
+      ],
+    })
+    await session.create({ repositoryId: "123" })
+    await session.admit({ inputId: "msg_files", text: "Inspect repository files." })
+    await waitFor(
+      () => session.inspect(),
+      (state) => state.execution === "idle",
+    )
+    const events = JSON.stringify((await session.allEvents()).events)
+    expect(events).toContain("README.md")
+    expect(events).toContain("apricot-47")
+    expect(events).toContain("Path must be inside the repository")
+    expect(events).toContain("Repository traversal and Git metadata access are unavailable")
+    for (const call of (await session.state()).journal.filter(
+      (entry: any) => entry.kind === "model-call",
+    )) {
+      expect(call.data.tools).not.toContain("shell")
+      expect(call.data.tools).not.toContain("bash")
+      expect(call.data.tools).not.toContain("task")
     }
-    const files = execDefaults(makeRemoteSpawner(rpc))
-    const read = await Effect.runPromise(files.read(join(cwd, "README.md")))
-    expect(new TextDecoder().decode(read.bytes)).toBe("Native repository answer\n")
-    const entries = await Effect.runPromise(files.list(cwd))
-    expect(entries).toEqual([{ name: "README.md", type: "file" }])
-    const binary = new Uint8Array([0, 255, 10, 128, 0, 42])
-    await Effect.runPromise(files.write(join(cwd, "binary.dat"), binary))
-    expect(
-      Array.from((await Effect.runPromise(files.read(join(cwd, "binary.dat")))).bytes),
-    ).toEqual(Array.from(binary))
   } finally {
-    await bridge.close()
-    rmSync(root, { recursive: true, force: true })
+    await harness.dispose()
   }
 })

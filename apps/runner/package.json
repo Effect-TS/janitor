@@ -6,19 +6,15 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "build:deploy": "node scripts/build-release.ts",
     "build:test": "node scripts/build.mjs --test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "serve": "node scripts/serve.mjs",
-    "check": "vp run typecheck && vp run build && vp run test && vp run test:bridge",
-    "test:bridge": "vp test --config bridge/vite.config.ts",
-    "build:bridge": "node scripts/build-image.ts",
+    "check": "vp run typecheck && vp run build && vp run test",
     "build:dev": "node scripts/build.mjs --dev",
     "smoke:local": "node dev/smoke.ts"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "0.12.9",
     "@opencode/ai": "2.0.2",
     "@opencode/core": "2.0.2",
     "@opencode/schema": "2.0.2",

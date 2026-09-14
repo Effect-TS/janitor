@@ -33,11 +33,8 @@ jobs:
       - run: vp install --frozen-lockfile
       - run: vp check
       - run: docker info
-      - name: Allow nested user namespaces on the disposable CI host
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: vp run runner:check
       - run: vp run runner:build
-      - run: vp run runner:test:bridge
       - run: vp test
       - name: Plan or deploy production
         env:

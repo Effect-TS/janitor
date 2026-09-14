@@ -137,7 +137,7 @@ export type Maintenance = typeof Maintenance.Type
 
 /** One verification performed before a hold is released. */
 export const MaintenanceCheck = Schema.Struct({
-  name: Schema.Literals(["fence", "state", "checkpoint", "model", "bridge"]),
+  name: Schema.Literals(["fence", "state", "workspace", "checkpoint", "model", "bridge"]),
   ok: Schema.Boolean,
   detail: Schema.String,
 })

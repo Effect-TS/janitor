@@ -1,11 +1,7 @@
 // The release manifest: what this runner build speaks, reads and requires.
 //
-// Each contract is versioned on its own. The command protocol, the native
-// migration set, the Janitor-owned state format, the checkpoint manifest and
-// the bridge protocol can change independently, and the manifest names which
-// versions of each this release supports. The JSON file is the pinned,
-// reviewable record; this module checks it against the constants compiled into
-// the bundle so a stale manifest is a visible release problem, not a guess.
+// The manifest pins the runner protocol, native migrations, SQLite workspace
+// format and dependency versions. Deployment and maintenance validate it.
 import manifest from "../release-manifest.json" with { type: "json" }
 import { migrations } from "@opencode/core/database/migration.gen"
 import { PROTOCOL_VERSION } from "./Protocol.ts"
@@ -26,22 +22,15 @@ export interface ReleaseManifest {
     readonly target: string
     readonly ids: ReadonlyArray<string>
   }
-  readonly checkpoint: { readonly manifest: number; readonly archiveFormats: ReadonlyArray<string> }
-  readonly bridge: {
-    readonly protocol: number
-    readonly required: ReadonlyArray<string>
-    readonly sourceHash: string
-    readonly imageDigest: string
-    readonly imageId: string
-    readonly baseImage: string
-    /** Observed from the exact published image during an Alchemy deployment build. */
-    readonly tools?: { readonly node: string; readonly packages: string }
+  readonly workspace: {
+    readonly storage: string
+    readonly format: number
+    readonly tools: ReadonlyArray<string>
   }
   readonly build: {
     readonly opencode: string
     readonly effect: string
     readonly effectSource: string
-    readonly sandboxSdk: string
     readonly compatibilityDate: string
     readonly compatibilityFlags: ReadonlyArray<string>
   }
@@ -59,8 +48,6 @@ export const NATIVE_MIGRATION_TARGET = RELEASE_MANIFEST.nativeMigrations.target
 
 /** The Janitor-owned `_janitor_*` state format this release writes. */
 export const JANITOR_STATE_FORMAT = RELEASE_MANIFEST.janitorState.format
-
-export const CHECKPOINT_MANIFEST_VERSION = RELEASE_MANIFEST.checkpoint.manifest
 
 export const sameList = (left: ReadonlyArray<unknown>, right: ReadonlyArray<unknown>) =>
   left.length === right.length && left.every((value, index) => value === right[index])
@@ -92,9 +79,7 @@ export const manifestProblems = (): ReadonlyArray<string> => {
     problems.push(`manifest family ${m.family} is not among its readable families`)
   if (!m.janitorState.readable.includes(m.janitorState.format))
     problems.push("manifest Janitor state format is not among its readable formats")
-  if (!/^[a-f0-9]{64}$/.test(m.bridge.sourceHash))
-    problems.push("manifest bridge source hash is not a SHA-256 digest")
-  if (!m.bridge.imageDigest.startsWith("sha256:"))
-    problems.push("manifest bridge image digest is not pinned")
+  if (m.workspace.storage !== "sqlite" || m.workspace.format !== 1)
+    problems.push("unsupported workspace format")
   return problems
 }

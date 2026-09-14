@@ -11,7 +11,7 @@ vp install --frozen-lockfile
 vp run dev
 ```
 
-Alchemy starts Postgres, the API on port 8787, the website on 1337, and the runner on 8790 with local R2 and a Sandbox container. Open the website. The runner uses a disposable repository and controlled model by default, so development needs Docker but no production credentials. Podman setup, alternate ports and live-model opt-in are described in the [runner guide](apps/runner/README.md).
+Alchemy starts Postgres, the API on port 8787, the website on 1337, and the runner on 8790 with SQLite Durable Objects. Open the website. The runner uses a disposable repository and controlled model by default, so development needs Docker but no production credentials. Runner configuration and live-model opt-in are described in the [runner guide](apps/runner/README.md).
 
 ```sh
 # While the local stack is running:
@@ -21,7 +21,7 @@ vp run runner:smoke
 vp run check:all
 ```
 
-The runner smoke checks API readiness, model tools, file edits, checkpoint restoration after container replacement, and cleanup. CI also verifies the API-to-runner service binding through the maintenance release check. Both PR checks and deployment CI validate the runner.
+The runner smoke checks API readiness, model tools, file edits, file persistence after host replacement, and cleanup. CI also verifies the API-to-runner service binding through the maintenance release check. Both PR checks and deployment CI validate the runner.
 
 The API, website and runner belong to the root Alchemy deployment. The runner retains its own Worker to preserve existing Durable Object namespaces and its Workerd-specific bundle. Containers provide Linux repository tools; OpenCode and conversation state run in the session Durable Object. See [why the Worker remains separate](docs/adr/0001-runner-worker-and-linux-workspace.md).
 

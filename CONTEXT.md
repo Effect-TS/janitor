@@ -154,13 +154,13 @@ Fetching the comments of an accepted GitHub review contribution page by page bef
 The team-wide observation view of agent sessions and their usage, including token usage, independent of home-channel membership. Collaboration with agents takes place in their home threads.
 
 **Release manifest**:
-The runner's pinned record of what a build speaks, reads and requires, versioning the command protocol, the native migration set, the Janitor-owned state format, the checkpoint format and the bridge protocol independently, and naming the state families it has a tested path to read. Its build, image and dependency identities identify artifacts; the manifest's declared support is what establishes compatibility.
+The runner's pinned record of what a build speaks, reads and requires, versioning the command protocol, the native migration set, the Janitor-owned state format, the SQLite workspace format independently, and naming the state families it has a tested path to read. Its build and dependency identities identify artifacts; the manifest's declared support is what establishes compatibility.
 
 **Maintenance barrier**:
 The durable record an operator establishes before a release that changes session storage or execution, ahead of enumerating any session. While it stands, intake keeps accepting authorized inputs in order and nothing is dispatched to a runner; sessions read as blocked with the maintenance reason. It is deployment control, not a teammate command or a dashboard control.
 
 **Maintenance hold**:
-A runner's persisted, epoch-numbered promise not to run work for one session until released: admitted foreground commands finish and checkpoint, no fresh model request leaves, and the runtime stops as a shutdown that keeps the native execution claim. A session is quiescent only when its runner says so; an unreachable runner is not. Release lifts only the matching epoch, after the runner's state, checkpoint, model credential and bridge checks pass, and never outranks a newer disconnection.
+A runner's persisted, epoch-numbered promise not to run work for one session until released: admitted tools finish and commit their file changes and results, no fresh model request leaves, and the runtime stops as a shutdown that keeps the native execution claim. A session is quiescent only when its runner says so; an unreachable runner is not. Release lifts only the matching epoch, after the runner's state, workspace and model credential checks pass, and never outranks a newer disconnection.
 
 ### Repository connections and synchronization
 

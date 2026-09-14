@@ -2,10 +2,6 @@
 import { createRequire } from "node:module"
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vite-plus/test"
-import { bridgeSourceHash } from "../scripts/bridge-source.mjs"
-import { capabilities, protocol } from "../bridge/server.mjs"
-import bridgeRelease from "../bridge/release.json" with { type: "json" }
-import bridgeBuild from "../bridge/build.json" with { type: "json" }
 import packageJson from "../package.json" with { type: "json" }
 import {
   RELEASE_MANIFEST,
@@ -31,7 +27,6 @@ describe("release manifest", () => {
     expect(read("../../pnpm-workspace.yaml")).toContain(
       `effect: ${RELEASE_MANIFEST.build.effectSource}`,
     )
-    expect(packageJson.dependencies["@cloudflare/sandbox"]).toBe(RELEASE_MANIFEST.build.sandboxSdk)
     expect(RELEASE_MANIFEST.nativeMigrations.package).toBe(
       `@opencode/core@${RELEASE_MANIFEST.build.opencode}`,
     )
@@ -40,27 +35,9 @@ describe("release manifest", () => {
     for (const flag of RELEASE_MANIFEST.build.compatibilityFlags) expect(stack).toContain(flag)
   })
 
-  it("pins the bridge image, protocol and capabilities the runner requires", () => {
-    expect(RELEASE_MANIFEST.bridge.protocol).toBe(protocol)
-    // The Dockerfile enables process isolation; those capabilities are advertised at runtime.
-    const advertised = [...capabilities, "pid-namespace-v1", "workspace-user-v1"]
-    for (const capability of RELEASE_MANIFEST.bridge.required)
-      expect(advertised).toContain(capability)
-    expect(RELEASE_MANIFEST.bridge.sourceHash).toBe(bridgeSourceHash(new URL("bridge/", root)))
-    expect(bridgeBuild.sourceHash).toBe(RELEASE_MANIFEST.bridge.sourceHash)
-    expect(bridgeRelease.sourceHash).toBe(RELEASE_MANIFEST.bridge.sourceHash)
-    expect(bridgeRelease.imageDigest).toBe(RELEASE_MANIFEST.bridge.imageDigest)
-    expect(bridgeRelease.imageId).toBe(RELEASE_MANIFEST.bridge.imageId)
-    expect(bridgeRelease.baseImage).toBe(RELEASE_MANIFEST.bridge.baseImage)
-    expect(bridgeRelease.sandboxSdk).toBe(RELEASE_MANIFEST.build.sandboxSdk)
-    expect(read("bridge/Dockerfile")).toContain(
-      `FROM docker.io/${RELEASE_MANIFEST.bridge.baseImage}`,
-    )
-  })
-
-  it("pins the checkpoint archive format the bridge writes and restores", () => {
-    const archive = read("bridge/archive.mjs")
-    for (const format of RELEASE_MANIFEST.checkpoint.archiveFormats)
-      expect(archive).toContain(`"${format}"`)
+  it("declares the SQLite workspace and its bounded tools", () => {
+    expect(RELEASE_MANIFEST.workspace.storage).toBe("sqlite")
+    expect(RELEASE_MANIFEST.workspace.tools).not.toContain("shell")
+    expect(RELEASE_MANIFEST.workspace.tools).toContain("publish")
   })
 })

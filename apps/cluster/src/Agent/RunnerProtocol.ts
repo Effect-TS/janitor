@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema"
 export const RUNNER_PROTOCOL_VERSION = 2
 export const RUNNER_PROTOCOL_HEADER = "x-janitor-runner-protocol"
 /** The runner state family this Janitor release is tested against (`apps/runner/release-manifest.json`). */
-export const RUNNER_STATE_FAMILY = "janitor-runner-1"
+export const RUNNER_STATE_FAMILY = "janitor-runner-sqlite-1"
 /** The durable event contract Janitor's projection consumes (`apps/runner/release-manifest.json`). */
 export const RUNNER_EVENT_CONTRACT = 1
 
@@ -125,7 +125,7 @@ export const MaintenanceRequest = Schema.Struct({
 export type MaintenanceRequest = typeof MaintenanceRequest.Type
 
 export const MaintenanceCheck = Schema.Struct({
-  name: Schema.Literals(["fence", "state", "checkpoint", "model", "bridge"]),
+  name: Schema.Literals(["fence", "state", "workspace", "checkpoint", "model", "bridge"]),
   ok: Schema.Boolean,
   detail: Schema.String,
 })
@@ -152,11 +152,20 @@ export const RunnerHealth = Schema.Struct({
     readableFamilies: Schema.Array(Schema.String),
     commandProtocol: Schema.Struct({ version: Schema.Int, accepted: Schema.Array(Schema.Int) }),
     events: Schema.Struct({ contract: Schema.Int }),
-    bridge: Schema.Struct({
-      protocol: Schema.Int,
-      sourceHash: Schema.String,
-      imageDigest: Schema.String,
-    }),
+    workspace: Schema.optionalKey(
+      Schema.Struct({
+        storage: Schema.String,
+        format: Schema.Number,
+        tools: Schema.Array(Schema.String),
+      }),
+    ),
+    bridge: Schema.optionalKey(
+      Schema.Struct({
+        protocol: Schema.Int,
+        sourceHash: Schema.String,
+        imageDigest: Schema.String,
+      }),
+    ),
   }),
   /** Disagreements between the pinned manifest and the compiled bundle. */
   problems: Schema.Array(Schema.String),

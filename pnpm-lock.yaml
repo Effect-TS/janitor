@@ -310,7 +310,7 @@ overrides:
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
 
 patchedDependencies:
-  '@alchemy.run/cloudflare-runtime@2.0.0-beta.76': 9443d824d0a10a32fd77809c9af73094ad493bf6a0b1ba7bb97a2425a5dfa0c6
+  '@alchemy.run/cloudflare-runtime@2.0.0-beta.76': 4f432f224030630c0dc0f26872e7ce7f3b7ff26a8d3d34b18339baf1ddf58967
   '@distilled.cloud/aws@1.0.0-rc.8': 17097b4b77a0f00ac3e1202ea5dd184070e8b2bf3521d92b575c250c42282f80
   '@distilled.cloud/axiom@1.0.0-rc.8': 4090c7352e8d67a56ee056fce8b598fa26b9460c9eafe0251a85754f7a7e085f
   '@distilled.cloud/cloudflare@1.0.0-rc.8': 50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd
@@ -326,9 +326,6 @@ importers:
 
   .:
     devDependencies:
-      '@distilled.cloud/cloudflare':
-        specifier: 1.0.0-rc.8
-        version: 1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)
       '@effect/platform-node':
         specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
         version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1))
@@ -399,9 +396,6 @@ importers:
 
   apps/runner:
     dependencies:
-      '@cloudflare/sandbox':
-        specifier: 0.12.9
-        version: 0.12.9
       '@opencode/ai':
         specifier: 2.0.2
         version: 2.0.2(patch_hash=c49184e67f40279c93f1f50d69dd368aacb4f0b6ff6401d74a18c37262b500fa)(supports-color@10.2.2)
@@ -949,23 +943,6 @@ packages:
   '@clack/prompts@1.7.0':
     resolution: {integrity: sha512-y7/yvZ2TPAnR9+jnc00klvNNLkJiXFFrQA/hlLCcxA9a2A4zQIOimyFQ9XfwYKiGD1fb5GY8vbKIIgO8d5Tb2A==}
     engines: {node: '>= 20.12.0'}
-
-  '@cloudflare/containers@0.3.7':
-    resolution: {integrity: sha512-DM9dm3FnIBSyiSJ1FLavKwl/lk3oAmTaynCzZQ9pZR0ncRPquSxkxd8Nu2MFILxmDDsPkxKsSNEh9mHHMty4Fw==}
-
-  '@cloudflare/sandbox@0.12.9':
-    resolution: {integrity: sha512-JlCQ8adVaHT3TrZO13X6US2LJTyQ4YvoEZpfh5EewRqcxPfMHZNJPB/1dsRdiFqmtzpz+lMxGazSUa2H/g2IKg==}
-    peerDependencies:
-      '@openai/agents': ^0.3.3
-      '@opencode-ai/sdk': ^1.1.40
-      '@xterm/xterm': '>=5.0.0'
-    peerDependenciesMeta:
-      '@openai/agents':
-        optional: true
-      '@opencode-ai/sdk':
-        optional: true
-      '@xterm/xterm':
-        optional: true
 
   '@cloudflare/unenv-preset@2.16.1':
     resolution: {integrity: sha512-ECxObrMfyTl5bhQf/lZCXwo5G6xX9IAUo+nDMKK4SZ8m4Jvvxp52vilxyySSWh2YTZz8+HQ07qGH/2rEom1vDw==}
@@ -4200,9 +4177,6 @@ packages:
   capnweb@0.6.1:
     resolution: {integrity: sha512-fmhV26QPd1ewf5R74h55oVZnGwIcSaRMzbfLQUy8+zOBjuTmT3KXoT8wxHvnp1m9Ht9BoUUS5ZwNLoVLfQTyBg==}
 
-  capnweb@0.8.0:
-    resolution: {integrity: sha512-BK/TuXUiyfLSKsmjojn70yN7oYG/JJzoURZ3tckjg5Zj2KcygPm0A5jyOlswK7SYB4f0Gh9tt+RZ132b80iLfA==}
-
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
@@ -4940,10 +4914,6 @@ packages:
 
   hono@4.11.4:
     resolution: {integrity: sha512-U7tt8JsyrxSRKspfhtLET79pU8K+tInj5QZXs1jSugO1Vq5dFj3kmZsRldo29mTBfcjDRVRXrEZ6LS63Cog9ZA==}
-    engines: {node: '>=16.9.0'}
-
-  hono@4.13.7:
-    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@9.0.3:
@@ -6860,7 +6830,7 @@ snapshots:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
 
-  '@alchemy.run/cloudflare-runtime@2.0.0-beta.76(patch_hash=9443d824d0a10a32fd77809c9af73094ad493bf6a0b1ba7bb97a2425a5dfa0c6)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.0)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)':
+  '@alchemy.run/cloudflare-runtime@2.0.0-beta.76(patch_hash=4f432f224030630c0dc0f26872e7ce7f3b7ff26a8d3d34b18339baf1ddf58967)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.0)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)':
     dependencies:
       '@alchemy.run/node-utils': 2.0.0-beta.76
       '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260704.1)
@@ -6882,7 +6852,7 @@ snapshots:
       - proxy-agent
       - typescript
 
-  '@alchemy.run/cloudflare-runtime@2.0.0-beta.76(patch_hash=9443d824d0a10a32fd77809c9af73094ad493bf6a0b1ba7bb97a2425a5dfa0c6)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)':
+  '@alchemy.run/cloudflare-runtime@2.0.0-beta.76(patch_hash=4f432f224030630c0dc0f26872e7ce7f3b7ff26a8d3d34b18339baf1ddf58967)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)':
     dependencies:
       '@alchemy.run/node-utils': 2.0.0-beta.76
       '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260704.1)
@@ -7190,15 +7160,6 @@ snapshots:
       fast-string-width: 3.0.2
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
-
-  '@cloudflare/containers@0.3.7': {}
-
-  '@cloudflare/sandbox@0.12.9':
-    dependencies:
-      '@cloudflare/containers': 0.3.7
-      aws4fetch: 1.0.20
-      capnweb: 0.8.0
-      hono: 4.13.7
 
   '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260704.1)':
     dependencies:
@@ -10126,7 +10087,7 @@ snapshots:
 
   alchemy@2.0.0-beta.76(patch_hash=5f5b7ad2de7dff0552e11d37c36ca41117400a18d9e0fdd468ac68a8d5fe0cd1)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.0)))(@effect/sql-pg@4.0.0-rc.112(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(pg@8.23.0)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3):
     dependencies:
-      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.76(patch_hash=9443d824d0a10a32fd77809c9af73094ad493bf6a0b1ba7bb97a2425a5dfa0c6)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.0)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)
+      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.76(patch_hash=4f432f224030630c0dc0f26872e7ce7f3b7ff26a8d3d34b18339baf1ddf58967)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.0)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)
       '@alchemy.run/floci': 2.0.0-beta.76(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)
       '@alchemy.run/node-utils': 2.0.0-beta.76
       '@aws-sdk/credential-providers': 3.1115.0
@@ -10183,7 +10144,7 @@ snapshots:
 
   alchemy@2.0.0-beta.76(patch_hash=5f5b7ad2de7dff0552e11d37c36ca41117400a18d9e0fdd468ac68a8d5fe0cd1)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@effect/sql-pg@4.0.0-rc.112(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(pg@8.23.0)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3):
     dependencies:
-      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.76(patch_hash=9443d824d0a10a32fd77809c9af73094ad493bf6a0b1ba7bb97a2425a5dfa0c6)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)
+      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.76(patch_hash=4f432f224030630c0dc0f26872e7ce7f3b7ff26a8d3d34b18339baf1ddf58967)(@distilled.cloud/cloudflare@1.0.0-rc.8(patch_hash=50e2534c2e2fc8dd681370a4fdeb364ec56c162eccc131fe6c8bc3a25dfbecbd)(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(rolldown@1.2.5)(typescript@7.0.2)
       '@alchemy.run/floci': 2.0.0-beta.76(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)
       '@alchemy.run/node-utils': 2.0.0-beta.76
       '@aws-sdk/credential-providers': 3.1115.0
@@ -10448,8 +10409,6 @@ snapshots:
       typescript: 7.0.2
 
   capnweb@0.6.1: {}
-
-  capnweb@0.8.0: {}
 
   chai@6.2.2: {}
 
@@ -11168,8 +11127,6 @@ snapshots:
       function-bind: 1.1.2
 
   hono@4.11.4: {}
-
-  hono@4.13.7: {}
 
   hosted-git-info@9.0.3:
     dependencies:

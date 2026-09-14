@@ -43,11 +43,9 @@ import type { Command } from "./Router.ts"
 import { RunnerStorage, type SessionRecord } from "./Storage.ts"
 import {
   RepositoryWorkspace,
-  checkBridge,
   type RepositorySelection,
   type WorkspaceEnvironment,
 } from "./RepositoryWorkspace.ts"
-import { WorkspaceCheckpoints } from "./WorkspaceCheckpoints.ts"
 
 export interface RunnerEnv extends WorkspaceEnvironment {
   readonly JANITOR_AGENT_RUNNER_TOKEN?: string
@@ -116,7 +114,6 @@ export class SessionController {
     this.compatibility = SessionCompatibility.make({
       store: this.store,
       storage: ctx.storage,
-      bucket: env.WORKSPACE_CHECKPOINTS,
       configurations,
       release: () => this.release,
     })
@@ -132,11 +129,7 @@ export class SessionController {
       guard: () => this.guardReason(),
       host: () => this.ensureHost(),
       disposeHost: () => this.disposeHost(),
-      prune: () =>
-        (
-          this.repository?.checkpoints ??
-          new WorkspaceCheckpoints(ctx.storage, env.WORKSPACE_CHECKPOINTS)
-        ).prune(),
+      prune: async () => {},
       beforeIdle: () => this.beforeIdleDecision(),
     })
     this.admission = SessionAdmission.make({
@@ -266,13 +259,13 @@ export class SessionController {
   /**
    * Blockers other than the maintenance hold itself: persisted uncertainty,
    * model configuration, the outer compatibility record against the native
-   * migration journal, and the committed checkpoint's manifest. Read-only.
+   * migration journal, and SQLite workspace format. Read-only.
    */
   private stateProblem() {
     return Effect.runSync(this.compatibility.stateProblem)
   }
-  private checkpointProblem() {
-    return Effect.runSync(this.compatibility.checkpointProblem)
+  private workspaceProblem() {
+    return Effect.runSync(this.compatibility.workspaceProblem)
   }
 
   private requireRunnable() {
@@ -391,29 +384,27 @@ export class SessionController {
   /**
    * Operator maintenance. A hold persists first, so alarms and restarts cannot
    * resume work, then drains: admitted foreground operations finish or reach
-   * their finite timeout and commit their result and checkpoint, and only then
+   * their finite timeout and commit their result and file changes, and only then
    * is the runtime disposed. Disposal is shutdown interruption, which keeps the
    * native execution claim for recovery. The hold answers immediately with
    * whether the object is quiescent; the caller asks again until it is.
    *
    * A release must carry the held epoch and passes only after the state,
-   * checkpoint, model credential and bridge checks; otherwise the hold stays.
+   * workspace and model credential checks; otherwise the hold stays.
    * A newer disconnection outranks any release.
    */
   protected maintenance(body: Maintenance): Promise<MaintenanceResult> {
     return Effect.runPromise(this.maintenanceService.apply(body))
   }
 
-  /** Uncertainty visible without a workspace object: admitted tool or bridge operations. */
+  /** Uncertainty visible without a workspace object: legacy admitted operations. */
   private persistedUncertainty(): boolean {
-    return (
-      new WorkspaceCheckpoints(this.ctx.storage, this.env.WORKSPACE_CHECKPOINTS).uncertain() ||
-      (this.ctx.storage.sql
-        .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_janitor_operation'")
-        .toArray().length === 1 &&
+    return ["_janitor_operation", "_janitor_tool_operation"].some(
+      (table) =>
+        this.store.tableExists(table) &&
         this.ctx.storage.sql
-          .exec("SELECT id FROM _janitor_operation WHERE state = 'admitted' LIMIT 1")
-          .toArray().length > 0)
+          .exec(`SELECT id FROM ${table} WHERE state='admitted' LIMIT 1`)
+          .toArray().length > 0,
     )
   }
 
@@ -427,16 +418,13 @@ export class SessionController {
     const checks: Array<MaintenanceCheck> = []
     const state = this.stateProblem()
     checks.push({ name: "state", ok: state === null, detail: state ?? "compatible" })
-    const checkpoint = WorkspaceCheckpoints.needsFormatUpgrade(this.ctx.storage)
-      ? null
-      : this.checkpointProblem()
+    const workspace = this.workspaceProblem()
     checks.push({
-      name: "checkpoint",
-      ok: checkpoint === null,
-      detail: checkpoint ?? "committed checkpoint is restorable or absent",
+      name: "workspace",
+      ok: workspace === null,
+      detail: workspace ?? "SQLite workspace is compatible or not yet initialized",
     })
     checks.push(this.modelCheck())
-    checks.push(await this.bridgeCheck())
     return checks
   }
 
@@ -458,38 +446,6 @@ export class SessionController {
         detail: `secret binding ${record.secretBinding} for model configuration ${id} is not set`,
       }
     return { name: "model", ok: true, detail: `model configuration ${id} has its credential` }
-  }
-
-  /**
-   * The bridge this session would dispatch to must be the release's image. A
-   * container that is not running is verified on its next start, before any
-   * dispatch; one that answers must match now.
-   */
-  private async bridgeCheck(): Promise<MaintenanceCheck> {
-    const selected = await this.ctx.storage.get<RepositorySelection>("_janitor_repository")
-    if (!selected) return { name: "bridge", ok: true, detail: "no repository workspace" }
-    const repository = (this.repository ??= this.makeRepository(selected))
-    try {
-      const meta = await repository.runningBridge()
-      if (meta === undefined)
-        return {
-          name: "bridge",
-          ok: true,
-          detail: "bridge not running; verified before next dispatch",
-        }
-      checkBridge(meta, selected.generation)
-      return {
-        name: "bridge",
-        ok: true,
-        detail: `bridge ${meta.build?.sourceHash?.slice(0, 12)} matches the release`,
-      }
-    } catch (error) {
-      return {
-        name: "bridge",
-        ok: false,
-        detail: error instanceof ProtocolError ? (error.reason ?? error.message) : String(error),
-      }
-    }
   }
 
   protected async cleanup(sessionId: SessionId, body: Cleanup): Promise<CleanupResult> {

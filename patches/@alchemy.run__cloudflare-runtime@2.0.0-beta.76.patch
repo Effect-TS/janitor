@@ -228,35 +228,3 @@ diff --git a/dist/core/node/Docker.mjs b/dist/core/node/Docker.mjs
  			ensureLoopbackUnixSockets(ports);
  			const transformed = JSON.stringify({
  				...original,
-diff --git a/src/core/Docker.ts b/src/core/Docker.ts
-index 2fe558d..319b67f 100644
---- a/src/core/Docker.ts
-+++ b/src/core/Docker.ts
-@@ -268,6 +268,11 @@ export const DockerLive = Layer.effect(
-           }>(req);
-           if (path.basename(bin).startsWith("podman")) delete (original as {HostConfig?: {MemorySwappiness?: number}}).HostConfig?.MemorySwappiness;
-           const image = registeredImages.get(original.Image);
-+          // Opt in per local image; Cloudflare deployment and networking sidecars are unchanged.
-+          if (image?.env.ALCHEMY_LOCAL_ALLOW_USER_NAMESPACES === "true") {
-+            const container = original as typeof original & { HostConfig?: { SecurityOpt?: string[] } };
-+            container.HostConfig = { ...container.HostConfig, SecurityOpt: [...(container.HostConfig?.SecurityOpt ?? []), "seccomp=unconfined", "apparmor=unconfined"] };
-+          }
-           const transformed = JSON.stringify({
-             ...original,
-             Image: image?.tag ?? original.Image,
-diff --git a/dist/core/node/Docker.mjs b/dist/core/node/Docker.mjs
-index 888e036..7dfbd02 100644
---- a/dist/core/node/Docker.mjs
-+++ b/dist/core/node/Docker.mjs
-@@ -127,6 +127,11 @@ const DockerLive = Layer.effect(Docker, Effect.gen(function* () {
- 			const original = await extractJsonBody(req);
- 			if (path.basename(bin).startsWith("podman")) delete original.HostConfig?.MemorySwappiness;
- 				const image = registeredImages.get(original.Image);
-+			// Opt in per local image; Cloudflare deployment and networking sidecars are unchanged.
-+			if (image?.env.ALCHEMY_LOCAL_ALLOW_USER_NAMESPACES === "true") {
-+			  const container = original;
-+			  container.HostConfig = { ...container.HostConfig, SecurityOpt: [...(container.HostConfig?.SecurityOpt ?? []), "seccomp=unconfined", "apparmor=unconfined"] };
-+			}
- 			const transformed = JSON.stringify({
- 				...original,
- 				Image: image?.tag ?? original.Image,
