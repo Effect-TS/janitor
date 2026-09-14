@@ -446,22 +446,22 @@ links and yellow agent marks without competing with them.
 
 Light is derived from the same structure. Its values:
 
-| Token              | Light     | Token          | Light     |
-| ------------------ | --------- | -------------- | --------- |
-| `primary`          | `#1E5FD0` | `canvas`       | `#F4F6F8` |
-| `primary-hover`    | `#174CA8` | `surface`      | `#FFFFFF` |
-| `primary-wash`     | `#EDF3FD` | `surface-muted`| `#FAFBFC` |
-| `primary-line`     | `#B9CDF0` | `foreground`   | `#1B2027` |
-| `on-primary`       | `#FFFFFF` | `foreground-muted` | `#59606B` |
-| `action`           | `#1B2027` | `foreground-subtle` | `#6C747F` |
-| `action-hover`     | `#2C333D` | `foreground-faint` | `#A8AFB9` |
-| `on-action`        | `#FFFFFF` | `border`       | `#D6DBE1` |
-| `agent-ink`        | `#8A6A05` | `border-subtle`| `#E8EBEF` |
-| `agent-wash`       | `#FFF8E0` | `wire`         | `#A9BCDC` |
-| `agent-line`       | `#F0DFA0` | `grid-line`    | `rgb(30 95 208 / 0.07)` |
-| `success`          | `#1A7F37` | `on-success`   | `#FFFFFF` |
-| `danger`           | `#B23A2B` | `on-danger`    | `#FFFFFF` |
-| `danger-hover`     | `#8E2C20` |                |           |
+| Token           | Light     | Token               | Light                   |
+| --------------- | --------- | ------------------- | ----------------------- |
+| `primary`       | `#1E5FD0` | `canvas`            | `#F4F6F8`               |
+| `primary-hover` | `#174CA8` | `surface`           | `#FFFFFF`               |
+| `primary-wash`  | `#EDF3FD` | `surface-muted`     | `#FAFBFC`               |
+| `primary-line`  | `#B9CDF0` | `foreground`        | `#1B2027`               |
+| `on-primary`    | `#FFFFFF` | `foreground-muted`  | `#59606B`               |
+| `action`        | `#1B2027` | `foreground-subtle` | `#6C747F`               |
+| `action-hover`  | `#2C333D` | `foreground-faint`  | `#A8AFB9`               |
+| `on-action`     | `#FFFFFF` | `border`            | `#D6DBE1`               |
+| `agent-ink`     | `#8A6A05` | `border-subtle`     | `#E8EBEF`               |
+| `agent-wash`    | `#FFF8E0` | `wire`              | `#A9BCDC`               |
+| `agent-line`    | `#F0DFA0` | `grid-line`         | `rgb(30 95 208 / 0.07)` |
+| `success`       | `#1A7F37` | `on-success`        | `#FFFFFF`               |
+| `danger`        | `#B23A2B` | `on-danger`         | `#FFFFFF`               |
+| `danger-hover`  | `#8E2C20` |                     |                         |
 
 `agent` yellow `#FFCE1B` is the same in both themes.
 
@@ -598,7 +598,7 @@ Separation is achieved with 1px hairlines and background-colour shifts, not
 with shadow.
 
 - **Structural regions**: cards, sidebar, top bar, inspector. `1px solid
-  border`, `rounded.md`, no shadow.
+border`, `rounded.md`, no shadow.
 - **Rows within a region**: `1px solid border-subtle` on the bottom edge, none
   on the last child.
 - **Overlays**: dialogs, popovers, dropdowns, tooltips. The only shadowed
