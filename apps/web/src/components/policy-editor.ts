@@ -1304,7 +1304,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                 Routes.rule({ repositoryId: model.repositoryId, ruleId: rule.id }),
                               ),
                               h.Class(
-                                "flex flex-col gap-0.5 rounded-sm border border-border bg-card p-2 text-body-sm text-ink-muted transition-colors duration-120 ease-ui hover:bg-surface-muted hover:border-primary-line",
+                                "flex flex-col gap-0.5 rounded-md border border-border bg-card p-2 text-body-sm text-ink-muted transition-colors duration-120 ease-ui hover:bg-surface-muted hover:border-primary-line",
                               ),
                               h.AriaLabel(
                                 `Rule for ${labelName(model.configuration.labels, rule.labelId)}`,

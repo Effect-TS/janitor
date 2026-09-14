@@ -63,7 +63,7 @@ export type HeaderConfig<M> = StyleConfig<M> & {
   readonly children: ReadonlyArray<Child>
 }
 
-const headerClass = "gap-0.5 border-b border-border px-3.5 py-3 flex flex-col"
+const headerClass = "gap-1 border-b border-border px-4 py-4 flex flex-col"
 
 export const header = <M>(h: HtmlBuilder<M>, config: HeaderConfig<M>): Html =>
   h.div(
@@ -117,7 +117,7 @@ export type FooterConfig<M> = StyleConfig<M> & {
   readonly children: ReadonlyArray<Child>
 }
 
-const footerClass = "gap-2 border-t border-border px-3.5 py-3 mt-auto flex flex-col"
+const footerClass = "gap-2 border-t border-border px-4 py-4 mt-auto flex flex-col"
 
 export const footer = <M>(h: HtmlBuilder<M>, config: FooterConfig<M>): Html =>
   h.div(
@@ -136,7 +136,7 @@ export type CloseButtonConfig<M> = StyleConfig<M> & {
 }
 
 const closeButtonClass =
-  "absolute top-2 right-2 inline-flex size-6 items-center justify-center rounded-sm border border-transparent text-muted-foreground transition-colors duration-120 ease-ui hover:bg-surface-muted hover:text-foreground aria-expanded:bg-surface-muted aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-3.5"
+  "absolute top-3 right-3 inline-flex size-8 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors duration-120 ease-ui hover:bg-surface-muted hover:text-foreground aria-expanded:bg-surface-muted aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-3.5"
 
 export const closeButton = <M>(h: HtmlBuilder<M>, config: CloseButtonConfig<M>): Html =>
   h.div(
