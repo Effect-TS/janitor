@@ -41,7 +41,7 @@ vp run runner:test
 vp run runner:test:bridge
 ```
 
-`vp check` includes runner linting and `vp test` includes its native integration tests. `vp run check:all` also checks runner types, builds the production Worker and runs the bridge suite. Paid-provider and live-publication tests remain explicitly gated.
+`vp check` includes runner linting and `vp test` includes its native integration tests and TypeScript bridge tests. The bridge suite uses Vite+/Vitest on Node to exercise the shipped JavaScript bridge; it has no separate Node test-runner command. `vp run check:all` also checks runner types, builds the production Worker and runs the bridge suite. Paid-provider and live-publication tests remain explicitly gated.
 
 The test bundle (`test/worker.ts`) wraps the production runner with a scripted model transport and fault injection reachable only under `/__test/`. The production bundle contains none of it.
 
@@ -202,7 +202,7 @@ vp run build
 vp run build:bridge --record
 ```
 
-Runner tests build the local image and require Docker or a compatible Podman CLI. The repository acceptance driver supplies preloaded repositories and a controlled credential authority at service boundaries, then runs the production bridge image, runner SQLite and native tools. It covers two sessions, lost creation and process responses, stale generations, readiness, incompatible image capabilities and repeated cleanup. The bridge tests also clone through real Git against a local authenticated HTTP repository and check credential exclusion, binary stdin replay, output cursors and cancellation. These are local checks, not a deployed Cloudflare or live GitHub acceptance claim.
+Runner tests build the local image and require Docker or a compatible Podman CLI. Local test containers explicitly allow nested user/PID namespaces with `seccomp=unconfined` and `apparmor=unconfined`. Docker defaults can otherwise reject the bridge's `unshare` launcher before a tool runs. A startup preflight checks this as UID 1000. The bridge still drops privileges and isolates commands; containers are not privileged. The local Alchemy Sandbox opts into the same setting through its image environment, without changing production resources or the networking sidecar. The repository acceptance driver supplies preloaded repositories and a controlled credential authority at service boundaries, then runs the production bridge image, runner SQLite and native tools. It covers two sessions, lost creation and process responses, stale generations, readiness, incompatible image capabilities and repeated cleanup. The bridge tests also clone through real Git against a local authenticated HTTP repository and check credential exclusion, binary stdin replay, output cursors and cancellation. These are local checks, not a deployed Cloudflare or live GitHub acceptance claim.
 
 `bridge/release.json` records the built image manifest digest, image ID, base image, bridge/Sandbox versions and installed tools. `vp run build:bridge --record` deliberately updates that manifest for a release candidate. Publishing that exact image and binding production services remain deployment work. Changing the Dockerfile or bridge requires rebuilding and recording a new digest.
 

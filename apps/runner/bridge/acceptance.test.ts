@@ -1,4 +1,4 @@
-import { test } from "node:test"
+import { test } from "vite-plus/test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -23,7 +23,12 @@ test("isolated workspaces retain binary native process results across lost repli
         }),
       )
     }
-    const rpc = async (bridge, path, body, overrides = {}) => {
+    const rpc = async (
+      bridge: Awaited<ReturnType<typeof startBridge>>,
+      path: string,
+      body?: Record<string, unknown>,
+      overrides: Record<string, string> = {},
+    ) => {
       const response = await fetch(bridge.url + path, {
         method: body === undefined ? "GET" : "POST",
         headers: {
@@ -34,7 +39,7 @@ test("isolated workspaces retain binary native process results across lost repli
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       })
-      return { status: response.status, body: await response.json() }
+      return { status: response.status, body: (await response.json()) as ProcessResult }
     }
     for (const [index, bridge] of bridges.entries()) {
       const input = { id: "read", argv: ["cat", "README.md"] }
@@ -93,7 +98,7 @@ test("a new bridge epoch retains evidence and never replays an old operation", a
     isolateProcesses: false,
   }
   let bridge = await startBridge(options)
-  const invoke = async (path, input, epoch = bridge.epoch) => {
+  const invoke = async (path: string, input?: Record<string, unknown>, epoch = bridge.epoch) => {
     const response = await fetch(bridge.url + path, {
       method: input ? "POST" : "GET",
       headers: {
@@ -103,7 +108,7 @@ test("a new bridge epoch retains evidence and never replays an old operation", a
       },
       body: input ? JSON.stringify(input) : undefined,
     })
-    return { status: response.status, body: await response.json() }
+    return { status: response.status, body: (await response.json()) as ProcessResult }
   }
   try {
     const command = { id: "retained", argv: ["sh", "-c", "printf evidence; sleep 30"] }
@@ -132,7 +137,7 @@ test("binary stdin retries and output cursors do not duplicate bytes; cancellati
     journalPath: join(root, "journal.sqlite"),
     isolateProcesses: false,
   })
-  const rpc = async (path, input) => {
+  const rpc = async (path: string, input?: Record<string, unknown>) => {
     const response = await fetch(bridge.url + path, {
       method: input ? "POST" : "GET",
       headers: {
@@ -143,9 +148,9 @@ test("binary stdin retries and output cursors do not duplicate bytes; cancellati
       body: input ? JSON.stringify(input) : undefined,
     })
     assert.equal(response.status, 200)
-    return response.json()
+    return response.json() as Promise<ProcessResult>
   }
-  const settled = async (id) => {
+  const settled = async (id: string) => {
     for (let i = 0; i < 100; i++) {
       const result = await rpc(`/process/${id}`)
       if (result.closed) return result
@@ -164,7 +169,7 @@ test("binary stdin retries and output cursors do not duplicate bytes; cancellati
       Buffer.concat(result.frames.map((frame) => Buffer.from(frame.base64, "base64"))),
       Buffer.from([0, 255, 10, 128]),
     )
-    assert.deepEqual((await rpc(`/process/binary?after=${result.frames.at(-1).seq}`)).frames, [])
+    assert.deepEqual((await rpc(`/process/binary?after=${result.frames.at(-1)!.seq}`)).frames, [])
     await rpc("/process", { id: "cancel", argv: ["sleep", "30"] })
     await rpc("/process/cancel/kill", { signal: "SIGKILL" })
     assert.equal((await settled("cancel")).signal, "SIGKILL")
@@ -173,3 +178,13 @@ test("binary stdin retries and output cursors do not duplicate bytes; cancellati
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+interface ProcessResult {
+  pid: number
+  epoch: string
+  closed: boolean
+  signal: string | null
+  code: number | null
+  duplicate: boolean
+  frames: Array<{ seq: number; base64: string }>
+}

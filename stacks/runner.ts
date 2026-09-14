@@ -113,6 +113,7 @@ export const AgentRunner = Effect.gen(function* () {
           ? { image: image.imageRef }
           : {
               context: "apps/runner/bridge",
+              env: { ALCHEMY_LOCAL_ALLOW_USER_NAMESPACES: "true" },
               dockerfile: new URL("../apps/runner/bridge/dev/Dockerfile", import.meta.url).pathname,
             }),
         instanceType: "standard-1",

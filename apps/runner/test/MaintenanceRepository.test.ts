@@ -1,3 +1,4 @@
+import { sandboxRunArgs } from "./support/SandboxContainer.ts"
 // The maintenance hold against real foreground tool work in the built bridge
 // image: admitted commands finish and checkpoint before the runtime stops,
 // release verifies the bridge actually reached, and checkpoint manifests are
@@ -29,6 +30,7 @@ it("drains active tool work, verifies the bridge on release and refuses incompat
             journalPath: '/tmp/journal.sqlite', port: 8788, host: '0.0.0.0' });`
         const container = docker(
           "run",
+          ...sandboxRunArgs,
           "-d",
           "--rm",
           "-p",

@@ -1,4 +1,4 @@
-import { test } from "node:test"
+import { test } from "vite-plus/test"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs"
@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto"
 for (const existing of [false, true, "fork"])
   test(`controlled publication ${existing ? "updates the existing blog PR" : "creates the designated branch"} and incorporates concurrent human commits`, async () => {
     const root = mkdtempSync(join(tmpdir(), "janitor-publication-"))
-    const git = (cwd, ...args) =>
+    const git = (cwd: string, ...args: string[]) =>
       execFileSync("git", ["-C", cwd, ...args], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -64,7 +64,7 @@ for (const existing of [false, true, "fork"])
       isolateProcesses: false,
       cloneOrigin: origin,
     })
-    const call = async (path, input) => {
+    const call = async (path: string, input?: Record<string, unknown>) => {
       if (path === "/git/prepare") input = { prepareId: randomUUID(), ...input }
       const response = await fetch(bridge.url + path, {
         method: "POST",
@@ -75,7 +75,13 @@ for (const existing of [false, true, "fork"])
         },
         body: JSON.stringify(input),
       })
-      const body = await response.json()
+      const body = (await response.json()) as {
+        commit: string
+        remoteHead: string | null
+        status: string
+        contains: boolean
+        message: string
+      }
       assert.equal(response.status, 200, JSON.stringify(body))
       return body
     }

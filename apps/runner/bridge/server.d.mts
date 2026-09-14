@@ -5,6 +5,7 @@ export function startBridge(options: {
   journalPath: string
   isolateProcesses?: boolean
   port?: number
+  cloneOrigin?: string
   host?: string
 }): Promise<{ url: string; epoch: string; close(): Promise<void> }>
 export const protocol: number

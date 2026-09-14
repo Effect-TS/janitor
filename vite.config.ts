@@ -94,6 +94,7 @@ export default defineConfig({
       },
       "./apps/web/vite.config.ts",
       "./apps/runner/vite.config.ts",
+      "./apps/runner/bridge/vite.config.ts",
     ],
     exclude: [".direnv", "**/node_modules/**"],
     server: {

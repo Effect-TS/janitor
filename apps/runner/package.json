@@ -12,7 +12,7 @@
     "test": "vitest run",
     "serve": "node scripts/serve.mjs",
     "check": "vp run typecheck && vp run build && vp run test && vp run test:bridge",
-    "test:bridge": "node --test bridge/*.test.mjs",
+    "test:bridge": "vp test --config bridge/vite.config.ts",
     "build:bridge": "node scripts/build-image.ts",
     "build:dev": "node scripts/build.mjs --dev",
     "smoke:local": "node dev/smoke.ts"

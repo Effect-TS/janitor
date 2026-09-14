@@ -1,3 +1,4 @@
+import { sandboxRunArgs } from "./support/SandboxContainer.ts"
 import { it } from "vite-plus/test"
 import assert from "node:assert/strict"
 import { createHash, createSign, randomUUID } from "node:crypto"
@@ -223,6 +224,7 @@ it.skipIf(process.env.FIXTURE_ALLOW_PUBLICATION !== repository)(
                 assert.equal(closing, false, "Fixture is closing")
                 const container = docker(
                   "run",
+                  ...sandboxRunArgs,
                   "-d",
                   "--rm",
                   "-p",

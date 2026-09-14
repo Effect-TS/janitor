@@ -1,3 +1,4 @@
+import { sandboxRunArgs } from "./SandboxContainer.ts"
 // Disposable repository for native model validation. No GitHub credential or network Git operation.
 import { execFileSync } from "node:child_process"
 
@@ -30,6 +31,7 @@ export const modelRepository = () => {
           const input = (await request.json()) as { resource: string; env: Record<string, string> }
           const container = docker(
             "run",
+            ...sandboxRunArgs,
             "-d",
             "--rm",
             "-p",

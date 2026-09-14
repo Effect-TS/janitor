@@ -1,3 +1,4 @@
+import { sandboxRunArgs } from "./support/SandboxContainer.ts"
 import { it, expect } from "vite-plus/test"
 import { execFileSync } from "node:child_process"
 import { Harness, waitFor } from "./support/Harness.ts"
@@ -75,6 +76,7 @@ it("native publication reconciles lost push and PR replies without duplicate wri
             await startBridge({token:process.env.JANITOR_BRIDGE_TOKEN,generation:1,cwd:'/workspace',journalPath:'/tmp/journal.sqlite',port:8788,host:'0.0.0.0',cloneOrigin:'/tmp/remotes'});`
             const container = docker(
               "run",
+              ...sandboxRunArgs,
               "-d",
               "--rm",
               "-p",
@@ -360,6 +362,7 @@ it("two turns update the existing blog PR and explain unavailable writes without
               await startBridge({token:process.env.JANITOR_BRIDGE_TOKEN,generation:1,cwd:'/workspace',journalPath:'/tmp/journal.sqlite',port:8788,host:'0.0.0.0',cloneOrigin:'/tmp/remotes'});`
             container = docker(
               "run",
+              ...sandboxRunArgs,
               "-d",
               "--rm",
               "-p",

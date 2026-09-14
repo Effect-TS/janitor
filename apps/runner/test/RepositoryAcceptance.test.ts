@@ -1,3 +1,4 @@
+import { sandboxRunArgs } from "./support/SandboxContainer.ts"
 import { it, expect } from "vite-plus/test"
 import { execFileSync } from "node:child_process"
 import { Harness } from "./support/Harness.ts"
@@ -30,6 +31,7 @@ it("native edits and foreground tests checkpoint isolated workspaces and restore
             journalPath: '/tmp/journal.sqlite', port: 8788, host: '0.0.0.0' });`
         const container = docker(
           "run",
+          ...sandboxRunArgs,
           "-d",
           "--rm",
           "-p",

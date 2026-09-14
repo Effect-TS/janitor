@@ -1,4 +1,4 @@
-import { test } from "node:test"
+import { test } from "vite-plus/test"
 import assert from "node:assert/strict"
 import {
   mkdtempSync,
@@ -22,7 +22,7 @@ test("checkpoint restores failed command edits, index, commits, ignored data, bi
   mkdirSync(root)
   const repository = join(root, "repository")
   mkdirSync(repository)
-  const git = (...args) =>
+  const git = (...args: string[]) =>
     execFileSync("git", ["-C", repository, ...args], { encoding: "utf8" }).trim()
   git("init")
   git("config", "user.email", "test@example.com")
@@ -38,26 +38,32 @@ test("checkpoint restores failed command edits, index, commits, ignored data, bi
     isolateProcesses: false,
   }
   let bridge = await startBridge(options)
-  const rpc = async (path, input) => {
+  const rpc = async (
+    path: string,
+    input?: Record<string, unknown> & { sha256?: string; bytes?: Uint8Array<ArrayBuffer> },
+  ) => {
     const response = await fetch(bridge.url + path, {
       method: input ? "POST" : "GET",
       headers: {
         authorization: "Bearer test",
         "x-bridge-epoch": bridge.epoch,
         "x-janitor-generation": "1",
-        ...(path === "/restore" ? { "x-archive-sha256": input.sha256 } : {}),
+        ...(path === "/restore" ? { "x-archive-sha256": input!.sha256! } : {}),
       },
-      body: path === "/restore" ? input.bytes : input ? JSON.stringify(input) : undefined,
+      body: path === "/restore" ? input!.bytes : input ? JSON.stringify(input) : undefined,
     })
     if (path === "/checkpoint" && response.ok)
       return {
         status: response.status,
         value: {
           bytes: new Uint8Array(await response.arrayBuffer()),
-          sha256: response.headers.get("x-archive-sha256"),
+          sha256: response.headers.get("x-archive-sha256")!,
         },
       }
-    return { status: response.status, value: await response.json() }
+    return {
+      status: response.status,
+      value: (await response.json()) as { closed: boolean; code: number },
+    }
   }
   try {
     writeFileSync(join(repository, ".env.example"), "PORT=3000")
@@ -77,7 +83,8 @@ test("checkpoint restores failed command edits, index, commits, ignored data, bi
     do {
       result = await rpc("/process/edit")
       await new Promise((resolve) => setTimeout(resolve, 10))
-    } while (!result.value.closed)
+    } while (!("closed" in result.value && result.value.closed))
+    assert.ok("code" in result.value)
     assert.equal(result.value.code, 7)
     const head = git("rev-parse", "HEAD")
     rmSync(join(root, "unexpected-hook"), { force: true })
@@ -141,7 +148,7 @@ test("checkpoint capture transfer rejects a redirected capture directory before 
     journalPath: join(temp, "journal.sqlite"),
     isolateProcesses: false,
   })
-  const rpc = async (path, input) => {
+  const rpc = async (path: string, input?: Record<string, unknown>) => {
     const response = await fetch(bridge.url + path, {
       method: input ? "POST" : "GET",
       headers: {
@@ -151,7 +158,10 @@ test("checkpoint capture transfer rejects a redirected capture directory before 
       },
       body: input ? JSON.stringify(input) : undefined,
     })
-    return { status: response.status, value: await response.json() }
+    return {
+      status: response.status,
+      value: (await response.json()) as { closed: boolean; code: number },
+    }
   }
   try {
     await rpc("/process", { id: "redirect", argv: ["ln", "-s", temp, ".janitor-captures"] })

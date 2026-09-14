@@ -1,4 +1,4 @@
-import { test } from "node:test"
+import { test } from "vite-plus/test"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import { execFileSync, spawn } from "node:child_process"
@@ -15,7 +15,7 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
     execFileSync("git", ["init", "--bare", join(remote, "test", "example.git")], {
       stdio: "ignore",
     })
-    const runGit = (cwd, ...args) =>
+    const runGit = (cwd: string, ...args: string[]) =>
       execFileSync("git", ["-C", cwd, ...args], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -27,7 +27,9 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
           GIT_COMMITTER_EMAIL: "fixture@example.com",
         },
       }).trim()
-    let ancestor, feature, main
+    let ancestor = "",
+      feature = "",
+      main = ""
     if (selection !== "empty") {
       const seed = join(root, "seed")
       runGit(root, "clone", join(remote, "test", "example.git"), seed)
@@ -61,7 +63,7 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
         return
       }
       authorized++
-      const url = new URL(req.url, "http://localhost")
+      const url = new URL(req.url!, "http://localhost")
       const child = spawn("git", ["http-backend"], {
         env: {
           ...process.env,
@@ -76,7 +78,7 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
         stdio: ["pipe", "pipe", "ignore"],
       })
       req.pipe(child.stdin)
-      const chunks = []
+      const chunks: Buffer[] = []
       child.stdout.on("data", (chunk) => chunks.push(chunk))
       child.on("close", () => {
         const output = Buffer.concat(chunks)
@@ -95,7 +97,7 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
         res.end(output.subarray(boundary + 4))
       })
     })
-    await new Promise((resolve) => git.listen(0, "127.0.0.1", resolve))
+    await new Promise<void>((resolve) => git.listen(0, "127.0.0.1", resolve))
     const cwd = join(root, "workspace")
     mkdirSync(cwd)
     const journalPath = join(root, "operations.sqlite")
@@ -105,9 +107,9 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
       cwd,
       journalPath,
       isolateProcesses: false,
-      cloneOrigin: `http://127.0.0.1:${git.address().port}`,
+      cloneOrigin: `http://127.0.0.1:${(git.address() as import("node:net").AddressInfo).port}`,
     })
-    const clone = async (token) => {
+    const clone = async (token: string) => {
       const response = await fetch(bridge.url + "/clone", {
         method: "POST",
         headers: {
@@ -123,7 +125,7 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
           ...(selection === "pull-request" ? { pullRequestNumber: 7 } : {}),
         }),
       })
-      return { status: response.status, body: await response.json() }
+      return { status: response.status, body: (await response.json()) as { duplicate: boolean } }
     }
     try {
       assert.equal((await clone("private-test-token")).status, 200)
@@ -151,7 +153,7 @@ for (const selection of ["empty", "default", "branch", "pull-request"])
       assert.equal(authorized, count)
       const config = readFileSync(join(cwd, "repository/.git/config"), "utf8")
       assert.ok(!config.includes("credential"))
-      const visit = (directory) => {
+      const visit = (directory: string) => {
         for (const entry of readdirSync(directory, { withFileTypes: true })) {
           const path = join(directory, entry.name)
           if (entry.isDirectory()) visit(path)
