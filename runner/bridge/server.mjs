@@ -258,32 +258,37 @@ export async function startBridge({
         // Only this controlled Git process receives the scoped short-lived credential.
         // The constant helper reads its environment; neither URL nor config file contains it.
         const target = `${root}/.janitor-clone`
-        const commands = [
-          [
-            "clone",
-            ...(input.pullRequestNumber
-              ? ["--no-checkout"]
-              : input.branch === undefined
-                ? []
-                : ["--branch", input.branch]),
-            "--",
-            `${cloneOrigin}/${repository}.git`,
-            target,
-          ],
-          ...(input.pullRequestNumber
-            ? [
-                [
-                  "-C",
-                  target,
-                  "fetch",
-                  "--no-tags",
-                  "origin",
-                  `refs/pull/${input.pullRequestNumber}/head`,
-                ],
-                ["-C", target, "checkout", "-B", input.branch, "FETCH_HEAD"],
-              ]
-            : []),
-        ]
+        const url = `${cloneOrigin}/${repository}.git`
+        // A workspace needs the selected tree, not every branch and tag. Fetch
+        // fork PR heads directly, without first transferring the default branch.
+        const commands = input.pullRequestNumber
+          ? [
+              ["init", target],
+              ["-C", target, "remote", "add", "origin", url],
+              ["-C", target, "config", "remote.origin.tagOpt", "--no-tags"],
+              [
+                "-C",
+                target,
+                "config",
+                "remote.origin.fetch",
+                `+refs/pull/${input.pullRequestNumber}/head:refs/remotes/origin/${input.branch}`,
+              ],
+              ["-C", target, "fetch", "--depth=1", "--no-tags", "origin"],
+              ["-C", target, "checkout", "-b", input.branch, "--track", `origin/${input.branch}`],
+            ]
+          : [
+              [
+                "clone",
+                "--depth=1",
+                "--single-branch",
+                "--no-tags",
+                "--no-local",
+                ...(input.branch === undefined ? [] : ["--branch", input.branch]),
+                "--",
+                url,
+                target,
+              ],
+            ]
         for (const command of commands) {
           const child = spawn(
             "git",
