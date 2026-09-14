@@ -22,6 +22,11 @@ await build({
       name: "opencode-text-imports",
       enforce: "pre",
       load(id) {
+        if (
+          id === fileURLToPath(new URL("../release-manifest.json", import.meta.url)) &&
+          process.env.JANITOR_DEPLOY_MANIFEST
+        )
+          return readFileSync(process.env.JANITOR_DEPLOY_MANIFEST, "utf8")
         if (/\.(md|txt|sql)$/.test(id))
           return `export default ${JSON.stringify(readFileSync(id, "utf8"))}`
       },

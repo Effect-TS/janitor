@@ -107,6 +107,13 @@ export class RunnerStorage {
     this.write("intendedModelConfigurationId", id)
   }
 
+  get modelConfigurationSnapshot(): string | undefined {
+    return this.read<string>("modelConfigurationSnapshot")
+  }
+  set modelConfigurationSnapshot(record: string) {
+    this.write("modelConfigurationSnapshot", record)
+  }
+
   get intendedGeneration(): Generation | undefined {
     return this.read<Generation>("intendedGeneration")
   }

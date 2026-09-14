@@ -1,0 +1,29 @@
+{
+  "default": "openrouter-llama-3.1-8b-v1",
+  "records": [
+    {
+      "id": "openrouter-llama-3.1-8b-v1",
+      "provider": "openrouter",
+      "apiModelId": "meta-llama/llama-3.1-8b-instruct",
+      "route": "openrouter",
+      "endpoint": "https://openrouter.ai/api/v1/",
+      "secretBinding": "JANITOR_AGENT_RUNNER_MODEL_API_KEY",
+      "capabilities": {
+        "tools": true,
+        "input": ["text"],
+        "output": ["text"]
+      },
+      "limit": {
+        "context": 131072,
+        "output": 117964
+      },
+      "generation": {
+        "maxTokens": 2048
+      },
+      "compaction": {
+        "mode": "local"
+      },
+      "upstreamProvider": "groq"
+    }
+  ]
+}

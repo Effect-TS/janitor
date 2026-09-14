@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:deploy": "vp install --frozen-lockfile && node scripts/build-deploy.mjs",
     "build:test": "node scripts/build.mjs --test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

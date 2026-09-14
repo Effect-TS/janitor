@@ -29,9 +29,9 @@ The test bundle (`test/worker.ts`) wraps the production runner with a scripted m
 
 ## Configuration
 
-The Cloudflare Worker is named `janitor-agent-runner`. Use the `JANITOR_AGENT_RUNNER_` prefix for its deployment configuration so these settings are distinguishable from GitHub Actions runners.
+The Cloudflare Worker is named `janitor-agent-runner`. The root Alchemy stack deploys it alongside Janitor in production at `https://runner.janitor.effectful.co`. Its dependency graph and build remain isolated. Alchemy runs `vp run build:deploy` in this directory, then uploads `dist/worker.mjs` with `bundle: false`.
 
-Janitor needs `JANITOR_AGENT_RUNNER_URL`, the agent runner's HTTPS base URL, and `JANITOR_AGENT_RUNNER_TOKEN`. The same token is a secret binding on the agent runner. The earlier `RUNNER_SERVICE_URL` and `RUNNER_SERVICE_TOKEN` names are no longer read.
+Alchemy derives Janitor's production runner URL from the deployment domain. `JANITOR_AGENT_RUNNER_URL` is only a local-development override. Supply `JANITOR_AGENT_RUNNER_TOKEN` in `.env.production`; Alchemy binds the same secret to both Workers. The earlier `RUNNER_SERVICE_URL` and `RUNNER_SERVICE_TOKEN` names are no longer read.
 
 | Binding                                     | Purpose                                                                                                                   |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -42,7 +42,15 @@ Janitor needs `JANITOR_AGENT_RUNNER_URL`, the agent runner's HTTPS base URL, and
 
 A session selects the default record at creation and keeps it; changing the default affects new sessions only. A missing secret or retired record is a visible execution failure, never a substitute model.
 
-Use `JANITOR_AGENT_RUNNER_MODEL_API_KEY` for the provider secret and set the model record's `secretBinding` to that name. Other explicit binding names remain supported. In GitHub's `production` environment, store the URL and model configurations as variables, and the service token and provider key as secrets. Set `JANITOR_AGENT_RUNNER_RELEASE` from the deployed commit SHA. CI must explicitly pass each value to the corresponding deployment.
+See [deployment model validation](MODEL-VALIDATION.md) for the provider-backed configuration, local checks, bounded live check and rotation procedure.
+
+Use `JANITOR_AGENT_RUNNER_MODEL_API_KEY` for the OpenRouter secret. Alchemy defaults model configurations to `model-configurations/openrouter-llama-3.1-8b.json`; `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS` can override the JSON. Keep its credential bindings under `JANITOR_AGENT_RUNNER_MODEL_API_KEY`, or explicitly extend the stack's secret bindings for additional credentials. Alchemy derives `JANITOR_AGENT_RUNNER_RELEASE` from the built artifact hash.
+
+Production setup requires `JANITOR_AGENT_RUNNER_TOKEN`, `REPOSITORY_SERVICE_TOKEN` and `JANITOR_AGENT_RUNNER_MODEL_API_KEY` in `.env.production`, in addition to the existing Janitor deployment credentials. Supply `JANITOR_MAINTENANCE_TOKEN` to enable controlled upgrades. From the repository root, run `vp run plan:prod`, inspect the plan, then `vp run deploy:prod`. Docker must be available for the container build, and the Cloudflare account must support Containers and R2. The deployment creates the checkpoint bucket, both SQLite Durable Object classes, the container application and image, and a private service binding to the actual Alchemy-managed backend. Worker and checkpoint storage use retention policies. Local `vp run dev` does not provision a paid runner.
+
+For CI, add those three required secrets to GitHub's `production` environment. The deploy workflow forwards them explicitly and deploys on pushes to `main`. `JANITOR_MAINTENANCE_TOKEN` is an optional environment secret, and `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS` is an optional environment variable. Neither a runner URL nor a release identifier needs to be entered. The workflow also forwards the private Slack conversation settings separately from Slack sign-in settings.
+
+Alchemy publishes the container before the final runner bundle is built. The deployment build inspects that immutable image, pulling it with a temporary Cloudflare registry credential on a fresh CI host when needed. It checks the bridge source identity, embeds the actual image digest and ID in the Worker, and writes the observed Node/package versions to `dist/image-provenance.json`. Generated metadata stays outside the image build context. CI preserves that file and `dist/release-manifest.json` as the `runner-deployment-evidence` artifact. The checked-in manifest remains the source contract for local tests; deployment replaces only its image identity with the published build's identity.
 
 ## Command boundary
 
@@ -66,7 +74,7 @@ Admission persists the wake obligation and arms the alarm before native admissio
 
 ## Deployment
 
-`wrangler.jsonc` packages `dist/worker.mjs` with the `SESSIONS` SQLite Durable Object class. Provisioning bindings and secrets per stage, and validating a real provider, belong to the deployment tickets; nothing here deploys.
+`alchemy.run.ts` is the production deployment authority. `wrangler.jsonc` remains a reference for standalone packaging; do not use a second deployment tool to manage the Alchemy-owned Worker. An already independently deployed runner requires an explicit adoption/migration plan before switching its ownership to Alchemy.
 
 ## Release manifest and compatibility
 

@@ -50,7 +50,11 @@ describe("command boundary", () => {
     await session.create()
     await session.admit({ inputId: "msg_maint_1", text: "long work" })
     await sleep(300)
-    const held = await session.maintenance({ hold: true, epoch: 7 })
+    const held = await waitFor(
+      () => session.maintenance({ hold: true, epoch: 7 }),
+      (state) => state.quiescent,
+      { label: "maintenance drain" },
+    )
     expect(held).toMatchObject({ held: true, epoch: 7, quiescent: true })
     const blocked = await session.inspect()
     expect(blocked.execution).toBe("blocked")

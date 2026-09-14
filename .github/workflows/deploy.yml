@@ -57,11 +57,33 @@ jobs:
           JANITOR_SLACK_WORKSPACE_IDS: ${{ vars.JANITOR_SLACK_WORKSPACE_IDS }}
           JANITOR_GITHUB_OAUTH_CLIENT_ID: ${{ vars.JANITOR_GITHUB_OAUTH_CLIENT_ID }}
           JANITOR_GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.JANITOR_GITHUB_OAUTH_CLIENT_SECRET }}
+          JANITOR_AGENT_RUNNER_TOKEN: ${{ secrets.JANITOR_AGENT_RUNNER_TOKEN }}
+          REPOSITORY_SERVICE_TOKEN: ${{ secrets.REPOSITORY_SERVICE_TOKEN }}
+          JANITOR_AGENT_RUNNER_MODEL_API_KEY: ${{ secrets.JANITOR_AGENT_RUNNER_MODEL_API_KEY }}
+          JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS: ${{ vars.JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS }}
+          JANITOR_MAINTENANCE_TOKEN: ${{ secrets.JANITOR_MAINTENANCE_TOKEN }}
+          JANITOR_SLACK_WORKSPACE_ID: ${{ vars.JANITOR_SLACK_WORKSPACE_ID }}
+          JANITOR_SLACK_APP_ID: ${{ vars.JANITOR_SLACK_APP_ID }}
+          JANITOR_SLACK_BOT_USER_ID: ${{ vars.JANITOR_SLACK_BOT_USER_ID }}
+          JANITOR_SLACK_BOT_TOKEN: ${{ secrets.JANITOR_SLACK_BOT_TOKEN }}
+          JANITOR_SLACK_SIGNING_SECRET: ${{ secrets.JANITOR_SLACK_SIGNING_SECRET }}
         run: |
           # Empty optional GitHub settings should use the application's defaults.
           for setting in OPENAI_API_KEY OPENAI_API_URL LABELING_AI_MODEL LABELING_AI_INPUT_BYTES \
             JANITOR_INITIAL_ADMIN_SUBJECT JANITOR_SLACK_CLIENT_ID JANITOR_SLACK_CLIENT_SECRET \
-            JANITOR_SLACK_WORKSPACE_IDS JANITOR_GITHUB_OAUTH_CLIENT_ID JANITOR_GITHUB_OAUTH_CLIENT_SECRET; do
+            JANITOR_SLACK_WORKSPACE_IDS JANITOR_GITHUB_OAUTH_CLIENT_ID JANITOR_GITHUB_OAUTH_CLIENT_SECRET \
+            JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS JANITOR_MAINTENANCE_TOKEN \
+            JANITOR_SLACK_WORKSPACE_ID JANITOR_SLACK_APP_ID JANITOR_SLACK_BOT_USER_ID \
+            JANITOR_SLACK_BOT_TOKEN JANITOR_SLACK_SIGNING_SECRET; do
             if [[ -z "${!setting}" ]]; then unset "$setting"; fi
           done
           vp exec alchemy deploy alchemy.run.ts --stage production "$ALCHEMY_MODE"
+      - name: Preserve runner deployment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runner-deployment-evidence
+          path: |
+            runner/dist/release-manifest.json
+            runner/dist/image-provenance.json
+          if-no-files-found: ignore

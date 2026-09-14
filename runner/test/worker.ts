@@ -2,6 +2,7 @@
 // injection reachable only through `/__test/` routes. The production entry has
 // none of this; the acceptance driver and the runner tests build this file.
 import { Effect } from "effect"
+import { Session } from "@opencode/schema/session"
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { ProtocolError } from "../src/Protocol.ts"
@@ -31,6 +32,11 @@ export interface ModelScript {
     | "repository"
     | "repository-work"
     | "crash"
+    | "http-error"
+    | "error-stall"
+    | "deployment-history"
+    | "credential-echo"
+  readonly status?: number
   /** Delay before each text answer, so a turn spans supervision checks. */
   readonly delayMs?: number
   /** Answers returned in order; the last repeats. */
@@ -244,6 +250,7 @@ export class TestSessionRunner extends SessionRunner {
   }
 
   protected override transport(): HttpClient.HttpClient {
+    if (this.env.JANITOR_TEST_LIVE_MODEL === "true") return super.transport()
     return HttpClient.make((request) =>
       Effect.suspend(() => {
         const call = this.meta<number>("modelCalls", 0) + 1
@@ -254,10 +261,23 @@ export class TestSessionRunner extends SessionRunner {
           body._tag === "Uint8Array"
             ? (() => {
                 const parsed = JSON.parse(new TextDecoder().decode(body.body)) as {
+                  model?: string
+                  max_tokens?: number
+                  max_completion_tokens?: number
                   messages?: ReadonlyArray<{ role: string; content: unknown }>
                   tools?: ReadonlyArray<{ function?: { name?: string } }>
                 }
                 return {
+                  model: parsed.model,
+                  maxTokens: parsed.max_completion_tokens ?? parsed.max_tokens,
+                  toolResults: (parsed.messages ?? []).filter((message) => message.role === "tool")
+                    .length,
+                  compaction: JSON.stringify(parsed.messages).includes(
+                    "Return only the structured summary",
+                  ),
+                  retainedTool:
+                    JSON.stringify(parsed.messages).includes("[Assistant tool call]: read") ||
+                    JSON.stringify(parsed.messages).includes("call_deployment_"),
                   messages: (parsed.messages ?? []).filter((message) => message.role !== "system")
                     .length,
                   tools: (parsed.tools ?? []).map((tool) => tool.function?.name ?? "?"),
@@ -268,6 +288,8 @@ export class TestSessionRunner extends SessionRunner {
           call,
           mode: script.mode,
           incarnation: this.incarnation,
+          credentialMatches:
+            request.headers.authorization === `Bearer ${this.env.JANITOR_TEST_EXPECTED_AUTH}`,
           ...summary,
         })
         const respond = (
@@ -296,6 +318,88 @@ export class TestSessionRunner extends SessionRunner {
             }),
           )
         switch (script.mode) {
+          case "credential-echo": {
+            if (call === 1) {
+              const secret = request.headers.authorization!.slice(7)
+              const split = Math.floor(secret.length / 2)
+              return respond(
+                frame({
+                  role: "assistant",
+                  content: secret.slice(0, split),
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "call_echo",
+                      type: "function",
+                      function: {
+                        name: "write",
+                        arguments: '{"path":"echo.txt","content":"' + secret.slice(0, split),
+                      },
+                    },
+                  ],
+                }) +
+                  frame({
+                    content: secret.slice(split),
+                    tool_calls: [{ index: 0, function: { arguments: secret.slice(split) + '"}' } }],
+                  }) +
+                  frame({}, "tool_calls") +
+                  done,
+              )
+            }
+            if (call === 2) return respond(toolCall("read", { path: "echo.txt" }))
+            break
+          }
+          case "error-stall":
+            if (call === 1)
+              return respond(new ReadableStream({ pull: () => new Promise(() => {}) }), {
+                status: 503,
+              })
+            break
+          case "deployment-history": {
+            if ("compaction" in summary && summary.compaction)
+              return respond(
+                completion(
+                  "## Objective\nValidate deployment.\n## Work state\nRead both files.\n## Next move\nContinue with retained history.",
+                  13,
+                ),
+              )
+            if (call === 1) return respond(completion("Earlier work noted.", 7))
+            if (call === 2) {
+              const start = [0, 1].map((index) => ({
+                index,
+                id: `call_deployment_${index}`,
+                type: "function",
+                function: { name: "read", arguments: '{"path":' },
+              }))
+              const end = [0, 1].map((index) => ({
+                index,
+                function: {
+                  arguments: JSON.stringify(index === 0 ? "README.md" : "NOTES.md") + "}",
+                },
+              }))
+              return respond(
+                frame({ role: "assistant", tool_calls: start }) +
+                  frame({ tool_calls: end }) +
+                  frame({}, "tool_calls", {
+                    prompt_tokens: 120000,
+                    completion_tokens: 3,
+                    total_tokens: 120003,
+                  }) +
+                  done,
+              )
+            }
+            return respond(completion("Continue after tool results.", 17))
+          }
+          case "http-error":
+            return respond(
+              JSON.stringify({
+                error: {
+                  message: `Provider rejected credential ${request.headers.authorization}`,
+                  type: script.status === 404 ? "model_not_found" : "invalid_api_key",
+                },
+              }),
+              { status: script.status ?? 401, headers: { "content-type": "application/json" } },
+            )
           case "repository-work": {
             const tool = script.tools?.[call - this.meta<number>("testToolBase", 0) - 1]
             if (tool) return respond(toolCall(tool.name, tool.input))
@@ -420,6 +524,13 @@ export class TestSessionRunner extends SessionRunner {
   private async testRoute(request: Request, url: URL): Promise<Response> {
     const rest = url.pathname.replace(/^\/__test\/sessions\/[^/]+/, "")
     try {
+      if (rest === "/compact" && request.method === "POST") {
+        const host = await this.ensureHost()
+        await host.sdk((sdk) =>
+          sdk.sessions.compact({ sessionID: Session.ID.make(this.store.session!.nativeSessionId) }),
+        )
+        return jsonResponse({ ok: true })
+      }
       if (rest === "/model" && request.method === "POST") {
         // Model a Workerd process environment populated from runner-only bindings.
         process.env.JANITOR_TEST_RUNNER_SECRET = "runner-only-secret"

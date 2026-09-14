@@ -10,6 +10,7 @@ import { Duration, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { HttpClient, HttpClientError } from "effect/unstable/http"
 import { Auth } from "@opencode/ai/route"
 import { OpenAIChat } from "@opencode/ai/protocols"
+import * as OpenRouter from "@opencode/ai/providers/openrouter"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
 import { ModelResolver } from "@opencode/core/model-resolver"
 import { Model } from "@opencode/schema/model"
@@ -22,8 +23,10 @@ export const ModelConfigurationRecord = Schema.Struct({
   provider: Schema.String.check(Schema.isPattern(/^[a-z0-9-]{1,40}$/)),
   /** The provider API model identifier sent in requests; may differ from display identity. */
   apiModelId: Schema.String,
-  /** Native route/transport. Only the verified OpenAI-compatible chat route is supported. */
-  route: Schema.Literal("openai-chat"),
+  /** Native route/transport, including OpenRouter's provider routing options. */
+  route: Schema.Literals(["openai-chat", "openrouter"]),
+  /** OpenRouter upstream pinned to the record's advertised limits. */
+  upstreamProvider: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-z0-9/-]+$/))),
   /** Provider endpoint base URL. */
   endpoint: Schema.String.check(
     Schema.isPattern(/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1|[a-z0-9.-]+\.test)(:|\/)/),
@@ -41,8 +44,11 @@ export const ModelConfigurationRecord = Schema.Struct({
   }),
   cost: Schema.optionalKey(Schema.Array(Model.Cost)),
   compaction: Schema.optionalKey(Provider.Compaction),
-  // Provider-specific request settings are added with real-provider validation; a record
-  // must not carry fields the runner silently ignores.
+  generation: Schema.optionalKey(
+    Schema.Struct({
+      maxTokens: Schema.Int.check(Schema.isGreaterThan(0)),
+    }),
+  ),
 })
 export type ModelConfigurationRecord = typeof ModelConfigurationRecord.Type
 
@@ -52,7 +58,9 @@ export const ModelConfigurations = Schema.Struct({
 })
 export type ModelConfigurations = typeof ModelConfigurations.Type
 
-const decodeConfigurations = Schema.decodeUnknownSync(ModelConfigurations)
+const decodeConfigurations = Schema.decodeUnknownSync(ModelConfigurations, {
+  onExcessProperty: "error",
+})
 
 export class ModelConfigurationError extends Error {
   override readonly name = "ModelConfigurationError"
@@ -68,13 +76,29 @@ export const parseModelConfigurations = (raw: string | undefined): ModelConfigur
   let parsed: ModelConfigurations
   try {
     parsed = decodeConfigurations(JSON.parse(raw))
-  } catch (cause) {
+  } catch {
     throw new ModelConfigurationError(
-      `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS is invalid: ${cause instanceof Error ? cause.message : String(cause)}`,
+      "JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS is invalid. Check the documented schema; use secret binding names, never credential values.",
     )
   }
   const ids = new Set<string>()
   for (const record of parsed.records) {
+    if ((record.route === "openrouter") !== (record.upstreamProvider !== undefined))
+      throw new ModelConfigurationError(
+        "OpenRouter records require an upstreamProvider; other routes must omit it",
+      )
+    let endpoint: URL
+    try {
+      endpoint = new URL(record.endpoint)
+    } catch {
+      throw new ModelConfigurationError("Model endpoint must be an absolute URL")
+    }
+    if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
+      throw new ModelConfigurationError(
+        "Model endpoints must not contain credentials, query strings or fragments",
+      )
+    if (record.generation !== undefined && record.generation.maxTokens > record.limit.output)
+      throw new ModelConfigurationError(`Output setting exceeds the limit for ${record.id}`)
     if (ids.has(record.id))
       throw new ModelConfigurationError(`Duplicate model configuration id ${record.id}`)
     ids.add(record.id)
@@ -104,12 +128,28 @@ const credentialFor = (record: ModelConfigurationRecord, secrets: SecretReader) 
 
 /** Builds the native route model for a record. Secrets resolve lazily per request. */
 export const languageModelFor = (record: ModelConfigurationRecord, secrets: SecretReader) => {
-  const route = OpenAIChat.route.with({
+  const route = (record.route === "openrouter" ? OpenRouter.route : OpenAIChat.route).with({
     provider: record.provider,
     endpoint: { baseURL: record.endpoint },
     auth: Auth.bearer(credentialFor(record, secrets)),
   })
-  return route.model({ id: record.apiModelId })
+  return route.model({
+    id: record.apiModelId,
+    defaults: {
+      ...(record.generation === undefined ? {} : { generation: record.generation }),
+      ...(record.upstreamProvider === undefined
+        ? {}
+        : {
+            providerOptions: {
+              provider: {
+                only: [record.upstreamProvider],
+                allow_fallbacks: false,
+                require_parameters: true,
+              },
+            },
+          }),
+    },
+  })
 }
 
 export const resolvedFor = (
@@ -159,6 +199,31 @@ export const resolverLayer = (
 
 export const DEFAULT_MODEL_INACTIVITY = Duration.minutes(5)
 
+/** Remove echoed bearer credentials before native errors or events can persist them. */
+export const withCredentialRedaction = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
+  HttpClient.make((request) => {
+    const credential = request.headers.authorization?.replace(/^Bearer /i, "")
+    if (!credential) return client.execute(request)
+    const redact = (text: string) =>
+      text
+        .replaceAll(JSON.stringify(credential).slice(1, -1), "[REDACTED]")
+        .replaceAll(credential, "[REDACTED]")
+    return client.execute(request).pipe(
+      Effect.map((response) =>
+        Object.create(response, {
+          text: { value: response.text.pipe(Effect.map(redact)) },
+          stream: {
+            value: response.stream.pipe(
+              Stream.decodeText(),
+              Stream.splitLines,
+              Stream.map((line) => new TextEncoder().encode(redact(line) + "\n")),
+            ),
+          },
+        }),
+      ),
+    )
+  })
+
 /**
  * Applies the model-response inactivity deadline at the HTTP boundary: the wait
  * for response headers and every gap in the body stream. Native transport error
@@ -183,25 +248,33 @@ export const withInactivityDeadline = (
             }),
           ),
       }),
-      Effect.map((response) =>
-        Object.create(response, {
-          stream: {
-            value: response.stream.pipe(
-              Stream.timeoutOrElse({
-                duration: deadline,
-                orElse: () =>
-                  Stream.fail(
-                    new HttpClientError.HttpClientError({
-                      reason: new HttpClientError.TransportError({
-                        request,
-                        cause: new Error(`Model response stalled for ${Duration.format(deadline)}`),
-                      }),
-                    }),
-                  ),
-              }),
+      Effect.map((response) => {
+        const stream = response.stream.pipe(
+          Stream.timeoutOrElse({
+            duration: deadline,
+            orElse: () =>
+              Stream.fail(
+                new HttpClientError.HttpClientError({
+                  reason: new HttpClientError.TransportError({
+                    request,
+                    cause: new Error(`Model response stalled for ${Duration.format(deadline)}`),
+                  }),
+                }),
+              ),
+          }),
+        )
+        return Object.create(response, {
+          stream: { value: stream },
+          // Native HTTP failures read text rather than SSE. They must use the
+          // same byte-level inactivity timer as successful response streams.
+          text: {
+            value: stream.pipe(
+              Stream.decodeText(),
+              Stream.runCollect,
+              Effect.map((chunks) => chunks.join("")),
             ),
           },
-        }),
-      ),
+        })
+      }),
     ),
   )
