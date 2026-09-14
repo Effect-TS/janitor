@@ -934,11 +934,11 @@ export const view = Submodel.defineView<
   const filtered = model.search || model.target !== "all"
   const newest = model.entries[0]
   const toolbar = h.div(
-    [h.Class("flex shrink-0 flex-wrap items-center gap-3")],
+    [h.Class("flex shrink-0 flex-wrap items-center gap-3 lg:flex-nowrap")],
     [
       h.form(
         [
-          h.Class("w-full max-w-80 min-w-40 shrink"),
+          h.Class("w-full max-w-80 min-w-40 shrink lg:w-80"),
           h.OnSubmit(Message.ChangedSearch({ value: model.search })),
         ],
         [

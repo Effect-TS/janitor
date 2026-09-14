@@ -1177,6 +1177,9 @@
   display: flex;
   min-width: 0;
   flex: 1;
+  /* Content never widens the shell: an input's intrinsic width or a wide
+     table scrolls inside its card instead of pushing the inspector out. */
+  contain: inline-size;
   flex-direction: column;
   gap: 24px;
   padding: 24px;
