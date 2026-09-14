@@ -31,11 +31,6 @@ export const AppRoute = Route.defineRouteUnion({
   Sessions: {},
   Session: { sessionId: Schema.String },
   DesignSystem: {},
-  /** PROTOTYPE (throwaway): identity mockups, switchable with ?variant=. */
-  Prototype: {
-    variant: Schema.optionalKey(Schema.String),
-    screen: Schema.optionalKey(Schema.String),
-  },
   Account: { section: AccountSection },
   AccountReturn: {
     platform: Schema.String,
@@ -119,18 +114,6 @@ export const settings = pipe(
 export const sessions = pipe(Route.literal("sessions"), Route.mapTo(AppRoute.Sessions))
 /** Every primitive in every state, in both themes. A deliverable, not a page users visit. */
 export const designSystem = pipe(Route.literal("design-system"), Route.mapTo(AppRoute.DesignSystem))
-// PROTOTYPE (throwaway): /prototype/identity?variant=A|B|C. Remove with the prototype.
-export const prototype = pipe(
-  Route.literal("prototype"),
-  Route.slash(Route.literal("identity")),
-  Route.query(
-    Schema.Struct({
-      variant: Schema.optionalKey(Schema.String),
-      screen: Schema.optionalKey(Schema.String),
-    }),
-  ),
-  Route.mapTo(AppRoute.Prototype),
-)
 export const session = pipe(
   Route.literal("sessions"),
   Route.slash(idSegment("sessionId")),
@@ -193,7 +176,6 @@ export const parse = Route.parseUrlWithFallback(
     session,
     sessions,
     designSystem,
-    prototype,
     accountReturn,
     account,
   ),
@@ -216,7 +198,6 @@ export const path = (route: AppRoute): string =>
     Sessions: sessions,
     Session: session,
     DesignSystem: designSystem,
-    Prototype: prototype,
     Account: account,
     AccountReturn: accountReturn,
     NotFound: ({ path }) => path,

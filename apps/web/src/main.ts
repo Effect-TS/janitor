@@ -3,7 +3,6 @@ import * as Connections from "@/components/repository-connections"
 import * as Account from "@/components/account"
 import * as Sessions from "@/components/sessions"
 import * as DesignSystem from "@/components/design-system"
-import * as PrototypeIdentity from "@/components/prototype-identity"
 import * as Overlay from "@/components/ui/overlay"
 import { buttonBase, buttonSizes, buttonVariants } from "@/components/ui/button"
 import * as Effect from "effect/Effect"
@@ -1189,38 +1188,35 @@ const breadcrumb = (h: HtmlBuilder<Message>, model: Model): Html => {
                 ? [leaf("Design system")]
                 : route._tag === "NotFound"
                   ? [leaf("Page not found")]
-                  : route._tag === "Prototype"
-                    ? [leaf("Prototype")]
-                    : route._tag === "Rule"
-                      ? sectionCrumbs("Rules", [
-                          leaf(
-                            Option.map(configuration, (view) =>
-                              labelName(
-                                view.labels,
-                                view.rules.find((rule) => rule.id === route.ruleId)?.labelId ?? "",
-                              ),
-                            ).pipe(Option.getOrElse(() => "Rule")),
-                            true,
-                          ),
-                        ])
-                      : route._tag === "NewRule"
-                        ? sectionCrumbs("Rules", [leaf("New rule")])
-                        : route._tag === "Policy"
-                          ? sectionCrumbs("Policies", [
-                              leaf(
-                                Option.map(
-                                  configuration,
-                                  (view) =>
-                                    view.policies.find(
-                                      (policy) => policy.policyId === route.policyId,
-                                    )?.name ?? "Policy",
-                                ).pipe(Option.getOrElse(() => "Policy")),
-                                true,
-                              ),
-                            ])
-                          : route._tag === "NewPolicy"
-                            ? sectionCrumbs("Policies", [leaf("New policy")])
-                            : [leaf(Routes.section(route))]
+                  : route._tag === "Rule"
+                    ? sectionCrumbs("Rules", [
+                        leaf(
+                          Option.map(configuration, (view) =>
+                            labelName(
+                              view.labels,
+                              view.rules.find((rule) => rule.id === route.ruleId)?.labelId ?? "",
+                            ),
+                          ).pipe(Option.getOrElse(() => "Rule")),
+                          true,
+                        ),
+                      ])
+                    : route._tag === "NewRule"
+                      ? sectionCrumbs("Rules", [leaf("New rule")])
+                      : route._tag === "Policy"
+                        ? sectionCrumbs("Policies", [
+                            leaf(
+                              Option.map(
+                                configuration,
+                                (view) =>
+                                  view.policies.find((policy) => policy.policyId === route.policyId)
+                                    ?.name ?? "Policy",
+                              ).pipe(Option.getOrElse(() => "Policy")),
+                              true,
+                            ),
+                          ])
+                        : route._tag === "NewPolicy"
+                          ? sectionCrumbs("Policies", [leaf("New policy")])
+                          : [leaf(Routes.section(route))]
   const crumbs =
     route._tag === "Home" || route._tag === "NotFound" || route._tag === "DesignSystem"
       ? tail
@@ -1365,8 +1361,6 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   if (isAccountRoute(route)) return accountView(h, model)
   if (isSessionsRoute(route)) return sessionsView(h, model)
   if (route._tag === "DesignSystem") return DesignSystem.view(h, { noop: Message.NoOp() })
-  // PROTOTYPE (throwaway): rendered without the shell in `view`; never reached.
-  if (route._tag === "Prototype") return h.div([], [])
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
   if (route._tag === "NotFound")
@@ -1504,20 +1498,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   })
 }
 
-export const view = (model: Model, h: HtmlBuilder<Message>): Document =>
-  // PROTOTYPE (throwaway): identity mockups render without the app shell,
-  // because the shell itself is what the mockups reconsider.
-  model.navigation.route._tag === "Prototype" && import.meta.env.DEV
-    ? {
-        title: "Identity prototype · The Janitor",
-        body: PrototypeIdentity.view(h, {
-          variant: model.navigation.route.variant,
-          screen: model.navigation.route.screen,
-        }),
-      }
-    : shellView(model, h)
-
-const shellView = (model: Model, h: HtmlBuilder<Message>): Document => ({
+export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isSessionsRoute(model.navigation.route) ? "Sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "DesignSystem" ? "Design system" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
