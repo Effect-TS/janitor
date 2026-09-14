@@ -14,6 +14,8 @@ Primary provider documentation checked on 2026-09-13:
 
 The record pins the Groq upstream through OpenRouter with `only: ["groq"]`, `allow_fallbacks: false` and `require_parameters: true`. The endpoint metadata reports 131,072 context tokens, 117,964 maximum completion tokens and tool support for that upstream. Other upstreams have different limits; changing upstream requires a new configuration ID. Authentication and billing go through OpenRouter; no Groq key is required. The original direct-Groq record remains available unchanged.
 
+The pinned SDK's OpenRouter serializer inherits OpenAI-specific request fields. The runner adapts its serialized body to send `max_tokens` and omit `store` and `prompt_cache_key`, which the selected endpoint does not advertise. Strict parameter matching remains enabled. The HTTP transport test checks the actual outgoing body for initial turns, tool continuations and local compaction.
+
 Provider documentation establishes advertised support. It does not prove the pinned native transport works with the account or model. The live check is still a release prerequisite.
 
 ## Limits and compaction
