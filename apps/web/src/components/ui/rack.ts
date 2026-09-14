@@ -19,7 +19,7 @@ export type RackConfig<M> = {
 }
 
 export const rackItemClass =
-  "flex h-6.5 items-center border-l-2 border-transparent px-2 text-body-sm text-foreground no-underline transition-colors duration-120 ease-ui hover:bg-surface-muted hover:no-underline aria-[current=page]:border-primary aria-[current=page]:bg-primary-wash aria-[current=page]:font-semibold data-[variant=danger]:text-destructive"
+  "flex h-9 items-center rounded-md px-2.5 text-body-md text-foreground no-underline transition-colors duration-120 ease-ui hover:bg-surface-muted hover:no-underline aria-[current=page]:bg-primary-wash aria-[current=page]:font-medium data-[variant=danger]:text-destructive"
 
 export const rack = <M>(h: HtmlBuilder<M>, config: RackConfig<M>): Html =>
   h.nav(

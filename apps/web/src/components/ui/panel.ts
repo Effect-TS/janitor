@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 
 /** Card: surface, 1px border, 5px radius, no shadow. `flush` drops the
  *  padding so row lists and tables run edge to edge. Cards do not nest. */
-export const panelClass = "rounded-sm border border-border bg-card text-card-foreground"
+export const panelClass = "rounded-md border border-border bg-card text-card-foreground"
 
 export type PanelConfig<M> = {
   readonly flush?: boolean
@@ -38,7 +38,7 @@ export const panelHeader = <M>(h: HtmlBuilder<M>, config: PanelHeaderConfig<M>):
     [
       h.Class(
         cn(
-          "flex min-h-8 items-center gap-2 border-b border-border bg-surface-muted px-3 py-1.5",
+          "flex min-h-12 items-center gap-3 border-b border-border bg-surface-muted px-4 py-2",
           config.className,
         ),
       ),
@@ -60,7 +60,7 @@ export const panelHeader = <M>(h: HtmlBuilder<M>, config: PanelHeaderConfig<M>):
           ]),
       ...(config.actions === undefined
         ? []
-        : [h.div([h.Class("ml-auto flex shrink-0 items-center gap-1.5")], config.actions)]),
+        : [h.div([h.Class("ml-auto flex shrink-0 items-center gap-2")], config.actions)]),
     ],
   )
 

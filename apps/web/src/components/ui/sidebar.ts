@@ -31,7 +31,7 @@ export const SIDEBAR_WIDTH = "var(--spacing-sidebar)"
 
 export const SIDEBAR_WIDTH_MOBILE = "18rem"
 
-export const SIDEBAR_WIDTH_ICON = "3rem"
+export const SIDEBAR_WIDTH_ICON = "3.5rem"
 
 export const SIDEBAR_MOBILE_MEDIA_QUERY = "(max-width: 767px)"
 
@@ -389,7 +389,7 @@ export type HeaderConfig = StyleConfig & {
   readonly children: ReadonlyArray<Child>
 }
 
-export const sidebarHeaderClass = "flex flex-col gap-2 p-2"
+export const sidebarHeaderClass = "flex flex-col gap-2 p-3"
 
 export const header = <M>(h: HtmlBuilder<M>, config: HeaderConfig): Html =>
   h.div(
@@ -422,7 +422,7 @@ export type FooterConfig = StyleConfig & {
   readonly children: ReadonlyArray<Child>
 }
 
-export const sidebarFooterClass = "flex flex-col gap-2 p-2"
+export const sidebarFooterClass = "flex flex-col gap-2 p-3"
 
 export const footer = <M>(h: HtmlBuilder<M>, config: FooterConfig): Html =>
   h.div(
@@ -438,7 +438,7 @@ export type GroupConfig = StyleConfig & {
   readonly children: ReadonlyArray<Child>
 }
 
-export const sidebarGroupClass = "p-2 relative flex w-full min-w-0 flex-col"
+export const sidebarGroupClass = "p-3 relative flex w-full min-w-0 flex-col"
 
 export const group = <M>(h: HtmlBuilder<M>, config: GroupConfig): Html =>
   h.div(
@@ -455,7 +455,7 @@ export type GroupLabelConfig = StyleConfig & {
 }
 
 export const sidebarGroupLabelClass =
-  "text-muted-foreground ring-sidebar-ring h-6 rounded-none px-2 text-caption font-medium transition-[margin,opacity] duration-120 ease-ui group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 focus-visible:ring-2 [&>svg]:size-4 flex shrink-0 items-center [&>svg]:shrink-0"
+  "text-muted-foreground ring-sidebar-ring h-8 rounded-none px-2.5 text-caption font-medium transition-[margin,opacity] duration-120 ease-ui group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0 focus-visible:ring-2 [&>svg]:size-4 flex shrink-0 items-center [&>svg]:shrink-0"
 
 export const groupLabel = <M>(h: HtmlBuilder<M>, config: GroupLabelConfig): Html =>
   h.div(
@@ -491,7 +491,7 @@ export type GroupContentConfig = StyleConfig & {
   readonly children: ReadonlyArray<Child>
 }
 
-export const sidebarGroupContentClass = "w-full text-body-sm"
+export const sidebarGroupContentClass = "w-full text-body-md"
 
 export const groupContent = <M>(h: HtmlBuilder<M>, config: GroupContentConfig): Html =>
   h.div(
@@ -507,7 +507,7 @@ export type MenuConfig = StyleConfig & {
   readonly children: ReadonlyArray<Child>
 }
 
-export const sidebarMenuClass = "flex w-full min-w-0 flex-col gap-0.5"
+export const sidebarMenuClass = "flex w-full min-w-0 flex-col gap-1"
 
 export const menu = <M>(h: HtmlBuilder<M>, config: MenuConfig): Html =>
   h.div(
@@ -548,17 +548,17 @@ export type MenuButtonConfig<M> = StyleConfig & {
 }
 
 export const sidebarMenuButtonClass =
-  "ring-sidebar-ring hover:bg-surface-muted active:bg-sidebar-accent data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground data-active:border-primary data-open:hover:bg-surface-muted gap-2 rounded-none border-l-2 border-transparent px-2 text-left text-body-sm font-normal transition-colors duration-120 ease-ui group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-7! group-data-[collapsible=icon]:p-1.5! focus-visible:ring-2 data-active:font-semibold peer/menu-button group/menu-button flex w-full items-center overflow-hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0 [&>span:last-child]:truncate cursor-pointer"
+  "ring-sidebar-ring hover:bg-surface-muted active:bg-sidebar-accent data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground data-open:hover:bg-surface-muted gap-2.5 rounded-md px-2.5 text-left text-body-md font-normal transition-colors duration-120 ease-ui group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-2.5! focus-visible:ring-2 data-active:font-medium peer/menu-button group/menu-button flex w-full items-center overflow-hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate cursor-pointer"
 
 export const sidebarMenuButtonVariantClass = {
   default: "",
-  outline: "border border-sidebar-border bg-card rounded-sm",
+  outline: "border border-sidebar-border bg-card rounded-md",
 } as const satisfies Record<MenuButtonVariant, string>
 
 export const sidebarMenuButtonSizeClass = {
-  default: "h-6.5 text-body-sm",
-  sm: "h-6 text-caption",
-  lg: "h-10 text-body-sm group-data-[collapsible=icon]:p-0!",
+  default: "h-9 text-body-md",
+  sm: "h-8 text-body-sm",
+  lg: "h-12 text-body-md group-data-[collapsible=icon]:p-0!",
 } as const satisfies Record<MenuButtonSize, string>
 
 export const menuButton = <M>(h: HtmlBuilder<M>, config: MenuButtonConfig<M>): Html => {
@@ -620,7 +620,7 @@ export type MenuBadgeConfig = StyleConfig & {
 }
 
 export const sidebarMenuBadgeClass =
-  "text-ink-subtle pointer-events-none absolute right-2 h-5 min-w-5 px-0.5 font-mono text-mono-xs font-medium peer-data-[size=default]/menu-button:top-0.75 peer-data-[size=lg]/menu-button:top-2.5 peer-data-[size=sm]/menu-button:top-0.5 flex items-center justify-end tabular-nums select-none group-data-[collapsible=icon]:hidden"
+  "text-ink-subtle pointer-events-none absolute right-2.5 h-5 min-w-5 px-0.5 font-mono text-mono-xs font-medium peer-data-[size=default]/menu-button:top-2 peer-data-[size=lg]/menu-button:top-3.5 peer-data-[size=sm]/menu-button:top-1.5 flex items-center justify-end tabular-nums select-none group-data-[collapsible=icon]:hidden"
 
 export const menuBadge = <M>(h: HtmlBuilder<M>, config: MenuBadgeConfig): Html =>
   h.div(
@@ -636,7 +636,7 @@ export type MenuSkeletonConfig = StyleConfig & {
   readonly showIcon?: boolean
 }
 
-export const sidebarMenuSkeletonClass = "h-6.5 gap-2 px-2 flex items-center"
+export const sidebarMenuSkeletonClass = "h-9 gap-2.5 px-2.5 flex items-center"
 
 export const menuSkeleton = <M>(h: HtmlBuilder<M>, config: MenuSkeletonConfig): Html => {
   return h.div(
@@ -729,7 +729,7 @@ export const input = <M>(h: HtmlBuilder<M>, config: InputConfig<M>): Html =>
     ...config.attributes,
     h.DataAttribute("slot", "sidebar-input"),
     h.DataAttribute("sidebar", "input"),
-    h.Class(cn(inputClass, "h-7 w-full", config.className)),
+    h.Class(cn(inputClass, "h-8 w-full", config.className)),
   ])
 
 export type SeparatorConfig = StyleConfig
@@ -767,7 +767,7 @@ export type TriggerConfig<M> = StyleConfig & {
 }
 
 export const sidebarTriggerClass =
-  "inline-flex size-7 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-sm border border-border bg-card text-foreground text-label font-medium cursor-pointer transition-colors duration-120 ease-ui hover:bg-surface-muted disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
+  "inline-flex size-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border bg-card text-foreground text-label font-medium cursor-pointer transition-colors duration-120 ease-ui hover:bg-surface-muted disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
 
 export const trigger = <M>(h: HtmlBuilder<M>, config: TriggerConfig<M>): Html =>
   h.button(

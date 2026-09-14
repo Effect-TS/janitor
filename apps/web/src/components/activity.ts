@@ -24,11 +24,23 @@ import * as Button from "./ui/button"
 import { chip } from "./ui/chip"
 import * as Feed from "./ui/feed"
 import { inputGroup, inputGroupAddon, inputGroupInput } from "./ui/input-group"
-import { emptyPanel } from "./ui/panel"
+import * as Page from "./ui/page"
 import * as Select from "./ui/select"
+import * as Table from "./ui/table"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
-import { Check, ChevronDown, ChevronRight, CircleAlert, CircleHelp, Clock, Search } from "lucide"
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  CircleDot,
+  CircleHelp,
+  Clock,
+  GitPullRequest,
+  RotateCw,
+  Search,
+} from "lucide"
 import * as Routes from "@/routes"
 
 const Mode = Schema.Literals(["journal", "grouped"])
@@ -64,6 +76,7 @@ export const Message = defineMessageUnion({
   Polled: {},
   ClickedMore: {},
   ClickedRetry: {},
+  ClickedRefresh: {},
   ClickedNew: {},
   Loaded: { generation: Schema.Int, older: Schema.Boolean, page: ActivityPage },
   Failed: { generation: Schema.Int, reason: Schema.String },
@@ -89,8 +102,8 @@ export const init = (): Model => ({
   generation: 0,
   expanded: [],
   expandedGroups: [],
-  journal: VirtualList.init({ id: "activity-journal", rowHeightPx: 32 }),
-  grouped: VirtualList.init({ id: "activity-grouped", rowHeightPx: 32 }),
+  journal: VirtualList.init({ id: "activity-journal", rowHeightPx: 44 }),
+  grouped: VirtualList.init({ id: "activity-grouped", rowHeightPx: 44 }),
 })
 export const FetchPage = Command.define("FetchActivity", {
   args: {
@@ -192,7 +205,29 @@ export const rows = (model: Model): ReadonlyArray<Row> => {
     ...(model.expandedGroups.includes(number) ? entries.map(event) : []),
   ])
 }
-export const rowHeight = (row: Row) => (row.kind === "group" ? 28 : row.expanded ? 420 : 32)
+/** Every rule the run touched: planned, evaluated, or acted on. */
+export const ruleIds = (entry: ActivityEntry): ReadonlyArray<string> => [
+  ...new Set([
+    ...(entry.plan?.rules.map((rule) => rule.ruleId) ?? []),
+    ...(entry.evaluations?.map((rule) => rule.ruleId) ?? []),
+    ...entry.actions.map((action) => action.ruleId),
+  ]),
+]
+/** Fixed row heights for the virtual list. A run row is a 24px line inside
+ *  12px padding plus its hairline; an open run adds the evaluation table:
+ *  8px gap, 32px head, 36px per rule (or one 20px note when no rule ran). */
+export const SUBJECT_ROW = 44
+export const RUN_ROW = 49
+export const TABLE_HEAD = 40
+export const TABLE_RULE = 36
+export const rowHeight = (row: Row) =>
+  row.kind === "group"
+    ? SUBJECT_ROW
+    : !row.expanded
+      ? RUN_ROW
+      : ruleIds(row.entry).length === 0
+        ? RUN_ROW + 28
+        : RUN_ROW + TABLE_HEAD + TABLE_RULE * ruleIds(row.entry).length
 const scrollTop = (model: Model): Return => {
   const result = VirtualList.scrollToIndexVariable(model[model.mode], rows(model), rowHeight, 0)
   return {
@@ -243,6 +278,7 @@ export const update = (model: Model, message: Message): Return =>
     Polled: () => (model.error || model.searchPending ? { model } : fetchPage(model)),
     ClickedMore: () => fetchPage(model, true),
     ClickedRetry: () => fetchPage(model, model.loadingOlder),
+    ClickedRefresh: () => fetchPage({ ...model, error: null }),
     Loaded: ({ generation, older, page }) => {
       if (generation !== model.generation || !model.active) return { model }
       const next = { ...model, loading: false, initialized: true, error: null }
@@ -296,14 +332,25 @@ export const update = (model: Model, message: Message): Return =>
           : [...model.expanded, id],
       },
     }),
-    ToggledGroup: ({ number }) => ({
-      model: {
-        ...model,
-        expandedGroups: model.expandedGroups.includes(number)
-          ? model.expandedGroups.filter((value) => value !== number)
-          : [...model.expandedGroups, number],
-      },
-    }),
+    ToggledGroup: ({ number }) => {
+      if (model.expandedGroups.includes(number))
+        return {
+          model: {
+            ...model,
+            expandedGroups: model.expandedGroups.filter((value) => value !== number),
+          },
+        }
+      // Opening a subject also opens its newest run so the table is one click away.
+      const newest = model.entries.find((entry) => entry.number === number)
+      const opened = newest && ruleIds(newest).length > 0 ? [newest.id] : []
+      return {
+        model: {
+          ...model,
+          expandedGroups: [...model.expandedGroups, number],
+          expanded: [...model.expanded.filter((id) => !opened.includes(id)), ...opened],
+        },
+      }
+    },
     GotList: ({ mode, message }) => {
       const result = VirtualList.update(model[mode], message)
       return {
@@ -386,205 +433,298 @@ export const outcome = (
     }
   return { label: "No label changes", tone: "text-ink-muted", icon: Check }
 }
+const failed = (entry: ActivityEntry) => outcome(entry).tone === "text-destructive"
+/** "1 change applied · 1 change failed", or "no label changes". */
+const changes = (entry: ActivityEntry): string => {
+  const count = (status: ActivityEntry["actions"][number]["status"], word: string) => {
+    const n = entry.actions.filter((action) => action.status === status).length
+    return n === 0 ? [] : [`${n} ${n === 1 ? "change" : "changes"} ${word}`]
+  }
+  const parts = [
+    ...count("applied", "applied"),
+    ...count("failed", "failed"),
+    ...count("planned", "pending"),
+  ]
+  return parts.length === 0 ? "no label changes" : parts.join(" · ")
+}
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 const stamp = (entry: ActivityEntry) =>
   DateTime.formatUtc(entry.createdAt, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }) + " UTC"
+const clock = (at: DateTime.Utc) =>
+  DateTime.formatUtc(at, { hour: "2-digit", minute: "2-digit", hour12: false })
+const started = (at: DateTime.Utc) =>
+  DateTime.formatIso(at)
+    .replace("T", " ")
+    .replace(/\.\d+Z$/, "Z")
 const isHex = (color: string | null | undefined): color is string =>
   color !== null && color !== undefined && /^[0-9a-f]{6}$/i.test(color)
 /** GitHub label colour as a 6px dot inside a neutral chip; never a fill. */
 const labelDot = (h: HtmlBuilder<Message>, color: string | null | undefined) =>
   h.span(
     [
-      h.Class(cn("size-1.5 rounded-full", isHex(color) ? "" : "bg-ink-faint")),
+      h.Class(cn("size-1.5 shrink-0 rounded-full", isHex(color) ? "" : "bg-ink-faint")),
       ...(isHex(color) ? [h.Style({ backgroundColor: `#${color}` })] : []),
       h.AriaHidden(true),
     ],
     [],
   )
-const label = (h: HtmlBuilder<Message>, action: ActivityEntry["actions"][number]) =>
-  chip(h, { children: [labelDot(h, action.color), action.name ?? `Label ${action.labelId}`] })
-const subjectRef = (h: HtmlBuilder<Message>, entry: ActivityEntry) =>
-  h.span([h.Class("font-mono text-primary")], [`#${entry.number}`])
-/** One feed line: what The Janitor did to the subject. */
-const feedBody = (h: HtmlBuilder<Message>, entry: ActivityEntry): ReadonlyArray<Html | string> => {
-  const subject: ReadonlyArray<Html | string> = [
-    subjectRef(h, entry),
-    ...(entry.title ? [" (", entry.title, ")"] : []),
-  ]
-  const list = (actions: ReadonlyArray<ActivityEntry["actions"][number]>) =>
-    actions.flatMap((action, index) => [index === 0 ? "" : " ", label(h, action)])
-  const applied = entry.actions.filter((action) => action.status === "applied")
-  const failed = entry.actions.filter((action) => action.status === "failed")
-  const planned = entry.actions.filter((action) => action.status === "planned")
-  if (applied.length > 0) {
-    const added = applied.filter((action) => action.action === "add")
-    const removed = applied.filter((action) => action.action === "remove")
-    return [
-      ...(added.length > 0 ? ["added ", ...list(added)] : []),
-      ...(added.length > 0 && removed.length > 0 ? [" and "] : []),
-      ...(removed.length > 0 ? ["removed ", ...list(removed)] : []),
-      ...(failed.length > 0 ? [", could not update ", ...list(failed)] : []),
-      " on ",
-      ...subject,
-    ]
-  }
-  if (failed.length > 0) return ["could not update ", ...list(failed), " on ", ...subject]
-  if (planned.length > 0) return ["is updating ", ...list(planned), " on ", ...subject]
-  return ["evaluated ", ...subject]
-}
-const decisionChip = (
+const labelChip = (
   h: HtmlBuilder<Message>,
-  result: string | undefined,
-  skipped: boolean | undefined,
-) => {
-  const status = skipped
-    ? "Skipped by gate"
-    : result === "match"
-      ? "Matched"
-      : result === "no-match"
-        ? "No match"
-        : result === "failed"
-          ? "Evaluation failed"
-          : result === "unknown"
-            ? "Undecided"
-            : "Pending"
-  const icon = skipped
-    ? null
-    : result === "match"
-      ? Check
-      : result === "unknown"
-        ? CircleHelp
-        : result === "failed"
-          ? CircleAlert
-          : result === "no-match"
-            ? null
-            : Clock
+  name: string,
+  color: string | null | undefined,
+  gone = false,
+) =>
+  chip(h, {
+    className: cn(gone && "line-through text-ink-subtle"),
+    children: [labelDot(h, color), name],
+  })
+type Outcome = "match" | "no match" | "failed" | "pending" | "undecided" | "skipped" | "—"
+const outcomeChip = (h: HtmlBuilder<Message>, text: string) => {
+  const strong = text === "match" || text === "applied" || text === "failed"
   return chip(h, {
-    variant: result === "failed" && !skipped ? "danger" : "neutral",
-    className: "shrink-0",
-    children: [...(icon ? [Icon.view(h, icon, "size-3 shrink-0")] : []), status],
+    variant: text === "failed" ? "danger" : strong ? "success" : "neutral",
+    className: cn(!strong && "text-ink-muted"),
+    children: [text],
   })
 }
-const evaluationCards = (
+const githubUrl = (repository: RepositoryOverview | undefined, entry: ActivityEntry) =>
+  repository
+    ? `https://github.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/${entry.kind === "pull_request" ? "pull" : "issues"}/${entry.number}`
+    : null
+/** Mono `#42` in primary; a GitHub link when the repository is known. Sits
+ *  above the row's overlay button (see `overlay`). */
+const subjectLink = (
+  h: HtmlBuilder<Message>,
+  repository: RepositoryOverview | undefined,
+  entry: ActivityEntry,
+) => {
+  const href = githubUrl(repository, entry)
+  return href === null
+    ? h.span([h.Class("shrink-0 font-mono text-mono-sm text-primary")], [`#${entry.number}`])
+    : h.a(
+        [
+          h.Href(href),
+          h.Target("_blank"),
+          h.Rel("noopener noreferrer"),
+          h.Class("relative z-10 shrink-0 font-mono text-mono-sm text-primary hover:underline"),
+        ],
+        [`#${entry.number}`],
+      )
+}
+/** The row's click target: a button covering the row so links inside stay
+ *  real links. Place it last in the row and mark links `relative z-10`. */
+const overlay = (h: HtmlBuilder<Message>, label: string, expanded: boolean, message: Message) =>
+  h.button(
+    [
+      h.Type("button"),
+      h.Class(
+        "absolute inset-0 cursor-pointer rounded-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+      ),
+      h.AriaLabel(label),
+      h.AriaExpanded(expanded),
+      h.OnClick(message),
+    ],
+    [],
+  )
+const kindIcon = (h: HtmlBuilder<Message>, kind: ActivityEntry["kind"]) =>
+  Icon.view(
+    h,
+    kind === "pull_request" ? GitPullRequest : CircleDot,
+    "size-4 shrink-0 text-ink-subtle",
+  )
+type RuleLine = {
+  readonly id: string
+  readonly name: string
+  readonly color: string | null | undefined
+  readonly gone: boolean
+  readonly linked: boolean
+  readonly result: Outcome
+  readonly reason: string
+  readonly actions: ReadonlyArray<ActivityEntry["actions"][number]>
+}
+const ruleLines = (
+  entry: ActivityEntry,
+  configuration: ConfigurationView | undefined,
+): ReadonlyArray<RuleLine> =>
+  ruleIds(entry).map((id) => {
+    const decision = entry.plan?.rules.find((rule) => rule.ruleId === id)
+    const evaluation = entry.evaluations?.find((rule) => rule.ruleId === id)
+    const actions = entry.actions.filter((action) => action.ruleId === id)
+    const rule = configuration?.rules.find((rule) => rule.id === id)
+    const labelId = rule?.labelId ?? actions[0]?.labelId
+    const currentLabel = configuration?.labels.find((label) => label.labelId === labelId)
+    const skipped = evaluation?.reason.startsWith("Skipped by gate:") === true
+    const raw = decision?.outcome ?? evaluation?.outcome
+    const result: Outcome = skipped
+      ? "skipped"
+      : raw === "match"
+        ? "match"
+        : raw === "no-match"
+          ? "no match"
+          : raw === "failed"
+            ? "failed"
+            : raw === "unknown"
+              ? "undecided"
+              : raw === undefined
+                ? "—"
+                : "pending"
+    return {
+      id,
+      name:
+        currentLabel?.name ??
+        actions.find((action) => action.name)?.name ??
+        `Rule ${id.slice(0, 8)}`,
+      color: currentLabel?.color ?? actions.find((action) => action.color)?.color,
+      gone:
+        configuration !== undefined &&
+        labelId !== undefined &&
+        (currentLabel === undefined || currentLabel.availability === "unavailable"),
+      linked: rule !== undefined,
+      result,
+      reason:
+        evaluation?.reason ??
+        (decision?.requestedAction
+          ? describeResultAction(decision.requestedAction)
+          : rule && !rule.enabled
+            ? "rule disabled"
+            : "—"),
+      actions,
+    }
+  })
+const actionCells = (
+  h: HtmlBuilder<Message>,
+  actions: ReadonlyArray<ActivityEntry["actions"][number]>,
+): ReadonlyArray<Html> =>
+  actions.flatMap((action) => [
+    h.span([h.Class("font-mono text-mono-sm")], [action.action]),
+    outcomeChip(h, action.status === "planned" ? "pending" : action.status),
+  ])
+const ruleCell = (h: HtmlBuilder<Message>, model: Model, line: RuleLine) => {
+  const badge = labelChip(h, line.name, line.color, line.gone)
+  return line.linked
+    ? h.a(
+        [
+          h.Href(Routes.rule({ repositoryId: model.repositoryId, ruleId: line.id })),
+          h.Class("inline-flex max-w-full hover:underline"),
+        ],
+        [badge],
+      )
+    : badge
+}
+const head = (h: HtmlBuilder<Message>, text: string, className?: string) =>
+  Table.headCell(h, { className: cn("h-8 bg-transparent", className), children: [text] })
+const cell = (
+  h: HtmlBuilder<Message>,
+  children: ReadonlyArray<Html | string>,
+  className?: string,
+) => Table.cell(h, { className: cn("h-9 py-0", className), children })
+/** Rule / Outcome / Reason / Action, one row per rule the run touched. */
+const evaluationTable = (
   h: HtmlBuilder<Message>,
   model: Model,
   entry: ActivityEntry,
   configuration: ConfigurationView | undefined,
 ) => {
-  const ids = [
-    ...new Set([
-      ...(entry.plan?.rules.map((rule) => rule.ruleId) ?? []),
-      ...(entry.evaluations?.map((rule) => rule.ruleId) ?? []),
-      ...entry.actions.map((action) => action.ruleId),
-    ]),
-  ]
-  return ids.map((id) => {
-    const decision = entry.plan?.rules.find((rule) => rule.ruleId === id)
-    const evaluation = entry.evaluations?.find((rule) => rule.ruleId === id)
-    const actions = entry.actions.filter((action) => action.ruleId === id)
-    const rule = configuration?.rules.find((rule) => rule.id === id)
-    const currentLabel = configuration?.labels.find((label) => label.labelId === rule?.labelId)
-    const name =
-      currentLabel?.name ?? actions.find((action) => action.name)?.name ?? `Rule ${id.slice(0, 8)}`
-    const color = currentLabel?.color ?? actions.find((action) => action.color)?.color
-    const skipped = evaluation?.reason.startsWith("Skipped by gate:")
-    const result = decision?.outcome ?? evaluation?.outcome
-    return h.div(
-      [h.Class("flex min-w-0 flex-col gap-2 py-2.5"), h.DataAttribute("rule", id)],
-      [
-        h.div(
-          [h.Class("flex flex-wrap items-center gap-2")],
+  const lines = ruleLines(entry, configuration)
+  if (lines.length === 0)
+    return h.p(
+      [h.Class("text-body-sm text-ink-muted leading-5")],
+      [entry.detail ? sentence(entry.detail) : "No rule ran for this revision."],
+    )
+  return Table.table(h, {
+    className: "max-w-[720px]",
+    children: [
+      Table.head(h, [
+        h.tr(
+          [],
           [
-            h.a(
-              [
-                h.Href(Routes.rule({ repositoryId: model.repositoryId, ruleId: id })),
-                h.Class(
-                  "inline-flex min-w-0 max-w-full items-center gap-1.5 font-mono text-mono-sm text-primary hover:underline",
-                ),
-              ],
-              [labelDot(h, color), h.span([h.Class("truncate")], [name])],
-            ),
-            rule
-              ? rule.ai
-                ? chip(h, { variant: "agent", children: ["AI"] })
-                : chip(h, { children: ["policy"] })
-              : h.empty,
-            h.span([h.Class("ml-auto")], [decisionChip(h, result, skipped)]),
+            head(h, "Rule", "min-w-32"),
+            head(h, "Outcome", "min-w-28"),
+            head(h, "Reason", "w-full max-w-0"),
+            head(h, "Action", "min-w-36"),
           ],
         ),
-        rule?.ai && !skipped && evaluation?.reason
-          ? h.div(
-              [h.Class("oc-agent-edge flex flex-col items-start gap-1 pl-2.5")],
-              [
-                Feed.agentBadge(h, "AI"),
-                h.p(
-                  [h.Class("max-w-prose text-body-sm text-ink-muted wrap-anywhere")],
-                  [evaluation.reason],
-                ),
-              ],
-            )
-          : h.empty,
-        decision?.requestedAction
-          ? h.p(
-              [h.Class("text-body-sm text-ink-muted")],
-              [describeResultAction(decision.requestedAction)],
-            )
-          : h.empty,
-        decision?.selected
-          ? h.p([h.Class("text-body-sm text-ink-muted")], ["Selected for the label plan"])
-          : h.empty,
-        ...actions.map((action) =>
-          h.div(
+      ]),
+      Table.body(
+        h,
+        lines.map((line) =>
+          h.tr(
             [
-              h.Class(
-                cn(
-                  "flex flex-wrap items-center gap-1.5 text-body-sm",
-                  action.status === "failed" ? "text-destructive" : "text-ink-muted",
-                ),
-              ),
+              h.Class("border-b border-border-subtle last:border-b-0"),
+              h.DataAttribute("rule", line.id),
             ],
             [
-              Icon.view(
+              cell(h, [ruleCell(h, model, line)]),
+              cell(h, [
+                line.result === "—"
+                  ? h.span([h.Class("text-ink-subtle")], ["—"])
+                  : outcomeChip(h, line.result),
+              ]),
+              cell(
                 h,
-                action.status === "failed"
-                  ? CircleAlert
-                  : action.status === "applied"
-                    ? Check
-                    : Clock,
-                "size-3 shrink-0",
-              ),
-              h.span(
-                [],
                 [
-                  action.status === "applied"
-                    ? action.action === "add"
-                      ? "Label added"
-                      : "Label removed"
-                    : action.status === "failed"
-                      ? action.action === "add"
-                        ? "Could not add label"
-                        : "Could not remove label"
-                      : action.action === "add"
-                        ? "Waiting to add label"
-                        : "Waiting to remove label",
+                  h.span(
+                    [
+                      h.Class("block truncate font-mono text-mono-sm text-ink-muted"),
+                      h.Title(line.reason),
+                    ],
+                    [line.reason],
+                  ),
                 ],
+                "w-full max-w-0",
               ),
-              label(h, action),
-              ...(action.detail
-                ? [h.p([h.Class("basis-full text-ink-muted")], [action.detail])]
-                : []),
+              cell(h, [
+                line.actions.length === 0
+                  ? h.span([h.Class("text-ink-subtle")], ["—"])
+                  : h.span([h.Class("flex items-center gap-2")], actionCells(h, line.actions)),
+              ]),
             ],
           ),
         ),
-      ],
-    )
+      ),
+    ],
   })
 }
-const eventView = (
+/** "The Janitor evaluated revision 7 · 1 change applied", or the one-line
+ *  form for runs that never evaluated. */
+const runLine = (
+  h: HtmlBuilder<Message>,
+  entry: ActivityEntry,
+  repository: RepositoryOverview | undefined,
+  journal: boolean,
+): ReadonlyArray<Html | string> => {
+  const actor = h.span(
+    [h.Class("font-semibold text-agent-ink"), h.DataAttribute("actor", "agent")],
+    [Feed.AGENT_NAME],
+  )
+  const subject = journal ? [subjectLink(h, repository, entry)] : []
+  const word = (text: string) => h.span([], [text])
+  const detail = (text: string) =>
+    h.span([h.Class("min-w-0 truncate text-ink-muted"), h.Title(text)], [text])
+  if (entry.outcome === "evaluated" || entry.outcome === null)
+    return [
+      actor,
+      word(entry.outcome === null ? "is evaluating" : "evaluated"),
+      ...subject,
+      word("revision"),
+      h.span([h.Class("font-mono text-mono-sm")], [String(entry.revision)]),
+      detail(`· ${changes(entry)}`),
+    ]
+  return [
+    actor,
+    word(entry.outcome === "failed" ? "could not evaluate" : "skipped a run"),
+    ...subject,
+    outcomeChip(h, entry.outcome === "not-qualified" ? "not qualified" : entry.outcome),
+    ...(entry.detail ? [detail(sentence(entry.detail))] : []),
+  ]
+}
+const runView = (
   h: HtmlBuilder<Message>,
   model: Model,
   entry: ActivityEntry,
@@ -592,132 +732,199 @@ const eventView = (
   repository: RepositoryOverview | undefined,
   configuration: ConfigurationView | undefined,
 ) => {
-  const result = outcome(entry)
+  const journal = model.mode === "journal"
+  const expandable = ruleIds(entry).length > 0 || entry.detail !== null
   return h.article(
-    [h.Class("h-full border-b border-border-subtle"), h.DataAttribute("slot", "feed-item")],
     [
-      h.button(
-        [
-          h.Class(
-            "activity-event-summary flex h-8 w-full cursor-pointer items-center gap-2.5 px-3 text-left text-body-md transition-colors duration-120 ease-ui hover:bg-surface-muted",
-          ),
-          h.OnClick(Message.ToggledEvent({ id: entry.id })),
-          h.AriaExpanded(expanded),
-        ],
-        [
-          Feed.marker(h, { kind: "agent" }),
-          h.span(
-            [h.Class("min-w-0 flex-1 truncate")],
-            [Feed.actorName(h, { kind: "agent" }), " ", ...feedBody(h, entry)],
-          ),
-          h.span(
-            [
-              h.Class(
-                cn("hidden shrink-0 items-center gap-1 text-body-sm sm:inline-flex", result.tone),
-              ),
-            ],
-            [Icon.view(h, result.icon, "size-3 shrink-0"), result.label],
-          ),
-          h.time(
-            [h.Class("shrink-0 font-mono text-mono-xs text-ink-subtle tabular-nums")],
-            [stamp(entry)],
-          ),
-          Icon.view(h, expanded ? ChevronDown : ChevronRight, "size-3.5 shrink-0 text-ink-subtle"),
-        ],
+      h.Class(
+        cn(
+          "flex h-full items-start gap-3 overflow-hidden border-b border-border-subtle bg-card py-3 pr-4",
+          journal ? "pl-4" : "pl-12",
+        ),
       ),
-      expanded
-        ? h.div(
+      h.DataAttribute("slot", "feed-item"),
+      h.DataAttribute("actor", "agent"),
+    ],
+    [
+      h.span([h.Class("oc-agent-dot mt-2"), h.AriaHidden(true)], []),
+      h.div(
+        [h.Class("flex min-w-0 flex-1 flex-col gap-2")],
+        [
+          h.div(
+            [h.Class("relative flex items-start gap-3")],
             [
-              h.Class("activity-event-details"),
-              h.Tabindex(0),
-              h.AriaLabel(`Evaluation details for #${entry.number}`),
-            ],
-            [
-              h.div(
-                [h.Class("flex items-center justify-between gap-3")],
-                [
-                  h.h3(
-                    [h.Class("text-caption font-medium text-ink-subtle")],
-                    ["Evaluation details"],
-                  ),
-                  repository && entry.kind
-                    ? h.a(
-                        [
-                          h.Href(
-                            `https://github.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/${entry.kind === "issue" ? "issues" : "pull"}/${entry.number}`,
-                          ),
-                          h.Target("_blank"),
-                          h.Rel("noopener noreferrer"),
-                          h.Class("text-body-sm text-primary hover:underline"),
-                        ],
-                        ["Open on GitHub"],
-                      )
-                    : h.empty,
-                ],
-              ),
-              entry.detail
-                ? h.p(
-                    [h.Class("mt-2 text-body-sm text-ink-muted whitespace-pre-wrap")],
-                    [entry.detail],
-                  )
-                : h.empty,
               h.div(
                 [
                   h.Class(
-                    cn(
-                      "mt-2 flex flex-wrap items-center gap-2 rounded-xs bg-surface-muted px-2.5 py-1.5 text-body-sm",
-                      result.tone,
+                    "flex min-h-6 min-w-0 flex-1 items-center gap-x-1.5 text-body-md leading-5 whitespace-nowrap",
+                  ),
+                ],
+                runLine(h, entry, repository, journal),
+              ),
+              h.time(
+                [h.Class("shrink-0 font-mono text-mono-xs leading-6 text-ink-subtle tabular-nums")],
+                [stamp(entry)],
+              ),
+              ...(expandable
+                ? [
+                    overlay(
+                      h,
+                      `Evaluation of #${entry.number} revision ${entry.revision}`,
+                      expanded,
+                      Message.ToggledEvent({ id: entry.id }),
                     ),
-                  ),
-                ],
-                [
-                  Icon.view(h, result.icon, "size-3.5 shrink-0"),
-                  h.span([], [result.label]),
-                  h.span(
-                    [h.Class("ml-auto font-mono text-mono-xs text-ink-subtle tabular-nums")],
-                    [`${entry.plan?.rules.length ?? entry.evaluations?.length ?? 0} rules`],
-                  ),
-                ],
-              ),
-              h.div(
-                [h.Class("flex flex-col divide-y divide-border-subtle")],
-                evaluationCards(h, model, entry, configuration),
-              ),
-              h.p(
-                [h.Class("mt-2 text-caption text-ink-subtle")],
-                [
-                  "Rules revision ",
-                  h.span([h.Class("font-mono tabular-nums")], [String(entry.revision)]),
-                  " · Rule names and types reflect current configuration.",
-                ],
-              ),
+                  ]
+                : []),
             ],
-          )
-        : h.empty,
+          ),
+          expanded ? evaluationTable(h, model, entry, configuration) : h.empty,
+        ],
+      ),
     ],
   )
 }
-const groupView = (h: HtmlBuilder<Message>, model: Model, row: Row & { kind: "group" }) => {
+const subjectView = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  row: Row & { kind: "group" },
+  repository: RepositoryOverview | undefined,
+) => {
   const expanded = model.expandedGroups.includes(row.number)
-  return h.button(
+  const latest = model.entries.find((entry) => entry.number === row.number)
+  return h.div(
     [
       h.Class(
-        "flex h-7 w-full cursor-pointer items-center gap-2 border-b border-border-subtle bg-surface-muted px-3 text-left text-caption text-ink-subtle transition-colors duration-120 ease-ui",
+        cn(
+          "relative flex h-full items-center gap-3 border-b border-border-subtle px-4 transition-colors duration-120 ease-ui",
+          expanded ? "bg-primary-wash" : "hover:bg-surface-muted",
+        ),
       ),
-      h.OnClick(Message.ToggledGroup({ number: row.number })),
-      h.AriaExpanded(expanded),
+      h.DataAttribute("slot", "subject-row"),
     ],
     [
-      Icon.view(h, expanded ? ChevronDown : ChevronRight, "size-3.5 shrink-0"),
-      h.span([h.Class("shrink-0 font-mono text-mono-xs")], [`#${row.number}`]),
-      h.span([h.Class("min-w-0 flex-1 truncate font-medium text-foreground")], [row.title]),
+      Icon.view(h, expanded ? ChevronDown : ChevronRight, "size-4 shrink-0 text-ink-subtle"),
+      kindIcon(h, latest?.kind ?? null),
+      latest
+        ? subjectLink(h, repository, latest)
+        : h.span([h.Class("font-mono text-mono-sm text-primary")], [`#${row.number}`]),
+      h.span([h.Class("min-w-0 truncate text-body-md font-medium")], [row.title]),
+      ...(latest && failed(latest) ? [outcomeChip(h, "failed")] : []),
       h.span(
-        [h.Class("shrink-0 font-mono text-mono-xs tabular-nums")],
+        [h.Class("ml-auto shrink-0 font-mono text-mono-sm text-ink-subtle tabular-nums")],
         [`${row.count} ${row.count === 1 ? "evaluation" : "evaluations"}`],
+      ),
+      overlay(
+        h,
+        `#${row.number} ${row.title}`,
+        expanded,
+        Message.ToggledGroup({ number: row.number }),
       ),
     ],
   )
 }
+/** The run the inspector describes: the most recently opened one still on screen. */
+export const openRun = (model: Model): ActivityEntry | undefined => {
+  const visible = new Set(
+    rows(model).flatMap((row) => (row.kind === "event" && row.expanded ? [row.entry.id] : [])),
+  )
+  const id = [...model.expanded].reverse().find((id) => visible.has(id))
+  return id === undefined ? undefined : model.entries.find((entry) => entry.id === id)
+}
+const inspector = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  repository: RepositoryOverview | undefined,
+  configuration: ConfigurationView | undefined,
+): ReadonlyArray<Html> => {
+  const run = openRun(model)
+  if (run === undefined)
+    return [
+      Page.inspectorCard(h, {
+        heading: "Run",
+        children: [
+          h.p([h.Class("text-body-sm text-ink-muted")], ["Expand a run to see what it did."]),
+        ],
+      }),
+    ]
+  const lines = ruleLines(run, configuration)
+  return [
+    Page.inspectorCard(h, {
+      heading: "Run",
+      children: [
+        Page.kvList(h, [
+          Page.kv(h, "Subject", [
+            subjectLink(h, repository, run),
+            ` · ${run.kind === "pull_request" ? "PR" : "Issue"}`,
+          ]),
+          Page.kv(h, "Revision", String(run.revision)),
+          Page.kv(h, "Started", started(run.createdAt)),
+          Page.kv(h, "Outcome", run.outcome ?? "pending"),
+        ]),
+      ],
+    }),
+    Page.inspectorCard(h, {
+      heading: "Actions",
+      children:
+        run.actions.length === 0
+          ? [h.p([h.Class("text-body-sm text-ink-muted")], ["No label changes."])]
+          : run.actions.map((action) => {
+              const line = lines.find((line) => line.id === action.ruleId)
+              const ruleRef = h.span(
+                [h.Class("ml-auto shrink-0 font-mono text-mono-xs text-ink-subtle")],
+                [action.ruleId.slice(0, 8)],
+              )
+              return h.div(
+                [h.Class("flex items-center gap-2 py-1.5 text-body-md")],
+                [
+                  labelChip(
+                    h,
+                    action.name ?? line?.name ?? `Label ${action.labelId}`,
+                    action.color ?? line?.color,
+                    line?.gone ?? false,
+                  ),
+                  ...actionCells(h, [action]),
+                  line?.linked
+                    ? h.a(
+                        [
+                          h.Href(
+                            Routes.rule({
+                              repositoryId: model.repositoryId,
+                              ruleId: action.ruleId,
+                            }),
+                          ),
+                          h.Class("ml-auto shrink-0 hover:underline"),
+                        ],
+                        [
+                          h.span(
+                            [h.Class("font-mono text-mono-xs text-ink-subtle")],
+                            [action.ruleId.slice(0, 8)],
+                          ),
+                        ],
+                      )
+                    : ruleRef,
+                ],
+              )
+            }),
+    }),
+  ]
+}
+const segment = (h: HtmlBuilder<Message>, model: Model, mode: typeof Mode.Type, label: string) =>
+  h.button(
+    [
+      h.Type("button"),
+      h.Class(
+        cn(
+          "inline-flex h-[30px] cursor-pointer items-center whitespace-nowrap px-3 text-body-md transition-colors duration-120 ease-ui",
+          model.mode === mode
+            ? "bg-primary-wash font-medium"
+            : "text-ink-muted hover:bg-surface-muted",
+        ),
+      ),
+      h.AriaPressed(String(model.mode === mode)),
+      h.OnClick(Message.ChangedMode({ mode })),
+    ],
+    [label],
+  )
 export const view = Submodel.defineView<
   Model,
   Message,
@@ -725,126 +932,116 @@ export const view = Submodel.defineView<
 >((model, { repository, configuration }, h) => {
   const items = rows(model)
   const filtered = model.search || model.target !== "all"
-  return h.section(
-    [h.Class("activity-workspace"), h.AriaLabel("Repository activity")],
+  const newest = model.entries[0]
+  const toolbar = h.div(
+    [h.Class("flex shrink-0 flex-wrap items-center gap-3 lg:flex-nowrap")],
     [
-      h.div(
-        [h.Class("flex shrink-0 flex-wrap items-center gap-2 pb-3")],
+      h.form(
         [
-          h.form(
-            [h.Class("w-full sm:w-72"), h.OnSubmit(Message.ChangedSearch({ value: model.search }))],
-            [
-              inputGroup(h, {
-                children: [
-                  inputGroupAddon(h, { children: [Icon.view(h, Search)] }),
-                  inputGroupInput(h, {
-                    id: "activity-search",
-                    type: "search",
-                    value: model.search,
-                    placeholder: "Find an issue or pull request…",
-                    ariaLabel: "Search activity",
-                    onInput: (value) => Message.ChangedSearch({ value }),
-                  }),
-                ],
+          h.Class("w-full max-w-80 min-w-40 shrink lg:w-80"),
+          h.OnSubmit(Message.ChangedSearch({ value: model.search })),
+        ],
+        [
+          inputGroup(h, {
+            className: "h-8 rounded-md",
+            children: [
+              inputGroupAddon(h, { children: [Icon.view(h, Search, "size-4")] }),
+              inputGroupInput(h, {
+                id: "activity-search",
+                type: "search",
+                value: model.search,
+                placeholder: "Find an issue or pull request",
+                ariaLabel: "Search activity",
+                onInput: (value) => Message.ChangedSearch({ value }),
               }),
             ],
-          ),
-          h.div(
-            [h.Class("flex items-center gap-1"), h.Role("group"), h.AriaLabel("Activity view")],
-            (["journal", "grouped"] as const).map((mode) =>
-              Button.view(h, {
-                variant: "secondary",
-                size: "sm",
-                label: mode === "journal" ? "Journal" : "By subject",
-                onClick: Message.ChangedMode({ mode }),
-                className: model.mode === mode ? "bg-primary-wash" : undefined,
-                attributes: [h.AriaPressed(String(model.mode === mode))],
-              }),
-            ),
-          ),
-          Select.view(h, {
-            id: "activity-target",
-            label: "Subject type",
-            isLabelHidden: true,
-            wrapperClass: "w-36",
-            className: "h-6 text-body-sm",
-            value: model.target,
-            options: [
-              ["all", "All subjects"],
-              ["pull_request", "Pull requests"],
-              ["issue", "Issues"],
-            ],
-            onChange: (value) =>
-              Message.ChangedTarget({
-                target:
-                  value === "issue" ? "issue" : value === "pull_request" ? "pull_request" : "all",
-              }),
           }),
-          model.pending
-            ? Button.view(h, {
-                label: "New activity",
-                size: "sm",
-                variant: "secondary",
-                onClick: Message.ClickedNew(),
-              })
-            : h.empty,
         ],
       ),
-      model.error
-        ? h.div(
-            [
-              h.Role("alert"),
-              h.Class("flex shrink-0 items-center justify-between gap-3 py-2 text-body-sm"),
-            ],
-            [
-              h.span([h.Class("text-destructive")], [model.error]),
-              Button.view(h, {
-                label: "Retry",
-                variant: "secondary",
-                size: "sm",
-                onClick: Message.ClickedRetry(),
-                isDisabled: model.loading,
-              }),
-            ],
-          )
-        : h.empty,
-      !items.length
-        ? !model.initialized && model.loading
-          ? h.p(
-              [h.Role("status"), h.Class("py-2 text-body-sm text-ink-muted")],
-              ["Loading activity…"],
-            )
-          : emptyPanel(h, {
-              attributes: [h.Role("status")],
-              children: [
-                filtered
-                  ? "No matching activity; try another subject or clear the filters."
-                  : "No activity yet; labeling decisions appear here once The Janitor evaluates an issue or pull request.",
-              ],
-            })
-        : h.submodel({
-            slotId: `activity-${model.mode}`,
-            model: model[model.mode],
-            view: VirtualList.view<Row>(),
-            toParentMessage: (message) => Message.GotList({ mode: model.mode, message }),
-            viewInputs: {
-              items,
-              itemToKey: (row) => (row.kind === "group" ? `group-${row.number}` : row.entry.id),
-              itemToRowHeightPx: rowHeight,
-              overscan: 4,
-              containerClassName: "activity-list",
-              itemToView: (row) =>
-                row.kind === "event"
-                  ? eventView(h, model, row.entry, row.expanded, repository, configuration)
-                  : groupView(h, model, row),
-            },
+      h.div(
+        [
+          h.Class("flex shrink-0 overflow-hidden rounded-md border border-border"),
+          h.Role("group"),
+          h.AriaLabel("Activity view"),
+        ],
+        [segment(h, model, "journal", "Journal"), segment(h, model, "grouped", "By subject")],
+      ),
+      Select.view(h, {
+        id: "activity-target",
+        label: "Subject type",
+        isLabelHidden: true,
+        wrapperClass: "w-44 shrink-0",
+        value: model.target,
+        options: [
+          ["all", "All subjects"],
+          ["pull_request", "Pull requests"],
+          ["issue", "Issues"],
+        ],
+        onChange: (value) =>
+          Message.ChangedTarget({
+            target: value === "issue" ? "issue" : value === "pull_request" ? "pull_request" : "all",
           }),
-      h.footer(
+      }),
+      model.pending
+        ? Button.view(h, {
+            label: "New activity",
+            size: "sm",
+            variant: "secondary",
+            onClick: Message.ClickedNew(),
+          })
+        : h.empty,
+      h.span(
         [
           h.Class(
-            "flex min-h-10 shrink-0 items-center justify-between gap-3 text-body-sm text-ink-subtle",
+            "ml-auto shrink-0 whitespace-nowrap font-mono text-mono-sm text-ink-subtle tabular-nums",
           ),
         ],
+        [
+          `${model.entries.length} ${model.entries.length === 1 ? "evaluation" : "evaluations"}`,
+          ...(newest ? [` · updated ${clock(newest.createdAt)}`] : []),
+        ],
+      ),
+    ],
+  )
+  const list = !items.length
+    ? h.p(
+        [h.Role("status"), h.Class("px-4 py-3 text-body-sm text-ink-muted")],
+        [
+          !model.initialized && model.loading
+            ? "Loading activity…"
+            : filtered
+              ? "No matching activity; try another subject or clear the filters."
+              : "No activity yet; labeling decisions appear here once The Janitor evaluates an issue or pull request.",
+        ],
+      )
+    : h.submodel({
+        slotId: `activity-${model.mode}`,
+        model: model[model.mode],
+        view: VirtualList.view<Row>(),
+        toParentMessage: (message) => Message.GotList({ mode: model.mode, message }),
+        viewInputs: {
+          items,
+          itemToKey: (row) => (row.kind === "group" ? `group-${row.number}` : row.entry.id),
+          itemToRowHeightPx: rowHeight,
+          overscan: 4,
+          containerClassName: "min-h-0 overflow-auto [overflow-anchor:none]",
+          itemToView: (row) =>
+            row.kind === "event"
+              ? runView(h, model, row.entry, row.expanded, repository, configuration)
+              : subjectView(h, model, row, repository),
+        },
+      })
+  const card = h.section(
+    [
+      h.Class(
+        "flex min-h-0 shrink flex-col overflow-hidden rounded-lg border border-border bg-card",
+      ),
+      h.DataAttribute("slot", "card"),
+    ],
+    [
+      list,
+      Page.footerStrip(
+        h,
         [
           h.span(
             [h.Role("status")],
@@ -852,12 +1049,14 @@ export const view = Submodel.defineView<
               ? ["Updating…"]
               : [
                   h.span([h.Class("font-mono tabular-nums")], [String(model.entries.length)]),
-                  " evaluations loaded",
+                  ` ${model.entries.length === 1 ? "evaluation" : "evaluations"} loaded`,
                 ],
           ),
+        ],
+        [
           model.cursor && model.entries.length < MAX_LOADED
             ? Button.view(h, {
-                label: "Load older activity",
+                label: "Load more",
                 variant: "ghost",
                 size: "sm",
                 onClick: Message.ClickedMore(),
@@ -877,4 +1076,43 @@ export const view = Submodel.defineView<
       ),
     ],
   )
+  return Page.layout(h, {
+    className: "h-full min-h-0 [&>main]:min-h-0 [&>aside]:overflow-y-auto",
+    attributes: [h.AriaLabel("Repository activity")],
+    main: [
+      Page.header(h, {
+        title: "Activity",
+        lede: "Every evaluation The Janitor ran for this repository, newest first. Expand a subject to see what each rule decided.",
+        actions: [
+          Button.view(h, {
+            variant: "secondary",
+            label: h.span([h.Class("contents")], [Icon.view(h, RotateCw, "size-4"), "Refresh"]),
+            onClick: Message.ClickedRefresh(),
+            isDisabled: model.loading,
+          }),
+        ],
+      }),
+      toolbar,
+      model.error
+        ? h.div(
+            [
+              h.Role("alert"),
+              h.Class("flex shrink-0 items-center justify-between gap-3 text-body-sm"),
+            ],
+            [
+              h.span([h.Class("text-destructive")], [model.error]),
+              Button.view(h, {
+                label: "Retry",
+                variant: "secondary",
+                size: "sm",
+                onClick: Message.ClickedRetry(),
+                isDisabled: model.loading,
+              }),
+            ],
+          )
+        : h.empty,
+      card,
+    ],
+    inspector: inspector(h, model, repository, configuration),
+  })
 })

@@ -2,14 +2,14 @@ import * as FoldkitSwitch from "@foldkit/ui/switch"
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import { cn } from "@/lib/utils"
 
-/** 26×15 switch. Off is a faint track (a non-text mark), on is primary blue.
+/** 36×20 switch. Off is a faint track (a non-text mark), on is success green.
  *  The label is a real `<label>`; pass `isLabelHidden` to keep it for
  *  assistive technology only. */
 export const switchClass =
-  "relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-0 bg-ink-faint p-0 transition-colors duration-120 ease-ui aria-checked:bg-primary aria-disabled:cursor-default aria-disabled:opacity-50 disabled:cursor-default disabled:opacity-50"
+  "relative inline-flex shrink-0 cursor-pointer items-center rounded-full border-0 bg-ink-faint p-0 transition-colors duration-120 ease-ui aria-checked:bg-success aria-disabled:cursor-default aria-disabled:opacity-50 disabled:cursor-default disabled:opacity-50"
 
 export const switchThumbClass =
-  "block rounded-full bg-card transition-transform duration-120 ease-ui"
+  "block rounded-full bg-white transition-transform duration-120 ease-ui"
 
 export type SwitchConfig<M> = {
   readonly id: string
@@ -40,7 +40,7 @@ export const view = <M>(h: HtmlBuilder<M>, config: SwitchConfig<M>): Html =>
                 ...attributes.label,
                 h.Class(
                   cn(
-                    config.isLabelHidden ? "sr-only" : "cursor-pointer text-body-sm",
+                    config.isLabelHidden ? "sr-only" : "cursor-pointer text-body-md",
                     config.labelClass,
                   ),
                 ),
