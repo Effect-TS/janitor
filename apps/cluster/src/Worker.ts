@@ -106,7 +106,7 @@ import { SessionObservation } from "./Agent/Observation.ts"
 import { RepositoryAccess } from "./Agent/RepositoryAccess.ts"
 import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
-import { SlackConversation } from "./Slack/Conversation.ts"
+import { SlackConversation, SlackWake } from "./Slack/Conversation.ts"
 import { SlackWebhook } from "./Slack/Webhook.ts"
 import { SlackTransport } from "./Slack/Transport.ts"
 import { SlackProcessor } from "./Slack/Processor.ts"
@@ -114,7 +114,12 @@ import { SlackDelivery } from "./Slack/Delivery.ts"
 import { GitHubFeedback, GitHubFeedbackConfig } from "./GitHub/Feedback.ts"
 import { GitHubDelivery } from "./GitHub/FeedbackDelivery.ts"
 import { GitHubFeedbackHttpLayer } from "./GitHub/FeedbackHttp.ts"
-import { SlackCronLayer, SlackCronName } from "./Slack/Cron.ts"
+import {
+  SlackCronLayer,
+  SlackCronName,
+  SlackDeliveryCronLayer,
+  SlackDeliveryCronName,
+} from "./Slack/Cron.ts"
 import { SlackWebhookRoutes } from "./Ingress/SlackWebhook.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
@@ -291,11 +296,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     }
     let notifyOutbox: Effect.Effect<void> = Effect.void
     let notifyCatchUp: Effect.Effect<void> = Effect.void
+    let notifySlack: Effect.Effect<void> = Effect.void
     const feedbackBotLogin = yield* Config.String("JANITOR_GITHUB_APP_LOGIN").pipe(
       Config.withDefault(""),
     )
     const SlackLayers = slackConfigured
-      ? Layer.mergeAll(SlackCronLayer, SlackWebhook.layer).pipe(
+      ? Layer.mergeAll(SlackCronLayer, SlackDeliveryCronLayer, SlackWebhook.layer).pipe(
           Layer.provide(Layer.mergeAll(SlackRecovery.layer, GitHubRecovery.layer)),
           Layer.provide(GitHubRecoveryApi.layer.pipe(Layer.provide(FetchHttpClient.layer))),
           Layer.provideMerge(
@@ -413,6 +419,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
       Layer.provideMerge(WorkflowOutbox.layer),
       Layer.provide(DatabaseLayer),
+      Layer.provide(
+        Layer.succeed(
+          SlackWake,
+          Effect.suspend(() => notifySlack),
+        ),
+      ),
       Layer.provide(Layer.succeed(AiInputBudget, inputBudget)),
       Layer.provide(Layer.succeed(AiCacheTtl, cacheTtl)),
       Layer.provide(
@@ -443,10 +455,26 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       : () => Effect.void
     notifyCatchUp = wakeAgentCatchUp()
     const wakeSlack = slackConfigured ? cluster.wake(SlackCronName) : () => Effect.void
+    const wakeSlackDelivery = slackConfigured
+      ? cluster.wake(SlackDeliveryCronName)
+      : () => Effect.void
+    notifySlack = Effect.all([wakeSlack(), wakeSlackDelivery()], {
+      concurrency: "unbounded",
+      discard: true,
+    })
     yield* Cloudflare.Workers.cron("* * * * *", () =>
-      Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), wakeAgentCatchUp(), wakeSlack()], {
-        discard: true,
-      }),
+      Effect.all(
+        [
+          wakeOutboxDispatch(),
+          wakeSyncRepair(),
+          wakeAgentCatchUp(),
+          wakeSlack(),
+          wakeSlackDelivery(),
+        ],
+        {
+          discard: true,
+        },
+      ),
     )
 
     yield* Cloudflare.Queues.consumeQueueMessages(

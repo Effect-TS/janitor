@@ -49,6 +49,7 @@ export class SlackDelivery extends Context.Service<
   {
     readonly catchUp: (sessionId: string) => Effect.Effect<void, SlackError>
     readonly deliver: (sessionId: string) => Effect.Effect<void, SlackError>
+    readonly sendDue: Effect.Effect<void, SlackError>
     readonly processDue: Effect.Effect<void, SlackError>
     readonly inspect: (sessionId: string) => Effect.Effect<ReadonlyArray<Output>, SlackError>
   }
@@ -156,6 +157,14 @@ export class SlackDelivery extends Context.Service<
         }).pipe(slackError)
       const deliver = (sessionId: string) =>
         Effect.gen(function* () {
+          // Receipt acknowledgements can precede initialization; verify channel access first.
+          const [destination] =
+            yield* sql<Thread>`SELECT * FROM slack_thread WHERE session_id=${sessionId} AND workspace_id=${config.workspaceId}`
+          if (!destination) return
+          if (destination.state === "initializing") {
+            const channel = yield* transport.channel(destination.channel_id)
+            if (!channel.is_private || !channel.is_member) return
+          }
           const claim = yield* sql.withTransaction(
             Effect.gen(function* () {
               const [thread] =
@@ -238,7 +247,7 @@ export class SlackDelivery extends Context.Service<
             }),
           )
         }).pipe(slackError)
-      const processDue = Effect.gen(function* () {
+      const readDue = Effect.gen(function* () {
         const reads = yield* sql<{
           session_id: string
         }>`SELECT session_id FROM slack_thread WHERE workspace_id=${config.workspaceId} AND state='ready' AND publication_due_at<=CLOCK_TIMESTAMP() ORDER BY publication_due_at LIMIT 50`
@@ -249,6 +258,8 @@ export class SlackDelivery extends Context.Service<
                 sql`UPDATE slack_thread SET warning=${error.message},publication_due_at=CLOCK_TIMESTAMP()+interval '30 seconds' WHERE session_id=${row.session_id}`,
             ),
           )
+      }).pipe(slackError)
+      const sendDue = Effect.gen(function* () {
         const pending = yield* sql<{
           session_id: string
         }>`SELECT t.session_id FROM slack_thread t
@@ -261,7 +272,8 @@ export class SlackDelivery extends Context.Service<
           discard: true,
         })
       }).pipe(slackError)
-      return { inspect, catchUp, deliver, processDue }
+      const processDue = Effect.all([readDue, sendDue], { concurrency: "unbounded", discard: true })
+      return { inspect, catchUp, deliver, processDue, sendDue }
     }),
   )
 }

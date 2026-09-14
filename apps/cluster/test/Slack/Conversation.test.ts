@@ -12,7 +12,7 @@ import { AgentSessions } from "../../src/Agent/Sessions.ts"
 import { deliverSession } from "../../src/Agent/Handoff.ts"
 import { RunnerClientError } from "../../src/Agent/RunnerClient.ts"
 import { Teammates, TeammatesConfig } from "../../src/Teammates.ts"
-import { SlackConversation } from "../../src/Slack/Conversation.ts"
+import { SlackConversation, SlackWake } from "../../src/Slack/Conversation.ts"
 import { SlackConfig } from "../../src/Slack/Config.ts"
 import { SlackWebhook } from "../../src/Slack/Webhook.ts"
 import { agentLayers, fakeRunnerLayer, FakeRunner } from "../Agent/support.ts"
@@ -27,8 +27,10 @@ const config = {
 }
 const runner = new FakeRunner()
 const onboarding: string[] = []
+let privateChannel = true
+let wakes = 0
 const slack: SlackTransport["Service"] = {
-  channel: () => Effect.succeed({ is_private: true, is_member: true }),
+  channel: () => Effect.succeed({ is_private: privateChannel, is_member: true }),
   replies: (_channel, root, cursor) =>
     Effect.succeed({
       messages:
@@ -63,6 +65,14 @@ const services = Layer.mergeAll(SlackWebhook.layer, SlackProcessor.layer, SlackD
   ),
   Layer.provideMerge(agentLayers(fakeRunnerLayer(runner))),
   Layer.provide(Layer.succeed(SlackConfig, config)),
+  Layer.provide(
+    Layer.succeed(
+      SlackWake,
+      Effect.sync(() => {
+        wakes++
+      }),
+    ),
+  ),
 )
 
 const signed = (event: unknown, eventId: string) =>
@@ -158,9 +168,23 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
           thread_ts: "200.000001",
           text: "<@UBOT> help",
         }
+        const wakesBefore = wakes
         yield* webhook.receive(yield* signed(mention, "Ev3"))
+        assert.strictEqual(wakes, wakesBefore + 1)
         const before = yield* conversation.inspect("C2", "200.000001")
         const id = before.thread!.session_id
+        const delivery = yield* SlackDelivery
+        yield* webhook.receive(yield* signed(mention, "Ev3"))
+        assert.deepStrictEqual(
+          (yield* delivery.inspect(id)).map((output) => output.text),
+          ["Received your message. Preparing your request."],
+        )
+        privateChannel = false
+        yield* delivery.sendDue
+        assert.strictEqual((yield* delivery.inspect(id))[0]?.state, "pending")
+        privateChannel = true
+        yield* delivery.sendDue
+        assert.strictEqual((yield* delivery.inspect(id))[0]?.state, "sent")
         yield* processor.process(id)
         yield* processor.process(id)
         assert.include(

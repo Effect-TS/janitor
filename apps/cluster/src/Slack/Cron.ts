@@ -46,3 +46,19 @@ export const SlackCronLayer = Singleton.make(
     }
   }),
 )
+
+// Sending does not wait for repository setup, recovery scans, or runner reads.
+export const SlackDeliveryCronName = "slack-delivery"
+export const SlackDeliveryCronLayer = Singleton.make(
+  SlackDeliveryCronName,
+  Effect.gen(function* () {
+    const delivery = yield* SlackDelivery
+    const started = yield* Clock.currentTimeMillis
+    while ((yield* Clock.currentTimeMillis) - started < 50_000) {
+      yield* delivery.sendDue.pipe(
+        Effect.catchCause((cause) => Effect.logError("Slack sending failed", cause)),
+      )
+      yield* Effect.sleep(1000)
+    }
+  }),
+)
