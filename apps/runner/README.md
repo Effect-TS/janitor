@@ -25,7 +25,7 @@ Containers supply Linux, Git, repository files and bounded commands. OpenCode ru
 | `SandboxBridge`        | Starts the Sandbox SDK process and makes fenced bridge requests.                         |
 | `CheckpointStore`      | Streams checkpoint bodies through the native R2 binding.                                 |
 
-The services expose Effect programs. Native Cloudflare storage, streams and Sandbox SDK promises terminate in their adapters. `RunnerStorage`, `WorkspaceCheckpoints` and `RepositoryWorkspace` retain SQL transactions, checkpoint commit ordering and the operation journal. Those records support recovery. OpenCode continues to own model retries and durable execution, through the adapter in `Host.ts`.
+The services expose Effect programs. Native Cloudflare storage, streams and Sandbox SDK promises terminate in their adapters. The Sandbox SDK supplies the process and container-fetch contract required by the bridge. The checkpoint adapter uses the Alchemy-provisioned native R2 binding to preserve known-length streaming, backpressure and cancellation across Workerd streams. `RunnerStorage`, `WorkspaceCheckpoints` and `RepositoryWorkspace` retain SQL transactions, checkpoint commit ordering and the operation journal. Those records support recovery. OpenCode continues to own model retries and durable execution, through the adapter in `Host.ts`.
 
 ## Workspace and checks
 
@@ -208,7 +208,7 @@ Runner tests build the local image and require Docker or a compatible Podman CLI
 
 ## Workspace checkpoints
 
-Provision the private R2 binding `WORKSPACE_CHECKPOINTS` separately for each stage. The checked-in binding name is `janitor-workspace-checkpoints`; test runs use local Miniflare R2. No bucket is provisioned by local tests.
+Alchemy provisions the private `WORKSPACE_CHECKPOINTS` binding for each stage. Production uses the retained `janitor-workspace-checkpoints` bucket; local development uses `janitor-workspace-checkpoints-local` in the local emulator. Native tests use Miniflare R2 and do not provision a remote bucket.
 
 The runner serializes native repository tools. Shell commands receive a fixed public environment; Workerd process environment bindings and runner secrets are not forwarded. The bridge drops to a separate workspace user before starting the process namespace, then applies caller environment variables inside that namespace. Workspace commands cannot read the bridge's process environment or journal. Checkpoint Git index inspection disables repository hooks and uses a credential-free environment. Successful tools and failed commands both freeze the workspace, stop command descendants, transfer shell captures to `/workspace/.janitor-captures/`, upload an archive, and commit its pointer together with the tool result. Capture notices name these readable paths outside the Git repository. The bridge stays frozen if checkpointing fails. A retained tool admission blocks dependent work and native recovery until its outcome is reconciled; a new epoch never permits blind replay.
 
