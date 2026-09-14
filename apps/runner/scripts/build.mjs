@@ -6,11 +6,12 @@
 // wraps the production runner with fault injection and a scripted model.
 import { build } from "vite-plus"
 import { builtinModules } from "node:module"
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const test = process.argv.includes("--test")
 const dev = process.argv.includes("--dev")
+const outDir = test ? "dist-test" : dev ? "dist-dev" : "dist"
 const root = fileURLToPath(new URL("..", import.meta.url))
 const conditions = ["workerd", "browser", "module", "import", "default"]
 
@@ -23,11 +24,6 @@ await build({
       name: "opencode-text-imports",
       enforce: "pre",
       load(id) {
-        if (
-          id === fileURLToPath(new URL("../release-manifest.json", import.meta.url)) &&
-          process.env.JANITOR_DEPLOY_MANIFEST
-        )
-          return readFileSync(process.env.JANITOR_DEPLOY_MANIFEST, "utf8")
         if (/\.(md|txt|sql)$/.test(id))
           return `export default ${JSON.stringify(readFileSync(id, "utf8"))}`
       },
@@ -37,7 +33,7 @@ await build({
   ssr: { target: "webworker", noExternal: true, resolve: { conditions } },
   build: {
     ssr: test ? "test/worker.ts" : dev ? "dev/worker.ts" : "src/worker.ts",
-    outDir: test ? "dist-test" : dev ? "dist-dev" : "dist",
+    outDir,
     emptyOutDir: !dev,
     minify: false,
     sourcemap: true,
@@ -56,3 +52,7 @@ await build({
     },
   },
 })
+writeFileSync(
+  new URL(`../${outDir}/release-manifest.json`, import.meta.url),
+  readFileSync(new URL("../release-manifest.json", import.meta.url)),
+)

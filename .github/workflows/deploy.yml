@@ -88,5 +88,4 @@ jobs:
           name: runner-deployment-evidence
           path: |
             apps/runner/dist/release-manifest.json
-            apps/runner/dist/image-provenance.json
           if-no-files-found: ignore
