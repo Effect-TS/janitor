@@ -108,6 +108,7 @@ export default Alchemy.Stack(
                 SANDBOXES: Cloudflare.Container("AgentSandboxes", {
                   className: "Sandbox",
                   image,
+                  instanceType: "standard-1",
                   maxInstances: 10,
                 }),
                 WORKSPACE_CHECKPOINTS: checkpoints,

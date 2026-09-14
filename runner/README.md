@@ -52,6 +52,10 @@ For CI, add those three required secrets to GitHub's `production` environment. T
 
 Alchemy publishes the container before the final runner bundle is built. The deployment build inspects that immutable image, pulling it with a temporary Cloudflare registry credential on a fresh CI host when needed. It checks the bridge source identity, embeds the actual image digest and ID in the Worker, and writes the observed Node/package versions to `dist/image-provenance.json`. Generated metadata stays outside the image build context. CI preserves that file and `dist/release-manifest.json` as the `runner-deployment-evidence` artifact. The checked-in manifest remains the source contract for local tests; deployment replaces only its image identity with the published build's identity.
 
+Production sandboxes use `standard-1` (1/2 vCPU, 4 GiB RAM, 8 GB disk), with at most ten instances. The implicit `lite` default is too small for the validated repository clone: on 2026-09-14, a public clone of `Effect-TS/effect` in the bridge image hit the 120-second deadline with 1/16 vCPU and 256 MiB RAM, but completed in 42 seconds with 1/2 vCPU and 4 GiB RAM. These are local Docker measurements, not a production latency guarantee. Larger instances increase container costs; see [Cloudflare pricing](https://developers.cloudflare.com/containers/platform/pricing/).
+
+Changing the instance size does not reconcile clones already recorded as unfinished. Preserve those sessions and use a fresh Slack thread for the next deployment smoke test. Session creation can also exceed the backend's 20-second request timeout during a cold start; creation retries retain the same session identity.
+
 ## Command boundary
 
 All routes require the bearer token and `x-janitor-runner-protocol: 2`.
