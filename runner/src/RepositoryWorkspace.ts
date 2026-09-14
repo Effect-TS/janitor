@@ -10,6 +10,19 @@ import { Publication, type CredentialPermission, type RepositoryCredential } fro
 
 /** The native shell's default command deadline; explicit finite timeouts may exceed it. */
 export const DEFAULT_TOOL_TIMEOUT_MS = 120000
+
+// Only forward fixed bridge diagnostics. Arbitrary response bodies can contain
+// repository data or credentials, including responses from the Sandbox transport.
+const bridgeDiagnostics = new Set([
+  "stale generation",
+  "stale epoch; reconcile before retry",
+  "clone outcome requires reconciliation",
+  "repository destination exists",
+  "repository clone failed",
+  "preparation outcome requires reconciliation",
+  "publication active",
+  "processes active",
+])
 export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "read",
   "glob",
@@ -262,11 +275,20 @@ export class RepositoryWorkspace {
       (path.startsWith("/git/") && new RunnerStorage(this.storage).disconnection !== undefined)
     )
       throw new ProtocolError("stale_generation", "Late workspace response fenced")
-    if (!response.ok)
-      throw new ProtocolError(
-        response.status >= 500 ? "transport" : "blocked",
-        `Bridge refused operation (${response.status})`,
-      )
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null)
+      const reason =
+        typeof body === "object" &&
+        body !== null &&
+        "error" in body &&
+        typeof body.error === "string" &&
+        bridgeDiagnostics.has(body.error)
+          ? `: ${body.error}`
+          : ""
+      const message = `Bridge refused ${input === undefined && !archive ? "GET" : "POST"} ${path} (${response.status})${reason}`
+      console.warn(message)
+      throw new ProtocolError(response.status >= 500 ? "transport" : "blocked", message)
+    }
     return response
   }
   private async raw(binding: Binding, path: string, input?: unknown) {
