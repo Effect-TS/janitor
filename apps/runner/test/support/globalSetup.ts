@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process"
 
 export default function setup() {
-  execFileSync("node", ["scripts/build-image.mjs"], {
+  execFileSync("node", ["scripts/build-image.ts"], {
     cwd: new URL("../..", import.meta.url).pathname,
     stdio: "inherit",
   })

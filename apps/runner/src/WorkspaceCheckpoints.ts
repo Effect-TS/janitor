@@ -1,3 +1,5 @@
+import { Effect } from "effect"
+import { CheckpointStore } from "./services/CheckpointStore.ts"
 import { ProtocolError } from "./Protocol.ts"
 import { CHECKPOINT_MANIFEST_VERSION, RELEASE_MANIFEST } from "./ReleaseManifest.ts"
 import { RunnerStorage } from "./Storage.ts"
@@ -45,12 +47,14 @@ export const checksum = async (data: string) =>
 
 /** Upload intents precede R2 writes. Only the SQLite pointer makes an archive authoritative. */
 export class WorkspaceCheckpoints {
+  private readonly objects: CheckpointStore["Service"]
   private readonly uploading = new Set<string>()
   constructor(
     private readonly storage: DurableObjectStorage,
-    private readonly bucket?: R2Bucket,
+    bucket?: R2Bucket,
     private readonly identity?: CheckpointIdentity,
   ) {
+    this.objects = CheckpointStore.make(bucket)
     storage.sql
       .exec(`CREATE TABLE IF NOT EXISTS _janitor_checkpoint (id INTEGER PRIMARY KEY, key TEXT NOT NULL, sha256 TEXT NOT NULL, manifest TEXT);
       CREATE TABLE IF NOT EXISTS _janitor_archive_upload (key TEXT PRIMARY KEY);
@@ -149,7 +153,7 @@ export class WorkspaceCheckpoints {
     )
   }
   async admit(id: string, input: unknown): Promise<string | undefined> {
-    if (!this.bucket)
+    if (!this.objects.available)
       throw new ProtocolError("blocked", "Workspace checkpoint bucket is not configured")
     const identity = await checksum(JSON.stringify(input))
     const prior = this.storage.sql
@@ -173,25 +177,14 @@ export class WorkspaceCheckpoints {
     await this.storage.sync()
   }
   async commit(archive: Archive, resource: string, operation?: { id: string; result: string }) {
-    if (!this.bucket)
+    if (!this.objects.available)
       throw new ProtocolError("blocked", "Workspace checkpoint bucket is not configured")
     const key = `${resource}/${crypto.randomUUID()}.ndjson`
     this.uploading.add(key)
     try {
       this.storage.sql.exec("INSERT INTO _janitor_archive_upload VALUES (?)", key)
       await this.storage.sync()
-      const transfer = new FixedLengthStream(archive.size)
-      const controller = new AbortController()
-      const pump = archive.body.pipeTo(transfer.writable, { signal: controller.signal })
-      try {
-        await Promise.all([
-          pump,
-          this.bucket.put(key, transfer.readable, { sha256: archive.sha256 }),
-        ])
-      } finally {
-        controller.abort()
-        await pump.catch(() => {})
-      }
+      await Effect.runPromise(this.objects.upload(key, archive))
     } finally {
       this.uploading.delete(key)
     }
@@ -231,9 +224,7 @@ export class WorkspaceCheckpoints {
     if (!pointer) return
     const problem = this.validate()
     if (problem !== null) throw new ProtocolError("blocked", problem)
-    const object = await this.bucket?.get(pointer.key)
-    if (!object) throw new ProtocolError("blocked", "Committed workspace archive is unavailable")
-    return { body: object.body, size: object.size, sha256: pointer.sha256 }
+    return Effect.runPromise(this.objects.read(pointer.key, pointer.sha256))
   }
   async prune(all = false) {
     if (all && this.uploading.size > 0)
@@ -242,9 +233,9 @@ export class WorkspaceCheckpoints {
       .exec<{ key: string }>("SELECT key FROM _janitor_archive_upload")
       .toArray()) {
       if ((!all && key === this.current()?.key) || this.uploading.has(key)) continue
-      if (!this.bucket)
+      if (!this.objects.available)
         throw new ProtocolError("blocked", "Workspace checkpoint bucket is not configured")
-      await this.bucket.delete(key)
+      await Effect.runPromise(this.objects.remove(key))
       this.storage.sql.exec("DELETE FROM _janitor_archive_upload WHERE key = ?", key)
     }
     await this.storage.sync()

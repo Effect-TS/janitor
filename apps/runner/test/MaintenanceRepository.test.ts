@@ -12,7 +12,7 @@ it("drains active tool work, verifies the bridge on release and refuses incompat
   let oldImage = false
   let processes = 0
   const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim()
-  const image = "localhost/janitor-inspection:ticket05"
+  const image = "localhost/janitor-runner-sandbox:dev"
   docker("image", "inspect", image)
   const service = async (request: Request) => {
     const path = new URL(request.url).pathname

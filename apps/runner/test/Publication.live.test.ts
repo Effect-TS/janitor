@@ -231,7 +231,7 @@ it.skipIf(process.env.FIXTURE_ALLOW_PUBLICATION !== repository)(
                   "node",
                   "-e",
                   `JANITOR_BRIDGE_TOKEN=${input.env.JANITOR_BRIDGE_TOKEN}`,
-                  "localhost/janitor-inspection:ticket05",
+                  "localhost/janitor-runner-sandbox:dev",
                   "--input-type=module",
                   "-e",
                   "import {startBridge} from '/opt/janitor/server.mjs'; await startBridge({token:process.env.JANITOR_BRIDGE_TOKEN,generation:1,cwd:'/workspace',journalPath:'/tmp/journal.sqlite',port:8788,host:'0.0.0.0'});",

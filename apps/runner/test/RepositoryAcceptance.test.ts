@@ -13,7 +13,7 @@ it("native edits and foreground tests checkpoint isolated workspaces and restore
   const timeouts: number[] = []
   const capturedPaths = new Map<string, string>()
   const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8" }).trim()
-  const image = "localhost/janitor-inspection:ticket05"
+  const image = "localhost/janitor-runner-sandbox:dev"
   docker("image", "inspect", image)
   const service = async (request: Request) => {
     const path = new URL(request.url).pathname

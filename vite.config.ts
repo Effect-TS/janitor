@@ -47,8 +47,11 @@ export default defineConfig({
     tasks: {
       "runner:test": { command: "vp run --no-cache --filter @janitor/runner test", cache: false },
       "runner:dev": {
-        command:
-          "vp run --no-cache --filter @janitor/runner build:test && vp run --no-cache --filter @janitor/runner serve --test",
+        command: "vp exec alchemy dev --env-file deployment/local.env",
+        cache: false,
+      },
+      "runner:smoke": {
+        command: "vp run --no-cache --filter @janitor/runner smoke:local",
         cache: false,
       },
       "check:all": {
@@ -57,7 +60,7 @@ export default defineConfig({
         cache: false,
       },
       dev: {
-        command: "vp exec alchemy dev",
+        command: "vp exec alchemy dev --env-file deployment/local.env",
         cache: false,
       },
 

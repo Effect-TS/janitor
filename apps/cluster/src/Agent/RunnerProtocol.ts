@@ -1,8 +1,6 @@
-// Janitor's declaration of the versioned runner command boundary.
-//
-// The runner (`apps/runner/src/Protocol.ts`) is built from a separate dependency
-// graph, so the shapes are declared twice and exchanged as plain JSON. Both
-// declarations carry the protocol version; the runner rejects mismatches.
+// Janitor's declaration of the versioned runner JSON protocol.
+// These applications share dependencies but deploy independently. Version and
+// compatibility tests guard rolling deployments between these declarations.
 import * as Schema from "effect/Schema"
 
 export const RUNNER_PROTOCOL_VERSION = 2

@@ -1,3 +1,6 @@
+import { timed } from "./services/Telemetry.ts"
+import { SandboxBridge } from "./services/SandboxBridge.ts"
+import { RepositoryAuthority as CredentialAuthority } from "./services/RepositoryAuthority.ts"
 import { Effect } from "effect"
 import { WorkspaceDriver } from "@opencode/core/workspace/driver"
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
@@ -6,23 +9,11 @@ import { ProtocolError } from "./Protocol.ts"
 import { RELEASE_MANIFEST } from "./ReleaseManifest.ts"
 import { RunnerStorage } from "./Storage.ts"
 import { WorkspaceCheckpoints, type Archive } from "./WorkspaceCheckpoints.ts"
-import { Publication, type CredentialPermission, type RepositoryCredential } from "./Publication.ts"
+import { Publication, type CredentialPermission } from "./Publication.ts"
 
 /** The native shell's default command deadline; explicit finite timeouts may exceed it. */
 export const DEFAULT_TOOL_TIMEOUT_MS = 120000
 
-// Only forward fixed bridge diagnostics. Arbitrary response bodies can contain
-// repository data or credentials, including responses from the Sandbox transport.
-const bridgeDiagnostics = new Set([
-  "stale generation",
-  "stale epoch; reconcile before retry",
-  "clone outcome requires reconciliation",
-  "repository destination exists",
-  "repository clone failed",
-  "preparation outcome requires reconciliation",
-  "publication active",
-  "processes active",
-])
 export const REPOSITORY_TOOLS: ReadonlyArray<string> = [
   "read",
   "glob",
@@ -108,6 +99,8 @@ export const checkBridge = (meta: Meta, generation: number) => {
 
 /** Runner-owned provisioning identity and admission evidence survive container loss. */
 export class RepositoryWorkspace {
+  private readonly bridge: SandboxBridge["Service"]
+  private readonly credentials: CredentialAuthority["Service"]
   readonly checkpoints: WorkspaceCheckpoints
   readonly publication: Publication
   private toolTimeout = DEFAULT_TOOL_TIMEOUT_MS
@@ -148,9 +141,7 @@ export class RepositoryWorkspace {
   async runningBridge(): Promise<Meta | undefined> {
     const binding = await this.storage.get<Binding>("_janitor_workspace")
     if (!binding?.epoch || binding.destroyed) return undefined
-    const sandbox = this.sandbox(binding)
-    const process = await sandbox.getProcess?.("janitor-bridge")
-    if (!process) return undefined
+    if (!(await Effect.runPromise(this.bridge.running(binding)))) return undefined
     return (await this.raw(binding, "/meta")) as Meta
   }
   /** Runs a publication while counting it as active work. */
@@ -172,6 +163,11 @@ export class RepositoryWorkspace {
     private readonly env: WorkspaceEnvironment,
     readonly selected: RepositorySelection,
   ) {
+    this.bridge = SandboxBridge.make((binding) => this.sandbox(binding))
+    this.credentials = CredentialAuthority.make(
+      env.REPOSITORY_AUTHORITY,
+      env.REPOSITORY_SERVICE_TOKEN,
+    )
     this.checkpoints = new WorkspaceCheckpoints(storage, env.WORKSPACE_CHECKPOINTS, selected)
     this.publication = new Publication(storage, selected, {
       authorize: (token, permission, refresh) => this.authority(token, permission, refresh, true),
@@ -209,33 +205,9 @@ export class RepositoryWorkspace {
     refresh = false,
     publication = false,
   ) {
-    if (!this.env.REPOSITORY_AUTHORITY || !this.env.REPOSITORY_SERVICE_TOKEN)
-      throw new ProtocolError("blocked", "Repository credential authority is not configured")
-    const response = await this.env.REPOSITORY_AUTHORITY.fetch(
-      new Request("https://janitor/api/v1/agent/repository", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.env.REPOSITORY_SERVICE_TOKEN}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ ...this.selected, token, permission, refresh, publication }),
-        signal: AbortSignal.timeout(20000),
-      }),
+    return Effect.runPromise(
+      this.credentials.authorize({ ...this.selected, token, permission, refresh, publication }),
     )
-    if (!response.ok) {
-      // Janitor names the fence (paused, access lost, synchronizing, ended). The
-      // reason reaches the agent's tool result and the dashboard through the
-      // blocked error; a body-less refusal keeps the generic explanation.
-      let reason = "Selected repository is not ready or credentials are unavailable"
-      try {
-        const body = (await response.json()) as { message?: unknown }
-        if (typeof body.message === "string" && body.message !== "") reason = body.message
-      } catch {
-        // No JSON body: the generic reason stands.
-      }
-      throw new ProtocolError("blocked", reason, reason)
-    }
-    return response.json() as Promise<RepositoryCredential>
   }
   protected sandbox(binding: Binding): WorkspaceSandbox {
     if (!this.env.SANDBOXES)
@@ -249,46 +221,12 @@ export class RepositoryWorkspace {
       (path.startsWith("/git/") && new RunnerStorage(this.storage).disconnection !== undefined)
     )
       throw new ProtocolError("stale_generation", "Workspace was destroyed")
-    const response = await this.sandbox(binding).containerFetch(
-      `http://bridge${path}`,
-      {
-        method: input === undefined && !archive ? "GET" : "POST",
-        headers: {
-          authorization: `Bearer ${binding.token}`,
-          "x-janitor-generation": String(this.selected.generation),
-          "x-bridge-epoch": binding.epoch ?? "",
-          "content-type": "application/json",
-          ...(archive
-            ? {
-                "content-type": "application/x-ndjson",
-                "content-length": String(archive.size),
-                "x-archive-sha256": archive.sha256,
-              }
-            : {}),
-        },
-        body: archive?.body ?? (input === undefined ? undefined : JSON.stringify(input)),
-      },
-      8788,
-    )
+    const response = await Effect.runPromise(this.bridge.request(binding, path, input, archive))
     if (
       (await this.storage.get<Binding>("_janitor_workspace"))?.destroyed ||
       (path.startsWith("/git/") && new RunnerStorage(this.storage).disconnection !== undefined)
     )
       throw new ProtocolError("stale_generation", "Late workspace response fenced")
-    if (!response.ok) {
-      const body: unknown = await response.json().catch(() => null)
-      const reason =
-        typeof body === "object" &&
-        body !== null &&
-        "error" in body &&
-        typeof body.error === "string" &&
-        bridgeDiagnostics.has(body.error)
-          ? `: ${body.error}`
-          : ""
-      const message = `Bridge refused ${input === undefined && !archive ? "GET" : "POST"} ${path} (${response.status})${reason}`
-      console.warn(message)
-      throw new ProtocolError(response.status >= 500 ? "transport" : "blocked", message)
-    }
     return response
   }
   private async raw(binding: Binding, path: string, input?: unknown) {
@@ -341,17 +279,7 @@ export class RepositoryWorkspace {
     }
     if (JSON.stringify(binding.selected) !== JSON.stringify(this.selected))
       throw new ProtocolError("stale_generation", "Workspace selection changed")
-    const sandbox = this.sandbox(binding)
-    const process =
-      (await sandbox.getProcess?.("janitor-bridge")) ??
-      (await sandbox.startProcess("node /opt/janitor/entry.mjs", {
-        processId: "janitor-bridge",
-        env: {
-          JANITOR_BRIDGE_TOKEN: binding.token,
-          JANITOR_GENERATION: String(this.selected.generation),
-        },
-      }))
-    await process.waitForPort(8788, { mode: "tcp" })
+    await Effect.runPromise(this.bridge.start(binding))
     const meta = (await this.raw(binding, "/meta")) as Meta
     checkBridge(meta, this.selected.generation)
     if (this.checkpoints.uncertain() && !this.activeTool)
@@ -407,12 +335,23 @@ export class RepositoryWorkspace {
         JSON.stringify(payload),
       )
       await this.storage.sync()
-      await this.raw(binding, "/clone", {
-        owner: repository.owner,
-        repo: repository.repo,
-        token: repository.token,
-        ...checkout,
-      })
+      await Effect.runPromise(
+        Effect.tryPromise({
+          try: () =>
+            this.raw(binding, "/clone", {
+              owner: repository.owner,
+              repo: repository.repo,
+              token: repository.token,
+              ...checkout,
+            }),
+          catch: (cause) => cause,
+        }).pipe(
+          timed("repository.clone", {
+            sessionId: this.selected.sessionId,
+            generation: this.selected.generation,
+          }),
+        ),
+      )
     }
     this.storage.sql.exec(
       "UPDATE _janitor_operation SET state = 'complete', result = ? WHERE id = 'clone'",
@@ -541,7 +480,7 @@ export class RepositoryWorkspace {
         selected: this.selected,
       }
     await this.storage.put("_janitor_workspace", { ...binding, destroyed: true })
-    await this.sandbox(binding).destroy()
+    await Effect.runPromise(this.bridge.destroy(binding))
     await this.checkpoints.prune(true)
   }
   driver() {

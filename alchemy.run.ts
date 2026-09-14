@@ -1,3 +1,6 @@
+import * as Config from "effect/Config"
+import { localState } from "alchemy/State"
+import { runnerImageProviders } from "./deployment/RunnerImage.ts"
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Command from "alchemy/Command"
@@ -15,8 +18,6 @@ import { cloudflareProviders } from "./deployment/CloudflareProviders.ts"
 
 import { AgentRunner } from "./stacks/runner.ts"
 
-const WEBSITE_DEV_PORT = 1337
-
 const DockerProviders = Layer.effect(
   Docker.Providers,
   Provider.collection([Docker.Container, Docker.Image]),
@@ -28,6 +29,7 @@ const DockerProviders = Layer.effect(
 const Providers = Layer.mergeAll(
   cloudflareProviders(),
   Command.providers(),
+  runnerImageProviders(),
   DockerProviders,
   Neon.providers(),
 )
@@ -36,7 +38,12 @@ export default Alchemy.Stack(
   "Janitor",
   {
     providers: Providers,
-    state: Cloudflare.state(),
+    state: Layer.unwrap(
+      Alchemy.ALCHEMY_DEV.pipe(
+        Effect.orDie,
+        Effect.map((dev) => (dev ? localState() : Cloudflare.state())),
+      ),
+    ),
   },
   Effect.gen(function* () {
     const target = yield* deployment
@@ -52,7 +59,10 @@ export default Alchemy.Stack(
       rootDir: new URL("./apps/web", import.meta.url).pathname,
       ...(target.stage === "local" ? {} : { domain: target.domain }),
       workersDev: false,
-      dev: { port: WEBSITE_DEV_PORT, strictPort: true },
+      dev: {
+        port: yield* Config.Int("JANITOR_LOCAL_WEB_PORT").pipe(Config.withDefault(1337)),
+        strictPort: true,
+      },
     })
 
     return {

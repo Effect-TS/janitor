@@ -1,49 +1,31 @@
-# Vite+ Monorepo Starter
+# Janitor
 
-A starter for creating a Vite+ monorepo.
+Janitor is a GitHub and Slack collaboration application with an OpenCode agent runner.
 
 ## Development
 
-Effect dependencies use commit-pinned CI snapshots. Install with
-`vp install --frozen-lockfile`; no local Effect checkout or build is needed.
-See [Effect snapshot dependencies](docs/effect-snapshots.md) for the pins,
-compatibility exceptions, and upgrade checks.
+Effect dependencies use commit-pinned CI snapshots. One root install covers every application, including the runner. See [Effect snapshot dependencies](docs/effect-snapshots.md) for pins and upgrade checks.
 
-- Check everything is ready:
-
-```bash
-vp run ready
-```
-
-- Run the tests:
-
-```bash
-vp run -r test
-```
-
-- Build the monorepo:
-
-```bash
-vp run -r build
-```
-
-- Run everything:
-
-```bash
+```sh
+vp install --frozen-lockfile
 vp run dev
 ```
 
-`vp run dev` runs `vp exec alchemy dev` directly.
+Alchemy starts Postgres, the API on port 8787, the website on 1337, and the runner on 8790 with local R2 and a Sandbox container. Open the website. The runner uses a disposable repository and controlled model by default, so development needs Docker but no production credentials. Podman setup, alternate ports and live-model opt-in are described in the [runner guide](apps/runner/README.md).
 
-`alchemy dev` starts both Workers: the API on port 8787, and the web app's own
-Vite dev server, with hot reload and the foldkit devtools port, on 1337. Open
-the second one. Deployed, the two Workers share one hostname and Cloudflare
-routes `/api/v1/*` to the API; locally that routing is a proxy in
-`apps/web/vite.config.ts`.
+```sh
+# While the local stack is running:
+vp run runner:smoke
 
-There is no Cloudflare edge locally, so Access is simulated: every request is
-attributed to the issuer `local-dev`, and audit entries written locally say
-so. A deploy never carries that identity.
+# Project checks, including the runner:
+vp run check:all
+```
+
+The runner smoke checks API readiness, model tools, file edits, checkpoint restoration after container replacement, and cleanup. CI also verifies the API-to-runner service binding through the maintenance release check. Both PR checks and deployment CI validate the runner.
+
+The API, website and runner belong to the root Alchemy deployment. The runner retains its own Worker to preserve existing Durable Object namespaces and its Workerd-specific bundle. Containers provide Linux repository tools; OpenCode and conversation state run in the session Durable Object. See [why the Worker remains separate](docs/adr/0001-runner-worker-and-linux-workspace.md).
+
+There is no Cloudflare edge locally, so Access attributes requests to the `local-dev` identity. Local audit entries record that identity; production does not accept it. Live GitHub operations are disabled in the default local composition.
 
 ## Teammates and connected accounts
 

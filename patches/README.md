@@ -19,3 +19,7 @@ vp run runner:test
 ```
 
 When upgrading OpenCode or Effect, inspect the upstream implementations and remove each patch when that release implements the required behavior. Reinstall and run the native tests before accepting the upgrade. Startup alone does not establish compatibility. No upstream fix or support guarantee is implied by these local patches.
+
+## Alchemy local containers
+
+The pinned Cloudflare runtime accepts `DOCKER_BIN=podman`. Our runtime patch omits `--load` and `--provenance=false` for that explicit selection and passes the Dockerfile path directly. Podman cannot read the SDK's socket-backed stdin as `/dev/stdin`. It also omits Workerd's unsupported memory-swappiness field from Podman container requests on cgroup v2. Docker retains its existing BuildKit invocation and container settings. The patch covers the shipped Node bundle and its TypeScript source. Remove it when the pinned runtime supports this path upstream; validate with `vp run dev` and `vp run runner:smoke` using the selected engine.

@@ -1,9 +1,6 @@
-// The versioned command boundary between Janitor and the runner.
-//
-// Janitor and the runner are built from different dependency graphs, so they
-// exchange plain JSON: no Effect services, fibers or implementation error
-// objects cross this boundary. Janitor re-declares these shapes in its own
-// graph; the protocol version guards drift between the two declarations.
+// The versioned JSON boundary between independently deployed Workers.
+// Both applications share the root Effect graph; fibers and service instances
+// are process-local. Protocol versions guard rolling deployments.
 import { Schema } from "effect"
 
 export const PROTOCOL_VERSION = 2

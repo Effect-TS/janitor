@@ -35,13 +35,9 @@ describe("release manifest", () => {
     expect(RELEASE_MANIFEST.nativeMigrations.package).toBe(
       `@opencode/core@${RELEASE_MANIFEST.build.opencode}`,
     )
-    const wrangler = read("wrangler.jsonc")
-    expect(wrangler).toContain(
-      `"compatibility_date": "${RELEASE_MANIFEST.build.compatibilityDate}"`,
-    )
-    expect(wrangler).toContain(
-      `"compatibility_flags": ${JSON.stringify(RELEASE_MANIFEST.build.compatibilityFlags)}`,
-    )
+    const stack = read("../../stacks/runner.ts")
+    expect(stack).toContain(RELEASE_MANIFEST.build.compatibilityDate)
+    for (const flag of RELEASE_MANIFEST.build.compatibilityFlags) expect(stack).toContain(flag)
   })
 
   it("pins the bridge image, protocol and capabilities the runner requires", () => {

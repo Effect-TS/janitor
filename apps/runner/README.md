@@ -2,6 +2,31 @@
 
 The runner is a separately built Cloudflare Worker with one SQLite Durable Object per agent session. Each object hosts the pinned OpenCode Workerd SDK (`@opencode/sdk/workerd/effect`, published packages `@opencode/*` 2.0.2) and owns the native conversation, inbox, execution claims, durable events and usage. Janitor talks to it only through the versioned JSON command boundary in `src/Protocol.ts`.
 
+## Why a separate Worker and a container?
+
+The runner is part of this application and the same Alchemy deployment. Its separate Worker preserves the deployed session namespaces and packages OpenCode's Workerd-specific dependencies. Cloudflare does not require a separate Worker. Combining it with the API would require a deliberate namespace transfer and bundle migration. See [the architectural decision](../../docs/adr/0001-runner-worker-and-linux-workspace.md).
+
+Containers supply Linux, Git, repository files and bounded commands. OpenCode runs in the session Durable Object, including model calls, conversation state and recovery. R2 stores streamed workspace checkpoints so container replacement does not discard edits.
+
+## Runtime ownership
+
+| Component              | Responsibility                                                                           |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| `SessionRunner`        | Native Durable Object entry point; one service composition per session.                  |
+| `SessionController`    | Composes services and SDK adapters, guards operations and coordinates cleanup.           |
+| `SessionCommands`      | Decodes commands, maps protocol errors and records mutation timings.                     |
+| `SessionAdmission`     | Persists immutable creation identities and input receipts before native admission.       |
+| `NativeSession`        | Coalesces SDK startup and owns runtime shutdown.                                         |
+| `SessionCompatibility` | Checks stored formats and commits migration intent/completion around SDK initialization. |
+| `SessionSupervision`   | Maintains durable wake obligations, alarms and native execution recovery.                |
+| `SessionMaintenance`   | Holds, drains and releases work using persisted epochs.                                  |
+| `SessionProjection`    | Reads status, events and usage without waking execution.                                 |
+| `RepositoryAuthority`  | Obtains scoped repository credentials through the API service binding.                   |
+| `SandboxBridge`        | Starts the Sandbox SDK process and makes fenced bridge requests.                         |
+| `CheckpointStore`      | Streams checkpoint bodies through the native R2 binding.                                 |
+
+The services expose Effect programs. Native Cloudflare storage, streams and Sandbox SDK promises terminate in their adapters. `RunnerStorage`, `WorkspaceCheckpoints` and `RepositoryWorkspace` retain SQL transactions, checkpoint commit ordering and the operation journal. Those records support recovery. OpenCode continues to own model retries and durable execution, through the adapter in `Host.ts`.
+
 ## Workspace and checks
 
 The runner is the `@janitor/runner` application in the root workspace. One `vp install` installs the whole project using the root lockfile and Effect catalog. OpenCode remains pinned to 2.0.2. Versioned patches adapt its Config calls to the root Effect snapshot and fix OpenRouter request serialization. See [SDK patch maintenance](../../patches/README.md).
@@ -21,6 +46,23 @@ vp run runner:test:bridge
 The test bundle (`test/worker.ts`) wraps the production runner with a scripted model transport and fault injection reachable only under `/__test/`. The production bundle contains none of it.
 
 `scripts/serve.mjs [--test] [--port N] [--persist DIR]` serves a bundle through Miniflare and prints one JSON line with the URL and service token. Janitor's acceptance driver (`apps/cluster/test/Agent/AcceptanceDriver.test.ts`) uses it.
+
+## Local development
+
+From the root, with Docker and BuildKit available:
+
+```sh
+vp install
+vp run dev
+# In another terminal:
+vp run runner:smoke
+```
+
+Alchemy starts the API, website, Postgres, runner, local R2 and Sandbox container. The website uses port 1337, API 8787 and runner 8790. Local state is in `.alchemy`; production continues using Cloudflare state. `deployment/local.env` supplies a nonsecret account identity required by Alchemy's local emulators. No Cloudflare login, GitHub credential or paid model key is needed.
+
+The local runner accepts fixture repository ID `123`. Its Git remote lives inside the container and it uses a controlled model response stream. The smoke command creates a native session, clones that repository, reads and edits a file, replaces the container, verifies checkpoint restoration and disconnects the session. Publication is disabled. The fixture transport and restart endpoint are bundled only into `dist-dev`; production uses `src/worker.ts`.
+
+For concurrent worktrees, set `JANITOR_LOCAL_API_PORT`, `JANITOR_LOCAL_WEB_PORT` and the matching `JANITOR_API_ORIGIN` when running dev. Defaults remain unchanged. Podman users can set `DOCKER_BIN=podman` and point `DOCKER_HOST` at their Podman socket. The pinned local-runtime patch omits Docker-only build flags for that explicit selection.
 
 ## Configuration
 
@@ -45,7 +87,7 @@ Production setup requires `JANITOR_AGENT_RUNNER_TOKEN`, `REPOSITORY_SERVICE_TOKE
 
 For CI, add those three required secrets to GitHub's `production` environment. The deploy workflow forwards them explicitly and deploys on pushes to `main`. `JANITOR_MAINTENANCE_TOKEN` is an optional environment secret, and `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS` is an optional environment variable. Neither a runner URL nor a release identifier needs to be entered. The workflow also forwards the private Slack conversation settings separately from Slack sign-in settings.
 
-Alchemy publishes the container before the final runner bundle is built. The deployment build inspects that immutable image, pulling it with a temporary Cloudflare registry credential on a fresh CI host when needed. It checks the bridge source identity, embeds the actual image digest and ID in the Worker, and writes the observed Node/package versions to `dist/image-provenance.json`. Generated metadata stays outside the image build context. CI preserves that file and `dist/release-manifest.json` as the `runner-deployment-evidence` artifact. The checked-in manifest remains the source contract for local tests; deployment replaces only its image identity with the published build's identity.
+Alchemy publishes the container before the final runner bundle is built. The image resource verifies the built sources and records the immutable digest, image ID and observed Node/package versions. The bundle consumes that provenance and writes `dist/image-provenance.json` and `dist/release-manifest.json`. CI preserves both as the `runner-deployment-evidence` artifact. Generated metadata stays outside the image context. The checked-in manifest remains the source contract for local tests; deployment replaces its image identity with the published build's identity.
 
 Production sandboxes use `standard-1` (1/2 vCPU, 4 GiB RAM, 8 GB disk), with at most ten instances. On 2026-09-14, local Docker measurements against public `Effect-TS/effect` in the bridge image showed a full clone hitting the 120-second deadline with `lite` resources (1/16 vCPU, 256 MiB RAM), and taking 42 seconds with `standard-1` resources. The shallow checkout described below took 14 seconds and 2 seconds respectively, with 9 MiB of Git data. These are single local measurements, not a production latency guarantee. We retain `standard-1` for headroom when running repository tools and tests. Larger instances increase container costs; see [Cloudflare pricing](https://developers.cloudflare.com/containers/platform/pricing/).
 
@@ -73,15 +115,19 @@ Admission persists the wake obligation and arms the alarm before native admissio
 
 ## Deployment
 
-`alchemy.run.ts` is the production deployment authority. `wrangler.jsonc` remains a reference for standalone packaging; do not use a second deployment tool to manage the Alchemy-owned Worker. An already independently deployed runner requires an explicit adoption/migration plan before switching its ownership to Alchemy.
+`alchemy.run.ts` is the deployment authority. `stacks/runner.ts` declares the Worker, both Durable Object classes, Sandbox application and retained R2 bucket. `deployment/RunnerImage.ts` is an Alchemy resource that builds and verifies the image using Alchemy Docker, obtains temporary registry authorization with the Effect Cloudflare client, and publishes an immutable digest. The Worker build consumes that digest and records matching provenance. Plans and unchanged images do not mint registry credentials. The old registry build script and standalone Wrangler configuration have been removed.
+
+Existing resource addresses remain `AgentRunner`, `AgentSessions`, `AgentSandboxes`, `AgentWorkspaceCheckpoints` and `AgentRunnerBuild`. `AgentSandboxImage` is a new retained resource for image publication. Moving source files does not replace a session namespace or checkpoint bucket. The existing CI deployment and production environment secrets remain the deployment path; this integration adds no required production secret. Registry access still requires the Containers registry permissions managed by `stacks/github.ts`.
+
+Alchemy beta.76 needs one narrow provider adjustment: Container precreation must wait for its image Output, while Worker precreation establishes the namespace. `deployment/CloudflareProviders.ts` applies that adjustment without replacing the provider lifecycle. Immutable images remain available for rollback.
 
 ## Release manifest and compatibility
 
 `release-manifest.json` is the pinned record of what a runner build speaks, reads and requires, with each contract versioned on its own: the command protocol (`commandProtocol`), the native OpenCode migration set (`nativeMigrations`, with the pinned package, revision and every migration id), the Janitor-owned `_janitor_*` state format (`janitorState`, with the formats this release can read), the checkpoint manifest and archive formats (`checkpoint`), and the bridge protocol, required capabilities and image identity (`bridge`). It also pins the build identities: OpenCode and Effect versions, the Sandbox SDK, the Worker compatibility date and flags, and the bridge's base image, source hash, image digest and image ID. `family` names the state family this release writes and `readableFamilies` the families it has a tested path to read; that list is the only declared rollback path.
 
-`src/ReleaseManifest.ts` checks the manifest against the compiled bundle and `test/ReleaseManifest.test.ts` checks it against `package.json`, `wrangler.jsonc`, `bridge/release.json`, `bridge/build.json`, the bridge's exported protocol and capabilities and the archive format. Disagreements are manifest `problems` on `GET /v1/health`; Janitor refuses to release maintenance against a runner that reports any. Changing a pinned dependency, the bridge sources or the Dockerfile means rebuilding and recording the image (`vp run build:bridge --record`) and updating the manifest deliberately.
+`src/ReleaseManifest.ts` checks the manifest against the compiled bundle and `test/ReleaseManifest.test.ts` checks it against `package.json`, the Alchemy stack, `bridge/release.json`, `bridge/build.json`, the bridge's exported protocol and capabilities and the archive format. Disagreements are manifest `problems` on `GET /v1/health`; Janitor refuses to release maintenance against a runner that reports any. Changing a pinned dependency, the bridge sources or the Dockerfile means rebuilding and recording the image (`vp run build:bridge --record`) and updating the manifest deliberately.
 
-The bridge image carries `bridge/build.json`, the SHA-256 of its source files written by `scripts/build-image.mjs`, and advertises it on `/meta`. Every repository dispatch and every maintenance release checks the running bridge's protocol, capabilities and source hash against the manifest, so a container still running an older image receives no tool work. Deployment success only says an image rollout started.
+The bridge image carries `bridge/build.json`, the SHA-256 of its source files written by `scripts/build-image.ts`, and advertises it on `/meta`. Every repository dispatch and every maintenance release checks the running bridge's protocol, capabilities and source hash against the manifest, so a container still running an older image receives no tool work. Deployment success only says an image rollout started.
 
 Each session's `_janitor_*` compatibility record (format 2) names the state family, protocol, release, the native migration ids recorded at the last completed initialization and any migration in progress. Before any SDK host is constructed the runner checks that record and the actual native migration journal: native state with no record, a newer migration id, an unreadable format, a family without a tested path, an initialization by another target that did not complete, or a committed checkpoint whose manifest is missing, foreign or unsupported all block the session with that reason and touch nothing. A fresh empty database initializes; a format 1 record and an older native set are upgraded forward under a persisted migration intent. Native migrations commit one step at a time, so a crash leaves a partially migrated database: the intent names the migration target and only the same target resumes it. Checkpoint pointers commit with a manifest (format, session, generation, repository, digest, size, key and operation) that restore validates first.
 
@@ -173,3 +219,9 @@ Archives stream in 64 KiB file chunks through the runner into R2 with a verified
 Upload intents are durable before R2 writes. The previous archive stays referenced until replacement commit. Supervision prunes unreferenced objects using retained upload intents, including while execution is held; failed deletions remain retryable. Session cleanup deletes all archives and refuses to erase its cleanup records while an upload is still settling.
 
 The local acceptance test runs native edits, failed and timed-out shell commands, large-output reads, two isolated sessions, Sandbox replacement, and runner crashes on each side of pointer commit. The bridge restoration test separately verifies staged and unstaged content, local Git commits, ignored data, binary bytes, modes, symlinks, hash rejection and capture-path protection. These checks use local containers, Workerd and R2, not a live Cloudflare deployment.
+
+To use a real model locally, explicitly set `JANITOR_LOCAL_LIVE_MODEL=true` and `JANITOR_AGENT_RUNNER_MODEL_API_KEY` before starting dev. The checked-in OpenRouter configuration becomes the default, or supply `JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS`. Repository access remains restricted to the disposable local fixture. The deterministic `runner:smoke` command is intended for the default controlled transport; paid-provider tests have their own gates.
+
+## Diagnostics
+
+Cloudflare logs include `runner.operation` records for Sandbox readiness, clone duration, model response headers and streamed checkpoint uploads. They contain operation names, durations, outcomes and opaque session identities, without request bodies or credentials. The session journal records mutation receipt/completion and native lifecycle events. Compare input receipt times with native event timestamps for first model output, tool completion and final reply; model header timing alone does not measure the first generated token. Backend delivery records remain the authority for Slack/GitHub reply latency.

@@ -6,14 +6,16 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "build:deploy": "node scripts/build-deploy.mjs",
+    "build:deploy": "node scripts/build-release.ts",
     "build:test": "node scripts/build.mjs --test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "serve": "node scripts/serve.mjs",
     "check": "vp run typecheck && vp run build && vp run test && vp run test:bridge",
     "test:bridge": "node --test bridge/*.test.mjs",
-    "build:bridge": "node scripts/build-image.mjs"
+    "build:bridge": "node scripts/build-image.ts",
+    "build:dev": "node scripts/build.mjs --dev",
+    "smoke:local": "node dev/smoke.ts"
   },
   "dependencies": {
     "@cloudflare/sandbox": "0.12.9",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260702.1",
+    "@effect/platform-node": "catalog:",
     "@types/node": "24.13.3",
     "miniflare": "4.20260708.0",
     "typescript": "catalog:",

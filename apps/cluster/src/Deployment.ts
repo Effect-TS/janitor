@@ -37,13 +37,19 @@ export const agentRunnerConnection = Effect.gen(function* () {
   return {
     url:
       target.stage === "local"
-        ? yield* Config.String("JANITOR_AGENT_RUNNER_URL").pipe(Config.withDefault(""))
+        ? yield* Config.String("JANITOR_AGENT_RUNNER_URL").pipe(
+            Config.withDefault("http://localhost:8790"),
+          )
         : `https://runner.${target.domain}`,
     token: yield* target.stage === "local"
-      ? optionalSecret("JANITOR_AGENT_RUNNER_TOKEN")
+      ? Config.Redacted("JANITOR_AGENT_RUNNER_TOKEN").pipe(
+          Config.withDefault(Redacted.make("janitor-local-runner")),
+        )
       : requiredSecret("JANITOR_AGENT_RUNNER_TOKEN"),
     repositoryToken: yield* target.stage === "local"
-      ? optionalSecret("REPOSITORY_SERVICE_TOKEN")
+      ? Config.Redacted("REPOSITORY_SERVICE_TOKEN").pipe(
+          Config.withDefault(Redacted.make("janitor-local-repository")),
+        )
       : requiredSecret("REPOSITORY_SERVICE_TOKEN"),
     maintenanceToken: yield* optionalSecret("JANITOR_MAINTENANCE_TOKEN"),
   }

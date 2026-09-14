@@ -38,7 +38,7 @@ export const modelRepository = () => {
             "node",
             "-e",
             `JANITOR_BRIDGE_TOKEN=${input.env.JANITOR_BRIDGE_TOKEN}`,
-            "localhost/janitor-inspection:ticket05",
+            "localhost/janitor-runner-sandbox:dev",
             "--input-type=module",
             "-e",
             `

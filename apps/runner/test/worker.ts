@@ -7,7 +7,8 @@ import { getSandbox, type Sandbox } from "@cloudflare/sandbox"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { ProtocolError } from "../src/Protocol.ts"
 import { errorResponse, jsonResponse, sessionIdOf, type Command } from "../src/Router.ts"
-import { DEFAULT_OPTIONS, SessionRunner, type RunnerOptions } from "../src/SessionRunner.ts"
+import { SessionRunner, type RunnerEnv } from "../src/SessionRunner.ts"
+import { DEFAULT_OPTIONS, SessionController, type RunnerOptions } from "../src/SessionController.ts"
 import { authenticate, handle as productionHandle, type WorkerEnv } from "../src/worker.ts"
 import {
   RepositoryWorkspace,
@@ -96,7 +97,7 @@ const toolCall = (name: string, args: unknown) =>
   frame({}, "tool_calls") +
   done
 
-export class TestSessionRunner extends SessionRunner {
+class TestSessionController extends SessionController {
   protected override makeRepository(selected: RepositorySelection) {
     const transport = this.env.REPOSITORY_TEST_TRANSPORT as RepositoryAuthority | undefined
     if (!transport) return super.makeRepository(selected)
@@ -591,6 +592,11 @@ export class TestSessionRunner extends SessionRunner {
   }
 }
 
+class TestSessionRunner extends SessionRunner {
+  protected override makeController(ctx: DurableObjectState, env: RunnerEnv) {
+    return new TestSessionController(ctx, env)
+  }
+}
 export { TestSessionRunner as SessionRunner }
 
 export default {

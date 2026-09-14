@@ -31,3 +31,25 @@ jobs:
       - run: vp run runner:build
       - run: vp run runner:test:bridge
       - run: vp test
+      - name: Validate the local Alchemy stack
+        env:
+          JANITOR_MAINTENANCE_TOKEN: local-ci-validation
+        run: |
+          vp run dev > /tmp/janitor-alchemy.log 2>&1 &
+          dev_pid=$!
+          trap 'kill "$dev_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 180); do
+            if curl --fail --silent --max-time 2 http://localhost:8787/api/v1/ready >/dev/null && \
+               curl --fail --silent --max-time 2 -H 'authorization: Bearer janitor-local-runner' http://localhost:8790/v1/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          vp run runner:smoke
+      - name: Retain local Alchemy diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alchemy-local-diagnostics
+          path: /tmp/janitor-alchemy.log
+          if-no-files-found: ignore

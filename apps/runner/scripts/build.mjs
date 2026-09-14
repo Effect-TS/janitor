@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const test = process.argv.includes("--test")
+const dev = process.argv.includes("--dev")
 const root = fileURLToPath(new URL("..", import.meta.url))
 const conditions = ["workerd", "browser", "module", "import", "default"]
 
@@ -35,9 +36,9 @@ await build({
   resolve: { conditions },
   ssr: { target: "webworker", noExternal: true, resolve: { conditions } },
   build: {
-    ssr: test ? "test/worker.ts" : "src/worker.ts",
-    outDir: test ? "dist-test" : "dist",
-    emptyOutDir: true,
+    ssr: test ? "test/worker.ts" : dev ? "dev/worker.ts" : "src/worker.ts",
+    outDir: test ? "dist-test" : dev ? "dist-dev" : "dist",
+    emptyOutDir: !dev,
     minify: false,
     sourcemap: true,
     rolldownOptions: {

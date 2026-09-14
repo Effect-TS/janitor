@@ -50,13 +50,13 @@ describe("deployment configuration", () => {
         }
       }),
   )
-  it.effect("keeps local development optional and permits a local runner connection", () =>
+  it.effect("connects the stack-owned local runner by default and permits an override", () =>
     Effect.gen(function* () {
       const empty = yield* agentRunnerConnection.pipe(
         Effect.provide(config({ ALCHEMY_DEV: "true" })),
       )
-      assert.strictEqual(empty.url, "")
-      assert.strictEqual(Redacted.value(empty.token), "")
+      assert.strictEqual(empty.url, "http://localhost:8790")
+      assert.strictEqual(Redacted.value(empty.token), "janitor-local-runner")
       const local = yield* agentRunnerConnection.pipe(
         Effect.provide(
           config({
