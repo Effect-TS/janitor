@@ -4,7 +4,12 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { Teammates } from "../Teammates.ts"
+import { enqueueOutput } from "./Outbox.ts"
 import { SlackConfig } from "./Config.ts"
+
+export const SlackWake = Context.Reference<Effect.Effect<void>>("Slack/Wake", {
+  defaultValue: () => Effect.void,
+})
 
 export class SlackError extends Schema.TaggedError<SlackError>()("SlackError", {
   message: Schema.String,
@@ -73,6 +78,7 @@ export class SlackConversation extends Context.Service<
       const sql = yield* SqlClient.SqlClient
       const teammates = yield* Teammates
       const config = yield* SlackConfig
+      const wake = yield* SlackWake
       const record = (eventId: string, body: unknown, message: Message | null, retry?: string) =>
         sql
           .withTransaction(
@@ -123,10 +129,30 @@ export class SlackConversation extends Context.Service<
           VALUES (${sessionId},${config.workspaceId},${message.channel},${root},${message.ts},${root === message.ts ? "[]" : null}::jsonb)
           ON CONFLICT (workspace_id,channel_id,thread_ts) DO NOTHING`
               }
-              yield* sql`UPDATE slack_thread SET due_at=LEAST(due_at,CLOCK_TIMESTAMP()) WHERE workspace_id=${config.workspaceId} AND channel_id=${message.channel} AND thread_ts=${root}`
+              const threads = yield* sql<{
+                session_id: string
+              }>`UPDATE slack_thread SET due_at=LEAST(due_at,CLOCK_TIMESTAMP()) WHERE workspace_id=${config.workspaceId} AND channel_id=${message.channel} AND thread_ts=${root} AND state<>'redirected' RETURNING session_id`
+              if (threads[0])
+                yield* enqueueOutput(
+                  sql,
+                  threads[0].session_id,
+                  "progress",
+                  "Received your message. Preparing your request.",
+                )
             }),
           )
-          .pipe(slackError, Effect.asVoid)
+          .pipe(
+            slackError,
+            Effect.asVoid,
+            Effect.tap(() =>
+              wake.pipe(
+                Effect.timeout("1 second"),
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("Slack wake failed; cron will recover", cause),
+                ),
+              ),
+            ),
+          )
       const inspect = (channel: string, thread: string) =>
         Effect.gen(function* () {
           const threads =
