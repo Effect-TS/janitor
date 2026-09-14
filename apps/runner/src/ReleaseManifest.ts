@@ -40,6 +40,7 @@ export interface ReleaseManifest {
   readonly build: {
     readonly opencode: string
     readonly effect: string
+    readonly effectSource: string
     readonly sandboxSdk: string
     readonly compatibilityDate: string
     readonly compatibilityFlags: ReadonlyArray<string>

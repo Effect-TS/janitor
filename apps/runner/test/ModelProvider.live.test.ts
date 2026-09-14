@@ -1,4 +1,4 @@
-import { expect, it } from "vitest"
+import { expect, it } from "vite-plus/test"
 import { writeFileSync } from "node:fs"
 import deployment from "../model-configurations/openrouter-llama-3.1-8b.json"
 import { Harness, uniqueSessionId, waitFor } from "./support/Harness.ts"
@@ -219,7 +219,7 @@ it.skipIf(!authorized)(
 )
 
 function scriptedResponse(request: number, body: string) {
-  const frame = (delta: unknown, finish: string | null = null, usage: unknown = undefined) =>
+  const frame = (delta: unknown, finish: string | null = null, usage?: unknown) =>
     "data: " +
     JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }], usage }) +
     "\n\n"

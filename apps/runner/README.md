@@ -2,26 +2,21 @@
 
 The runner is a separately built Cloudflare Worker with one SQLite Durable Object per agent session. Each object hosts the pinned OpenCode Workerd SDK (`@opencode/sdk/workerd/effect`, published packages `@opencode/*` 2.0.2) and owns the native conversation, inbox, execution claims, durable events and usage. Janitor talks to it only through the versioned JSON command boundary in `src/Protocol.ts`.
 
-## Why a separate workspace
+## Workspace and checks
 
-The published SDK depends on the registry Effect `4.0.0-rc.112` graph. Janitor's root workspace pins a pkg.pr.new Effect snapshot with global overrides, and the two graphs are not interchangeable. This directory is its own pnpm workspace (`pnpm-workspace.yaml`, `pnpm-lock.yaml`) so neither side's overrides can silently replace the other's dependencies. The root `vp` checks ignore this directory; run the runner's own checks from here.
+The runner is the `@janitor/runner` application in the root workspace. One `vp install` installs the whole project using the root lockfile and Effect catalog. OpenCode remains pinned to 2.0.2. Versioned patches adapt its Config calls to the root Effect snapshot and fix OpenRouter request serialization. See [SDK patch maintenance](../../patches/README.md).
 
-## Setup
-
-```sh
-cd runner
-pnpm install
-```
-
-The OpenCode packages are exact registry versions in `package.json`; upgrading them is a release decision (see the upgrade contract) because the native migration set and protocol may change.
-
-## Checks
+Run from the repository root with Docker available:
 
 ```sh
-pnpm typecheck   # runner sources against the published declarations
-pnpm build       # dist/worker.mjs, the deployable bundle
-pnpm test        # builds dist-test/worker.mjs and runs the Miniflare scenarios
+vp install
+vp run runner:check
+vp run runner:build
+vp run runner:test
+vp run runner:test:bridge
 ```
+
+`vp check` includes runner linting and `vp test` includes its native integration tests. `vp run check:all` also checks runner types, builds the production Worker and runs the bridge suite. Paid-provider and live-publication tests remain explicitly gated.
 
 The test bundle (`test/worker.ts`) wraps the production runner with a scripted model transport and fault injection reachable only under `/__test/`. The production bundle contains none of it.
 
@@ -29,7 +24,7 @@ The test bundle (`test/worker.ts`) wraps the production runner with a scripted m
 
 ## Configuration
 
-The Cloudflare Worker is named `janitor-agent-runner`. The root Alchemy stack deploys it alongside Janitor in production at `https://runner.janitor.effectful.co`. Its dependency graph and build remain isolated. Alchemy runs `vp run build:deploy` in this directory, then uploads `dist/worker.mjs` with `bundle: false`.
+The Cloudflare Worker is named `janitor-agent-runner`. The root Alchemy stack deploys it alongside Janitor in production at `https://runner.janitor.effectful.co`. It shares the root dependency graph and retains a separate Worker bundle for the Workerd export conditions. Alchemy runs `vp run build:deploy` in this directory, then uploads `dist/worker.mjs` with `bundle: false`.
 
 Alchemy derives Janitor's production runner URL from the deployment domain. `JANITOR_AGENT_RUNNER_URL` is only a local-development override. Supply `JANITOR_AGENT_RUNNER_TOKEN` in `.env.production`; Alchemy binds the same secret to both Workers. The earlier `RUNNER_SERVICE_URL` and `RUNNER_SERVICE_TOKEN` names are no longer read.
 
@@ -137,7 +132,7 @@ The durable native tool result includes the PR association and summary. Slack co
 
 The native publication test uses local Workerd, SQLite, R2 and the production bridge image with real Git repositories. It exercises divergent human commits on the pinned image, lost preparation/push/PR responses, checkpoint interruption, readiness loss, denied and invalid PR writes, credential exclusion and duplicate prevention. GitHub responses are controlled fixtures. Live GitHub permissions, branch protection and deployed service bindings require separate acceptance evidence.
 
-`test/Publication.live.test.ts` is skipped by default. After authorization for bounded writes in `Effect-TS/slopcop-sandbox`, run it from `runner/` with these environment variables:
+`test/Publication.live.test.ts` is skipped by default. After authorization for bounded writes in `Effect-TS/slopcop-sandbox`, run it from `apps/runner/` with these environment variables:
 
 ```sh
 FIXTURE_ALLOW_PUBLICATION=Effect-TS/slopcop-sandbox \
@@ -150,7 +145,7 @@ The environment file must contain `JANITOR_GITHUB_APP_ID` and `JANITOR_GITHUB_AP
 
 ## Repository checks and image provenance
 
-Run commands from `runner/` through Vite+:
+Run commands from `apps/runner/` through Vite+:
 
 ```sh
 vp install

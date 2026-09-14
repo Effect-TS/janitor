@@ -1,15 +1,15 @@
 // Janitor's declaration of the versioned runner command boundary.
 //
-// The runner (`runner/src/Protocol.ts`) is built from a separate dependency
+// The runner (`apps/runner/src/Protocol.ts`) is built from a separate dependency
 // graph, so the shapes are declared twice and exchanged as plain JSON. Both
 // declarations carry the protocol version; the runner rejects mismatches.
 import * as Schema from "effect/Schema"
 
 export const RUNNER_PROTOCOL_VERSION = 2
 export const RUNNER_PROTOCOL_HEADER = "x-janitor-runner-protocol"
-/** The runner state family this Janitor release is tested against (`runner/release-manifest.json`). */
+/** The runner state family this Janitor release is tested against (`apps/runner/release-manifest.json`). */
 export const RUNNER_STATE_FAMILY = "janitor-runner-1"
-/** The durable event contract Janitor's projection consumes (`runner/release-manifest.json`). */
+/** The durable event contract Janitor's projection consumes (`apps/runner/release-manifest.json`). */
 export const RUNNER_EVENT_CONTRACT = 1
 
 export const AgentSessionId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,120}$/))

@@ -6,26 +6,34 @@ Branch: `feat/runner-project-integration`
 
 Base: `7c32b3a`, main after Slack acknowledgement/delivery PR #37.
 
-## Started: dependency and runtime compatibility
+## Dependency decision
 
-Installed root and runner dependencies independently. Retained the approved integration plan in this worktree. No infrastructure or production resources have been changed.
+The initial probe in `probes/effect-graphs.json` is historical evidence from the separate installations. Both reported Effect 4.0.0-rc.112, but resolved to different modules. Basic cross-graph services worked. The native candidate then failed at startup because the root snapshot exports `Config.Redacted`, while OpenCode called `Config.redacted`. Bundling also found old `Config.string` calls in OpenCode simulation and mismatched Effect platform packages.
 
-Run the preliminary dependency probe from the worktree root:
+Following the request to patch the SDK, the root workspace applies versioned patches to OpenCode AI and simulation 2.0.2. Effect platform packages and OpenTelemetry resolve to the same commit as Effect. The AI patch also takes over the existing OpenRouter request serialization workaround. Application code uses the native `OpenRouter.route` again.
+
+`apps/runner` is now a root workspace application, installed through the root lockfile. Run the current graph probe from the root:
 
 ```sh
-node .scratch/runner-production-integration/probes/effect-graphs.mjs
+node .scratch/runner-production-integration/probes/shared-graph.mjs
 ```
 
-The recorded result is in `probes/effect-graphs.json`. Both dependency graphs report Effect 4.0.0-rc.112, but resolve to distinct modules: the root commit-pinned snapshot and the runner registry release. All four basic service/Layer checks passed, including execution across the two graphs in both directions.
+It verifies that the root, runner, OpenCode AI/core and Alchemy resolve the same Effect module. This is dependency evidence, not proof of Alchemy runtime adapter compatibility.
 
-This narrows the earlier assumption: distinct installations are not evidence that every operation is incompatible. The probe does not establish that sharing those graphs is supported for production. Keep current isolation until native host, cancellation, streaming, Alchemy resource binding and checkpoint lifecycle checks pass.
+## Implementation
 
-## Next experiment
+Root checks include runner source and native tests. Root tasks expose type checking, production bundling, native tests and bridge tests. PR and deployment CI require those checks without production credentials. Deployment declarations are extracted into `stacks/runner.ts` with the existing resource IDs and names. Build cache inputs now include the root lockfile, workspace configuration and patches.
 
-Use the existing native HTTP/runner test seams to compare the current bundle with one explicitly resolving Effect to the root graph. Keep the candidate resolution confined to the probe. Exercise native model streaming, tools and compaction, then streamed R2 checkpoint restore and Sandbox restart with the intended Alchemy runtime binding. Compare failures against the unchanged baseline before changing package overrides or production composition.
+The existing image-build-before-Worker sequence remains in place. Moving image publishing into the Container provider introduces a dependency between its application output and the Worker bundle. That sequence needs a separate graph validation and cutover; this SDK patch does not establish it. No infrastructure was deployed or replaced.
 
-If native compatibility passes, implement one Alchemy-backed checkpoint-store adapter as the first infrastructure slice. If it fails, record the actual failing operation and determine whether supported version alignment fixes it. Do not infer a need for another deployed service merely from package paths.
+The Config adaptation passed native streaming, tools, compaction and maintenance/checkpoint recovery against the root graph. After moving OpenRouter serialization into the SDK, an installation failure initially left the old package linked; correcting the workspace configuration and reinstalling resolved the request failure. Frozen installation, runner type checking, production bundling, the controlled OpenRouter test and all 12 bridge tests pass. The release manifest records the exact Effect source in addition to its reported version.
 
-## Baseline validation
+## Remaining integration slices
 
-Runner type checking passed. The unchanged native HTTP model driver passed with controlled responses, exercising streaming, tools, usage and local compaction. Its paid-provider case remained skipped. This establishes the baseline to compare against the candidate dependency composition; it is not an Alchemy runtime compatibility result.
+The SDK/workspace change removes the dependency-isolation obstacle. The remaining plan covers Alchemy-owned image publishing, runtime checkpoint/Sandbox/authority services, full local composition, release timing diagnostics and a disposable-resource deployment before production validation. The `runner:dev` task is a native local service fixture, not the completed backend/repository composition. Paid provider and live publication checks remain explicitly gated.
+
+## Final validation for the SDK/workspace change
+
+`vp test` passed 708 tests across 127 passing files, with 4 tests and 3 files explicitly skipped, in 577.80 seconds. This includes the backend-to-runner acceptance driver and the runner's native recovery and model scenarios. `vp check` completed with zero errors; existing runner diagnostics are now visible as warnings under the root checks. Runner type checking, production bundling, frozen installation and all 12 bridge tests passed.
+
+The deployment build also passed using the existing local Sandbox image at its immutable digest. Its generated image source hash and digest match the generated release manifest, and the production bundle excludes the test entry's fault routes. Registry publishing, live Cloudflare resource changes, paid-provider requests and live GitHub publication were not performed.

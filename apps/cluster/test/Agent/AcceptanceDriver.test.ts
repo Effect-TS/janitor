@@ -1,7 +1,7 @@
 // Service-level acceptance driver: Janitor's session acceptance, ordered
 // handoff and event projection against the real runner bundle running in
 // Miniflare, with controlled model responses. No repository or platform is
-// touched. Requires the runner workspace to be installed (`runner/README.md`).
+// touched. Requires the runner workspace to be installed (`apps/runner/README.md`).
 import { assert, describe, it, layer } from "@effect/vitest"
 import { execFileSync, spawn, type ChildProcess } from "node:child_process"
 import fs from "node:fs"
@@ -23,7 +23,7 @@ import { AgentSessions } from "../../src/Agent/Sessions.ts"
 import { WorkflowDispatcher } from "../../src/WorkflowDispatcher.ts"
 import { agentLayers } from "./support.ts"
 
-const runnerRoot = path.resolve(import.meta.dirname, "../../../../runner")
+const runnerRoot = path.resolve(import.meta.dirname, "../../../runner")
 const runnerInstalled = fs.existsSync(path.join(runnerRoot, "node_modules", "miniflare"))
 
 interface RunnerProcess {
@@ -108,7 +108,7 @@ const live = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 const describeDriver = runnerInstalled ? describe : describe.skip
 if (!runnerInstalled)
-  console.warn("Skipping runner acceptance driver: runner/node_modules is not installed")
+  console.warn("Skipping runner acceptance driver: apps/runner/node_modules is not installed")
 
 describeDriver("Agent conversation acceptance driver", () => {
   it("prepares the runner bundle", () => {

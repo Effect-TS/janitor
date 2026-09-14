@@ -1,4 +1,4 @@
-// Bundles the runner Worker with the isolated OpenCode dependency graph.
+// Bundles the runner Worker with the workspace-pinned OpenCode and Effect dependencies.
 //
 // OpenCode selects `workerd`/`browser` export conditions, some packages import
 // Markdown/text prompt files, and some transitive CommonJS modules need

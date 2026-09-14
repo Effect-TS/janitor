@@ -1,5 +1,5 @@
 // Model transport deadlines, native retry behavior and command policy.
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test"
 import { Harness, uniqueSessionId, waitFor } from "./support/Harness.ts"
 
 let harness: Harness

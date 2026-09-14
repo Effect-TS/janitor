@@ -11,13 +11,7 @@ export default defineConfig({
   lint: {
     // Feasibility fixtures run with isolated Cloudflare/OpenCode dependencies.
     // Checking them against Janitor's dependency graph produces invalid diagnostics.
-    ignorePatterns: [
-      ".scratch",
-      // The runner is an independent workspace with its own dependency graph
-      // and checks (`runner/package.json`); its vendored OpenCode source and
-      // bundles are not application code.
-      "runner/**",
-    ],
+    ignorePatterns: [".scratch"],
     extends: [recommended],
     plugins: ["typescript"],
     jsPlugins: [
@@ -51,6 +45,17 @@ export default defineConfig({
     cache: true,
 
     tasks: {
+      "runner:test": { command: "vp run --no-cache --filter @janitor/runner test", cache: false },
+      "runner:dev": {
+        command:
+          "vp run --no-cache --filter @janitor/runner build:test && vp run --no-cache --filter @janitor/runner serve --test",
+        cache: false,
+      },
+      "check:all": {
+        command:
+          "vp check && vp run runner:check && vp run runner:build && vp test && vp run runner:test:bridge",
+        cache: false,
+      },
       dev: {
         command: "vp exec alchemy dev",
         cache: false,
@@ -85,6 +90,7 @@ export default defineConfig({
         },
       },
       "./apps/web/vite.config.ts",
+      "./apps/runner/vite.config.ts",
     ],
     exclude: [".direnv", "**/node_modules/**"],
     server: {

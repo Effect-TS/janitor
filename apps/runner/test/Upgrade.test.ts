@@ -1,6 +1,6 @@
 // Release identity, outer compatibility, forward migration and the maintenance
 // hold as the upgrade contract requires them, without a repository workspace.
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test"
 import { RELEASE_MANIFEST, SUPPORTED_NATIVE_MIGRATIONS } from "../src/ReleaseManifest.ts"
 import { Harness, sleep, uniqueSessionId, waitFor } from "./support/Harness.ts"
 

@@ -1,4 +1,4 @@
-import { it } from "vitest"
+import { it } from "vite-plus/test"
 import assert from "node:assert/strict"
 import { createHash, createSign, randomUUID } from "node:crypto"
 import { execFileSync } from "node:child_process"

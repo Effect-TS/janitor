@@ -1,4 +1,4 @@
-import { it, expect } from "vitest"
+import { it, expect } from "vite-plus/test"
 import { Effect } from "effect"
 import { execDefaults } from "@opencode/core/environment/exec-defaults"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"

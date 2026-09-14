@@ -97,6 +97,7 @@
     "effect": "4.0.0-rc.112",
     "sandboxSdk": "0.12.9",
     "compatibilityDate": "2026-09-05",
-    "compatibilityFlags": ["nodejs_compat"]
+    "compatibilityFlags": ["nodejs_compat"],
+    "effectSource": "https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab"
   }
 }

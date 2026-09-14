@@ -1,5 +1,5 @@
 // Outer compatibility decisions: pure, and never a guess that state is fresh.
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { decideCompatibility, type Compatibility } from "../src/Compatibility.ts"
 import { RELEASE_MANIFEST, SUPPORTED_NATIVE_MIGRATIONS } from "../src/ReleaseManifest.ts"
 

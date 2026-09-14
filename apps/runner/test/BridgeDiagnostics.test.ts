@@ -1,4 +1,4 @@
-import { expect, it } from "vitest"
+import { expect, it } from "vite-plus/test"
 import { Harness } from "./support/Harness.ts"
 
 it("session creation reports known bridge conflicts without forwarding arbitrary response text", async () => {

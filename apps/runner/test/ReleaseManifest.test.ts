@@ -1,6 +1,7 @@
 // The pinned release manifest must agree with every artifact it claims to pin.
+import { createRequire } from "node:module"
 import { readFileSync } from "node:fs"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vite-plus/test"
 import { bridgeSourceHash } from "../scripts/bridge-source.mjs"
 import { capabilities, protocol } from "../bridge/server.mjs"
 import bridgeRelease from "../bridge/release.json" with { type: "json" }
@@ -24,7 +25,12 @@ describe("release manifest", () => {
   it("pins the dependency graph the bundle is built from", () => {
     expect(packageJson.dependencies["@opencode/core"]).toBe(RELEASE_MANIFEST.build.opencode)
     expect(packageJson.dependencies["@opencode/sdk"]).toBe(RELEASE_MANIFEST.build.opencode)
-    expect(packageJson.dependencies.effect).toBe(RELEASE_MANIFEST.build.effect)
+    expect(packageJson.dependencies.effect).toBe("catalog:")
+    const require = createRequire(import.meta.url)
+    expect(require("effect/package.json").version).toBe(RELEASE_MANIFEST.build.effect)
+    expect(read("../../pnpm-workspace.yaml")).toContain(
+      `effect: ${RELEASE_MANIFEST.build.effectSource}`,
+    )
     expect(packageJson.dependencies["@cloudflare/sandbox"]).toBe(RELEASE_MANIFEST.build.sandboxSdk)
     expect(RELEASE_MANIFEST.nativeMigrations.package).toBe(
       `@opencode/core@${RELEASE_MANIFEST.build.opencode}`,

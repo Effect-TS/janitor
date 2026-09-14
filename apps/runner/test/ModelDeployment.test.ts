@@ -1,4 +1,4 @@
-import { expect, it } from "vitest"
+import { expect, it } from "vite-plus/test"
 import { Harness, testConfigurations, uniqueSessionId, waitFor } from "./support/Harness.ts"
 import deployment from "../model-configurations/openrouter-llama-3.1-8b.json"
 import { modelRepository } from "./support/ModelRepository.ts"

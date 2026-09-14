@@ -1,4 +1,4 @@
-// Alchemy's independent build publishes one image and bundles its matching Worker.
+// Alchemy's runner build publishes one image and bundles its matching Worker.
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, copyFileSync } from "node:fs"
 import { tmpdir } from "node:os"

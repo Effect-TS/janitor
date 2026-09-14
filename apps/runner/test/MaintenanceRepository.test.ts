@@ -2,7 +2,7 @@
 // image: admitted commands finish and checkpoint before the runtime stops,
 // release verifies the bridge actually reached, and checkpoint manifests are
 // validated before anything is restored.
-import { it, expect } from "vitest"
+import { it, expect } from "vite-plus/test"
 import { execFileSync } from "node:child_process"
 import { RELEASE_MANIFEST } from "../src/ReleaseManifest.ts"
 import { Harness, sleep, waitFor } from "./support/Harness.ts"

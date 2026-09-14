@@ -32,6 +32,10 @@ jobs:
           run-install: false
       - run: vp install --frozen-lockfile
       - run: vp check
+      - run: docker info
+      - run: vp run runner:check
+      - run: vp run runner:build
+      - run: vp run runner:test:bridge
       - run: vp test
       - name: Plan or deploy production
         env:
@@ -84,6 +88,6 @@ jobs:
         with:
           name: runner-deployment-evidence
           path: |
-            runner/dist/release-manifest.json
-            runner/dist/image-provenance.json
+            apps/runner/dist/release-manifest.json
+            apps/runner/dist/image-provenance.json
           if-no-files-found: ignore

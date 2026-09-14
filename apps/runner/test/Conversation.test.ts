@@ -1,5 +1,5 @@
 // Durable conversation scenarios against the pinned SDK in Miniflare.
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test"
 import { Harness, sleep, uniqueSessionId, waitFor } from "./support/Harness.ts"
 
 let harness: Harness

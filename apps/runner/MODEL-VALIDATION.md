@@ -46,7 +46,7 @@ Credential redaction covers both HTTP error bodies and decoded native stream eve
 
 `ModelProvider.live.test.ts` first runs the complete bounded driver with controlled responses through the production FetchHttpClient, native route/resolver, Workerd session, disposable repository, real bridge and R2 checkpoints. It checks usage normalization against independent HTTP usage fields, successful tool results and continuation after native manual compaction. Its second test uses the real provider only when explicitly enabled.
 
-From `runner/`, run:
+From `apps/runner/`, run:
 
 ```sh
 vp install
@@ -59,7 +59,7 @@ vp run build
 
 No live-provider pass has been recorded. A team credential with model access and explicit authorization for a bounded paid run are prerequisites. Provider availability and price depend on the account. Do not count the controlled pass as live evidence.
 
-After authorization, supply `JANITOR_AGENT_RUNNER_MODEL_API_KEY` in the process environment through your secret manager. Do not paste the key into a command or repository file. Then run from `runner/`:
+After authorization, supply `JANITOR_AGENT_RUNNER_MODEL_API_KEY` in the process environment through your secret manager. Do not paste the key into a command or repository file. Then run from `apps/runner/`:
 
 ```sh
 JANITOR_ALLOW_MODEL_SMOKE=openrouter-llama-3.1-8b-v1 \

@@ -1,4 +1,4 @@
-import { it, expect } from "vitest"
+import { it, expect } from "vite-plus/test"
 import { execFileSync } from "node:child_process"
 import { Harness, waitFor } from "./support/Harness.ts"
 

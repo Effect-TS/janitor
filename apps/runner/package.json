@@ -6,12 +6,12 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "build:deploy": "vp install --frozen-lockfile && node scripts/build-deploy.mjs",
+    "build:deploy": "node scripts/build-deploy.mjs",
     "build:test": "node scripts/build.mjs --test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "serve": "node scripts/serve.mjs",
-    "check": "npm run typecheck && npm run build && npm run test",
+    "check": "vp run typecheck && vp run build && vp run test && vp run test:bridge",
     "test:bridge": "node --test bridge/*.test.mjs",
     "build:bridge": "node scripts/build-image.mjs"
   },
@@ -22,15 +22,16 @@
     "@opencode/schema": "2.0.2",
     "@opencode/sdk": "2.0.2",
     "@opencode/server": "2.0.2",
-    "effect": "4.0.0-rc.112"
+    "alchemy": "catalog:",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260702.1",
     "@types/node": "24.13.3",
     "miniflare": "4.20260708.0",
-    "typescript": "5.9.3",
-    "vite-plus": "0.3.0",
-    "vitest": "4.1.11"
+    "typescript": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=24"

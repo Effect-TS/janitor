@@ -1,0 +1,28 @@
+diff --git a/dist/route/auth.js b/dist/route/auth.js
+--- a/dist/route/auth.js
++++ b/dist/route/auth.js
+@@ -47,7 +47,7 @@
+ export const optional = (secret, source = "optional value") => secret === undefined
+     ? credential(Effect.fail(new MissingCredentialError(source)))
+     : credentialFromSecret(secret, source);
+-export const config = (name) => credentialFromSecret(Config.redacted(name), name);
++export const config = (name) => credentialFromSecret(Config.Redacted(name), name);
+ export const effect = (load) => credential(load);
+ export const none = auth((input) => Effect.succeed(input.headers));
+ export const headers = (input) => auth((inputAuth) => Effect.succeed(Headers.setAll(inputAuth.headers, input)));
+diff --git a/dist/providers/openrouter.js b/dist/providers/openrouter.js
+--- a/dist/providers/openrouter.js
++++ b/dist/providers/openrouter.js
+@@ -37,8 +37,11 @@
+                     reasoning_details: reasoningDetails,
+                 };
+             });
++            // OpenRouter strict routing rejects OpenAI storage/cache-key fields.
++            const { store, prompt_cache_key, max_completion_tokens, ...compatible } = body;
+             return {
+-                ...body,
++                ...compatible,
++                ...(max_completion_tokens === undefined ? {} : { max_tokens: max_completion_tokens }),
+                 messages,
+                 ...bodyOptions(request.providerOptions),
+             };

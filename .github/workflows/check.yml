@@ -26,4 +26,8 @@ jobs:
           run-install: false
       - run: vp install --frozen-lockfile
       - run: vp check
+      - run: docker info
+      - run: vp run runner:check
+      - run: vp run runner:build
+      - run: vp run runner:test:bridge
       - run: vp test

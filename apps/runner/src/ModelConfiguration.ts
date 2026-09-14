@@ -8,7 +8,7 @@
 // catalog or fixture metadata.
 import { Duration, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { HttpClient, HttpClientError } from "effect/unstable/http"
-import { Auth, Route } from "@opencode/ai/route"
+import { Auth } from "@opencode/ai/route"
 import { OpenAIChat } from "@opencode/ai/protocols"
 import * as OpenRouter from "@opencode/ai/providers/openrouter"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
@@ -126,34 +126,9 @@ const credentialFor = (record: ModelConfigurationRecord, secrets: SecretReader) 
     }),
   )
 
-// The pinned SDK inherits OpenAI-only fields in its OpenRouter serializer.
-// Strict OpenRouter routing rejects those fields for the selected upstream.
-const openRouterRoute = Route.make({
-  id: "openrouter",
-  provider: OpenRouter.id,
-  providerMetadataKey: "openrouter",
-  endpoint: OpenRouter.route.endpoint,
-  framing: OpenAIChat.framing,
-  protocol: {
-    ...OpenRouter.protocol,
-    body: {
-      ...OpenRouter.protocol.body,
-      from: (request): ReturnType<typeof OpenRouter.protocol.body.from> =>
-        OpenRouter.protocol.body.from(request).pipe(
-          Effect.map(
-            ({ store: _store, prompt_cache_key: _cacheKey, max_completion_tokens, ...body }) => ({
-              ...body,
-              ...(max_completion_tokens === undefined ? {} : { max_tokens: max_completion_tokens }),
-            }),
-          ),
-        ),
-    },
-  },
-})
-
 /** Builds the native route model for a record. Secrets resolve lazily per request. */
 export const languageModelFor = (record: ModelConfigurationRecord, secrets: SecretReader) => {
-  const route = (record.route === "openrouter" ? openRouterRoute : OpenAIChat.route).with({
+  const route = (record.route === "openrouter" ? OpenRouter.route : OpenAIChat.route).with({
     provider: record.provider,
     endpoint: { baseURL: record.endpoint },
     auth: Auth.bearer(credentialFor(record, secrets)),

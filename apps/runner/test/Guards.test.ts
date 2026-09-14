@@ -1,5 +1,5 @@
 // Protocol, generation, maintenance, compatibility and cleanup guards.
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test"
 import { PROTOCOL_HEADER } from "../src/Protocol.ts"
 import { Harness, sleep, uniqueSessionId, waitFor } from "./support/Harness.ts"
 
