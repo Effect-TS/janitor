@@ -40,6 +40,7 @@ export default Alchemy.Stack(
           permissionGroups: [
             "Account Settings Read",
             "Workers Scripts Write",
+            "Workers Containers Write",
             "Workers R2 Storage Write",
             "Queues Write",
             "Hyperdrive Write",
