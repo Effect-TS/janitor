@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { SlackConfig } from "../../src/Slack/Config.ts"
+import { enqueueOutput } from "../../src/Slack/Outbox.ts"
 import { SlackDelivery } from "../../src/Slack/Delivery.ts"
 import {
   SlackTransport,
@@ -168,9 +169,9 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         )
         assert.deepStrictEqual(
           retained.map((row) => row.state),
-          ["sent", "pending", "pending", "pending"],
+          ["sent", "pending"],
         )
-        assert.deepStrictEqual(retained[2]?.actions, {
+        assert.deepStrictEqual(retained[1]?.actions, {
           sessionId: "removed",
           generation: 1,
           inputId: "msg_r2",
@@ -203,7 +204,7 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         assert.strictEqual((yield* delivery.inspect("delivery"))[0]?.state, "sent")
         assert.strictEqual(posts - before, 1)
         yield* delivery.catchUp("delivery")
-        assert.strictEqual((yield* delivery.inspect("delivery")).length, 2)
+        assert.strictEqual((yield* delivery.inspect("delivery")).length, 1)
       }),
   )
   it.effect("holds an unmatched send and prevents later responses overtaking it", () =>
@@ -228,7 +229,7 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       const outputs = yield* delivery.inspect("uncertain")
       assert.deepEqual(
         outputs.map((output) => output.state),
-        ["uncertain", "pending", "pending", "pending"],
+        ["uncertain", "pending"],
       )
       assert.include(outputs[0]!.error!, "positive author")
       assert.strictEqual(posts - before, 1)
@@ -241,36 +242,51 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       assert.strictEqual(posts - before, 1)
     }),
   )
-  it.effect(
-    "coalesces pending progress without moving completion ahead of substantive replies",
-    () =>
-      Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient
-        yield* (yield* AgentSessions).start({ sessionId: "progress", title: "Progress" })
-        yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('progress','T1','C3','602.000000','602.000000','ready','[]')`
-        runner.push(
-          "progress",
-          { type: "turn.started", data: { inputId: "msg_g", attempt: 1 } },
-          { type: "turn.stage", data: { inputId: "msg_g", attempt: 1, stage: "working" } },
-          { type: "turn.completed", data: { inputId: "msg_g", attempt: 1, text: "Answer" } },
-        )
-        const delivery = yield* SlackDelivery
-        yield* delivery.catchUp("progress")
-        const outputs = yield* delivery.inspect("progress")
-        assert.deepEqual(
-          outputs.map((output) => output.kind),
-          ["progress", "response", "progress"],
-        )
-        assert.strictEqual(outputs[2]!.text, "Done.")
-        const before = posts
-        yield* delivery.deliver("progress")
-        yield* spacing
-        yield* delivery.deliver("progress")
-        yield* spacing
-        yield* delivery.deliver("progress")
-        assert.strictEqual(posts - before, 2)
-        assert.deepEqual(updates, [(yield* delivery.inspect("progress"))[0]!.message_ts])
-      }),
+  it.effect("delivers the answer without rewriting the acknowledgement into lifecycle status", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      yield* (yield* AgentSessions).start({ sessionId: "progress", title: "Progress" })
+      yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('progress','T1','C3','602.000000','602.000000','ready','[]')`
+      const delivery = yield* SlackDelivery
+      lost = false
+      const before = posts
+      const beforeUpdates = updates.length
+      yield* enqueueOutput(sql, "progress", "progress", "On it…")
+      yield* delivery.deliver("progress")
+      runner.push(
+        "progress",
+        { type: "turn.started", data: { inputId: "msg_g", attempt: 1 } },
+        { type: "turn.stage", data: { inputId: "msg_g", attempt: 1, stage: "working" } },
+        {
+          type: "turn.message",
+          data: { inputId: "msg_g", attempt: 1, ordinal: 0, text: "Effect is a toolkit." },
+        },
+        { type: "turn.stage", data: { inputId: "msg_g", attempt: 1, stage: "saving" } },
+        {
+          type: "turn.completed",
+          data: { inputId: "msg_g", attempt: 1, text: "Effect is a toolkit." },
+        },
+      )
+      yield* delivery.catchUp("progress")
+      yield* delivery.catchUp("progress")
+      assert.deepEqual(
+        (yield* delivery.inspect("progress")).map((output) => [output.kind, output.text]),
+        [
+          ["progress", "On it…"],
+          ["response", "Effect is a toolkit."],
+        ],
+      )
+      yield* spacing
+      yield* delivery.deliver("progress")
+      assert.strictEqual(posts - before, 2)
+      assert.strictEqual(updates.length, beforeUpdates)
+      assert.deepEqual(
+        messages
+          .filter((message) => message.thread_ts === "602.000000")
+          .map((message) => message.text),
+        ["On it…", "Effect is a toolkit."],
+      )
+    }),
   )
   it.effect(
     "retains throttled output, spaces channel sends and splits Unicode without data loss",
@@ -322,10 +338,7 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       let outputs = yield* delivery.inspect("stream")
       assert.deepEqual(
         outputs.map((output) => [output.kind, output.text]),
-        [
-          ["progress", "Working on your request."],
-          ["response", "Reading the README."],
-        ],
+        [["response", "Reading the README."]],
       )
       // The second read sees the final block and the completion carrying the same text.
       runner.push(
@@ -344,10 +357,8 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       assert.deepEqual(
         outputs.map((output) => [output.kind, output.text]),
         [
-          ["progress", "Working on your request."],
           ["response", "Reading the README."],
           ["response", "Effect is a toolkit."],
-          ["progress", "Done."],
         ],
       )
       // A later attempt that streamed nothing still posts its completion text.

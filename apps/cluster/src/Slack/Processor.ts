@@ -154,7 +154,6 @@ export class SlackProcessor extends Context.Service<
             const repositories =
               yield* sql<RepositoryCandidate>`SELECT repository_id,owner,repo FROM github_repository WHERE connected ORDER BY owner,repo`
             let repositoryId = thread.repository_id
-            let selectionReason = thread.selection_reason
             let selection =
               repositoryId === null
                 ? selectRepository(
@@ -166,7 +165,6 @@ export class SlackProcessor extends Context.Service<
             if (selection && "pr" in selection) {
               if (!(yield* commitSelection(selection))) return
               repositoryId = selection.repositoryId
-              selectionReason = selection.reason
             } else if (selection && "kind" in selection && selection.kind === "clarification") {
               return yield* warn(selection.question, "clarification")
             }
@@ -282,7 +280,6 @@ export class SlackProcessor extends Context.Service<
               selection = { repositoryId: result.repositoryId, pr: null, reason: result.reason }
               if (!(yield* commitSelection(selection))) return
               repositoryId = selection.repositoryId
-              selectionReason = selection.reason
             }
             const [ready] = yield* sql<{
               reason: string | null
@@ -308,6 +305,7 @@ export class SlackProcessor extends Context.Service<
                   title: inputs[0]?.text.slice(0, 200) ?? "Slack conversation",
                 })
                 handoffs.push(handoffRequest(sessionId, null))
+                const repository = repositories.find((r) => r.repository_id === repositoryId)
                 for (const input of inputs.filter((input) => !input.forwarded)) {
                   let redirected = false
                   if (input.text.includes(`<@${config.botUserId}>`)) {
@@ -349,8 +347,8 @@ export class SlackProcessor extends Context.Service<
                     source: "slack",
                     author: input.author,
                     text:
-                      (first && selectionReason
-                        ? `Repository: ${repositories.find((r) => r.repository_id === repositoryId)?.owner}/${repositories.find((r) => r.repository_id === repositoryId)?.repo}. ${selectionReason} Name the repository in your first progress message.\n\n`
+                      (first && repository
+                        ? `Workspace context: ${repository.owner}/${repository.repo} is already selected. Use this context silently unless the repository is relevant to your answer or needs clarification.\n\n`
                         : "") +
                       history +
                       input.text,

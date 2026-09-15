@@ -44,7 +44,7 @@ Proposed system prompt:
 
 Return a schema-validated selected-or-needs-clarification result. Validate the ID against the supplied inventory in application code and preserve existing PR reference checks. Persist the result against its contribution revision and context version so retries can reuse it; discard a stale result when a newer explicit instruction changes the selection before commitment. Bound inference duration and retries. Model failure gets an accurate retry/error state, not a false claim that the user omitted a repository.
 
-Under the session lease, persist the selection and enforce the existing PR home-thread uniqueness rule before creating the runner session. Include the selected repository and inference reason in the runner's initial context. Its first progress message should name the repository being used, without requiring confirmation. Once the selection is committed, keep it immutable.
+Under the session lease, persist the selection and enforce the existing PR home-thread uniqueness rule before creating the runner session. Include the selected repository in the runner's initial context. Keep selection details out of conversational replies unless they help answer the request or resolve ambiguity. Preserve the inference reason in session diagnostics. Once the selection is committed, keep it immutable.
 
 If inference still leaves materially different choices, enqueue one concise clarification. A clarification reply requests immediate processing again.
 
