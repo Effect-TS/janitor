@@ -9,11 +9,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import type { RecoveryStatus } from "@janitor/domain/Agent/Observation"
 import { describeError } from "../SqlErrors.ts"
 import { WorkflowOutbox, type WorkflowOutboxError } from "../WorkflowOutbox.ts"
 import { handoffRequest } from "./Handoff.ts"
-import { recoveryStatus } from "./RecoveryStatus.ts"
 import {
   AgentSessionId,
   InputSource,
@@ -101,7 +99,6 @@ export interface AcceptInput {
 }
 
 export interface SessionView {
-  readonly recovery: ReadonlyArray<RecoveryStatus>
   readonly slackDelivery: ReadonlyArray<{ id: string; state: string; error: string | null }>
   readonly deliveryWarning: string | null
   readonly feedback: ReadonlyArray<{ key: string; state: string; warning: string | null }>
@@ -358,7 +355,6 @@ export class AgentSessions extends Context.Service<
         }>`SELECT output_id AS id,state,error FROM github_feedback_output WHERE session_id=${sessionId} AND state<>'sent' ORDER BY sequence`.pipe(
           wrap("view"),
         )
-        const recovery = yield* recoveryStatus(sql, sessionId).pipe(wrap("view"))
         const slackDelivery = yield* sql<{
           id: string
           state: string
@@ -372,7 +368,6 @@ export class AgentSessions extends Context.Service<
           wrap("view"),
         )
         return {
-          recovery,
           slackDelivery,
           deliveryWarning: warnings[0]?.delivery_warning ?? null,
           session,

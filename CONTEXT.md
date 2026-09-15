@@ -160,13 +160,6 @@ The Durable Object-controlled tool that pushes a session's commits and creates o
 **Automatic PR review handling**:
 Agent work prompted by an authorized teammate's PR review feedback, with changes and replies made on GitHub without another request in the session's home thread. Outside contributors' feedback requires an authorized teammate's request before the agent acts on it.
 
-**Slack thread scan**:
-The periodic read of a session's Slack home thread that catches up on messages whose events never arrived. The scan is overdue when it has not completed within two of its five-minute cycles and incomplete while a page is still being fetched; neither says anything was lost. GitHub feedback has no scan: it arrives by webhook only, and a delivery GitHub fails to make is not recovered.
-_Avoid_: Recovery scan
-
-**Recovery gap**:
-What the Slack thread scan can never bring back: deleted text that was never captured, edited originals that were never captured, and start mentions that never arrived. The dashboard states the gap next to the scan's status rather than claiming recovery.
-
 **Feedback hydration**:
 Fetching the comments of an accepted GitHub review contribution page by page before the agent acts on it. A contribution is hydrating until every page is in.
 
