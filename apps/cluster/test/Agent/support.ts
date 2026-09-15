@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
-import { WorkflowDispatcher } from "../../src/WorkflowDispatcher.ts"
+import { WorkflowDispatcher, type WorkflowRegistration } from "../../src/WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../../src/WorkflowOutbox.ts"
 import { AgentEventProjection } from "../../src/Agent/EventProjection.ts"
 import { AgentHandoffLayer, AgentHandoffRegistration } from "../../src/Agent/Handoff.ts"
@@ -68,6 +68,11 @@ export class FakeRunner {
   }
 
   readonly client: RunnerClient["Service"] = {
+    inferRepository: () =>
+      Effect.succeed({
+        kind: "clarification",
+        question: "Which connected repository should I use?",
+      }),
     createSession: (sessionId: AgentSessionId, request: CreateSessionRequest) =>
       Effect.suspend(() => {
         this.calls.push({ method: "createSession", sessionId, detail: request })
@@ -196,9 +201,12 @@ export class FakeRunner {
 }
 
 /** Everything Janitor needs for agent sessions, against Postgres and an in-memory engine. */
-export const agentLayers = (runner: Layer.Layer<RunnerClient, never, never>) =>
+export const agentLayers = (
+  runner: Layer.Layer<RunnerClient, never, never>,
+  registrations: ReadonlyArray<WorkflowRegistration> = [],
+) =>
   Layer.mergeAll(AgentHandoffLayer, AgentSessions.layer, AgentEventProjection.layer).pipe(
-    Layer.provideMerge(WorkflowDispatcher.layer([AgentHandoffRegistration])),
+    Layer.provideMerge(WorkflowDispatcher.layer([AgentHandoffRegistration, ...registrations])),
     Layer.provideMerge(WorkflowOutbox.layer),
     Layer.provideMerge(runner),
     Layer.provideMerge(WorkflowEngine.layerMemory),

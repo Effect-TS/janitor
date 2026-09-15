@@ -250,8 +250,8 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       const sessions = yield* AgentSessions
       const observation = yield* SessionObservation
       const sql = yield* SqlClient.SqlClient
-      yield* sql`INSERT INTO slack_thread (session_id, workspace_id, channel_id, thread_ts, boundary_ts, state, warning)
-        VALUES ('o-pending', 'T1', 'C2', '1700000500.000200', '1700000500.000200', 'initializing', 'Which repository should I use?')`
+      yield* sql`INSERT INTO slack_thread (session_id, workspace_id, channel_id, thread_ts, boundary_ts, state, warning, startup_phase)
+        VALUES ('o-pending', 'T1', 'C2', '1700000500.000200', '1700000500.000200', 'initializing', 'Which repository should I use?', 'clarification')`
       yield* sessions.start({ sessionId: "o-gone", title: "Gone" })
       yield* sql`UPDATE agent_session SET runner_state = 'disconnected' WHERE session_id = 'o-gone'`
       const page = yield* observation.list({ cursor: null, limit: 50 })
@@ -269,6 +269,25 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       )
       const missing = yield* observation.detail("o-gone").pipe(Effect.flip)
       assert.strictEqual(missing._tag, "@janitor/cluster/Agent/AgentSessionNotFound")
+    }),
+  )
+
+  it.effect("shows active startup phases instead of a repository question", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const observation = yield* SessionObservation
+      yield* sql`INSERT INTO slack_thread(session_id,workspace_id,channel_id,thread_ts,boundary_ts) VALUES('o-startup','T1','CSTART','1700000600.0','1700000600.0')`
+      for (const [phase, reason] of [
+        ["preparing", "Preparing session"],
+        ["history", "Reading earlier discussion"],
+        ["selecting", "Inferring repository"],
+        ["runner", "Starting workspace"],
+      ]) {
+        yield* sql`UPDATE slack_thread SET startup_phase=${phase} WHERE session_id='o-startup'`
+        const detail = yield* observation.detail("o-startup")
+        assert.strictEqual(detail.execution, "working")
+        assert.strictEqual(detail.reason, reason)
+      }
     }),
   )
 

@@ -1,3 +1,4 @@
+import type { OutboxRequest } from "../WorkflowOutbox.ts"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -37,9 +38,11 @@ export interface SlackRequest {
 export class SlackWebhook extends Context.Service<
   SlackWebhook,
   {
-    readonly receive: (
-      request: SlackRequest,
-    ) => Effect.Effect<{ readonly status: number; readonly body: string }>
+    readonly receive: (request: SlackRequest) => Effect.Effect<{
+      readonly status: number
+      readonly body: string
+      readonly work?: OutboxRequest | undefined
+    }>
   }
 >()("@janitor/cluster/Slack/Webhook") {
   static readonly layer = Layer.effect(
@@ -103,13 +106,13 @@ export class SlackWebhook extends Context.Service<
             !event.app_id &&
             event.edited === undefined &&
             event.user !== config.botUserId
-          yield* conversation.record(
+          const work = yield* conversation.record(
             envelope.event_id,
             envelope,
             eligible ? event : null,
             request.retry,
           )
-          return { status: 200, body: "Accepted" }
+          return { status: 200, body: "Accepted", work }
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.logError("Slack receipt failed", cause).pipe(

@@ -1,3 +1,4 @@
+import { SlackProcessingLayer, SlackProcessingRegistration } from "./Slack/Processing.ts"
 import { runnerTransport } from "./Agent/RunnerBinding.ts"
 import * as ConfigProvider from "effect/ConfigProvider"
 import { RepositoryActivity } from "./RepositoryActivity.ts"
@@ -115,6 +116,8 @@ import { GitHubFeedback, GitHubFeedbackConfig } from "./GitHub/Feedback.ts"
 import { GitHubDelivery } from "./GitHub/FeedbackDelivery.ts"
 import { GitHubFeedbackHttpLayer } from "./GitHub/FeedbackHttp.ts"
 import {
+  SlackRecoveryCronLayer,
+  SlackRecoveryCronName,
   SlackCronLayer,
   SlackCronName,
   SlackDeliveryCronLayer,
@@ -329,8 +332,13 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const feedbackBotLogin = yield* Config.String("JANITOR_GITHUB_APP_LOGIN").pipe(
       Config.withDefault(""),
     )
+    const preferredOrganization = yield* Config.String(
+      "JANITOR_PREFERRED_REPOSITORY_ORGANIZATION",
+    ).pipe(Config.withDefault("Effect-TS"))
     const SlackLayers = slackConfigured
       ? Layer.mergeAll(
+          SlackProcessingLayer,
+          SlackRecoveryCronLayer,
           SlackCronLayer,
           SlackDeliveryCronLayer,
           SlackWebhook.layer,
@@ -355,6 +363,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           Layer.provideMerge(SlackTransport.layer),
           Layer.provide(
             Layer.succeed(SlackConfig, {
+              preferredOrganization,
               workspaceId: slackWorkspace,
               appId: slackApp,
               botUserId: slackBot,
@@ -423,6 +432,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           ReconcileEntityRegistration,
           RuleTestJobRegistration,
           ...(runnerConfigured ? [AgentHandoffRegistration] : []),
+          ...(slackConfigured ? [SlackProcessingRegistration] : []),
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
@@ -448,7 +458,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
       Layer.provideMerge(WorkflowOutbox.layer),
       Layer.provide(DatabaseLayer),
-      Layer.provide(
+      Layer.provideMerge(
         Layer.succeed(
           SlackWake,
           Effect.suspend(() => notifySlack),
@@ -483,6 +493,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ? cluster.wake(AgentCatchUpCronName)
       : () => Effect.void
     notifyCatchUp = wakeAgentCatchUp()
+    const wakeSlackRecovery = slackConfigured
+      ? cluster.wake(SlackRecoveryCronName)
+      : () => Effect.void
     const wakeSlack = slackConfigured ? cluster.wake(SlackCronName) : () => Effect.void
     const wakeSlackDelivery = slackConfigured
       ? cluster.wake(SlackDeliveryCronName)
@@ -497,6 +510,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           wakeOutboxDispatch(),
           wakeSyncRepair(),
           wakeAgentCatchUp(),
+          wakeSlackRecovery(),
           wakeSlack(),
           wakeSlackDelivery(),
         ],
@@ -582,7 +596,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest
               if (response.status < 400 && request.method !== "GET" && request.method !== "HEAD") {
-                yield* flushLive
+                const execution = yield* Cloudflare.Workers.WorkerExecutionContext
+                yield* execution.waitUntil(flushLive)
               }
             }),
           ),
