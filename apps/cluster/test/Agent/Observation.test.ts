@@ -284,20 +284,13 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       yield* sql`INSERT INTO slack_thread (session_id, workspace_id, channel_id, thread_ts, boundary_ts, repository_id, state)
         VALUES ('o-recovery', 'T1', 'C4', '1700001000.000400', '1700001000.000400', '903', 'ready')`
 
-      // Nothing has been scanned yet: both scans are overdue and the standing gaps are stated.
-      yield* sql`UPDATE platform_recovery SET completed_at = NULL, cursor = '', warning = NULL,
-        gap = 'Only retained GitHub deliveries can be recovered' WHERE scan_id = 'github'`
+      // Nothing has been scanned yet: the thread scan is overdue and its standing gap is stated.
       let detail = yield* observation.detail("o-recovery")
-      const github = () => detail.recovery.find((status) => status.platform === "github")!
       const slack = () => detail.recovery.find((status) => status.platform === "slack")!
-      assert.strictEqual(detail.recovery.length, 2)
-      assert.isNull(github().completedAt)
-      assert.isTrue(github().overdue)
-      assert.isFalse(github().incomplete)
-      assert.strictEqual(github().hydrating, 0)
-      assert.strictEqual(github().gap, "Only retained GitHub deliveries can be recovered")
+      assert.strictEqual(detail.recovery.length, 1)
       assert.isNull(slack().completedAt)
       assert.isTrue(slack().overdue)
+      assert.isFalse(slack().incomplete)
       assert.include(slack().gap!, "never-received")
 
       // A thread that is not ready has nothing to scan yet and is not late.
@@ -307,40 +300,21 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       assert.isNull(slack().completedAt)
       yield* sql`UPDATE slack_thread SET state = 'ready' WHERE session_id = 'o-recovery'`
 
-      // A recent scan with a paginated cursor is caught up but incomplete; a
-      // captured payload still waiting is incomplete too. Hydration counts the
-      // feedback contributions whose comments are still being fetched.
-      yield* sql`UPDATE platform_recovery SET completed_at = CLOCK_TIMESTAMP(), cursor = 'page-2', warning = 'GitHub asked us to slow down' WHERE scan_id = 'github'`
+      // A recent scan is caught up; a paginated cursor keeps it incomplete.
       yield* sql`UPDATE slack_thread SET recovery_completed_at = CLOCK_TIMESTAMP(), recovery_warning = 'ratelimited' WHERE session_id = 'o-recovery'`
-      yield* sql`INSERT INTO github_feedback (session_id, contribution_key, review_id, reviewer_id, author, authorized, state, cursor, warning)
-        VALUES ('o-recovery', 'review:1', '1', '77', '{}', true, 'pending', 'comments-page-3', 'Review membership is pending'),
-          ('o-recovery', 'review:2', '2', '77', '{}', true, 'accepted', '', NULL)`
       detail = yield* observation.detail("o-recovery")
-      assert.isNotNull(github().completedAt)
-      assert.isFalse(github().overdue)
-      assert.isTrue(github().incomplete)
-      assert.strictEqual(github().hydrating, 1)
-      assert.strictEqual(github().warning, "GitHub asked us to slow down")
       assert.isFalse(slack().overdue)
       assert.isFalse(slack().incomplete)
       assert.strictEqual(slack().warning, "ratelimited")
+      yield* sql`UPDATE slack_thread SET recovery_cursor = 'page-2' WHERE session_id = 'o-recovery'`
+      detail = yield* observation.detail("o-recovery")
+      assert.isTrue(slack().incomplete)
 
-      // Completed more than two cycles ago is overdue again. A payload still
-      // waiting for capture keeps this session incomplete only when it belongs
-      // to the session's repository.
-      yield* sql`UPDATE platform_recovery SET completed_at = CLOCK_TIMESTAMP() - interval '11 minutes', cursor = '', warning = NULL WHERE scan_id = 'github'`
-      yield* sql`INSERT INTO github_recovery_attempt (attempt_id, delivery_guid, event_name, repository_id, delivered_at, state)
-        VALUES ('9007199254740993998', 'guid-0', 'pull_request_review', '901', CLOCK_TIMESTAMP(), 'pending')`
+      // Completed more than two cycles ago is overdue again.
+      yield* sql`UPDATE slack_thread SET recovery_completed_at = CLOCK_TIMESTAMP() - interval '11 minutes', recovery_cursor = '' WHERE session_id = 'o-recovery'`
       detail = yield* observation.detail("o-recovery")
-      assert.isTrue(github().overdue)
-      assert.isFalse(github().incomplete)
-      yield* sql`INSERT INTO github_recovery_attempt (attempt_id, delivery_guid, event_name, repository_id, delivered_at, state)
-        VALUES ('9007199254740993999', 'guid-1', 'pull_request_review', '903', CLOCK_TIMESTAMP(), 'pending')`
-      detail = yield* observation.detail("o-recovery")
-      assert.isTrue(github().incomplete)
-      // With the scan itself healthy, the hydration problem is the one still worth stating.
-      assert.strictEqual(github().warning, "Review membership is pending")
-      yield* sql`DELETE FROM github_recovery_attempt WHERE attempt_id IN ('9007199254740993998', '9007199254740993999')`
+      assert.isTrue(slack().overdue)
+      assert.isFalse(slack().incomplete)
     }),
   )
 
@@ -385,10 +359,9 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
 
       // Recovery health is visible, so it invalidates; scan cursors and leases do not.
       yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
-      yield* sql`UPDATE platform_recovery SET cursor = 'page-9', lease_token = 'x', due_at = CLOCK_TIMESTAMP() WHERE scan_id = 'github'`
       yield* sql`UPDATE slack_thread SET recovery_cursor = 'c', recovery_lease_token = 'x', recovery_due_at = CLOCK_TIMESTAMP() WHERE session_id = 'o-live'`
       assert.deepStrictEqual(yield* pending(), [])
-      yield* sql`UPDATE platform_recovery SET completed_at = CLOCK_TIMESTAMP() WHERE scan_id = 'github'`
+      yield* sql`UPDATE slack_thread SET recovery_completed_at = CLOCK_TIMESTAMP() WHERE session_id = 'o-live'`
       assert.deepStrictEqual(yield* pending(), [{ topic: "sessions" }])
       yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
       yield* sql`UPDATE slack_thread SET recovery_warning = 'ratelimited' WHERE session_id = 'o-live'`
@@ -399,11 +372,9 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       assert.deepStrictEqual(yield* pending(), [{ topic: "sessions" }])
       yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
       // The scans rewrite health columns with every page; unchanged values stay silent.
-      yield* sql`UPDATE platform_recovery SET warning = warning, cursor = 'page-10', due_at = CLOCK_TIMESTAMP() WHERE scan_id = 'github'`
       yield* sql`UPDATE slack_thread SET recovery_warning = 'ratelimited', recovery_cursor = 'c2' WHERE session_id = 'o-live'`
       yield* sql`UPDATE github_feedback SET warning = NULL, cursor = 'comments-2' WHERE session_id = 'o-live' AND contribution_key = 'review:9'`
       assert.deepStrictEqual(yield* pending(), [])
-      yield* sql`UPDATE platform_recovery SET cursor = '', lease_token = NULL WHERE scan_id = 'github'`
 
       // Removal reaches open subscriptions through the same channel.
       yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
