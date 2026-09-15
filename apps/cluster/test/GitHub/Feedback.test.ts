@@ -217,10 +217,15 @@ layer(services, { timeout: "3 minutes" })("GitHub feedback", (it) => {
       const input = (yield* sessions.view("feedback")).inputs[0]!
       runner.push(
         "feedback",
-        { type: "session.execution.started", data: {} },
-        { type: "session.inbox.delivered", data: { inboxID: input.runner_message_id } },
-        { type: "session.text.ended", data: { text: "Fixed the title and ending." } },
-        { type: "session.execution.succeeded", data: {} },
+        { type: "turn.started", data: { inputId: input.runner_message_id, attempt: 1 } },
+        {
+          type: "turn.completed",
+          data: {
+            inputId: input.runner_message_id,
+            attempt: 1,
+            text: "Fixed the title and ending.",
+          },
+        },
       )
       const slack = yield* SlackDelivery
       yield* slack.catchUp("feedback")

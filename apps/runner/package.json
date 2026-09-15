@@ -2,19 +2,18 @@
   "name": "@janitor/runner",
   "version": "0.0.0",
   "private": true,
-  "description": "Janitor agent session runner: one Durable Object per session hosting the pinned OpenCode Workerd SDK.",
+  "description": "Janitor agent session runner: one sandbox-owning Durable Object per session hosting the pinned OpenCode Workerd SDK.",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "build:test": "node scripts/build.mjs --test",
+    "build:dev": "node scripts/build.mjs --dev",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "serve": "node scripts/serve.mjs",
     "check": "vp run typecheck && vp run build && vp run test",
-    "build:dev": "node scripts/build.mjs --dev",
     "smoke:local": "node dev/smoke.ts"
   },
   "dependencies": {
+    "@cloudflare/sandbox": "0.12.9",
     "@opencode/ai": "2.0.2",
     "@opencode/core": "2.0.2",
     "@opencode/schema": "2.0.2",
@@ -27,7 +26,6 @@
     "@cloudflare/workers-types": "4.20260702.1",
     "@effect/platform-node": "catalog:",
     "@types/node": "24.13.3",
-    "miniflare": "4.20260708.0",
     "typescript": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

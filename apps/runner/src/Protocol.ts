@@ -1,9 +1,9 @@
-// The versioned JSON boundary between independently deployed Workers.
-// Both applications share the root Effect graph; fibers and service instances
-// are process-local. Protocol versions guard rolling deployments.
+// The versioned JSON boundary between the Janitor API Worker and the session
+// runner. Both applications share the root Effect graph; fibers and service
+// instances are process-local. Protocol versions guard rolling deployments.
 import { Schema } from "effect"
 
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 export const PROTOCOL_HEADER = "x-janitor-runner-protocol"
 
 /** Stable identity of one Janitor agent session; also the Durable Object name. */
@@ -32,7 +32,7 @@ export const CreateSessionResult = Schema.Struct({
   generation: Generation,
   nativeSessionId: Schema.String,
   modelConfigurationId: Schema.String,
-  /** False when an earlier creation already established the native conversation. */
+  /** False when an earlier creation already established the session. */
   created: Schema.Boolean,
 })
 export type CreateSessionResult = typeof CreateSessionResult.Type
@@ -55,8 +55,8 @@ export type AdmitInput = typeof AdmitInput.Type
 
 /**
  * A durable admission receipt. `duplicate` reports that the same input identity
- * was already admitted; the retained payload hash identifies which payload the
- * conversation holds when a retry disagrees.
+ * was already accepted; the retained payload hash identifies which payload the
+ * session holds when a retry disagrees.
  */
 export const AdmitResult = Schema.Struct({
   inputId: InputId,
@@ -83,6 +83,22 @@ export const UsageTotals = Schema.Struct({
 })
 export type UsageTotals = typeof UsageTotals.Type
 
+/** Why a session waits for a teammate's Retry or Skip. */
+export const AwaitingKind = Schema.Literals(["interrupted", "save_failed"])
+export type AwaitingKind = typeof AwaitingKind.Type
+
+export const Awaiting = Schema.Struct({
+  inputId: InputId,
+  attempt: Schema.Int,
+  kind: AwaitingKind,
+  reason: Schema.String,
+  since: Schema.Number,
+})
+export type Awaiting = typeof Awaiting.Type
+
+export const TurnStage = Schema.Literals(["preparing", "working", "saving"])
+export type TurnStage = typeof TurnStage.Type
+
 export const Inspection = Schema.Struct({
   sessionId: SessionId,
   generation: Generation,
@@ -90,24 +106,30 @@ export const Inspection = Schema.Struct({
   modelConfigurationId: Schema.NullOr(Schema.String),
   execution: ExecutionState,
   reason: Schema.NullOr(Schema.String),
-  wakeObligation: Schema.Boolean,
-  supervisionRevision: Schema.Int,
-  alarmAt: Schema.NullOr(Schema.Number),
+  /** Accepted inputs not yet completed or skipped, including the active one. */
   pendingInputs: Schema.Int,
   admittedInputs: Schema.Int,
-  claimHeld: Schema.Boolean,
-  lastOutcome: Schema.NullOr(Schema.String),
-  maintenanceEpoch: Schema.NullOr(Schema.Int),
+  awaiting: Schema.NullOr(Awaiting),
   usage: Schema.NullOr(UsageTotals),
   release: Schema.String,
 })
 export type Inspection = typeof Inspection.Type
 
+/**
+ * Janitor's durable turn events. `type` is one of:
+ * - `turn.accepted` `{inputId}`: durably accepted and queued.
+ * - `turn.started` `{inputId, attempt}`: an attempt began.
+ * - `turn.stage` `{inputId, attempt, stage}`: preparing, working or saving.
+ * - `turn.published` `{inputId, attempt, publication}`: a PR was pushed or updated.
+ * - `turn.completed` `{inputId, attempt, text}`: the recovery point is committed; `text` is the reply.
+ * - `turn.interrupted` `{inputId, attempt, reason}`: waits for Retry or Skip.
+ * - `turn.save_failed` `{inputId, attempt, reason}`: model work finished but could not be saved.
+ * - `turn.retried` `{inputId, attempt, actor}`: a teammate retried; `attempt` is the new attempt.
+ * - `turn.skipped` `{inputId, attempt, actor}`: a teammate skipped the input.
+ */
 export const RunnerEvent = Schema.Struct({
   seq: Schema.Int,
-  id: Schema.String,
   type: Schema.String,
-  version: Schema.Int,
   created: Schema.Number,
   data: Schema.Unknown,
 })
@@ -120,44 +142,46 @@ export const EventsRead = Schema.Struct({
   events: Schema.Array(RunnerEvent),
   /** The next exclusive cursor: the last returned seq, or `after` when empty. */
   next: Schema.Int,
-  /** Committed watermark; equals `next` once the reader has caught up. Null before any durable event. */
+  /** Committed watermark; equals `next` once the reader has caught up. Null before any event. */
   synced: Schema.NullOr(Schema.Int),
   usage: Schema.NullOr(UsageTotals),
-  /** Current runner-side state, so maintenance and compatibility holds reach consumers through reads. */
+  /** Current runner-side state, so blocks reach consumers through reads. */
   execution: ExecutionState,
   reason: Schema.NullOr(Schema.String),
 })
 export type EventsRead = typeof EventsRead.Type
 
-export const Maintenance = Schema.Struct({
-  hold: Schema.Boolean,
-  epoch: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+export const Actor = Schema.Struct({
+  source: Schema.Literals(["slack", "github", "driver"]),
+  teammateId: Schema.optionalKey(Schema.String),
+  displayName: Schema.optionalKey(Schema.String),
 })
-export type Maintenance = typeof Maintenance.Type
+export type Actor = typeof Actor.Type
 
-/** One verification performed before a hold is released. */
-export const MaintenanceCheck = Schema.Struct({
-  name: Schema.Literals(["fence", "state", "workspace", "checkpoint", "model", "bridge"]),
-  ok: Schema.Boolean,
-  detail: Schema.String,
-})
-export type MaintenanceCheck = typeof MaintenanceCheck.Type
+export const TurnActionKind = Schema.Literals(["retry", "skip"])
+export type TurnActionKind = typeof TurnActionKind.Type
 
-export const MaintenanceResult = Schema.Struct({
-  held: Schema.Boolean,
-  epoch: Schema.NullOr(Schema.Int),
-  /**
-   * True once no host-scoped execution owned by this object can act and every
-   * archive it was uploading has settled. A hold answers false while an
-   * admitted foreground operation is still finishing; the caller asks again.
-   */
-  quiescent: Schema.Boolean,
-  /** An operation's outcome is unknown; recovery stays blocked for reconciliation. */
-  uncertain: Schema.Boolean,
-  /** The checks a release ran; a refused release reports the failing ones and stays held. */
-  checks: Schema.Array(MaintenanceCheck),
+/** A teammate's Retry or Skip of one specific interrupted attempt. */
+export const TurnAction = Schema.Struct({
+  generation: Generation,
+  inputId: InputId,
+  attempt: Schema.Int,
+  action: TurnActionKind,
+  /** Deduplication identity of the click or request. */
+  actionId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9:._-]{1,200}$/)),
+  actor: Actor,
 })
-export type MaintenanceResult = typeof MaintenanceResult.Type
+export type TurnAction = typeof TurnAction.Type
+
+export const TurnActionOutcome = Schema.Literals(["applied", "duplicate", "stale", "not_awaiting"])
+export type TurnActionOutcome = typeof TurnActionOutcome.Type
+
+export const TurnActionResult = Schema.Struct({
+  outcome: TurnActionOutcome,
+  message: Schema.String,
+  awaiting: Schema.NullOr(Awaiting),
+})
+export type TurnActionResult = typeof TurnActionResult.Type
 
 export const Cleanup = Schema.Struct({ generation: Generation })
 export type Cleanup = typeof Cleanup.Type
@@ -179,7 +203,7 @@ export type ErrorCode = typeof ErrorCode.Type
 export const ErrorBody = Schema.Struct({
   code: ErrorCode,
   message: Schema.String,
-  /** Concrete blocker for `blocked`; the maintenance or compatibility reason. */
+  /** Concrete blocker for `blocked`. */
   reason: Schema.optionalKey(Schema.String),
 })
 export type ErrorBody = typeof ErrorBody.Type

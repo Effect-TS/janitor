@@ -2,7 +2,6 @@
 // protocol version and routes each session command to that session's
 // Durable Object. Everything stateful lives in `SessionRunner`.
 import { PROTOCOL_VERSION, ProtocolError } from "./Protocol.ts"
-import { RELEASE_MANIFEST, manifestProblems } from "./ReleaseManifest.ts"
 import { checkProtocol, errorResponse, jsonResponse, sessionIdOf } from "./Router.ts"
 import { SessionRunner, type RunnerEnv } from "./SessionRunner.ts"
 
@@ -40,14 +39,9 @@ export const handle = async (request: Request, env: WorkerEnv): Promise<Response
     authenticate(request, env)
     const url = new URL(request.url)
     if (url.pathname === "/v1/health" && request.method === "GET")
-      // Health names the release and its manifest so a caller can verify the
-      // deployed runner before releasing maintenance; problems mean the pinned
-      // manifest and the compiled bundle disagree.
       return jsonResponse({
         protocol: PROTOCOL_VERSION,
         release: env.JANITOR_AGENT_RUNNER_RELEASE ?? "development",
-        manifest: RELEASE_MANIFEST,
-        problems: manifestProblems(),
       })
     checkProtocol(request)
     const sessionId = sessionIdOf(url)

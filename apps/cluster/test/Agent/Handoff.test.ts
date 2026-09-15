@@ -180,13 +180,13 @@ layer(agentLayers(fakeRunnerLayer(runner)), { timeout: "3 minutes" })(
           error: new RunnerClientError({
             code: "blocked",
             message: "held",
-            reason: "maintenance hold epoch 3",
+            reason: "model configuration missing",
           }),
         })
         assert.strictEqual(yield* deliverSession("held"), "blocked")
         let view = yield* sessions.view("held")
         assert.strictEqual(view.session.runner_state, "blocked")
-        assert.strictEqual(view.session.runner_error, "maintenance hold epoch 3")
+        assert.strictEqual(view.session.runner_error, "model configuration missing")
         assert.deepStrictEqual(
           view.inputs.map((input) => input.handoff_state),
           ["pending", "pending"],

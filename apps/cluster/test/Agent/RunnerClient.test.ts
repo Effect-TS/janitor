@@ -77,7 +77,7 @@ describe("RunnerClient", () => {
           const events = yield* runner.readEvents("s1", 0)
           assert.deepStrictEqual(events.events, [])
           assert.strictEqual(recorded[0]?.url, "http://runner.test/v1/sessions/s1")
-          assert.strictEqual(recorded[0]?.headers[RUNNER_PROTOCOL_HEADER], "2")
+          assert.strictEqual(recorded[0]?.headers[RUNNER_PROTOCOL_HEADER], "3")
           assert.strictEqual(recorded[0]?.headers.authorization, "Bearer secret-token")
           assert.deepStrictEqual(JSON.parse(recorded[0]!.body), { generation: 1, title: "t" })
           assert.strictEqual(
@@ -92,7 +92,7 @@ describe("RunnerClient", () => {
     withResponder(
       (recorded) => {
         if (recorded.url.endsWith("/inputs"))
-          return json(423, { code: "blocked", message: "held", reason: "maintenance" })
+          return json(423, { code: "blocked", message: "held", reason: "retired" })
         if (recorded.method === "DELETE")
           return json(409, { code: "stale_generation", message: "old" })
         if (recorded.method === "GET") return new Response("<html>", { status: 502 })
@@ -111,7 +111,7 @@ describe("RunnerClient", () => {
             .pipe(Effect.flip)
           assert.instanceOf(blocked, RunnerClientError)
           assert.strictEqual(blocked.code, "blocked")
-          assert.strictEqual(blocked.reason, "maintenance")
+          assert.strictEqual(blocked.reason, "retired")
           assert.isFalse(blocked.retryable)
           const stale = yield* runner.cleanup("s1", 1).pipe(Effect.flip)
           assert.strictEqual(stale.code, "stale_generation")

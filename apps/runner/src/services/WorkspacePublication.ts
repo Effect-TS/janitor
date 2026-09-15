@@ -1,268 +1,292 @@
+// Git operations for publication, run inside the sandbox on the session's
+// checkout. Repository credentials enter the container only as the environment
+// of one authenticated Git command; the model's shell never sees them. Pushes
+// are guarded by the remote head the plan recorded, so nothing is overwritten.
 import { Context, Effect, Layer } from "effect"
 import { ProtocolError } from "../Protocol.ts"
-import type { CredentialPermission, RepositoryCredential } from "../Publication.ts"
-import { branchPath, checkedSha, GitHubRepository } from "./GitHubRepository.ts"
-import { WorkspaceStore, type FileEntry } from "./WorkspaceStore.ts"
+import type { RepositoryCredential } from "../Publication.ts"
+import { KeyValue } from "./KeyValue.ts"
+import {
+  REPOSITORY_DIR,
+  SandboxWorkspace,
+  asWorkspaceUser,
+  gitEnvironment,
+  shellQuote,
+  type ExecOutcome,
+  type WorkspaceError,
+} from "./SandboxWorkspace.ts"
 
-interface Dependencies {
-  storage: DurableObjectStorage
-  files: WorkspaceStore["Service"]
-  github: GitHubRepository["Service"]
-  authorize: (permission: CredentialPermission) => Promise<RepositoryCredential>
-  fence: () => Promise<void>
+const hash = /^[a-f0-9]{40}$/
+const GIT_TIMEOUT_MS = 120_000
+const PUBLICATION_KEY = "_janitor_publication"
+
+export interface PrepareInput extends RepositoryCredential {
+  readonly branch: string
+  readonly base: string
+  readonly prepareId?: string
+  readonly title: string
+  readonly existing?: boolean
 }
-interface GitOperation {
-  branch: string
-  base: string
-  prepareId?: string
-  title?: string
-  existing?: boolean
-  commit?: string
-  remoteHead?: string | null
+export interface PrepareResult {
+  readonly status: "prepared" | "conflict" | "blocked"
+  readonly message?: string
+  readonly commit: string
+  readonly baseCommit: string
+  readonly remoteHead: string | null
 }
-interface Prepared {
-  revision: number
-  branch: string
-  base: string
-  date: string
-  message: string
-  parent: string
-  baseCommit: string
-  remoteHead: string | null
-  commit?: string
-  tree?: string
-  changes: FileEntry[]
+export interface PushInput extends RepositoryCredential {
+  readonly branch: string
+  readonly commit?: string
+  readonly remoteHead?: string | null
 }
-const make = ({ storage, files, github, authorize, fence }: Dependencies) => {
-  const run = Effect.runPromise
-  const save = async (key: string, value: Prepared) => {
-    if (new TextEncoder().encode(JSON.stringify(value)).length > 100000)
-      throw new ProtocolError(
-        "blocked",
-        "Publication metadata exceeds 100 KB; reduce the number or length of changed paths",
-      )
-    await fence()
-    await storage.put(key, value)
-    await storage.sync()
-  }
-  const prepare = async (input: GitOperation) => {
-    if (!input.prepareId)
-      throw new ProtocolError("invalid_request", "Publication preparation identity is required")
-    const key = `_janitor_git_prepare:${input.prepareId}`
-    let prepared = await storage.get<Prepared>(key)
-    const state = files.state()
-    if (!state) throw new ProtocolError("blocked", "Repository workspace is not ready")
-    if (
-      prepared &&
-      (prepared.branch !== input.branch ||
-        prepared.base !== input.base ||
-        prepared.revision !== state.revision)
-    )
-      throw new ProtocolError("blocked", "Workspace changed during publication preparation")
-    if (prepared?.commit) return { status: "prepared", ...prepared }
-    const credential = await authorize("push")
-    if (!prepared) {
-      const baseCommit = await run(github.ref(credential, input.base))
-      if (!baseCommit)
-        throw new ProtocolError(
-          "blocked",
-          "Publication requires an initialized base branch; workspace edits are preserved",
-        )
-      const remoteHead = await run(github.ref(credential, input.branch))
-      if (input.existing && !remoteHead)
-        throw new ProtocolError(
-          "blocked",
-          "The existing PR branch was deleted; workspace edits are preserved",
-        )
-      const parent = remoteHead ?? baseCommit
-      const remoteCommit = await run(github.commit(credential, parent))
-      const remote = new Map(
-        (await run(github.tree(credential, remoteCommit.tree.sha))).map((file) => [
-          file.path,
-          file,
-        ]),
-      )
-      const changes = files
-        .files()
-        .filter(
-          (file) =>
-            file.dirty && (file.deleted ? file.base_sha !== null : file.work_sha !== file.base_sha),
-        )
-      if (changes.length > 500)
-        throw new ProtocolError(
-          "blocked",
-          "Publish at most 500 changed files at once; workspace edits are preserved",
-        )
-      for (const change of changes) {
-        const current = remote.get(change.path)
-        const remoteSha = current?.sha ?? null
-        const desired = change.deleted ? null : change.work_sha
-        if (remoteSha !== change.base_sha && remoteSha !== desired)
-          return {
-            status: "conflict",
-            message: `Human changes overlap ${change.path}. Ask the teammate to resolve the conflict; edits are preserved.`,
-          }
-        if (current && current.mode !== change.mode)
-          return {
-            status: "conflict",
-            message: `Human changes altered the file mode at ${change.path}. Ask the teammate before publishing.`,
-          }
-      }
-      prepared = {
-        revision: state.revision,
-        branch: input.branch,
-        base: input.base,
-        date: new Date().toISOString(),
-        message: input.title ?? "Janitor repository changes",
-        parent,
-        baseCommit,
-        remoteHead,
-        tree: checkedSha(remoteCommit.tree.sha),
-        changes: changes.filter((change) =>
-          change.deleted
-            ? remote.has(change.path)
-            : remote.get(change.path)?.sha !== change.work_sha,
-        ),
-      }
-      await save(key, prepared)
-    }
-    // Git objects are content-addressed. Persisted author/date/payload make retries identical.
-    for (const change of prepared.changes) {
-      if (change.deleted) continue
-      const bytes = files.blob(change.work_sha!)
-      if (!bytes) throw new ProtocolError("blocked", "Prepared file content is missing")
-      let binary = ""
-      for (const byte of bytes) binary += String.fromCharCode(byte)
-      const blob = await run(
-        github.json<{ sha: string }>(credential, "/git/blobs", "POST", {
-          content: btoa(binary),
-          encoding: "base64",
-        }),
-      )
-      if (blob.sha !== change.work_sha)
-        throw new ProtocolError(
-          "blocked",
-          "Published Git blob identity differs from the prepared edit",
-        )
-    }
-    const tree = prepared.changes.length
-      ? checkedSha(
-          (
-            await run(
-              github.json<{ sha: string }>(credential, "/git/trees", "POST", {
-                base_tree: prepared.tree,
-                tree: prepared.changes.map((file) => ({
-                  path: file.path,
-                  mode: file.mode,
-                  type: "blob",
-                  sha: file.deleted ? null : file.work_sha,
-                })),
-              }),
-            )
-          ).sha,
-        )
-      : prepared.tree!
-    const author = {
-      name: "Janitor",
-      email: "janitor@users.noreply.github.com",
-      date: prepared.date,
-    }
-    const commit = prepared.changes.length
-      ? checkedSha(
-          (
-            await run(
-              github.json<{ sha: string }>(credential, "/git/commits", "POST", {
-                message: prepared.message,
-                tree,
-                parents: [prepared.parent],
-                author,
-                committer: author,
-              }),
-            )
-          ).sha,
-        )
-      : prepared.parent
-    prepared = { ...prepared, commit, tree }
-    await save(key, prepared)
-    await save(`_janitor_git_commit:${commit}`, prepared)
-    return {
-      status: "prepared",
-      commit,
-      baseCommit: prepared.baseCommit,
-      remoteHead: prepared.remoteHead,
-    }
-  }
-  const push = async (input: GitOperation) => {
-    const credential = await authorize("push")
-    const commit = checkedSha(input.commit)
-    const current = await run(github.ref(credential, input.branch))
-    if (current && (await run(github.contains(credential, commit, current))))
-      return { status: "pushed" }
-    if (current !== input.remoteHead) return { status: "stale" }
-    const response =
-      current === null
-        ? await run(
-            github.request(credential, "/git/refs", "POST", {
-              ref: `refs/heads/${input.branch}`,
-              sha: commit,
-            }),
-          )
-        : await run(
-            github.request(credential, `/git/refs/heads/${branchPath(input.branch)}`, "PATCH", {
-              sha: commit,
-              force: false,
-            }),
-          )
-    if (response.ok) return { status: "pushed" }
-    if (response.status === 409 || response.status === 422) return { status: "stale" }
-    if ([400, 401, 403, 404, 429].includes(response.status)) return { status: "unconfirmed" }
-    throw new ProtocolError(
-      "transport",
-      "GitHub reference update outcome is unknown; reconcile the same commit",
-    )
-  }
-  const inspect = async (input: GitOperation) => {
-    const credential = await authorize("read")
-    const commit = checkedSha(input.commit)
-    const remoteHead = await run(github.ref(credential, input.branch))
-    const contains =
-      remoteHead !== null && (await run(github.contains(credential, commit, remoteHead)))
-    if (contains) {
-      const prepared = await storage.get<Prepared>(`_janitor_git_commit:${commit}`)
-      const state = files.state()
-      if (prepared && state && state.revision === prepared.revision) {
-        const remoteCommit = await run(github.commit(credential, remoteHead!))
-        const entries = await run(github.tree(credential, remoteCommit.tree.sha))
-        await fence()
-        files.initialize(
-          { ...state, commit: remoteHead, tree: remoteCommit.tree.sha, branch: input.branch },
-          entries,
-        )
-      }
-    }
-    return { contains, remoteHead }
-  }
-  return {
-    execute: (action: string, input: unknown) =>
-      Effect.tryPromise({
-        try: async (): Promise<unknown> => {
-          const operation = input as GitOperation
-          branchPath(operation.branch)
-          if (action === "prepare") return prepare(operation)
-          if (action === "push") return push(operation)
-          if (action === "inspect") return inspect(operation)
-          throw new ProtocolError("invalid_request", "Unknown repository publication operation")
-        },
-        catch: (cause) => cause,
-      }),
-  }
+export interface InspectInput extends RepositoryCredential {
+  readonly branch: string
+  readonly commit?: string
 }
+
+/** Enough of a publication plan to reconcile the checkout with its external effects. */
+interface PlanSnapshot {
+  readonly phase: string
+  readonly branch: string
+  readonly commit?: string
+}
+
 export class WorkspacePublication extends Context.Service<
   WorkspacePublication,
-  ReturnType<typeof make>
+  {
+    readonly execute: (action: string, input: unknown) => Effect.Effect<unknown, ProtocolError>
+    /**
+     * Brings a freshly prepared checkout in line with writes an interrupted
+     * publication may already have made: a pushed commit the local branch lost
+     * is adopted from the remote, and a prepared-but-lost commit sends the plan
+     * back to preparation. Runs before any turn on a restored workspace.
+     */
+    readonly reconcile: Effect.Effect<void, WorkspaceError | ProtocolError>
+  }
 >()("janitor/runner/WorkspacePublication") {
-  static make = make
-  static layer(deps: Dependencies) {
-    return Layer.sync(this, () => make(deps))
+  static make(
+    workspace: SandboxWorkspace["Service"],
+    kv: KeyValue["Service"],
+    remote: (credential: RepositoryCredential) => string,
+  ): WorkspacePublication["Service"] {
+    const git = (
+      command: string,
+      credential: RepositoryCredential | undefined,
+      options: { readonly timeoutMs?: number } = {},
+    ) =>
+      workspace.exec(asWorkspaceUser(`git ${command}`), {
+        cwd: REPOSITORY_DIR,
+        env: gitEnvironment(credential?.token),
+        timeoutMs: options.timeoutMs ?? GIT_TIMEOUT_MS,
+        user: "root",
+      })
+    const ok = (outcome: ExecOutcome) => outcome.exitCode === 0 && !outcome.timedOut
+    const out = (outcome: ExecOutcome) => outcome.stdout.trim()
+    const transport = (message: string) => new ProtocolError("transport", message)
+    const blocked = (message: string) => Effect.fail(new ProtocolError("blocked", message))
+    const mapWorkspace = <A>(effect: Effect.Effect<A, WorkspaceError>) =>
+      Effect.mapError(effect, (error) =>
+        transport(`Sandbox Git operation failed: ${error.message}`),
+      )
+
+    const revParse = (ref: string) =>
+      git(`rev-parse --verify --quiet ${shellQuote(ref)}`, undefined).pipe(
+        mapWorkspace,
+        Effect.map((outcome) => (ok(outcome) && hash.test(out(outcome)) ? out(outcome) : null)),
+      )
+    const fetchBranch = (credential: RepositoryCredential, branch: string) =>
+      git(
+        `fetch --no-tags origin ${shellQuote(`+refs/heads/${branch}:refs/remotes/origin/${branch}`)}`,
+        credential,
+      ).pipe(
+        mapWorkspace,
+        Effect.flatMap((outcome) => {
+          if (ok(outcome)) return revParse(`refs/remotes/origin/${branch}`)
+          if (
+            /couldn't find remote ref|remote branch .* not found|fatal: couldn't find/i.test(
+              outcome.stderr,
+            )
+          )
+            return Effect.succeed(null)
+          return Effect.fail(transport(`Could not fetch ${branch} from GitHub`))
+        }),
+      )
+    const isAncestor = (ancestor: string, descendant: string) =>
+      git(
+        `merge-base --is-ancestor ${shellQuote(ancestor)} ${shellQuote(descendant)}`,
+        undefined,
+      ).pipe(mapWorkspace, Effect.map(ok))
+    const ensureRemote = (credential: RepositoryCredential) =>
+      git(`remote set-url origin ${shellQuote(remote(credential))}`, undefined).pipe(mapWorkspace)
+
+    const prepare = Effect.fn("WorkspacePublication.prepare")(function* (input: PrepareInput) {
+      yield* ensureRemote(input)
+      const status = yield* git("status --porcelain", undefined).pipe(mapWorkspace)
+      if (!ok(status)) return yield* blocked("The checkout is not a Git repository")
+      if (out(status) !== "") {
+        const committed = yield* git(
+          `add -A && git -c user.name=Janitor -c user.email=janitor@users.noreply.github.com commit --quiet -m ${shellQuote(input.title)}`,
+          undefined,
+        ).pipe(mapWorkspace)
+        if (!ok(committed))
+          return yield* blocked(
+            `Uncommitted changes could not be committed: ${committed.stderr.trim()}`,
+          )
+      }
+      const current = yield* git("rev-parse --abbrev-ref HEAD", undefined).pipe(mapWorkspace)
+      if (out(current) !== input.branch) {
+        const switched = yield* git(`checkout -B ${shellQuote(input.branch)}`, undefined).pipe(
+          mapWorkspace,
+        )
+        if (!ok(switched)) return yield* blocked(`Could not switch to ${input.branch}`)
+      }
+      const remoteHead = yield* fetchBranch(input, input.branch)
+      const head = yield* revParse("HEAD")
+      if (head === null) return yield* blocked("The checkout has no commits")
+      if (remoteHead !== null && !(yield* isAncestor(remoteHead, head))) {
+        // Human commits landed on the branch: merge them before publishing.
+        const merged = yield* git(
+          `-c user.name=Janitor -c user.email=janitor@users.noreply.github.com merge --no-edit ${shellQuote(`refs/remotes/origin/${input.branch}`)}`,
+          undefined,
+        ).pipe(mapWorkspace)
+        if (!ok(merged)) {
+          yield* git("merge --abort", undefined).pipe(Effect.ignore)
+          return {
+            status: "conflict",
+            message:
+              "The remote branch has changes that conflict with the local commits. Resolve them in the workspace and publish again.",
+            commit: head,
+            baseCommit: "",
+            remoteHead,
+          } satisfies PrepareResult
+        }
+      }
+      const baseHead = yield* fetchBranch(input, input.base)
+      if (baseHead === null) return yield* blocked(`The base branch ${input.base} does not exist`)
+      const commit = yield* revParse("HEAD")
+      if (commit === null) return yield* blocked("The checkout has no commits")
+      if (commit === baseHead || (yield* isAncestor(commit, baseHead)))
+        return {
+          status: "blocked",
+          message: "There are no new commits to publish.",
+          commit,
+          baseCommit: baseHead,
+          remoteHead,
+        } satisfies PrepareResult
+      return {
+        status: "prepared",
+        commit,
+        baseCommit: baseHead,
+        remoteHead,
+      } satisfies PrepareResult
+    })
+
+    const push = Effect.fn("WorkspacePublication.push")(function* (input: PushInput) {
+      yield* ensureRemote(input)
+      const commit = input.commit
+      if (commit === undefined || !hash.test(commit))
+        return yield* blocked("No prepared commit to push")
+      const lease =
+        input.remoteHead === null || input.remoteHead === undefined
+          ? `--force-with-lease=refs/heads/${input.branch}:`
+          : `--force-with-lease=refs/heads/${input.branch}:${input.remoteHead}`
+      const pushed = yield* git(
+        `push ${shellQuote(lease)} origin ${shellQuote(`${commit}:refs/heads/${input.branch}`)}`,
+        input,
+        { timeoutMs: 300_000 },
+      ).pipe(mapWorkspace)
+      if (ok(pushed)) return { status: "pushed" }
+      if (/stale info|rejected|fetch first|non-fast-forward/i.test(pushed.stderr))
+        return { status: "stale" }
+      return { status: "unconfirmed" }
+    })
+
+    const inspect = Effect.fn("WorkspacePublication.inspect")(function* (input: InspectInput) {
+      yield* ensureRemote(input)
+      const remoteHead = yield* fetchBranch(input, input.branch)
+      const contains =
+        remoteHead !== null && input.commit !== undefined && hash.test(input.commit)
+          ? remoteHead === input.commit || (yield* isAncestor(input.commit, remoteHead))
+          : false
+      return { contains, remoteHead }
+    })
+
+    const reconcile = Effect.gen(function* () {
+      const plan = yield* Effect.promise(() =>
+        kv.get<PlanSnapshot & Record<string, unknown>>(PUBLICATION_KEY),
+      )
+      if (plan === undefined || plan.commit === undefined || !hash.test(plan.commit)) return
+      const present = yield* git(
+        `cat-file -e ${shellQuote(`${plan.commit}^{commit}`)}`,
+        undefined,
+      ).pipe(Effect.map(ok))
+      const head = yield* revParse("HEAD").pipe(Effect.orElseSucceed(() => null))
+      const onBranch =
+        present &&
+        head !== null &&
+        (yield* isAncestor(plan.commit, head).pipe(Effect.orElseSucceed(() => false)))
+      if (onBranch) return
+      if (["pushing", "pushed", "creating", "complete"].includes(plan.phase)) {
+        // The commit may exist on GitHub: adopt it from there rather than recreating it.
+        const fetched = yield* git(
+          `fetch --no-tags origin ${shellQuote(`+refs/heads/${plan.branch}:refs/remotes/origin/${plan.branch}`)}`,
+          undefined,
+          { timeoutMs: GIT_TIMEOUT_MS },
+        )
+        const remoteHead = ok(fetched)
+          ? yield* revParse(`refs/remotes/origin/${plan.branch}`).pipe(
+              Effect.orElseSucceed(() => null),
+            )
+          : null
+        const contains =
+          remoteHead !== null &&
+          (remoteHead === plan.commit ||
+            (yield* isAncestor(plan.commit, remoteHead).pipe(Effect.orElseSucceed(() => false))))
+        if (contains) {
+          const adopted = yield* git(
+            `checkout -B ${shellQuote(plan.branch)} ${shellQuote(`refs/remotes/origin/${plan.branch}`)}`,
+            undefined,
+          )
+          if (!ok(adopted))
+            return yield* blocked(
+              "Could not adopt the published branch into the restored workspace",
+            )
+          return
+        }
+        if (plan.phase === "complete") return
+      }
+      // The commit never reached GitHub, or its outcome is unknown and it is not there: prepare again.
+      yield* Effect.promise(() => kv.put(PUBLICATION_KEY, { ...plan, phase: "conflict" }))
+      yield* Effect.promise(() => kv.sync())
+    }).pipe(Effect.withSpan("WorkspacePublication.reconcile"))
+
+    return {
+      execute: (action, input) => {
+        switch (action) {
+          case "prepare":
+            return prepare(input as PrepareInput)
+          case "push":
+            return push(input as PushInput)
+          case "inspect":
+            return inspect(input as InspectInput)
+          default:
+            return Effect.fail(new ProtocolError("invalid_request", `Unknown Git action ${action}`))
+        }
+      },
+      reconcile,
+    }
+  }
+  static layer(remote: (credential: RepositoryCredential) => string) {
+    return Layer.effect(
+      this,
+      Effect.gen(function* () {
+        const workspace = yield* SandboxWorkspace
+        const kv = yield* KeyValue
+        return WorkspacePublication.make(workspace, kv, remote)
+      }),
+    )
   }
 }
+
+export const githubRemote = (credential: RepositoryCredential) =>
+  `https://github.com/${credential.owner}/${credential.repo}.git`

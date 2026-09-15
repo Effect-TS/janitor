@@ -32,8 +32,6 @@ export const requiredSecret = (name: string) =>
 /** Production's runner is stack-owned; only local development accepts an external URL. */
 export const agentRunnerConnection = Effect.gen(function* () {
   const target = yield* deployment
-  const optionalSecret = (name: string) =>
-    Config.Redacted(name).pipe(Config.withDefault(Redacted.make("")))
   return {
     url:
       target.stage === "local"
@@ -51,6 +49,5 @@ export const agentRunnerConnection = Effect.gen(function* () {
           Config.withDefault(Redacted.make("janitor-local-repository")),
         )
       : requiredSecret("REPOSITORY_SERVICE_TOKEN"),
-    maintenanceToken: yield* optionalSecret("JANITOR_MAINTENANCE_TOKEN"),
   }
 })

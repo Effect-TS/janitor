@@ -16,7 +16,6 @@ import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncRoutesLayer } from "./Sync.ts"
 import { ReadinessRoutesLayer } from "./Readiness.ts"
 import { RepositoryExecutionRoutes } from "./RepositoryExecution.ts"
-import { MaintenanceRoutesLayer } from "./Maintenance.ts"
 import { SessionRoutesLayer } from "./Sessions.ts"
 
 const ApiRouterLayer = Layer.effect(
@@ -40,7 +39,6 @@ export const makeRoutesLayer = (
   Layer.mergeAll(
     makeGitHubWebHookRoutesLayer(secrets),
     RepositoryExecutionRoutes,
-    MaintenanceRoutesLayer,
     Layer.mergeAll(
       LiveRoutesLayer,
       SyncRoutesLayer,

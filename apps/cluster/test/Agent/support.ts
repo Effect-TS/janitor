@@ -4,7 +4,6 @@ import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
 import { WorkflowDispatcher } from "../../src/WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../../src/WorkflowOutbox.ts"
 import { AgentEventProjection } from "../../src/Agent/EventProjection.ts"
-import { AgentMaintenance } from "../../src/Agent/Maintenance.ts"
 import { AgentHandoffLayer, AgentHandoffRegistration } from "../../src/Agent/Handoff.ts"
 import { RunnerClient, RunnerClientError } from "../../src/Agent/RunnerClient.ts"
 import type {
@@ -16,10 +15,9 @@ import type {
   EventsRead,
   ExecutionState,
   Inspection,
-  MaintenanceCheck,
-  MaintenanceResult,
   RunnerEvent,
-  RunnerHealth,
+  TurnActionRequest,
+  TurnActionResult,
   UsageTotals,
 } from "../../src/Agent/RunnerProtocol.ts"
 import { AgentSessions } from "../../src/Agent/Sessions.ts"
@@ -45,42 +43,10 @@ export class FakeRunner {
   }> = []
   /** Pages served by readEvents; when empty, events are served from `events`. */
   readonly pages: Array<EventsRead> = []
-  /** Maintenance holds by session: what the runner persisted and how it answers. */
-  readonly holds = new Map<
-    string,
-    {
-      epoch: number
-      quiescent: boolean
-      uncertain: boolean
-      releaseChecks: Array<MaintenanceCheck>
-    }
-  >()
-  /** Sessions whose hold acknowledgement names another epoch (a stale runner). */
-  readonly staleAcknowledgement = new Map<string, number>()
-  /** What the deployed runner answers on its health route. */
-  health: RunnerHealth = {
-    protocol: 2,
-    release: "fake",
-    manifest: {
-      family: "janitor-runner-sqlite-1",
-      readableFamilies: ["janitor-runner-sqlite-1"],
-      commandProtocol: { version: 2, accepted: [2] },
-      events: { contract: 1 },
-      bridge: { protocol: 1, sourceHash: "f".repeat(64), imageDigest: "sha256:fake" },
-    },
-    problems: [],
-  }
-
-  private heldError(sessionId: string) {
-    const hold = this.holds.get(sessionId)
-    if (hold === undefined) return undefined
-    return new RunnerClientError({
-      code: "blocked",
-      message: "The session cannot run work",
-      reason: `maintenance hold epoch ${hold.epoch}`,
-      status: 423,
-    })
-  }
+  /** Retry/Skip actions the runner received, and what it answered. */
+  readonly actions: Array<{ readonly sessionId: string; readonly request: TurnActionRequest }> = []
+  /** Which attempt each session is awaiting a decision on, if any. */
+  readonly awaiting = new Map<string, { inputId: string; attempt: number }>()
 
   private failure(method: string, sessionId?: string) {
     const index = this.failures.findIndex(
@@ -92,14 +58,11 @@ export class FakeRunner {
     return this.failures.splice(index, 1)[0]!.error
   }
 
-  push(
-    sessionId: string,
-    ...events: ReadonlyArray<Omit<RunnerEvent, "seq" | "id" | "created" | "version">>
-  ) {
+  push(sessionId: string, ...events: ReadonlyArray<Omit<RunnerEvent, "seq" | "created">>) {
     const list = this.events.get(sessionId) ?? []
     for (const event of events) {
       const seq = list.length + 1
-      list.push({ seq, id: `evt_${seq}`, created: 1_000 + seq, version: 1, ...event })
+      list.push({ seq, created: 1_000 + seq, ...event })
     }
     this.events.set(sessionId, list)
   }
@@ -108,7 +71,7 @@ export class FakeRunner {
     createSession: (sessionId: AgentSessionId, request: CreateSessionRequest) =>
       Effect.suspend(() => {
         this.calls.push({ method: "createSession", sessionId, detail: request })
-        const failure = this.failure("createSession") ?? this.heldError(sessionId)
+        const failure = this.failure("createSession")
         if (failure !== undefined) return Effect.fail(failure)
         const existing = this.sessions.get(sessionId)
         const created = existing === undefined
@@ -128,8 +91,6 @@ export class FakeRunner {
     admitInput: (sessionId: AgentSessionId, request: AdmitInputRequest) =>
       Effect.suspend(() => {
         this.calls.push({ method: "admitInput", sessionId, detail: request })
-        const held = this.heldError(sessionId)
-        if (held !== undefined) return Effect.fail(held)
         const failure = this.failure("admitInput")
         const session = this.sessions.get(sessionId)
         if (session === undefined)
@@ -142,10 +103,7 @@ export class FakeRunner {
         if (!duplicate) {
           list.push(request)
           this.inputs.set(sessionId, list)
-          this.push(sessionId, {
-            type: "session.inbox.enqueued",
-            data: { inboxID: request.inputId },
-          })
+          this.push(sessionId, { type: "turn.accepted", data: { inputId: request.inputId } })
         }
         if (failure !== undefined) return Effect.fail(failure)
         return Effect.succeed<AdmitResult>({
@@ -171,14 +129,9 @@ export class FakeRunner {
           modelConfigurationId: "default",
           execution: "idle",
           reason: null,
-          wakeObligation: false,
-          supervisionRevision: 0,
-          alarmAt: null,
           pendingInputs: 0,
           admittedInputs: this.inputs.get(sessionId)?.length ?? 0,
-          claimHeld: false,
-          lastOutcome: null,
-          maintenanceEpoch: null,
+          awaiting: null,
           usage: this.usage.get(sessionId) ?? null,
           release: "fake",
         })
@@ -204,56 +157,31 @@ export class FakeRunner {
           reason: null,
         })
       }),
-    maintenance: (sessionId, request) =>
+    act: (sessionId, request) =>
       Effect.suspend(() => {
-        this.calls.push({ method: "maintenance", sessionId, detail: request })
-        const failure = this.failure("maintenance", sessionId)
+        this.calls.push({ method: "act", sessionId, detail: request })
+        const failure = this.failure("act", sessionId)
         if (failure !== undefined) return Effect.fail(failure)
+        this.actions.push({ sessionId, request })
+        const awaiting = this.awaiting.get(sessionId)
         const answer = (
-          held: boolean,
-          epoch: number | null,
-          checks: ReadonlyArray<MaintenanceCheck> = [],
-        ): MaintenanceResult => ({
-          held,
-          epoch,
-          quiescent: this.holds.get(sessionId)?.quiescent ?? true,
-          uncertain: this.holds.get(sessionId)?.uncertain ?? false,
-          checks,
+          outcome: TurnActionResult["outcome"],
+          message: string,
+        ): TurnActionResult => ({
+          outcome,
+          message,
+          awaiting:
+            awaiting === undefined
+              ? null
+              : { ...awaiting, kind: "interrupted", reason: "fake interruption", since: 1_000 },
         })
-        const current = this.holds.get(sessionId)
-        if (request.hold) {
-          const stale = this.staleAcknowledgement.get(sessionId)
-          if (stale !== undefined) return Effect.succeed(answer(true, stale))
-          if (current !== undefined && current.epoch > request.epoch)
-            return Effect.succeed(answer(true, current.epoch))
-          this.holds.set(sessionId, {
-            epoch: request.epoch,
-            quiescent: current?.quiescent ?? true,
-            uncertain: current?.uncertain ?? false,
-            releaseChecks: current?.releaseChecks ?? [],
-          })
-          return Effect.succeed(answer(true, request.epoch))
-        }
-        if (current === undefined) return Effect.succeed(answer(false, null))
-        if (current.epoch !== request.epoch)
-          return Effect.fail(
-            new RunnerClientError({
-              code: "invalid_request",
-              message: `Maintenance epoch ${request.epoch} does not match the held epoch ${current.epoch}`,
-              status: 400,
-            }),
-          )
-        if (current.releaseChecks.some((check) => !check.ok))
-          return Effect.succeed(answer(true, current.epoch, current.releaseChecks))
-        this.holds.delete(sessionId)
-        return Effect.succeed(answer(false, request.epoch, current.releaseChecks))
+        if (awaiting === undefined)
+          return Effect.succeed(answer("not_awaiting", "nothing awaiting"))
+        if (awaiting.inputId !== request.inputId || awaiting.attempt !== request.attempt)
+          return Effect.succeed(answer("stale", "stale button"))
+        this.awaiting.delete(sessionId)
+        return Effect.succeed({ outcome: "applied", message: request.action, awaiting: null })
       }),
-    health: Effect.suspend(() => {
-      this.calls.push({ method: "health", sessionId: "" })
-      const failure = this.failure("health")
-      if (failure !== undefined) return Effect.fail(failure)
-      return Effect.succeed(this.health)
-    }),
     cleanup: (sessionId, generation) =>
       Effect.suspend(() => {
         this.calls.push({ method: "cleanup", sessionId, detail: { generation } })
@@ -261,7 +189,7 @@ export class FakeRunner {
         if (failure !== undefined) return Effect.fail(failure)
         this.sessions.delete(sessionId)
         this.inputs.delete(sessionId)
-        this.holds.delete(sessionId)
+        this.awaiting.delete(sessionId)
         return Effect.succeed({ sessionId, cleaned: true })
       }),
   }
@@ -269,12 +197,7 @@ export class FakeRunner {
 
 /** Everything Janitor needs for agent sessions, against Postgres and an in-memory engine. */
 export const agentLayers = (runner: Layer.Layer<RunnerClient, never, never>) =>
-  Layer.mergeAll(
-    AgentHandoffLayer,
-    AgentSessions.layer,
-    AgentEventProjection.layer,
-    AgentMaintenance.layer,
-  ).pipe(
+  Layer.mergeAll(AgentHandoffLayer, AgentSessions.layer, AgentEventProjection.layer).pipe(
     Layer.provideMerge(WorkflowDispatcher.layer([AgentHandoffRegistration])),
     Layer.provideMerge(WorkflowOutbox.layer),
     Layer.provideMerge(runner),

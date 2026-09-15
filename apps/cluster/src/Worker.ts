@@ -99,7 +99,6 @@ import { Teammates, TeammatesConfig } from "./Teammates.ts"
 import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
 import { AgentCatchUpCronLayer, AgentCatchUpCronName } from "./Agent/CatchUpCron.ts"
 import { AgentCleanup } from "./Agent/Cleanup.ts"
-import { AgentMaintenance } from "./Agent/Maintenance.ts"
 import { AgentCatchUpWake, AgentEventProjection } from "./Agent/EventProjection.ts"
 import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
 import { RunnerClient } from "./Agent/RunnerClient.ts"
@@ -110,6 +109,7 @@ import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
 import { SlackConversation, SlackWake } from "./Slack/Conversation.ts"
 import { SlackWebhook } from "./Slack/Webhook.ts"
+import { SlackInteractivity } from "./Slack/Interactivity.ts"
 import { SlackTransport } from "./Slack/Transport.ts"
 import { SlackProcessor } from "./Slack/Processor.ts"
 import { SlackDelivery } from "./Slack/Delivery.ts"
@@ -332,7 +332,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Config.withDefault(""),
     )
     const SlackLayers = slackConfigured
-      ? Layer.mergeAll(SlackCronLayer, SlackDeliveryCronLayer, SlackWebhook.layer).pipe(
+      ? Layer.mergeAll(
+          SlackCronLayer,
+          SlackDeliveryCronLayer,
+          SlackWebhook.layer,
+          SlackInteractivity.layer,
+        ).pipe(
           Layer.provide(Layer.mergeAll(SlackRecovery.layer, GitHubRecovery.layer)),
           Layer.provide(GitHubRecoveryApi.layer.pipe(Layer.provide(FetchHttpClient.layer))),
           Layer.provideMerge(
@@ -368,12 +373,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const AgentLayers = runnerConfigured
       ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer, SlackLayers).pipe(
           Layer.provideMerge(
-            Layer.mergeAll(
-              AgentSessions.layer,
-              AgentEventProjection.layer,
-              AgentCleanup.layer,
-              AgentMaintenance.layer,
-            ),
+            Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer, AgentCleanup.layer),
           ),
           Layer.provideMerge(
             RunnerClient.layer({ baseUrl: runnerUrl, token: runnerToken }).pipe(

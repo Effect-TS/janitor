@@ -11,19 +11,19 @@ vp install --frozen-lockfile
 vp run dev
 ```
 
-Alchemy starts Postgres, the API on port 8787, the website on 1337, and the runner on 8790 with SQLite Durable Objects. Open the website. The runner uses a disposable repository and controlled model by default, so development needs Docker but no production credentials. Runner configuration and live-model opt-in are described in the [runner guide](apps/runner/README.md).
+Alchemy starts Postgres, the API on port 8787, the website on 1337, and the runner on 8790 with one Linux sandbox container per agent session. Open the website. The runner uses a fixture repository inside the sandbox image and a controlled model by default, so development needs Docker or Podman but no production credentials. Runner configuration and live-model opt-in are described in the [runner guide](apps/runner/README.md).
 
 ```sh
-# While the local stack is running:
+# Optional, while the local stack is running: a turn, a container replacement and a restore.
 vp run runner:smoke
 
 # Project checks, including the runner:
 vp run check:all
 ```
 
-The runner smoke checks API readiness, model tools, file edits, file persistence after host replacement, and cleanup. CI also verifies the API-to-runner service binding through the maintenance release check. Both PR checks and deployment CI validate the runner.
+PR checks run formatting, lint, type checking, the runner bundle and the focused test suites; the local Alchemy smoke is opt-in and is not a CI gate.
 
-The API, website and runner belong to the root Alchemy deployment. The runner retains its own Worker to preserve existing Durable Object namespaces and its Workerd-specific bundle. Containers provide Linux repository tools; OpenCode and conversation state run in the session Durable Object. See [why the Worker remains separate](docs/adr/0001-runner-worker-and-linux-workspace.md).
+The API, website and runner belong to the root Alchemy deployment. The runner retains its own Worker for its Workerd-specific bundle. Each agent session's Durable Object owns its sandbox container, hosts OpenCode and keeps conversation state; the container holds the repository checkout, commands and background processes. See [why the Worker remains separate](docs/adr/0001-runner-worker-and-linux-workspace.md), [completed-turn recovery](docs/adr/0003-completed-turn-recovery-and-repository-authority.md) and [the sandbox-owning object](docs/adr/0004-host-opencode-in-the-sandbox-owning-object.md).
 
 There is no Cloudflare edge locally, so Access attributes requests to the `local-dev` identity. Local audit entries record that identity; production does not accept it. Live GitHub operations are disabled in the default local composition.
 

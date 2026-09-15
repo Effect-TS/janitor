@@ -1,147 +1,102 @@
-import { Config, Data, Effect, Schedule } from "effect"
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
+// Local Alchemy smoke: creates a session against the local runner, runs a
+// controlled turn, destroys the container, and checks that the next turn
+// restores the recovery point. Opt-in; not part of the default PR checks.
+import { Effect } from "effect"
+import { NodeRuntime } from "@effect/platform-node"
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "../src/Protocol.ts"
 
-class LocalRunnerUnavailable extends Data.TaggedError("LocalRunnerUnavailable")<{
-  readonly message: string
-}> {}
+const runnerUrl = process.env.JANITOR_LOCAL_RUNNER_URL ?? "http://127.0.0.1:8790"
+const apiOrigin = process.env.JANITOR_API_ORIGIN ?? "http://localhost:8787"
+const token = process.env.JANITOR_AGENT_RUNNER_TOKEN ?? "janitor-local-runner"
+const loopback = (url: string) => /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(url)
+if (!loopback(runnerUrl) || !loopback(apiOrigin))
+  throw new Error("The local smoke only runs against loopback URLs")
+
+const sessionId = `local_smoke_${Date.now()}`
+const call = async (path: string, init: RequestInit = {}) => {
+  const response = await fetch(`${runnerUrl}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${token}`,
+      [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+      "content-type": "application/json",
+      ...(init.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(120_000),
+  })
+  const body: unknown = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(`${path} failed: ${response.status} ${JSON.stringify(body)}`)
+  return body as Record<string, unknown>
+}
+
+const waitForTurn = async (inputId: string) => {
+  for (let attempt = 0; attempt < 600; attempt++) {
+    const read = (await call(`/v1/sessions/${sessionId}/events?after=0&limit=500`)) as {
+      events: Array<{ type: string; data: { inputId?: string; text?: string; reason?: string } }>
+    }
+    const terminal = read.events.find(
+      (event) =>
+        event.data.inputId === inputId &&
+        ["turn.completed", "turn.interrupted", "turn.save_failed"].includes(event.type),
+    )
+    if (terminal) return terminal
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  throw new Error(`Turn ${inputId} did not finish`)
+}
 
 const program = Effect.gen(function* () {
-  const base = yield* Config.String("JANITOR_LOCAL_RUNNER_URL").pipe(
-    Config.withDefault("http://127.0.0.1:8790"),
+  const ready = yield* Effect.promise(() => fetch(`${apiOrigin}/api/v1/ready`))
+  if (!ready.ok) throw new Error("The local API is not ready")
+  yield* Effect.promise(() =>
+    call(`/v1/sessions/${sessionId}`, {
+      method: "PUT",
+      body: JSON.stringify({ generation: 1, title: "Local smoke", repositoryId: "123" }),
+    }),
   )
-  const url = new URL(base)
-  if (!["127.0.0.1", "localhost"].includes(url.hostname))
-    return yield* Effect.die(new Error("Local smoke only accepts a loopback runner URL"))
-  const token = yield* Config.String("JANITOR_AGENT_RUNNER_TOKEN").pipe(
-    Config.withDefault("janitor-local-runner"),
-  )
-  const api = yield* Config.String("JANITOR_API_ORIGIN").pipe(
-    Config.withDefault("http://localhost:8787"),
-  )
-  if (!["127.0.0.1", "localhost"].includes(new URL(api).hostname))
-    return yield* Effect.die(new Error("Local smoke only accepts a loopback API URL"))
-  const readiness = yield* Effect.tryPromise(() =>
-    fetch(api + "/api/v1/ready", { signal: AbortSignal.timeout(10000) }),
-  )
-  if (!readiness.ok) return yield* Effect.die(new Error("Local API is not ready"))
-  const maintenanceToken = yield* Config.String("JANITOR_MAINTENANCE_TOKEN").pipe(
-    Config.withDefault(""),
-  )
-  if (maintenanceToken) {
-    const maintenance = (path: string, body?: unknown) =>
-      Effect.tryPromise({
-        try: async () => {
-          const response = await fetch(api + "/api/v1/maintenance" + path, {
-            method: body === undefined ? "GET" : "POST",
-            headers: {
-              authorization: "Bearer " + maintenanceToken,
-              "content-type": "application/json",
-            },
-            body: body === undefined ? undefined : JSON.stringify(body),
-            signal: AbortSignal.timeout(30000),
-          })
-          if (!response.ok) throw new Error("Local maintenance request failed: " + response.status)
-          return (await response.json()) as {
-            epoch: number
-            state: string
-            verifiedRelease?: string
-          } | null
-        },
-        catch: (cause) => cause,
-      })
-    const previous = yield* maintenance("")
-    if (previous && previous.state !== "released")
-      return yield* Effect.die(new Error("Local maintenance is already active"))
-    const held = yield* maintenance("/hold", { reason: "Local Alchemy integration validation" })
-    const released = yield* maintenance("/release", { epoch: held!.epoch })
-    if (released?.state !== "released" || !released.verifiedRelease)
-      return yield* Effect.die(
-        new Error("API did not verify the runner release through its service binding"),
-      )
-  }
-  const id = `local_${crypto.randomUUID().replaceAll("-", "")}`
-  const call = (method: string, path: string, body?: unknown) =>
-    Effect.tryPromise({
-      try: async () => {
-        const response = await fetch(`${base}/v1/sessions/${id}${path}`, {
-          method,
-          headers: {
-            authorization: `Bearer ${token}`,
-            "x-janitor-runner-protocol": "2",
-            "content-type": "application/json",
-          },
-          body: body === undefined ? undefined : JSON.stringify(body),
-          signal: AbortSignal.timeout(120_000),
-        })
-        if ([502, 503, 504].includes(response.status)) {
-          await response.body?.cancel()
-          throw new LocalRunnerUnavailable({
-            message: `${method} ${path}: local runner unavailable (${response.status})`,
-          })
-        }
-        if (!response.ok)
-          throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`)
-        return (await response.json()) as {
-          execution?: string
-          lastOutcome?: string
-          events?: Array<{ type: string; data: unknown }>
-        }
-      },
-      catch: (cause) =>
-        cause instanceof TypeError
-          ? new LocalRunnerUnavailable({ message: "Local runner connection lost" })
-          : cause,
-    }).pipe(
-      // These commands retain the same generation/input identity after a lost proxy response.
-      // The local container-destruction endpoint is deliberately excluded from automatic replay.
-      Effect.retry({
-        times: 4,
-        schedule: Schedule.spaced("500 millis"),
-        while: (error) => path !== "/local-restart" && error instanceof LocalRunnerUnavailable,
+  const first = "msg_localsmoke1"
+  yield* Effect.promise(() =>
+    call(`/v1/sessions/${sessionId}/inputs`, {
+      method: "POST",
+      body: JSON.stringify({
+        generation: 1,
+        inputId: first,
+        text: "Read the README and write the validation file.",
+        attribution: { source: "driver" },
       }),
-    )
-  const idle = Effect.gen(function* () {
-    for (let attempt = 0; attempt < 180; attempt++) {
-      const state = yield* call("GET", "")
-      if (state.execution === "failed")
-        return yield* Effect.die(new Error("Local model turn failed"))
-      if (state.execution === "idle" && state.lastOutcome === "succeeded") return
-      yield* Effect.sleep("1 second")
-    }
-    return yield* Effect.die(new Error("Timed out waiting for local runner"))
-  })
-  yield* call("PUT", "", {
-    generation: 1,
-    repositoryId: "123",
-    title: "Local Alchemy runner validation",
-  })
-  const admit = (name: string, text: string) =>
-    call("POST", "/inputs", {
-      generation: 1,
-      inputId: `msg_${name}`,
-      text,
-      attribution: { source: "driver" },
-    })
-  yield* Effect.gen(function* () {
-    yield* admit("initial", "Validate the disposable local repository.")
-    yield* idle
-    yield* call("POST", "/local-restart", {})
-    yield* admit("restored", "Validate restore by reading local-validation.txt.")
-    yield* idle
-    const events = yield* call("GET", "/events?after=0&limit=500")
-    if (
-      !events.events?.some(
-        (event) =>
-          event.type === "session.tool.success" &&
-          JSON.stringify(event.data).includes("Local checkpoint survived"),
-      )
-    )
-      return yield* Effect.die(
-        new Error("Restored workspace content was not observed in native tool results"),
-      )
-  }).pipe(Effect.ensuring(call("DELETE", "", { generation: 1 }).pipe(Effect.orDie)))
-  yield* Effect.logInfo(
-    "Passed: GitHub fixture, native model tools, SQLite file edit, host replacement, retained files and cleanup",
+    }),
   )
-})
-NodeRuntime.runMain(program.pipe(Effect.provide(NodeServices.layer)))
+  const completed = yield* Effect.promise(() => waitForTurn(first))
+  if (completed.type !== "turn.completed")
+    throw new Error(`First turn ended with ${completed.type}: ${completed.data.reason}`)
+  yield* Effect.promise(() => call(`/v1/sessions/${sessionId}/local-restart`, { method: "POST" }))
+  const second = "msg_localsmoke2"
+  yield* Effect.promise(() =>
+    call(`/v1/sessions/${sessionId}/inputs`, {
+      method: "POST",
+      body: JSON.stringify({
+        generation: 1,
+        inputId: second,
+        text: "After the restore, read local-validation.txt.",
+        attribution: { source: "driver" },
+      }),
+    }),
+  )
+  const restored = yield* Effect.promise(() => waitForTurn(second))
+  if (restored.type !== "turn.completed" || !restored.data.text?.includes("apricot-47"))
+    throw new Error(`Recovery point did not survive: ${JSON.stringify(restored)}`)
+  yield* Effect.log(
+    "Local smoke passed: turn completed, container replaced, recovery point restored",
+  )
+}).pipe(
+  Effect.ensuring(
+    Effect.promise(() =>
+      call(`/v1/sessions/${sessionId}`, {
+        method: "DELETE",
+        body: JSON.stringify({ generation: 1 }),
+      }).catch(() => undefined),
+    ),
+  ),
+)
+
+NodeRuntime.runMain(program)

@@ -9,7 +9,8 @@ import { retain } from "alchemy/RemovalPolicy"
 import ClusterWorker from "@janitor/cluster/Worker"
 import { deployment, requiredSecret, agentRunnerConnection } from "@janitor/cluster/Deployment"
 
-// No new resource scope: existing Alchemy addresses and namespace identities stay stable.
+// No new resource scope: existing Alchemy addresses and the Worker identity stay stable.
+// The session namespace becomes container-backed; cutover retires its previous objects.
 export const AgentRunner = Effect.gen(function* () {
   const target = yield* deployment
   const cluster = yield* ClusterWorker
@@ -54,15 +55,18 @@ export const AgentRunner = Effect.gen(function* () {
         "../../pnpm-lock.yaml",
         "../../pnpm-workspace.yaml",
         "../../patches/**",
-        "release-manifest.json",
         "dev/**",
       ],
     },
     timeout: "15 minutes",
   })
-  const checkpoints = yield* Cloudflare.R2.Bucket("AgentWorkspaceCheckpoints", {
-    name: local ? "janitor-workspace-checkpoints-local" : "janitor-workspace-checkpoints",
+  const backupBucketName = local
+    ? "janitor-workspace-checkpoints-local"
+    : "janitor-workspace-checkpoints"
+  const backups = yield* Cloudflare.R2.Bucket("AgentWorkspaceCheckpoints", {
+    name: backupBucketName,
   }).pipe(retain())
+  const containerContext = new URL("../apps/runner/container", import.meta.url).pathname
   return yield* Cloudflare.Worker("AgentRunner", {
     name: runnerWorkerName,
     main: Output.interpolate`${build.outdir}/worker.mjs`,
@@ -71,12 +75,33 @@ export const AgentRunner = Effect.gen(function* () {
     workersDev: false,
     compatibility: { date: local ? "2026-07-04" : "2026-09-05", flags: ["nodejs_compat"] },
     observability: { enabled: true },
+    // Model streaming and tool coordination for a whole turn run inside one alarm handler.
+    limits: { cpuMs: 300_000 },
     env: {
-      SESSIONS: Cloudflare.DurableObject("AgentSessions", { className: "SessionRunner" }),
-      WORKSPACE_CHECKPOINTS: checkpoints,
+      // The session object owns its container: one sandbox per agent session.
+      SESSIONS: Cloudflare.Container("AgentSessionSandboxes", {
+        className: "SessionRunner",
+        context: containerContext,
+        dockerfile: local ? "dev/Dockerfile" : "Dockerfile",
+        instanceType: "standard-1",
+        maxInstances: 10,
+      }),
+      BACKUP_BUCKET: backups,
+      BACKUP_BUCKET_NAME: backupBucketName,
       REPOSITORY_AUTHORITY: cluster,
       JANITOR_AGENT_RUNNER_TOKEN: connection.token,
       REPOSITORY_SERVICE_TOKEN: connection.repositoryToken,
+      ...(local
+        ? {
+            JANITOR_SANDBOX_LOCAL: "true",
+            JANITOR_LOCAL_GIT_REMOTE: "/opt/janitor/fixture.git",
+          }
+        : {
+            // Production backups upload straight from the container through presigned R2 URLs.
+            CLOUDFLARE_ACCOUNT_ID: yield* Config.String("CLOUDFLARE_ACCOUNT_ID"),
+            R2_ACCESS_KEY_ID: requiredSecret("JANITOR_SANDBOX_R2_ACCESS_KEY_ID"),
+            R2_SECRET_ACCESS_KEY: requiredSecret("JANITOR_SANDBOX_R2_SECRET_ACCESS_KEY"),
+          }),
       ...(local && !liveModel
         ? { LOCAL_MODEL_TOKEN: "local-controlled-model" }
         : {

@@ -1,7 +1,10 @@
 import { Context, Effect, Layer, Redacted } from "effect"
 import { ProtocolError } from "../Protocol.ts"
-import type { CredentialPermission, RepositoryCredential } from "../Publication.ts"
-import type { RepositorySelection } from "../RepositoryWorkspace.ts"
+import type {
+  CredentialPermission,
+  RepositoryCredential,
+  RepositorySelection,
+} from "../Publication.ts"
 
 export interface RepositoryAuthorization extends RepositorySelection {
   readonly token: boolean

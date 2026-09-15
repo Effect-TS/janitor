@@ -1,4 +1,3 @@
-import { cloudflareProviders } from "./deployment/RetiredRunnerResources.ts"
 import * as Config from "effect/Config"
 import { localState } from "alchemy/State"
 import * as Alchemy from "alchemy"
@@ -26,7 +25,7 @@ const DockerProviders = Layer.effect(
 )
 
 const Providers = Layer.mergeAll(
-  cloudflareProviders(),
+  Cloudflare.providers(),
   Command.providers(),
   DockerProviders,
   Neon.providers(),

@@ -23,13 +23,11 @@ describe("deployment configuration", () => {
           JANITOR_AGENT_RUNNER_URL: "https://obsolete-runner.example",
           JANITOR_AGENT_RUNNER_TOKEN: "runner-token",
           REPOSITORY_SERVICE_TOKEN: "repository-token",
-          JANITOR_MAINTENANCE_TOKEN: "maintenance-token",
         }
         const connection = yield* agentRunnerConnection.pipe(Effect.provide(config(values)))
         assert.strictEqual(connection.url, "https://runner.janitor.effectful.co")
         assert.strictEqual(Redacted.value(connection.token), "runner-token")
         assert.strictEqual(Redacted.value(connection.repositoryToken), "repository-token")
-        assert.strictEqual(Redacted.value(connection.maintenanceToken), "maintenance-token")
         for (const key of ["JANITOR_AGENT_RUNNER_TOKEN", "REPOSITORY_SERVICE_TOKEN"]) {
           const missing: Record<string, string> = { ...values }
           delete missing[key]

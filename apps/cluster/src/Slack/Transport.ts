@@ -58,12 +58,14 @@ export class SlackTransport extends Context.Service<
       root: string,
       text: string,
       marker: string,
+      blocks?: ReadonlyArray<unknown>,
     ) => Effect.Effect<string, SlackTransportError>
     readonly update: (
       channel: string,
       ts: string,
       text: string,
       marker: string,
+      blocks?: ReadonlyArray<unknown>,
     ) => Effect.Effect<string, SlackTransportError>
     readonly ephemeral: (
       channel: string,
@@ -213,19 +215,34 @@ export class SlackTransport extends Context.Service<
                   }),
             ),
           ),
-        post: (channel, root, text, marker) =>
+        post: (channel, root, text, marker, blocks) =>
           call(
             "chat.postMessage",
-            { channel, thread_ts: root, text, metadata: metadata(marker), ...textOptions },
+            {
+              channel,
+              thread_ts: root,
+              text,
+              metadata: metadata(marker),
+              ...textOptions,
+              ...(blocks === undefined ? {} : { blocks }),
+            },
             true,
           ).pipe(
             Effect.flatMap(sent),
             Effect.map((body) => body.ts),
           ),
-        update: (channel, ts, text, marker) =>
+        update: (channel, ts, text, marker, blocks) =>
           call(
             "chat.update",
-            { channel, ts, text, metadata: metadata(marker), ...textOptions },
+            {
+              channel,
+              ts,
+              text,
+              metadata: metadata(marker),
+              ...textOptions,
+              // An update without blocks clears the buttons of an interruption message.
+              blocks: blocks ?? [],
+            },
             true,
           ).pipe(
             Effect.flatMap(sent),

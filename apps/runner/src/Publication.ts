@@ -1,6 +1,12 @@
 import { ProtocolError } from "./Protocol.ts"
 import { checksum } from "./Hash.ts"
-import type { RepositorySelection } from "./RepositoryWorkspace.ts"
+import type { KeyValue } from "./services/KeyValue.ts"
+
+export interface RepositorySelection {
+  readonly sessionId: string
+  readonly generation: number
+  readonly repositoryId: string
+}
 
 export type CredentialPermission = "read" | "push" | "pull_request"
 export interface RepositoryCredential {
@@ -77,10 +83,10 @@ interface Notice {
 }
 const noticePrefix = `${key}_notice_`
 
-/** One new-work publication per session. Intent always precedes an external write. */
+/** One new-work publication per session. Intent always precedes an external write. Git steps run in the sandbox. */
 export class Publication {
   constructor(
-    private storage: DurableObjectStorage,
+    private storage: KeyValue["Service"],
     private selected: RepositorySelection,
     private deps: PublicationDependencies,
   ) {}
@@ -171,7 +177,7 @@ export class Publication {
     await this.storage.sync()
   }
   private async guardNotices() {
-    const notices = await this.storage.list<Notice>({ prefix: noticePrefix })
+    const notices = await this.storage.list<Notice>(noticePrefix)
     if ([...notices.values()].some((notice) => notice.state !== "sent"))
       blocked(
         "PR explanation delivery is unconfirmed. Use publish to reconcile it before further work.",
@@ -291,7 +297,7 @@ export class Publication {
   async publish(input: PublicationInput, callId?: string) {
     const pending = await this.storage.get<Plan>(key)
     if (pending?.existing) {
-      const notices = await this.storage.list<Notice>({ prefix: noticePrefix })
+      const notices = await this.storage.list<Notice>(noticePrefix)
       for (const notice of notices.values()) {
         if (notice.state !== "sent")
           await this.explain(pending, notice.message).catch(() => undefined)

@@ -4,16 +4,17 @@ import {
   AdmitInput,
   Cleanup,
   CreateSession,
-  Maintenance,
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
   ProtocolError,
   SessionId,
+  TurnAction,
 } from "./Protocol.ts"
 
 export type Command =
   | { readonly kind: "create"; readonly sessionId: SessionId; readonly body: CreateSession }
   | { readonly kind: "admit"; readonly sessionId: SessionId; readonly body: AdmitInput }
+  | { readonly kind: "act"; readonly sessionId: SessionId; readonly body: TurnAction }
   | { readonly kind: "inspect"; readonly sessionId: SessionId }
   | {
       readonly kind: "events"
@@ -21,14 +22,13 @@ export type Command =
       readonly after: number
       readonly limit: number
     }
-  | { readonly kind: "maintenance"; readonly sessionId: SessionId; readonly body: Maintenance }
   | { readonly kind: "cleanup"; readonly sessionId: SessionId; readonly body: Cleanup }
 
 const decodeSessionId = Schema.decodeUnknownSync(SessionId)
 const decoders = {
   create: Schema.decodeUnknownSync(CreateSession),
   admit: Schema.decodeUnknownSync(AdmitInput),
-  maintenance: Schema.decodeUnknownSync(Maintenance),
+  act: Schema.decodeUnknownSync(TurnAction),
   cleanup: Schema.decodeUnknownSync(Cleanup),
 }
 
@@ -86,6 +86,8 @@ export const parseCommand = async (request: Request): Promise<Command> => {
   }
   if (rest === "/inputs" && method === "POST")
     return { kind: "admit", sessionId, body: await json(request, "admit") }
+  if (rest === "/actions" && method === "POST")
+    return { kind: "act", sessionId, body: await json(request, "act") }
   if (rest === "/events" && method === "GET") {
     const after = Number(url.searchParams.get("after") ?? "0")
     const limit = Number(url.searchParams.get("limit") ?? String(EVENT_READ_LIMIT))
@@ -93,8 +95,6 @@ export const parseCommand = async (request: Request): Promise<Command> => {
       throw new ProtocolError("invalid_request", "Event cursors are non-negative integers")
     return { kind: "events", sessionId, after, limit: Math.min(limit, EVENT_READ_LIMIT) }
   }
-  if (rest === "/maintenance" && method === "POST")
-    return { kind: "maintenance", sessionId, body: await json(request, "maintenance") }
   throw new ProtocolError("invalid_request", `Unknown route ${method} ${url.pathname}`)
 }
 

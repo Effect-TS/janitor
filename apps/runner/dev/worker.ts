@@ -1,108 +1,105 @@
+// The local development entry: the production runner with a controlled model
+// and the container's fixture remote in place of GitHub. Set
+// JANITOR_LOCAL_LIVE_MODEL=true with a configured provider credential to send
+// real model requests.
 import { Effect } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
-import { makeRepositoryFixture } from "./RepositoryFixture.ts"
-import { SessionRunner as NativeRunner, type RunnerEnv } from "../src/SessionRunner.ts"
-import { SessionController } from "../src/SessionController.ts"
-import { RepositoryWorkspace, type RepositorySelection } from "../src/RepositoryWorkspace.ts"
+import { SessionRunner as ProductionRunner, type RunnerEnv } from "../src/SessionRunner.ts"
 import { handle, type WorkerEnv } from "../src/worker.ts"
-const fixture = makeRepositoryFixture()
 
-class LocalSession extends SessionController {
-  protected override options() {
-    return { ...super.options(), intervalMs: 1000 }
-  }
-  protected override makeRepository(selected: RepositorySelection) {
-    if (selected.repositoryId !== "123")
-      throw new Error("Local development only supports repositoryId 123")
-    return new RepositoryWorkspace(
-      this.ctx.storage,
-      {
-        ...this.env,
-        GITHUB_API: { fetch: async (request: Request) => (await fixture).fetch(request) },
-        REPOSITORY_SERVICE_TOKEN: "local-fixture",
-        REPOSITORY_AUTHORITY: {
-          fetch: async (request) => {
-            const body = (await request.json()) as { permission: string }
-            return body.permission !== "read"
-              ? Response.json({ message: "Local publication is disabled" }, { status: 403 })
-              : Response.json({ owner: "fixture", repo: "fixture", token: "local-fixture" })
-          },
-        },
-      },
-      selected,
-    )
-  }
-  protected override transport() {
-    // Explicit opt-in keeps ordinary local development free of provider calls.
-    if (this.env.JANITOR_LOCAL_LIVE_MODEL === "true") return super.transport()
-    return HttpClient.make((request) =>
-      Effect.sync(() => {
-        const body =
-          request.body._tag === "Uint8Array"
-            ? JSON.parse(new TextDecoder().decode(request.body.body))
-            : { messages: [] }
-        const messages = body.messages as Array<{ role: string; content: unknown }>
-        const lastUser = messages.findLastIndex((message) => message.role === "user")
-        const calls = messages
-          .slice(lastUser + 1)
-          .filter((message) => message.role === "tool").length
-        const restoring = JSON.stringify(messages[lastUser]?.content).includes("restore")
-        const call =
-          calls === 0
-            ? { name: "read", input: { path: restoring ? "local-validation.txt" : "README.md" } }
-            : calls === 1 && !restoring
-              ? {
-                  name: "write",
-                  input: {
-                    path: "local-validation.txt",
-                    content: "Local checkpoint survived: apricot-47\n",
-                  },
-                }
-              : undefined
-        const delta = call
+/** The scripted model: read the README, write a validation file, then answer. */
+const scriptedTransport = () =>
+  HttpClient.make((request) =>
+    Effect.sync(() => {
+      const body =
+        request.body._tag === "Uint8Array"
+          ? JSON.parse(new TextDecoder().decode(request.body.body))
+          : { messages: [] }
+      const messages = body.messages as Array<{ role: string; content: unknown }>
+      const lastUser = messages.findLastIndex((message) => message.role === "user")
+      const calls = messages.slice(lastUser + 1).filter((message) => message.role === "tool").length
+      const restoring = JSON.stringify(messages[lastUser]?.content).includes("restore")
+      const call =
+        calls === 0
           ? {
-              role: "assistant",
-              tool_calls: [
-                {
-                  index: 0,
-                  id: `local_${calls}`,
-                  type: "function",
-                  function: { name: call.name, arguments: JSON.stringify(call.input) },
-                },
-              ],
+              name: "bash",
+              input: { command: restoring ? "cat local-validation.txt" : "cat README.md" },
             }
-          : { role: "assistant", content: "Local workspace validation completed: apricot-47." }
-        const frame = (delta: unknown, finish_reason: string | null, usage?: unknown) =>
-          `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason }], usage })}\n\n`
-        return HttpClientResponse.fromWeb(
-          request,
-          new Response(
-            frame(delta, null) +
-              frame({}, call ? "tool_calls" : "stop", {
-                prompt_tokens: 10,
-                completion_tokens: 5,
-                total_tokens: 15,
-              }) +
-              "data: [DONE]\n\n",
-            { headers: { "content-type": "text/event-stream" } },
-          ),
-        )
-      }),
-    )
+          : calls === 1 && !restoring
+            ? {
+                name: "write",
+                input: {
+                  path: "local-validation.txt",
+                  content: "Local recovery point survived: apricot-47\n",
+                },
+              }
+            : undefined
+      const delta = call
+        ? {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: `local_${calls}`,
+                type: "function",
+                function: { name: call.name, arguments: JSON.stringify(call.input) },
+              },
+            ],
+          }
+        : {
+            role: "assistant",
+            content: restoring
+              ? "Local recovery point survived: apricot-47."
+              : "Local workspace validation completed: apricot-47.",
+          }
+      const frame = (delta: unknown, finish_reason: string | null, usage?: unknown) =>
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason }], usage })}\n\n`
+      return HttpClientResponse.fromWeb(
+        request,
+        new Response(
+          frame(delta, null) +
+            frame({}, call ? "tool_calls" : "stop", {
+              prompt_tokens: 10,
+              completion_tokens: 5,
+              total_tokens: 15,
+            }) +
+            "data: [DONE]\n\n",
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+      )
+    }),
+  )
+
+export class SessionRunner extends ProductionRunner {
+  protected override modelTransport() {
+    if (this.env.JANITOR_LOCAL_LIVE_MODEL === "true") return super.modelTransport()
+    return scriptedTransport()
   }
   override async fetch(request: Request) {
-    if (new URL(request.url).pathname.endsWith("/local-restart") && request.method === "POST") {
-      await this.disposeHost()
+    const url = new URL(request.url)
+    // Destroys the container so the next turn must restore the recovery point.
+    if (url.pathname.endsWith("/local-restart") && request.method === "POST") {
+      await this.destroy()
       return Response.json({ restarted: true })
     }
     return super.fetch(request)
   }
 }
-export class SessionRunner extends NativeRunner {
-  protected override makeController(ctx: DurableObjectState, env: RunnerEnv) {
-    return new LocalSession(ctx, env)
-  }
+
+const authority = {
+  fetch: async (request: Request) => {
+    const body = (await request.json()) as { permission: string }
+    return body.permission !== "read"
+      ? Response.json({ message: "Local publication is disabled" }, { status: 403 })
+      : Response.json({ owner: "local", repo: "fixture", token: "local-fixture" })
+  },
 }
+
 export default {
-  fetch: handle,
+  fetch: (request: Request, env: WorkerEnv) =>
+    handle(request, {
+      ...env,
+      REPOSITORY_SERVICE_TOKEN: env.REPOSITORY_SERVICE_TOKEN ?? "local-fixture",
+      REPOSITORY_AUTHORITY: env.REPOSITORY_AUTHORITY ?? authority,
+    } satisfies RunnerEnv as WorkerEnv),
 } satisfies ExportedHandler<WorkerEnv>
