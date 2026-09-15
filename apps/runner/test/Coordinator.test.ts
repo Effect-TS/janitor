@@ -2,7 +2,7 @@ import { assert, describe, it } from "vite-plus/test"
 import { Effect } from "effect"
 import { harness, runtimeToken } from "./support/Fakes.ts"
 import { REPOSITORY_DIR } from "../src/services/SandboxWorkspace.ts"
-import type { TurnRequest } from "../src/services/TurnHost.ts"
+import type { TurnOutcome, TurnRequest } from "../src/services/TurnHost.ts"
 
 const create = (h: ReturnType<typeof harness>) =>
   Effect.runPromise(
@@ -322,5 +322,60 @@ describe("sandbox loss", () => {
     assert.isAbove(types.indexOf("turn.message"), types.indexOf("turn.started"))
     // started, three stages, two messages and the completion each announce news.
     assert.strictEqual(h.notifies.count, 7)
+  })
+
+  it("starts the model before the checkout is ready and holds tools until it is", async () => {
+    const h = harness()
+    await create(h)
+    let releaseClone!: () => void
+    const cloneGate = new Promise<void>((resolve) => {
+      releaseClone = resolve
+    })
+    h.sandbox.beforeClone = () => cloneGate
+    const seen: boolean[] = []
+    h.host.outcomes.push((turn) =>
+      Effect.gen(function* () {
+        // The model is running while the clone still waits.
+        seen.push(h.readiness.isOpen)
+        turn.message(0, "I'll read the README first.")
+        releaseClone()
+        // What a sandbox tool does before touching the checkout.
+        yield* h.readiness.ready.pipe(Effect.orDie)
+        seen.push(h.readiness.isOpen)
+        return { type: "completed", text: "Done" } satisfies TurnOutcome
+      }),
+    )
+    await admit(h, "msg_1", "summarize")
+    await h.settle()
+    assert.deepStrictEqual(seen, [false, true])
+    const read = await Effect.runPromise(h.coordinator.events("s1", 0, 500))
+    assert.deepStrictEqual(
+      read.events.map((event) => [event.type, (event.data as { stage?: string }).stage ?? null]),
+      [
+        ["turn.accepted", null],
+        ["turn.started", null],
+        ["turn.stage", "preparing"],
+        ["turn.message", null],
+        ["turn.stage", "working"],
+        ["turn.stage", "saving"],
+        ["turn.completed", null],
+      ],
+    )
+    assert.strictEqual(h.sandbox.cloneCount, 1)
+  })
+
+  it("interrupts the model when the checkout cannot be prepared and fails waiting tools", async () => {
+    const h = harness()
+    await create(h)
+    h.sandbox.cloneFailure = "fatal: repository not found"
+    // The model waits on the gate like a tool would; the failed preparation interrupts it.
+    h.host.outcomes.push(() => h.readiness.ready.pipe(Effect.orDie, Effect.andThen(Effect.never)))
+    await admit(h, "msg_1", "one")
+    await h.settle()
+    assert.strictEqual(h.store.awaiting?.kind, "interrupted")
+    assert.match(h.store.awaiting?.reason ?? "", /repository not found/)
+    assert.isFalse(h.readiness.isOpen)
+    const gate = await Effect.runPromise(h.readiness.ready.pipe(Effect.flip))
+    assert.match(gate.message, /repository not found/)
   })
 })
