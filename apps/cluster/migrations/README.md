@@ -314,3 +314,12 @@ input and attempt whose assistant text blocks were already posted to the thread
 as `turn.message` events arrived. The attempt's `turn.completed` then only marks
 the progress message done instead of posting the same text again. No data
 changes.
+
+## End all sessions
+
+`0036_end_all_sessions.sql` ends every agent session the way the sandbox
+runner cutover did: a cleanup tombstone per session, pending handoffs dropped,
+Slack threads forgotten, sessions deleted. The agent catch-up cron then asks
+the runner to remove each tombstoned object, its container and its recovery
+points. Published GitHub work, repository connections and every other record
+stay; new sessions start from new threads.
