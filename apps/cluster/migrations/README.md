@@ -243,7 +243,8 @@ delivery attempts, the thread's Slack scan columns and feedback hydration fire
 only when a health column actually changes, because the scans rewrite those
 columns together with cursors, due times and leases on every page. Lateness
 that comes from time alone has no trigger; the browser's fallback refresh
-picks it up. No data changes.
+picks it up. No data changes. `0033` later removes the GitHub scan and its
+triggers; the Slack thread and feedback triggers remain.
 
 ## Repository access lifecycle
 
@@ -262,7 +263,7 @@ sessions. Cleanup tombstones (session identity, generation and native session
 id) are inserted first, then home threads, sessions and everything cascading
 from them (inputs, projections, cursors, catch-up obligations, responses,
 feedback and pending outputs) are deleted together with their handoff requests
-in the outbox and the repository's retained recovery attempts. Slack receipts
+in the outbox. Slack receipts
 and contributions are keyed by thread and stay, so a redelivered start cannot
 revive an ended session; a thread started again derives a fresh session
 identity from its new start message. The agent catch-up cron asks the runner to
@@ -286,3 +287,12 @@ keeps accepting inputs in order. The session observation query names the
 barrier's reason ahead of repository fences and runner state. Hold rows are
 deleted with their session, so disconnection during a hold outranks release.
 No data changes.
+
+## Remove the GitHub recovery scan
+
+`0033_remove_github_recovery_scan.sql` drops `platform_recovery`,
+`github_recovery_attempt` and their live triggers, and replaces
+`delete_repository_data` without the retained-attempt deletion. GitHub feedback
+arrives by webhook only; a delivery GitHub fails to make is not recovered. The
+Slack thread scan columns, feedback hydration and their triggers are unchanged.
+The GitHub scan's single row and any pending attempts are discarded.

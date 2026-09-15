@@ -565,9 +565,9 @@ const alert = (h: HtmlBuilder<Message>, text: string): Html =>
   })
 
 /**
- * One line per platform, stating what the scan is doing rather than what it
- * found. A caught-up scan with nothing pending says so; a gap is shown next
- * to it because being caught up never means nothing was lost.
+ * One line for the Slack thread scan, stating what it is doing rather than
+ * what it found. A caught-up scan with nothing pending says so; a gap is shown
+ * next to it because being caught up never means nothing was lost.
  */
 const describeRecovery = (
   h: HtmlBuilder<Message>,
@@ -578,12 +578,6 @@ const describeRecovery = (
   else if (status.overdue)
     parts.push(["scan overdue, last ", mono(h, formatTime(status.completedAt))])
   if (status.incomplete) parts.push(["results still arriving"])
-  if (status.hydrating > 0)
-    parts.push([
-      "fetching comments for ",
-      mono(h, formatCount(status.hydrating)),
-      ` contribution${status.hydrating === 1 ? "" : "s"}`,
-    ])
   const body: ReadonlyArray<Html | string> =
     parts.length === 0
       ? ["caught up, last scan ", mono(h, formatTime(status.completedAt!))]
@@ -620,10 +614,10 @@ const recoveryRow = (h: HtmlBuilder<Message>, status: RecoveryStatus): Html =>
 
 const recoveryCard = (h: HtmlBuilder<Message>, recovery: ReadonlyArray<RecoveryStatus>): Html =>
   Page.inspectorCard(h, {
-    heading: "Recovery",
+    heading: "Slack catch-up",
     children:
       recovery.length === 0
-        ? [h.p([h.Class("text-body-md text-ink-muted")], ["No recovery scan covers this session."])]
+        ? [h.p([h.Class("text-body-md text-ink-muted")], ["No Slack thread to catch up."])]
         : [
             Page.kvList(
               h,
@@ -755,7 +749,7 @@ const inspector = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> =
         children: [
           h.p(
             [h.Class("text-body-md text-ink-muted")],
-            ["Select a session to see its inputs, delivery and recovery."],
+            ["Select a session to see its inputs and delivery."],
           ),
         ],
       }),

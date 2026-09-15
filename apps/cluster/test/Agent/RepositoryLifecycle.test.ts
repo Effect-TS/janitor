@@ -111,8 +111,6 @@ layer(Services, { timeout: "3 minutes" })("Repository access lifecycle", (it) =>
         yield* sql`INSERT INTO slack_output (session_id, sequence, kind, text, state) VALUES ('l-one', 1, 'progress', 'Working…', 'pending')`
         yield* sql`INSERT INTO github_feedback (session_id, contribution_key, review_id, reviewer_id, author, authorized)
           VALUES ('l-one', 'review:1', '1', '77', '{}', true)`
-        yield* sql`INSERT INTO github_recovery_attempt (attempt_id, delivery_guid, event_name, repository_id, delivered_at)
-          VALUES ('9007199254740993997', 'guid-l', 'pull_request_review', '9301', CLOCK_TIMESTAMP())`
         runner.push("l-one", { type: "session.execution.started", data: {} })
         yield* projection.catchUp("l-one")
         assert.strictEqual((yield* observation.detail("l-one")).execution, "working")
@@ -146,10 +144,6 @@ layer(Services, { timeout: "3 minutes" })("Repository access lifecycle", (it) =>
           )
         assert.deepStrictEqual(
           yield* sql`SELECT 1 FROM workflow_outbox WHERE payload->>'sessionId' IN ('l-one', 'l-two')`,
-          [],
-        )
-        assert.deepStrictEqual(
-          yield* sql`SELECT 1 FROM github_recovery_attempt WHERE repository_id = '9301'`,
           [],
         )
         const tombstones = yield* sql<{
