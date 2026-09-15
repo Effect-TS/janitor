@@ -10,6 +10,8 @@ The AI package patch changes `Config.redacted` to `Config.Redacted`. Without it,
 
 The AI patch also adapts the native OpenRouter request encoder. It omits OpenAI's `store` and `prompt_cache_key` fields and translates `max_completion_tokens` to `max_tokens`. This preserves the explicitly configured output limit under OpenRouter's strict provider routing. Provider options and reasoning history retain the SDK's behavior. The runner uses `OpenRouter.route` directly.
 
+The core package patch adapts the schema bootstrap in `dist/chunks/location-services-fx8h9evn.js`. The runner hosts OpenCode in the session Durable Object, whose SQLite is shared with the Cloudflare Sandbox SDK; the SDK's `container_schedules` table exists before the first turn because the coordinator schedules its drive callback on admission. Upstream refuses to bootstrap into any database holding a table outside its own naming, so every production session failed with "Database is not empty and has no session table". The patch allows that one shared table and keeps refusing any other foreign table, naming it in the error. `apps/runner/test/Database.test.ts` runs the real bootstrap against a seeded database; extend `SHARED_TABLES` in the patch and the test's seed when a pinned SDK upgrade adds tables.
+
 The existing native HTTP tests exercise request parameters, streaming tool arguments, usage, compaction, credential rotation, session restarts and repository checkpoint recovery. Run them without provider credentials:
 
 ```sh
