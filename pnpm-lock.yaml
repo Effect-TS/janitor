@@ -319,6 +319,7 @@ patchedDependencies:
   '@distilled.cloud/hetzner@1.0.0-rc.8': 477a3cbe8722069ebf3ab18441d0ef88177e7b4a42590a494ec69eecc3dd2bd5
   '@distilled.cloud/planetscale@1.0.0-rc.8': f54ab1bc8ad12d39e8d827dc9483e93f5e228a09a716d29ce8155e8bf74a5b73
   '@opencode/ai@2.0.2': c49184e67f40279c93f1f50d69dd368aacb4f0b6ff6401d74a18c37262b500fa
+  '@opencode/core@2.0.2': 7830ea143d3375bd35705a25ef15aa49796ef12ccfb48830d3e5cd4a54cf55ff
   '@opencode/simulation@2.0.2': e9d1744c7d6c3386025a12e80b8c2af7ca7f6f26bd4e28f63355d1bd4dacfdf9
   alchemy@2.0.0-beta.76: 5f5b7ad2de7dff0552e11d37c36ca41117400a18d9e0fdd468ac68a8d5fe0cd1
 
@@ -404,7 +405,7 @@ importers:
         version: 2.0.2(patch_hash=c49184e67f40279c93f1f50d69dd368aacb4f0b6ff6401d74a18c37262b500fa)(supports-color@10.2.2)
       '@opencode/core':
         specifier: 2.0.2
-        version: 2.0.2(07fdbc4b2e0af35f93d0903b4f3ecc3a)
+        version: 2.0.2(patch_hash=7830ea143d3375bd35705a25ef15aa49796ef12ccfb48830d3e5cd4a54cf55ff)(07fdbc4b2e0af35f93d0903b4f3ecc3a)
       '@opencode/schema':
         specifier: 2.0.2
         version: 2.0.2
@@ -427,6 +428,9 @@ importers:
       '@effect/platform-node':
         specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
         version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.0))
+      '@opencode/util':
+        specifier: 2.0.2
+        version: 2.0.2(@opentelemetry/api-logs@0.214.0)(@opentelemetry/resources@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-logs@0.214.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-metrics@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.43.0)(redis@6.2.1(@opentelemetry/api@1.9.0))(supports-color@10.2.2)
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -8056,7 +8060,7 @@ snapshots:
       effect: https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
       typescript: 5.8.2
 
-  '@opencode/core@2.0.2(07fdbc4b2e0af35f93d0903b4f3ecc3a)':
+  '@opencode/core@2.0.2(patch_hash=7830ea143d3375bd35705a25ef15aa49796ef12ccfb48830d3e5cd4a54cf55ff)(07fdbc4b2e0af35f93d0903b4f3ecc3a)':
     dependencies:
       '@ai-sdk/alibaba': 1.0.17(zod@4.1.8)
       '@ai-sdk/anthropic': 3.0.82(zod@4.1.8)
@@ -8178,7 +8182,7 @@ snapshots:
       - valibot
       - ws
 
-  '@opencode/core@2.0.2(a0b7836830d3042e83db9d090202115c)':
+  '@opencode/core@2.0.2(patch_hash=7830ea143d3375bd35705a25ef15aa49796ef12ccfb48830d3e5cd4a54cf55ff)(a0b7836830d3042e83db9d090202115c)':
     dependencies:
       '@ai-sdk/alibaba': 1.0.17(zod@4.1.8)
       '@ai-sdk/anthropic': 3.0.82(zod@4.1.8)
@@ -8359,7 +8363,7 @@ snapshots:
   '@opencode/sdk@2.0.2(ecffa56e0d1273591d8589713dc9f418)':
     dependencies:
       '@opencode/client': 2.0.2(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)
-      '@opencode/core': 2.0.2(07fdbc4b2e0af35f93d0903b4f3ecc3a)
+      '@opencode/core': 2.0.2(patch_hash=7830ea143d3375bd35705a25ef15aa49796ef12ccfb48830d3e5cd4a54cf55ff)(07fdbc4b2e0af35f93d0903b4f3ecc3a)
       '@opencode/plugin': 2.0.2(@opentelemetry/api-logs@0.214.0)(@opentelemetry/resources@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-logs@0.214.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-metrics@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.43.0)(@opentui/core@0.5.10(typescript@7.0.2)(web-tree-sitter@0.25.10))(redis@6.2.1(@opentelemetry/api@1.9.0))(supports-color@10.2.2)
       '@opencode/schema': 2.0.2
       '@opencode/server': 2.0.2(ecffa56e0d1273591d8589713dc9f418)
@@ -8444,7 +8448,7 @@ snapshots:
     dependencies:
       '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)
-      '@opencode/core': 2.0.2(07fdbc4b2e0af35f93d0903b4f3ecc3a)
+      '@opencode/core': 2.0.2(patch_hash=7830ea143d3375bd35705a25ef15aa49796ef12ccfb48830d3e5cd4a54cf55ff)(07fdbc4b2e0af35f93d0903b4f3ecc3a)
       '@opencode/protocol': 2.0.2
       '@opencode/schema': 2.0.2
       '@opencode/simulation': 2.0.2(patch_hash=e9d1744c7d6c3386025a12e80b8c2af7ca7f6f26bd4e28f63355d1bd4dacfdf9)(8005e1233a75dda6ba734998929e6b8f)
@@ -8529,7 +8533,7 @@ snapshots:
   '@opencode/simulation@2.0.2(patch_hash=e9d1744c7d6c3386025a12e80b8c2af7ca7f6f26bd4e28f63355d1bd4dacfdf9)(8005e1233a75dda6ba734998929e6b8f)':
     dependencies:
       '@opencode/ai': 2.0.2(patch_hash=c49184e67f40279c93f1f50d69dd368aacb4f0b6ff6401d74a18c37262b500fa)(supports-color@10.2.2)
-      '@opencode/core': 2.0.2(a0b7836830d3042e83db9d090202115c)
+      '@opencode/core': 2.0.2(patch_hash=7830ea143d3375bd35705a25ef15aa49796ef12ccfb48830d3e5cd4a54cf55ff)(a0b7836830d3042e83db9d090202115c)
       '@opencode/plugin': 2.0.2(@opentelemetry/api-logs@0.214.0)(@opentelemetry/resources@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-logs@0.214.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-metrics@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.43.0)(@opentui/core@0.5.10(typescript@7.0.2)(web-tree-sitter@0.25.10))(redis@6.2.1(@opentelemetry/api@1.9.0))(supports-color@10.2.2)
       '@opencode/protocol': 2.0.2
       '@opencode/util': 2.0.2(@opentelemetry/api-logs@0.214.0)(@opentelemetry/resources@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-logs@0.214.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-metrics@2.6.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.43.0)(redis@6.2.1(@opentelemetry/api@1.9.0))(supports-color@10.2.2)

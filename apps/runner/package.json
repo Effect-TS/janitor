@@ -25,6 +25,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260702.1",
     "@effect/platform-node": "catalog:",
+    "@opencode/util": "2.0.2",
     "@types/node": "24.13.3",
     "typescript": "catalog:",
     "vite-plus": "catalog:",
