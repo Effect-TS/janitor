@@ -21,15 +21,20 @@ export const chunks = (text: string): ReadonlyArray<string> => {
   if (chunk !== "") result.push(chunk)
   return result
 }
-/** Caller owns the thread transaction/lock. Never change an output that might have been sent. */
+/**
+ * Caller owns the thread transaction/lock. Never change an output that might
+ * have been sent. `actions` attaches Retry/Skip buttons for an interrupted
+ * attempt; such an output is never chunked or replaced.
+ */
 export const enqueueOutput = (
   sql: SqlClient.SqlClient,
   sessionId: string,
   kind: OutputKind,
   text: string,
+  actions?: unknown,
 ) =>
   Effect.gen(function* () {
-    const parts = chunks(text)
+    const parts = actions === undefined ? chunks(text) : [text.slice(0, 3000)]
     if (kind === "progress" && parts.length === 1) {
       const replaced =
         yield* sql`UPDATE slack_output SET text=${text} WHERE kind='progress' AND state='pending' AND output_id=(
@@ -41,6 +46,6 @@ export const enqueueOutput = (
       const [row] = yield* sql<{
         sequence: string
       }>`UPDATE slack_thread SET next_output=next_output+1 WHERE session_id=${sessionId} RETURNING (next_output-1)::text AS sequence`
-      yield* sql`INSERT INTO slack_output (session_id,sequence,kind,text) VALUES (${sessionId},${row!.sequence}::bigint,${kind},${chunk})`
+      yield* sql`INSERT INTO slack_output (session_id,sequence,kind,text,actions) VALUES (${sessionId},${row!.sequence}::bigint,${kind},${chunk},${actions === undefined ? null : JSON.stringify(actions)}::jsonb)`
     }
   })

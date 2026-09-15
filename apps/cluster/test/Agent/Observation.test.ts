@@ -39,19 +39,19 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       }
       runner.push(
         "o-idle-old",
-        { type: "session.execution.started", data: {} },
-        { type: "session.execution.succeeded", data: {} },
+        { type: "turn.started", data: { inputId: "msg_old", attempt: 1 } },
+        { type: "turn.completed", data: { inputId: "msg_old", attempt: 1, text: "done" } },
       )
       runner.push(
         "o-idle-new",
-        { type: "session.execution.started", data: {} },
-        { type: "session.execution.succeeded", data: {} },
+        { type: "turn.started", data: { inputId: "msg_new", attempt: 1 } },
+        { type: "turn.completed", data: { inputId: "msg_new", attempt: 1, text: "done" } },
       )
-      runner.push("o-working", { type: "session.execution.started", data: {} })
+      runner.push("o-working", { type: "turn.started", data: { inputId: "msg_w", attempt: 1 } })
       runner.push(
         "o-failed",
-        { type: "session.execution.started", data: {} },
-        { type: "session.execution.failed", data: { error: { message: "boom" } } },
+        { type: "turn.started", data: { inputId: "msg_f", attempt: 1 } },
+        { type: "turn.interrupted", data: { inputId: "msg_f", attempt: 1, reason: "boom" } },
       )
       for (const id of ["o-idle-old", "o-idle-new", "o-working", "o-failed"])
         yield* projection.catchUp(id)
@@ -88,7 +88,7 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       assert.isNull(second.cursor)
       const failed = second.sessions[0]!
       assert.strictEqual(failed.execution, "failed")
-      assert.strictEqual(failed.reason, "boom")
+      assert.strictEqual(failed.reason, "Waiting for Retry or Skip: interrupted (boom)")
       const refreshed = yield* observation.list({ cursor: null, limit: 10 })
       assert.deepStrictEqual(
         refreshed.sessions.map((session) => session.sessionId),
@@ -171,19 +171,19 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       assert.strictEqual(detail.execution, "idle")
       assert.strictEqual(detail.freshness.error, "runner unreachable")
 
-      // A maintenance hold is blocked with its reason; the next successful read releases it.
+      // A runner refusal is blocked with its reason; the next successful read releases it.
       runner.failures.push({
         method: "readEvents",
         error: new RunnerClientError({
           code: "blocked",
           message: "held",
-          reason: "maintenance hold epoch 3",
+          reason: "model configuration missing",
         }),
       })
       yield* projection.catchUp("o-delivery")
       detail = yield* observation.detail("o-delivery")
       assert.strictEqual(detail.execution, "blocked")
-      assert.strictEqual(detail.reason, "maintenance hold epoch 3")
+      assert.strictEqual(detail.reason, "model configuration missing")
       yield* projection.catchUp("o-delivery")
       detail = yield* observation.detail("o-delivery")
       assert.strictEqual(detail.execution, "idle")
@@ -199,15 +199,22 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       runner.sessions.set("o-history", { generation: 1, nativeSessionId: "ses_h" })
       runner.push(
         "o-history",
-        { type: "session.execution.started", data: {} },
-        { type: "session.execution.failed", data: { error: { message: "provider down" } } },
+        { type: "turn.started", data: { inputId: "msg_h1", attempt: 1 } },
+        {
+          type: "turn.interrupted",
+          data: { inputId: "msg_h1", attempt: 1, reason: "provider down" },
+        },
       )
       yield* projection.catchUp("o-history")
       let detail = yield* observation.detail("o-history")
       assert.strictEqual(detail.execution, "failed")
-      assert.strictEqual(detail.latestError, "provider down")
+      assert.strictEqual(
+        detail.latestError,
+        "Waiting for Retry or Skip: interrupted (provider down)",
+      )
       const before = detail.activityAt
 
+      // An interruption waits for a teammate's decision: a later input queues behind it.
       const accepted = yield* sessions.accept({
         sessionId: "o-history",
         contributionKey: "retry-1",
@@ -223,9 +230,13 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
 
       runner.push(
         "o-history",
-        { type: "session.inbox.enqueued", data: { inboxID: accepted.runner_message_id } },
-        { type: "session.execution.started", data: {} },
-        { type: "session.execution.succeeded", data: {} },
+        { type: "turn.accepted", data: { inputId: accepted.runner_message_id } },
+        { type: "turn.skipped", data: { inputId: "msg_h1", attempt: 1 } },
+        { type: "turn.started", data: { inputId: accepted.runner_message_id, attempt: 1 } },
+        {
+          type: "turn.completed",
+          data: { inputId: accepted.runner_message_id, attempt: 1, text: "ok" },
+        },
       )
       yield* projection.catchUp("o-history")
       detail = yield* observation.detail("o-history")

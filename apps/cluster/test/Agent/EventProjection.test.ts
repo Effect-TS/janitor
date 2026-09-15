@@ -32,14 +32,11 @@ layer(agentLayers(fakeRunnerLayer(runner)), { timeout: "3 minutes" })(
           runner.sessions.set("proj", { generation: 1, nativeSessionId: "ses_proj" })
           runner.push(
             "proj",
-            { type: "session.inbox.enqueued", data: { inboxID: "msg_1" } },
-            { type: "session.execution.started", data: {} },
-            {
-              type: "session.text.ended",
-              data: { assistantMessageID: "msg_a", ordinal: 0, text: "hello" },
-            },
-            { type: "session.step.ended", data: {} },
-            { type: "session.execution.succeeded", data: {} },
+            { type: "turn.accepted", data: { inputId: "msg_1" } },
+            { type: "turn.started", data: { inputId: "msg_1", attempt: 1 } },
+            { type: "turn.stage", data: { inputId: "msg_1", attempt: 1, stage: "working" } },
+            { type: "turn.stage", data: { inputId: "msg_1", attempt: 1, stage: "saving" } },
+            { type: "turn.completed", data: { inputId: "msg_1", attempt: 1, text: "hello" } },
           )
           runner.usage.set("proj", usage(11, 5))
 
@@ -52,7 +49,7 @@ layer(agentLayers(fakeRunnerLayer(runner)), { timeout: "3 minutes" })(
           let view = yield* sessions.view("proj")
           assert.deepStrictEqual(
             view.responses.map((response) => [response.seq, response.text]),
-            [[3, "hello"]],
+            [[5, "hello"]],
           )
           assert.strictEqual(view.projection?.usage_input, 11)
           assert.strictEqual(view.projection?.usage_seq, 5)
@@ -93,11 +90,8 @@ layer(agentLayers(fakeRunnerLayer(runner)), { timeout: "3 minutes" })(
         runner.sessions.set("interrupted", { generation: 1, nativeSessionId: "ses_i" })
         runner.push(
           "interrupted",
-          { type: "session.execution.started", data: {} },
-          {
-            type: "session.text.ended",
-            data: { assistantMessageID: "msg_b", ordinal: 0, text: "partial" },
-          },
+          { type: "turn.completed", data: { inputId: "msg_b", attempt: 1, text: "partial" } },
+          { type: "turn.accepted", data: { inputId: "msg_c" } },
         )
         const page = yield* runner.client.readEvents("interrupted", 0)
         const failed = yield* sql
@@ -146,14 +140,14 @@ layer(agentLayers(fakeRunnerLayer(runner)), { timeout: "3 minutes" })(
           error: new RunnerClientError({
             code: "blocked",
             message: "held",
-            reason: "maintenance hold epoch 2",
+            reason: "session state predates the sandbox runner",
           }),
         })
         const summary = yield* projection.catchUp("blocked")
         assert.strictEqual(summary.error, "held")
         const view = yield* sessions.view("blocked")
         assert.strictEqual(view.projection?.execution, "blocked")
-        assert.strictEqual(view.projection?.reason, "maintenance hold epoch 2")
+        assert.strictEqual(view.projection?.reason, "session state predates the sandbox runner")
       }),
     )
 
@@ -164,7 +158,7 @@ layer(agentLayers(fakeRunnerLayer(runner)), { timeout: "3 minutes" })(
         const sql = yield* SqlClient.SqlClient
         yield* sessions.start({ sessionId: "due", title: "Due" })
         runner.sessions.set("due", { generation: 1, nativeSessionId: "ses_due" })
-        runner.push("due", { type: "session.execution.started", data: {} })
+        runner.push("due", { type: "turn.started", data: { inputId: "msg_d", attempt: 1 } })
         yield* sql`UPDATE agent_catchup SET due_at = CLOCK_TIMESTAMP() - INTERVAL '1 second'`
         const processed = yield* projection.processDue(10)
         assert.isTrue(

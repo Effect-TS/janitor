@@ -23,13 +23,11 @@ describe("deployment configuration", () => {
           JANITOR_AGENT_RUNNER_URL: "https://obsolete-runner.example",
           JANITOR_AGENT_RUNNER_TOKEN: "runner-token",
           REPOSITORY_SERVICE_TOKEN: "repository-token",
-          JANITOR_MAINTENANCE_TOKEN: "maintenance-token",
         }
         const connection = yield* agentRunnerConnection.pipe(Effect.provide(config(values)))
         assert.strictEqual(connection.url, "https://runner.janitor.effectful.co")
         assert.strictEqual(Redacted.value(connection.token), "runner-token")
         assert.strictEqual(Redacted.value(connection.repositoryToken), "repository-token")
-        assert.strictEqual(Redacted.value(connection.maintenanceToken), "maintenance-token")
         for (const key of ["JANITOR_AGENT_RUNNER_TOKEN", "REPOSITORY_SERVICE_TOKEN"]) {
           const missing: Record<string, string> = { ...values }
           delete missing[key]
@@ -50,13 +48,13 @@ describe("deployment configuration", () => {
         }
       }),
   )
-  it.effect("keeps local development optional and permits a local runner connection", () =>
+  it.effect("connects the stack-owned local runner by default and permits an override", () =>
     Effect.gen(function* () {
       const empty = yield* agentRunnerConnection.pipe(
         Effect.provide(config({ ALCHEMY_DEV: "true" })),
       )
-      assert.strictEqual(empty.url, "")
-      assert.strictEqual(Redacted.value(empty.token), "")
+      assert.strictEqual(empty.url, "http://localhost:8790")
+      assert.strictEqual(Redacted.value(empty.token), "janitor-local-runner")
       const local = yield* agentRunnerConnection.pipe(
         Effect.provide(
           config({

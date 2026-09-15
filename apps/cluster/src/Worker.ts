@@ -1,3 +1,5 @@
+import { runnerTransport } from "./Agent/RunnerBinding.ts"
+import * as ConfigProvider from "effect/ConfigProvider"
 import { SlackRecovery } from "./Slack/Recovery.ts"
 import { GitHubRecovery } from "./GitHub/Recovery.ts"
 import { GitHubRecoveryApi } from "./GitHub/RecoveryHttp.ts"
@@ -97,7 +99,6 @@ import { Teammates, TeammatesConfig } from "./Teammates.ts"
 import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
 import { AgentCatchUpCronLayer, AgentCatchUpCronName } from "./Agent/CatchUpCron.ts"
 import { AgentCleanup } from "./Agent/Cleanup.ts"
-import { AgentMaintenance } from "./Agent/Maintenance.ts"
 import { AgentCatchUpWake, AgentEventProjection } from "./Agent/EventProjection.ts"
 import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
 import { RunnerClient } from "./Agent/RunnerClient.ts"
@@ -108,6 +109,7 @@ import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
 import { SlackConversation, SlackWake } from "./Slack/Conversation.ts"
 import { SlackWebhook } from "./Slack/Webhook.ts"
+import { SlackInteractivity } from "./Slack/Interactivity.ts"
 import { SlackTransport } from "./Slack/Transport.ts"
 import { SlackProcessor } from "./Slack/Processor.ts"
 import { SlackDelivery } from "./Slack/Delivery.ts"
@@ -130,9 +132,6 @@ const ZONE = "effectful.co"
  */
 const LOCAL_DEV_AUDIENCE = "local-dev"
 const LOCAL_DEV_EMAIL = "dev@janitor.local"
-const LOCAL_DEV_PORT = 8787
-/** Where the browser lives locally: the web app's own Vite dev server. */
-const LOCAL_WEB_ORIGIN = "http://localhost:1337"
 
 export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
   "ClusterWorker",
@@ -143,6 +142,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // that service exists only in the CLI process, so reading it here fails
     // at runtime with "Service not found: alchemy/Context".
     const dev = yield* ALCHEMY_DEV
+    const localPort = yield* Config.Int("JANITOR_LOCAL_API_PORT").pipe(Config.withDefault(8787))
+    const webPort = yield* Config.Int("JANITOR_LOCAL_WEB_PORT").pipe(Config.withDefault(1337))
     const target = yield* deployment
     const access = yield* Access.declare({ dev, domain: target.domain, stage: target.stage })
 
@@ -170,10 +171,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ACCESS_AUD: access?.aud ?? "",
         LOCAL_DEV_AUDIENCE: localDev?.audience ?? "",
         // Platform callbacks return to the browser at this origin.
-        PUBLIC_ORIGIN: dev ? LOCAL_WEB_ORIGIN : `https://${target.domain}`,
+        PUBLIC_ORIGIN: dev ? `http://localhost:${webPort}` : `https://${target.domain}`,
       },
       dev: {
-        port: LOCAL_DEV_PORT,
+        port: localPort,
         // Fail rather than drift to another port: the web app's dev proxy
         // and the README both name this one.
         strictPort: true,
@@ -200,7 +201,19 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
 
     // Every secret is read here, during init, so Alchemy binds it at deploy
     // time. The cluster layer is built lazily and cannot register bindings.
-    const secrets = yield* Config.unwrap(ingressSecrets)
+    const dev = yield* ALCHEMY_DEV
+    const localCredentials = dev
+      ? ConfigProvider.layer(
+          ConfigProvider.fromUnknown({
+            JANITOR_GITHUB_WEBHOOK_SECRET: "janitor-local-webhook",
+            JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "local-v1",
+            JANITOR_GITHUB_APP_ID: "local-disabled",
+            JANITOR_GITHUB_APP_PRIVATE_KEY: "local-disabled",
+          }),
+        )
+      : Layer.empty
+    const secrets = yield* Config.unwrap(ingressSecrets).pipe(Effect.provide(localCredentials))
     // The classifier provider is optional: without a key every classifier
     // policy evaluates unknown, which preserves labels.
     const ai = yield* Config.unwrap(providerConfig)
@@ -230,7 +243,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         appId: "JANITOR_GITHUB_APP_ID",
         privateKey: "JANITOR_GITHUB_APP_PRIVATE_KEY",
       }),
-    )
+    ).pipe(Effect.provide(localCredentials))
     const GitHubPayloadCipherLayer = PayloadCipher.layerFrom(secrets.cipher)
     // Account linking is optional per platform; the account page says which
     // platforms this deployment can connect.
@@ -262,8 +275,26 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Redacted.value(slackToken) !== "" &&
       Redacted.value(slackSecret) !== ""
 
+    const GitHubAuthLayer = dev
+      ? Layer.succeed(GitHubAppAuth.GitHubAppAuth, {
+          appJwt: Effect.fail(
+            new GitHubAppAuth.GitHubAppAuthError({
+              operation: "signJwt",
+              message: "Live GitHub access is disabled in local development",
+            }),
+          ),
+          installationToken: () =>
+            Effect.fail(
+              new GitHubAppAuth.GitHubAppAuthError({
+                operation: "installationToken",
+                message: "Live GitHub access is disabled in local development",
+              }),
+            ),
+          invalidateInstallationToken: () => Effect.void,
+        })
+      : GitHubAppAuth.layerFrom(appCredentials)
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
-      Layer.provideMerge(GitHubAppAuth.layerFrom(appCredentials)),
+      Layer.provideMerge(GitHubAuthLayer),
       Layer.provideMerge(GitHubBudget.layer),
       Layer.provide(FetchHttpClient.layer),
     )
@@ -289,7 +320,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             }))
           : Option.some({ issuer: LOCAL_DEV_ISSUER, subject: LOCAL_DEV_EMAIL }),
     })
-    if (localDevAudience === undefined && Option.isNone(linking.initialAdminSubject)) {
+    if (!dev && Option.isNone(linking.initialAdminSubject)) {
       yield* Effect.logError(
         "JANITOR_INITIAL_ADMIN_SUBJECT is not set: every teammate is admitted as a member and nobody can manage the team",
       )
@@ -301,7 +332,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Config.withDefault(""),
     )
     const SlackLayers = slackConfigured
-      ? Layer.mergeAll(SlackCronLayer, SlackDeliveryCronLayer, SlackWebhook.layer).pipe(
+      ? Layer.mergeAll(
+          SlackCronLayer,
+          SlackDeliveryCronLayer,
+          SlackWebhook.layer,
+          SlackInteractivity.layer,
+        ).pipe(
           Layer.provide(Layer.mergeAll(SlackRecovery.layer, GitHubRecovery.layer)),
           Layer.provide(GitHubRecoveryApi.layer.pipe(Layer.provide(FetchHttpClient.layer))),
           Layer.provideMerge(
@@ -333,19 +369,15 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           ),
         )
       : Layer.empty
+    const RunnerTransport = yield* runnerTransport
     const AgentLayers = runnerConfigured
       ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer, SlackLayers).pipe(
           Layer.provideMerge(
-            Layer.mergeAll(
-              AgentSessions.layer,
-              AgentEventProjection.layer,
-              AgentCleanup.layer,
-              AgentMaintenance.layer,
-            ),
+            Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer, AgentCleanup.layer),
           ),
           Layer.provideMerge(
             RunnerClient.layer({ baseUrl: runnerUrl, token: runnerToken }).pipe(
-              Layer.provide(FetchHttpClient.layer),
+              Layer.provide(RunnerTransport),
             ),
           ),
         )

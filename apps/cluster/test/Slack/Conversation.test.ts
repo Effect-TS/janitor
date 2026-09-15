@@ -432,17 +432,17 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
         yield* processor.process(home.session_id)
         assert.strictEqual((yield* (yield* AgentSessions).view(home.session_id)).inputs.length, 2)
         runner.push(home.session_id, {
-          type: "session.tool.success",
+          type: "turn.published",
           data: {
-            metadata: {
-              publication: {
-                operationId: "a".repeat(64),
-                repositoryId: "12345",
-                number: 7,
-                url: "https://github.com/team/repo/pull/7",
-                title: "Blog examples",
-                body: "Improved both examples and checked the links.",
-              },
+            inputId: "msg_blog",
+            attempt: 1,
+            publication: {
+              operationId: "a".repeat(64),
+              repositoryId: "12345",
+              number: 7,
+              url: "https://github.com/team/repo/pull/7",
+              title: "Blog examples",
+              body: "Improved both examples and checked the links.",
             },
           },
         })

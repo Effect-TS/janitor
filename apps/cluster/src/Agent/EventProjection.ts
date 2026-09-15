@@ -7,7 +7,6 @@
 // seconds; idle sessions fall back to the five-minute recovery cadence so a
 // final event can never be stranded on a missed notification.
 import * as Context from "effect/Context"
-import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -17,6 +16,7 @@ import { describeError } from "../SqlErrors.ts"
 import { EVENT_PAGE_LIMIT, RunnerClient, type RunnerClientError } from "./RunnerClient.ts"
 import {
   AgentSessionId,
+  TurnEventData,
   type EventsRead,
   type ExecutionState,
   type RunnerEvent,
@@ -53,20 +53,14 @@ export interface PageApplication {
   readonly reason: string | null
 }
 
-const EventFields = Schema.Struct({
-  text: Schema.optionalKey(Schema.String),
-  assistantMessageID: Schema.optionalKey(Schema.String),
-  ordinal: Schema.optionalKey(Schema.Int),
-  reason: Schema.optionalKey(Schema.String),
-  at: Schema.optionalKey(Schema.Number),
-  error: Schema.optionalKey(
-    Schema.Struct({
-      message: Schema.optionalKey(Schema.String),
-      name: Schema.optionalKey(Schema.String),
-    }),
-  ),
-})
-const decodeEventFields = Schema.decodeUnknownOption(EventFields)
+const decodeEventFields = Schema.decodeUnknownOption(TurnEventData)
+
+/** The stage names the dashboard shows while a turn is in progress. */
+const STAGE_REASON = {
+  preparing: "preparing workspace",
+  working: "working",
+  saving: "saving",
+} as const
 
 const CurrentRow = Schema.Struct({
   cursor: Schema.Int,
@@ -138,55 +132,57 @@ export class AgentEventProjection extends Context.Service<
           const data = decodeEventFields(event.data)
           const fields = data._tag === "Some" ? data.value : {}
           switch (event.type) {
-            case "session.execution.started":
-              execution = "working"
-              reason = null
-              activity = event.created
-              break
-            case "session.execution.succeeded":
-              execution = "idle"
-              reason = null
-              activity = event.created
-              break
-            case "session.execution.interrupted":
-              // Shutdown interruption is recovered natively; explicit stops leave the session idle.
-              execution = fields.reason === "shutdown" ? "working" : "idle"
-              reason = fields.reason === "shutdown" ? "recovering after interruption" : null
-              activity = event.created
-              break
-            case "session.execution.failed":
-              execution = "failed"
-              reason = fields.error?.message ?? "execution failed"
-              activity = event.created
-              break
-            case "session.inbox.enqueued":
-              // New accepted work supersedes a historical failure.
-              if (execution === "idle" || execution === "failed") {
+            case "turn.accepted":
+              // New accepted work supersedes a historical failure, but never an interruption
+              // still waiting for a teammate's decision.
+              if (
+                execution === "idle" ||
+                (execution === "failed" && !reason?.startsWith("Waiting"))
+              ) {
                 execution = "working"
                 reason = "input pending"
               }
               activity = event.created
               break
-            case "session.retry.scheduled":
+            case "turn.started":
+            case "turn.retried":
               execution = "working"
-              reason =
-                fields.at === undefined
-                  ? "provider retry scheduled"
-                  : `provider retry at ${DateTime.formatIso(DateTime.makeUnsafe(fields.at))}`
-              break
-            case "session.step.ended":
-            case "session.tool.success":
-            case "session.tool.failed":
+              reason = STAGE_REASON.preparing
               activity = event.created
               break
-            case "session.text.ended":
-              if (fields.text !== undefined && fields.assistantMessageID !== undefined)
+            case "turn.stage":
+              execution = "working"
+              reason = fields.stage === undefined ? "working" : STAGE_REASON[fields.stage]
+              activity = event.created
+              break
+            case "turn.published":
+              activity = event.created
+              break
+            case "turn.completed":
+              execution = "idle"
+              reason = null
+              activity = event.created
+              if (fields.text !== undefined && fields.text !== "")
                 yield* sql`
                   INSERT INTO agent_response (session_id, seq, assistant_message_id, ordinal, text, created_at)
-                  VALUES (${sessionId}, ${event.seq}::bigint, ${fields.assistantMessageID}, ${fields.ordinal ?? 0}::int, ${fields.text},
+                  VALUES (${sessionId}, ${event.seq}::bigint, ${`${fields.inputId ?? "turn"}:${fields.attempt ?? 0}`}, 0, ${fields.text},
                     to_timestamp(${event.created}::double precision / 1000))
                   ON CONFLICT (session_id, seq) DO NOTHING
                 `.pipe(wrap("applyPage"))
+              break
+            case "turn.interrupted":
+              execution = "failed"
+              reason = `Waiting for Retry or Skip: interrupted (${fields.reason ?? "unknown reason"})`
+              activity = event.created
+              break
+            case "turn.save_failed":
+              execution = "failed"
+              reason = `Waiting for Retry or Skip: work finished but could not be saved (${fields.reason ?? "unknown reason"})`
+              activity = event.created
+              break
+            case "turn.skipped":
+              execution = "idle"
+              reason = "skipped by a teammate"
               activity = event.created
               break
             default:

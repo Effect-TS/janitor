@@ -25,6 +25,7 @@ catalog:
   "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
+  "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
   "@effect/sql-pg": 4.0.0-rc.112
   "@effect/tsgo": ^0.38.0
   "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
@@ -52,6 +53,7 @@ catalog:
   yaml: 2.9.0
 
 overrides:
+  "@effect/opentelemetry": "catalog:"
   vitest: "catalog:"
   "effect": "catalog:"
   "@effect/vitest": "catalog:"
@@ -70,6 +72,9 @@ peerDependencyRules:
     vite: "*"
 
 allowBuilds:
+  "@parcel/watcher": false
+  tree-sitter-bash: false
+  tree-sitter-powershell: false
   cpu-features: false
   esbuild: false
   msgpackr-extract: false
@@ -97,6 +102,8 @@ minimumReleaseAgeExclude:
   - foldkit@0.157.0
 
 patchedDependencies:
+  "@opencode/ai@2.0.2": patches/@opencode__ai@2.0.2.patch
+  "@opencode/simulation@2.0.2": patches/@opencode__simulation@2.0.2.patch
   "@alchemy.run/cloudflare-runtime@2.0.0-beta.76": patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.76.patch
   "@distilled.cloud/aws@1.0.0-rc.8": patches/@distilled.cloud__aws@1.0.0-rc.8.patch
   "@distilled.cloud/axiom@1.0.0-rc.8": patches/@distilled.cloud__axiom@1.0.0-rc.8.patch

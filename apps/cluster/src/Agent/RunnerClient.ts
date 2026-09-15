@@ -18,16 +18,15 @@ import {
   CreateSessionResult,
   EventsRead,
   Inspection,
-  MaintenanceResult,
   RUNNER_PROTOCOL_HEADER,
   RUNNER_PROTOCOL_VERSION,
   RunnerErrorBody,
-  RunnerHealth,
+  TurnActionResult,
   type AdmitInputRequest,
   type AgentSessionId,
   type CreateSessionRequest,
-  type MaintenanceRequest,
   type RunnerErrorCode,
+  type TurnActionRequest,
 } from "./RunnerProtocol.ts"
 
 export class RunnerClientError extends Data.TaggedError("RunnerClientError")<{
@@ -67,12 +66,11 @@ export class RunnerClient extends Context.Service<
       after: number,
       limit?: number,
     ) => Effect.Effect<EventsRead, RunnerClientError>
-    readonly maintenance: (
+    /** A teammate's Retry or Skip of one interrupted attempt; deduplicated by its action id. */
+    readonly act: (
       sessionId: AgentSessionId,
-      request: MaintenanceRequest,
-    ) => Effect.Effect<MaintenanceResult, RunnerClientError>
-    /** The deployed runner's release identity and pinned manifest. */
-    readonly health: Effect.Effect<RunnerHealth, RunnerClientError>
+      request: TurnActionRequest,
+    ) => Effect.Effect<TurnActionResult, RunnerClientError>
     readonly cleanup: (
       sessionId: AgentSessionId,
       generation: number,
@@ -169,9 +167,8 @@ export class RunnerClient extends Context.Service<
               undefined,
               EventsRead,
             ),
-          maintenance: (sessionId, request) =>
-            send("POST", `${sessionPath(sessionId)}/maintenance`, request, MaintenanceResult),
-          health: send("GET", "/v1/health", undefined, RunnerHealth),
+          act: (sessionId, request) =>
+            send("POST", `${sessionPath(sessionId)}/actions`, request, TurnActionResult),
           cleanup: (sessionId, generation) =>
             send("DELETE", sessionPath(sessionId), { generation }, CleanupResult),
         }

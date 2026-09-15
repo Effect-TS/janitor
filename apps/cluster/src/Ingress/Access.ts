@@ -58,7 +58,8 @@ export const slackWebhookBypass = (domain: string, stage: string) =>
   Cloudflare.Access.Application("SlackWebhookBypass", {
     type: "self_hosted",
     name: `Janitor ${stage} Slack webhooks`,
-    domain: `${domain}/api/v1/webhooks/slack`,
+    // Covers the events endpoint and the interactivity endpoint beneath it.
+    domain: `${domain}/api/v1/webhooks/slack*`,
     appLauncherVisible: false,
     policies: [{ name: "Signed Slack deliveries", decision: "bypass", include: ["everyone"] }],
   })

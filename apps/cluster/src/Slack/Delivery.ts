@@ -4,9 +4,12 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { RunnerClient } from "../Agent/RunnerClient.ts"
+import { TurnEventData } from "../Agent/RunnerProtocol.ts"
 import { SlackConfig } from "./Config.ts"
 import { SlackError, slackError, type Thread } from "./Conversation.ts"
 import { enqueueAgentOutput } from "../Agent/Output.ts"
+import { interruptionBlocks, type InterruptionActions } from "./Interruption.ts"
+import { enqueueOutput as enqueueSlackOutput } from "./Outbox.ts"
 import { SlackTransport } from "./Transport.ts"
 
 export interface Output {
@@ -19,30 +22,13 @@ export interface Output {
   readonly message_ts: string | null
   readonly error: string | null
   readonly reconcile_cursor: string
+  readonly actions: InterruptionActions | null
 }
-const Fields = Schema.Struct({
-  inboxID: Schema.optionalKey(Schema.String),
-  text: Schema.optionalKey(Schema.String),
-  error: Schema.optionalKey(Schema.Struct({ message: Schema.optionalKey(Schema.String) })),
-  metadata: Schema.optionalKey(
-    Schema.Struct({
-      publication: Schema.optionalKey(
-        Schema.Struct({
-          operationId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
-          repositoryId: Schema.String,
-          number: Schema.Int.check(Schema.isGreaterThan(0)),
-          url: Schema.String.check(
-            Schema.isPattern(
-              /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[0-9]+$/,
-            ),
-          ),
-          title: Schema.String,
-          body: Schema.String,
-        }),
-      ),
-    }),
-  ),
-})
+const STAGE_PROGRESS = {
+  preparing: "Preparing the workspace.",
+  working: "Working on your request.",
+  saving: "Saving the workspace.",
+} as const
 
 export class SlackDelivery extends Context.Service<
   SlackDelivery,
@@ -84,35 +70,57 @@ export class SlackDelivery extends Context.Service<
                 text: string,
                 overall = false,
               ) => enqueueAgentOutput(sql, sessionId, contribution, kind, text, overall)
+              const [session] = yield* sql<{
+                generation: number
+              }>`SELECT generation::int AS generation FROM agent_session WHERE session_id=${sessionId}`
               for (const event of page.events) {
                 if (event.seq <= cursor) continue
-                const decoded = Schema.decodeUnknownOption(Fields)(event.data)
+                const decoded = Schema.decodeUnknownOption(TurnEventData)(event.data)
                 const fields = decoded._tag === "Some" ? decoded.value : {}
                 switch (event.type) {
-                  case "session.tool.failed":
-                    if (fields.error?.message) yield* enqueueOutput("error", fields.error.message)
-                    break
-                  case "session.text.ended":
-                    if (fields.text) yield* enqueueOutput("response", fields.text)
-                    break
-                  case "session.execution.failed":
-                    yield* enqueueOutput(
-                      "error",
-                      fields.error?.message ?? "The agent could not finish this turn.",
-                    )
-                    yield* enqueueOutput("progress", "Work failed. See the error in this thread.")
-                    break
-                  case "session.inbox.delivered": {
+                  case "turn.started":
+                  case "turn.retried": {
                     const [input] = yield* sql<{
                       contribution_key: string
-                    }>`SELECT contribution_key FROM agent_input WHERE session_id=${sessionId} AND runner_message_id=${fields.inboxID ?? ""}`
+                    }>`SELECT contribution_key FROM agent_input WHERE session_id=${sessionId} AND runner_message_id=${fields.inputId ?? ""}`
                     if (input) contribution = input.contribution_key
-                    yield* enqueueOutput("progress", "Working on your request.")
+                    yield* enqueueOutput("progress", STAGE_PROGRESS.preparing)
                     break
                   }
-                  case "session.tool.success":
-                    if (fields.metadata?.publication) {
-                      const pr = fields.metadata.publication
+                  case "turn.stage":
+                    yield* enqueueOutput(
+                      "progress",
+                      fields.stage === undefined
+                        ? STAGE_PROGRESS.working
+                        : STAGE_PROGRESS[fields.stage],
+                    )
+                    break
+                  case "turn.completed":
+                    if (fields.text) yield* enqueueOutput("response", fields.text)
+                    yield* enqueueOutput("progress", "Finished this turn. Reply here to continue.")
+                    break
+                  case "turn.interrupted":
+                  case "turn.save_failed": {
+                    if (fields.inputId === undefined || fields.attempt === undefined) break
+                    const text =
+                      event.type === "turn.interrupted"
+                        ? `This request was interrupted: ${fields.reason ?? "unknown reason"}. The workspace will be restored to the last saved state. Retry the request or skip it to continue with later messages.`
+                        : `The agent finished this request but its workspace could not be saved: ${fields.reason ?? "unknown reason"}. Retry saving or skip the request.`
+                    yield* enqueueSlackOutput(sql, sessionId, "question", text, {
+                      sessionId,
+                      generation: session?.generation ?? 1,
+                      inputId: fields.inputId,
+                      attempt: fields.attempt,
+                    })
+                    yield* enqueueOutput("progress", "Waiting for a teammate to retry or skip.")
+                    break
+                  }
+                  case "turn.skipped":
+                    yield* enqueueOutput("progress", "Skipped. Continuing with later messages.")
+                    break
+                  case "turn.published":
+                    if (fields.publication) {
+                      const pr = fields.publication
                       if (
                         pr.repositoryId === current.repository_id &&
                         (publishedPr === null || publishedPr === String(pr.number))
@@ -138,13 +146,6 @@ export class SlackDelivery extends Context.Service<
                         )
                       }
                     }
-                    yield* enqueueOutput("progress", "Completed a step; continuing work.")
-                    break
-                  case "session.retry.scheduled":
-                    yield* enqueueOutput("progress", "Waiting to retry the model request.")
-                    break
-                  case "session.execution.succeeded":
-                    yield* enqueueOutput("progress", "Finished this turn. Reply here to continue.")
                     break
                   default:
                     break
@@ -220,6 +221,10 @@ export class SlackDelivery extends Context.Service<
                   yield* sql`UPDATE slack_output SET error=${result.failure.message} WHERE output_id=${output.output_id}`
                 }
               } else {
+                const blocks =
+                  output.actions === null
+                    ? undefined
+                    : interruptionBlocks(output.text, output.actions)
                 const result = yield* (
                   output.kind === "progress" && thread.progress_ts !== null
                     ? transport.update(
@@ -233,6 +238,7 @@ export class SlackDelivery extends Context.Service<
                         thread.thread_ts,
                         output.text,
                         output.output_id,
+                        blocks,
                       )
                 ).pipe(Effect.result)
                 if (result._tag === "Success") yield* sent(result.success)

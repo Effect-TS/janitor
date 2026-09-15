@@ -102,7 +102,10 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       const sql = yield* SqlClient.SqlClient
       yield* (yield* AgentSessions).start({ sessionId: "pages", title: "Pages" })
       yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('pages','T1','CPAGES','620.000000','620.000000','ready','[]')`
-      runner.push("pages", { type: "session.text.ended", data: { text: "Find my marker" } })
+      runner.push("pages", {
+        type: "turn.completed",
+        data: { inputId: "msg_p", attempt: 1, text: "Find my marker" },
+      })
       const delivery = yield* SlackDelivery
       yield* delivery.catchUp("pages")
       lost = true
@@ -132,8 +135,14 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('removed','T1','CPRIVATE','610.000000','610.000000','ready','[]')`
         runner.push(
           "removed",
-          { type: "session.text.ended", data: { text: "Retained answer" } },
-          { type: "session.execution.failed", data: { error: { message: "Retained error" } } },
+          {
+            type: "turn.completed",
+            data: { inputId: "msg_r1", attempt: 1, text: "Retained answer" },
+          },
+          {
+            type: "turn.interrupted",
+            data: { inputId: "msg_r2", attempt: 1, reason: "Retained error" },
+          },
         )
         const delivery = yield* SlackDelivery
         yield* delivery.catchUp("removed")
@@ -159,8 +168,14 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         )
         assert.deepStrictEqual(
           retained.map((row) => row.state),
-          ["sent", "pending", "pending"],
+          ["sent", "pending", "pending", "pending"],
         )
+        assert.deepStrictEqual(retained[2]?.actions, {
+          sessionId: "removed",
+          generation: 1,
+          inputId: "msg_r2",
+          attempt: 1,
+        })
         assert.strictEqual((yield* sessions.view("removed")).deliveryWarning, null)
         assert.strictEqual(messages.at(-1)?.thread_ts, "610.000000")
         lost = true
@@ -175,8 +190,8 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         yield* sessions.start({ sessionId: "delivery", title: "Delivery" })
         yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('delivery','T1','C1','600.000000','600.000000','ready','[]')`
         runner.push("delivery", {
-          type: "session.text.ended",
-          data: { text: "A substantive answer", assistantMessageID: "a1", ordinal: 0 },
+          type: "turn.completed",
+          data: { inputId: "msg_d", attempt: 1, text: "A substantive answer" },
         })
         const delivery = yield* SlackDelivery
         yield* delivery.catchUp("delivery")
@@ -188,7 +203,7 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         assert.strictEqual((yield* delivery.inspect("delivery"))[0]?.state, "sent")
         assert.strictEqual(posts - before, 1)
         yield* delivery.catchUp("delivery")
-        assert.strictEqual((yield* delivery.inspect("delivery")).length, 1)
+        assert.strictEqual((yield* delivery.inspect("delivery")).length, 2)
       }),
   )
   it.effect("holds an unmatched send and prevents later responses overtaking it", () =>
@@ -198,8 +213,8 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('uncertain','T1','C2','601.000000','601.000000','ready','[]')`
       runner.push(
         "uncertain",
-        { type: "session.text.ended", data: { text: "First" } },
-        { type: "session.text.ended", data: { text: "Second" } },
+        { type: "turn.completed", data: { inputId: "msg_u1", attempt: 1, text: "First" } },
+        { type: "turn.completed", data: { inputId: "msg_u2", attempt: 1, text: "Second" } },
       )
       const delivery = yield* SlackDelivery
       lost = true
@@ -213,7 +228,7 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
       const outputs = yield* delivery.inspect("uncertain")
       assert.deepEqual(
         outputs.map((output) => output.state),
-        ["uncertain", "pending"],
+        ["uncertain", "pending", "pending", "pending"],
       )
       assert.include(outputs[0]!.error!, "positive author")
       assert.strictEqual(posts - before, 1)
@@ -235,10 +250,9 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('progress','T1','C3','602.000000','602.000000','ready','[]')`
         runner.push(
           "progress",
-          { type: "session.execution.started", data: {} },
-          { type: "session.tool.success", data: {} },
-          { type: "session.text.ended", data: { text: "Answer" } },
-          { type: "session.execution.succeeded", data: {} },
+          { type: "turn.started", data: { inputId: "msg_g", attempt: 1 } },
+          { type: "turn.stage", data: { inputId: "msg_g", attempt: 1, stage: "working" } },
+          { type: "turn.completed", data: { inputId: "msg_g", attempt: 1, text: "Answer" } },
         )
         const delivery = yield* SlackDelivery
         yield* delivery.catchUp("progress")
@@ -266,10 +280,15 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         yield* (yield* AgentSessions).start({ sessionId: "unicode", title: "Unicode" })
         yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('unicode','T1','C4','603.000000','603.000000','ready','[]')`
         const text = "😀".repeat(1500)
-        runner.push("unicode", { type: "session.text.ended", data: { text } })
+        runner.push("unicode", {
+          type: "turn.completed",
+          data: { inputId: "msg_x", attempt: 1, text },
+        })
         const delivery = yield* SlackDelivery
         yield* delivery.catchUp("unicode")
-        const outputs = yield* delivery.inspect("unicode")
+        const outputs = (yield* delivery.inspect("unicode")).filter(
+          (output) => output.kind === "response",
+        )
         assert.strictEqual(outputs.length, 2)
         assert.strictEqual(outputs.map((output) => output.text).join(""), text)
         assert.isTrue(

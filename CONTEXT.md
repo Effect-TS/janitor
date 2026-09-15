@@ -109,7 +109,7 @@ An authorized teammate instruction directed to an agent session. A delivery retr
 Once accepted, an input remains part of the shared session even if its author disconnects their account or loses team eligibility; its original authorship is preserved.
 
 **Agent turn**:
-An interval of agent work within an ongoing session that may include several model responses and tool operations. Finishing a turn leaves the session available for later inputs; after interruption, the resumed work may incorporate the oldest queued input.
+An interval of agent work within an ongoing session that may include several model responses and tool operations. Finishing a turn leaves the session available for later inputs. An interrupted turn pauses later inputs until a teammate explicitly retries or skips it.
 
 **Home thread**:
 The single private-channel thread where teammates participate in an agent session. The MVP uses Slack; Discord is planned for a later release.
@@ -132,11 +132,30 @@ A Slack or Discord account associated with an authorized team member after sign-
 In the MVP, a teammate connects one Slack account per workspace, and each Slack account belongs to one teammate at a time.
 
 **Runner handoff**:
-Janitor's durable record that an accepted agent input has been sent to the session runner but not yet confirmed as natively admitted. Inputs are delivered in acceptance order; an earlier input whose receipt is uncertain is retried with its same runner message id before any later input can overtake it.
+Janitor's durable record that an accepted agent input has been sent to the session runner but not yet confirmed as durably accepted there. Inputs are delivered in acceptance order; an earlier input whose receipt is uncertain is retried with its same runner message id before any later input can overtake it.
 _Avoid_: Delivery retry queue
 
 **Catch-up obligation**:
-The persisted promise, kept per agent session, to read the runner's durable events after the consumer's cursor at a due time. The next obligation is written before the current read is released, so a final event cannot be stranded on a missed notification.
+The persisted promise, kept per agent session, to read the runner's durable turn events after the consumer's cursor at a due time. The next obligation is written before the current read is released, so a final event cannot be stranded on a missed notification.
+
+**Session sandbox**:
+The Linux container owned by one agent session's Durable Object, holding that session's isolated repository checkout, its commands and its background processes. Sessions in separate threads never share a mutable checkout, even for the same repository. The sandbox stays awake while a turn works or saves and stops after five minutes of inactivity; sleeping does not end the session.
+
+**Turn attempt**:
+One run of an accepted agent input: prepare or restore the workspace, run the model, stop background processes, then save. An attempt ends completed, interrupted or unable to save; a later attempt of the same input starts from the last recovery point and is told which workspace was restored.
+
+**Recovery point**:
+The saved copy of a session's workspace committed with its completed turn: unpublished source, untracked work and Git metadata, omitting only disposable caches. A session keeps its latest recovery point for its lifetime and deletes the predecessor only after the replacement is committed. Final success is reported only after the recovery point is committed.
+_Avoid_: Checkpoint, snapshot
+
+**Interrupted turn**:
+An attempt that did not reach a committed recovery point: the runner or sandbox stopped, the turn exceeded its allowance, or the model failed. Later inputs stay queued, the workspace is restored to the last recovery point on the next attempt, and the home thread offers Retry and Skip. Native model recovery never restarts the turn on its own.
+
+**Retry and Skip**:
+An authorized teammate's decision on one specific interrupted attempt, deduplicated by the click. Retry reconciles uncertain external writes and runs the input again; Skip records the choice and releases the queued inputs. A button for an earlier attempt cannot affect newer work.
+
+**Publication tool**:
+The Durable Object-controlled tool that pushes a session's commits and creates or updates its pull request with scoped, short-lived credentials. Shell commands may edit, test and commit locally but never hold GitHub write credentials; the tool inspects uncertain branch and PR outcomes before repeating a write.
 
 **Automatic PR review handling**:
 Agent work prompted by an authorized teammate's PR review feedback, with changes and replies made on GitHub without another request in the session's home thread. Outside contributors' feedback requires an authorized teammate's request before the agent acts on it.
@@ -153,14 +172,8 @@ Fetching the comments of an accepted GitHub review contribution page by page bef
 **Janitor dashboard**:
 The team-wide observation view of agent sessions and their usage, including token usage, independent of home-channel membership. Collaboration with agents takes place in their home threads.
 
-**Release manifest**:
-The runner's pinned record of what a build speaks, reads and requires, versioning the command protocol, the native migration set, the Janitor-owned state format, the checkpoint format and the bridge protocol independently, and naming the state families it has a tested path to read. Its build, image and dependency identities identify artifacts; the manifest's declared support is what establishes compatibility.
-
-**Maintenance barrier**:
-The durable record an operator establishes before a release that changes session storage or execution, ahead of enumerating any session. While it stands, intake keeps accepting authorized inputs in order and nothing is dispatched to a runner; sessions read as blocked with the maintenance reason. It is deployment control, not a teammate command or a dashboard control.
-
-**Maintenance hold**:
-A runner's persisted, epoch-numbered promise not to run work for one session until released: admitted foreground commands finish and checkpoint, no fresh model request leaves, and the runtime stops as a shutdown that keeps the native execution claim. A session is quiescent only when its runner says so; an unreachable runner is not. Release lifts only the matching epoch, after the runner's state, checkpoint, model credential and bridge checks pass, and never outranks a newer disconnection.
+**Deployment interruption**:
+A deployment may replace runner objects and sandboxes while turns are active. Completed turns, recovery points and accepted inputs are retained; an interrupted turn waits for Retry or Skip. There is no drain protocol, and permission to interrupt is not permission to discard retained state.
 
 ### Repository connections and synchronization
 
@@ -195,7 +208,7 @@ The re-enabling of a paused repository, requiring successful synchronization aga
 Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Disconnection also ends its agent sessions and deletes their session data and saved workspaces, including unpublished work. Work and labels already published on GitHub remain unchanged.
 
 **Cleanup tombstone**:
-The record Janitor keeps for an agent session ended by repository disconnection until the runner confirms its native conversation, workspace and checkpoints are gone. It carries the session identity, generation and native session id, fences stale work for that identity, and is deleted on confirmation; Janitor retries the remote cleanup with backoff while the runner is unreachable.
+The record Janitor keeps for an agent session ended by repository disconnection or retired at cutover until the runner confirms its conversation, sandbox and recovery points are gone. It carries the session identity, generation and native session id, fences stale work for that identity, and is deleted on confirmation; Janitor retries the remote cleanup with backoff while the runner is unreachable.
 
 **Repository block reason**:
 The one concrete reason new repository work in an agent session is fenced: the repository is disconnected, its GitHub access is unavailable, it is paused, its synchronization failed or synchronization is still in progress. Pause and access loss retain session data and workspaces; the reason is shown on the dashboard and reported to the agent when a repository operation is refused.

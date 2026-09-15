@@ -1,16 +1,10 @@
-// Janitor's declaration of the versioned runner command boundary.
-//
-// The runner (`runner/src/Protocol.ts`) is built from a separate dependency
-// graph, so the shapes are declared twice and exchanged as plain JSON. Both
-// declarations carry the protocol version; the runner rejects mismatches.
+// Janitor's declaration of the versioned runner JSON protocol.
+// These applications share dependencies but deploy independently. Version and
+// compatibility tests guard rolling deployments between these declarations.
 import * as Schema from "effect/Schema"
 
-export const RUNNER_PROTOCOL_VERSION = 2
+export const RUNNER_PROTOCOL_VERSION = 3
 export const RUNNER_PROTOCOL_HEADER = "x-janitor-runner-protocol"
-/** The runner state family this Janitor release is tested against (`runner/release-manifest.json`). */
-export const RUNNER_STATE_FAMILY = "janitor-runner-1"
-/** The durable event contract Janitor's projection consumes (`runner/release-manifest.json`). */
-export const RUNNER_EVENT_CONTRACT = 1
 
 export const AgentSessionId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,120}$/))
 export type AgentSessionId = typeof AgentSessionId.Type
@@ -78,6 +72,19 @@ export const UsageTotals = Schema.Struct({
 })
 export type UsageTotals = typeof UsageTotals.Type
 
+export const AwaitingKind = Schema.Literals(["interrupted", "save_failed"])
+export type AwaitingKind = typeof AwaitingKind.Type
+
+/** The interrupted attempt a session waits on until a teammate retries or skips it. */
+export const Awaiting = Schema.Struct({
+  inputId: RunnerMessageId,
+  attempt: Schema.Int,
+  kind: AwaitingKind,
+  reason: Schema.String,
+  since: Schema.Finite,
+})
+export type Awaiting = typeof Awaiting.Type
+
 export const Inspection = Schema.Struct({
   sessionId: AgentSessionId,
   generation: Schema.Int,
@@ -85,28 +92,47 @@ export const Inspection = Schema.Struct({
   modelConfigurationId: Schema.NullOr(Schema.String),
   execution: ExecutionState,
   reason: Schema.NullOr(Schema.String),
-  wakeObligation: Schema.Boolean,
-  supervisionRevision: Schema.Int,
-  alarmAt: Schema.NullOr(Schema.Finite),
   pendingInputs: Schema.Int,
   admittedInputs: Schema.Int,
-  claimHeld: Schema.Boolean,
-  lastOutcome: Schema.NullOr(Schema.String),
-  maintenanceEpoch: Schema.NullOr(Schema.Int),
+  awaiting: Schema.NullOr(Awaiting),
   usage: Schema.NullOr(UsageTotals),
   release: Schema.String,
 })
 export type Inspection = typeof Inspection.Type
 
+/** One durable turn event; the runner documents the `type` vocabulary in its protocol. */
 export const RunnerEvent = Schema.Struct({
   seq: Schema.Int,
-  id: Schema.String,
   type: Schema.String,
-  version: Schema.Int,
   created: Schema.Finite,
   data: Schema.Unknown,
 })
 export type RunnerEvent = typeof RunnerEvent.Type
+
+export const TurnStage = Schema.Literals(["preparing", "working", "saving"])
+export type TurnStage = typeof TurnStage.Type
+
+/** The fields turn events carry; consumers decode what they use. */
+export const TurnEventData = Schema.Struct({
+  inputId: Schema.optionalKey(Schema.String),
+  attempt: Schema.optionalKey(Schema.Int),
+  stage: Schema.optionalKey(TurnStage),
+  text: Schema.optionalKey(Schema.String),
+  reason: Schema.optionalKey(Schema.String),
+  publication: Schema.optionalKey(
+    Schema.Struct({
+      operationId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+      repositoryId: Schema.String,
+      number: Schema.Int.check(Schema.isGreaterThan(0)),
+      url: Schema.String.check(
+        Schema.isPattern(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[0-9]+$/),
+      ),
+      title: Schema.String,
+      body: Schema.String,
+    }),
+  ),
+})
+export type TurnEventData = typeof TurnEventData.Type
 
 export const EventsRead = Schema.Struct({
   sessionId: AgentSessionId,
@@ -120,50 +146,35 @@ export const EventsRead = Schema.Struct({
 })
 export type EventsRead = typeof EventsRead.Type
 
-export const MaintenanceRequest = Schema.Struct({
-  hold: Schema.Boolean,
-  epoch: Schema.Int,
+export const Actor = Schema.Struct({
+  source: InputSource,
+  teammateId: Schema.optionalKey(Schema.String),
+  displayName: Schema.optionalKey(Schema.String),
 })
-export type MaintenanceRequest = typeof MaintenanceRequest.Type
+export type Actor = typeof Actor.Type
 
-export const MaintenanceCheck = Schema.Struct({
-  name: Schema.Literals(["fence", "state", "checkpoint", "model", "bridge"]),
-  ok: Schema.Boolean,
-  detail: Schema.String,
-})
-export type MaintenanceCheck = typeof MaintenanceCheck.Type
+export const TurnActionKind = Schema.Literals(["retry", "skip"])
+export type TurnActionKind = typeof TurnActionKind.Type
 
-export const MaintenanceResult = Schema.Struct({
-  held: Schema.Boolean,
-  epoch: Schema.NullOr(Schema.Int),
-  /** No host-scoped execution can act and every upload has settled. */
-  quiescent: Schema.Boolean,
-  /** An operation's outcome is unknown; the runner holds recovery for reconciliation. */
-  uncertain: Schema.Boolean,
-  /** The checks a release ran; a refused release stays held and names the failures. */
-  checks: Schema.Array(MaintenanceCheck),
+export const TurnActionRequest = Schema.Struct({
+  generation: Schema.Int,
+  inputId: RunnerMessageId,
+  attempt: Schema.Int,
+  action: TurnActionKind,
+  actionId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9:._-]{1,200}$/)),
+  actor: Actor,
 })
-export type MaintenanceResult = typeof MaintenanceResult.Type
+export type TurnActionRequest = typeof TurnActionRequest.Type
 
-/** What a runner deployment answers on its health route: identity and pinned manifest. */
-export const RunnerHealth = Schema.Struct({
-  protocol: Schema.Int,
-  release: Schema.String,
-  manifest: Schema.Struct({
-    family: Schema.String,
-    readableFamilies: Schema.Array(Schema.String),
-    commandProtocol: Schema.Struct({ version: Schema.Int, accepted: Schema.Array(Schema.Int) }),
-    events: Schema.Struct({ contract: Schema.Int }),
-    bridge: Schema.Struct({
-      protocol: Schema.Int,
-      sourceHash: Schema.String,
-      imageDigest: Schema.String,
-    }),
-  }),
-  /** Disagreements between the pinned manifest and the compiled bundle. */
-  problems: Schema.Array(Schema.String),
+export const TurnActionOutcome = Schema.Literals(["applied", "duplicate", "stale", "not_awaiting"])
+export type TurnActionOutcome = typeof TurnActionOutcome.Type
+
+export const TurnActionResult = Schema.Struct({
+  outcome: TurnActionOutcome,
+  message: Schema.String,
+  awaiting: Schema.NullOr(Awaiting),
 })
-export type RunnerHealth = typeof RunnerHealth.Type
+export type TurnActionResult = typeof TurnActionResult.Type
 
 export const CleanupResult = Schema.Struct({ sessionId: AgentSessionId, cleaned: Schema.Boolean })
 export type CleanupResult = typeof CleanupResult.Type

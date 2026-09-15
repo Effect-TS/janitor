@@ -118,3 +118,113 @@ index d48d44c3c18b7ba3a05ed7e04351139f68096817..7e4e91b211f448f5860049e949eb7d5d
          Effect.catchTag("ConfigError", () => Effect.succeed(undefined)),
        );
  
+diff --git a/src/core/Docker.ts b/src/core/Docker.ts
+--- a/src/core/Docker.ts
++++ b/src/core/Docker.ts
+@@ -521,28 +521,26 @@
+       generateImageTag,
+       build: (tag, image) =>
+         Effect.suspend(() => {
++          const podman = path.basename(bin).startsWith("podman");
++          const dockerfile = image.context ? path.resolve(image.context, image.dockerfile) : path.resolve(image.dockerfile);
+           const args = [
+             "build",
+-            "--load",
++            ...(podman ? [] : ["--load"]),
+             "-t",
+             tag,
+             "--platform",
+             "linux/amd64",
+-            "--provenance=false",
++            ...(podman ? [] : ["--provenance=false"]),
+             ...Object.entries(image.buildArgs ?? {}).map(
+               ([name, value]) => `--build-arg ${name}=${value}`,
+             ),
+             "-f",
+-            "-",
++            podman ? dockerfile : "-",
+             path.resolve(image.context ?? path.dirname(image.dockerfile)),
+           ];
+           return run(
+             args,
+-            fs.stream(
+-              image.context
+-                ? path.resolve(image.context, image.dockerfile)
+-                : path.resolve(image.dockerfile),
+-            ),
++            podman ? "ignore" : fs.stream(dockerfile),
+           ).pipe(
+             Effect.withLogSpan(`docker: build ${tag}`),
+             Effect.mapError(
+diff --git a/dist/core/node/Docker.mjs b/dist/core/node/Docker.mjs
+--- a/dist/core/node/Docker.mjs
++++ b/dist/core/node/Docker.mjs
+@@ -289,20 +289,22 @@
+ 		},
+ 		generateImageTag,
+ 		build: (tag, image) => Effect.suspend(() => {
++			const podman = path.basename(bin).startsWith("podman");
++			const dockerfile = image.context ? path.resolve(image.context, image.dockerfile) : path.resolve(image.dockerfile);
+ 			const args = [
+ 				"build",
+-				"--load",
++				...(podman ? [] : ["--load"]),
+ 				"-t",
+ 				tag,
+ 				"--platform",
+ 				"linux/amd64",
+-				"--provenance=false",
++				...(podman ? [] : ["--provenance=false"]),
+ 				...Object.entries(image.buildArgs ?? {}).map(([name, value]) => `--build-arg ${name}=${value}`),
+ 				"-f",
+-				"-",
++				podman ? dockerfile : "-",
+ 				path.resolve(image.context ?? path.dirname(image.dockerfile))
+ 			];
+-			return run(args, fs.stream(image.context ? path.resolve(image.context, image.dockerfile) : path.resolve(image.dockerfile))).pipe(Effect.withLogSpan(`docker: build ${tag}`), Effect.mapError((cause) => new SystemError({
++			return run(args, podman ? "ignore" : fs.stream(dockerfile)).pipe(Effect.withLogSpan(`docker: build ${tag}`), Effect.mapError((cause) => new SystemError({
+ 				subtag: "DockerBuildFailed",
+ 				message: `Failed to build image "${tag}".`,
+ 				cause
+diff --git a/src/core/Docker.ts b/src/core/Docker.ts
+--- a/src/core/Docker.ts
++++ b/src/core/Docker.ts
+@@ -266,6 +266,7 @@
+             Image: string;
+             Env: Array<string>;
+           }>(req);
++          if (path.basename(bin).startsWith("podman")) delete (original as {HostConfig?: {MemorySwappiness?: number}}).HostConfig?.MemorySwappiness;
+           const image = registeredImages.get(original.Image);
+           const transformed = JSON.stringify({
+             ...original,
+@@ -291,6 +292,7 @@
+           const original = await extractJsonBody<{
+             HostConfig?: { ExtraHosts?: Array<string>; Binds?: Array<string> };
+           }>(req);
++          if (path.basename(bin).startsWith("podman")) delete (original as {HostConfig?: {MemorySwappiness?: number}}).HostConfig?.MemorySwappiness;
+           const ports = registeredLoopbackPorts();
+           ensureLoopbackUnixSockets(ports);
+           const transformed = JSON.stringify({
+diff --git a/dist/core/node/Docker.mjs b/dist/core/node/Docker.mjs
+--- a/dist/core/node/Docker.mjs
++++ b/dist/core/node/Docker.mjs
+@@ -125,7 +125,8 @@
+ 		const isSidecarCreateRequest = isCreateRequest && req.url.endsWith("-proxy");
+ 		if (isCreateRequest && !isSidecarCreateRequest) {
+ 			const original = await extractJsonBody(req);
+-			const image = registeredImages.get(original.Image);
++			if (path.basename(bin).startsWith("podman")) delete original.HostConfig?.MemorySwappiness;
++				const image = registeredImages.get(original.Image);
+ 			const transformed = JSON.stringify({
+ 				...original,
+ 				Image: image?.tag ?? original.Image,
+@@ -143,7 +144,8 @@
+ 			}).end(transformed);
+ 		} else if (isSidecarCreateRequest) {
+ 			const original = await extractJsonBody(req);
+-			const ports = registeredLoopbackPorts();
++			if (path.basename(bin).startsWith("podman")) delete original.HostConfig?.MemorySwappiness;
++				const ports = registeredLoopbackPorts();
+ 			ensureLoopbackUnixSockets(ports);
+ 			const transformed = JSON.stringify({
+ 				...original,
