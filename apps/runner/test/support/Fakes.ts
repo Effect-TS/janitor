@@ -210,6 +210,8 @@ export interface Harness {
   readonly kv: KeyValue["Service"]
   readonly coordinator: SessionCoordinator["Service"]
   readonly wakes: number[]
+  /** How many times the coordinator told the API that events are readable. */
+  readonly notifies: { count: number }
   readonly clock: { now: number }
   /** Runs every wake the coordinator requested until the queue is quiet. */
   readonly settle: () => Promise<void>
@@ -223,6 +225,7 @@ export const harness = (
     sandbox?: FakeSandbox
     kv?: KeyValue["Service"]
     clock?: { now: number }
+    notifies?: { count: number }
   } = {},
 ): Harness => {
   const sql = options.sql ?? nodeSql()
@@ -232,6 +235,7 @@ export const harness = (
   const kv = options.kv ?? KeyValue.memory()
   const clock = options.clock ?? { now: 1_000 }
   const wakes: number[] = []
+  const notifies = options.notifies ?? { count: 0 }
   const scheduler: TurnScheduler["Service"] = {
     wake: (delayMs) =>
       Effect.sync(() => {
@@ -265,6 +269,9 @@ export const harness = (
       release: () => "test",
       guard: () => null,
       resolveModelConfiguration: (requested) => requested ?? "default",
+      notify: () => {
+        notifies.count++
+      },
     },
     host.service,
     checkout,
@@ -286,10 +293,11 @@ export const harness = (
     kv,
     coordinator,
     wakes,
+    notifies,
     clock,
     settle,
     restart: (incarnation = "inc-2") =>
-      harness({ ...options, incarnation, sql, sandbox, kv, clock }),
+      harness({ ...options, incarnation, sql, sandbox, kv, clock, notifies }),
   }
 }
 

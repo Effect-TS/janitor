@@ -64,6 +64,8 @@ export interface CoordinatorDependencies {
   readonly guard: () => string | null
   /** Session creation may need deployment-level validation (model configuration). */
   readonly resolveModelConfiguration: (requested: string | undefined) => string
+  /** Tells the API that new events are readable; fire-and-forget, the API's polling is the guarantee. */
+  readonly notify: () => void
 }
 
 const RESTORED_NOTE =
@@ -106,7 +108,12 @@ export class SessionCoordinator extends Context.Service<
   ): SessionCoordinator["Service"] {
     const { store } = deps
     const now = () => deps.clock()
-    const emit = (type: string, data: unknown) => store.emit(type, data, now())
+    const emit = (type: string, data: unknown) => {
+      const seq = store.emit(type, data, now())
+      // Acceptance is already known to the caller; everything later is news.
+      if (type !== "turn.accepted") deps.notify()
+      return seq
+    }
     let active:
       | { readonly inputId: string; readonly attempt: number; interrupt: (reason: string) => void }
       | undefined
@@ -455,6 +462,8 @@ export class SessionCoordinator extends Context.Service<
           attribution: input.attribution,
           notes,
           cancel,
+          message: (ordinal, text) =>
+            emit("turn.message", { inputId: input.inputId, attempt, ordinal, text }),
         })
         if (cancel.length > 0) store.skipped = []
         return outcome

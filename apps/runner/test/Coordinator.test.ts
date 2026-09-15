@@ -287,4 +287,40 @@ describe("sandbox loss", () => {
     assert.strictEqual(h.store.awaiting?.kind, "interrupted")
     assert.match(h.store.awaiting?.reason ?? "", /sandbox stopped/)
   })
+
+  it("records model text as it lands and tells the API after every visible event", async () => {
+    const h = harness()
+    await create(h)
+    assert.strictEqual(h.notifies.count, 0)
+    h.host.outcomes.push((turn) =>
+      Effect.sync(() => {
+        turn.message(0, "I'll read the README first.")
+        turn.message(1, "One sentence: Effect is a TypeScript toolkit.")
+        return { type: "completed", text: "One sentence: Effect is a TypeScript toolkit." }
+      }),
+    )
+    await admit(h, "msg_1", "summarize the readme")
+    // Acceptance alone is not news to the caller that just admitted the input.
+    assert.strictEqual(h.notifies.count, 0)
+    await h.settle()
+    const read = await Effect.runPromise(h.coordinator.events("s1", 0, 500))
+    const messages = read.events
+      .filter((event) => event.type === "turn.message")
+      .map(
+        (event) =>
+          event.data as { inputId: string; attempt: number; ordinal: number; text: string },
+      )
+    assert.deepStrictEqual(
+      messages.map((message) => [message.inputId, message.attempt, message.ordinal, message.text]),
+      [
+        ["msg_1", 1, 0, "I'll read the README first."],
+        ["msg_1", 1, 1, "One sentence: Effect is a TypeScript toolkit."],
+      ],
+    )
+    const types = read.events.map((event) => event.type)
+    assert.isBelow(types.indexOf("turn.message"), types.indexOf("turn.completed"))
+    assert.isAbove(types.indexOf("turn.message"), types.indexOf("turn.started"))
+    // started, three stages, two messages and the completion each announce news.
+    assert.strictEqual(h.notifies.count, 7)
+  })
 })

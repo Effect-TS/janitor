@@ -19,6 +19,8 @@ export interface TurnRequest {
   readonly notes: ReadonlyArray<string>
   /** Inputs whose queued native messages must be cancelled before this turn runs. */
   readonly cancel: ReadonlyArray<string>
+  /** Called as each assistant text block lands, in order; synchronous so it can be recorded durably. */
+  readonly message: (ordinal: number, text: string) => void
 }
 
 export type TurnOutcome =
