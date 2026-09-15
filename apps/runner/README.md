@@ -28,7 +28,7 @@ The image in `container/Dockerfile` is Cloudflare's Sandbox runtime plus Git, ri
 5. Saving retries within `JANITOR_SAVE_RETRIES` without rerunning the model. Persistent failure is reported as `turn.save_failed`, not success.
 6. Anything short of a committed recovery point leaves the session waiting: later inputs stay queued until a teammate retries or skips the interrupted attempt. The next attempt restores the last recovery point and is told so. Native OpenCode recovery is inert; the object never restarts a model turn on its own.
 
-The runner emits `turn.*` events (see `src/Protocol.ts`) that the API projects to the dashboard and Slack. Stale Retry or Skip actions and repeated clicks are refused by identity.
+The runner emits `turn.*` events (see `src/Protocol.ts`) that the API projects to the dashboard and Slack; assistant text blocks land as `turn.message` while the model works. After each event the object tells the API through its service binding that the session has news, debounced to one call per second; the API's polling remains the guarantee. Stale Retry or Skip actions and repeated clicks are refused by identity.
 
 ## Authority
 

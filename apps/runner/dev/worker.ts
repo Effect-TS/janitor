@@ -88,6 +88,9 @@ export class SandboxSession extends ProductionRunner {
 
 const authority = {
   fetch: async (request: Request) => {
+    // Event notices only hurry the API's reads; locally there is nothing to hurry.
+    if (new URL(request.url).pathname.endsWith("/agent/events"))
+      return new Response(null, { status: 204 })
     const body = (await request.json()) as { permission: string }
     return body.permission !== "read"
       ? Response.json({ message: "Local publication is disabled" }, { status: 403 })

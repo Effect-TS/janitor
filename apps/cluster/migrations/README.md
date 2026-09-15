@@ -306,3 +306,11 @@ and any pending attempts are discarded.
 messages arrive by event only and Slack retries failed deliveries itself; a
 message whose event never arrives is not recovered. `delivery_warning` stays
 with Slack delivery. Scan progress on existing threads is discarded.
+
+## Streamed turn text
+
+`0035_slack_streamed_attempt.sql` adds `slack_thread.streamed_attempt`, the
+input and attempt whose assistant text blocks were already posted to the thread
+as `turn.message` events arrived. The attempt's `turn.completed` then only marks
+the progress message done instead of posting the same text again. No data
+changes.

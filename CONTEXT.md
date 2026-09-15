@@ -148,6 +148,9 @@ One run of an accepted agent input: prepare or restore the workspace, run the mo
 The saved copy of a session's workspace committed with its completed turn: unpublished source, untracked work and Git metadata, omitting only disposable caches. A session keeps its latest recovery point for its lifetime and deletes the predecessor only after the replacement is committed. Final success is reported only after the recovery point is committed.
 _Avoid_: Checkpoint, snapshot
 
+**Turn message**:
+An assistant text block the model finished while a turn works, delivered to the thread as it lands rather than at the end of the turn. The last block repeats as the turn's final text; Slack posts it once. GitHub replies wait for the whole answer.
+
 **Interrupted turn**:
 An attempt that did not reach a committed recovery point: the runner or sandbox stopped, the turn exceeded its allowance, or the model failed. Later inputs stay queued, the workspace is restored to the last recovery point on the next attempt, and the home thread offers Retry and Skip. Native model recovery never restarts the turn on its own.
 

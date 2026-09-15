@@ -102,6 +102,7 @@ import { RunnerClient } from "./Agent/RunnerClient.ts"
 import { AgentSessions } from "./Agent/Sessions.ts"
 import { SessionObservation } from "./Agent/Observation.ts"
 import { RepositoryAccess } from "./Agent/RepositoryAccess.ts"
+import { RunnerNotices } from "./Agent/RunnerNotices.ts"
 import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
 import { SlackConversation, SlackWake } from "./Slack/Conversation.ts"
@@ -389,6 +390,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       SyncRepairCronLayer,
       AgentLayers,
       RepositoryAccess.layer,
+      RunnerNotices.layer,
     ).pipe(
       Layer.provideMerge(LabelingSyncIntegrationLayer),
       Layer.provideMerge(

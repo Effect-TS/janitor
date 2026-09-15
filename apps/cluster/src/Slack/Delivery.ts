@@ -65,6 +65,11 @@ export class SlackDelivery extends Context.Service<
               let cursor = Number(current.publication_cursor)
               let publishedPr = current.pr_number
               let contribution = current.active_contribution
+              let streamed = current.streamed_attempt
+              const attemptKey = (fields: TurnEventData) =>
+                fields.inputId === undefined || fields.attempt === undefined
+                  ? null
+                  : `${fields.inputId}:${fields.attempt}`
               const enqueueOutput = (
                 kind: "progress" | "response" | "error" | "question",
                 text: string,
@@ -95,9 +100,17 @@ export class SlackDelivery extends Context.Service<
                         : STAGE_PROGRESS[fields.stage],
                     )
                     break
+                  case "turn.message":
+                    // Text blocks reach the thread as they land; GitHub replies wait for the whole answer.
+                    if (fields.text && !contribution?.startsWith("github:")) {
+                      yield* enqueueOutput("response", fields.text)
+                      streamed = attemptKey(fields)
+                    }
+                    break
                   case "turn.completed":
-                    if (fields.text) yield* enqueueOutput("response", fields.text)
-                    yield* enqueueOutput("progress", "Finished this turn. Reply here to continue.")
+                    if (fields.text && (streamed === null || streamed !== attemptKey(fields)))
+                      yield* enqueueOutput("response", fields.text)
+                    yield* enqueueOutput("progress", "Done.")
                     break
                   case "turn.interrupted":
                   case "turn.save_failed": {
@@ -152,7 +165,7 @@ export class SlackDelivery extends Context.Service<
                 }
                 cursor = event.seq
               }
-              yield* sql`UPDATE slack_thread SET active_contribution=${contribution},publication_cursor=${cursor}::bigint,publication_due_at=CLOCK_TIMESTAMP()+make_interval(secs=>${page.execution === "working" || page.events.length > 0 ? 30 : 300}) WHERE session_id=${sessionId}`
+              yield* sql`UPDATE slack_thread SET active_contribution=${contribution},streamed_attempt=${streamed},publication_cursor=${cursor}::bigint,publication_due_at=CLOCK_TIMESTAMP()+make_interval(secs=>${page.execution === "working" || page.events.length > 0 ? 30 : 300}) WHERE session_id=${sessionId}`
             }),
           )
         }).pipe(slackError)

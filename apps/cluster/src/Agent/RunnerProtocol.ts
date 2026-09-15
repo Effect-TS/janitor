@@ -3,7 +3,7 @@
 // compatibility tests guard rolling deployments between these declarations.
 import * as Schema from "effect/Schema"
 
-export const RUNNER_PROTOCOL_VERSION = 3
+export const RUNNER_PROTOCOL_VERSION = 4
 export const RUNNER_PROTOCOL_HEADER = "x-janitor-runner-protocol"
 
 export const AgentSessionId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,120}$/))
@@ -117,6 +117,8 @@ export const TurnEventData = Schema.Struct({
   inputId: Schema.optionalKey(Schema.String),
   attempt: Schema.optionalKey(Schema.Int),
   stage: Schema.optionalKey(TurnStage),
+  /** Position of a `turn.message` text block within its attempt. */
+  ordinal: Schema.optionalKey(Schema.Int),
   text: Schema.optionalKey(Schema.String),
   reason: Schema.optionalKey(Schema.String),
   publication: Schema.optionalKey(

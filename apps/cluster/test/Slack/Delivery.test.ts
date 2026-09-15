@@ -261,7 +261,7 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
           outputs.map((output) => output.kind),
           ["progress", "response", "progress"],
         )
-        assert.include(outputs[2]!.text, "Finished")
+        assert.strictEqual(outputs[2]!.text, "Done.")
         const before = posts
         yield* delivery.deliver("progress")
         yield* spacing
@@ -302,5 +302,65 @@ layer(services, { timeout: "3 minutes" })("Slack delivery", (it) => {
         yield* delivery.deliver("unicode")
         assert.strictEqual((yield* delivery.inspect("unicode"))[0]?.state, "sent")
       }),
+  )
+  it.effect("posts text blocks as they land and does not repeat the final text on completion", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      yield* (yield* AgentSessions).start({ sessionId: "stream", title: "Stream" })
+      yield* sql`INSERT INTO slack_thread (session_id,workspace_id,channel_id,thread_ts,boundary_ts,state,context) VALUES ('stream','T1','C5','604.000000','604.000000','ready','[]')`
+      runner.push(
+        "stream",
+        { type: "turn.started", data: { inputId: "msg_s", attempt: 1 } },
+        { type: "turn.stage", data: { inputId: "msg_s", attempt: 1, stage: "working" } },
+        {
+          type: "turn.message",
+          data: { inputId: "msg_s", attempt: 1, ordinal: 0, text: "Reading the README." },
+        },
+      )
+      const delivery = yield* SlackDelivery
+      yield* delivery.catchUp("stream")
+      let outputs = yield* delivery.inspect("stream")
+      assert.deepEqual(
+        outputs.map((output) => [output.kind, output.text]),
+        [
+          ["progress", "Working on your request."],
+          ["response", "Reading the README."],
+        ],
+      )
+      // The second read sees the final block and the completion carrying the same text.
+      runner.push(
+        "stream",
+        {
+          type: "turn.message",
+          data: { inputId: "msg_s", attempt: 1, ordinal: 1, text: "Effect is a toolkit." },
+        },
+        {
+          type: "turn.completed",
+          data: { inputId: "msg_s", attempt: 1, text: "Effect is a toolkit." },
+        },
+      )
+      yield* delivery.catchUp("stream")
+      outputs = yield* delivery.inspect("stream")
+      assert.deepEqual(
+        outputs.map((output) => [output.kind, output.text]),
+        [
+          ["progress", "Working on your request."],
+          ["response", "Reading the README."],
+          ["response", "Effect is a toolkit."],
+          ["progress", "Done."],
+        ],
+      )
+      // A later attempt that streamed nothing still posts its completion text.
+      runner.push("stream", {
+        type: "turn.completed",
+        data: { inputId: "msg_t", attempt: 1, text: "Second answer" },
+      })
+      yield* delivery.catchUp("stream")
+      outputs = yield* delivery.inspect("stream")
+      assert.deepEqual(
+        outputs.filter((output) => output.kind === "response").map((output) => output.text),
+        ["Reading the README.", "Effect is a toolkit.", "Second answer"],
+      )
+    }),
   )
 })

@@ -42,6 +42,8 @@ export interface Thread {
   readonly progress_ts: string | null
   readonly publication_cursor: string
   readonly active_contribution: string | null
+  /** `${inputId}:${attempt}` whose text blocks were already posted as they landed. */
+  readonly streamed_attempt: string | null
 }
 export interface Contribution {
   readonly sequence: string
@@ -132,13 +134,7 @@ export class SlackConversation extends Context.Service<
               const threads = yield* sql<{
                 session_id: string
               }>`UPDATE slack_thread SET due_at=LEAST(due_at,CLOCK_TIMESTAMP()) WHERE workspace_id=${config.workspaceId} AND channel_id=${message.channel} AND thread_ts=${root} AND state<>'redirected' RETURNING session_id`
-              if (threads[0])
-                yield* enqueueOutput(
-                  sql,
-                  threads[0].session_id,
-                  "progress",
-                  "Received your message. Preparing your request.",
-                )
+              if (threads[0]) yield* enqueueOutput(sql, threads[0].session_id, "progress", "On it…")
             }),
           )
           .pipe(

@@ -23,6 +23,7 @@ import { RunnerStorage, durableObjectSql } from "./Storage.ts"
 import { KeyValue } from "./services/KeyValue.ts"
 import { RecoveryStore } from "./services/RecoveryStore.ts"
 import { RepositoryAuthority } from "./services/RepositoryAuthority.ts"
+import { EventNotifier } from "./services/EventNotifier.ts"
 import { RepositoryCheckout } from "./services/RepositoryCheckout.ts"
 import {
   REPOSITORY_DIR,
@@ -119,6 +120,14 @@ export class SessionRunner extends Sandbox<RunnerEnv> {
       env.REPOSITORY_AUTHORITY,
       env.REPOSITORY_SERVICE_TOKEN,
     )
+    const notifier = EventNotifier.make(env.REPOSITORY_AUTHORITY, env.REPOSITORY_SERVICE_TOKEN, {
+      session: () =>
+        store.session === undefined
+          ? undefined
+          : { sessionId: store.session.sessionId, generation: store.session.generation },
+      background: (work) => ctx.waitUntil(work),
+      journal: (kind, data) => store.journal(kind, data),
+    })
     const remote = (credential: RepositoryCredential) =>
       env.JANITOR_LOCAL_GIT_REMOTE ?? githubRemote(credential)
     const selection = () => ({
@@ -215,6 +224,7 @@ export class SessionRunner extends Sandbox<RunnerEnv> {
               },
               Date.now(),
             )
+            notifier.notify()
           },
           journal: (kind, data) => store.journal(kind, data),
         }),
@@ -256,6 +266,7 @@ export class SessionRunner extends Sandbox<RunnerEnv> {
             throw new ProtocolError("invalid_request", `Model configuration ${id} is not available`)
           return id
         },
+        notify: () => notifier.notify(),
       },
       host,
       checkout,

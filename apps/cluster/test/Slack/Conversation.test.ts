@@ -177,7 +177,7 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
         yield* webhook.receive(yield* signed(mention, "Ev3"))
         assert.deepStrictEqual(
           (yield* delivery.inspect(id)).map((output) => output.text),
-          ["Received your message. Preparing your request."],
+          ["On it…"],
         )
         privateChannel = false
         yield* delivery.sendDue

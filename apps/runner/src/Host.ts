@@ -32,7 +32,7 @@ export const WORKSPACE_PROVIDER = "janitor"
 
 /** Guidance attached to every session's native instructions. */
 const CONVERSATION_GUIDANCE =
-  "You collaborate with a team through a chat thread. Ask questions in ordinary replies and end your turn when you need a teammate's answer; the next message in the thread continues the conversation. Your final message of each turn is delivered to the thread; keep intermediate commentary short. Run commands in the foreground with a finite timeout; background processes are stopped when the turn ends."
+  "You collaborate with a team through a chat thread. Ask questions in ordinary replies and end your turn when you need a teammate's answer; the next message in the thread continues the conversation. Begin every turn with one short sentence saying what you are about to do, then do it. Each message you write is delivered to the thread as it lands, and your final message ends the turn; keep intermediate commentary short. Run commands in the foreground with a finite timeout; background processes are stopped when the turn ends."
 
 export interface HostDependencies {
   readonly storage: DurableObjectStorage
@@ -153,6 +153,22 @@ const decodeOutcome = Schema.decodeUnknownOption(OutcomeEvent)
 
 const INTERRUPT_SETTLEMENT_MS = 20_000
 const START_GRACE_MS = 15_000
+/** How long one wait for idleness runs before text blocks are checked. */
+const TEXT_POLL_MS = 500
+
+type NativeEvent = { readonly seq: number; readonly type: string; readonly data: unknown }
+
+/** The assistant text blocks that have landed, in order; empty blocks are skipped. */
+const textBlocks = (events: ReadonlyArray<NativeEvent>): ReadonlyArray<string> => {
+  const blocks: string[] = []
+  for (const event of events) {
+    if (event.type !== "session.text.ended") continue
+    const fields = decodeOutcome(event.data)
+    const text = fields._tag === "Some" ? fields.value.text : undefined
+    if (text !== undefined && text.trim() !== "") blocks.push(text)
+  }
+  return blocks
+}
 
 /**
  * Owns one native runtime per object incarnation and runs turns through it.
@@ -216,8 +232,7 @@ export const makeTurnHost = (deps: HostDependencies): TurnHost["Service"] => {
       ? cause
       : new HostError({ message: cause instanceof Error ? cause.message : String(cause) })
 
-  const outcomeAfter = (nativeSessionId: string, watermark: number): TurnOutcome | undefined => {
-    const events = deps.store.nativeEvents(nativeSessionId, watermark)
+  const outcomeAfter = (events: ReadonlyArray<NativeEvent>): TurnOutcome | undefined => {
     let text: string | undefined
     let terminal: TurnOutcome | undefined
     for (const event of events) {
@@ -298,17 +313,29 @@ export const makeTurnHost = (deps: HostDependencies): TurnHost["Service"] => {
       })
       // Wait for the terminal event of this turn; a wake that has not yet started
       // execution reports idle, so the wait is repeated until an outcome exists.
+      // The wait is bounded so text blocks are observed while the model works,
+      // not only once the session is idle.
       const startedAt = Date.now()
+      let delivered = 0
       for (;;) {
         yield* Effect.tryPromise({
-          try: () => created.sdk((sdk) => sdk.sessions.wait({ sessionID: nativeId })),
+          try: () =>
+            created.sdk((sdk) =>
+              sdk.sessions.wait({ sessionID: nativeId }).pipe(
+                Effect.timeoutOrElse({
+                  duration: `${TEXT_POLL_MS} millis`,
+                  orElse: () => Effect.void,
+                }),
+              ),
+            ),
           catch: hostError,
         })
-        const outcome = outcomeAfter(session.nativeSessionId, watermark)
+        const events = deps.store.nativeEvents(session.nativeSessionId, watermark)
+        const blocks = textBlocks(events)
+        for (; delivered < blocks.length; delivered++) turn.message(delivered, blocks[delivered]!)
+        const outcome = outcomeAfter(events)
         if (outcome !== undefined) return outcome
-        const started = deps.store
-          .nativeEvents(session.nativeSessionId, watermark)
-          .some((event) => event.type === "session.execution.started")
+        const started = events.some((event) => event.type === "session.execution.started")
         if (!started && Date.now() - startedAt > START_GRACE_MS)
           return { type: "failed", reason: "The model turn did not start" } satisfies TurnOutcome
         yield* Effect.sleep("250 millis")

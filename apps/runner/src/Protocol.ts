@@ -3,7 +3,7 @@
 // instances are process-local. Protocol versions guard rolling deployments.
 import { Schema } from "effect"
 
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 export const PROTOCOL_HEADER = "x-janitor-runner-protocol"
 
 /** Stable identity of one Janitor agent session; also the Durable Object name. */
@@ -120,6 +120,7 @@ export type Inspection = typeof Inspection.Type
  * - `turn.accepted` `{inputId}`: durably accepted and queued.
  * - `turn.started` `{inputId, attempt}`: an attempt began.
  * - `turn.stage` `{inputId, attempt, stage}`: preparing, working or saving.
+ * - `turn.message` `{inputId, attempt, ordinal, text}`: an assistant text block landed while the model works; the last block repeats as `turn.completed`'s text.
  * - `turn.published` `{inputId, attempt, publication}`: a PR was pushed or updated.
  * - `turn.completed` `{inputId, attempt, text}`: the recovery point is committed; `text` is the reply.
  * - `turn.interrupted` `{inputId, attempt, reason}`: waits for Retry or Skip.
