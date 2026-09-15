@@ -70,7 +70,7 @@ const scriptedTransport = () =>
     }),
   )
 
-export class SessionRunner extends ProductionRunner {
+export class SandboxSession extends ProductionRunner {
   protected override modelTransport() {
     if (this.env.JANITOR_LOCAL_LIVE_MODEL === "true") return super.modelTransport()
     return scriptedTransport()
