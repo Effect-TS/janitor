@@ -10,7 +10,8 @@ import ClusterWorker from "@janitor/cluster/Worker"
 import { deployment, requiredSecret, agentRunnerConnection } from "@janitor/cluster/Deployment"
 
 // No new resource scope: existing Alchemy addresses and the Worker identity stay stable.
-// The session namespace becomes container-backed; cutover retires its previous objects.
+// The session class is new because containers can only be enabled on a class at creation;
+// cutover deletes the previous class with its retired sessions.
 export const AgentRunner = Effect.gen(function* () {
   const target = yield* deployment
   const cluster = yield* ClusterWorker
@@ -85,7 +86,7 @@ export const AgentRunner = Effect.gen(function* () {
     env: {
       // The session object owns its container: one sandbox per agent session.
       SESSIONS: Cloudflare.Container("AgentSessionSandboxes", {
-        className: "SessionRunner",
+        className: "SandboxSession",
         context: containerContext,
         dockerfile: containerDockerfile,
         instanceType: "standard-1",

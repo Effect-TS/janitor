@@ -5,7 +5,10 @@ import { PROTOCOL_VERSION, ProtocolError } from "./Protocol.ts"
 import { checkProtocol, errorResponse, jsonResponse, sessionIdOf } from "./Router.ts"
 import { SessionRunner, type RunnerEnv } from "./SessionRunner.ts"
 
-export { SessionRunner }
+// Cloudflare enables containers only when a Durable Object class is created,
+// so the sandbox-owning object is exported under a new class name and the
+// pre-cutover `SessionRunner` namespace is deleted with its retired sessions.
+export { SessionRunner as SandboxSession }
 
 export interface WorkerEnv extends RunnerEnv {
   readonly SESSIONS: DurableObjectNamespace<SessionRunner>

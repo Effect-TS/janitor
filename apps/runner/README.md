@@ -4,7 +4,7 @@ Each agent session is one Durable Object that extends Cloudflare's Sandbox class
 
 ## Application and deployment
 
-`stacks/runner.ts` deploys the Worker, the container-backed session namespace, the sandbox image and the backup bucket through the root Alchemy stack. The runner uses the root lockfile, Effect version, Vite+ commands and CI. The API calls it through an Alchemy Worker service binding; repository authorization returns through the API binding.
+`stacks/runner.ts` deploys the Worker, the container-backed `SandboxSession` namespace, the sandbox image and the backup bucket through the root Alchemy stack. Containers can only be enabled on a Durable Object class when it is created, which is why the class name changed at cutover. The runner uses the root lockfile, Effect version, Vite+ commands and CI. The API calls it through an Alchemy Worker service binding; repository authorization returns through the API binding.
 
 The image in `container/Dockerfile` is Cloudflare's Sandbox runtime plus Git, ripgrep and build tools. Repository commands run as the unprivileged `janitor` user; the Sandbox control server stays root. `container/dev/Dockerfile` adds a bare fixture repository so local development clones and publishes without GitHub.
 
