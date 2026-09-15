@@ -66,7 +66,12 @@ export const AgentRunner = Effect.gen(function* () {
   const backups = yield* Cloudflare.R2.Bucket("AgentWorkspaceCheckpoints", {
     name: backupBucketName,
   }).pipe(retain())
+  // Alchemy resolves both paths from the process working directory, not from each other.
   const containerContext = new URL("../apps/runner/container", import.meta.url).pathname
+  const containerDockerfile = new URL(
+    local ? "../apps/runner/container/dev/Dockerfile" : "../apps/runner/container/Dockerfile",
+    import.meta.url,
+  ).pathname
   return yield* Cloudflare.Worker("AgentRunner", {
     name: runnerWorkerName,
     main: Output.interpolate`${build.outdir}/worker.mjs`,
@@ -82,7 +87,7 @@ export const AgentRunner = Effect.gen(function* () {
       SESSIONS: Cloudflare.Container("AgentSessionSandboxes", {
         className: "SessionRunner",
         context: containerContext,
-        dockerfile: local ? "dev/Dockerfile" : "Dockerfile",
+        dockerfile: containerDockerfile,
         instanceType: "standard-1",
         maxInstances: 10,
       }),
