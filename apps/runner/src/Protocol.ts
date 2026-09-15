@@ -247,3 +247,30 @@ export class ProtocolError extends Error {
     return errorStatus(this.code)
   }
 }
+
+/** Repository inference is stateless and never creates a workspace. */
+export const RepositoryInferenceRequest = Schema.Struct({
+  preferredOrganization: Schema.String.check(Schema.isMaxLength(100)),
+  instructions: Schema.Array(Schema.String).check(Schema.isMaxLength(100)),
+  discussion: Schema.String.check(Schema.isMaxLength(100000)),
+  repositories: Schema.Array(
+    Schema.Struct({
+      repositoryId: Schema.String,
+      owner: Schema.String,
+      repo: Schema.String,
+    }),
+  ).check(Schema.isMaxLength(1000)),
+})
+export type RepositoryInferenceRequest = typeof RepositoryInferenceRequest.Type
+export const RepositoryInferenceResult = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("selected"),
+    repositoryId: Schema.String,
+    reason: Schema.String.check(Schema.isMaxLength(1000)),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("clarification"),
+    question: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1000)),
+  }),
+])
+export type RepositoryInferenceResult = typeof RepositoryInferenceResult.Type

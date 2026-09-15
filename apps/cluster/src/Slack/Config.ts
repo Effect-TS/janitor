@@ -4,6 +4,7 @@ import type * as Redacted from "effect/Redacted"
 export class SlackConfig extends Context.Service<
   SlackConfig,
   {
+    readonly preferredOrganization?: string
     readonly workspaceId: string
     readonly appId: string
     readonly botUserId: string

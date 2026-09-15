@@ -13,6 +13,8 @@ import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import {
+  RepositoryInferenceRequest,
+  RepositoryInferenceResult,
   AdmitResult,
   CleanupResult,
   CreateSessionResult,
@@ -52,6 +54,9 @@ export const EVENT_PAGE_LIMIT = 200
 export class RunnerClient extends Context.Service<
   RunnerClient,
   {
+    readonly inferRepository: (
+      request: RepositoryInferenceRequest,
+    ) => Effect.Effect<RepositoryInferenceResult, RunnerClientError>
     readonly createSession: (
       sessionId: AgentSessionId,
       request: CreateSessionRequest,
@@ -155,6 +160,8 @@ export class RunnerClient extends Context.Service<
           `/v1/sessions/${encodeURIComponent(sessionId)}`
 
         return {
+          inferRepository: (request) =>
+            send("POST", "/v1/repository-inference", request, RepositoryInferenceResult),
           createSession: (sessionId, request) =>
             send("PUT", sessionPath(sessionId), request, CreateSessionResult),
           admitInput: (sessionId, request) =>

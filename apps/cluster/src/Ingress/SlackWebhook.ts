@@ -1,3 +1,8 @@
+import { SlackProcessor } from "../Slack/Processor.ts"
+import { SlackWake } from "../Slack/Conversation.ts"
+import * as Cloudflare from "alchemy/Cloudflare"
+import { WorkflowDispatcher } from "../WorkflowDispatcher.ts"
+import type { OutboxRequest } from "../WorkflowOutbox.ts"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
@@ -13,7 +18,11 @@ const receiveWith = (
     readonly signature: string
     readonly timestamp: string
     readonly retry?: string
-  }) => Effect.Effect<{ readonly status: number; readonly body: string }>,
+  }) => Effect.Effect<{
+    readonly status: number
+    readonly body: string
+    readonly work?: OutboxRequest | undefined
+  }>,
 ) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest
@@ -44,6 +53,26 @@ const receiveWith = (
         ? {}
         : { retry: request.headers["x-slack-retry-num"] }),
     })
+    if (result.status >= 200 && result.status < 300) {
+      const dispatcher = yield* WorkflowDispatcher
+      const execution = yield* Cloudflare.Workers.WorkerExecutionContext
+      const wake = yield* SlackWake
+      yield* execution.waitUntil(
+        Effect.all(
+          [
+            wake,
+            result.work
+              ? dispatcher.dispatchDue({ only: result.work, limit: 1 })
+              : Effect.flatMap(SlackProcessor, (processor) => processor.onboardDue),
+          ],
+          { concurrency: "unbounded", discard: true },
+        ).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Immediate Slack dispatch failed; recovery will retry", cause),
+          ),
+        ),
+      )
+    }
     return HttpServerResponse.text(result.body, { status: result.status })
   }).pipe(
     Effect.timeout("2500 millis"),

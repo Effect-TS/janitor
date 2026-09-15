@@ -1,3 +1,6 @@
+import { FetchHttpClient } from "effect/unstable/http"
+import { Effect } from "effect"
+import { inferRepository, readInferenceRequest } from "./RepositoryInference.ts"
 // The runner Worker entry: authenticates the service caller, checks the
 // protocol version and routes each session command to that session's
 // Durable Object. Everything stateful lives in `SessionRunner`.
@@ -47,6 +50,14 @@ export const handle = async (request: Request, env: WorkerEnv): Promise<Response
         release: env.JANITOR_AGENT_RUNNER_RELEASE ?? "development",
       })
     checkProtocol(request)
+    if (url.pathname === "/v1/repository-inference" && request.method === "POST")
+      return jsonResponse(
+        await Effect.runPromise(
+          inferRepository(await readInferenceRequest(request), env).pipe(
+            Effect.provide(FetchHttpClient.layer),
+          ),
+        ),
+      )
     const sessionId = sessionIdOf(url)
     if (sessionId === null)
       throw new ProtocolError("invalid_request", `Unknown route ${url.pathname}`)

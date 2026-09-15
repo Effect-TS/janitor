@@ -1,3 +1,5 @@
+import { WorkflowOutbox, type OutboxRequest } from "../WorkflowOutbox.ts"
+import { processingRequest } from "./ProcessingRequest.ts"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -27,6 +29,21 @@ export interface Message {
   readonly thread_ts?: string | undefined
 }
 export interface Thread {
+  readonly input_revision: string
+  readonly startup_phase:
+    | "preparing"
+    | "selecting"
+    | "history"
+    | "clarification"
+    | "repository"
+    | "runner"
+    | "ready"
+    | "retry"
+    | "failed"
+  readonly selection_reason: string | null
+  readonly inference_key: string | null
+  readonly inference_result: unknown | null
+  readonly retry_count: number
   readonly session_id: string
   readonly workspace_id: string
   readonly channel_id: string
@@ -67,7 +84,7 @@ export class SlackConversation extends Context.Service<
       body: unknown,
       message: Message | null,
       retry?: string,
-    ) => Effect.Effect<void, SlackError>
+    ) => Effect.Effect<OutboxRequest | undefined, SlackError>
     readonly inspect: (
       channel: string,
       thread: string,
@@ -80,7 +97,7 @@ export class SlackConversation extends Context.Service<
       const sql = yield* SqlClient.SqlClient
       const teammates = yield* Teammates
       const config = yield* SlackConfig
-      const wake = yield* SlackWake
+      const outbox = yield* WorkflowOutbox
       const record = (eventId: string, body: unknown, message: Message | null, retry?: string) =>
         sql
           .withTransaction(
@@ -133,22 +150,17 @@ export class SlackConversation extends Context.Service<
               }
               const threads = yield* sql<{
                 session_id: string
-              }>`UPDATE slack_thread SET due_at=LEAST(due_at,CLOCK_TIMESTAMP()) WHERE workspace_id=${config.workspaceId} AND channel_id=${message.channel} AND thread_ts=${root} AND state<>'redirected' RETURNING session_id`
-              if (threads[0]) yield* enqueueOutput(sql, threads[0].session_id, "progress", "On it…")
+                input_revision: string
+              }>`UPDATE slack_thread SET due_at=LEAST(due_at,CLOCK_TIMESTAMP()), input_revision=input_revision+1, retry_count=0 WHERE workspace_id=${config.workspaceId} AND channel_id=${message.channel} AND thread_ts=${root} AND state<>'redirected' RETURNING session_id,input_revision`
+              if (threads[0]) {
+                yield* enqueueOutput(sql, threads[0].session_id, "progress", "On it…")
+                const request = processingRequest(threads[0].session_id, threads[0].input_revision)
+                yield* outbox.enqueue(request)
+                return request
+              }
             }),
           )
-          .pipe(
-            slackError,
-            Effect.asVoid,
-            Effect.tap(() =>
-              wake.pipe(
-                Effect.timeout("1 second"),
-                Effect.catchCause((cause) =>
-                  Effect.logWarning("Slack wake failed; cron will recover", cause),
-                ),
-              ),
-            ),
-          )
+          .pipe(slackError)
       const inspect = (channel: string, thread: string) =>
         Effect.gen(function* () {
           const threads =

@@ -11,7 +11,6 @@ export const SlackCronName = "slack-conversations"
 export const SlackCronLayer = Singleton.make(
   SlackCronName,
   Effect.gen(function* () {
-    const processor = yield* SlackProcessor
     const delivery = yield* SlackDelivery
     const feedback = yield* GitHubFeedback
     const github = yield* GitHubDelivery
@@ -20,9 +19,6 @@ export const SlackCronLayer = Singleton.make(
     while ((yield* Clock.currentTimeMillis) - started < 50_000) {
       yield* feedback.processDue.pipe(
         Effect.catchCause((cause) => Effect.logError("GitHub feedback hydration failed", cause)),
-      )
-      yield* processor.processDue.pipe(
-        Effect.catchCause((cause) => Effect.logError("Slack initialization failed", cause)),
       )
       yield* delivery.processDue.pipe(
         Effect.catchCause((cause) => Effect.logError("Slack publication failed", cause)),
@@ -50,5 +46,17 @@ export const SlackDeliveryCronLayer = Singleton.make(
       )
       yield* Effect.sleep(1000)
     }
+  }),
+)
+
+/** Recovery is independent of GitHub work; normal receipts submit per-session workflows. */
+export const SlackRecoveryCronName = "slack-startup-recovery"
+export const SlackRecoveryCronLayer = Singleton.make(
+  SlackRecoveryCronName,
+  Effect.gen(function* () {
+    const processor = yield* SlackProcessor
+    yield* processor.processDue.pipe(
+      Effect.catchCause((cause) => Effect.logError("Slack startup recovery failed", cause)),
+    )
   }),
 )

@@ -314,3 +314,9 @@ input and attempt whose assistant text blocks were already posted to the thread
 as `turn.message` events arrived. The attempt's `turn.completed` then only marks
 the progress message done instead of posting the same text again. No data
 changes.
+
+`0036_slack_startup.sql` adds revision-fenced Slack startup phases, cached repository
+inference, and retry eligibility. Existing initialization and buffered inputs get
+workflow outbox requests without resetting their thread context or leases. Idle
+threads stop polling Slack. Repository readiness changes wake waiting threads;
+synchronization completion submits their processing requests immediately.

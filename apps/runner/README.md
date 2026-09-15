@@ -63,3 +63,20 @@ vp test
 The runner tests run in Node against Node's SQLite and scripted sandbox, model and recovery ports. They cover admission ordering and deduplication, interruption gating and Retry/Skip, recovery pointer ordering and save retries, workspace reuse and restore, publication reconciliation after a lost push, and turn timeouts. Nothing in the default checks needs Docker.
 
 The optional local smoke (`vp run dev`, then `vp run runner:smoke`) runs a controlled turn against a real container, destroys the container and checks that the next turn restores the recovery point. Set `JANITOR_LOCAL_LIVE_MODEL=true` with a configured provider credential to exercise real model requests. Paid model and live GitHub publication checks are opt-in; see [model validation](MODEL-VALIDATION.md).
+
+### Repository inference
+
+`POST /v1/repository-inference` uses the deployment's default agent model to select
+from the API's connected repository inventory. It requires the same runner service
+authentication and protocol header as session commands. It creates no Durable
+Object or sandbox. The API handles explicit references and repository-name matches
+before calling it, validates the returned repository ID, and persists the result
+against the input revision. Model calls have a 15-second deadline.
+
+The API's `JANITOR_PREFERRED_REPOSITORY_ORGANIZATION` setting defaults to `Effect-TS`.
+An explicit repository or organization overrides that preference. Ambiguous requests
+produce a short clarification rather than an arbitrary choice.
+
+Deploy the runner endpoint before the API startup changes, and apply migration
+`0036_slack_startup.sql` before running the new API code. Existing sessions and
+workspace namespaces remain intact.

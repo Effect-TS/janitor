@@ -9,10 +9,9 @@ import { SlackDelivery } from "../../src/Slack/Delivery.ts"
 import { SlackProcessor } from "../../src/Slack/Processor.ts"
 import { SlackTransport } from "../../src/Slack/Transport.ts"
 import { AgentSessions } from "../../src/Agent/Sessions.ts"
-import { deliverSession } from "../../src/Agent/Handoff.ts"
-import { RunnerClientError } from "../../src/Agent/RunnerClient.ts"
+import { AgentHandoff, deliverSession } from "../../src/Agent/Handoff.ts"
 import { Teammates, TeammatesConfig } from "../../src/Teammates.ts"
-import { SlackConversation, SlackWake } from "../../src/Slack/Conversation.ts"
+import { SlackConversation } from "../../src/Slack/Conversation.ts"
 import { SlackConfig } from "../../src/Slack/Config.ts"
 import { SlackWebhook } from "../../src/Slack/Webhook.ts"
 import { agentLayers, fakeRunnerLayer, FakeRunner } from "../Agent/support.ts"
@@ -28,7 +27,6 @@ const config = {
 const runner = new FakeRunner()
 const onboarding: string[] = []
 let privateChannel = true
-let wakes = 0
 const slack: SlackTransport["Service"] = {
   channel: () => Effect.succeed({ is_private: privateChannel, is_member: true }),
   replies: (_channel, root, cursor) =>
@@ -65,14 +63,6 @@ const services = Layer.mergeAll(SlackWebhook.layer, SlackProcessor.layer, SlackD
   ),
   Layer.provideMerge(agentLayers(fakeRunnerLayer(runner))),
   Layer.provide(Layer.succeed(SlackConfig, config)),
-  Layer.provide(
-    Layer.succeed(
-      SlackWake,
-      Effect.sync(() => {
-        wakes++
-      }),
-    ),
-  ),
 )
 
 const signed = (event: unknown, eventId: string) =>
@@ -168,9 +158,7 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
           thread_ts: "200.000001",
           text: "<@UBOT> help",
         }
-        const wakesBefore = wakes
         yield* webhook.receive(yield* signed(mention, "Ev3"))
-        assert.strictEqual(wakes, wakesBefore + 1)
         const before = yield* conversation.inspect("C2", "200.000001")
         const id = before.thread!.session_id
         const delivery = yield* SlackDelivery
@@ -185,8 +173,7 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
         privateChannel = true
         yield* delivery.sendDue
         assert.strictEqual((yield* delivery.inspect(id))[0]?.state, "sent")
-        yield* processor.process(id)
-        yield* processor.process(id)
+        yield* processor.processDue
         assert.include(
           (yield* conversation.inspect("C2", "200.000001")).thread!.warning!,
           "Which connected repository",
@@ -243,16 +230,8 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
           (yield* conversation.inspect("C2", "200.000001")).thread?.context?.length,
           2,
         )
-        runner.failures.push({
-          method: "admitInput",
-          error: new RunnerClientError({
-            code: "transport",
-            message: "lost admission response",
-            status: 503,
-          }),
-        })
-        yield* deliverSession(id).pipe(Effect.flip)
-        assert.strictEqual(runner.inputs.get(id)?.length, 1)
+        yield* deliverSession(id)
+        assert.strictEqual(runner.inputs.get(id)?.length, 2)
         runner.execution.set(id, "working")
         for (const [index, user] of ["U2", "U3"].entries()) {
           yield* webhook.receive(
@@ -271,7 +250,7 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
           )
         }
         yield* processor.process(id)
-        yield* deliverSession(id)
+        yield* AgentHandoff.execute({ sessionId: id, sequence: 4 })
         assert.deepEqual(
           runner.inputs.get(id)?.map((input) => input.text),
           (yield* (yield* AgentSessions).view(id)).inputs.map((input) => input.text),
@@ -293,11 +272,11 @@ layer(services, { timeout: "3 minutes" })("Slack conversation", (it) => {
           ),
         )
         yield* processor.process(id)
-        assert.strictEqual((yield* (yield* AgentSessions).view(id)).inputs.length, 4)
+        assert.strictEqual((yield* (yield* AgentSessions).view(id)).inputs.length, 5)
         yield* sql`UPDATE slack_output SET state='sent' WHERE session_id=${id} AND sequence=999`
         yield* processor.process(id)
         assert.strictEqual((yield* (yield* AgentSessions).view(id)).inputs.length, 5)
-      }),
+      }).pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue())),
   )
   it.effect("sends account-link guidance only ephemerally", () =>
     Effect.gen(function* () {

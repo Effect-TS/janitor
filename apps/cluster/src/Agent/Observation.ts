@@ -145,14 +145,16 @@ export class SessionObservation extends Context.Service<
               a.runner_state, a.runner_error,
               t.channel_id, t.thread_ts, t.pr_number, t.warning AS thread_warning, t.delivery_warning,
               CASE
+                WHEN a.session_id IS NULL AND t.startup_phase IN ('preparing','selecting','history','runner') THEN 'working'
                 WHEN a.session_id IS NULL OR a.runner_state = 'blocked' OR f.block_reason IS NOT NULL
                   THEN 'blocked'
                 ELSE COALESCE(p.execution, 'idle')
               END AS execution,
               CASE
-                WHEN a.session_id IS NULL THEN COALESCE(t.warning, ${WAITING_FOR_SELECTION})
+                WHEN a.session_id IS NULL THEN CASE t.startup_phase WHEN 'clarification' THEN COALESCE(t.warning, ${WAITING_FOR_SELECTION}) WHEN 'history' THEN 'Reading earlier discussion' WHEN 'selecting' THEN 'Inferring repository' WHEN 'repository' THEN COALESCE(t.warning,'Waiting for repository readiness') WHEN 'runner' THEN 'Starting workspace' WHEN 'retry' THEN COALESCE(t.warning,'Retrying session preparation') WHEN 'failed' THEN COALESCE(t.warning,'Session preparation failed') ELSE COALESCE(t.warning,'Preparing session') END
                 WHEN f.block_reason IS NOT NULL THEN f.block_reason
                 WHEN a.runner_state = 'blocked' THEN COALESCE(a.runner_error, 'The runner refused work')
+                WHEN a.runner_state = 'creating' AND t.session_id IS NOT NULL AND (p.reason IS NULL OR p.reason='input pending') THEN 'Starting workspace'
                 ELSE p.reason
               END AS reason,
               COALESCE(p.activity_at, a.created_at, to_timestamp(t.thread_ts::numeric)) AS activity_key,
