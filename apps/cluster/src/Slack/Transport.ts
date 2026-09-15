@@ -51,7 +51,6 @@ export class SlackTransport extends Context.Service<
       root: string,
       cursor: string,
       latest?: string,
-      oldest?: string,
     ) => Effect.Effect<ThreadPage, SlackTransportError>
     readonly post: (
       channel: string,
@@ -179,7 +178,7 @@ export class SlackTransport extends Context.Service<
             ),
             Effect.map((body) => body.channel),
           ),
-        replies: (channel, root, cursor, latest, oldest) =>
+        replies: (channel, root, cursor, latest) =>
           call("conversations.replies", {
             channel,
             ts: root,
@@ -187,7 +186,6 @@ export class SlackTransport extends Context.Service<
             limit: 100,
             include_all_metadata: true,
             ...(latest === undefined ? {} : { latest, inclusive: true }),
-            ...(oldest === undefined ? {} : { oldest, inclusive: true }),
           }).pipe(
             Effect.flatMap(
               decode(

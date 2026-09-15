@@ -243,8 +243,8 @@ delivery attempts, the thread's Slack scan columns and feedback hydration fire
 only when a health column actually changes, because the scans rewrite those
 columns together with cursors, due times and leases on every page. Lateness
 that comes from time alone has no trigger; the browser's fallback refresh
-picks it up. No data changes. `0033` later removes the GitHub scan and its
-triggers; the Slack thread and feedback triggers remain.
+picks it up. No data changes. `0033` and `0034` later remove both scans and
+their triggers; the feedback triggers remain.
 
 ## Repository access lifecycle
 
@@ -293,6 +293,16 @@ No data changes.
 `0033_remove_github_recovery_scan.sql` drops `platform_recovery`,
 `github_recovery_attempt` and their live triggers, and replaces
 `delete_repository_data` without the retained-attempt deletion. GitHub feedback
-arrives by webhook only; a delivery GitHub fails to make is not recovered. The
-Slack thread scan columns, feedback hydration and their triggers are unchanged.
-The GitHub scan's single row and any pending attempts are discarded.
+arrives by webhook only; a delivery GitHub fails to make is not recovered.
+Feedback hydration and its triggers are unchanged. The GitHub scan's single row
+and any pending attempts are discarded.
+
+## Remove the Slack thread scan
+
+`0034_remove_slack_thread_scan.sql` drops the `slack_thread` scan columns
+(`recovery_cursor`, `recovery_oldest`, `recovery_highwater`, `recovery_due_at`,
+`recovery_completed_at`, `recovery_lease_until`, `recovery_lease_token`,
+`recovery_warning`) and the `live_session_thread_recovery` trigger. Slack
+messages arrive by event only and Slack retries failed deliveries itself; a
+message whose event never arrives is not recovered. `delivery_warning` stays
+with Slack delivery. Scan progress on existing threads is discarded.

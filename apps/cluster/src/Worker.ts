@@ -1,6 +1,5 @@
 import { runnerTransport } from "./Agent/RunnerBinding.ts"
 import * as ConfigProvider from "effect/ConfigProvider"
-import { SlackRecovery } from "./Slack/Recovery.ts"
 import { RepositoryActivity } from "./RepositoryActivity.ts"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import { RepositoryLive } from "./LiveHub.ts"
@@ -336,7 +335,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           SlackWebhook.layer,
           SlackInteractivity.layer,
         ).pipe(
-          Layer.provide(SlackRecovery.layer),
           Layer.provideMerge(
             Layer.mergeAll(
               SlackProcessor.layer,

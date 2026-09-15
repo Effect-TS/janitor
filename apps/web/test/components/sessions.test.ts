@@ -41,16 +41,6 @@ const detail: SessionDetail = {
   lastInputAt: at,
   latestError: "provider down",
   pendingDelivery: [{ platform: "slack", state: "pending", error: "not_in_channel" }],
-  recovery: [
-    {
-      platform: "slack",
-      completedAt: at,
-      overdue: true,
-      incomplete: true,
-      warning: "ratelimited",
-      gap: "Deleted uncaptured text cannot be recovered",
-    },
-  ],
 }
 
 const loaded = (model: Sessions.Model, sessions: ReadonlyArray<SessionSummary>) =>
@@ -137,44 +127,6 @@ describe("Sessions dashboard", () => {
     const refreshed = Sessions.update(cleared.model, Sessions.Message.ClickedRefresh())
     expect(refreshed.commands?.map((command) => command.name)).toEqual(["FetchSessions"])
     expect(refreshed.model.live.retry).toBe(cleared.model.live.retry)
-  })
-
-  it("states an overdue scan, incomplete capture and known gaps without claiming recovery", () => {
-    const entered = Sessions.enter(Sessions.init(), "ses-working")
-    const model = Sessions.update(
-      entered.model,
-      Sessions.Message.LoadedDetail({ generation: entered.model.generation, detail }),
-    ).model
-    scene(
-      model,
-      Scene.expect(Scene.text("Slack catch-up")).toExist(),
-      Scene.expect(
-        Scene.text("Slack: scan overdue, last 2026-09-13 10:00 UTC; results still arriving"),
-      ).toExist(),
-      Scene.expect(Scene.text("Retrying past: ratelimited")).toExist(),
-      Scene.expect(Scene.text("Deleted uncaptured text cannot be recovered")).toExist(),
-    )
-    const caughtUp = Sessions.update(
-      entered.model,
-      Sessions.Message.LoadedDetail({
-        generation: entered.model.generation,
-        detail: {
-          ...detail,
-          recovery: [
-            {
-              platform: "slack",
-              completedAt: null,
-              overdue: false,
-              incomplete: false,
-              warning: null,
-              gap: null,
-            },
-          ],
-        },
-      }),
-    ).model
-    // A thread that was never scanned is not called caught up.
-    scene(caughtUp, Scene.expect(Scene.text("Slack: not scanned yet")).toExist())
   })
 
   it("keeps last known data and says so when a refresh fails", () => {

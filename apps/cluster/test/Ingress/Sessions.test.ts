@@ -73,7 +73,6 @@ it.effect("serves paginated session reads and the team-wide live channel to the 
                     lastInputAt: at,
                     latestError: null,
                     pendingDelivery: [],
-                    recovery: [],
                   })
                 : Effect.fail(new AgentSessionNotFound({ sessionId })),
           }),

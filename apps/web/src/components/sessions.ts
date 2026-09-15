@@ -1,7 +1,6 @@
 import {
   type DeliveryItem,
   ExecutionState,
-  type RecoveryStatus,
   SessionCursor,
   SessionDetail,
   SessionPage,
@@ -35,8 +34,6 @@ import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
 import {
-  CircleAlert,
-  Clock,
   ExternalLink,
   GitPullRequest,
   MessageSquare,
@@ -564,68 +561,6 @@ const alert = (h: HtmlBuilder<Message>, text: string): Html =>
     children: [h.div([h.Class("font-medium text-destructive")], [text])],
   })
 
-/**
- * One line for the Slack thread scan, stating what it is doing rather than
- * what it found. A caught-up scan with nothing pending says so; a gap is shown
- * next to it because being caught up never means nothing was lost.
- */
-const describeRecovery = (
-  h: HtmlBuilder<Message>,
-  status: RecoveryStatus,
-): ReadonlyArray<Html | string> => {
-  const parts: Array<ReadonlyArray<Html | string>> = []
-  if (status.completedAt === null) parts.push(["not scanned yet"])
-  else if (status.overdue)
-    parts.push(["scan overdue, last ", mono(h, formatTime(status.completedAt))])
-  if (status.incomplete) parts.push(["results still arriving"])
-  const body: ReadonlyArray<Html | string> =
-    parts.length === 0
-      ? ["caught up, last scan ", mono(h, formatTime(status.completedAt!))]
-      : parts.flatMap((part, index) => (index === 0 ? part : ["; ", ...part]))
-  return [`${platformName(status.platform)}: `, ...body]
-}
-
-const recoveryRow = (h: HtmlBuilder<Message>, status: RecoveryStatus): Html =>
-  h.div(
-    [h.Class("flex items-start gap-2 py-1.5 text-body-md")],
-    [
-      status.overdue
-        ? Icon.view(h, Clock, "mt-1 size-3.5 shrink-0 text-ink-muted")
-        : status.incomplete
-          ? Icon.view(h, CircleAlert, "mt-1 size-3.5 shrink-0 text-ink-muted")
-          : h.span(
-              [h.Class("mt-2 size-1.5 shrink-0 rounded-full bg-success"), h.AriaHidden(true)],
-              [],
-            ),
-      h.div(
-        [h.Class("flex min-w-0 flex-col gap-0.5")],
-        [
-          h.p([], describeRecovery(h, status)),
-          status.warning === null
-            ? h.empty
-            : h.p([h.Class("text-body-sm text-ink-muted")], [`Retrying past: ${status.warning}`]),
-          status.gap === null
-            ? h.empty
-            : h.p([h.Class("text-body-sm text-ink-subtle")], [status.gap]),
-        ],
-      ),
-    ],
-  )
-
-const recoveryCard = (h: HtmlBuilder<Message>, recovery: ReadonlyArray<RecoveryStatus>): Html =>
-  Page.inspectorCard(h, {
-    heading: "Slack catch-up",
-    children:
-      recovery.length === 0
-        ? [h.p([h.Class("text-body-md text-ink-muted")], ["No Slack thread to catch up."])]
-        : [
-            Page.kvList(
-              h,
-              recovery.map((status) => recoveryRow(h, status)),
-            ),
-          ],
-  })
-
 const healthDot = (h: HtmlBuilder<Message>, healthy: boolean): Html =>
   h.span(
     [
@@ -768,11 +703,7 @@ const inspector = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> =
         ],
       }),
     ]
-  return [
-    sessionCard(h, model.detail),
-    deliveryCard(h, model.detail),
-    recoveryCard(h, model.detail.recovery),
-  ]
+  return [sessionCard(h, model.detail), deliveryCard(h, model.detail)]
 }
 
 const filterSelect = (h: HtmlBuilder<Message>, model: Model): Html =>

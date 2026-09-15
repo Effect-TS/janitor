@@ -272,52 +272,6 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
     }),
   )
 
-  it.effect("exposes overdue scans, incomplete hydration and known gaps per platform", () =>
-    Effect.gen(function* () {
-      const sessions = yield* AgentSessions
-      const observation = yield* SessionObservation
-      const sql = yield* SqlClient.SqlClient
-      yield* sql`INSERT INTO github_installation (installation_id, account_database_id, account_handle, account_type, repository_selection, status, html_url, projected_sequence, access_error) VALUES ('1', '1', 'acme', 'Organization', 'all', 'active', 'https://github.com/acme', 1, NULL) ON CONFLICT DO NOTHING`
-      // A ready repository: sessions on a fenced repository read as blocked instead.
-      yield* sql`INSERT INTO github_repository (repository_id, installation_id, owner, repo, access, enabled, projected_sequence, automation_ready_at) VALUES ('903', '1', 'acme', 'gizmos', 'accessible', TRUE, 0, CLOCK_TIMESTAMP()) ON CONFLICT DO NOTHING`
-      yield* sessions.start({ sessionId: "o-recovery", title: "Recovery", repositoryId: "903" })
-      yield* sql`INSERT INTO slack_thread (session_id, workspace_id, channel_id, thread_ts, boundary_ts, repository_id, state)
-        VALUES ('o-recovery', 'T1', 'C4', '1700001000.000400', '1700001000.000400', '903', 'ready')`
-
-      // Nothing has been scanned yet: the thread scan is overdue and its standing gap is stated.
-      let detail = yield* observation.detail("o-recovery")
-      const slack = () => detail.recovery.find((status) => status.platform === "slack")!
-      assert.strictEqual(detail.recovery.length, 1)
-      assert.isNull(slack().completedAt)
-      assert.isTrue(slack().overdue)
-      assert.isFalse(slack().incomplete)
-      assert.include(slack().gap!, "never-received")
-
-      // A thread that is not ready has nothing to scan yet and is not late.
-      yield* sql`UPDATE slack_thread SET state = 'initializing' WHERE session_id = 'o-recovery'`
-      detail = yield* observation.detail("o-recovery")
-      assert.isFalse(slack().overdue)
-      assert.isNull(slack().completedAt)
-      yield* sql`UPDATE slack_thread SET state = 'ready' WHERE session_id = 'o-recovery'`
-
-      // A recent scan is caught up; a paginated cursor keeps it incomplete.
-      yield* sql`UPDATE slack_thread SET recovery_completed_at = CLOCK_TIMESTAMP(), recovery_warning = 'ratelimited' WHERE session_id = 'o-recovery'`
-      detail = yield* observation.detail("o-recovery")
-      assert.isFalse(slack().overdue)
-      assert.isFalse(slack().incomplete)
-      assert.strictEqual(slack().warning, "ratelimited")
-      yield* sql`UPDATE slack_thread SET recovery_cursor = 'page-2' WHERE session_id = 'o-recovery'`
-      detail = yield* observation.detail("o-recovery")
-      assert.isTrue(slack().incomplete)
-
-      // Completed more than two cycles ago is overdue again.
-      yield* sql`UPDATE slack_thread SET recovery_completed_at = CLOCK_TIMESTAMP() - interval '11 minutes', recovery_cursor = '' WHERE session_id = 'o-recovery'`
-      detail = yield* observation.detail("o-recovery")
-      assert.isTrue(slack().overdue)
-      assert.isFalse(slack().incomplete)
-    }),
-  )
-
   it.effect("commits invalidation intent with projection and delivery changes", () =>
     Effect.gen(function* () {
       const sessions = yield* AgentSessions
@@ -357,22 +311,13 @@ layer(Services, { timeout: "3 minutes" })("Session observation", (it) => {
       yield* sql`UPDATE slack_thread SET delivery_warning = 'pending reply' WHERE session_id = 'o-live'`
       assert.deepStrictEqual(yield* pending(), [{ topic: "sessions" }])
 
-      // Recovery health is visible, so it invalidates; scan cursors and leases do not.
-      yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
-      yield* sql`UPDATE slack_thread SET recovery_cursor = 'c', recovery_lease_token = 'x', recovery_due_at = CLOCK_TIMESTAMP() WHERE session_id = 'o-live'`
-      assert.deepStrictEqual(yield* pending(), [])
-      yield* sql`UPDATE slack_thread SET recovery_completed_at = CLOCK_TIMESTAMP() WHERE session_id = 'o-live'`
-      assert.deepStrictEqual(yield* pending(), [{ topic: "sessions" }])
-      yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
-      yield* sql`UPDATE slack_thread SET recovery_warning = 'ratelimited' WHERE session_id = 'o-live'`
-      assert.deepStrictEqual(yield* pending(), [{ topic: "sessions" }])
+      // Feedback hydration is visible, so it invalidates.
       yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
       yield* sql`INSERT INTO github_feedback (session_id, contribution_key, review_id, reviewer_id, author, authorized)
         VALUES ('o-live', 'review:9', '9', '77', '{}', true)`
       assert.deepStrictEqual(yield* pending(), [{ topic: "sessions" }])
       yield* sql`DELETE FROM live_notification WHERE repository_id = 'sessions'`
-      // The scans rewrite health columns with every page; unchanged values stay silent.
-      yield* sql`UPDATE slack_thread SET recovery_warning = 'ratelimited', recovery_cursor = 'c2' WHERE session_id = 'o-live'`
+      // Hydration rewrites its columns with every page; unchanged values stay silent.
       yield* sql`UPDATE github_feedback SET warning = NULL, cursor = 'comments-2' WHERE session_id = 'o-live' AND contribution_key = 'review:9'`
       assert.deepStrictEqual(yield* pending(), [])
 
