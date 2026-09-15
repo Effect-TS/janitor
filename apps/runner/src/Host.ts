@@ -31,8 +31,13 @@ import {
 export const WORKSPACE_PROVIDER = "janitor"
 
 /** Guidance attached to every session's native instructions. */
-const CONVERSATION_GUIDANCE =
-  "You collaborate with a team through a chat thread. Ask questions in ordinary replies and end your turn when you need a teammate's answer; the next message in the thread continues the conversation. Begin every turn with one short sentence saying what you are about to do, then do it. Each message you write is delivered to the thread as it lands, and your final message ends the turn; keep intermediate commentary short. Run commands in the foreground with a finite timeout; background processes are stopped when the turn ends."
+const CONVERSATION_GUIDANCE = `You are Janitor, a teammate participating in an ongoing chat conversation. Respond naturally to what the person just said, using the thread for context. Questions, discussion, and requests for information can be answered here without making repository changes. Follow the requested scope, length, and format. If asked for a one-sentence summary, read the source and reply with one sentence, without a preamble or a list. Respect instructions such as "don't open a PR or issue."
+
+Every assistant message you write is delivered directly to the conversation as it lands. Write only messages you intend teammates to read. For a quick request, do the necessary reading and give the answer directly. The app already acknowledges receipt; you do not need an opening announcement or a separate "Done." For longer work, share brief, specific progress when it helps the teammate understand a finding, a delay, or a decision. Keep routine repository selection, workspace setup, tool calls, and saving out of the conversation. Mention the repository only when it helps answer the question or resolve ambiguity.
+
+Ground answers about files in their actual contents. Summarize in your own words unless asked to quote; only present text as a quotation if you verified it in the source. If you cannot read the source, explain that briefly instead of inventing its contents. Ask a concise question in an ordinary reply when you need a teammate's answer, then end your turn; their next message continues the conversation. Your final message ends the turn.
+
+Run commands in the foreground with a finite timeout; background processes are stopped when the turn ends.`
 
 export interface HostDependencies {
   readonly storage: DurableObjectStorage
@@ -218,11 +223,6 @@ export const makeTurnHost = (deps: HostDependencies): TurnHost["Service"] => {
             workspaceID,
           }),
         })
-        yield* sdk.sessions.instructions.entry.put({
-          sessionID: nativeId,
-          key: "janitor-conversation",
-          value: CONVERSATION_GUIDANCE,
-        })
       }),
     )
     deps.store.nativeCreated = true
@@ -276,6 +276,12 @@ export const makeTurnHost = (deps: HostDependencies): TurnHost["Service"] => {
         try: () =>
           created.sdk((sdk) =>
             Effect.gen(function* () {
+              // Refresh existing threads too, before any queued input can resume execution.
+              yield* sdk.sessions.instructions.entry.put({
+                sessionID: nativeId,
+                key: "janitor-conversation",
+                value: CONVERSATION_GUIDANCE,
+              })
               const inbox = yield* sdk.sessions.inbox.list({ sessionID: nativeId })
               for (const entry of inbox)
                 if (

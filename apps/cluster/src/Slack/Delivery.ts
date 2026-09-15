@@ -24,11 +24,6 @@ export interface Output {
   readonly reconcile_cursor: string
   readonly actions: InterruptionActions | null
 }
-const STAGE_PROGRESS = {
-  preparing: "Preparing the workspace.",
-  working: "Working on your request.",
-  saving: "Saving the workspace.",
-} as const
 
 export class SlackDelivery extends Context.Service<
   SlackDelivery,
@@ -89,17 +84,8 @@ export class SlackDelivery extends Context.Service<
                       contribution_key: string
                     }>`SELECT contribution_key FROM agent_input WHERE session_id=${sessionId} AND runner_message_id=${fields.inputId ?? ""}`
                     if (input) contribution = input.contribution_key
-                    yield* enqueueOutput("progress", STAGE_PROGRESS.preparing)
                     break
                   }
-                  case "turn.stage":
-                    yield* enqueueOutput(
-                      "progress",
-                      fields.stage === undefined
-                        ? STAGE_PROGRESS.working
-                        : STAGE_PROGRESS[fields.stage],
-                    )
-                    break
                   case "turn.message":
                     // Text blocks reach the thread as they land; GitHub replies wait for the whole answer.
                     if (fields.text && !contribution?.startsWith("github:")) {
@@ -110,7 +96,6 @@ export class SlackDelivery extends Context.Service<
                   case "turn.completed":
                     if (fields.text && (streamed === null || streamed !== attemptKey(fields)))
                       yield* enqueueOutput("response", fields.text)
-                    yield* enqueueOutput("progress", "Done.")
                     break
                   case "turn.interrupted":
                   case "turn.save_failed": {
@@ -125,7 +110,6 @@ export class SlackDelivery extends Context.Service<
                       inputId: fields.inputId,
                       attempt: fields.attempt,
                     })
-                    yield* enqueueOutput("progress", "Waiting for a teammate to retry or skip.")
                     break
                   }
                   case "turn.skipped":
