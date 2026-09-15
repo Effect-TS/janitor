@@ -17,6 +17,8 @@ import {
 
 export interface SandboxToolOptions {
   readonly workspace: SandboxWorkspace["Service"]
+  /** Resolves once the turn's checkout is prepared; tools never touch the workspace before it. */
+  readonly ready: Effect.Effect<void, WorkspaceError>
   /** Null for conversation-only sessions: no repository tools are offered. */
   readonly publication: Publication | null
   readonly hasRepository: boolean
@@ -71,7 +73,8 @@ const truncate = (text: string, limit = OUTPUT_LIMIT) =>
 export const makeSandboxTools = (options: SandboxToolOptions): ReadonlyArray<Tool.Info> => {
   const { workspace } = options
   const run = <A>(operation: Effect.Effect<A, WorkspaceError | Tool.Error>) =>
-    operation.pipe(
+    options.ready.pipe(
+      Effect.andThen(operation),
       Effect.mapError(toolError),
       // Interruption stops the sandbox processes the tool started.
       Effect.onInterrupt(() => workspace.stopProcesses.pipe(Effect.ignore)),

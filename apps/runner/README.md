@@ -23,7 +23,7 @@ The image in `container/Dockerfile` is Cloudflare's Sandbox runtime plus Git, ri
 
 1. An input is durably accepted and acknowledged before any container starts; later inputs queue in acceptance order.
 2. A turn reuses the live workspace when it still matches the last recovery point, otherwise restores that point or clones the repository, then reconciles uncertain publication outcomes.
-3. OpenCode runs in the object; tools call the owned sandbox. Commands default to ten minutes and turns to thirty (`JANITOR_COMMAND_TIMEOUT_MS`, `JANITOR_TURN_TIMEOUT_MS`).
+3. OpenCode runs in the object; tools call the owned sandbox. A first attempt starts the model while the checkout is still being prepared, so its opening sentence reaches the thread at model latency; every tool waits for the checkout before touching it. A retry prepares first, because the model must be told when the workspace was restored. Commands default to ten minutes and turns to thirty (`JANITOR_COMMAND_TIMEOUT_MS`, `JANITOR_TURN_TIMEOUT_MS`).
 4. When the model finishes, background processes stop and a backup of `/workspace/repository` is uploaded, omitting only disposable caches. The pointer, the completed-turn record and the reply event commit together; the previous backup is deleted afterwards.
 5. Saving retries within `JANITOR_SAVE_RETRIES` without rerunning the model. Persistent failure is reported as `turn.save_failed`, not success.
 6. Anything short of a committed recovery point leaves the session waiting: later inputs stay queued until a teammate retries or skips the interrupted attempt. The next attempt restores the last recovery point and is told so. Native OpenCode recovery is inert; the object never restarts a model turn on its own.

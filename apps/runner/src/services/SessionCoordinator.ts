@@ -38,6 +38,7 @@ import { RecoveryStore } from "./RecoveryStore.ts"
 import { RepositoryCheckout } from "./RepositoryCheckout.ts"
 import { SandboxWorkspace, WorkspaceError } from "./SandboxWorkspace.ts"
 import { HostError, TurnHost, TurnScheduler, type TurnOutcome } from "./TurnHost.ts"
+import type { WorkspaceReadiness } from "./WorkspaceReadiness.ts"
 
 export interface CoordinatorOptions {
   /** Overall allowance for one attempt, including preparation; exceeding it interrupts the turn. */
@@ -66,6 +67,8 @@ export interface CoordinatorDependencies {
   readonly resolveModelConfiguration: (requested: string | undefined) => string
   /** Tells the API that new events are readable; fire-and-forget, the API's polling is the guarantee. */
   readonly notify: () => void
+  /** The gate sandbox tools wait on until the turn's checkout is prepared. */
+  readonly readiness: WorkspaceReadiness
 }
 
 const RESTORED_NOTE =
@@ -445,26 +448,48 @@ export class SessionCoordinator extends Context.Service<
           return
         }
       }
+      const readiness = deps.readiness
       const body = Effect.gen(function* () {
         stage(input, attempt, "preparing")
-        const prepared = yield* checkout.prepare
-        // From here the container diverges from its recovery point until the next save commits.
-        checkout.markDirty()
+        readiness.reset()
+        const prepare = checkout.prepare.pipe(
+          Effect.tap((prepared) =>
+            Effect.sync(() => {
+              // From here the container diverges from its recovery point until the next save commits.
+              checkout.markDirty()
+              stage(input, attempt, "working")
+              readiness.open()
+              return prepared
+            }),
+          ),
+          Effect.tapError((error) => Effect.sync(() => readiness.fail(error.message))),
+        )
         const notes = notesFor(attempts)
         const cancel = store.skipped
-        if (prepared.source === "restored" && notes.length === 0 && attempts.length > 0)
-          notes.push(RESTORED_NOTE)
-        stage(input, attempt, "working")
-        const outcome = yield* host.run({
-          inputId: input.inputId,
-          attempt,
-          text: input.text,
-          attribution: input.attribution,
-          notes,
-          cancel,
-          message: (ordinal, text) =>
-            emit("turn.message", { inputId: input.inputId, attempt, ordinal, text }),
-        })
+        const run = (notes: ReadonlyArray<string>) =>
+          host.run({
+            inputId: input.inputId,
+            attempt,
+            text: input.text,
+            attribution: input.attribution,
+            notes,
+            cancel,
+            message: (ordinal, text) =>
+              emit("turn.message", { inputId: input.inputId, attempt, ordinal, text }),
+          })
+        let outcome: TurnOutcome
+        if (attempts.length === 0) {
+          // A first attempt starts the model at once; its tools wait for the checkout.
+          const [, result] = yield* Effect.all([prepare, run(notes)], {
+            concurrency: "unbounded",
+          })
+          outcome = result
+        } else {
+          // A retry must know whether the workspace was restored before the model speaks.
+          const prepared = yield* prepare
+          if (prepared.source === "restored" && notes.length === 0) notes.push(RESTORED_NOTE)
+          outcome = yield* run(notes)
+        }
         if (cancel.length > 0) store.skipped = []
         return outcome
       })
@@ -493,6 +518,8 @@ export class SessionCoordinator extends Context.Service<
           Effect.succeed<TurnOutcome>({ type: "interrupted", reason: describe(cause) }),
         ),
       )
+      // A tool call that outlives the turn must not wait forever on a gate nobody opens.
+      readiness.fail("The turn ended before its workspace was ready")
       yield* workspace.stopProcesses.pipe(Effect.ignore)
       if (outcome.type !== "completed") {
         interrupt(input, attempt, outcome.reason)

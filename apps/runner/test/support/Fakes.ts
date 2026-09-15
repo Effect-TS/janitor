@@ -6,6 +6,7 @@ import { Effect } from "effect"
 import { RunnerStorage, type SqlStore, type SqlValue } from "../../src/Storage.ts"
 import { KeyValue } from "../../src/services/KeyValue.ts"
 import { RecoveryStore } from "../../src/services/RecoveryStore.ts"
+import { WorkspaceReadiness } from "../../src/services/WorkspaceReadiness.ts"
 import { RepositoryCheckout } from "../../src/services/RepositoryCheckout.ts"
 import {
   REPOSITORY_DIR,
@@ -77,6 +78,10 @@ export class FakeSandbox {
   }
   restoreCount = 0
   cloneCount = 0
+  /** Delays the next clone until the promise settles, so tests can order the model against it. */
+  beforeClone: (() => Promise<void>) | undefined
+  /** Fails clones with this message while set. */
+  cloneFailure: string | undefined
 
   /** Simulates the container being replaced: files and processes are gone. */
   replace() {
@@ -86,8 +91,8 @@ export class FakeSandbox {
 
   readonly service: SandboxWorkspace["Service"] = {
     generation: () => this.generation,
-    exec: (raw) =>
-      Effect.sync((): ExecOutcome => {
+    exec: (raw) => {
+      const run = Effect.sync((): ExecOutcome => {
         // Commands arrive shell-quoted for the workspace user; match on the plain text.
         const command = raw.replaceAll("'\\''", "").replaceAll("'", "")
         this.commands.push(command)
@@ -107,6 +112,7 @@ export class FakeSandbox {
         })
         if (command.includes("git clone")) {
           this.cloneCount++
+          if (this.cloneFailure !== undefined) return fail(this.cloneFailure)
           this.files.set(`${REPOSITORY_DIR}/.git/HEAD`, "ref: refs/heads/main")
           this.files.set(`${REPOSITORY_DIR}/README.md`, "seed")
           return ok()
@@ -129,7 +135,14 @@ export class FakeSandbox {
         if (command.startsWith("mkdir") || command.startsWith("chown") || command.includes("chown"))
           return ok()
         return ok()
-      }),
+      })
+      const before = this.beforeClone
+      if (before !== undefined && raw.includes("git clone")) {
+        this.beforeClone = undefined
+        return Effect.promise(before).pipe(Effect.andThen(run))
+      }
+      return run
+    },
     readFile: (path) => Effect.sync(() => this.files.get(path) ?? null),
     writeFile: (path, content) =>
       Effect.sync(() => {
@@ -212,6 +225,8 @@ export interface Harness {
   readonly wakes: number[]
   /** How many times the coordinator told the API that events are readable. */
   readonly notifies: { count: number }
+  /** The tool gate; tests wait on it the way a sandbox tool does. */
+  readonly readiness: WorkspaceReadiness
   readonly clock: { now: number }
   /** Runs every wake the coordinator requested until the queue is quiet. */
   readonly settle: () => Promise<void>
@@ -236,6 +251,7 @@ export const harness = (
   const clock = options.clock ?? { now: 1_000 }
   const wakes: number[] = []
   const notifies = options.notifies ?? { count: 0 }
+  const readiness = new WorkspaceReadiness()
   const scheduler: TurnScheduler["Service"] = {
     wake: (delayMs) =>
       Effect.sync(() => {
@@ -272,6 +288,7 @@ export const harness = (
       notify: () => {
         notifies.count++
       },
+      readiness,
     },
     host.service,
     checkout,
@@ -294,6 +311,7 @@ export const harness = (
     coordinator,
     wakes,
     notifies,
+    readiness,
     clock,
     settle,
     restart: (incarnation = "inc-2") =>

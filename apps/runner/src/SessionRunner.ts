@@ -24,6 +24,7 @@ import { KeyValue } from "./services/KeyValue.ts"
 import { RecoveryStore } from "./services/RecoveryStore.ts"
 import { RepositoryAuthority } from "./services/RepositoryAuthority.ts"
 import { EventNotifier } from "./services/EventNotifier.ts"
+import { WorkspaceReadiness } from "./services/WorkspaceReadiness.ts"
 import { RepositoryCheckout } from "./services/RepositoryCheckout.ts"
 import {
   REPOSITORY_DIR,
@@ -115,6 +116,7 @@ export class SessionRunner extends Sandbox<RunnerEnv> {
     const store = this.store
     const local = env.JANITOR_SANDBOX_LOCAL === "true"
     const workspace = this.makeWorkspace()
+    const readiness = new WorkspaceReadiness()
     const kv = KeyValue.fromDurableObject(ctx.storage)
     const authority = RepositoryAuthority.make(
       env.REPOSITORY_AUTHORITY,
@@ -209,6 +211,7 @@ export class SessionRunner extends Sandbox<RunnerEnv> {
       tools: () =>
         makeSandboxTools({
           workspace,
+          ready: readiness.ready,
           publication: publication(),
           hasRepository:
             store.session?.repositoryId !== null && store.session?.repositoryId !== undefined,
@@ -267,6 +270,7 @@ export class SessionRunner extends Sandbox<RunnerEnv> {
           return id
         },
         notify: () => notifier.notify(),
+        readiness,
       },
       host,
       checkout,
