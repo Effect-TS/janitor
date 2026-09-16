@@ -123,6 +123,7 @@ it.effect(
               object: "chat.completion",
               created: 1,
               model: "test",
+              service_tier: null,
               choices: [{ index: 0, message, finish_reason: first ? "tool_calls" : "stop" }],
               usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
             }),

@@ -1,0 +1,85 @@
+diff --git a/dist/OpenAiClient.js b/dist/OpenAiClient.js
+index 041cc8efd686082b1371d4ba6064c13980aaf2fd..86b1841cb1ab8b07247c0365e644c25d42bf27db 100644
+--- a/dist/OpenAiClient.js
++++ b/dist/OpenAiClient.js
+@@ -14,6 +14,7 @@ import { identity } from "effect/Function";
+ import * as Layer from "effect/Layer";
+ import * as Redacted from "effect/Redacted";
+ import * as Schema from "effect/Schema";
++import * as SchemaTransformation from "effect/SchemaTransformation";
+ import * as Stream from "effect/Stream";
+ import * as Sse from "effect/unstable/encoding/Sse";
+ import * as Headers from "effect/unstable/http/Headers";
+@@ -229,13 +230,18 @@ const ChatCompletionUsage = /*#__PURE__*/Schema.Struct({
+   prompt_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any),
+   completion_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any)
+ });
++// OpenRouter returns null when no service tier applies.
++const ServiceTier = Schema.NullOr(Schema.String).pipe(Schema.decodeTo(Schema.UndefinedOr(Schema.String), SchemaTransformation.transform({
++  decode: (value) => value ?? undefined,
++  encode: (value) => value ?? null
++})));
+ const ChatCompletionResponse = /*#__PURE__*/Schema.Struct({
+   id: Schema.String,
+   model: Schema.String,
+   created: Schema.Int,
+   choices: /*#__PURE__*/Schema.Array(ChatCompletionChoice),
+   usage: /*#__PURE__*/Schema.optionalKey(/*#__PURE__*/Schema.NullOr(ChatCompletionUsage)),
+-  service_tier: /*#__PURE__*/Schema.optionalKey(Schema.String)
++  service_tier: /*#__PURE__*/Schema.optionalKey(ServiceTier)
+ });
+ const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
+   id: Schema.String,
+@@ -243,7 +249,7 @@ const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
+   created: Schema.Int,
+   choices: /*#__PURE__*/Schema.Array(ChatCompletionChoice),
+   usage: /*#__PURE__*/Schema.optionalKey(/*#__PURE__*/Schema.NullOr(ChatCompletionUsage)),
+-  service_tier: /*#__PURE__*/Schema.optionalKey(Schema.String)
++  service_tier: /*#__PURE__*/Schema.optionalKey(ServiceTier)
+ });
+ const parseJson = value => {
+   try {
+diff --git a/src/OpenAiClient.ts b/src/OpenAiClient.ts
+index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..7bef31c6180443e7abe922bbe67e2be2abecfff5 100644
+--- a/src/OpenAiClient.ts
++++ b/src/OpenAiClient.ts
+@@ -15,6 +15,7 @@ import { identity } from "effect/Function"
+ import * as Layer from "effect/Layer"
+ import * as Redacted from "effect/Redacted"
+ import * as Schema from "effect/Schema"
++import * as SchemaTransformation from "effect/SchemaTransformation"
+ import * as Stream from "effect/Stream"
+ import type * as AiError from "effect/unstable/ai/AiError"
+ import * as Sse from "effect/unstable/encoding/Sse"
+@@ -1144,13 +1145,21 @@ const ChatCompletionUsage = Schema.Struct({
+   completion_tokens_details: Schema.optionalKey(Schema.Any)
+ })
+ 
++// OpenRouter returns null when no service tier applies.
++const ServiceTier = Schema.NullOr(Schema.String).pipe(
++  Schema.decodeTo(Schema.UndefinedOr(Schema.String), SchemaTransformation.transform({
++    decode: (value) => value ?? undefined,
++    encode: (value) => value ?? null
++  }))
++)
++
+ const ChatCompletionResponse = Schema.Struct({
+   id: Schema.String,
+   model: Schema.String,
+   created: Schema.Int,
+   choices: Schema.Array(ChatCompletionChoice),
+   usage: Schema.optionalKey(Schema.NullOr(ChatCompletionUsage)),
+-  service_tier: Schema.optionalKey(Schema.String)
++  service_tier: Schema.optionalKey(ServiceTier)
+ })
+ 
+ const ChatCompletionChunk = Schema.Struct({
+@@ -1159,7 +1168,7 @@ const ChatCompletionChunk = Schema.Struct({
+   created: Schema.Int,
+   choices: Schema.Array(ChatCompletionChoice),
+   usage: Schema.optionalKey(Schema.NullOr(ChatCompletionUsage)),
+-  service_tier: Schema.optionalKey(Schema.String)
++  service_tier: Schema.optionalKey(ServiceTier)
+ })
+ 
+ /**
