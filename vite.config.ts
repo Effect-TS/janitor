@@ -88,7 +88,11 @@ export default defineConfig({
         extends: true,
         test: {
           name: "backend",
-          include: ["apps/cluster/test/**/*.test.ts", "packages/domain/test/**/*.test.ts"],
+          include: [
+            "apps/cluster/test/**/*.test.ts",
+            "packages/domain/test/**/*.test.ts",
+            "packages/alchemy/test/**/*.test.ts",
+          ],
         },
       },
       "./apps/web/vite.config.ts",
