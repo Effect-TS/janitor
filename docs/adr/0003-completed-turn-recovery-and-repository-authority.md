@@ -1,5 +1,7 @@
 # Preserve completed turns and separate repository authority
 
+Superseded for new Slack sessions by [ADR 0005](0005-slack-sessions-in-the-api-worker.md). The text below records the previous recovery contract.
+
 The renewed Linux sandbox design preserves completed turns and durably accepted inputs after container loss. An interrupted turn may lose unfinished workspace changes and report interruption. Unknown external write outcomes require reconciliation before retry. This trades per-tool filesystem durability for a smaller recovery protocol. Final success is reported only after a consistent recovery point is saved. Saving may retry without rerunning the model; persistent save failure is reported distinctly from successful completion. Acknowledgement and progress do not wait for the final save.
 
 Repository scripts are untrusted. Broad GitHub and model credentials remain outside the container, and trusted application code authorizes the scoped operations available to it. Publication uses a dedicated DO-controlled tool that checks repository authority and reconciles push and PR outcomes. Shell commands may edit, test and commit locally, but receive no GitHub write credentials. This limits repository code's authority even when it can execute arbitrary Linux commands. The mechanism for consistent backups remains undecided.

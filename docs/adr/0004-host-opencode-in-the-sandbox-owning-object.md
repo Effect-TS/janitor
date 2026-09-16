@@ -1,5 +1,7 @@
 # Host OpenCode in the sandbox-owning Durable Object
 
+Superseded for new Slack sessions by [ADR 0005](0005-slack-sessions-in-the-api-worker.md).
+
 The renewed sandbox design places Janitor coordination and OpenCode in the same Durable Object that owns the Linux sandbox. Conversation state stays in DO SQLite; focused Effect services delegate filesystem and process operations to supported Sandbox APIs. This removes the second coordinator DO while preserving durable conversation storage and keeping model credentials outside repository execution. Moving OpenCode into Linux would simplify local tool access but would also require consistent recovery of its conversation database.
 
 This supersedes ADR 0002's choice of SQLite repository files and no shell. It does not supersede ADR 0001's separate Worker decision. The Sandbox SDK retains ownership of its lifecycle and alarm handler; application scheduling must compose with that ownership.

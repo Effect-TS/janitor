@@ -14,7 +14,7 @@ import ClusterWorker from "@janitor/cluster/Worker"
 import { deployment } from "@janitor/cluster/Deployment"
 import { Stage } from "alchemy/Stage"
 
-import { AgentRunner } from "./stacks/runner.ts"
+import { SandboxContainerRuntime } from "@janitor/alchemy/Cloudflare/AI/SandboxContainerRuntime"
 
 const DockerProviders = Layer.effect(
   Docker.Providers,
@@ -48,9 +48,7 @@ export default Alchemy.Stack(
     if (target.stage !== "local" && stage !== target.stage)
       return yield* Effect.die(new Error("JANITOR_STAGE must match the Alchemy --stage argument"))
     const database = yield* JanitorDatabase
-    const cluster = yield* ClusterWorker
-
-    const runner = yield* AgentRunner
+    const cluster = yield* ClusterWorker.pipe(Effect.provide(SandboxContainerRuntime))
 
     const website = yield* Cloudflare.Website.Foldkit("Website", {
       rootDir: new URL("./apps/web", import.meta.url).pathname,
@@ -65,7 +63,6 @@ export default Alchemy.Stack(
     return {
       databaseId: database.databaseId,
       apiUrl: cluster.url,
-      runnerUrl: runner?.url,
       url: website.url,
     }
   }),

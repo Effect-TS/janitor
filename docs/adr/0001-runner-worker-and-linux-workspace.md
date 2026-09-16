@@ -1,5 +1,7 @@
 # Keep the runner's Worker and session namespaces
 
+Superseded for new Slack sessions by [ADR 0005](0005-slack-sessions-in-the-api-worker.md). The text below records the previous architecture.
+
 Janitor deploys its runner from `apps/runner` through the root Alchemy stack. We retain the `AgentRunner` Worker and its existing SQLite Durable Object namespaces during this integration so live conversations, input receipts and workspace ownership keep their identities. The runner shares the application's lockfile and Effect version, but has its own bundle for OpenCode's Workerd export conditions, text imports and CommonJS compatibility.
 
 A separate Worker is an architectural choice, not a Cloudflare requirement or a remaining Effect version conflict. Combining it with the API Worker would require a tested bundle composition and an explicit transfer of Worker-owned Durable Object classes and namespaces. That migration adds data risk without improving this integration. The cost of keeping the boundary is one service-binding call per runner command, independent Worker startup and a versioned protocol that must tolerate rolling deployments. Model turns and tool calls execute inside the session object and do not call back through the API for each model token.

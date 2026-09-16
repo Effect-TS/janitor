@@ -339,6 +339,9 @@ importers:
       '@foldkit/oxlint-plugin':
         specifier: 'catalog:'
         version: 0.12.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)
+      '@janitor/alchemy':
+        specifier: workspace:^
+        version: link:packages/alchemy
       '@janitor/cluster':
         specifier: workspace:^
         version: link:apps/cluster
@@ -375,6 +378,9 @@ importers:
       '@effect/sql-pg':
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)
+      '@janitor/alchemy':
+        specifier: workspace:^
+        version: link:../../packages/alchemy
       '@janitor/domain':
         specifier: workspace:^
         version: link:../../packages/domain
@@ -534,6 +540,9 @@ importers:
 
   packages/alchemy:
     dependencies:
+      '@effect/platform-node':
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1))
       alchemy:
         specifier: 'catalog:'
         version: 2.0.0-beta.76(patch_hash=5f5b7ad2de7dff0552e11d37c36ca41117400a18d9e0fdd468ac68a8d5fe0cd1)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@effect/sql-pg@4.0.0-rc.112(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(pg@8.23.0)(typescript@7.0.2)(vitest@4.1.11)(ws@8.21.3)
@@ -544,6 +553,9 @@ importers:
       '@effect/vitest':
         specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@ec83cbdb3c0b0f89df627a7895939a359db9f4ab
         version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@ec83cbdb3c0b0f89df627a7895939a359db9f4ab(effect@https://pkg.pr.new/Effect-TS/effect/effect@ec83cbdb3c0b0f89df627a7895939a359db9f4ab)(vitest@4.1.11)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.13.3
 
   packages/domain:
     devDependencies:

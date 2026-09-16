@@ -95,13 +95,13 @@ _Avoid_: Leave unchanged
 An ongoing team effort with Janitor-run agents that teammates can join and steer. It may begin before an issue or pull request exists and later link to those artifacts.
 
 **Agent session**:
-An ongoing conversation with a Janitor-run agent that teammates can join and steer in its home thread, working within one repository. After creation, ordinary messages from authorized teammates are agent inputs; messages arriving during active work queue for the next turn.
+An ongoing conversation with a Janitor-run agent that teammates can join and steer in its home thread. It can begin before repository selection and later use one repository and ref. After creation, ordinary messages from authorized teammates are agent inputs; messages arriving during active work queue for the next turn.
 
 **Default agent model**:
 The team-funded provider and model selected for new agent sessions in a Janitor deployment. It is separate from the provider and model used by AI labeling rules.
 
 **Session model**:
-The provider and model selected for an agent session when it starts. The selection remains unchanged when the deployment default changes; rotating its API credential does not change that selection.
+The provider and model used for a session's turns. New Slack sessions use the deployment's current OpenRouter chat configuration, independently of labeling. Changing that configuration affects subsequent turns.
 
 **Agent input**:
 An authorized teammate instruction directed to an agent session. A delivery retry is the same input; two separately sent instructions remain distinct even when their text matches.
@@ -109,7 +109,7 @@ An authorized teammate instruction directed to an agent session. A delivery retr
 Once accepted, an input remains part of the shared session even if its author disconnects their account or loses team eligibility; its original authorship is preserved.
 
 **Agent turn**:
-An interval of agent work within an ongoing session that may include several model responses and tool operations. Finishing a turn leaves the session available for later inputs. An interrupted turn pauses later inputs until a teammate explicitly retries or skips it.
+An interval of agent work within an ongoing session that may include several model responses and tool operations. Finishing a turn leaves the session available for later inputs. New Slack sessions report interrupted turns without replaying them, then continue with later inputs.
 
 **Home thread**:
 The single private-channel thread where teammates participate in an agent session. The MVP uses Slack; Discord is planned for a later release.
@@ -130,6 +130,13 @@ An authorized team member who may collaborate with agents but cannot change role
 A Slack or Discord account associated with an authorized team member after sign-in to Janitor.
 
 In the MVP, a teammate connects one Slack account per workspace, and each Slack account belongs to one teammate at a time.
+
+**Slack session sandbox**:
+A lazily started Node container owned by a Slack session's Durable Object. It holds one repository checkout and runs filesystem, Git and shell tools. Its files are ephemeral; conversation history and queued inputs survive container replacement, but unpublished edits may not.
+
+### Legacy runner collaboration
+
+The terms below describe the previous runner path. [ADR 0005](docs/adr/0005-slack-sessions-in-the-api-worker.md) replaces it for new Slack sessions. Recovery points, Retry/Skip, publication, GitHub feedback and dashboard observations are not implemented by the new path.
 
 **Runner handoff**:
 Janitor's durable record that an accepted agent input has been sent to the session runner but not yet confirmed as durably accepted there. Inputs are delivered in acceptance order; an earlier input whose receipt is uncertain is retried with its same runner message id before any later input can overtake it.
@@ -202,7 +209,7 @@ A connected repository whose automations and synchronization pipeline are stoppe
 The re-enabling of a paused repository, requiring successful synchronization against GitHub's current state before automation runs again. Events received while paused are not replayed.
 
 **Repository disconnection**:
-Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Disconnection also ends its agent sessions and deletes their session data and saved workspaces, including unpublished work. Work and labels already published on GitHub remain unchanged.
+Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. The legacy runner also retires its sessions. New Slack sessions refuse subsequent tools against a disconnected repository but retain their conversation and ephemeral container until separately removed. Work and labels already published on GitHub remain unchanged.
 
 **Cleanup tombstone**:
 The record Janitor keeps for an agent session ended by repository disconnection or retired at cutover until the runner confirms its conversation, sandbox and recovery points are gone. It carries the session identity, generation and native session id, fences stale work for that identity, and is deleted on confirmation; Janitor retries the remote cleanup with backoff while the runner is unreachable.

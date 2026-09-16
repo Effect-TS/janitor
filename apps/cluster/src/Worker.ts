@@ -1,5 +1,8 @@
-import { SlackProcessingLayer, SlackProcessingRegistration } from "./Slack/Processing.ts"
-import { runnerTransport } from "./Agent/RunnerBinding.ts"
+import { SlackSession, SessionObjectLive } from "./Slack/SessionObject.ts"
+import { makeSessionRuntime, SessionRuntime } from "./Slack/SessionRuntime.ts"
+import { layerRepositories } from "./Slack/Repositories.ts"
+import { SessionAdmission, SessionIngressLive } from "./Slack/SessionIngress.ts"
+import { SlackSessionRoutes } from "./Ingress/SlackSession.ts"
 import * as ConfigProvider from "effect/ConfigProvider"
 import { RepositoryActivity } from "./RepositoryActivity.ts"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
@@ -10,7 +13,7 @@ import { ActivityReader } from "./Labeling/Activity.ts"
 import * as Schema from "effect/Schema"
 import { RuleTestJobLayer, RuleTestJobRegistration, RuleTestJobs } from "./Labeling/RuleTestJob.ts"
 import { RepositoryConnections } from "./RepositoryConnections.ts"
-import { deployment, agentRunnerConnection } from "./Deployment.ts"
+import { deployment } from "./Deployment.ts"
 import { Readiness } from "./Ingress/Readiness.ts"
 import {
   DiscoverInstallationsLayer,
@@ -95,35 +98,10 @@ import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutbo
 import * as AccountLinking from "./AccountLinking.ts"
 import { Teammates, TeammatesConfig } from "./Teammates.ts"
 import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
-import { AgentCatchUpCronLayer, AgentCatchUpCronName } from "./Agent/CatchUpCron.ts"
-import { AgentCleanup } from "./Agent/Cleanup.ts"
-import { AgentCatchUpWake, AgentEventProjection } from "./Agent/EventProjection.ts"
-import { AgentHandoffLayer, AgentHandoffRegistration } from "./Agent/Handoff.ts"
-import { RunnerClient } from "./Agent/RunnerClient.ts"
-import { AgentSessions } from "./Agent/Sessions.ts"
 import { SessionObservation } from "./Agent/Observation.ts"
-import { RepositoryAccess } from "./Agent/RepositoryAccess.ts"
-import { RunnerNotices } from "./Agent/RunnerNotices.ts"
 import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
-import { SlackConversation, SlackWake } from "./Slack/Conversation.ts"
-import { SlackWebhook } from "./Slack/Webhook.ts"
-import { SlackInteractivity } from "./Slack/Interactivity.ts"
 import { SlackTransport } from "./Slack/Transport.ts"
-import { SlackProcessor } from "./Slack/Processor.ts"
-import { SlackDelivery } from "./Slack/Delivery.ts"
-import { GitHubFeedback, GitHubFeedbackConfig } from "./GitHub/Feedback.ts"
-import { GitHubDelivery } from "./GitHub/FeedbackDelivery.ts"
-import { GitHubFeedbackHttpLayer } from "./GitHub/FeedbackHttp.ts"
-import {
-  SlackRecoveryCronLayer,
-  SlackRecoveryCronName,
-  SlackCronLayer,
-  SlackCronName,
-  SlackDeliveryCronLayer,
-  SlackDeliveryCronName,
-} from "./Slack/Cron.ts"
-import { SlackWebhookRoutes } from "./Ingress/SlackWebhook.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
 const ZONE = "effectful.co"
@@ -166,6 +144,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       routes: dev ? [] : [{ pattern: `${target.domain}/api/v1/*`, zoneName: ZONE }],
       workersDev: false,
       observability: { enabled: true, headSamplingRate: 1 },
+      limits: { cpuMs: 300_000 },
       // Read at init from the environment: the plan-phase Config interceptor
       // only binds values it can resolve from the deploy environment.
       env: {
@@ -249,14 +228,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // Account linking is optional per platform; the account page says which
     // platforms this deployment can connect.
     const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)
-    // The session runner is a separately deployed Worker; its base URL and
-    // service token arrive as deployment configuration. Agent sessions are
-    // unavailable, not degraded, when the runner is not configured.
-    // Reading these during init also registers both machine-route secrets.
-    const connection = yield* agentRunnerConnection
-    const runnerUrl = connection.url
-    const runnerToken = connection.token
-    const runnerConfigured = runnerUrl !== "" && Redacted.value(runnerToken) !== ""
     const slackWorkspace = yield* Config.String("JANITOR_SLACK_WORKSPACE_ID").pipe(
       Config.withDefault(""),
     )
@@ -269,7 +240,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Config.withDefault(Redacted.make("")),
     )
     const slackConfigured =
-      runnerConfigured &&
       slackWorkspace !== "" &&
       slackApp !== "" &&
       slackBot !== "" &&
@@ -327,65 +297,52 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       )
     }
     let notifyOutbox: Effect.Effect<void> = Effect.void
-    let notifyCatchUp: Effect.Effect<void> = Effect.void
-    let notifySlack: Effect.Effect<void> = Effect.void
-    const feedbackBotLogin = yield* Config.String("JANITOR_GITHUB_APP_LOGIN").pipe(
-      Config.withDefault(""),
-    )
     const preferredOrganization = yield* Config.String(
       "JANITOR_PREFERRED_REPOSITORY_ORGANIZATION",
     ).pipe(Config.withDefault("Effect-TS"))
     const SlackLayers = slackConfigured
-      ? Layer.mergeAll(
-          SlackProcessingLayer,
-          SlackRecoveryCronLayer,
-          SlackCronLayer,
-          SlackDeliveryCronLayer,
-          SlackWebhook.layer,
-          SlackInteractivity.layer,
-        ).pipe(
-          Layer.provideMerge(
-            Layer.mergeAll(
-              SlackProcessor.layer,
-              SlackDelivery.layer,
-              SlackConversation.layer,
-              GitHubFeedback.layer,
-              GitHubDelivery.layer,
+      ? yield* Effect.gen(function* () {
+          const key = yield* Config.Redacted("JANITOR_AGENT_RUNNER_MODEL_API_KEY")
+          const model = yield* Config.String("JANITOR_CHAT_MODEL").pipe(
+            Config.withDefault("meta-llama/llama-3.1-8b-instruct"),
+          )
+          const slackConfig = Layer.succeed(SlackConfig, {
+            preferredOrganization,
+            workspaceId: slackWorkspace,
+            appId: slackApp,
+            botUserId: slackBot,
+            token: slackToken,
+            signingSecret: slackSecret,
+            accountUrl: `${publicOrigin}/account`,
+          })
+          const transport = SlackTransport.layer.pipe(Layer.provide(slackConfig))
+          const modelLayer = OpenAiLanguageModel.layer({
+            model,
+            config: { max_completion_tokens: 2048 },
+          }).pipe(
+            Layer.provide(
+              OpenAiClient.layer({ apiKey: key, apiUrl: "https://openrouter.ai/api/v1" }),
             ),
-          ),
-          Layer.provideMerge(
-            GitHubFeedbackHttpLayer.pipe(
-              Layer.provide(RepositoryAccess.layer),
-              Layer.provide(FetchHttpClient.layer),
+            Layer.provide(FetchHttpClient.layer),
+          )
+          const repositories = layerRepositories.pipe(
+            Layer.provide([DatabaseLayer, GitHubAuthLayer, FetchHttpClient.layer]),
+          )
+          const runtime = Layer.effect(SessionRuntime, makeSessionRuntime).pipe(
+            Layer.provide([repositories, modelLayer, transport]),
+          )
+          const sessions = yield* SlackSession.pipe(
+            Effect.provide(SessionObjectLive.pipe(Layer.provide(runtime))),
+          )
+          return SessionIngressLive.pipe(
+            Layer.provide([slackConfig, transport]),
+            Layer.provide(
+              Layer.succeed(SessionAdmission, {
+                receive: (name, input) => sessions.getByName(name).receive(input),
+              }),
             ),
-          ),
-          Layer.provide(Layer.succeed(GitHubFeedbackConfig, { botLogin: feedbackBotLogin })),
-          Layer.provideMerge(SlackTransport.layer),
-          Layer.provide(
-            Layer.succeed(SlackConfig, {
-              preferredOrganization,
-              workspaceId: slackWorkspace,
-              appId: slackApp,
-              botUserId: slackBot,
-              token: slackToken,
-              signingSecret: slackSecret,
-              accountUrl: `${publicOrigin}/account`,
-            }),
-          ),
-        )
-      : Layer.empty
-    const RunnerTransport = yield* runnerTransport
-    const AgentLayers = runnerConfigured
-      ? Layer.mergeAll(AgentHandoffLayer, AgentCatchUpCronLayer, SlackLayers).pipe(
-          Layer.provideMerge(
-            Layer.mergeAll(AgentSessions.layer, AgentEventProjection.layer, AgentCleanup.layer),
-          ),
-          Layer.provideMerge(
-            RunnerClient.layer({ baseUrl: runnerUrl, token: runnerToken }).pipe(
-              Layer.provide(RunnerTransport),
-            ),
-          ),
-        )
+          )
+        })
       : Layer.empty
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
@@ -397,9 +354,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       RuleTestJobLayer,
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
-      AgentLayers,
-      RepositoryAccess.layer,
-      RunnerNotices.layer,
+      SlackLayers,
     ).pipe(
       Layer.provideMerge(LabelingSyncIntegrationLayer),
       Layer.provideMerge(
@@ -431,8 +386,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           RefreshEntityRegistration,
           ReconcileEntityRegistration,
           RuleTestJobRegistration,
-          ...(runnerConfigured ? [AgentHandoffRegistration] : []),
-          ...(slackConfigured ? [SlackProcessingRegistration] : []),
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
@@ -458,26 +411,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
       Layer.provideMerge(WorkflowOutbox.layer),
       Layer.provide(DatabaseLayer),
-      Layer.provideMerge(
-        Layer.succeed(
-          SlackWake,
-          Effect.suspend(() => notifySlack),
-        ),
-      ),
       Layer.provide(Layer.succeed(AiInputBudget, inputBudget)),
       Layer.provide(Layer.succeed(AiCacheTtl, cacheTtl)),
       Layer.provide(
         Layer.succeed(
           OutboxWake,
           Effect.suspend(() => notifyOutbox),
-        ),
-      ),
-      // Repository disconnection hurries the same wake so session cleanup starts
-      // without waiting for the minute cron; the cron remains the guarantee.
-      Layer.provide(
-        Layer.succeed(
-          AgentCatchUpWake,
-          Effect.suspend(() => notifyCatchUp),
         ),
       ),
     )
@@ -489,35 +428,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)
     notifyOutbox = wakeOutboxDispatch()
     const wakeSyncRepair = cluster.wake(SyncRepairCronName)
-    const wakeAgentCatchUp = runnerConfigured
-      ? cluster.wake(AgentCatchUpCronName)
-      : () => Effect.void
-    notifyCatchUp = wakeAgentCatchUp()
-    const wakeSlackRecovery = slackConfigured
-      ? cluster.wake(SlackRecoveryCronName)
-      : () => Effect.void
-    const wakeSlack = slackConfigured ? cluster.wake(SlackCronName) : () => Effect.void
-    const wakeSlackDelivery = slackConfigured
-      ? cluster.wake(SlackDeliveryCronName)
-      : () => Effect.void
-    notifySlack = Effect.all([wakeSlack(), wakeSlackDelivery()], {
-      concurrency: "unbounded",
-      discard: true,
-    })
     yield* Cloudflare.Workers.cron("* * * * *", () =>
-      Effect.all(
-        [
-          wakeOutboxDispatch(),
-          wakeSyncRepair(),
-          wakeAgentCatchUp(),
-          wakeSlackRecovery(),
-          wakeSlack(),
-          wakeSlackDelivery(),
-        ],
-        {
-          discard: true,
-        },
-      ),
+      Effect.all([wakeOutboxDispatch(), wakeSyncRepair()], {
+        discard: true,
+      }),
     )
 
     yield* Cloudflare.Queues.consumeQueueMessages(
@@ -565,7 +479,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           { teamDomain: Access.TEAM_DOMAIN, audience: accessAudience },
           { localDevAudience },
         ),
-        slackConfigured ? SlackWebhookRoutes : Layer.empty,
+        slackConfigured ? SlackSessionRoutes : Layer.empty,
       ).pipe(Layer.provide([Etag.layer, HttpPlatformStubLayer, Path.layer, FetchHttpClient.layer])),
     )
     // Route errors that know their response (400 for a malformed request,

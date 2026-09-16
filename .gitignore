@@ -37,6 +37,9 @@ dist-ssr
 # AI agent worktrees
 .claude/worktrees/
 
+# Reference checkouts
+/repos/
+
 # Nix
 .direnv
 

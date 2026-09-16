@@ -13,6 +13,7 @@
     "@effect/sql-pg": "catalog:",
     "@effect/tsgo": "catalog:",
     "@foldkit/oxlint-plugin": "catalog:",
+    "@janitor/alchemy": "workspace:^",
     "@janitor/cluster": "workspace:^",
     "@types/node": "catalog:",
     "alchemy": "catalog:",
