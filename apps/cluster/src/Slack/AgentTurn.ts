@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Chat from "effect/unstable/ai/Chat"
+import * as AiError from "effect/unstable/ai/AiError"
 import * as Tool from "effect/unstable/ai/Tool"
 import * as Toolkit from "effect/unstable/ai/Toolkit"
 import { Repositories } from "./Repositories.ts"
@@ -169,6 +170,17 @@ export const runAgentTurn = Effect.fnUntraced(
       text: "I've reached this turn's tool limit. Send another message if you'd like me to continue.",
     }
   },
+  Effect.tapError((error) => {
+    // Log only classification and status: provider errors can contain prompts,
+    // response bodies and authorization headers.
+    const reason = AiError.isAiError(error) ? error.reason : undefined
+    const status =
+      reason !== undefined && "http" in reason ? reason.http?.response?.status : undefined
+    return Effect.logError("[DEBUG-slack-turn] Agent turn failed", {
+      category: reason?._tag ?? "SetupOrHistoryError",
+      status: status ?? null,
+    })
+  }),
   Effect.mapError(
     () => "The model turn failed. Check the model configuration and provider availability.",
   ),

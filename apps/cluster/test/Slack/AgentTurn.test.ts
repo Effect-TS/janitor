@@ -4,12 +4,88 @@ import * as OpenAiLanguageModel from "@effect/ai-openai-compat/OpenAiLanguageMod
 import { Sandbox } from "@janitor/alchemy/AI/Sandbox"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { runAgentTurn } from "../../src/Slack/AgentTurn.ts"
 import { Repositories } from "../../src/Slack/Repositories.ts"
 import type { SessionState } from "../../src/Slack/Session.ts"
+
+it.effect("logs provider failure category and status without sensitive data", () =>
+  Effect.gen(function* () {
+    const logs: unknown[] = []
+    const model = OpenAiLanguageModel.layer({ model: "test" }).pipe(
+      Layer.provide(OpenAiClient.layer({ apiKey: Redacted.make("secret-api-key") })),
+      Layer.provide(
+        Layer.succeed(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({ error: { message: "private-provider-body" } }, { status: 401 }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    )
+    const unavailable = () => Effect.die("Unexpected repository operation")
+    const home = {
+      workspace: "T1",
+      channel: "C1",
+      thread: "1.0",
+      timestamp: "1.0",
+      user: "U1",
+      text: "private-conversation",
+      mentioned: true,
+    }
+    const result = yield* runAgentTurn(
+      home,
+      {
+        home,
+        history: null,
+        repository: null,
+        pending: [],
+        seen: [],
+        turn: { _tag: "Idle" },
+      },
+      unavailable,
+    ).pipe(
+      Effect.result,
+      Effect.provide(model),
+      Effect.provideService(Sandbox, {
+        exec: unavailable,
+        readFile: unavailable,
+        writeFile: unavailable,
+        deleteFile: unavailable,
+        mkdir: unavailable,
+        listFiles: unavailable,
+        exists: unavailable,
+      }),
+      Effect.provideService(Repositories, {
+        list: Effect.succeed([]),
+        get: unavailable,
+        credentials: unavailable,
+      }),
+      Effect.provide(
+        Logger.layer([
+          Logger.make((options) => {
+            logs.push(options.message)
+          }),
+        ]),
+      ),
+    )
+    assert.strictEqual(result._tag, "Failure")
+    const output = JSON.stringify(logs)
+    assert.include(output, "AuthenticationError")
+    assert.include(output, "401")
+    for (const sensitive of ["secret-api-key", "private-provider-body", "private-conversation"]) {
+      assert.notInclude(output, sensitive)
+    }
+  }),
+)
 
 it.effect(
   "lists repositories, asks for clarification, and continues without starting a sandbox",
