@@ -176,7 +176,7 @@ export const runAgentTurn = Effect.fnUntraced(
     const reason = AiError.isAiError(error) ? error.reason : undefined
     const status =
       reason !== undefined && "http" in reason ? reason.http?.response?.status : undefined
-    return Effect.logError("[DEBUG-slack-turn] Agent turn failed", {
+    return Effect.logError("Slack agent turn failed", {
       category: reason?._tag ?? "SetupOrHistoryError",
       status: status ?? null,
     })
