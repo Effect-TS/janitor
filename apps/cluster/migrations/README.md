@@ -394,7 +394,7 @@ the migration or running cleanup.
 
 ## Direct pull request labeling
 
-`0040_direct_pull_request_labeling.sql` moves pull request labeling to direct
+`0041_direct_pull_request_labeling.sql` moves pull request labeling to direct
 GitHub reads (ADR 0006), completing the labeling migration. One workflow,
 `Janitor/LabelItemV1`, evaluates issues and pull requests; the pull request
 record and the collections the configured revision reads (changed files,

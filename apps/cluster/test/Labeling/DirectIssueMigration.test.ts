@@ -10,7 +10,7 @@ const LABEL_ISSUE_TAG = "Janitor/LabelIssueV1"
 const read = (name: string) =>
   readFileSync(new URL(`../../migrations/${name}`, import.meta.url), "utf8")
 const migration = read("0039_direct_issue_labeling.sql")
-const pullRequestMigration = read("0040_direct_pull_request_labeling.sql")
+const pullRequestMigration = read("0041_direct_pull_request_labeling.sql")
 
 layer(Services, { timeout: "2 minutes" })("Direct labeling cutover", (it) => {
   it.effect("retires pending legacy jobs in two cutovers and carries direct work over", () =>
