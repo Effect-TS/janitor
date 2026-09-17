@@ -1,4 +1,3 @@
-import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { mentionsDirectly, REVIEW_MENTION_HANDLE } from "@janitor/domain/Review/Mention"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -9,14 +8,14 @@ import * as Schema from "effect/Schema"
 import * as Activity from "effect/unstable/workflow/Activity"
 import * as Workflow from "effect/unstable/workflow/Workflow"
 import { logWorkflowFailure, withRateLimitWaits } from "../GitHub/SyncSupport.ts"
-import type { RepositoryTarget } from "../Labeling/GitHubIssue.ts"
+import { repositoryTarget } from "../Labeling/GitHubIssue.ts"
 import { flushLive } from "../LiveUpdates.ts"
 import { changedReason, RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { describeError } from "../SqlErrors.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import { type Authority, checkInvocation, deniedReasons } from "./Authority.ts"
-import { IssueReviewAvailable, unavailableReason } from "./Gate.ts"
+import { disabledReason, IssueReviewAvailable, unavailableReason } from "./Gate.ts"
 import { IssueReviewScheduler } from "./Scheduler.ts"
 import { IssueReviewStore } from "./Store.ts"
 
@@ -43,7 +42,8 @@ export const admitReviewKey = ({ repositoryId, commentId }: AdmitReviewPayload) 
 export interface CommentCreated {
   readonly repositoryId: string
   readonly deliveryId: string
-  readonly receivedAt: Date
+  /** When the delivery arrived; a delivery without one is never admitted. */
+  readonly receivedAt: Date | undefined
   readonly issueNumber: number
   readonly comment: {
     readonly id: string
@@ -60,8 +60,9 @@ export type AdmissionOutcome =
 export const admissionReasons = {
   noMention: "no direct mention",
   duplicate: "the comment already has a receipt",
-  disabled: "Issue review is not enabled for this repository.",
+  disabled: disabledReason,
   beforeEnablement: "The comment was posted before issue review was enabled.",
+  unknownReceipt: "The delivery carries no receipt time, so it cannot be placed after enablement.",
   edited: "The invoking comment was edited. Post a new invocation.",
   deleted: "The invoking comment was deleted. Post a new invocation.",
   issueClosed: "The issue was closed.",
@@ -118,9 +119,11 @@ export class IssueReviewAdmission extends Context.Service<
           ? deniedReasons.bot
           : Option.isNone(settings) || !settings.value.enabled
             ? admissionReasons.disabled
-            : DateTime.toEpochMillis(settings.value.admitAfter) >= request.receivedAt.getTime()
-              ? admissionReasons.beforeEnablement
-              : undefined
+            : request.receivedAt === undefined
+              ? admissionReasons.unknownReceipt
+              : DateTime.toEpochMillis(settings.value.admitAfter) >= request.receivedAt.getTime()
+                ? admissionReasons.beforeEnablement
+                : undefined
       const recorded = yield* store.recordReceipt({
         repositoryId,
         commentId: comment.id,
@@ -129,7 +132,7 @@ export class IssueReviewAdmission extends Context.Service<
         authorId: comment.user.id,
         authorLogin: comment.user.login,
         body: comment.body,
-        receivedAt: request.receivedAt,
+        receivedAt: request.receivedAt ?? new Date(0),
         eligibilityGeneration: repository.generation,
         denied,
       })
@@ -214,14 +217,8 @@ export const AdmitReview = Workflow.make(ADMIT_REVIEW_TAG, {
 const failure = (error: { readonly message: string }) =>
   new AdmitReviewError({ message: describeError(error) })
 
-const target = (repository: { installationId: string; name: string }): RepositoryTarget => {
-  const [owner] = repository.name.split("/")
-  return {
-    installationId: GitHubInstallationId.make(repository.installationId),
-    owner: owner!,
-    repo: repository.name.slice(owner!.length + 1),
-  }
-}
+/** The receipt was settled by an edit or deletion while the decision ran. */
+class ReceiptSettled extends Schema.TaggedError<ReceiptSettled>()("ReceiptSettled", {}) {}
 
 /**
  * Verifies the invocation against GitHub, then queues the run inside the
@@ -246,38 +243,39 @@ export const AdmitReviewLayer = AdmitReview.toLayer(
         runId: receipt.value.runId,
       } as const
 
-    const repository = yield* eligibility.get(repositoryId).pipe(Effect.result)
-    let authority: Authority
-    if (repository._tag === "Failure") {
-      if (repository.failure._tag !== "@janitor/cluster/RepositoryEligibility/RepositoryBlocked")
-        return yield* failure(repository.failure)
-      authority = { _tag: "Denied", reason: repository.failure.reason }
-    } else if (repository.success.generation !== receipt.value.eligibilityGeneration) {
-      authority = { _tag: "Denied", reason: changedReason }
-    } else {
-      authority = yield* withRateLimitWaits("AdmitReview/GitHub", () =>
-        checkInvocation(target(repository.success), repositoryId, {
-          issueNumber: receipt.value.issueNumber,
+    const { issueNumber, authorId, authorLogin, body, eligibilityGeneration } = receipt.value
+    const resolveAuthority = Effect.gen(function* () {
+      const repository = yield* eligibility.get(repositoryId).pipe(Effect.result)
+      if (repository._tag === "Failure") {
+        if (repository.failure._tag !== "@janitor/cluster/RepositoryEligibility/RepositoryBlocked")
+          return yield* failure(repository.failure)
+        return { _tag: "Denied", reason: repository.failure.reason } satisfies Authority
+      }
+      if (repository.success.generation !== eligibilityGeneration)
+        return { _tag: "Denied", reason: changedReason } satisfies Authority
+      return yield* withRateLimitWaits("AdmitReview/GitHub", () =>
+        checkInvocation(repositoryTarget(repository.success), repositoryId, {
+          issueNumber,
           commentId,
-          authorId: receipt.value.authorId,
-          authorLogin: receipt.value.authorLogin,
-          body: receipt.value.body,
+          authorId,
+          authorLogin,
+          body,
         }),
       ).pipe(Effect.mapError(failure))
-    }
-    const verified = authority
+    })
+    const authority: Authority = yield* resolveAuthority
 
     const decided = yield* Activity.make({
       name: "AdmitReview/Decide",
       success: AdmitReviewResult,
       error: AdmitReviewError,
       execute: Effect.gen(function* () {
-        if (verified._tag === "Denied") {
+        if (authority._tag === "Denied") {
           yield* store.decideReceipt(repositoryId, commentId, {
             outcome: "denied",
-            reason: verified.reason,
+            reason: authority.reason,
           })
-          return { outcome: "denied", reason: verified.reason, runId: null } as const
+          return { outcome: "denied", reason: authority.reason, runId: null } as const
         }
         // The fence holds the repository row through the insert, so a pause
         // or disconnection waits for it and then cancels what it admitted.
@@ -299,26 +297,32 @@ export const AdmitReviewLayer = AdmitReview.toLayer(
             }
             const run = yield* store.insertRun({
               repositoryId,
-              issueNumber: receipt.value.issueNumber,
-              issueId: verified.issueId,
+              issueNumber,
+              issueId: authority.issueId,
               commentId,
-              invokerId: receipt.value.authorId,
-              invokerLogin: verified.login,
-              instructions: verified.instructions,
-              commentCreatedAt: verified.commentCreatedAt,
-              eligibilityGeneration: receipt.value.eligibilityGeneration,
+              invokerId: authorId,
+              invokerLogin: authority.login,
+              instructions: authority.instructions,
+              commentCreatedAt: authority.commentCreatedAt,
+              eligibilityGeneration,
               dryRun: settings.value.dryRun,
             })
-            yield* store.decideReceipt(repositoryId, commentId, {
+            // An edit or deletion that settled the receipt meanwhile wins:
+            // the transaction rolls the run back.
+            const admitted = yield* store.decideReceipt(repositoryId, commentId, {
               outcome: "admitted",
               runId: run.runId,
             })
+            if (!admitted) return yield* new ReceiptSettled()
             return { outcome: "admitted", reason: null, runId: run.runId } as const
           }),
-          { generation: receipt.value.eligibilityGeneration },
+          { generation: eligibilityGeneration },
         )
         return admitted
       }).pipe(
+        Effect.catchTag("ReceiptSettled", () =>
+          Effect.succeed({ outcome: "settled", reason: null, runId: null } as const),
+        ),
         Effect.catchTag("@janitor/cluster/RepositoryEligibility/RepositoryBlocked", (blocked) =>
           store
             .decideReceipt(repositoryId, commentId, { outcome: "denied", reason: blocked.reason })
@@ -329,9 +333,7 @@ export const AdmitReviewLayer = AdmitReview.toLayer(
     })
 
     if (decided.outcome === "admitted")
-      yield* scheduler
-        .advance(repositoryId, receipt.value.issueNumber)
-        .pipe(Effect.mapError(failure))
+      yield* scheduler.advance(repositoryId, issueNumber).pipe(Effect.mapError(failure))
     yield* flushLive
     yield* Effect.logInfo("Decided issue review admission").pipe(
       Effect.annotateLogs({ repositoryId, commentId, outcome: decided.outcome }),

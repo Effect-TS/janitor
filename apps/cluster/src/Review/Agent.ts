@@ -13,8 +13,9 @@ import * as Rpc from "effect/unstable/rpc/Rpc"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { changedReason, RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { flushLive } from "../LiveUpdates.ts"
+import { disabledReason, IssueReviewAvailable, unavailableReason } from "./Gate.ts"
 import { IssueReviewScheduler } from "./Scheduler.ts"
-import { IssueReviewStore, type RunRecord } from "./Store.ts"
+import { type Cancellation, IssueReviewStore, type RunRecord } from "./Store.ts"
 
 /**
  * The review agent (ADR 0012): one persistent cluster Entity per review run,
@@ -39,11 +40,6 @@ export class ReviewRunMissing extends Schema.TaggedError<ReviewRunMissing>()(
   "@janitor/cluster/Review/ReviewRunMissing",
   { runId: Schema.String },
 ) {}
-
-/** The agent's explicitly persisted state, beyond the lifecycle columns. */
-export const AgentState = Schema.Struct({
-  phase: Schema.Literals(["queued", "started", "cancelled"]),
-})
 
 export const ReviewAgent = Entity.make("ReviewAgent", [
   /** The scheduler made this run the issue's active run. */
@@ -80,14 +76,7 @@ export class ReviewAgentClient extends Context.Service<
   ReviewAgentClient,
   {
     readonly start: (runId: string, messageId: string) => Effect.Effect<RunSnapshot, unknown>
-    readonly cancel: (
-      runId: string,
-      message: {
-        readonly messageId: string
-        readonly reason: string
-        readonly actor: string | null
-      },
-    ) => Effect.Effect<RunSnapshot, unknown>
+    readonly cancel: (runId: string, message: Cancellation) => Effect.Effect<RunSnapshot, unknown>
   }
 >()("@janitor/cluster/Review/ReviewAgentClient") {
   static readonly layer: Layer.Layer<ReviewAgentClient, never, Sharding> = Layer.effect(
@@ -107,6 +96,7 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
     const store = yield* IssueReviewStore
     const eligibility = yield* RepositoryEligibility
     const scheduler = yield* IssueReviewScheduler
+    const available = yield* IssueReviewAvailable
 
     const missing = new ReviewRunMissing({ runId })
     const orDie = <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
@@ -188,6 +178,11 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
               }
               if (repository.success.generation !== run.eligibilityGeneration)
                 return yield* cancelled(run, changedReason, null)
+              // Review may have been switched off since admission.
+              if (!available) return yield* cancelled(run, unavailableReason, null)
+              const settings = yield* orDie(store.settings(run.repositoryId))
+              if (!Option.exists(settings, (setting) => setting.enabled))
+                return yield* cancelled(run, disabledReason, null)
               const now = yield* DateTime.now
               return yield* orDie(
                 store.transition(run.runId, {

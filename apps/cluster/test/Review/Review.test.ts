@@ -25,9 +25,13 @@ import {
 import { ReviewAgent, ReviewAgentClient, ReviewAgentLayer } from "../../src/Review/Agent.ts"
 import { deniedReasons } from "../../src/Review/Authority.ts"
 import { forbiddenReasons, IssueReviewControl } from "../../src/Review/Control.ts"
-import { IssueReviewAvailable, unavailableReason } from "../../src/Review/Gate.ts"
+import {
+  disabledNowReason,
+  IssueReviewAvailable,
+  unavailableReason,
+} from "../../src/Review/Gate.ts"
 import { IssueReviewScheduler } from "../../src/Review/Scheduler.ts"
-import { disabledReason, IssueReviewSettings } from "../../src/Review/Settings.ts"
+import { IssueReviewSettings } from "../../src/Review/Settings.ts"
 import { IssueReviewStore } from "../../src/Review/Store.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
@@ -103,7 +107,8 @@ const deliver = (
   options: {
     action?: "created" | "edited" | "deleted"
     pullRequest?: boolean
-    receivedAt?: Date
+    /** `null` delivers without a receipt time. */
+    receivedAt?: Date | null
     deliveryId?: string
   } = {},
 ) =>
@@ -142,7 +147,7 @@ const deliver = (
     yield* applyEvent(
       event,
       GitHubWebhookJournalSequence.make(String(++sequence)),
-      options.receivedAt ?? (yield* webhookNow),
+      options.receivedAt === null ? undefined : (options.receivedAt ?? (yield* webhookNow)),
     )
     return deliveryId
   })
@@ -492,12 +497,16 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
     Effect.gen(function* () {
       const settings = yield* IssueReviewSettings
       const sql = yield* SqlClient.SqlClient
-      // Disabling review cancels the running run of issue 27.
+      // Disabling review cancels the running run of issue 27, even while
+      // its agent cannot be reached: the record is the authority.
+      const reachable = agentClient
+      agentClient = () => Effect.die(new Error("agent unreachable"))
       yield* settings.set(repositoryId, { enabled: false, dryRun: true }, actor)
+      agentClient = reachable
       const disabled = yield* runFor(7)
       assert.deepStrictEqual(
         [disabled?.status, disabled?.cancelReason],
-        ["cancelled", disabledReason],
+        ["cancelled", disabledNowReason],
       )
       // A comment posted while review was off is denied even after re-enabling.
       const whileOff = yield* webhookNow
@@ -507,6 +516,9 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
         { receivedAt: whileOff },
       )
       assert.strictEqual((yield* receipt(8)).reason, admissionReasons.beforeEnablement)
+      // A delivery whose receipt time is unknown cannot be placed after enablement.
+      yield* deliver({ id: 13, issue: 28, body: "@effect-janitor undated" }, { receivedAt: null })
+      assert.strictEqual((yield* receipt(13)).reason, admissionReasons.unknownReceipt)
       yield* deliver({ id: 9, issue: 28, body: "@effect-janitor after enabling" })
       yield* admit(9)
       assert.strictEqual((yield* runFor(9))?.status, "running")

@@ -1,4 +1,3 @@
-import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { isTerminalReviewStatus } from "@janitor/domain/Review/Run"
 import { GITHUB_WORKSPACE_ID, type TeammateId } from "@janitor/domain/Team/Account"
 import * as Context from "effect/Context"
@@ -9,7 +8,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { GitHubTransport } from "../GitHub/Transport.ts"
-import { withBriefWaits } from "../Labeling/GitHubIssue.ts"
+import { repositoryTarget, withBriefWaits } from "../Labeling/GitHubIssue.ts"
 import { RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { describeError } from "../SqlErrors.ts"
 import type { RunSnapshot } from "./Agent.ts"
@@ -101,14 +100,9 @@ export class IssueReviewControl extends Context.Service<
               : storeError("eligibility")(error),
           ),
         )
-      const [owner] = repository.name.split("/")
       const permission = yield* withBriefWaits(
         effectivePermission(
-          {
-            installationId: GitHubInstallationId.make(repository.installationId),
-            owner: owner!,
-            repo: repository.name.slice(owner!.length + 1),
-          },
+          repositoryTarget(repository),
           link.value.display_name,
           link.value.account_id,
         ),
@@ -127,12 +121,9 @@ export class IssueReviewControl extends Context.Service<
           actor: permission.login,
         },
       )
+      // Nothing matched: the run finished between the read and the write.
       const snapshot = cancelled[0]
-      if (snapshot === undefined)
-        return yield* new IssueReviewError({
-          operation: "cancel",
-          message: "The run's agent did not acknowledge the cancellation. Retry.",
-        })
+      if (snapshot === undefined) return yield* new ReviewRunFinished({ runId, status: "finished" })
       return snapshot
     })
 

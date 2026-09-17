@@ -5,7 +5,13 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { ReviewAgentClient, type RunSnapshot } from "./Agent.ts"
-import { IssueReviewStore, type IssueReviewError, type RunRecord } from "./Store.ts"
+import {
+  type Cancellation,
+  type CancelSelection,
+  IssueReviewStore,
+  type IssueReviewError,
+  type RunRecord,
+} from "./Store.ts"
 
 /**
  * The per-issue scheduler (ADR 0012): one active run per issue, later
@@ -14,13 +20,6 @@ import { IssueReviewStore, type IssueReviewError, type RunRecord } from "./Store
  * it never executes review work itself. There is no repository-wide queue
  * or concurrency cap.
  */
-
-export interface CancelSelection {
-  readonly repositoryId: string
-  readonly issueNumber?: number | undefined
-  readonly commentId?: string | undefined
-  readonly runId?: string | undefined
-}
 
 export class IssueReviewScheduler extends Context.Service<
   IssueReviewScheduler,
@@ -36,17 +35,14 @@ export class IssueReviewScheduler extends Context.Service<
       issueNumber: number,
     ) => Effect.Effect<void, IssueReviewError>
     /**
-     * Cancels every live run the selection covers by telling each agent.
-     * `messageId` names the cancellation source so a repeated request is
-     * applied once per run.
+     * Cancels every live run the selection covers. The cancellation is
+     * persisted first, in the caller's transaction when there is one, so it
+     * holds whether or not the agent can be reached; the agent is then told
+     * so it stops, and each affected issue may start its next run.
      */
     readonly cancel: (
       selection: CancelSelection,
-      cancellation: {
-        readonly messageId: string
-        readonly reason: string
-        readonly actor: string | null
-      },
+      cancellation: Cancellation,
     ) => Effect.Effect<ReadonlyArray<RunSnapshot>, IssueReviewError>
   }
 >()("@janitor/cluster/Review/IssueReviewScheduler", {
@@ -84,13 +80,15 @@ export class IssueReviewScheduler extends Context.Service<
     ) {
       const next = yield* choose(repositoryId, issueNumber)
       if (Option.isNone(next)) return Option.none<RunSnapshot>()
+      // Delivery may fail in any way; the next advance sends the start again.
       const started = yield* agents.start(next.value.runId, `start:${next.value.runId}`).pipe(
-        Effect.tapError((cause) =>
+        Effect.map(Option.some),
+        Effect.catchCause((cause) =>
           Effect.logWarning("Review run start was not delivered", cause).pipe(
             Effect.annotateLogs({ runId: next.value.runId }),
+            Effect.as(Option.none<RunSnapshot>()),
           ),
         ),
-        Effect.option,
       )
       yield* Effect.logInfo("Advanced issue review queue").pipe(
         Effect.annotateLogs({
@@ -105,36 +103,33 @@ export class IssueReviewScheduler extends Context.Service<
 
     const cancel = Effect.fn("IssueReviewScheduler.cancel")(function* (
       selection: CancelSelection,
-      cancellation: {
-        readonly messageId: string
-        readonly reason: string
-        readonly actor: string | null
-      },
+      cancellation: Cancellation,
     ) {
-      const live = yield* store.liveRuns(selection.repositoryId, selection.issueNumber)
-      const selected = live.filter(
-        (run) =>
-          (selection.commentId === undefined || run.commentId === selection.commentId) &&
-          (selection.runId === undefined || run.runId === selection.runId),
-      )
-      const snapshots: Array<RunSnapshot> = []
-      for (const run of selected) {
-        const result = yield* agents
+      const cancelled = yield* store.cancelRuns(selection, cancellation)
+      for (const run of cancelled) {
+        // Best effort: the record already says cancelled; the agent learns
+        // it from this message or from the record before its next action.
+        yield* agents
           .cancel(run.runId, {
             ...cancellation,
             messageId: `${cancellation.messageId}:${run.runId}`,
           })
           .pipe(
-            Effect.tapError((cause) =>
+            Effect.asVoid,
+            Effect.catchCause((cause) =>
               Effect.logWarning("Review run cancellation was not delivered", cause).pipe(
                 Effect.annotateLogs({ runId: run.runId }),
               ),
             ),
-            Effect.option,
           )
-        if (Option.isSome(result)) snapshots.push(result.value)
       }
-      return snapshots
+      for (const issueNumber of new Set(cancelled.map((run) => run.issueNumber)))
+        yield* advance(selection.repositoryId, issueNumber)
+      return cancelled.map((run): RunSnapshot => ({
+        runId: run.runId,
+        status: run.status,
+        cancelReason: run.cancelReason,
+      }))
     })
 
     return {

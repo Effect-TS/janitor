@@ -63,7 +63,7 @@ export const LabelingAutomationIntegrationLayer = Layer.effect(
               .commentCreated({
                 repositoryId: request.repositoryId,
                 deliveryId: request.deliveryId,
-                receivedAt: request.receivedAt ?? new Date(),
+                receivedAt: request.receivedAt,
                 issueNumber: request.payload.issue.number,
                 comment: {
                   id: comment.id,

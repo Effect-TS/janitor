@@ -456,7 +456,14 @@ with the receipt's eligibility generation. `fence_issue_review` fires when
 access loss, installation changes) and cancels every live run with the
 repository's block reason; restoration never revives them. Disabling review,
 closing the issue, editing or deleting the invoking comment, and the
-frontend's Cancel run send `Cancel` to the run's agent instead. Both
+frontend's Cancel run end the affected runs in the caller's transaction
+through `IssueReviewScheduler.cancel`, then tell each run's agent and let the
+issue start its next queued run; a message the agent never receives changes
+nothing, because the record is the authority and the agent rereads it before
+acting. A settings change holds the repository row so it serializes with
+admission, and admission rolls its run back when the receipt was settled
+meanwhile. A delivery without a receipt time is denied rather than placed
+after enablement. Both
 `issue_review_setting` and `issue_review_run` notify the `review` live topic.
 `delete_repository_data` removes all five tables' rows on disconnection.
 

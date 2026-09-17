@@ -102,6 +102,21 @@ export interface NewRun {
   readonly dryRun: boolean
 }
 
+/** Which live runs a cancellation covers; every field narrows the selection. */
+export interface CancelSelection {
+  readonly repositoryId: string
+  readonly issueNumber?: number | undefined
+  readonly commentId?: string | undefined
+  readonly runId?: string | undefined
+}
+
+/** Why a run stops and who asked. `messageId` names the source so the agent applies it once. */
+export interface Cancellation {
+  readonly messageId: string
+  readonly reason: string
+  readonly actor: string | null
+}
+
 export interface RunTransition {
   readonly status: ReviewRunStatus
   readonly startedAt?: Date | undefined
@@ -174,10 +189,14 @@ export class IssueReviewStore extends Context.Service<
     readonly run: (runId: string) => Effect.Effect<Option.Option<RunRecord>, IssueReviewError>
     /** Holds the run row for the transaction. */
     readonly lockRun: (runId: string) => Effect.Effect<Option.Option<RunRecord>, IssueReviewError>
-    readonly runByComment: (
-      repositoryId: string,
-      commentId: string,
-    ) => Effect.Effect<Option.Option<RunRecord>, IssueReviewError>
+    /**
+     * Ends every live run the selection covers, in the caller's transaction,
+     * and clears their issues' active run. Returns the runs as cancelled.
+     */
+    readonly cancelRuns: (
+      selection: CancelSelection,
+      cancellation: Cancellation,
+    ) => Effect.Effect<ReadonlyArray<RunRecord>, IssueReviewError>
     /** Queued and running runs, oldest first; for one issue when given. */
     readonly liveRuns: (
       repositoryId: string,
@@ -314,13 +333,41 @@ export class IssueReviewStore extends Context.Service<
       execute: ({ runId }) =>
         sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run WHERE run_id::text = ${runId} FOR UPDATE`,
     })
-    const findRunByComment = SqlSchema.findOneOption({
-      Request: ByComment,
+    const cancelQuery = SqlSchema.findAll({
+      Request: Schema.Struct({
+        repositoryId: Schema.String,
+        issueNumber: Schema.NullOr(Schema.Int),
+        commentId: Schema.NullOr(Schema.String),
+        runId: Schema.NullOr(Schema.String),
+        reason: Schema.String,
+        actor: Schema.NullOr(Schema.String),
+      }),
       Result: RunRecord,
-      execute: ({ repositoryId, commentId }) =>
-        sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run
-          WHERE repository_id = ${repositoryId} AND comment_id = ${commentId}`,
+      execute: ({ repositoryId, issueNumber, commentId, runId, reason, actor }) => sql`
+        WITH ended AS (
+          UPDATE issue_review_run SET status = 'cancelled', finished_at = CLOCK_TIMESTAMP(),
+            cancel_reason = ${reason}, cancelled_by = ${actor},
+            agent_state = jsonb_build_object('phase', 'cancelled')
+          WHERE repository_id = ${repositoryId} AND status IN ('queued', 'running')
+            AND (${issueNumber === null} OR issue_number = ${issueNumber ?? 0})
+            AND (${commentId === null} OR comment_id = ${commentId ?? ""})
+            AND (${runId === null} OR run_id::text = ${runId ?? ""})
+          RETURNING *
+        ), released AS (
+          UPDATE issue_review_issue i SET active_run_id = NULL, updated_at = CLOCK_TIMESTAMP()
+          FROM ended WHERE i.repository_id = ended.repository_id AND i.active_run_id = ended.run_id
+        )
+        SELECT ${sql.literal(runColumns)} FROM ended ORDER BY accepted_at, run_id`,
     })
+    const cancelRuns = (selection: CancelSelection, cancellation: Cancellation) =>
+      cancelQuery({
+        repositoryId: selection.repositoryId,
+        issueNumber: selection.issueNumber ?? null,
+        commentId: selection.commentId ?? null,
+        runId: selection.runId ?? null,
+        reason: cancellation.reason,
+        actor: cancellation.actor,
+      }).pipe(wrap("cancelRuns"))
     const findLive = SqlSchema.findAll({
       Request: Schema.Struct({
         repositoryId: Schema.String,
@@ -452,8 +499,7 @@ export class IssueReviewStore extends Context.Service<
       insertRun,
       run: (runId) => findRun({ runId }).pipe(wrap("run")),
       lockRun: (runId) => lockRunQuery({ runId }).pipe(wrap("lockRun")),
-      runByComment: (repositoryId, commentId) =>
-        findRunByComment({ repositoryId, commentId }).pipe(wrap("runByComment")),
+      cancelRuns,
       liveRuns: (repositoryId, issueNumber) =>
         findLive({ repositoryId, issueNumber: issueNumber ?? null }).pipe(wrap("liveRuns")),
       transition,

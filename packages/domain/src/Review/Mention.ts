@@ -12,13 +12,17 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /**
  * Removes the regions whose text cannot carry an invocation. Fenced blocks
- * go first, so a `>` or a backtick inside a fence is not misread; then
- * blockquote lines, HTML comments, code spans, link destinations and
- * autolinks. Removed regions become spaces so word boundaries survive.
+ * go first (a closing fence may be longer than the opener), so a `>` or a
+ * backtick inside a fence is not misread; then `<pre>` and `<code>` HTML,
+ * indented code lines, blockquote lines, HTML comments, code spans, link
+ * destinations and autolinks. Removed regions become spaces so word
+ * boundaries survive.
  */
 const withoutEvidence = (body: string): string =>
   body
-    .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\1[^\n]*(?:\n|$)|$)/gm, " ")
+    .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\1[`~]*[ \t]*(?:\n|$)|$)/gm, " ")
+    .replace(/<(pre|code)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+    .replace(/^(?: {4}|\t).*$/gm, " ")
     .replace(/^[ \t]*>.*$/gm, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/(`+)[^`][\s\S]*?\1/g, " ")

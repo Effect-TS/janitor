@@ -31,6 +31,13 @@ describe("Review mention", () => {
     expect(direct("~~~md\n@effect-janitor\n~~~")).toBe(false)
     expect(direct("```ts\nconst x = 1\n```\n@effect-janitor after the fence")).toBe(true)
     expect(direct("`code` then @effect-janitor")).toBe(true)
+    // A closing fence may be longer than its opener; the text after it is prose.
+    expect(direct("```\n@effect-janitor\n````\nplain")).toBe(false)
+    expect(direct("```\ncode\n````\n@effect-janitor after")).toBe(true)
+    expect(direct("Output:\n\n    @effect-janitor indented code")).toBe(false)
+    expect(direct("<pre>@effect-janitor</pre>")).toBe(false)
+    expect(direct("<code>@effect-janitor</code> and nothing else")).toBe(false)
+    expect(direct("<code>x</code> and @effect-janitor outside")).toBe(true)
   })
 
   it("ignores mentions inside link destinations and HTML comments", () => {

@@ -12,3 +12,5 @@ export const IssueReviewAvailable = Context.Reference<boolean>("Review/IssueRevi
 })
 
 export const unavailableReason = "Issue review is not available in this deployment yet."
+export const disabledReason = "Issue review is not enabled for this repository."
+export const disabledNowReason = "Issue review was disabled for this repository."

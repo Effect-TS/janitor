@@ -1,5 +1,5 @@
 import { GitHubIssueApi, GitHubLabelApi } from "@janitor/domain/GitHub/Api"
-import type { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
+import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -36,6 +36,19 @@ export interface RepositoryTarget {
   readonly installationId: GitHubInstallationId
   readonly owner: string
   readonly repo: string
+}
+
+/** The target of an eligible repository, from its current `owner/repo` name. */
+export const repositoryTarget = (repository: {
+  readonly installationId: string
+  readonly name: string
+}): RepositoryTarget => {
+  const [owner] = repository.name.split("/")
+  return {
+    installationId: GitHubInstallationId.make(repository.installationId),
+    owner: owner!,
+    repo: repository.name.slice(owner!.length + 1),
+  }
 }
 
 export type IssueFetch =
