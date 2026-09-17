@@ -3,10 +3,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { Teammates } from "../Teammates.ts"
 import { SlackConfig } from "./Config.ts"
-import { SlackError } from "./Conversation.ts"
 import { sessionKey, type SessionInput } from "./Session.ts"
 import { SlackTransport } from "./Transport.ts"
-import { makeSlackWebhook, SlackWebhook } from "./Webhook.ts"
+import { makeSlackWebhook, SlackError, SlackWebhook } from "./Webhook.ts"
 
 export class SessionAdmission extends Context.Service<
   SessionAdmission,
@@ -24,8 +23,7 @@ export const SessionIngressLive = Layer.effect(
     const transport = yield* SlackTransport
     return yield* makeSlackWebhook(
       Effect.fnUntraced(
-        function* (_eventId, _body, message) {
-          if (message === null) return undefined
+        function* (message) {
           const mentioned =
             message.type === "app_mention" || message.text.includes(`<@${config.botUserId}>`)
           if (!mentioned && message.thread_ts === undefined) return undefined

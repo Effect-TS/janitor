@@ -28,26 +28,3 @@ export const requiredSecret = (name: string) =>
           ),
     ),
   )
-
-/** Production's runner is stack-owned; only local development accepts an external URL. */
-export const agentRunnerConnection = Effect.gen(function* () {
-  const target = yield* deployment
-  return {
-    url:
-      target.stage === "local"
-        ? yield* Config.String("JANITOR_AGENT_RUNNER_URL").pipe(
-            Config.withDefault("http://localhost:8790"),
-          )
-        : `https://runner.${target.domain}`,
-    token: yield* target.stage === "local"
-      ? Config.Redacted("JANITOR_AGENT_RUNNER_TOKEN").pipe(
-          Config.withDefault(Redacted.make("janitor-local-runner")),
-        )
-      : requiredSecret("JANITOR_AGENT_RUNNER_TOKEN"),
-    repositoryToken: yield* target.stage === "local"
-      ? Config.Redacted("REPOSITORY_SERVICE_TOKEN").pipe(
-          Config.withDefault(Redacted.make("janitor-local-repository")),
-        )
-      : requiredSecret("REPOSITORY_SERVICE_TOKEN"),
-  }
-})

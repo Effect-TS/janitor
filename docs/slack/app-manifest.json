@@ -11,31 +11,15 @@
   },
   "oauth_config": {
     "scopes": {
-      "bot": [
-        "app_mentions:read",
-        "chat:write",
-        "groups:history",
-        "groups:read",
-        "metadata.message:read"
-      ]
+      "bot": ["app_mentions:read", "chat:write", "groups:history", "groups:read"]
     }
   },
   "settings": {
     "event_subscriptions": {
       "request_url": "https://YOUR_JANITOR_HOST/api/v1/webhooks/slack",
-      "bot_events": [
-        "app_mention",
-        "message.groups",
-        "member_left_channel",
-        "app_uninstalled",
-        "tokens_revoked"
-      ]
+      "bot_events": ["app_mention", "message.groups"]
     },
     "org_deploy_enabled": false,
-    "socket_mode_enabled": false,
-    "interactivity": {
-      "is_enabled": true,
-      "request_url": "https://YOUR_JANITOR_HOST/api/v1/webhooks/slack/interactivity"
-    }
+    "socket_mode_enabled": false
   }
 }

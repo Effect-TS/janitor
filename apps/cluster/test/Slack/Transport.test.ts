@@ -5,9 +5,7 @@ import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "../../src/Slack/Config.ts"
 import { SlackFetch, SlackTransport } from "../../src/Slack/Transport.ts"
 
-const requests: Request[] = []
-let response = () =>
-  Response.json({ ok: true, messages: [], response_metadata: { next_cursor: "next" } })
+let response = () => Response.json({ ok: true, ts: "123.456" })
 const services = SlackTransport.layer.pipe(
   Layer.provide(
     Layer.succeed(SlackConfig, {
@@ -16,35 +14,11 @@ const services = SlackTransport.layer.pipe(
       botUserId: "U1",
       signingSecret: Redacted.make("secret"),
       token: Redacted.make("token"),
-      accountUrl: "https://janitor.test/account",
     }),
   ),
-  Layer.provide(
-    Layer.succeed(SlackFetch, async (input, init) => {
-      requests.push(new Request(input, init))
-      return response()
-    }),
-  ),
+  Layer.provide(Layer.succeed(SlackFetch, async () => response())),
 )
 layer(services)("Slack HTTP transport", (it) => {
-  it.effect("pages only the selected thread through its exact boundary", () =>
-    Effect.gen(function* () {
-      const page = yield* (yield* SlackTransport).replies(
-        "C1",
-        "123.000000000000001",
-        "opaque",
-        "124.000000000000002",
-      )
-      assert.strictEqual(page.cursor, "next")
-      const request = requests.at(-1)!
-      assert.strictEqual(request.method, "GET")
-      const url = new URL(request.url)
-      assert.strictEqual(url.searchParams.get("ts"), "123.000000000000001")
-      assert.strictEqual(url.searchParams.get("latest"), "124.000000000000002")
-      assert.strictEqual(url.searchParams.get("include_all_metadata"), "true")
-      assert.strictEqual(url.searchParams.get("cursor"), "opaque")
-    }),
-  )
   it.effect(
     "honors Retry-After and distinguishes an ambiguous write from an explicit refusal",
     () =>

@@ -9,9 +9,6 @@ export default defineConfig({
     semi: false,
   },
   lint: {
-    // Feasibility fixtures run with isolated Cloudflare/OpenCode dependencies.
-    // Checking them against Janitor's dependency graph produces invalid diagnostics.
-    ignorePatterns: [".scratch"],
     extends: [recommended],
     plugins: ["typescript"],
     jsPlugins: [
@@ -45,17 +42,8 @@ export default defineConfig({
     cache: true,
 
     tasks: {
-      "runner:test": { command: "vp run --no-cache --filter @janitor/runner test", cache: false },
-      "runner:dev": {
-        command: "vp exec alchemy dev --env-file deployment/local.env",
-        cache: false,
-      },
-      "runner:smoke": {
-        command: "vp run --no-cache --filter @janitor/runner smoke:local",
-        cache: false,
-      },
       "check:all": {
-        command: "vp check && vp run runner:check && vp run runner:build && vp test",
+        command: "vp check && vp test",
         cache: false,
       },
       dev: {
@@ -96,7 +84,6 @@ export default defineConfig({
         },
       },
       "./apps/web/vite.config.ts",
-      "./apps/runner/vite.config.ts",
     ],
     exclude: [".direnv", "**/node_modules/**"],
     server: {

@@ -16,17 +16,12 @@ export const LiveNotice = Schema.Struct({
       "consent",
       "test",
       "repository",
-      "sessions",
-      "membership",
     ]),
   ),
   disconnected: Schema.Boolean,
-  /** Teammates whose subscriptions must close: their Janitor membership was removed. */
-  revoked: Schema.optionalKey(Schema.Array(Schema.String)),
 })
 const Attachment = Schema.Struct({
   expiresAt: Schema.Number,
-  teammateId: Schema.optionalKey(Schema.String),
 })
 
 /** Native hibernation handlers; never run a socket-lifetime Effect in this object. */
@@ -68,17 +63,14 @@ export const RepositoryLive = Cloudflare.DurableObject<DurableObjectShape>()(
               Effect.flatMap(Schema.decodeUnknownEffect(LiveNotice)),
               Effect.orDie,
             )
-            const revoked = new Set(notice.revoked ?? [])
             const encoded = JSON.stringify({
               _tag: "Changed",
               revision: notice.revision,
               topics: notice.topics,
             })
             for (const socket of yield* state.getWebSockets()) {
-              const { expiresAt, teammateId } = attachment(socket)
+              const { expiresAt } = attachment(socket)
               if (notice.disconnected) yield* close(socket, 4003, "Repository disconnected")
-              else if (teammateId !== undefined && revoked.has(teammateId))
-                yield* close(socket, 4003, "Membership removed")
               else if (expiresAt <= Date.now()) yield* close(socket, 4001, "Session expired")
               else
                 yield* socket
@@ -89,7 +81,6 @@ export const RepositoryLive = Cloudflare.DurableObject<DurableObjectShape>()(
             return HttpServerResponse.empty({ status: 204 })
           }
           const expiresAt = Number(url.searchParams.get("expiresAt"))
-          const teammateId = url.searchParams.get("teammate")
           if (
             request.method !== "GET" ||
             url.pathname !== "/connect" ||
@@ -99,9 +90,7 @@ export const RepositoryLive = Cloudflare.DurableObject<DurableObjectShape>()(
           )
             return HttpServerResponse.empty({ status: 400 })
           const [response, socket] = yield* Cloudflare.upgrade()
-          socket.serializeAttachment(
-            teammateId === null ? { expiresAt } : { expiresAt, teammateId },
-          )
+          socket.serializeAttachment({ expiresAt })
           yield* socket.send(JSON.stringify({ _tag: "Ready" }))
           yield* clean
           return response

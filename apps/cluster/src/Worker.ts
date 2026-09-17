@@ -98,7 +98,6 @@ import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutbo
 import * as AccountLinking from "./AccountLinking.ts"
 import { Teammates, TeammatesConfig } from "./Teammates.ts"
 import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
-import { SessionObservation } from "./Agent/Observation.ts"
 import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
 import { SlackTransport } from "./Slack/Transport.ts"
@@ -297,9 +296,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       )
     }
     let notifyOutbox: Effect.Effect<void> = Effect.void
-    const preferredOrganization = yield* Config.String(
-      "JANITOR_PREFERRED_REPOSITORY_ORGANIZATION",
-    ).pipe(Config.withDefault("Effect-TS"))
     const SlackLayers = slackConfigured
       ? yield* Effect.gen(function* () {
           const key = yield* Config.Redacted("JANITOR_AGENT_RUNNER_MODEL_API_KEY")
@@ -307,13 +303,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             Config.withDefault("z-ai/glm-5.3-flash"),
           )
           const slackConfig = Layer.succeed(SlackConfig, {
-            preferredOrganization,
             workspaceId: slackWorkspace,
             appId: slackApp,
             botUserId: slackBot,
             token: slackToken,
             signingSecret: slackSecret,
-            accountUrl: `${publicOrigin}/account`,
           })
           const transport = SlackTransport.layer.pipe(Layer.provide(slackConfig))
           const modelLayer = OpenAiLanguageModel.layer({
@@ -393,9 +387,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(
         Layer.mergeAll(
           RepositoryActivity.layer,
-          // Observation reads only the database, so the dashboard works even
-          // where no runner is configured: it simply lists nothing.
-          SessionObservation.layer,
           GitHubWebhookJournal.layer,
           Readiness.layer,
           liveUpdatesLayer(liveEnvironment.RepositoryLive as LiveNamespace),

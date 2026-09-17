@@ -102,9 +102,6 @@ minimumReleaseAgeExclude:
   - foldkit@0.157.0
 
 patchedDependencies:
-  "@opencode/ai@2.0.2": patches/@opencode__ai@2.0.2.patch
-  "@opencode/core@2.0.2": patches/@opencode__core@2.0.2.patch
-  "@opencode/simulation@2.0.2": patches/@opencode__simulation@2.0.2.patch
   "@alchemy.run/cloudflare-runtime@2.0.0-beta.76": patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.76.patch
   "@distilled.cloud/aws@1.0.0-rc.8": patches/@distilled.cloud__aws@1.0.0-rc.8.patch
   "@distilled.cloud/axiom@1.0.0-rc.8": patches/@distilled.cloud__axiom@1.0.0-rc.8.patch

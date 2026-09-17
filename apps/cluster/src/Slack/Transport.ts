@@ -13,27 +13,6 @@ export class SlackTransportError extends Schema.TaggedError<SlackTransportError>
     retryAfter: Schema.Number,
   },
 ) {}
-export const SlackMessage = Schema.Struct({
-  type: Schema.optionalKey(Schema.String),
-  ts: Schema.String.check(Schema.isPattern(/^\d+\.\d+$/)),
-  thread_ts: Schema.optionalKey(Schema.String),
-  user: Schema.optionalKey(Schema.String),
-  bot_id: Schema.optionalKey(Schema.String),
-  subtype: Schema.optionalKey(Schema.String),
-  edited: Schema.optionalKey(Schema.Unknown),
-  text: Schema.optionalKey(Schema.String),
-  metadata: Schema.optionalKey(
-    Schema.Struct({
-      event_type: Schema.String,
-      event_payload: Schema.Record(Schema.String, Schema.Unknown),
-    }),
-  ),
-})
-export type SlackMessage = typeof SlackMessage.Type
-export interface ThreadPage {
-  readonly messages: ReadonlyArray<SlackMessage>
-  readonly cursor: string
-}
 export const SlackFetch = Context.Reference<typeof globalThis.fetch>("Slack/Fetch", {
   defaultValue: () => globalThis.fetch,
 })
@@ -46,32 +25,18 @@ export class SlackTransport extends Context.Service<
       { readonly is_private: boolean; readonly is_member: boolean },
       SlackTransportError
     >
-    readonly replies: (
-      channel: string,
-      root: string,
-      cursor: string,
-      latest?: string,
-    ) => Effect.Effect<ThreadPage, SlackTransportError>
     readonly post: (
       channel: string,
       root: string,
       text: string,
       marker: string,
-      blocks?: ReadonlyArray<unknown>,
     ) => Effect.Effect<string, SlackTransportError>
     readonly update: (
       channel: string,
       ts: string,
       text: string,
       marker: string,
-      blocks?: ReadonlyArray<unknown>,
     ) => Effect.Effect<string, SlackTransportError>
-    readonly ephemeral: (
-      channel: string,
-      user: string,
-      root: string,
-      text: string,
-    ) => Effect.Effect<void, SlackTransportError>
   }
 >()("@janitor/cluster/Slack/Transport") {
   static readonly layer = Layer.effect(
@@ -178,42 +143,7 @@ export class SlackTransport extends Context.Service<
             ),
             Effect.map((body) => body.channel),
           ),
-        replies: (channel, root, cursor, latest) =>
-          call("conversations.replies", {
-            channel,
-            ts: root,
-            cursor,
-            limit: 100,
-            include_all_metadata: true,
-            ...(latest === undefined ? {} : { latest, inclusive: true }),
-          }).pipe(
-            Effect.flatMap(
-              decode(
-                Schema.Struct({
-                  messages: Schema.Array(SlackMessage),
-                  has_more: Schema.optionalKey(Schema.Boolean),
-                  response_metadata: Schema.optionalKey(
-                    Schema.Struct({ next_cursor: Schema.optionalKey(Schema.String) }),
-                  ),
-                }),
-              ),
-            ),
-            Effect.flatMap((body) =>
-              body.has_more && !body.response_metadata?.next_cursor
-                ? Effect.fail(
-                    new SlackTransportError({
-                      message: "Slack returned incomplete pagination",
-                      disposition: "retry",
-                      retryAfter: 30,
-                    }),
-                  )
-                : Effect.succeed({
-                    messages: body.messages,
-                    cursor: body.response_metadata?.next_cursor ?? "",
-                  }),
-            ),
-          ),
-        post: (channel, root, text, marker, blocks) =>
+        post: (channel, root, text, marker) =>
           call(
             "chat.postMessage",
             {
@@ -222,14 +152,13 @@ export class SlackTransport extends Context.Service<
               text,
               metadata: metadata(marker),
               ...textOptions,
-              ...(blocks === undefined ? {} : { blocks }),
             },
             true,
           ).pipe(
             Effect.flatMap(sent),
             Effect.map((body) => body.ts),
           ),
-        update: (channel, ts, text, marker, blocks) =>
+        update: (channel, ts, text, marker) =>
           call(
             "chat.update",
             {
@@ -238,17 +167,11 @@ export class SlackTransport extends Context.Service<
               text,
               metadata: metadata(marker),
               ...textOptions,
-              // An update without blocks clears the buttons of an interruption message.
-              blocks: blocks ?? [],
             },
             true,
           ).pipe(
             Effect.flatMap(sent),
             Effect.map((body) => body.ts),
-          ),
-        ephemeral: (channel, user, root, text) =>
-          call("chat.postEphemeral", { channel, user, thread_ts: root, text }, true).pipe(
-            Effect.asVoid,
           ),
       }
     }),

@@ -1,5 +1,4 @@
 import { RepositoryActivity } from "../../src/RepositoryActivity.ts"
-import { GitHubFeedback } from "../../src/GitHub/Feedback.ts"
 import { GitHubWebhookJournal, GitHubWebhookJournalError } from "../../src/GitHub/WebhookJournal.ts"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as Option from "effect/Option"
@@ -68,7 +67,7 @@ const makeHandler = (
   enqueue: (envelope: GitHubWebhookEnvelopeV1) => Effect.Effect<void, EnqueueError>,
   store: StoreStub = {},
   paused = false,
-  feedback: string[] = [],
+  journaled: string[] = [],
   journalFails = false,
 ) =>
   Effect.acquireRelease(
@@ -89,20 +88,12 @@ const makeHandler = (
           disableLogger: true,
           middleware: (app) =>
             app.pipe(
-              Effect.provideService(GitHubFeedback, {
-                record: (_id, name) =>
-                  Effect.sync(() => {
-                    feedback.push(name)
-                  }),
-                processDue: Effect.void,
-                inspect: () => Effect.succeed([]),
-              }),
               Effect.provideService(RepositoryActivity, {
                 run: (_id, effect) =>
                   paused ? Effect.succeedNone : Effect.map(effect, Option.some),
               }),
               Effect.provideService(GitHubWebhookJournal, {
-                record: () =>
+                record: (input) =>
                   journalFails
                     ? Effect.fail(
                         new GitHubWebhookJournalError({
@@ -110,9 +101,12 @@ const makeHandler = (
                           message: "Journal unavailable",
                         }),
                       )
-                    : Effect.succeed({
-                        sequence: GitHubWebhookJournalSequence.make("1"),
-                        duplicate: false,
+                    : Effect.sync(() => {
+                        journaled.push(input.eventName)
+                        return {
+                          sequence: GitHubWebhookJournalSequence.make("1"),
+                          duplicate: false,
+                        }
                       }),
                 load: () => Effect.succeedNone,
                 markProjection: () => Effect.void,
@@ -149,7 +143,7 @@ const sha256 = (bytes: Uint8Array<ArrayBuffer>) =>
   )
 
 describe("GitHubWebhookRoutes", () => {
-  it.effect("does not capture feedback when the encrypted journal write fails", () =>
+  it.effect("returns a retryable response when the encrypted journal write fails", () =>
     Effect.gen(function* () {
       const received: string[] = []
       const handler = yield* makeHandler(() => Effect.void, {}, false, received, true)
@@ -162,7 +156,7 @@ describe("GitHubWebhookRoutes", () => {
     }),
   )
   it.effect(
-    "routes review and comment feedback only after signature verification and repository fencing",
+    "journals review and comment events only after signature verification and repository fencing",
     () =>
       Effect.gen(function* () {
         const received: string[] = []

@@ -1,29 +1,24 @@
 # Janitor
 
-Janitor is a GitHub and Slack collaboration application with an OpenCode agent runner.
+Janitor automates GitHub labeling and collaborates with teammates through Slack agent sessions.
 
 ## Development
 
-Effect dependencies use commit-pinned CI snapshots. One root install covers every application, including the runner. See [Effect snapshot dependencies](docs/effect-snapshots.md) for pins and upgrade checks.
+Effect dependencies use commit-pinned CI snapshots configured in `pnpm-workspace.yaml`. One root install covers every application.
 
 ```sh
 vp install --frozen-lockfile
 vp run dev
 ```
 
-Alchemy starts Postgres, the API on port 8787, the website on 1337, and the runner on 8790 with one Linux sandbox container per agent session. Open the website. The runner uses a fixture repository inside the sandbox image and a controlled model by default, so development needs Docker or Podman but no production credentials. Runner configuration and live-model opt-in are described in the [runner guide](apps/runner/README.md).
+Alchemy starts Postgres, the API on port 8787, and the website on 1337. Development needs Docker or Podman. Slack sessions run in the API Worker and lazily start a Node sandbox container for repository operations. See [Slack setup](docs/slack/README.md) for bot and model configuration.
 
 ```sh
-# Optional, while the local stack is running: a turn, a container replacement and a restore.
-vp run runner:smoke
-
-# Project checks, including the runner:
+# Formatting, lint, type checking, and tests:
 vp run check:all
 ```
 
-PR checks run formatting, lint, type checking, the runner bundle and the focused test suites; the local Alchemy smoke is opt-in and is not a CI gate.
-
-The API, website and runner belong to the root Alchemy deployment. The runner retains its own Worker for its Workerd-specific bundle. Each agent session's Durable Object owns its sandbox container, hosts OpenCode and keeps conversation state; the container holds the repository checkout, commands and background processes. See [why the Worker remains separate](docs/adr/0001-runner-worker-and-linux-workspace.md), [completed-turn recovery](docs/adr/0003-completed-turn-recovery-and-repository-authority.md) and [the sandbox-owning object](docs/adr/0004-host-opencode-in-the-sandbox-owning-object.md).
+Each Slack thread has a Durable Object that stores conversation history and queued inputs and runs Effect Chat through OpenRouter. Its container holds an ephemeral repository checkout. See [Slack sessions in the API Worker](docs/adr/0005-slack-sessions-in-the-api-worker.md) and [sandbox services](packages/alchemy/README.md).
 
 There is no Cloudflare edge locally, so Access attributes requests to the `local-dev` identity. Local audit entries record that identity; production does not accept it. Live GitHub operations are disabled in the default local composition.
 

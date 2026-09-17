@@ -320,3 +320,18 @@ inference, and retry eligibility. Existing initialization and buffered inputs ge
 workflow outbox requests without resetting their thread context or leases. Idle
 threads stop polling Slack. Repository readiness changes wake waiting threads;
 synchronization completion submits their processing requests immediately.
+
+## Legacy runner retirement
+
+`0037_retire_legacy_runner.sql` removes the former runner's session, Slack delivery,
+GitHub feedback and cleanup tables. It removes their pending workflow requests,
+session notifications, and triggers on repositories and teammates. It replaces
+`delete_repository_data` with the repository-only cleanup while preserving
+`repository_block_reason`, account linking, synchronization and labeling state.
+
+This migration deletes historical runner conversations and delivery records.
+Current Slack conversations live in Durable Object storage and are unaffected.
+Cloudflare resources owned by the former runner require a separate cutover.
+Earlier migrations remain in order so both fresh databases and existing
+deployments reach the same schema. The populated-upgrade test covers retirement
+and repository operations after migration.
