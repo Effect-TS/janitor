@@ -144,6 +144,21 @@ export const GitHubCommitStatusDatabaseIdFromStringOrNumber = Schema.Union([
   GitHubCommitStatusDatabaseId,
 ]).annotate({ identifier: "GitHubCommitStatusDatabaseIdFromStringOrNumber" })
 
+export const GitHubCommentDatabaseId = GitHubDatabaseIdString.pipe(
+  Schema.brand("GitHubCommentDatabaseId"),
+).annotate({ identifier: "GitHubCommentDatabaseId" })
+export type GitHubCommentDatabaseId = typeof GitHubCommentDatabaseId.Type
+
+export const GitHubCommentDatabaseIdFromNumber = GitHubDatabaseIdNumber.pipe(
+  Schema.decodeTo(GitHubDatabaseIdString, SchemaTransformation.numberFromString.flip()),
+  Schema.brand("GitHubCommentDatabaseId"),
+).annotate({ identifier: "GitHubCommentDatabaseIdFromNumber" })
+
+export const GitHubCommentDatabaseIdFromStringOrNumber = Schema.Union([
+  GitHubCommentDatabaseIdFromNumber,
+  GitHubCommentDatabaseId,
+]).annotate({ identifier: "GitHubCommentDatabaseIdFromStringOrNumber" })
+
 export const GitHubWebhookHookId = GitHubDatabaseIdString.pipe(
   Schema.brand("GitHubWebhookHookId"),
 ).annotate({ identifier: "GitHubWebhookHookId" })

@@ -22,6 +22,17 @@ import {
 import { LabelingSyncIntegrationLayer } from "./Labeling/SyncIntegration.ts"
 import { LabelingAutomationIntegrationLayer } from "./Labeling/AutomationIntegration.ts"
 import { LabelItemLayer, LabelItemRegistration } from "./Labeling/DirectLabeling.ts"
+import {
+  AdmitReviewLayer,
+  AdmitReviewRegistration,
+  IssueReviewAdmission,
+} from "./Review/Admission.ts"
+import { ReviewAgent, ReviewAgentClient, ReviewAgentLayer } from "./Review/Agent.ts"
+import { IssueReviewControl } from "./Review/Control.ts"
+import { IssueReviewAvailable } from "./Review/Gate.ts"
+import { IssueReviewScheduler } from "./Review/Scheduler.ts"
+import { IssueReviewSettings } from "./Review/Settings.ts"
+import { IssueReviewStore } from "./Review/Store.ts"
 import * as AlchemyCloudflareCluster from "@effect/platform-cloudflare/AlchemyCloudflareCluster"
 import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -224,6 +235,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       }),
     ).pipe(Effect.provide(localCredentials))
     const GitHubPayloadCipherLayer = PayloadCipher.layerFrom(secrets.cipher)
+    // The development gate (ticket 13): issue review is off in a deployment
+    // until it is explicitly switched on; `alchemy dev` always has it.
+    const reviewAvailable =
+      dev ||
+      (yield* Config.Boolean("JANITOR_ISSUE_REVIEW_DEVELOPMENT").pipe(Config.withDefault(false)))
     // Account linking is optional per platform; the account page says which
     // platforms this deployment can connect.
     const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)
@@ -347,6 +363,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       RefreshEntityLayer,
       LabelItemLayer,
       RuleTestJobLayer,
+      AdmitReviewLayer,
+      ReviewAgentLayer,
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
       SlackLayers,
@@ -354,6 +372,15 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(
         Layer.mergeAll(LabelingSyncIntegrationLayer, LabelingAutomationIntegrationLayer),
       ),
+      Layer.provideMerge(
+        Layer.mergeAll(
+          IssueReviewAdmission.layer,
+          IssueReviewSettings.layer,
+          IssueReviewControl.layer,
+        ),
+      ),
+      Layer.provideMerge(IssueReviewScheduler.layer),
+      Layer.provideMerge(Layer.mergeAll(IssueReviewStore.layer, ReviewAgentClient.layer)),
       Layer.provideMerge(
         Layer.mergeAll(
           SyncPlanner.layer,
@@ -383,6 +410,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           RefreshEntityRegistration,
           LabelItemRegistration,
           RuleTestJobRegistration,
+          AdmitReviewRegistration,
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
@@ -407,6 +435,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provide(DatabaseLayer),
       Layer.provide(Layer.succeed(AiInputBudget, inputBudget)),
       Layer.provide(Layer.succeed(AiCacheTtl, cacheTtl)),
+      Layer.provide(Layer.succeed(IssueReviewAvailable, reviewAvailable)),
       Layer.provide(
         Layer.succeed(
           OutboxWake,
@@ -416,7 +445,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
-      entities: [],
+      entities: [ReviewAgent],
       layer: ClusterLayer,
     })
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)

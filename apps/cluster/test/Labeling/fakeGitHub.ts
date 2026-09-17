@@ -38,6 +38,23 @@ export interface FakeIssue {
   updatedAt?: string
 }
 
+/** An issue comment as `/issues/comments/{id}` answers it. */
+export interface FakeComment {
+  readonly id: number
+  readonly issueNumber: number
+  body: string
+  user: { id: number; login: string; type: string }
+  createdAt?: string
+  /** Differs from `createdAt` once the comment was edited. */
+  updatedAt?: string
+}
+
+/** What `/collaborators/{login}/permission` answers for a login. */
+export interface FakePermission {
+  readonly id: number
+  readonly permission: "admin" | "write" | "read" | "none"
+}
+
 const DEFAULT_HEAD = "a".repeat(40)
 
 /**
@@ -48,6 +65,8 @@ const DEFAULT_HEAD = "a".repeat(40)
  */
 export class FakeGitHub {
   readonly issues = new Map<number, FakeIssue>()
+  readonly comments = new Map<number, FakeComment>()
+  readonly permissions = new Map<string, FakePermission>()
   labels: Array<FakeLabel> = []
   readonly requests: Array<GitHubRequest> = []
   /** Runs before every request; fail it to simulate throttling or outages. */
@@ -178,6 +197,40 @@ export class FakeGitHub {
         .filter((issue) => issue.state === "open")
         .sort((a, b) => b.number - a.number)
       return this.ok(open.map((issue) => this.body(issue)))
+    }
+    const comment = /^\/issues\/comments\/(\d+)$/.exec(rest)
+    if (comment && request.method === "GET") {
+      const found = this.comments.get(Number(comment[1]))
+      return found === undefined
+        ? this.failed(404)
+        : this.ok({
+            id: found.id,
+            body: found.body,
+            user: found.user,
+            created_at: found.createdAt ?? "2026-09-17T10:00:00Z",
+            updated_at: found.updatedAt ?? found.createdAt ?? "2026-09-17T10:00:00Z",
+            issue_url: `https://api.github.com${this.path}/issues/${found.issueNumber}`,
+          })
+    }
+    const permission = /^\/collaborators\/([^/]+)\/permission$/.exec(rest)
+    if (permission && request.method === "GET") {
+      const login = decodeURIComponent(permission[1]!)
+      const found = this.permissions.get(login)
+      return found === undefined
+        ? this.failed(404)
+        : this.ok({
+            permission: found.permission,
+            role_name: found.permission,
+            user: {
+              id: found.id,
+              login,
+              permissions: {
+                pull: found.permission !== "none",
+                push: found.permission === "write" || found.permission === "admin",
+                admin: found.permission === "admin",
+              },
+            },
+          })
     }
     const single = /^\/issues\/(\d+)$/.exec(rest)
     if (single && request.method === "GET") {

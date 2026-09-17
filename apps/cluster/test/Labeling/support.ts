@@ -127,6 +127,8 @@ export const seed = Effect.gen(function* () {
     sequence: seq,
   })
   github.issues.clear()
+  github.comments.clear()
+  github.permissions.clear()
   github.requests.length = 0
   github.intercept = () => Effect.succeed(undefined)
   github.labels = [

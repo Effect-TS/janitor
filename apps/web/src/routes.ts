@@ -27,6 +27,7 @@ export const AppRoute = Route.defineRouteUnion({
   NewRule: repository,
   Rule: { ...repository, ruleId: Schema.String },
   Activity: repository,
+  Reviews: repository,
   Settings: repository,
   DesignSystem: {},
   Account: { section: AccountSection },
@@ -104,6 +105,11 @@ export const activity = pipe(
   Route.slash(Route.literal("activity")),
   Route.mapTo(AppRoute.Activity),
 )
+export const reviews = pipe(
+  base,
+  Route.slash(Route.literal("reviews")),
+  Route.mapTo(AppRoute.Reviews),
+)
 export const settings = pipe(
   base,
   Route.slash(Route.literal("settings")),
@@ -164,6 +170,7 @@ export const parse = Route.parseUrlWithFallback(
     legacyRuleTest,
     rule,
     activity,
+    reviews,
     settings,
     designSystem,
     accountReturn,
@@ -184,15 +191,24 @@ export const path = (route: AppRoute): string =>
     NewRule: newRule,
     Rule: rule,
     Activity: activity,
+    Reviews: reviews,
     Settings: settings,
     DesignSystem: designSystem,
     Account: account,
     AccountReturn: accountReturn,
     NotFound: ({ path }) => path,
   })
-export const section = (
-  route: AppRoute,
-): "Overview" | "Policies" | "Rules" | "Activity" | "Settings" => {
+/** The repository sections in navigation order. */
+export const sections = [
+  "Overview",
+  "Policies",
+  "Rules",
+  "Activity",
+  "Reviews",
+  "Settings",
+] as const
+export type Section = (typeof sections)[number]
+export const section = (route: AppRoute): Section => {
   switch (route._tag) {
     case "Repository":
       return "Overview"
@@ -202,21 +218,21 @@ export const section = (
       return "Rules"
     case "Activity":
       return "Activity"
+    case "Reviews":
+      return "Reviews"
     case "Settings":
       return "Settings"
     default:
       return "Policies"
   }
 }
-export const sectionPath = (
-  repositoryId: string,
-  section: "Overview" | "Policies" | "Rules" | "Activity" | "Settings",
-): string =>
+export const sectionPath = (repositoryId: string, section: Section): string =>
   ({
     Overview: repositoryHome,
     Policies: policies,
     Rules: rules,
     Activity: activity,
+    Reviews: reviews,
     Settings: settings,
   })[section]({
     repositoryId,
