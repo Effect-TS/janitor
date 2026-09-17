@@ -44,11 +44,11 @@ Each run has a 15-minute execution timeout, including installation and testing. 
 
 Use the deployment's existing agent-model configuration, independently of the labeling model, with no per-repository model selector for the MVP.
 
-Model the agent as a persistent cluster Entity with messages in, messages out, and explicit persisted state. Use embedded Effect Workflows for actions, including LLM invocation. Do not model the entire agent as one Workflow. Entity lifetime and the distinction between runner recovery and sandbox loss are being clarified before ticket finalization.
+Model each review run's agent as a persistent cluster Entity with messages in, messages out, and explicit persisted state. Use embedded Effect Workflows for actions, including LLM invocation. A separate per-issue scheduler coordinates independent runs and publications. Do not model the entire agent as one Workflow.
 
 Different issues run concurrently in separate sandbox/agent sessions across the cluster, using available cluster capacity. The MVP has no feature-specific per-repository concurrency or queue cap. Same-issue serialization and the 15-minute execution timeout remain required.
 
-Interrupted agent investigations do not automatically restart in the MVP. Mark the run interrupted, retain available findings, and require a new invocation. Completed investigation and publication Activities still recover; uncertain GitHub writes are reconciled. Durable publication recovery does not imply reconstruction of an unfinished agent session.
+A runner restart restores persisted agent state and resumes pending actions when the sandbox remains usable, reusing completed LLM results. Losing the sandbox's unfinished work interrupts the investigation: retain available findings and require a new invocation. Cancellation, current authority, and the original deadline still apply. Completed action results and uncertain publication writes remain recoverable; the MVP does not reconstruct a lost unfinished workspace automatically.
 
 Closing an issue stops its active run, cancels queued invocations, and blocks publication of saved results while the issue remains closed. Reopening does not restart work or permit continuation of old work; a new invocation is required. Existing comments and PRs remain untouched.
 
@@ -89,5 +89,7 @@ Trusted application code prevents mentions and frontend links, checks that publi
 ## Design confirmation
 
 The user confirmed the consolidated design, including provisioning, Activities, durable records, validation, cancellation, and publication ordering in [backend-design.md](backend-design.md). Product decisions are recorded above and in the linked ADRs.
+
+The user subsequently confirmed one agent Entity per review run, separate per-issue scheduling, and recovery after runner restart when the sandbox remains usable. The approved implementation breakdown is published in [tickets.md](tickets.md); creating the tickets does not start implementation.
 
 Exact runtime/tool versions, schema names, retry intervals, and validation size constants remain implementation details. They must preserve these requirements and do not introduce new product settings or relax publication constraints.
