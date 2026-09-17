@@ -304,7 +304,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ? yield* Effect.gen(function* () {
           const key = yield* Config.Redacted("JANITOR_AGENT_RUNNER_MODEL_API_KEY")
           const model = yield* Config.String("JANITOR_CHAT_MODEL").pipe(
-            Config.withDefault("stealth/union-alpha"),
+            Config.withDefault("z-ai/glm-5.3-flash"),
           )
           const slackConfig = Layer.succeed(SlackConfig, {
             preferredOrganization,
