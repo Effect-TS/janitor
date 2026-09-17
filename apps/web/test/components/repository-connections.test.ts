@@ -19,7 +19,7 @@ const candidate = {
 }
 const settings = { repositoryId: "701", state: "" }
 describe("Repository connections", () => {
-  it("explains the synchronization block and offers recovery", () => {
+  it("shows cache failure apart from repository readiness and offers recovery", () => {
     const failed = { ...candidate, syncState: "failed", syncError: "GitHub timeout" }
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
@@ -30,11 +30,12 @@ describe("Repository connections", () => {
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [failed] } }),
       ),
       Scene.expect(Scene.text("test/example")).toExist(),
-      Scene.expect(Scene.text("Blocked by sync failure")).toExist(),
+      Scene.expect(Scene.text("Ready")).toExist(),
+      Scene.expect(Scene.text("Sync failed")).toExist(),
       Scene.expect(Scene.role("button", { name: "Retry sync" })).toExist(),
       Scene.expect(
         Scene.text(
-          "GitHub timeout Automatic retries continue. Retry sync to refresh facts now. Recovery waits for new webhook events before labeling.",
+          "GitHub timeout Automatic retries continue. Retry sync to refresh facts now. Agent sessions keep working; labeling waits for new webhook events after recovery.",
         ),
       ).toExist(),
     )
@@ -200,5 +201,27 @@ describe("connection result handling", () => {
       }),
     )
     expect(loaded.model.notice).toBe("Available repositories are up to date.")
+  })
+  it("shows the server's block reason for a paused repository", () => {
+    const paused = {
+      ...candidate,
+      enabled: false,
+      syncState: "paused",
+      blockReason: "This repository is paused in Janitor. Resume it to continue.",
+    }
+    Scene.scene(
+      { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
+      Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [paused] }) }),
+      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Command.resolve(
+        Connections.Load,
+        Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [paused] } }),
+      ),
+      Scene.expect(Scene.text("Paused")).toExist(),
+      Scene.expect(
+        Scene.text("This repository is paused in Janitor. Resume it to continue."),
+      ).toExist(),
+      Scene.expect(Scene.text("Synchronizing")).not.toExist(),
+    )
   })
 })

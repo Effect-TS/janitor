@@ -11,6 +11,8 @@ export const ConnectionCandidate = Schema.Struct({
   access: Schema.String,
   accessError: Schema.optionalKey(Schema.NullOr(Schema.String)),
   installationStatus: Schema.String,
+  /** Why repository work is refused, independent of the synchronization cache. */
+  blockReason: Schema.optionalKey(Schema.NullOr(Schema.String)),
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
   syncState: Schema.String,

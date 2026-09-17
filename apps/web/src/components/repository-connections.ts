@@ -267,6 +267,12 @@ export const update = (model: Model, message: Message) =>
                     ruleCount: action === "disconnect" ? 0 : row.ruleCount,
                     syncState: action === "connect" || action === "resume" ? "syncing" : "paused",
                     syncError: null,
+                    blockReason:
+                      action === "disconnect"
+                        ? "This repository is disconnected from Janitor."
+                        : action === "pause"
+                          ? "This repository is paused in Janitor. Resume it to continue."
+                          : null,
                   },
             ),
           })),
@@ -323,8 +329,9 @@ type Row = (typeof Inventory.Type)["repositories"][number]
 
 const hasAccess = (row: Row) => row.access === "accessible" && row.installationStatus === "active"
 const syncBlocked = (row: Row) => row.connected && row.enabled && row.syncState === "failed"
+/** Whether repository work may run: connection, access and pause, never cache health. */
+const eligible = (row: Row) => row.connected && hasAccess(row) && row.enabled
 
-/** The one-word connection state shown as a chip in the card header. */
 const status = (row: Row): { readonly label: string; readonly variant: ChipVariant } =>
   !row.connected
     ? { label: "Disconnected", variant: "danger" }
@@ -332,11 +339,17 @@ const status = (row: Row): { readonly label: string; readonly variant: ChipVaria
       ? { label: "Access lost", variant: "danger" }
       : !row.enabled
         ? { label: "Paused", variant: "neutral" }
-        : row.syncState === "failed"
-          ? { label: "Blocked by sync failure", variant: "danger" }
-          : row.syncState === "syncing"
-            ? { label: "Synchronizing", variant: "neutral" }
-            : { label: "Automation ready", variant: "success" }
+        : { label: "Ready", variant: "success" }
+
+/** Health of the synchronization cache, shown beside the connection state. */
+const cacheHealth = (row: Row): { readonly label: string; readonly variant: ChipVariant } | null =>
+  !eligible(row)
+    ? null
+    : row.syncState === "failed"
+      ? { label: "Sync failed", variant: "danger" }
+      : row.syncState === "syncing"
+        ? { label: "Synchronizing", variant: "neutral" }
+        : { label: "Synchronized", variant: "neutral" }
 
 export const view = Submodel.defineView<
   Model,
@@ -438,13 +451,19 @@ export const view = Submodel.defineView<
       )
     }
     const state = status(current)
+    const health = cacheHealth(current)
     const connection = panel(h, {
       flush: true,
       children: [
         panelHeader(h, {
           title: "Connection",
           meta: `${current.owner}/${current.repo}`,
-          actions: [chip(h, { variant: state.variant, children: [state.label] })],
+          actions: [
+            chip(h, { variant: state.variant, children: [state.label] }),
+            health === null
+              ? h.empty
+              : chip(h, { variant: health.variant, children: [health.label] }),
+          ],
         }),
         h.div(
           [h.Class("flex flex-col divide-y divide-border-subtle")],
@@ -484,12 +503,13 @@ export const view = Submodel.defineView<
                         h.span(
                           [h.Class("text-ink-muted")],
                           [
-                            " Automatic retries continue. Retry sync to refresh facts now. Recovery waits for new webhook events before labeling.",
+                            " Automatic retries continue. Retry sync to refresh facts now. Agent sessions keep working; labeling waits for new webhook events after recovery.",
                           ],
                         ),
                       ],
                     )
                   : h.empty,
+                current.blockReason ? note(h, current.blockReason, [h.Role("status")]) : h.empty,
                 !current.enabled && current.reconnect
                   ? h.p(
                       [h.Class("text-body-sm text-ink-muted")],

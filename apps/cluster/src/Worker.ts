@@ -5,6 +5,7 @@ import { SessionAdmission, SessionIngressLive } from "./Slack/SessionIngress.ts"
 import { SlackSessionRoutes } from "./Ingress/SlackSession.ts"
 import * as ConfigProvider from "effect/ConfigProvider"
 import { RepositoryActivity } from "./RepositoryActivity.ts"
+import { RepositoryEligibility } from "./RepositoryEligibility.ts"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import { RepositoryLive } from "./LiveHub.ts"
 import { liveUpdatesLayer, flushLive } from "./LiveUpdates.ts"
@@ -320,7 +321,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             Layer.provide(FetchHttpClient.layer),
           )
           const repositories = layerRepositories.pipe(
-            Layer.provide([DatabaseLayer, GitHubAuthLayer, FetchHttpClient.layer]),
+            Layer.provide(RepositoryEligibility.layer.pipe(Layer.provide(DatabaseLayer))),
+            Layer.provide([GitHubAuthLayer, FetchHttpClient.layer]),
           )
           const runtime = Layer.effect(SessionRuntime, makeSessionRuntime).pipe(
             Layer.provide([repositories, modelLayer, transport]),
