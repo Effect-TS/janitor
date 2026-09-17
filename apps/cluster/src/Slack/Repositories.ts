@@ -53,7 +53,7 @@ export const pinGeneration = (repositories: Repositories["Service"]): Repositori
   }
   const get = (id: string) => repositories.get(id).pipe(Effect.flatMap(pinned))
   return {
-    list: repositories.list,
+    list: repositories.list.pipe(Effect.flatMap(Effect.forEach(pinned))),
     get,
     credentials: (id) =>
       get(id).pipe(Effect.flatMap((repository) => repositories.credentials(repository.id))),

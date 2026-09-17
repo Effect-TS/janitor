@@ -59,17 +59,14 @@ export class RepositoryEligibility extends Context.Service<RepositoryEligibility
           Effect.flatMap(decodeRows),
           Effect.orDie,
         )
-      const lookup = (repositoryId: string) =>
-        sql`SELECT ${columns(sql)} FROM github_repository r WHERE r.repository_id = ${repositoryId}`.pipe(
-          Effect.flatMap((rows) =>
-            rows.length === 0
-              ? Effect.fail(new RepositoryBlocked({ repositoryId, reason: missingReason }))
-              : decodeRow(rows[0]).pipe(Effect.orDie),
-          ),
-        )
+      const one = (repositoryId: string, rows: ReadonlyArray<unknown>) =>
+        rows.length === 0
+          ? Effect.fail(new RepositoryBlocked({ repositoryId, reason: missingReason }))
+          : decodeRow(rows[0]).pipe(Effect.orDie)
       /** The repository, or the concrete reason it cannot be worked on. */
       const get = (repositoryId: string) =>
-        lookup(repositoryId).pipe(
+        sql`SELECT ${columns(sql)} FROM github_repository r WHERE r.repository_id = ${repositoryId}`.pipe(
+          Effect.flatMap((rows) => one(repositoryId, rows)),
           Effect.tap((repository) => blocked(repositoryId, repository.blockReason)),
         )
       /**
@@ -86,9 +83,7 @@ export class RepositoryEligibility extends Context.Service<RepositoryEligibility
           Effect.gen(function* () {
             const rows = yield* sql`SELECT ${columns(sql)} FROM github_repository r
               WHERE r.repository_id = ${repositoryId} FOR NO KEY UPDATE`
-            if (rows.length === 0)
-              return yield* new RepositoryBlocked({ repositoryId, reason: missingReason })
-            const repository = yield* decodeRow(rows[0]).pipe(Effect.orDie)
+            const repository = yield* one(repositoryId, rows)
             yield* blocked(repositoryId, repository.blockReason)
             if (options?.generation !== undefined && options.generation !== repository.generation)
               return yield* new RepositoryBlocked({ repositoryId, reason: changedReason })

@@ -267,6 +267,12 @@ export const update = (model: Model, message: Message) =>
                     ruleCount: action === "disconnect" ? 0 : row.ruleCount,
                     syncState: action === "connect" || action === "resume" ? "syncing" : "paused",
                     syncError: null,
+                    blockReason:
+                      action === "disconnect"
+                        ? "This repository is disconnected from Janitor."
+                        : action === "pause"
+                          ? "This repository is paused in Janitor. Resume it to continue."
+                          : null,
                   },
             ),
           })),
@@ -323,8 +329,9 @@ type Row = (typeof Inventory.Type)["repositories"][number]
 
 const hasAccess = (row: Row) => row.access === "accessible" && row.installationStatus === "active"
 const syncBlocked = (row: Row) => row.connected && row.enabled && row.syncState === "failed"
-
 /** Whether repository work may run: connection, access and pause, never cache health. */
+const eligible = (row: Row) => row.connected && hasAccess(row) && row.enabled
+
 const status = (row: Row): { readonly label: string; readonly variant: ChipVariant } =>
   !row.connected
     ? { label: "Disconnected", variant: "danger" }
@@ -336,7 +343,7 @@ const status = (row: Row): { readonly label: string; readonly variant: ChipVaria
 
 /** Health of the synchronization cache, shown beside the connection state. */
 const cacheHealth = (row: Row): { readonly label: string; readonly variant: ChipVariant } | null =>
-  !row.connected || !hasAccess(row) || !row.enabled
+  !eligible(row)
     ? null
     : row.syncState === "failed"
       ? { label: "Sync failed", variant: "danger" }
@@ -502,6 +509,7 @@ export const view = Submodel.defineView<
                       ],
                     )
                   : h.empty,
+                current.blockReason ? note(h, current.blockReason, [h.Role("status")]) : h.empty,
                 !current.enabled && current.reconnect
                   ? h.p(
                       [h.Class("text-body-sm text-ink-muted")],

@@ -83,7 +83,9 @@ layer(service)("Slack repository access", (it) => {
           yield* Effect.flip(repositories.credentials("9100")),
           "GitHub access to this repository is unavailable. Restore access on GitHub.",
         )
+        // Restored access makes credentials available again while the cache is still failed.
         yield* sql`UPDATE github_installation SET access_error=NULL WHERE installation_id='77'`
+        assert.strictEqual(Redacted.value(yield* repositories.credentials("9100")), "read-token")
         yield* sql`UPDATE github_repository SET enabled=FALSE WHERE repository_id='9100'`
         assert.strictEqual((yield* repositories.get("9100").pipe(Effect.result))._tag, "Failure")
         yield* sql`UPDATE github_repository SET connected=FALSE, disconnected_at=now() WHERE repository_id='9100'`
@@ -91,6 +93,8 @@ layer(service)("Slack repository access", (it) => {
           yield* Effect.flip(repositories.credentials("9100")),
           "This repository is disconnected from Janitor.",
         )
+        yield* sql`UPDATE github_repository SET connected=TRUE, enabled=TRUE WHERE repository_id='9100'`
+        assert.strictEqual((yield* repositories.get("test/example")).id, "9100")
       }),
   )
 
@@ -104,7 +108,7 @@ layer(service)("Slack repository access", (it) => {
         generation,
       })
       const repositories = {
-        list: Effect.succeed([]),
+        list: Effect.sync(() => [repository()]),
         get: () => Effect.succeed(repository()),
         credentials: () => Effect.succeed(Redacted.make("read-token")),
       }
@@ -113,6 +117,7 @@ layer(service)("Slack repository access", (it) => {
       assert.strictEqual(Redacted.value(yield* turn.credentials("9100")), "read-token")
       // Paused and resumed while the turn was running: same repository, new generation.
       generation = "3"
+      assert.include(yield* Effect.flip(turn.list), "changed since this work was accepted")
       assert.include(
         yield* Effect.flip(turn.get("test/example")),
         "changed since this work was accepted",
