@@ -1,12 +1,15 @@
 import type { Sandbox } from "@janitor/alchemy/AI/Sandbox"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import { Repositories } from "./Repositories.ts"
 import { runAgentTurn } from "./AgentTurn.ts"
 import { Sandbox as SandboxTag } from "@janitor/alchemy/AI/Sandbox"
 import type { Selection, SessionInput, SessionState } from "./Session.ts"
 import { SlackTransport } from "./Transport.ts"
+import { TurnEvents } from "./TurnEvents.ts"
+import { makeTurnPresentation } from "./TurnPresentation.ts"
 
 export class SessionRuntime extends Context.Service<
   SessionRuntime,
@@ -25,11 +28,27 @@ export const makeSessionRuntime = Effect.gen(function* () {
   const environment = yield* Effect.context<Repositories | LanguageModel.LanguageModel>()
   const slack = yield* SlackTransport
   return SessionRuntime.of({
-    run: (sandbox, input, state, select) =>
-      runAgentTurn(input, state, select).pipe(
+    run: Effect.fnUntraced(function* (sandbox, input, state, select) {
+      const presentation = yield* makeTurnPresentation(input).pipe(
+        Effect.provideService(SlackTransport, slack),
+      )
+      const heartbeat = yield* Effect.gen(function* () {
+        while (true) {
+          yield* Effect.sleep("3 seconds")
+          yield* presentation.refresh
+        }
+      }).pipe(Effect.forkScoped)
+      return yield* runAgentTurn(input, state, select).pipe(
+        Effect.provideService(TurnEvents, presentation),
         Effect.provideService(SandboxTag, sandbox),
         Effect.provide(environment),
-      ),
+        Effect.onExit((exit) =>
+          Fiber.interrupt(heartbeat).pipe(
+            Effect.andThen(presentation.finish(exit._tag === "Success" ? "Finished" : "Stopped")),
+          ),
+        ),
+      )
+    }, Effect.scoped),
     post: Effect.fnUntraced(function* (input, text) {
       // Slack text limit is 40,000; smaller chunks are easier to read and avoid truncation.
       const chunks = text.match(/[\s\S]{1,3500}/gu) ?? ["I couldn't produce an answer."]

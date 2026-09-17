@@ -29,3 +29,5 @@ The pinned Cloudflare runtime accepts `DOCKER_BIN=podman`. Our runtime patch omi
 ## OpenAI-compatible response metadata
 
 The pinned `@effect/ai-openai-compat` decoder rejects `service_tier: null`, which OpenRouter returns for Union Alpha. The patch normalizes null to undefined in completion responses and streaming chunks, preserving the adapter's decoded types. String values remain valid; other types still fail validation. It covers both source and shipped JavaScript. Remove it when the pinned adapter handles nullable service tiers upstream. The Slack agent-turn test covers a tool call and subsequent conversation with nullable metadata.
+
+Streaming chunks must run through the decoder rather than `Schema.is`, so the null normalization actually runs. Otherwise the adapter classifies valid chunks as unknown events and silently drops their text and tool calls. The streamed Slack conversation test covers this path.
