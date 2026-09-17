@@ -198,7 +198,7 @@ export class LabelingTest extends Context.Service<
         wrap("entity"),
       )
 
-    const items = Effect.fn("LabelingTest.entities")(function* (
+    const items = Effect.fn("LabelingTest.items")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
       numbers: ReadonlyArray<number>,
     ) {
@@ -216,11 +216,12 @@ export class LabelingTest extends Context.Service<
           const cached = yield* cachedPullRequest(repositoryId, number)
           if (Option.isSome(cached)) return cached
           const fetched = yield* github(fetchIssue(repository, number, "foreground"))
-          if (fetched._tag === "Unavailable" || fetched.issue.state !== "open")
-            return Option.none<TestItem>()
-          return fetched.issue.pullRequest === undefined
+          // A pull request the cache does not know yet is not previewed.
+          return fetched._tag === "Found" &&
+            fetched.issue.state === "open" &&
+            fetched.issue.pullRequest === undefined
             ? Option.some(fromIssue(fetched.issue))
-            : yield* cachedPullRequest(repositoryId, number)
+            : Option.none<TestItem>()
         }),
       ).pipe(Effect.map((found) => found.flatMap(Option.toArray)))
     })
@@ -352,7 +353,7 @@ export class LabelingTest extends Context.Service<
       }
     })
 
-    const list = Effect.fn("LabelingTest.items")(function* (
+    const list = Effect.fn("LabelingTest.list")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
     ) {
       yield* configuration.requireRepository(repositoryId)

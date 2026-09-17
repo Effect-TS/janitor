@@ -10,9 +10,9 @@ import {
   describeFailed,
   rateLimitedOrFailure,
   SyncActivityError,
-  type SyncRateLimited,
+  SyncRateLimited,
 } from "../GitHub/SyncSupport.ts"
-import { GitHubTransport, type GitHubRequest } from "../GitHub/Transport.ts"
+import { GitHubTransport, type GitHubRequest, type GitHubResponse } from "../GitHub/Transport.ts"
 
 /**
  * Current issue facts read straight from GitHub (ADR 0006). Nothing here
@@ -53,7 +53,18 @@ const request = (
 export const repositoryPath = (repository: RepositoryTarget) =>
   `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}`
 
-const get = <S extends Schema.Top>(target: GitHubRequest, schema: S) =>
+type Fetched<A> =
+  | { readonly _tag: "Ok"; readonly body: A; readonly next: Option.Option<string> }
+  | { readonly _tag: "Failed"; readonly status: number; readonly message: string }
+
+const get = <S extends Schema.Top>(
+  target: GitHubRequest,
+  schema: S,
+): Effect.Effect<
+  Fetched<S["Type"]>,
+  SyncRateLimited | SyncActivityError,
+  GitHubTransport | S["DecodingServices"]
+> =>
   Effect.gen(function* () {
     const transport = yield* GitHubTransport
     const response = yield* transport.request(target).pipe(rateLimitedOrFailure)
@@ -65,7 +76,11 @@ const get = <S extends Schema.Top>(target: GitHubRequest, schema: S) =>
               new SyncActivityError({ message: `${target.url} did not decode: ${error.message}` }),
           ),
         )
-        return { _tag: "Ok" as const, body, next: Option.flatMap(response.link, nextLink) }
+        return {
+          _tag: "Ok",
+          body,
+          next: Option.flatMap(response.link, nextLink),
+        } satisfies Fetched<S["Type"]>
       }
       case "NotModified":
         return yield* new SyncActivityError({
@@ -78,10 +93,10 @@ const get = <S extends Schema.Top>(target: GitHubRequest, schema: S) =>
             retryable: true,
           })
         return {
-          _tag: "Failed" as const,
+          _tag: "Failed",
           status: response.status,
           message: describeFailed(response),
-        }
+        } satisfies Fetched<S["Type"]>
     }
   })
 
@@ -139,16 +154,14 @@ export const fetchLabelCatalog = (
     const labels: Array<GitHubLabelApi> = []
     let url: string | null = `${repositoryPath(repository)}/labels?per_page=${PAGE}`
     for (let page = 0; url !== null && page < MAX_LABEL_PAGES; page++) {
-      const response: {
-        readonly _tag: "Ok" | "Failed"
-        readonly body?: ReadonlyArray<GitHubLabelApi>
-        readonly next?: Option.Option<string>
-        readonly message?: string
-      } = yield* get(request(repository, "foreground", "GET", url), Schema.Array(GitHubLabelApi))
+      const response: Fetched<ReadonlyArray<GitHubLabelApi>> = yield* get(
+        request(repository, "foreground", "GET", url),
+        Schema.Array(GitHubLabelApi),
+      )
       if (response._tag === "Failed")
-        return yield* new SyncActivityError({ message: response.message! })
-      labels.push(...response.body!)
-      url = Option.getOrNull(response.next!)
+        return yield* new SyncActivityError({ message: response.message })
+      labels.push(...response.body)
+      url = Option.getOrNull(response.next)
     }
     return labels
   })
@@ -159,18 +172,12 @@ export type LabelWrite =
   | { readonly _tag: "Missing"; readonly status: number; readonly message: string }
   | { readonly _tag: "Refused"; readonly status: number; readonly message: string }
 
-const interpret = (response: {
-  readonly _tag: "Ok" | "NotModified" | "Failed"
-  readonly status?: number
-  readonly requestId: Option.Option<string>
-  readonly body?: unknown
-}): LabelWrite => {
-  if (response._tag === "Ok" || response._tag === "NotModified") return { _tag: "Written" }
-  const failed = response as { status: number; body: unknown; requestId: Option.Option<string> }
-  const message = describeFailed({ _tag: "Failed", ...failed })
-  return failed.status === 404
-    ? { _tag: "Missing", status: failed.status, message }
-    : { _tag: "Refused", status: failed.status, message }
+const interpret = (response: GitHubResponse): LabelWrite => {
+  if (response._tag !== "Failed") return { _tag: "Written" }
+  const message = describeFailed(response)
+  return response.status === 404
+    ? { _tag: "Missing", status: response.status, message }
+    : { _tag: "Refused", status: response.status, message }
 }
 
 export const addLabel = (

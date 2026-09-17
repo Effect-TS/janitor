@@ -369,8 +369,10 @@ events always order after earlier ones.
 
 At cutover, pending legacy issue jobs are removed from the outbox and their
 pending rows close as `superseded`; an accepted legacy job that finds an issue
-refuses it. Pull request jobs are untouched. `fence_repository_access` no
-longer discards direct issue work when only the synchronization requirement
-changed (for example an installation's sync setting); connection, pause,
-access and installation changes still do, and the pinned eligibility
-generation refuses work accepted before them.
+refuses it. Pull request jobs are untouched. An installation's sync setting is
+a cache-only change: `reset_installation_automation_readiness` marks it for the
+transaction and `fence_repository_access` then neither discards direct issue
+work nor moves `webhooks_after`, so events received before the toggle are still
+admitted. Installation status and access-error changes, and every repository
+connection, pause, access or installation change, still fence both, and the
+pinned eligibility generation refuses work accepted before them.

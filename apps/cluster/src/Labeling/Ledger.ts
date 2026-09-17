@@ -1,4 +1,4 @@
-import type { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { GitHubLabelDatabaseId, type GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { ReconciliationIdentity } from "@janitor/domain/Labeling/Reconciliation"
 import { Plan, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Effect from "effect/Effect"
@@ -131,13 +131,32 @@ export const settleAction = (
 export const settleRemaining = (identity: ReconciliationIdentity, reason: string) =>
   Effect.flatMap(
     SqlClient.SqlClient,
-    (sql) => sql`
+    (sql) => sql<{ label_id: string }>`
       UPDATE labeling_label_action
       SET status = 'failed', detail = ${reason}, completed_at = CLOCK_TIMESTAMP()
       WHERE repository_id = ${identity.repositoryId} AND number = ${identity.number}
         AND snapshot_generation = ${identity.snapshotGeneration}
         AND rules_revision = ${identity.rulesRevision} AND status = 'planned'
+      RETURNING label_id
     `,
+  )
+
+const PlannedAction = Schema.Struct({
+  labelId: GitHubLabelDatabaseId,
+  action: Schema.Literals(["add", "remove"]),
+  ruleId: RuleId,
+})
+
+/** The recorded actions a write attempt may still perform. */
+export const plannedActions = (identity: ReconciliationIdentity) =>
+  Effect.flatMap(SqlClient.SqlClient, (sql) =>
+    sql`
+      SELECT label_id AS "labelId", action, rule_id AS "ruleId" FROM labeling_label_action
+      WHERE repository_id = ${identity.repositoryId} AND number = ${identity.number}
+        AND snapshot_generation = ${identity.snapshotGeneration}
+        AND rules_revision = ${identity.rulesRevision} AND status = 'planned'
+      ORDER BY label_id
+    `.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PlannedAction)))),
   )
 
 /** Whether a Classifier rule's label may still be written: AI consent can be revoked mid-flight. */

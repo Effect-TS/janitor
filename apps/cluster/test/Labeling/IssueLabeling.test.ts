@@ -30,7 +30,16 @@ import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import { FakeGitHub } from "./fakeGitHub.ts"
-import { actor, bug, feature, LabelingLayer, repositoryId, seed, webhookNow } from "./support.ts"
+import {
+  actor,
+  bug,
+  feature,
+  installationId,
+  LabelingLayer,
+  repositoryId,
+  seed,
+  webhookNow,
+} from "./support.ts"
 
 const github = new FakeGitHub()
 
@@ -50,6 +59,7 @@ const issueEvent = (issue: {
   state?: "open" | "closed"
   action?: string
   pullRequest?: boolean
+  receivedAt?: Date
 }) =>
   Effect.gen(function* () {
     const event = yield* Schema.decodeUnknownEffect(GitHubWebhookEvent)({
@@ -74,7 +84,7 @@ const issueEvent = (issue: {
       },
     })
     const journal = GitHubWebhookJournalSequence.make(String(++sequence))
-    yield* applyEvent(event, journal, yield* webhookNow)
+    yield* applyEvent(event, journal, issue.receivedAt ?? (yield* webhookNow))
     return journal
   })
 
@@ -313,6 +323,48 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
     }),
   )
 
+  it.effect("waits for an in-flight write before a pause takes effect", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      github.put({ number: 28, title: "Hello", state: "open", labels: [] })
+      yield* issueEvent({ number: 28, title: "Hello" })
+      const identity = yield* latestQueued
+      const writing = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      github.intercept = (request) =>
+        request.method === "POST"
+          ? Deferred.succeed(writing, undefined).pipe(
+              Effect.andThen(Deferred.await(release)),
+              Effect.as(undefined),
+            )
+          : Effect.succeed(undefined)
+      const writes = github.writes.length
+      const run = yield* LabelIssue.execute(identity).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      )
+      yield* Deferred.await(writing)
+      const pause =
+        yield* sql`UPDATE github_repository SET enabled = FALSE WHERE repository_id = ${repositoryId}`.pipe(
+          Effect.forkChild({ startImmediately: true }),
+        )
+      for (let i = 0; i < 5; i++) yield* Effect.yieldNow
+      // The pause waits behind the fence held for the write attempt.
+      const [during] = yield* sql<{ enabled: boolean }>`
+        SELECT enabled FROM github_repository WHERE repository_id = ${repositoryId}`
+      assert.strictEqual(during?.enabled, true)
+      yield* Deferred.succeed(release, undefined)
+      assert.strictEqual((yield* Fiber.join(run)).outcome, "evaluated")
+      yield* Fiber.join(pause)
+      github.intercept = () => Effect.succeed(undefined)
+      assert.strictEqual(github.writes.length, writes + 1)
+      assert.deepStrictEqual(
+        (yield* activity)[0]?.actions.map((action) => action.status),
+        ["applied"],
+      )
+      yield* sql`UPDATE github_repository SET enabled = TRUE WHERE repository_id = ${repositoryId}`
+    }),
+  )
+
   it.effect("ignores a failed synchronization track", () =>
     Effect.gen(function* () {
       const targets = yield* SyncTargets
@@ -329,6 +381,17 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       const writes = github.writes.length
       assert.strictEqual((yield* LabelIssue.execute(yield* latestQueued)).outcome, "evaluated")
       assert.strictEqual(github.writes.length, writes + 1)
+
+      // An installation's cache setting is not an admission boundary: an
+      // event received before the toggle is still admitted afterwards.
+      const sql = yield* SqlClient.SqlClient
+      const receivedAt = yield* webhookNow
+      yield* sql`UPDATE github_installation SET sync_enabled = FALSE WHERE installation_id = ${installationId}`
+      yield* sql`UPDATE github_installation SET sync_enabled = TRUE WHERE installation_id = ${installationId}`
+      const before = (yield* queued).length
+      yield* issueEvent({ number: 24, title: "Hello", action: "edited", receivedAt })
+      assert.strictEqual((yield* queued).length, before + 1)
+      assert.strictEqual((yield* LabelIssue.execute(yield* latestQueued)).outcome, "evaluated")
     }),
   )
 

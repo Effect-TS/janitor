@@ -4,7 +4,6 @@ import { SyncGeneration } from "@janitor/domain/GitHub/Sync"
 import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
 import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
-import type { Plan } from "@janitor/domain/Labeling/Policy/Plan"
 import {
   ReconciliationIdentity,
   ReconciliationOutcome,
@@ -44,6 +43,7 @@ import {
   aiConsentRevoked,
   describePlan,
   type EvaluateResult,
+  plannedActions,
   type RecordedOutcome,
   recordOutcome,
   retireMissingLabel,
@@ -377,16 +377,20 @@ const sqlFailure = <A, R>(effect: Effect.Effect<A, { readonly message: string },
  * an already-present or already-absent label as done. A throttle releases
  * the fence and the workflow waits durably before the next attempt.
  */
-const applyPlan = (identity: IssueLabelingIdentity, planned: Plan) =>
+const applyPlan = (identity: IssueLabelingIdentity) =>
   Effect.gen(function* () {
     const eligibility = yield* RepositoryEligibility
     const { repositoryId, number } = identity
-    const skip = (reason: string) =>
-      settleRemaining(identity, reason).pipe(
-        sqlFailure,
-        Effect.as({ applied: 0, failed: planned.actions.length, skipped: reason }),
-      )
     const attempt = Effect.gen(function* () {
+      // The recorded plan, not the in-memory one: a replay re-evaluates
+      // fresh facts, but only the ledger's planned actions may be written.
+      const planned = yield* plannedActions(identity).pipe(sqlFailure)
+      if (planned.length === 0) return { applied: 0, failed: 0, skipped: "" }
+      const skip = (reason: string) =>
+        settleRemaining(identity, reason).pipe(
+          sqlFailure,
+          Effect.as({ applied: 0, failed: planned.length, skipped: reason }),
+        )
       const qualified = yield* qualify(identity).pipe(sqlFailure)
       if (qualified._tag === "Disqualified") return yield* skip(qualified.detail)
       const { repository } = qualified
@@ -397,14 +401,14 @@ const applyPlan = (identity: IssueLabelingIdentity, planned: Plan) =>
       if (issue.pullRequest !== undefined) return yield* skip("item is a pull request")
       if (issue.state !== "open") return yield* skip("issue is closed on GitHub")
       const present = new Map(issue.labels.map((label) => [label.id, label.name]))
-      const catalog = planned.actions.some((action) => action.action === "add")
+      const catalog = planned.some((action) => action.action === "add")
         ? new Map((yield* fetchLabelCatalog(repository)).map((label) => [label.id, label.name]))
         : new Map<string, string>()
       let applied = 0
       let failed = 0
       const settle = (labelId: string, status: "applied" | "failed", detail: string | null) =>
         settleAction(identity, labelId, status, detail).pipe(sqlFailure)
-      for (const action of planned.actions) {
+      for (const action of planned) {
         if (yield* aiConsentRevoked(identity, action.ruleId).pipe(sqlFailure)) {
           yield* settle(action.labelId, "failed", "AI access was disabled before applying labels")
           failed++
@@ -437,7 +441,9 @@ const applyPlan = (identity: IssueLabelingIdentity, planned: Plan) =>
         if (name === undefined) {
           yield* settle(action.labelId, "failed", "label is missing on GitHub")
           failed++
-          yield* retireMissingLabel(repositoryId, action.labelId, action.labelId).pipe(sqlFailure)
+          yield* retireMissingLabel(repositoryId, action.labelId, `ID ${action.labelId}`).pipe(
+            sqlFailure,
+          )
           continue
         }
         const written = yield* addLabel(repository, number, name)
@@ -461,7 +467,14 @@ const applyPlan = (identity: IssueLabelingIdentity, planned: Plan) =>
       .run(repositoryId, attempt, { generation: identity.eligibilityGeneration })
       .pipe(
         Effect.catchTag("@janitor/cluster/RepositoryEligibility/RepositoryBlocked", (blocked) =>
-          skip(blocked.reason),
+          settleRemaining(identity, blocked.reason).pipe(
+            sqlFailure,
+            Effect.map((settled) => ({
+              applied: 0,
+              failed: settled.length,
+              skipped: blocked.reason,
+            })),
+          ),
         ),
         Effect.catchTag("SqlError", (error) => sqlFailure(Effect.fail(error))),
       )
@@ -572,21 +585,25 @@ export const LabelIssueLayer = LabelIssue.toLayer(
         ? { outcome: "evaluated", detail: describePlan(evaluated.plan), plan: evaluated.plan }
         : { outcome: evaluated.outcome, detail: evaluated.detail, plan: null }
 
-    yield* Activity.make({
+    // The memoized outcome, not the replayed evaluation, decides whether to
+    // apply: after a restart the ledger already holds the plan to write.
+    const recorded = yield* Activity.make({
       name: `LabelIssue/Record/${outcome.outcome}`,
+      success: ReconciliationOutcome,
       error: LabelIssueError,
       execute: recordOutcome(identity, outcome, current ? evaluated : null).pipe(
+        Effect.as(outcome.outcome),
         Effect.mapError((error) => failure(describeError(error))),
       ),
     })
 
-    if (current && evaluated._tag === "Evaluated" && evaluated.plan.actions.length > 0) {
+    if (recorded === "evaluated") {
       const applied = yield* withRateLimitWaits("LabelIssue/Apply", (attempt) =>
         Activity.make({
           name: `LabelIssue/Apply/${attempt}`,
           success: ApplyResult,
           error: SyncActivityFailure,
-          execute: applyPlan(identity, evaluated.plan),
+          execute: applyPlan(identity),
         }),
       ).pipe(Effect.result)
       if (applied._tag === "Failure") {
@@ -604,7 +621,7 @@ export const LabelIssueLayer = LabelIssue.toLayer(
     }
 
     yield* flushLive
-    return { ...identity, outcome: outcome.outcome }
+    return { ...identity, outcome: recorded }
   }, logWorkflowFailure("LabelIssue")),
 )
 
