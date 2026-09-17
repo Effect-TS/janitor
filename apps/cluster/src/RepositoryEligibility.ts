@@ -1,8 +1,10 @@
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlSchema from "effect/unstable/sql/SqlSchema"
 import type * as SqlError from "effect/unstable/sql/SqlError"
 
 /**
@@ -44,29 +46,48 @@ const columns = (sql: SqlClient.SqlClient) => sql`
   r.connected, NOT r.enabled AS paused, repository_access_current(r.repository_id) AS "accessAvailable",
   repository_block_reason(r.repository_id) AS "blockReason"`
 
+const ById = Schema.Struct({ repositoryId: Schema.String })
+
 export class RepositoryEligibility extends Context.Service<RepositoryEligibility>()(
   "RepositoryEligibility",
   {
     make: Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
-      const decodeRows = Schema.decodeUnknownEffect(Schema.Array(Eligibility))
-      const decodeRow = Schema.decodeUnknownEffect(Eligibility)
       const blocked = (repositoryId: string, reason: string | null) =>
         reason === null ? Effect.void : Effect.fail(new RepositoryBlocked({ repositoryId, reason }))
+      // Row shapes are fixed by the migrations; a decode failure is a defect.
+      const decoded = <A, E, R>(effect: Effect.Effect<A, E | Schema.SchemaError, R>) =>
+        Effect.catchTag(effect, "SchemaError", Effect.die)
+      const found = (repositoryId: string) => (row: Option.Option<Eligibility>) =>
+        Option.isSome(row)
+          ? Effect.succeed(row.value)
+          : Effect.fail(new RepositoryBlocked({ repositoryId, reason: missingReason }))
       /** Every repository Janitor knows, with its current block reason. */
-      const list =
-        sql`SELECT ${columns(sql)} FROM github_repository r ORDER BY r.owner, r.repo`.pipe(
-          Effect.flatMap(decodeRows),
-          Effect.orDie,
-        )
-      const one = (repositoryId: string, rows: ReadonlyArray<unknown>) =>
-        rows.length === 0
-          ? Effect.fail(new RepositoryBlocked({ repositoryId, reason: missingReason }))
-          : decodeRow(rows[0]).pipe(Effect.orDie)
+      const list = decoded(
+        SqlSchema.findAll({
+          Request: Schema.Void,
+          Result: Eligibility,
+          execute: () =>
+            sql`SELECT ${columns(sql)} FROM github_repository r ORDER BY r.owner, r.repo`,
+        })(undefined),
+      ).pipe(Effect.orDie)
+      const lookup = SqlSchema.findOneOption({
+        Request: ById,
+        Result: Eligibility,
+        execute: ({ repositoryId }) =>
+          sql`SELECT ${columns(sql)} FROM github_repository r WHERE r.repository_id = ${repositoryId}`,
+      })
+      const lock = SqlSchema.findOneOption({
+        Request: ById,
+        Result: Eligibility,
+        execute: ({ repositoryId }) =>
+          sql`SELECT ${columns(sql)} FROM github_repository r
+            WHERE r.repository_id = ${repositoryId} FOR NO KEY UPDATE`,
+      })
       /** The repository, or the concrete reason it cannot be worked on. */
       const get = (repositoryId: string) =>
-        sql`SELECT ${columns(sql)} FROM github_repository r WHERE r.repository_id = ${repositoryId}`.pipe(
-          Effect.flatMap((rows) => one(repositoryId, rows)),
+        decoded(lookup({ repositoryId })).pipe(
+          Effect.flatMap(found(repositoryId)),
           Effect.tap((repository) => blocked(repositoryId, repository.blockReason)),
         )
       /**
@@ -81,9 +102,9 @@ export class RepositoryEligibility extends Context.Service<RepositoryEligibility
       ): Effect.Effect<A, E | RepositoryBlocked | SqlError.SqlError, R> =>
         sql.withTransaction(
           Effect.gen(function* () {
-            const rows = yield* sql`SELECT ${columns(sql)} FROM github_repository r
-              WHERE r.repository_id = ${repositoryId} FOR NO KEY UPDATE`
-            const repository = yield* one(repositoryId, rows)
+            const repository = yield* decoded(lock({ repositoryId })).pipe(
+              Effect.flatMap(found(repositoryId)),
+            )
             yield* blocked(repositoryId, repository.blockReason)
             if (options?.generation !== undefined && options.generation !== repository.generation)
               return yield* new RepositoryBlocked({ repositoryId, reason: changedReason })
