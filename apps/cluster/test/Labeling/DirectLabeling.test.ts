@@ -17,11 +17,11 @@ import { GitHubRateLimited } from "../../src/GitHub/Transport.ts"
 import { activityPage } from "../../src/Labeling/Activity.ts"
 import { LabelingAutomationIntegrationLayer } from "../../src/Labeling/AutomationIntegration.ts"
 import {
-  IssueLabelingIdentity,
-  LABEL_ISSUE_TAG,
-  LabelIssue,
-  LabelIssueLayer,
-} from "../../src/Labeling/IssueLabeling.ts"
+  DirectLabelingIdentity,
+  LABEL_ITEM_TAG,
+  LabelItem,
+  LabelItemLayer,
+} from "../../src/Labeling/DirectLabeling.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
@@ -29,11 +29,11 @@ import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
-import { FakeGitHub } from "./fakeGitHub.ts"
 import {
   actor,
   bug,
   feature,
+  github,
   installationId,
   LabelingLayer,
   repositoryId,
@@ -41,9 +41,7 @@ import {
   webhookNow,
 } from "./support.ts"
 
-const github = new FakeGitHub()
-
-const Services = Layer.mergeAll(LabelIssueLayer, LabelingAutomationIntegrationLayer).pipe(
+const Services = Layer.mergeAll(LabelItemLayer, LabelingAutomationIntegrationLayer).pipe(
   Layer.provideMerge(Layer.mergeAll(RepositoryEligibility.layer, ContentPurge.layer)),
   Layer.provideMerge(LabelingLayer),
   Layer.provideMerge(github.layer),
@@ -91,7 +89,7 @@ const issueEvent = (issue: {
 const queued = Effect.flatMap(
   SqlClient.SqlClient,
   (sql) => sql<{ execution_key: string }>`
-    SELECT execution_key FROM workflow_outbox WHERE workflow_tag = ${LABEL_ISSUE_TAG}
+    SELECT execution_key FROM workflow_outbox WHERE workflow_tag = ${LABEL_ITEM_TAG}
     ORDER BY execution_key
   `,
 )
@@ -99,10 +97,10 @@ const queued = Effect.flatMap(
 const latestQueued = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   const [row] = yield* sql<{ payload: unknown }>`
-    SELECT payload FROM workflow_outbox WHERE workflow_tag = ${LABEL_ISSUE_TAG}
+    SELECT payload FROM workflow_outbox WHERE workflow_tag = ${LABEL_ITEM_TAG}
     ORDER BY (payload->>'snapshotGeneration')::bigint DESC, (payload->>'rulesRevision')::bigint DESC LIMIT 1
   `
-  return yield* Schema.decodeUnknownEffect(IssueLabelingIdentity)(row?.payload)
+  return yield* Schema.decodeUnknownEffect(DirectLabelingIdentity)(row?.payload)
 })
 
 const activity = activityPage(repositoryId, { search: "", target: "all", cursor: null }).pipe(
@@ -151,7 +149,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       ))[0]!.configured_revision
       assert.deepStrictEqual(
         (yield* queued).map((row) => row.execution_key),
-        [`label-issue:${repositoryId}:16:${journal}:${revision}`],
+        [`label-item:${repositoryId}:16:${journal}:${revision}`],
       )
       const entries = yield* activity
       assert.deepStrictEqual(
@@ -167,7 +165,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
     Effect.gen(function* () {
       // The cache saw "Hello"; GitHub has since moved on. GitHub decides.
       github.put({ number: 16, title: "Goodbye", state: "open", labels: [] })
-      const stale = yield* LabelIssue.execute(yield* latestQueued)
+      const stale = yield* LabelItem.execute(yield* latestQueued)
       assert.strictEqual(stale.outcome, "evaluated")
       assert.deepStrictEqual(github.writes, [])
       const [entry] = yield* activity
@@ -180,7 +178,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       const journal = yield* issueEvent({ number: 16, title: "Hello", action: "edited" })
       const identity = yield* latestQueued
       assert.strictEqual(String(identity.snapshotGeneration), String(journal))
-      const result = yield* LabelIssue.execute(identity)
+      const result = yield* LabelItem.execute(identity)
       assert.strictEqual(result.outcome, "evaluated")
       assert.deepStrictEqual(
         github.writes.map((request) => [request.method, request.url, request.body]),
@@ -197,17 +195,16 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
         [["add", "applied", null]],
       )
       // Replaying the workflow returns the recorded outcome without another write.
-      const again = yield* LabelIssue.execute(identity)
+      const again = yield* LabelItem.execute(identity)
       assert.strictEqual(again.outcome, "evaluated")
       assert.strictEqual(github.writes.length, 1)
     }),
   )
 
-  it.effect("leaves closed issues and pull requests to their own paths", () =>
+  it.effect("leaves closed issues outside labeling scope", () =>
     Effect.gen(function* () {
       const before = (yield* queued).length
       yield* issueEvent({ number: 17, title: "Hello", state: "closed" })
-      yield* issueEvent({ number: 18, title: "Hello", pullRequest: true })
       assert.strictEqual((yield* queued).length, before)
 
       // Open when the event arrived, closed by the time the work runs.
@@ -215,7 +212,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       yield* issueEvent({ number: 19, title: "Hello" })
       github.issues.get(19)!.state = "closed"
       const writes = github.writes.length
-      const result = yield* LabelIssue.execute(yield* latestQueued)
+      const result = yield* LabelItem.execute(yield* latestQueued)
       assert.strictEqual(result.outcome, "not-qualified")
       assert.strictEqual(github.writes.length, writes)
       const [entry] = yield* activity
@@ -249,11 +246,11 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
         actor,
       )
       const writes = github.writes.length
-      assert.strictEqual((yield* LabelIssue.execute(queuedBefore)).outcome, "superseded")
+      assert.strictEqual((yield* LabelItem.execute(queuedBefore)).outcome, "superseded")
       const latest = yield* latestQueued
       assert.isAbove(latest.rulesRevision, queuedBefore.rulesRevision)
       assert.strictEqual(latest.snapshotGeneration, queuedBefore.snapshotGeneration)
-      const result = yield* LabelIssue.execute(latest)
+      const result = yield* LabelItem.execute(latest)
       assert.strictEqual(result.outcome, "evaluated")
       const [entry] = yield* activity
       assert.deepStrictEqual(
@@ -282,9 +279,9 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       assert.isTrue(BigInt(newer.snapshotGeneration) > BigInt(older.snapshotGeneration))
       const writes = github.writes.length
       // The newer event runs first; the older one then adds nothing.
-      assert.strictEqual((yield* LabelIssue.execute(newer)).outcome, "evaluated")
+      assert.strictEqual((yield* LabelItem.execute(newer)).outcome, "evaluated")
       assert.strictEqual(github.writes.length, writes + 1)
-      assert.strictEqual((yield* LabelIssue.execute(older)).outcome, "superseded")
+      assert.strictEqual((yield* LabelItem.execute(older)).outcome, "superseded")
       assert.strictEqual(github.writes.length, writes + 1)
     }),
   )
@@ -299,7 +296,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       // The pause discarded the pending row; work the engine already holds is refused too.
       assert.strictEqual((yield* queued).length, 0)
       const writes = github.writes.length
-      const whilePaused = yield* LabelIssue.execute(paused)
+      const whilePaused = yield* LabelItem.execute(paused)
       assert.strictEqual(whilePaused.outcome, "not-qualified")
       assert.include((yield* activity)[0]?.detail, "paused")
 
@@ -310,15 +307,15 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
         ...(yield* latestQueued),
         eligibilityGeneration: paused.eligibilityGeneration,
       }
-      yield* sql`DELETE FROM workflow_outbox WHERE workflow_tag = ${LABEL_ISSUE_TAG}`
-      const resumed = yield* LabelIssue.execute(admittedBeforePause)
+      yield* sql`DELETE FROM workflow_outbox WHERE workflow_tag = ${LABEL_ITEM_TAG}`
+      const resumed = yield* LabelItem.execute(admittedBeforePause)
       assert.strictEqual(resumed.outcome, "not-qualified")
       assert.include((yield* activity)[0]?.detail, "changed since this work was accepted")
       assert.strictEqual(github.writes.length, writes)
 
       // A fresh event after resumption runs normally.
       yield* issueEvent({ number: 23, title: "Hello", action: "edited" })
-      assert.strictEqual((yield* LabelIssue.execute(yield* latestQueued)).outcome, "evaluated")
+      assert.strictEqual((yield* LabelItem.execute(yield* latestQueued)).outcome, "evaluated")
       assert.strictEqual(github.writes.length, writes + 1)
     }),
   )
@@ -339,7 +336,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
             )
           : Effect.succeed(undefined)
       const writes = github.writes.length
-      const run = yield* LabelIssue.execute(identity).pipe(
+      const run = yield* LabelItem.execute(identity).pipe(
         Effect.forkChild({ startImmediately: true }),
       )
       yield* Deferred.await(writing)
@@ -379,7 +376,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       github.put({ number: 24, title: "Hello", state: "open", labels: [] })
       yield* issueEvent({ number: 24, title: "Hello" })
       const writes = github.writes.length
-      assert.strictEqual((yield* LabelIssue.execute(yield* latestQueued)).outcome, "evaluated")
+      assert.strictEqual((yield* LabelItem.execute(yield* latestQueued)).outcome, "evaluated")
       assert.strictEqual(github.writes.length, writes + 1)
 
       // An installation's cache setting is not an admission boundary: an
@@ -391,7 +388,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       const before = (yield* queued).length
       yield* issueEvent({ number: 24, title: "Hello", action: "edited", receivedAt })
       assert.strictEqual((yield* queued).length, before + 1)
-      assert.strictEqual((yield* LabelIssue.execute(yield* latestQueued)).outcome, "evaluated")
+      assert.strictEqual((yield* LabelItem.execute(yield* latestQueued)).outcome, "evaluated")
     }),
   )
 
@@ -403,7 +400,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       const gone = yield* latestQueued
       github.issues.delete(25)
       const writes = github.writes.length
-      assert.strictEqual((yield* LabelIssue.execute(gone)).outcome, "failed")
+      assert.strictEqual((yield* LabelItem.execute(gone)).outcome, "failed")
       assert.include((yield* activity)[0]?.detail, "GitHub responded 404")
 
       github.put({ number: 25, title: "Hello", state: "open", labels: [{ id: 11, name: "bug" }] })
@@ -416,7 +413,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
           attempts++
           return { _tag: "Failed" as const, status: 503, body: {}, requestId: Option.none() }
         })
-      const fiber = yield* LabelIssue.execute(outage).pipe(
+      const fiber = yield* LabelItem.execute(outage).pipe(
         Effect.forkChild({ startImmediately: true }),
       )
       // Each failed read sleeps on the durable clock before the bounded retry.
@@ -451,7 +448,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
             )
           : Effect.succeed(undefined)
       const writes = github.writes.length
-      const fiber = yield* LabelIssue.execute(identity).pipe(
+      const fiber = yield* LabelItem.execute(identity).pipe(
         Effect.forkChild({ startImmediately: true }),
       )
       yield* Deferred.await(throttled)
@@ -465,11 +462,12 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
     }),
   )
 
-  it.effect("previews issues from GitHub while pull requests keep their cached facts", () =>
+  it.effect("previews issues from GitHub", () =>
     Effect.gen(function* () {
       const bench = yield* LabelingTest
       // The cache still holds the webhook titles; GitHub has the current ones.
       github.issues.get(16)!.title = "Hello again"
+      github.issues.get(16)!.labels = [{ id: 11, name: "bug" }]
       const items = yield* bench.items(repositoryId)
       const sixteen = items.find((item) => item.number === 16)
       assert.deepStrictEqual(
@@ -494,7 +492,6 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
         preview.entities[0]?.plan?.actions.map((action) => [action.labelId, action.action]),
         [[bug, "remove"]],
       )
-      assert.deepStrictEqual(github.writes.length, github.writes.length)
       github.issues.get(16)!.title = "Hello"
     }),
   )
@@ -526,7 +523,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       const revision = (yield* configuration.view(repositoryId)).configuredRevision
       github.put({ number: 27, title: "Hello", state: "open", labels: [] })
       yield* issueEvent({ number: 27, title: "Hello" })
-      const result = yield* LabelIssue.execute(yield* latestQueued)
+      const result = yield* LabelItem.execute(yield* latestQueued)
       assert.strictEqual(result.outcome, "evaluated")
       const [entry] = yield* activity
       assert.deepStrictEqual(

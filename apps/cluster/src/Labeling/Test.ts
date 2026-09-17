@@ -2,7 +2,7 @@ import type { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { LabelingRevision, PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import { evaluate } from "@janitor/domain/Labeling/Policy/Evaluate"
-import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
+import type { FactSnapshot, FactTrack } from "@janitor/domain/Labeling/Policy/Facts"
 import type { Program } from "@janitor/domain/Labeling/Policy/Program"
 import { programFromSource, UnknownPolicyName } from "@janitor/domain/Labeling/Policy/Program"
 import {
@@ -18,7 +18,8 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { type EntityView, GitHubReadModel } from "../GitHub/ReadModel.ts"
+import { GitHubReadModel } from "../GitHub/ReadModel.ts"
+import type { SyncActivityError, SyncRateLimited } from "../GitHub/SyncSupport.ts"
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import { describeError } from "../SqlErrors.ts"
 import {
@@ -28,7 +29,15 @@ import {
 } from "./Configuration.ts"
 import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { evaluateLabeling } from "./Evaluation.ts"
-import { fetchIssue, fetchOpenItems, type RepositoryTarget, withBriefWaits } from "./GitHubIssue.ts"
+import { authorLogin, itemFacts, itemKind, type ReadItem } from "./Facts.ts"
+import {
+  briefWaits,
+  fetchIssue,
+  fetchOpenItems,
+  type RepositoryTarget,
+  withBriefWaits,
+} from "./GitHubIssue.ts"
+import { type CollectionTrack, collectionTracks, readPullRequest } from "./GitHubPullRequest.ts"
 import { Policies } from "./Policies.ts"
 
 export class LabelingTestError extends Data.TaggedError("LabelingTestError")<{
@@ -40,95 +49,33 @@ const PointerRow = Schema.Struct({
   configured_revision: Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision)),
 })
 
-export const entityFacts = (view: EntityView): FactSnapshot => {
-  const snapshot = snapshotFacts({
-    kind: view.entity.kind,
-    title: view.entity.title,
-    body: view.entity.body,
-    authorLogin: view.entity.authorLogin,
-    state: view.entity.state,
-    labels: view.labels.map((label) => label.labelId),
-    pullRequest: Option.map(view.pullRequest, (pr) => ({
-      baseRef: pr.baseRef,
-      draft: pr.draft,
-      headSha: pr.headSha,
-    })).pipe(Option.getOrNull),
-    ...Option.match(view.collections, {
-      onNone: () => ({}),
-      onSome: (collections) => ({ collections }),
-    }),
-  })
-
-  if (Option.isSome(view.collections)) {
-    const facts = { ...snapshot.facts }
-    const collections = view.collections.value
-    if (!collections.filesComplete) delete facts.changedFiles
-    if (!collections.checksComplete) delete facts.checks
-    if (!collections.reviewsComplete) delete facts.reviews
-    return {
-      ...snapshot,
-      facts,
-      unavailableReasons: !collections.filesComplete
-        ? {
-            changedFiles:
-              collections.filesIncompleteReason ??
-              `Changed-file listing is incomplete (${collections.files.length} files available)`,
-          }
-        : {},
-    }
-  }
-  return snapshot
-}
-
-/** One item under test with the facts its evaluation reads, and where they came from. */
+/** One item under test with the facts its evaluation reads. */
 interface TestItem {
   readonly entity: Omit<TestEntity, "evaluation" | "plan">
   readonly facts: FactSnapshot
 }
 
-const fromView = (view: EntityView): TestItem => ({
+const fromItem = (item: ReadItem): TestItem => ({
   entity: {
-    number: view.entity.number,
-    kind: view.entity.kind,
-    title: view.entity.title,
-    authorLogin: view.entity.authorLogin,
-    baseRef: Option.map(view.pullRequest, (pr) => pr.baseRef).pipe(Option.getOrNull),
-    draft: Option.map(view.pullRequest, (pr) => pr.draft).pipe(Option.getOrNull),
-    labels: view.labels.map((label) => label.labelId),
-    source: "cache",
-  },
-  facts: entityFacts(view),
-})
-
-const fromIssue = (issue: GitHubIssueApi): TestItem => ({
-  entity: {
-    number: issue.number,
-    kind: "issue",
-    title: issue.title,
-    authorLogin: issue.user?.login ?? "ghost",
-    baseRef: null,
-    draft: null,
-    labels: issue.labels.map((label) => label.id),
-    labelNames: Object.fromEntries(issue.labels.map((label) => [label.id, label.name])),
+    number: item.issue.number,
+    kind: itemKind(item.issue),
+    title: item.issue.title,
+    authorLogin: authorLogin(item.issue),
+    baseRef: item.pullRequest?.base.ref ?? null,
+    draft: item.pullRequest?.draft ?? null,
+    labels: item.issue.labels.map((label) => label.id),
+    labelNames: Object.fromEntries(item.issue.labels.map((label) => [label.id, label.name])),
     source: "github",
   },
-  facts: snapshotFacts({
-    kind: "issue",
-    title: issue.title,
-    body: issue.body,
-    authorLogin: issue.user?.login ?? "ghost",
-    state: issue.state,
-    labels: issue.labels.map((label) => label.id),
-    pullRequest: null,
-  }),
+  facts: itemFacts(item),
 })
 
 /**
  * The test bench (plan: "LabelingTest"). Evaluates a draft, a published
- * policy, or the configured revision against open items. Issues are read
- * from GitHub when the test runs (ADR 0006); pull requests still come from
- * the synchronized read model until their own migration. Same evaluator as
- * reconciliation, no mutation.
+ * policy, or the configured revision against open items. Every fact is read
+ * from GitHub when the test runs (ADR 0006), including the collections the
+ * subject needs for a pull request. Same evaluator as automatic labeling,
+ * no mutation.
  */
 export class LabelingTest extends Context.Service<
   LabelingTest,
@@ -178,50 +125,50 @@ export class LabelingTest extends Context.Service<
         wrap("repository"),
       )
 
-    const github = <A>(
-      effect: Effect.Effect<
-        A,
-        Effect.Error<ReturnType<typeof fetchIssue>>,
-        Effect.Services<ReturnType<typeof fetchIssue>>
-      >,
-    ) =>
+    const github = <A, R>(effect: Effect.Effect<A, SyncRateLimited | SyncActivityError, R>) =>
       withBriefWaits(effect).pipe(Effect.provideService(GitHubTransport, transport), wrap("github"))
 
-    /** A pull request keeps its cached facts; absent from the cache, it is not previewed yet. */
-    const cachedPullRequest = (repositoryId: GitHubRepositoryDatabaseId, number: number) =>
-      readModel.getEntity(repositoryId, number).pipe(
-        Effect.map((view) =>
-          Option.isSome(view) && view.value.entity.kind === "pull_request"
-            ? Option.some(fromView(view.value))
-            : Option.none<TestItem>(),
-        ),
-        wrap("entity"),
-      )
-
+    /** The open items to test, with the collections the subject reads for pull requests. */
     const items = Effect.fn("LabelingTest.items")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
       numbers: ReadonlyArray<number>,
+      tracks: ReadonlyArray<CollectionTrack>,
     ) {
       const repository = yield* target(repositoryId)
-      if (numbers.length === 0) {
-        const open = yield* github(fetchOpenItems(repository, MAX_TEST_ENTITIES))
-        return yield* Effect.forEach(open, (issue) =>
-          issue.pullRequest === undefined
-            ? Effect.succeed(Option.some(fromIssue(issue)))
-            : cachedPullRequest(repositoryId, issue.number),
-        ).pipe(Effect.map((found) => found.flatMap(Option.toArray)))
-      }
-      return yield* Effect.forEach(numbers, (number) =>
+      const issues: ReadonlyArray<GitHubIssueApi> =
+        numbers.length === 0
+          ? yield* github(fetchOpenItems(repository, MAX_TEST_ENTITIES))
+          : (yield* Effect.forEach(numbers, (number) =>
+              github(fetchIssue(repository, number, "foreground")),
+            )).flatMap((fetched) =>
+              fetched._tag === "Found" && fetched.issue.state === "open" ? [fetched.issue] : [],
+            )
+      return yield* Effect.forEach(issues, (issue) =>
         Effect.gen(function* () {
-          const cached = yield* cachedPullRequest(repositoryId, number)
-          if (Option.isSome(cached)) return cached
-          const fetched = yield* github(fetchIssue(repository, number, "foreground"))
-          // A pull request the cache does not know yet is not previewed.
-          return fetched._tag === "Found" &&
-            fetched.issue.state === "open" &&
-            fetched.issue.pullRequest === undefined
-            ? Option.some(fromIssue(fetched.issue))
-            : Option.none<TestItem>()
+          if (issue.pullRequest === undefined)
+            return Option.some(fromItem({ issue, pullRequest: null, collections: {} }))
+          const read = yield* readPullRequest(
+            "LabelingTest",
+            repository,
+            issue.number,
+            tracks,
+            briefWaits,
+          ).pipe(Effect.provideService(GitHubTransport, transport), wrap("github"))
+          if (read._tag === "Changed")
+            return yield* new LabelingTestError({
+              operation: "github",
+              message: `Pull request #${issue.number} changed while its facts were read. Run the test again.`,
+            })
+          // Gone since the listing, or closed or merged: not an open item.
+          if (
+            read._tag === "Unavailable" ||
+            read.pullRequest.state !== "open" ||
+            read.pullRequest.merged === true
+          )
+            return Option.none<TestItem>()
+          return Option.some(
+            fromItem({ issue, pullRequest: read.pullRequest, collections: read.collections }),
+          )
         }),
       ).pipe(Effect.map((found) => found.flatMap(Option.toArray)))
     })
@@ -237,13 +184,13 @@ export class LabelingTest extends Context.Service<
       request: TestRequest,
     ) {
       yield* configuration.requireRepository(repositoryId)
-      const views = yield* items(repositoryId, request.numbers)
 
       switch (request.subject._tag) {
         case "Draft":
         case "Policy": {
           const resolve = yield* policies.resolver(repositoryId).pipe(wrap("resolver"))
           let program: Program
+          let tracks: ReadonlyArray<FactTrack>
           if (request.subject._tag === "Draft") {
             const names = yield* policies.names(repositoryId).pipe(wrap("names"))
             const decoded = programFromSource(request.subject.source, names)
@@ -264,13 +211,16 @@ export class LabelingTest extends Context.Service<
               return { _tag: "Rejected", message: validation.message } as const
             }
             program = decoded
+            tracks = validation.manifest.tracks
           } else {
             const version = resolve(request.subject.policyId)
             if (version === undefined) {
               return { _tag: "Rejected", message: "The policy is not published" } as const
             }
             program = version.program
+            tracks = version.manifest.tracks
           }
+          const views = yield* items(repositoryId, request.numbers, collectionTracks(tracks))
           // Classifier caches also include the prompt, evidence, provider, and confidence threshold.
           const versionId =
             request.subject._tag === "Policy"
@@ -307,6 +257,11 @@ export class LabelingTest extends Context.Service<
           if (Option.isNone(snapshot)) {
             return { _tag: "Rejected", message: "Nothing is configured yet" } as const
           }
+          const views = yield* items(
+            repositoryId,
+            request.numbers,
+            collectionTracks(snapshot.value.requiredTracks),
+          )
           const isCurrent = sql`
             SELECT configured_revision::text FROM labeling_repository_rules WHERE repository_id = ${repositoryId}
           `.pipe(
@@ -357,7 +312,7 @@ export class LabelingTest extends Context.Service<
       repositoryId: GitHubRepositoryDatabaseId,
     ) {
       yield* configuration.requireRepository(repositoryId)
-      const views = yield* items(repositoryId, [])
+      const views = yield* items(repositoryId, [], [])
       return views.map((item) => describe(item, null, null))
     })
     return { run, items: list }

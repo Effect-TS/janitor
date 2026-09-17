@@ -357,7 +357,6 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
                 generation,
                 outcome: { _tag: "Verified", watermark: Option.none() },
               })
-              yield* integration.entityVerified({ repositoryId, number, generation, sequence })
             }),
           )
           .pipe(Effect.mapError((error) => failure(error.message)))

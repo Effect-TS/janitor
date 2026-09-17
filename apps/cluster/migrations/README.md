@@ -391,3 +391,21 @@ The migration only adds the index; maintenance drains the existing backlog in
 batches. Pruning relies on PostgreSQL vacuuming to reclaim obsolete payload
 storage. A database already at its size cap may need space freed before applying
 the migration or running cleanup.
+
+## Direct pull request labeling
+
+`0040_direct_pull_request_labeling.sql` moves pull request labeling to direct
+GitHub reads (ADR 0006), completing the labeling migration. One workflow,
+`Janitor/LabelItemV1`, evaluates issues and pull requests; the pull request
+record and the collections the configured revision reads (changed files,
+check runs, reviews) are fetched from GitHub, paginated, as one observation of
+the same head. `labeling_reconciliation.source` now defaults to `github`, and
+`sync` only describes historical rows.
+
+Stop old workers before applying this migration. Pending legacy pull request
+jobs are removed from the outbox and their pending rows close as `superseded`;
+the legacy workflow is no longer registered, so a job the engine already
+accepted cannot resume. Pending direct issue work is renamed to the new tag
+and key and runs unchanged. The access fence's cache-only exemption follows
+the renamed tag. Legacy readiness predicates and `withRepositoryActivity`
+remain for the ingress until synchronization becomes cache-only.

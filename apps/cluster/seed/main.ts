@@ -28,7 +28,6 @@ import { RulesetActivation } from "../src/Labeling/Activation.ts"
 import { LabelingConfiguration } from "../src/Labeling/Configuration.ts"
 import { Policies } from "../src/Labeling/Policies.ts"
 import { LabelingRules } from "../src/Labeling/Rules.ts"
-import { SnapshotHandoff } from "../src/Labeling/SnapshotHandoff.ts"
 import { SyncTargets } from "../src/SyncTargets.ts"
 import { WorkflowOutbox } from "../src/WorkflowOutbox.ts"
 import * as Fixtures from "./Fixtures.ts"
@@ -247,7 +246,6 @@ const Database = PgClient.layerFrom(
 const Services = LabelingRules.layer.pipe(
   Layer.provideMerge(Policies.layer),
   Layer.provideMerge(LabelingConfiguration.layer),
-  Layer.provideMerge(SnapshotHandoff.layer),
   Layer.provideMerge(
     Layer.mergeAll(SyncTargets.layer, GitHubReadModel.layer, RulesetActivation.layer),
   ),

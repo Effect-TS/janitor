@@ -1,29 +1,41 @@
+import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { AutomationIntegration } from "../AutomationIntegration.ts"
-import { IssueLabelingAdmission } from "./IssueLabeling.ts"
+import { DirectLabelingAdmission } from "./DirectLabeling.ts"
+import { type ObservedItem, observedIssue, observedPullRequest } from "./Facts.ts"
 
-/** Issue events admit direct labeling; the projection stays unaware of labeling. */
+/** Issue and pull request events admit direct labeling; the projection stays unaware of labeling. */
 export const LabelingAutomationIntegrationLayer = Layer.effect(
   AutomationIntegration,
   Effect.gen(function* () {
-    const admission = yield* IssueLabelingAdmission
+    const admission = yield* DirectLabelingAdmission
+    const admit = (
+      repositoryId: GitHubRepositoryDatabaseId,
+      item: ObservedItem,
+      sequence: GitHubWebhookJournalSequence,
+    ) =>
+      admission.admit({ repositoryId, item, sequence }).pipe(
+        Effect.tap((result) =>
+          result._tag === "Skipped"
+            ? Effect.logDebug("Event not admitted for labeling").pipe(
+                Effect.annotateLogs({
+                  repositoryId,
+                  number: item.number,
+                  kind: item.kind,
+                  reason: result.reason,
+                }),
+              )
+            : Effect.void,
+        ),
+        Effect.asVoid,
+      )
     return {
       issueEvent: (request) =>
-        admission.admit(request).pipe(
-          Effect.tap((result) =>
-            result._tag === "Skipped"
-              ? Effect.logDebug("Issue event not admitted for labeling").pipe(
-                  Effect.annotateLogs({
-                    repositoryId: request.repositoryId,
-                    number: request.issue.number,
-                    reason: result.reason,
-                  }),
-                )
-              : Effect.void,
-          ),
-          Effect.asVoid,
-        ),
+        admit(request.repositoryId, observedIssue(request.issue), request.sequence),
+      pullRequestEvent: (request) =>
+        admit(request.repositoryId, observedPullRequest(request.pullRequest), request.sequence),
     }
   }),
-).pipe(Layer.provide(IssueLabelingAdmission.layer))
+).pipe(Layer.provide(DirectLabelingAdmission.layer))

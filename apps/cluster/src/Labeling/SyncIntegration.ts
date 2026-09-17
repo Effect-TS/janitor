@@ -3,13 +3,12 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { SyncIntegration, type CollectionTrack } from "../SyncIntegration.ts"
 import { LabelingConfiguration, LabelingConfigurationError } from "./Configuration.ts"
-import { SnapshotHandoff } from "./SnapshotHandoff.ts"
 
+/** The collections the UI cache mirrors for the configured rules; nothing here admits work. */
 export const LabelingSyncIntegrationLayer = Layer.effect(
   SyncIntegration,
   Effect.gen(function* () {
     const configuration = yield* LabelingConfiguration
-    const handoff = yield* SnapshotHandoff
     return {
       requiredCollections: (repositoryId) =>
         Effect.gen(function* () {
@@ -29,7 +28,6 @@ export const LabelingSyncIntegrationLayer = Layer.effect(
           return [...tracks]
         }),
       trackVerified: () => Effect.void,
-      entityVerified: (request) => handoff.publish(request).pipe(Effect.asVoid),
     }
   }),
 )
