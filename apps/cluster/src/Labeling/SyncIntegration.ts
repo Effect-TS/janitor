@@ -27,7 +27,6 @@ export const LabelingSyncIntegrationLayer = Layer.effect(
           }
           return [...tracks]
         }),
-      trackVerified: () => Effect.void,
     }
   }),
 )

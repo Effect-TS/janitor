@@ -96,7 +96,6 @@ const services = (
   Layer.mergeAll(
     Layer.succeed(SyncIntegration, {
       requiredCollections: () => Effect.succeed(required),
-      trackVerified: () => Effect.void,
     }),
     Layer.succeed(GitHubHttpCache, {
       get: () => Effect.succeedNone,

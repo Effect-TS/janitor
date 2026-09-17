@@ -4,7 +4,6 @@ import { layerRepositories } from "./Slack/Repositories.ts"
 import { SessionAdmission, SessionIngressLive } from "./Slack/SessionIngress.ts"
 import { SlackSessionRoutes } from "./Ingress/SlackSession.ts"
 import * as ConfigProvider from "effect/ConfigProvider"
-import { RepositoryActivity } from "./RepositoryActivity.ts"
 import { RepositoryEligibility } from "./RepositoryEligibility.ts"
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
 import { RepositoryLive } from "./LiveHub.ts"
@@ -390,7 +389,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(Teammates.layer.pipe(Layer.provide(TeammatesConfigLayer))),
       Layer.provideMerge(
         Layer.mergeAll(
-          RepositoryActivity.layer,
           RepositoryEligibility.layer,
           GitHubWebhookJournal.layer,
           Readiness.layer,

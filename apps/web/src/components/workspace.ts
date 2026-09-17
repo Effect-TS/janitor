@@ -2538,8 +2538,6 @@ export const informConnectionChanged = (
               ? {
                   ...row,
                   enabled: action === "resume" ? true : action === "pause" ? false : row.enabled,
-                  syncEnabled:
-                    action === "resume" ? true : action === "pause" ? false : row.enabled,
                 }
               : row,
           ),

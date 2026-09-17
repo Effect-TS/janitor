@@ -39,7 +39,6 @@ import {
   repositoryId,
   seed,
   seedPullRequests,
-  webhookNow,
 } from "./support.ts"
 
 const Services = Layer.mergeAll(LabelItemLayer, LabelingAutomationIntegrationLayer).pipe(
@@ -60,7 +59,6 @@ const pullRequestEvent = (pull: {
   merged?: boolean
   draft?: boolean
   baseRef?: string
-  receivedAt?: Date
 }) =>
   Effect.gen(function* () {
     const action = pull.action ?? (pull.state === "closed" ? "closed" : "opened")
@@ -93,7 +91,7 @@ const pullRequestEvent = (pull: {
       },
     })
     const journal = GitHubWebhookJournalSequence.make(String(++sequence))
-    yield* applyEvent(event, journal, pull.receivedAt ?? (yield* webhookNow))
+    yield* applyEvent(event, journal)
     return journal
   })
 

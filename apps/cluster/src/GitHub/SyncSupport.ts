@@ -21,7 +21,6 @@ import {
   type GitHubResponse,
   type GitHubTransportFailure,
 } from "./Transport.ts"
-import { SyncIntegration } from "../SyncIntegration.ts"
 
 export const SyncRunOutcome = Schema.Literals(["verified", "blocked", "failed", "superseded"])
 export type SyncRunOutcome = typeof SyncRunOutcome.Type
@@ -338,12 +337,6 @@ export const completeRun = (
       const accepted = yield* targets
         .complete({ scope, generation, outcome })
         .pipe(Effect.mapError((error) => failure(error.message)))
-      if (accepted && outcome._tag === "Verified" && scope._tag === "RepositoryTrack") {
-        const integration = yield* SyncIntegration
-        yield* integration
-          .trackVerified(scope.repositoryId)
-          .pipe(Effect.mapError((error) => failure(error.message)))
-      }
       yield* flushLive
       const detail =
         outcome._tag === "Failed"

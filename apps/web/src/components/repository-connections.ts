@@ -349,7 +349,9 @@ const cacheHealth = (row: Row): { readonly label: string; readonly variant: Chip
       ? { label: "Sync failed", variant: "danger" }
       : row.syncState === "syncing"
         ? { label: "Synchronizing", variant: "neutral" }
-        : { label: "Synchronized", variant: "neutral" }
+        : row.syncState === "disabled"
+          ? { label: "Sync off", variant: "neutral" }
+          : { label: "Synchronized", variant: "neutral" }
 
 export const view = Submodel.defineView<
   Model,
@@ -503,7 +505,7 @@ export const view = Submodel.defineView<
                         h.span(
                           [h.Class("text-ink-muted")],
                           [
-                            " Automatic retries continue. Retry sync to refresh facts now. Agent sessions keep working; labeling waits for new webhook events after recovery.",
+                            " Automatic retries continue. Retry sync to refresh the cached facts now. Labeling and agent sessions read GitHub directly and keep working.",
                           ],
                         ),
                       ],
@@ -514,7 +516,7 @@ export const view = Submodel.defineView<
                   ? h.p(
                       [h.Class("text-body-sm text-ink-muted")],
                       [
-                        "Pausing retains your configuration and stored data. Resume to synchronize before automation runs.",
+                        "Pausing retains your configuration and stored data. Resume to restart automation and cache refresh.",
                       ],
                     )
                   : h.empty,

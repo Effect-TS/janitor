@@ -58,7 +58,6 @@ const TrackRow = Schema.Struct({
   verified_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
   last_full_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
   pending: Schema.Boolean,
-  readiness_sync: Schema.Boolean,
 })
 
 const StateRow = Schema.Struct({ last_planned_at: Schema.DateTimeUtcFromDate })
@@ -176,7 +175,6 @@ export class SyncPlanner extends Context.Service<
 
       const tracks = yield* sql`
         SELECT r.repository_id, r.installation_id, track.name AS track,
-               COALESCE(t.verified_at <= r.synchronization_required_after, TRUE) AS readiness_sync,
                t.verified_at,
                t.last_full_at,
                COALESCE(
@@ -187,7 +185,8 @@ export class SyncPlanner extends Context.Service<
         CROSS JOIN (VALUES ('labels'), ('entities'), ('pull_requests')) AS track(name)
         LEFT JOIN sync_target t
           ON t.scope_key = 'repository:' || r.repository_id || ':' || track.name
-        WHERE r.sync_enabled AND sync_scope_enabled(jsonb_build_object('_tag', 'RepositoryTrack', 'repositoryId', r.repository_id)) AND r.enabled AND r.access = 'accessible' AND t.retry_at IS NULL
+        WHERE sync_scope_enabled(jsonb_build_object('_tag', 'RepositoryTrack', 'repositoryId', r.repository_id))
+          AND t.retry_at IS NULL
       `.pipe(Effect.flatMap(decodeTracks), wrap("plan"))
       for (const row of tracks) {
         if (row.pending) continue
@@ -199,12 +198,8 @@ export class SyncPlanner extends Context.Service<
         }
         const fullDue =
           row.track !== "labels" && isDue(row.last_full_at, RepairPolicy.fullEntities, offset, now)
-        if (
-          row.readiness_sync ||
-          fullDue ||
-          isDue(row.verified_at, trackInterval(row.track), offset, now)
-        ) {
-          const result = yield* invalidate(scope, row.readiness_sync || fullDue)
+        if (fullDue || isDue(row.verified_at, trackInterval(row.track), offset, now)) {
+          const result = yield* invalidate(scope, fullDue)
           if (result.dispatched) created++
         }
       }

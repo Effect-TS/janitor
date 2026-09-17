@@ -54,7 +54,7 @@ layer(service)("Slack repository access", (it) => {
         const sql = yield* SqlClient.SqlClient
         yield* sql`INSERT INTO github_installation(access_error,installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES(NULL,'77','1','test','Organization','selected','active','https://github.com/settings/installations/77',1)`
         // Synchronization has not completed: the UI cache is still warming.
-        yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence,automation_ready_at) VALUES('9100','77','test','example',TRUE,TRUE,'accessible',1,NULL)`
+        yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence) VALUES('9100','77','test','example',TRUE,TRUE,'accessible',1)`
         yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence) VALUES('9101','77','test','paused',TRUE,FALSE,'accessible',1)`
         yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence) VALUES('9102','77','test','available',FALSE,FALSE,'accessible',1)`
         const repositories = yield* Repositories

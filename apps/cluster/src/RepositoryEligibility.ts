@@ -40,6 +40,36 @@ export const missingReason = "This repository is not connected to Janitor."
 export const changedReason =
   "This repository's connection, pause or GitHub access changed since this work was accepted. Start it again."
 
+/**
+ * The webhook admission fence. Runs the effect for a repository Janitor does
+ * not know yet, or for an eligible repository when the delivery postdates
+ * the admission boundary a pause, resumption or access change set. Holds
+ * the repository row so a control change waits for the admission to commit.
+ * Returns none when the delivery is refused.
+ */
+export const admitWebhook = <A, E, R>(
+  sql: SqlClient.SqlClient,
+  repositoryId: string,
+  effect: Effect.Effect<A, E, R>,
+  receivedAt?: Date,
+): Effect.Effect<Option.Option<A>, E | SqlError.SqlError, R> =>
+  sql.withTransaction(
+    Effect.gen(function* () {
+      const [row] = yield* sql<{ reason: string | null; webhooks_after: Date | null }>`
+        SELECT repository_block_reason(repository_id) AS reason, webhooks_after
+        FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
+      if (
+        row &&
+        (row.reason !== null ||
+          (receivedAt !== undefined &&
+            row.webhooks_after !== null &&
+            receivedAt <= row.webhooks_after))
+      )
+        return Option.none<A>()
+      return Option.some(yield* effect)
+    }),
+  )
+
 const columns = (sql: SqlClient.SqlClient) => sql`
   r.repository_id::text AS "repositoryId", r.installation_id::text AS "installationId",
   r.owner || '/' || r.repo AS name, r.eligibility_generation::text AS generation,
@@ -111,7 +141,13 @@ export class RepositoryEligibility extends Context.Service<RepositoryEligibility
             return yield* effect
           }),
         )
-      return { list, get, run }
+      /** The webhook admission fence; see `admitWebhook`. */
+      const admit = <A, E, R>(
+        repositoryId: string,
+        effect: Effect.Effect<A, E, R>,
+        receivedAt?: Date,
+      ) => admitWebhook(sql, repositoryId, effect, receivedAt)
+      return { list, get, run, admit }
     }),
   },
 ) {

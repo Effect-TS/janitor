@@ -1,4 +1,4 @@
-import { RepositoryActivity } from "../RepositoryActivity.ts"
+import { RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { GitHubWebhookJournal } from "../GitHub/WebhookJournal.ts"
 import * as Option from "effect/Option"
 import { GitHubWebhookEventName } from "@janitor/domain/GitHub/WebhookEvent"
@@ -305,9 +305,9 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           Option.isNone(repository)
         )
           return yield* accept
-        const activity = yield* RepositoryActivity
-        return yield* activity
-          .run(String(repository.value.repository.id), accept, DateTime.toDateUtc(receivedAt))
+        const eligibility = yield* RepositoryEligibility
+        return yield* eligibility
+          .admit(String(repository.value.repository.id), accept, DateTime.toDateUtc(receivedAt))
           .pipe(
             Effect.map(Option.getOrElse(() => acceptedResponse)),
             Effect.catchCause((cause) =>

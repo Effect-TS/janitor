@@ -1,4 +1,3 @@
-import { withRepositoryActivity } from "./RepositoryActivity.ts"
 import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import {
   SyncGeneration,
@@ -21,6 +20,7 @@ import * as Schema from "effect/Schema"
 import * as SqlError from "effect/unstable/sql/SqlError"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describeError } from "./SqlErrors.ts"
+import { withSyncScope } from "./SyncFence.ts"
 import { syncRequest } from "./SyncRequests.ts"
 import { WorkflowOutbox } from "./WorkflowOutbox.ts"
 
@@ -42,8 +42,6 @@ export interface InvalidateRequest {
   /** Ask the next run to ignore its watermark and scan from scratch. */
   readonly full?: boolean | undefined
   readonly immediate?: boolean | undefined
-  /** Present only for the item concerned by a new webhook event. */
-  readonly webhookReceivedAt?: Date | undefined
 }
 
 export interface InvalidateResult {
@@ -217,14 +215,6 @@ export class SyncTargets extends Context.Service<
           RETURNING *
         `.pipe(Effect.flatMap(decodeRows))
             const row = rows[0]!
-            if (request.scope._tag === "Entity") {
-              yield* sql`UPDATE sync_target SET automation_event_at = CASE
-                WHEN repository_automation_ready(${request.scope.repositoryId})
-                  AND ${request.webhookReceivedAt ?? null}::timestamptz >
-                    (SELECT automation_ready_at FROM github_repository WHERE repository_id = ${request.scope.repositoryId})
-                THEN ${request.webhookReceivedAt ?? null}::timestamptz ELSE NULL END
-                WHERE scope_key = ${scopeKey}`
-            }
             if (gt(row.dispatched_generation, row.completed_generation)) {
               // A manual request may accelerate an unsubmitted debounced run.
               if (request.immediate) {
@@ -284,21 +274,6 @@ export class SyncTargets extends Context.Service<
           }
     })
 
-    // Called under the repository lock, after recording the target outcome.
-    const updateReadiness = (repositoryId: string, verified: boolean) =>
-      verified
-        ? sql`UPDATE github_repository r SET automation_ready_at = CLOCK_TIMESTAMP()
-            WHERE repository_id = ${repositoryId} AND automation_ready_at IS NULL
-              AND connected AND enabled AND access = 'accessible'
-              AND NOT EXISTS (SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId' = r.repository_id
-                AND (t.last_error IS NOT NULL OR t.health = 'blocked'
-                  OR t.requested_generation > t.completed_generation))
-              AND (SELECT count(DISTINCT t.scope->>'track') FROM sync_target t
-                WHERE t.scope->>'repositoryId' = r.repository_id AND t.scope->>'_tag' = 'RepositoryTrack'
-                  AND t.scope->>'track' IN ('labels','entities','pull_requests')
-                  AND t.verified_at > r.synchronization_required_after) = 3`
-        : sql`UPDATE github_repository SET automation_ready_at = NULL WHERE repository_id = ${repositoryId}`
-
     const complete = Effect.fn("SyncTargets.complete")(function* (request: CompleteRequest) {
       return yield* sql
         .withTransaction(
@@ -334,7 +309,6 @@ export class SyncTargets extends Context.Service<
         `.pipe(Effect.flatMap(decodeRows))
             const row = rows[0]
             if (row === undefined) return false
-            if (repositoryId !== null) yield* updateReadiness(repositoryId, verified)
             if (gt(row.requested_generation, request.generation)) {
               yield* enqueueRun(request.scope, row.requested_generation)
             }
@@ -375,7 +349,7 @@ export class SyncTargets extends Context.Service<
           ),
         )
       return scope._tag === "RepositoryTrack" || scope._tag === "Entity"
-        ? withRepositoryActivity(sql, scope.repositoryId, run).pipe(
+        ? withSyncScope(sql, scope.repositoryId, run).pipe(
             Effect.map(Option.flatten),
             Effect.mapError((error) =>
               SqlError.isSqlError(error)
@@ -435,8 +409,6 @@ export class SyncTargets extends Context.Service<
             AND dispatched_generation > completed_generation RETURNING *
         `.pipe(Effect.flatMap(decodeRows))
             const row = rows[0]
-            if (row !== undefined && repositoryId !== null)
-              yield* updateReadiness(repositoryId, false)
             if (row !== undefined && gt(row.requested_generation, row.completed_generation)) {
               yield* enqueueRun(scope, row.requested_generation)
             }

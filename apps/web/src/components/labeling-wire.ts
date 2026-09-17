@@ -38,7 +38,6 @@ export const RepositoryOverview = Schema.Struct({
   owner: Schema.String,
   repo: Schema.String,
   enabled: Schema.Boolean,
-  syncEnabled: Schema.optionalKey(Schema.Boolean),
   ruleCount: Schema.Int,
   policyCount: Schema.Int,
   access: Schema.Literals(["accessible", "suspect", "lost"]),

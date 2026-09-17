@@ -117,8 +117,7 @@ export class SyncStatus extends Context.Service<
             `.pipe(Effect.flatMap(decodeInstallations))
             const repositories = yield* sql`
               SELECT repository_id FROM github_repository
-              WHERE enabled AND access = 'accessible' AND sync_enabled
-                AND sync_scope_enabled(jsonb_build_object('_tag', 'RepositoryTrack', 'repositoryId', repository_id))
+              WHERE sync_scope_enabled(jsonb_build_object('_tag', 'RepositoryTrack', 'repositoryId', repository_id))
             `.pipe(Effect.flatMap(decodeRepositories))
 
             const scopes: Array<SyncScope> = [
@@ -163,8 +162,10 @@ export class SyncStatus extends Context.Service<
             const [repository] = yield* sql<{
               enabled: boolean
               connected: boolean
+              accessible: boolean
               eligible: boolean
-            }>`SELECT enabled, connected, sync_scope_enabled(jsonb_build_object('_tag','RepositoryTrack','repositoryId',repository_id)) AND access = 'accessible' AS eligible
+            }>`SELECT enabled, connected, repository_access_current(repository_id) AS accessible,
+            sync_scope_enabled(jsonb_build_object('_tag','RepositoryTrack','repositoryId',repository_id)) AS eligible
           FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
             if (!repository?.connected || !repository.enabled || !repository.eligible)
               return yield* new SyncStatusError({
@@ -173,7 +174,9 @@ export class SyncStatus extends Context.Service<
                   ? "Connect this repository before syncing."
                   : !repository.enabled
                     ? "Repository paused. Resume it in repository settings before syncing."
-                    : "Restore GitHub access before syncing this repository.",
+                    : !repository.accessible
+                      ? "Restore GitHub access before syncing this repository."
+                      : "Synchronization is turned off for this installation.",
               })
             for (const track of ["labels", "entities", "pull_requests"] as const)
               yield* targets.invalidate({

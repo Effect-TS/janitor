@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Evaluate PR labeling directly against GitHub.
 
-**Status:** ready-for-agent
+**Status:** in-review
 
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0006. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
@@ -15,3 +15,9 @@
 - [ ] Synchronization and webhook projections may update the UI cache but cannot trigger catch-up labeling or authorize issue review; preserve the accepted event-driven labeling semantics.
 - [ ] Verify initial connection, failed/manual sync, pause/resume, access restoration, rename/transfer, and disconnect/reconnect across issue labeling, PR labeling, and Slack repository access.
 - [ ] Provide evidence that automation uses direct GitHub reads even when cached records are stale or absent. Complete this migration before production issue-review enablement.
+
+## Comments
+
+2026-09-17: Implemented on this branch. Migration `0042_cache_only_synchronization.sql` drops `repository_access_available`, `repository_automation_ready`, `entity_automation_eligible`, the readiness triggers, `automation_ready_at`, `synchronization_required_after`, the generated `sync_enabled` repository column and `sync_target.automation_event_at`. `repository_block_reason` and `repository_access_current` are the only eligibility predicates left: `RepositoryEligibility.admit` (the former `withRepositoryActivity`) fences webhook journaling and projection on them plus the `webhooks_after` boundary, and `SyncFence.withSyncScope` fences cache writes on `sync_scope_enabled`, which is where the installation sync setting now lives. One `fence_repository_work` function handles access and installation changes: it supersedes cache runs, requests a full refresh of each track once the cache may run again, and discards pending outbox work; the pause trigger is unchanged. An installation's sync toggle has no trigger effect at all. `SyncIntegration.trackVerified` and the `webhookReceivedAt` invalidation hint are gone, so a completed refresh cannot reach labeling. The connection inventory derives `syncState` from `sync_target` (`access-unavailable`, `paused`, `disabled`, `failed`, `syncing`, `ready`, now a domain literal) and the settings page copy says automation keeps working while the cache fails or is off. `Labeling/CacheIndependence.test.ts` labels issues and pull requests from GitHub while the cached record is stale, absent, failed or switched off, shows manual and verified refreshes leave the labeling queue unchanged, and shows an installation access change discards admitted work and refuses it after restoration; existing suites cover pause, rename, transfer, disconnect and Slack access.
+
+Recorded, not changed here: after an access restoration the cache's full refresh waits for the repair cron's retry pass rather than starting inside the restoring request. The `labeling_reconciliation.source` column stays because `sync` still describes historical rows.

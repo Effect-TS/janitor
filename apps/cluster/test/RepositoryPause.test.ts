@@ -22,7 +22,7 @@ import {
 } from "@janitor/domain/GitHub/WebhookEnvelope"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
-import { RepositoryActivity } from "../src/RepositoryActivity.ts"
+import { RepositoryEligibility } from "../src/RepositoryEligibility.ts"
 import { GitHubReadModel } from "../src/GitHub/ReadModel.ts"
 import { GitHubTransport } from "../src/GitHub/Transport.ts"
 import { GitHubWebhookJournal } from "../src/GitHub/WebhookJournal.ts"
@@ -43,7 +43,7 @@ const repositoryId = GitHubRepositoryDatabaseId.make("9100")
 const actor = { issuer: "test", subject: "operator" }
 const Services = Layer.mergeAll(
   RepositoryConnections.layer,
-  RepositoryActivity.layer,
+  RepositoryEligibility.layer,
   SyncStatus.layer,
   GitHubWebhookJournal.layer,
   ContentPurge.layer,
@@ -107,7 +107,7 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
       Effect.gen(function* () {
         yield* initialize
         const connections = yield* RepositoryConnections
-        const activity = yield* RepositoryActivity
+        const eligibility = yield* RepositoryEligibility
         const cipher = yield* PayloadCipher
         const ingressJournal = yield* GitHubWebhookJournal
         const envelopes: Array<GitHubWebhookEnvelopeV1> = []
@@ -139,7 +139,7 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
                 disableLogger: true,
                 middleware: (app) =>
                   app.pipe(
-                    Effect.provideService(RepositoryActivity, activity),
+                    Effect.provideService(RepositoryEligibility, eligibility),
                     Effect.provideService(GitHubWebhookJournal, ingressJournal),
                     Effect.provideService(
                       RuntimeContext.RuntimeContext,

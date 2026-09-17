@@ -1,5 +1,5 @@
 import * as DateTime from "effect/DateTime"
-import { withRepositoryActivity } from "../RepositoryActivity.ts"
+import { withSyncScope } from "../SyncFence.ts"
 import { GITHUB_API_VERSION } from "@janitor/domain/GitHub/Api"
 import { GitHubWebhookDeliveryId, type GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEncryptionKeyId } from "@janitor/domain/GitHub/WebhookEnvelope"
@@ -134,7 +134,7 @@ export class GitHubHttpCache extends Context.Service<
           observed_at = CLOCK_TIMESTAMP()
       `.pipe(wrap("put"))
       yield* Option.isSome(request.repositoryId)
-        ? withRepositoryActivity(
+        ? withSyncScope(
             sql,
             request.repositoryId.value,
             write,

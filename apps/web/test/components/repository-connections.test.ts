@@ -15,12 +15,12 @@ const candidate = {
   installationStatus: "active",
   policyCount: 2,
   ruleCount: 3,
-  syncState: "ready",
+  syncState: "ready" as const,
 }
 const settings = { repositoryId: "701", state: "" }
 describe("Repository connections", () => {
   it("shows cache failure apart from repository readiness and offers recovery", () => {
-    const failed = { ...candidate, syncState: "failed", syncError: "GitHub timeout" }
+    const failed = { ...candidate, syncState: "failed" as const, syncError: "GitHub timeout" }
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
       Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [failed] }) }),
@@ -35,7 +35,7 @@ describe("Repository connections", () => {
       Scene.expect(Scene.role("button", { name: "Retry sync" })).toExist(),
       Scene.expect(
         Scene.text(
-          "GitHub timeout Automatic retries continue. Retry sync to refresh facts now. Agent sessions keep working; labeling waits for new webhook events after recovery.",
+          "GitHub timeout Automatic retries continue. Retry sync to refresh the cached facts now. Labeling and agent sessions read GitHub directly and keep working.",
         ),
       ).toExist(),
     )
@@ -206,7 +206,7 @@ describe("connection result handling", () => {
     const paused = {
       ...candidate,
       enabled: false,
-      syncState: "paused",
+      syncState: "paused" as const,
       blockReason: "This repository is paused in Janitor. Resume it to continue.",
     }
     Scene.scene(

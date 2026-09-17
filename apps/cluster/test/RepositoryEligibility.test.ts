@@ -70,9 +70,11 @@ layer(services, { timeout: "2 minutes" })("Repository eligibility", (it) => {
       assert.strictEqual(discovered.reason, "This repository is not connected to Janitor.")
       yield* connections.change(repositoryId, "connect", actor)
       // Initial synchronization is in progress: the UI cache is cold.
-      const [row] = yield* sql<{ automation_ready_at: Date | null }>`
-        SELECT automation_ready_at FROM github_repository WHERE repository_id = ${repositoryId}`
-      assert.isNull(row!.automation_ready_at)
+      const [cold] = yield* sql<{ verified: number }>`
+        SELECT count(*)::int AS verified FROM sync_target
+        WHERE scope->>'repositoryId' = ${repositoryId} AND verified_at IS NOT NULL`
+      assert.strictEqual(cold!.verified, 0)
+      assert.strictEqual((yield* connections.inventory).repositories[0]!.syncState, "syncing")
       const eligible = yield* eligibility.get(repositoryId)
       assert.deepStrictEqual(eligible, {
         repositoryId,
