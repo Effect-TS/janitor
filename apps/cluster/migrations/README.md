@@ -376,3 +376,18 @@ work nor moves `webhooks_after`, so events received before the toggle are still
 admitted. Installation status and access-error changes, and every repository
 connection, pause, access or installation change, still fence both, and the
 pinned eligibility generation refuses work accepted before them.
+
+## Webhook payload pruning
+
+`0040_webhook_payload_pruning.sql` indexes terminal deliveries whose payloads
+have not been purged. The existing minute cron clears up to 1,000 payloads per
+wake, with no age delay after projection reaches `projected`, `unsupported`, or
+`failed`. Pending deliveries retain their payloads for processing. Terminal
+deliveries retain their IDs, sequence numbers, hashes, statuses, and error
+details for deduplication and inspection, but cannot be replayed from their raw
+payloads after pruning. The projector returns terminal statuses before decryption.
+
+The migration only adds the index; maintenance drains the existing backlog in
+batches. Pruning relies on PostgreSQL vacuuming to reclaim obsolete payload
+storage. A database already at its size cap may need space freed before applying
+the migration or running cleanup.
