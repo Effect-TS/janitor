@@ -1,9 +1,12 @@
+import * as Clock from "effect/Clock"
 import * as DateTime from "effect/DateTime"
+import * as Duration from "effect/Duration"
 import { assert } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as TestClock from "effect/testing/TestClock"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
 import { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
@@ -219,6 +222,23 @@ export const webhookNow = Effect.gen(function* () {
   const [row] = yield* sql<{ at: Date }>`SELECT clock_timestamp() AS at`
   return row!.at
 })
+
+/**
+ * Advances the test clock in steps until `done` holds. Each step first waits a
+ * little real time, because a retrying workflow registers its next durable
+ * sleep only after a database roundtrip; a clock step taken before that
+ * registration is wasted, and a bounded run of wasted steps left the fiber
+ * asleep on a clock nobody advanced.
+ */
+export const adjustUntil = (done: () => boolean, step: Duration.Input, limit = 200) =>
+  Effect.gen(function* () {
+    for (let tick = 0; !done() && tick < limit; tick++) {
+      yield* Effect.sleep("10 millis").pipe(
+        Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
+      )
+      yield* TestClock.adjust(step)
+    }
+  })
 
 // DIRECT LABELING
 

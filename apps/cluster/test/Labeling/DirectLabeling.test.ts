@@ -31,6 +31,7 @@ import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
+  adjustUntil,
   bug,
   feature,
   github,
@@ -422,10 +423,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
         Effect.forkChild({ startImmediately: true }),
       )
       // Each failed read sleeps on the durable clock before the bounded retry.
-      for (let tick = 0; attempts < 4 && tick < 50; tick++) {
-        yield* Effect.yieldNow
-        yield* TestClock.adjust("20 seconds")
-      }
+      yield* adjustUntil(() => attempts >= 4, "20 seconds")
       const result = yield* Fiber.join(fiber)
       assert.strictEqual(attempts, 4)
       github.intercept = () => Effect.succeed(undefined)

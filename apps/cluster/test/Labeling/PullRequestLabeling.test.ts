@@ -31,6 +31,7 @@ import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
+  adjustUntil,
   bug,
   feature,
   github,
@@ -418,10 +419,7 @@ layer(Services, { timeout: "2 minutes" })("Direct pull request labeling", (it) =
       const outage = yield* LabelItem.execute(yield* latestQueued).pipe(
         Effect.forkChild({ startImmediately: true }),
       )
-      for (let tick = 0; attempts < 4 && tick < 50; tick++) {
-        yield* Effect.yieldNow
-        yield* TestClock.adjust("20 seconds")
-      }
+      yield* adjustUntil(() => attempts >= 4, "20 seconds")
       const result = yield* Fiber.join(outage)
       github.intercept = () => Effect.succeed(undefined)
       assert.strictEqual(attempts, 4)
