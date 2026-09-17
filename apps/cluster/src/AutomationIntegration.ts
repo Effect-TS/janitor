@@ -1,5 +1,6 @@
 import type { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
-import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import type { GitHubRepositoryDatabaseId, GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
+import type { IssueCommentWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent/Comment"
 import type { PullRequest } from "@janitor/domain/GitHub/WebhookEvent/PullRequest"
 import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as Context from "effect/Context"
@@ -20,6 +21,14 @@ export class AutomationIntegration extends Context.Service<
       readonly repositoryId: GitHubRepositoryDatabaseId
       readonly issue: GitHubIssueApi
       readonly sequence: GitHubWebhookJournalSequence
+      readonly deliveryId: GitHubWebhookDeliveryId
+    }) => Effect.Effect<void, Error>
+    /** An `issue_comment` delivery for a connected repository, after the pause fence admitted it. */
+    readonly issueCommentEvent: (request: {
+      readonly repositoryId: GitHubRepositoryDatabaseId
+      readonly payload: (typeof IssueCommentWebhookEvent.Type)["payload"]
+      readonly deliveryId: GitHubWebhookDeliveryId
+      readonly receivedAt: Date | undefined
     }) => Effect.Effect<void, Error>
     /** A `pull_request` delivery for a known repository, after the pause fence admitted it. */
     readonly pullRequestEvent: (request: {
@@ -32,6 +41,7 @@ export class AutomationIntegration extends Context.Service<
   /** Explicitly used by projection tests and deployments without labeling. */
   static readonly noop = Layer.succeed(this, {
     issueEvent: () => Effect.void,
+    issueCommentEvent: () => Effect.void,
     pullRequestEvent: () => Effect.void,
   })
 }

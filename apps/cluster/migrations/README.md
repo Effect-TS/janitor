@@ -432,3 +432,41 @@ or verified access) call it and move `webhooks_after`; the pause trigger is
 unchanged. An installation's `sync_enabled` is a cache control with no other
 effect: `sync_scope_enabled` stops cache runs while it is off. The connection
 inventory derives cache health from `sync_target` alone. No data changes.
+
+## Issue review
+
+`0043_issue_review.sql` adds GitHub-invoked issue review (ADR 0007, ADR 0012).
+`issue_review_setting` holds the per-repository opt-in and dry-run flag;
+`admit_after` moves on every enable or disable, so a comment received while
+review was off is denied after re-enabling. `issue_review_receipt` records
+every comment that directly mentions Janitor, keyed by repository and comment:
+a redelivered webhook finds the receipt and creates nothing, while a separately
+posted comment with identical text is its own invocation. `issue_review_run`
+is the immutable invocation snapshot plus the run's lifecycle and the agent
+Entity's persisted state; `issue_review_message` records every message the
+agent received by the sender's message identity so a redelivery applies once.
+`issue_review_issue` is the per-issue scheduling record with the issue's
+active run.
+
+The webhook projection records the receipt inside the repository fence and
+enqueues `Janitor/AdmitReviewV1`, which reads the repository, issue, comment
+and author permission from GitHub and queues the run under `RepositoryEligibility.run`
+with the receipt's eligibility generation. `fence_issue_review` fires when
+`github_repository.eligibility_generation` changes (pause, disconnection,
+access loss, installation changes) and cancels every live run with the
+repository's block reason; restoration never revives them. Disabling review,
+closing the issue, editing or deleting the invoking comment, and the
+frontend's Cancel run end the affected runs in the caller's transaction
+through `IssueReviewScheduler.cancel`, then tell each run's agent and let the
+issue start its next queued run; a message the agent never receives changes
+nothing, because the record is the authority and the agent rereads it before
+acting. A settings change holds the repository row so it serializes with
+admission, and admission rolls its run back when the receipt was settled
+meanwhile. A delivery without a receipt time is denied rather than placed
+after enablement. Both
+`issue_review_setting` and `issue_review_run` notify the `review` live topic.
+`delete_repository_data` removes all five tables' rows on disconnection.
+
+Issue review stays behind a deployment gate until ticket 13: settings refuse to
+enable it and admission denies invocations unless `alchemy dev` is running or
+`JANITOR_ISSUE_REVIEW_DEVELOPMENT=true` is set. No data changes.

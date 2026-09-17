@@ -15,6 +15,7 @@ import { RulesRoutesLayer } from "./Rules.ts"
 import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncRoutesLayer } from "./Sync.ts"
 import { ReadinessRoutesLayer } from "./Readiness.ts"
+import { ReviewRoutesLayer } from "./Review.ts"
 
 const ApiRouterLayer = Layer.effect(
   HttpRouter.HttpRouter,
@@ -40,6 +41,7 @@ export const makeRoutesLayer = (
       RulesRoutesLayer,
       ConnectionRoutesLayer,
       AccountRoutesLayer,
+      ReviewRoutesLayer,
     ).pipe(Layer.provide(makeAuthenticatedMiddlewareLayer(middleware))),
     ReadinessRoutesLayer.pipe(Layer.provide(makeAccessMiddlewareLayer(middleware))),
   )

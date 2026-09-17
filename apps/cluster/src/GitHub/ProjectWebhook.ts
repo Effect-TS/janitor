@@ -72,6 +72,7 @@ export const installationOf = (event: GitHubWebhookEvent): Option.Option<GitHubI
 export const applyEvent = (
   event: GitHubWebhookEvent,
   sequence: GitHubWebhookJournalSequence,
+  receivedAt?: Date,
 ): Effect.Effect<
   void,
   GitHubReadModelError | SyncTargetError | ContentPurgeError | Error,
@@ -178,6 +179,21 @@ export const applyEvent = (
           repositoryId: payload.repository.id,
           issue: payload.issue,
           sequence,
+          deliveryId: event.id,
+        })
+        return
+      }
+      case "issue_comment": {
+        // Nothing to mirror: comments are not cached. Review decides on its
+        // own whether the comment invokes it.
+        const { payload } = event
+        const repository = yield* readModel.getRepository(payload.repository.id)
+        if (Option.isNone(repository)) return
+        yield* automation.issueCommentEvent({
+          repositoryId: payload.repository.id,
+          payload,
+          deliveryId: event.id,
+          receivedAt,
         })
         return
       }
@@ -278,7 +294,11 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
   const projection = readModel
     .withTransaction(
       Effect.gen(function* () {
-        yield* applyEvent(decoded.success, row.sequence)
+        yield* applyEvent(
+          decoded.success,
+          row.sequence,
+          row.receivedAt === undefined ? undefined : DateTime.toDateUtc(row.receivedAt),
+        )
         yield* journal.markProjection(
           deliveryId,
           "projected",
@@ -291,6 +311,7 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
   if (
     decoded.success.name === "pull_request" ||
     decoded.success.name === "issues" ||
+    decoded.success.name === "issue_comment" ||
     decoded.success.name === "repository"
   ) {
     const eligibility = yield* RepositoryEligibility

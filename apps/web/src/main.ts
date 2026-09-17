@@ -23,7 +23,7 @@ import * as Page from "@/components/ui/page"
 import { labelName, type RepositoryOverview } from "@/components/labeling-wire"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
-import { House, FileCode2, Tags, Activity, Settings, UserRound } from "lucide"
+import { House, FileCode2, Tags, Activity, ScanSearch, Settings, UserRound } from "lucide"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
@@ -959,55 +959,54 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html => {
         children: [
           Sidebar.groupLabel(h, { children: ["Repository"] }),
           Sidebar.menu(h, {
-            children: (["Overview", "Policies", "Rules", "Activity", "Settings"] as const).map(
-              (section) => {
-                const active = current && Routes.section(model.navigation.route) === section
-                const count = counts[section]
-                return Sidebar.menuItem(h, {
-                  children: [
-                    h.a(
-                      [
-                        h.Href(Routes.sectionPath(repository.repositoryId, section)),
-                        h.Class(
-                          cn(
-                            Sidebar.sidebarMenuButtonClass,
-                            navLinkClass,
-                            active && navLinkActiveClass,
-                          ),
+            children: Routes.sections.map((section) => {
+              const active = current && Routes.section(model.navigation.route) === section
+              const count = counts[section]
+              return Sidebar.menuItem(h, {
+                children: [
+                  h.a(
+                    [
+                      h.Href(Routes.sectionPath(repository.repositoryId, section)),
+                      h.Class(
+                        cn(
+                          Sidebar.sidebarMenuButtonClass,
+                          navLinkClass,
+                          active && navLinkActiveClass,
                         ),
-                        h.AriaCurrent(active ? "page" : "false"),
-                      ],
-                      [
-                        Icon.view(
-                          h,
-                          {
-                            Overview: House,
-                            Policies: FileCode2,
-                            Rules: Tags,
-                            Activity,
-                            Settings,
-                          }[section],
-                          "size-4 shrink-0 text-ink-subtle",
-                        ),
-                        h.span([h.Class("flex-1 truncate")], [section]),
-                        ...(count === undefined || count === 0
-                          ? []
-                          : [
-                              h.span(
-                                [
-                                  h.Class(
-                                    "font-mono text-mono-xs text-ink-subtle tabular-nums group-data-[collapsible=icon]:hidden",
-                                  ),
-                                ],
-                                [String(count)],
-                              ),
-                            ]),
-                      ],
-                    ),
-                  ],
-                })
-              },
-            ),
+                      ),
+                      h.AriaCurrent(active ? "page" : "false"),
+                    ],
+                    [
+                      Icon.view(
+                        h,
+                        {
+                          Overview: House,
+                          Policies: FileCode2,
+                          Rules: Tags,
+                          Activity,
+                          Reviews: ScanSearch,
+                          Settings,
+                        }[section],
+                        "size-4 shrink-0 text-ink-subtle",
+                      ),
+                      h.span([h.Class("flex-1 truncate")], [section]),
+                      ...(count === undefined || count === 0
+                        ? []
+                        : [
+                            h.span(
+                              [
+                                h.Class(
+                                  "font-mono text-mono-xs text-ink-subtle tabular-nums group-data-[collapsible=icon]:hidden",
+                                ),
+                              ],
+                              [String(count)],
+                            ),
+                          ]),
+                    ],
+                  ),
+                ],
+              })
+            }),
           }),
         ],
       }),
@@ -1383,12 +1382,12 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
         title: "Settings",
         lede:
           repository === undefined
-            ? "Connection, automation and AI classification."
+            ? "Connection, automation, issue review and AI classification."
             : h.span(
                 [],
                 [
                   h.span([h.Class("font-mono")], [`${repository.owner}/${repository.repo}`]),
-                  " · connection, automation and AI classification.",
+                  " · connection, automation, issue review and AI classification.",
                 ],
               ),
       }),

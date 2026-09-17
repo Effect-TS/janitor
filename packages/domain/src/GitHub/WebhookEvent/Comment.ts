@@ -1,17 +1,21 @@
 import * as Schema from "effect/Schema"
 import { BaseGitHubWebhookEvent } from "./Base.ts"
-import { GitHubUserDatabaseIdFromStringOrNumber as Id } from "../Id.ts"
+import {
+  GitHubCommentDatabaseIdFromStringOrNumber as CommentId,
+  GitHubRepositoryDatabaseIdFromStringOrNumber as RepositoryId,
+  GitHubUserDatabaseIdFromStringOrNumber as UserId,
+} from "../Id.ts"
 
 const Comment = Schema.Struct({
-  id: Id,
+  id: CommentId,
   body: Schema.String,
-  user: Schema.Struct({ id: Id, login: Schema.String, type: Schema.String }),
-  pull_request_review_id: Schema.optionalKey(Schema.NullOr(Id)),
-  in_reply_to_id: Schema.optionalKey(Schema.NullOr(Id)),
+  user: Schema.Struct({ id: UserId, login: Schema.String, type: Schema.String }),
+  pull_request_review_id: Schema.optionalKey(Schema.NullOr(CommentId)),
+  in_reply_to_id: Schema.optionalKey(Schema.NullOr(CommentId)),
 })
 const payload = {
   action: Schema.Literals(["created", "edited", "deleted"]),
-  repository: Schema.Struct({ id: Id }),
+  repository: Schema.Struct({ id: RepositoryId }),
   comment: Comment,
 }
 export const PullRequestReviewCommentWebhookEvent = Schema.Struct({

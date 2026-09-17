@@ -19,6 +19,7 @@ describe("SPA routes", () => {
     ["/repositories/701/rules/new", "NewRule"],
     ["/repositories/701/rules/r1", "Rule"],
     ["/repositories/701/activity", "Activity"],
+    ["/repositories/701/reviews", "Reviews"],
     ["/repositories/701/settings", "Settings"],
     ["/account", "Account"],
     ["/account/you", "Account"],

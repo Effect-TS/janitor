@@ -15,6 +15,7 @@ export const Topic = Schema.Literals([
   "consent",
   "test",
   "repository",
+  "review",
 ])
 class HeartbeatTimeout extends Schema.TaggedError<HeartbeatTimeout>()("HeartbeatTimeout", {}) {}
 const Frame = Schema.Union([
