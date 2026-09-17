@@ -19,7 +19,7 @@ const candidate = {
 }
 const settings = { repositoryId: "701", state: "" }
 describe("Repository connections", () => {
-  it("explains the synchronization block and offers recovery", () => {
+  it("shows cache failure apart from repository readiness and offers recovery", () => {
     const failed = { ...candidate, syncState: "failed", syncError: "GitHub timeout" }
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
@@ -30,11 +30,12 @@ describe("Repository connections", () => {
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [failed] } }),
       ),
       Scene.expect(Scene.text("test/example")).toExist(),
-      Scene.expect(Scene.text("Blocked by sync failure")).toExist(),
+      Scene.expect(Scene.text("Ready")).toExist(),
+      Scene.expect(Scene.text("Sync failed")).toExist(),
       Scene.expect(Scene.role("button", { name: "Retry sync" })).toExist(),
       Scene.expect(
         Scene.text(
-          "GitHub timeout Automatic retries continue. Retry sync to refresh facts now. Recovery waits for new webhook events before labeling.",
+          "GitHub timeout Automatic retries continue. Retry sync to refresh facts now. Agent sessions keep working; labeling waits for new webhook events after recovery.",
         ),
       ).toExist(),
     )

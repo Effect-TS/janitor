@@ -56,6 +56,7 @@ export class RepositoryConnections extends Context.Service<
       r.is_private AS "isPrivate", r.connected, r.enabled, (r.disconnected_at IS NOT NULL) AS reconnect,
       CASE WHEN i.access_error IS NOT NULL THEN 'lost' ELSE r.access END AS access,
       i.access_error AS "accessError", i.status AS "installationStatus",
+      repository_block_reason(r.repository_id) AS "blockReason",
       (SELECT count(*)::int FROM labeling_policy p WHERE p.repository_id=r.repository_id) AS "policyCount",
       (SELECT count(*)::int FROM labeling_rule p WHERE p.repository_id=r.repository_id AND p.enabled) AS "ruleCount",
       (SELECT COALESCE(t.last_error,t.blocked_reason) FROM sync_target t

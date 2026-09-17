@@ -15,3 +15,7 @@
 - [ ] Stable repository identity survives rename or transfer, with current installation/access revalidation after transfer.
 - [ ] Introduce the new contract alongside legacy labeling eligibility. Do not release old label jobs by removing their synchronization checks in this slice.
 - [ ] Verify operations during initial sync, sync failure, pause, access loss/restoration, and disconnect/reconnect, including a local control change racing a repository operation.
+
+## Comments
+
+2026-09-17: Implemented on this branch. Migration `0038_repository_eligibility.sql` adds `repository_access_current`, redefines `repository_block_reason` without synchronization clauses, and adds `eligibility_generation` with triggers on repository and installation changes. `apps/cluster/src/RepositoryEligibility.ts` is the shared contract (`get`, `list`, `run` with a row-lock fence and generation check). Slack repository listing, selection and credentials use it, and each agent turn pins the generation it first observes. The connection inventory carries `blockReason`, and the settings page shows repository readiness and cache health as separate chips. Legacy labeling predicates, `withRepositoryActivity` and the ingress fence are unchanged. Workflow enablement has no shared flag yet: workflows check their own enablement inside `RepositoryEligibility.run`; ticket 05 adds the issue-review setting.

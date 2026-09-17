@@ -173,7 +173,7 @@ it.effect(
         listFiles: unavailable,
         exists: unavailable,
       })
-      const repository = { id: "42", name: "effect/effect", installation: "7" }
+      const repository = { id: "42", name: "effect/effect", installation: "7", generation: "1" }
       const home = {
         workspace: "T1",
         channel: "C1",

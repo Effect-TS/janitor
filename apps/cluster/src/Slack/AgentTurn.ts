@@ -12,7 +12,7 @@ import * as Prompt from "effect/unstable/ai/Prompt"
 import * as AiError from "effect/unstable/ai/AiError"
 import * as Tool from "effect/unstable/ai/Tool"
 import * as Toolkit from "effect/unstable/ai/Toolkit"
-import { Repositories } from "./Repositories.ts"
+import { Repositories, pinGeneration } from "./Repositories.ts"
 import { TurnEvents } from "./TurnEvents.ts"
 import { sessionKey, type Selection, type SessionInput, type SessionState } from "./Session.ts"
 
@@ -69,7 +69,8 @@ export const runAgentTurn = Effect.fnUntraced(
     select: (repository: Selection) => Effect.Effect<void>,
   ) {
     const sandbox = yield* Sandbox
-    const repositories = yield* Repositories
+    // One turn works under one eligibility generation; a control change ends it.
+    const repositories = pinGeneration(yield* Repositories)
     const events = yield* TurnEvents
     let selection = state.repository
     const checkouts = yield* makeCheckoutsSandbox.pipe(

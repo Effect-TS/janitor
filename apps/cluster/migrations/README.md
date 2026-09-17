@@ -335,3 +335,24 @@ Cloudflare resources owned by the former runner require a separate cutover.
 Earlier migrations remain in order so both fresh databases and existing
 deployments reach the same schema. The populated-upgrade test covers retirement
 and repository operations after migration.
+
+## Repository eligibility
+
+`0038_repository_eligibility.sql` separates repository eligibility from the
+synchronization cache, as ADR 0006 requires. `repository_access_current` is
+the repository's access record and its installation's verified state without
+the installation sync setting. `repository_block_reason` now names only
+disconnection, a never-connected repository, unavailable GitHub access or a
+pause; synchronization progress or failure is no longer a block reason. Slack
+repository listing, selection and credentials, and the connection inventory's
+`blockReason`, use it. Legacy labeling keeps `repository_access_available`,
+`repository_automation_ready` and `entity_automation_eligible` unchanged until
+it reads GitHub directly.
+
+`github_repository.eligibility_generation` advances on every connection, pause,
+access or installation change, and when the installation's status or access
+error changes. `RepositoryEligibility.run` holds the repository row lock through
+an operation, so a pause or disconnection waits for in-flight work, and refuses
+work that recorded an earlier generation even after restoration. Slack agent
+turns pin the generation first observed in the turn. The existing pause and
+access triggers still discard pending outbox work. No data changes.

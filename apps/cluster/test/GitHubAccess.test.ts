@@ -134,6 +134,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
         })
         yield* synchronize
         assert.strictEqual((yield* state).syncState, "ready")
+        assert.isNull((yield* state).blockReason)
         for (const visibility of [true, false]) {
           isPrivate = visibility
           for (const loss of ["issues", "checks", "suspend", "uninstall"] as const) {
@@ -156,6 +157,10 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
             if (loss === "uninstall") installed = false
             yield* connections.refresh
             assert.strictEqual((yield* state).syncState, "access-unavailable")
+            assert.include(
+              (yield* state).blockReason!,
+              "GitHub access to this repository is unavailable",
+            )
             assert.strictEqual((yield* state).policyCount, 1)
             assert.isTrue(
               Option.isNone(yield* activity.run(repositoryId, Effect.die("Unavailable work ran"))),
@@ -169,6 +174,8 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
             installed = true
             yield* connections.refresh
             assert.strictEqual((yield* state).syncState, loss === "checks" ? "failed" : "syncing")
+            // Restored access makes the repository workable before its cache recovers.
+            assert.isNull((yield* state).blockReason)
             assert.strictEqual((yield* targets.begin(scope, old.generation))._tag, "Superseded")
             assert.isTrue(
               Option.isNone(
@@ -253,12 +260,17 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
         yield* repositoryEvent("transferred", "third-owner/webhook-name")
         assert.strictEqual((yield* state).owner, "third-owner")
         assert.strictEqual((yield* state).syncState, "access-unavailable")
+        assert.include(
+          (yield* state).blockReason!,
+          "GitHub access to this repository is unavailable",
+        )
         assert.strictEqual((yield* state).policyCount, 1)
         installationId = 99
         fullName = "third-owner/webhook-name"
         yield* connections.refresh
         assert.strictEqual((yield* state).installationId, "99")
         assert.strictEqual((yield* state).syncState, "syncing")
+        assert.isNull((yield* state).blockReason)
         yield* synchronize
         assert.strictEqual((yield* state).syncState, "ready")
       }),
