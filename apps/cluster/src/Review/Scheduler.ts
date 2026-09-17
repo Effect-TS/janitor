@@ -10,7 +10,6 @@ import {
   type CancelSelection,
   IssueReviewStore,
   type IssueReviewError,
-  type RunRecord,
 } from "./Store.ts"
 
 /**
@@ -59,9 +58,10 @@ export class IssueReviewScheduler extends Context.Service<
             const { activeRunId } = yield* store.lockIssue(repositoryId, issueNumber)
             if (activeRunId !== null) {
               const active = yield* store.run(activeRunId)
+              // A start that was lost in delivery is sent again, and a running
+              // run resyncs with its latest action; the agent applies each once.
               if (Option.isSome(active) && !isTerminalReviewStatus(active.value.status))
-                // A start that was lost in delivery is sent again; the agent applies it once.
-                return active.value.status === "queued" ? active : Option.none<RunRecord>()
+                return active
             }
             const next = yield* store.nextQueued(repositoryId, issueNumber)
             yield* store.setActiveRun(

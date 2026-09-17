@@ -13,21 +13,43 @@ import * as Rpc from "effect/unstable/rpc/Rpc"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { changedReason, RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { flushLive } from "../LiveUpdates.ts"
+import { WorkflowOutbox } from "../WorkflowOutbox.ts"
+import {
+  actionMessageId,
+  limitations,
+  REVIEW_ACTION_TAG,
+  ReviewActionDispatch,
+  type ReviewActionPayload,
+  reviewActionKey,
+} from "./Actions.ts"
+import {
+  ActionResult,
+  mergeObserved,
+  observedEvidence,
+  type Prepared,
+  type Round,
+  validateCitations,
+} from "./Conversation.ts"
 import { disabledReason, IssueReviewAvailable, unavailableReason } from "./Gate.ts"
 import { IssueReviewScheduler } from "./Scheduler.ts"
-import { type Cancellation, IssueReviewStore, type RunRecord } from "./Store.ts"
+import { type ActionKind, type Cancellation, IssueReviewStore, type RunRecord } from "./Store.ts"
+import { ReviewWorkspaces } from "./Workspace.ts"
 
 /**
  * The review agent (ADR 0012): one persistent cluster Entity per review run,
  * addressed by the run ID. It receives messages, owns the run's lifecycle
  * and persists its state explicitly in the run record; every message is
  * recorded by the identity its sender chose, so a redelivery is applied
- * once. Later tickets add the investigation as embedded action workflows;
- * this slice owns admission into execution and cancellation.
+ * once. The investigation itself runs as embedded action workflows: the
+ * agent schedules each action, applies its completion once, and decides
+ * whether the run continues, concludes or stops.
  */
 
 /** Installation, investigation and testing share this single allowance. */
 export const EXECUTION_ALLOWANCE = Duration.minutes(15)
+
+/** Consecutive model turns without a tool call or `finish` before the run stops. */
+export const MAX_IDLE_ROUNDS = 3
 
 export const RunSnapshot = Schema.Struct({
   runId: ReviewRunId,
@@ -60,6 +82,13 @@ export const ReviewAgent = Entity.make("ReviewAgent", [
     success: RunSnapshot,
     error: ReviewRunMissing,
   }),
+  /** An action workflow recorded its result. */
+  Rpc.make("ActionCompleted", {
+    payload: { messageId: Schema.String, sequence: Schema.Int },
+    primaryKey: ({ messageId }) => messageId,
+    success: RunSnapshot,
+    error: ReviewRunMissing,
+  }),
 ]).annotateRpcs(ClusterSchema.Persisted, true)
 
 const snapshot = (run: RunRecord): RunSnapshot => ({
@@ -77,6 +106,11 @@ export class ReviewAgentClient extends Context.Service<
   {
     readonly start: (runId: string, messageId: string) => Effect.Effect<RunSnapshot, unknown>
     readonly cancel: (runId: string, message: Cancellation) => Effect.Effect<RunSnapshot, unknown>
+    readonly actionCompleted: (
+      runId: string,
+      messageId: string,
+      sequence: number,
+    ) => Effect.Effect<RunSnapshot, unknown>
   }
 >()("@janitor/cluster/Review/ReviewAgentClient") {
   static readonly layer: Layer.Layer<ReviewAgentClient, never, Sharding> = Layer.effect(
@@ -84,9 +118,13 @@ export class ReviewAgentClient extends Context.Service<
     Effect.map(ReviewAgent.client, (client) => ({
       start: (runId, messageId) => client(runId).Start({ messageId }),
       cancel: (runId, message) => client(runId).Cancel(message),
+      actionCompleted: (runId, messageId, sequence) =>
+        client(runId).ActionCompleted({ messageId, sequence }),
     })),
   )
 }
+
+const decodeResult = Schema.decodeUnknownEffect(ActionResult)
 
 export const ReviewAgentLayer = ReviewAgent.toLayer(
   Effect.gen(function* () {
@@ -97,20 +135,32 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
     const eligibility = yield* RepositoryEligibility
     const scheduler = yield* IssueReviewScheduler
     const available = yield* IssueReviewAvailable
+    const outbox = yield* WorkflowOutbox
+    const dispatch = yield* ReviewActionDispatch
+    const workspaces = yield* ReviewWorkspaces
 
     const missing = new ReviewRunMissing({ runId })
     const orDie = <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
       Effect.orDie(effect)
 
+    interface Applied {
+      readonly run: RunRecord
+      readonly released: boolean
+      /** Whether this was the message's first delivery. */
+      readonly fresh: boolean
+      readonly scheduled: ReadonlyArray<ReviewActionPayload>
+    }
+
     /**
      * Loads and holds the run, records the message once, and applies the
      * transition only for a first delivery of a live run. Returns the run
-     * after the transition and whether the caller must release the issue.
+     * after the transition, whether the caller must release the issue, and
+     * the actions to start once the transaction committed.
      */
     const receive = <P>(
       message: { readonly messageId: string; readonly kind: string; readonly payload: P },
-      apply: (run: RunRecord) => Effect.Effect<RunRecord, never, never>,
-    ) =>
+      apply: (run: RunRecord, schedule: Schedule) => Effect.Effect<RunRecord, never, never>,
+    ): Effect.Effect<Applied, ReviewRunMissing> =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -125,9 +175,28 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
               payload: message.payload,
               applied: live,
             })
-            if (!fresh || !live) return { run, released: false }
-            const applied = yield* apply(run)
-            return { run: applied, released: isTerminalReviewStatus(applied.status) }
+            if (!fresh || !live) return { run, released: false, fresh, scheduled: [] }
+            const scheduled: Array<ReviewActionPayload> = []
+            const schedule: Schedule = (sequence, kind) =>
+              Effect.gen(function* () {
+                const payload = { runId, sequence }
+                yield* orDie(store.insertAction(runId, sequence, kind))
+                yield* orDie(
+                  outbox.enqueue({
+                    workflowTag: REVIEW_ACTION_TAG,
+                    executionKey: reviewActionKey(payload),
+                    payload,
+                  }),
+                )
+                scheduled.push(payload)
+              })
+            const applied = yield* apply(run, schedule)
+            return {
+              run: applied,
+              released: isTerminalReviewStatus(applied.status),
+              fresh,
+              scheduled,
+            }
           }),
         )
         .pipe(
@@ -135,13 +204,16 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
           Effect.catchTag("@janitor/cluster/Review/IssueReviewError", (error) => Effect.die(error)),
         )
 
+    type Schedule = (sequence: number, kind: ActionKind) => Effect.Effect<void>
+
+    const now = Effect.map(DateTime.now, DateTime.toDateUtc)
+
     const cancelled = (run: RunRecord, reason: string, actor: string | null) =>
       Effect.gen(function* () {
-        const now = DateTime.toDateUtc(yield* DateTime.now)
         return yield* orDie(
           store.transition(run.runId, {
             status: "cancelled",
-            finishedAt: now,
+            finishedAt: yield* now,
             cancelReason: reason,
             cancelledBy: actor ?? undefined,
             agentState: { phase: "cancelled" },
@@ -149,12 +221,147 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
         )
       })
 
-    const finish = (result: { readonly run: RunRecord; readonly released: boolean }) =>
+    /** Ends the run without a conclusion, keeping what it observed. */
+    const ended = (
+      run: RunRecord,
+      status: "failed" | "interrupted",
+      limitation: string,
+      rounds: ReadonlyArray<Round>,
+      repository: string | undefined,
+    ) =>
       Effect.gen(function* () {
-        if (result.released) {
-          yield* orDie(scheduler.release(result.run.repositoryId, result.run.issueNumber))
-          yield* flushLive
+        return yield* orDie(
+          store.transition(run.runId, {
+            status,
+            finishedAt: yield* now,
+            limitation,
+            evidence:
+              repository === undefined ? [] : observedEvidence(mergeObserved(rounds), repository),
+            agentState: { phase: status },
+          }),
+        )
+      })
+
+    const investigating = (run: RunRecord, schedule: Schedule, sequence: number) =>
+      Effect.gen(function* () {
+        yield* schedule(sequence, "model")
+        return yield* orDie(
+          store.transition(run.runId, {
+            status: "running",
+            agentState: { phase: "investigating", action: sequence },
+          }),
+        )
+      })
+
+    /** Applies a completed action's result to the run. */
+    const applyAction = (run: RunRecord, schedule: Schedule, sequence: number) =>
+      Effect.gen(function* () {
+        const rows = yield* orDie(store.actions(runId))
+        const completed = rows.filter((row) => row.status === "completed")
+        const action = completed.find((row) => row.sequence === sequence)
+        if (action === undefined) return run
+        const results = yield* Effect.forEach(completed, (row) =>
+          decodeResult(row.result).pipe(Effect.map((result) => [row.sequence, result] as const)),
+        ).pipe(Effect.orDie)
+        const result = results.find(([at]) => at === sequence)![1]
+        const prepared = results
+          .map(([, value]) => value)
+          .find((value): value is Prepared => value._tag === "Ready")
+        const rounds = results
+          .filter(([at]) => at <= sequence)
+          .map(([, value]) => value)
+          .filter((value): value is Round => value._tag === "Round")
+        const repository = prepared?.repository
+        const overdue =
+          run.deadlineAt !== null &&
+          (yield* now).getTime() >= DateTime.toEpochMillis(run.deadlineAt)
+        switch (result._tag) {
+          case "Ready":
+            return yield* investigating(run, schedule, sequence + 1)
+          case "Denied":
+            return yield* cancelled(run, result.reason, null)
+          case "Unavailable":
+            return yield* ended(run, "failed", result.reason, rounds, repository)
+          case "Round": {
+            if (result.conclusion !== null) {
+              const evidence = validateCitations(
+                result.conclusion.evidence,
+                mergeObserved(rounds),
+                repository ?? "",
+              )
+              return yield* orDie(
+                store.transition(run.runId, {
+                  status: "completed",
+                  finishedAt: yield* now,
+                  conclusion: { ...result.conclusion, evidence },
+                  agentState: { phase: "completed" },
+                }),
+              )
+            }
+            if (overdue)
+              return yield* ended(run, "failed", limitations.deadline, rounds, repository)
+            const idle = rounds
+              .slice(-MAX_IDLE_ROUNDS)
+              .every((round) => round.tools.length === 0 && round.conclusion === null)
+            if (rounds.length >= MAX_IDLE_ROUNDS && idle)
+              return yield* ended(run, "failed", limitations.idle, rounds, repository)
+            return yield* investigating(run, schedule, sequence + 1)
+          }
+          case "TimedOut":
+            return yield* ended(run, "failed", limitations.deadline, rounds, repository)
+          case "Interrupted":
+            return yield* ended(run, "interrupted", result.reason, rounds, repository)
+          case "Failed":
+            return yield* ended(run, "failed", result.reason, rounds, repository)
+          case "Skipped":
+            return run
         }
+      })
+
+    /**
+     * A start for a run that is already running: after a restart, or a
+     * completion whose message was lost. The latest completed action is
+     * applied if it was not yet; a pending action is left to its workflow.
+     */
+    const resync = (run: RunRecord, schedule: Schedule) =>
+      Effect.gen(function* () {
+        const rows = yield* orDie(store.actions(runId))
+        const latest = rows.at(-1)
+        if (latest === undefined || latest.status !== "completed") return run
+        const fresh = yield* orDie(
+          store.recordMessage({
+            runId,
+            messageId: actionMessageId({ runId, sequence: latest.sequence }),
+            kind: "ActionCompleted",
+            payload: { resync: true, sequence: latest.sequence },
+            applied: true,
+          }),
+        )
+        return fresh ? yield* applyAction(run, schedule, latest.sequence) : run
+      })
+
+    const finish = (result: Applied) =>
+      Effect.gen(function* () {
+        if (result.released)
+          yield* orDie(scheduler.release(result.run.repositoryId, result.run.issueNumber))
+        // A run that reached the sandbox lets it go once it ends, whoever ended
+        // it; a redelivered message to a finished run does not start a container.
+        if (
+          result.fresh &&
+          isTerminalReviewStatus(result.run.status) &&
+          result.run.commitSha !== null
+        )
+          yield* workspaces
+            .open(runId)
+            .release.pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Review workspace release failed", error).pipe(
+                  Effect.annotateLogs({ runId }),
+                ),
+              ),
+            )
+        for (const payload of result.scheduled) yield* dispatch.dispatch(payload)
+        yield* flushLive
         return snapshot(result.run)
       })
 
@@ -162,8 +369,9 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
       Start: (envelope) =>
         receive(
           { messageId: envelope.payload.messageId, kind: "Start", payload: envelope.payload },
-          (run) =>
+          (run, schedule) =>
             Effect.gen(function* () {
+              if (run.status === "running") return yield* resync(run, schedule)
               if (run.status !== "queued") return run
               // Fresh repository eligibility before execution: the generation
               // the invocation was accepted under must still be current.
@@ -183,21 +391,37 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
               const settings = yield* orDie(store.settings(run.repositoryId))
               if (!Option.exists(settings, (setting) => setting.enabled))
                 return yield* cancelled(run, disabledReason, null)
-              const now = yield* DateTime.now
-              return yield* orDie(
+              const started = yield* DateTime.now
+              const running = yield* orDie(
                 store.transition(run.runId, {
                   status: "running",
-                  startedAt: DateTime.toDateUtc(now),
-                  deadlineAt: DateTime.toDateUtc(DateTime.addDuration(now, EXECUTION_ALLOWANCE)),
-                  agentState: { phase: "started" },
+                  startedAt: DateTime.toDateUtc(started),
+                  deadlineAt: DateTime.toDateUtc(
+                    DateTime.addDuration(started, EXECUTION_ALLOWANCE),
+                  ),
+                  agentState: { phase: "preparing", action: 0 },
                 }),
               )
+              yield* schedule(0, "prepare")
+              return running
             }),
         ).pipe(Effect.flatMap(finish)),
       Cancel: (envelope) =>
         receive(
           { messageId: envelope.payload.messageId, kind: "Cancel", payload: envelope.payload },
           (run) => cancelled(run, envelope.payload.reason, envelope.payload.actor),
+        ).pipe(Effect.flatMap(finish)),
+      ActionCompleted: (envelope) =>
+        receive(
+          {
+            messageId: envelope.payload.messageId,
+            kind: "ActionCompleted",
+            payload: envelope.payload,
+          },
+          (run, schedule) =>
+            run.status === "running"
+              ? applyAction(run, schedule, envelope.payload.sequence)
+              : Effect.succeed(run),
         ).pipe(Effect.flatMap(finish)),
     }
   }),

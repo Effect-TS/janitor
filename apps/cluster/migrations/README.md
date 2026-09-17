@@ -470,3 +470,20 @@ after enablement. Both
 Issue review stays behind a deployment gate until ticket 13: settings refuse to
 enable it and admission denies invocations unless `alchemy dev` is running or
 `JANITOR_ISSUE_REVIEW_DEVELOPMENT=true` is set. No data changes.
+
+## Issue review investigation
+
+`0044_issue_review_investigation.sql` adds the evidence-based review a run
+performs (ADR 0007, ADR 0009, ADR 0012). `issue_review_action` holds one row
+per action the run's agent scheduled, `prepare` first (authority refresh,
+default-branch commit, issue evidence, sandbox provisioning) and then one
+`model` row per model invocation. The agent inserts the pending row together
+with the `Janitor/ReviewActionV1` outbox request; the action workflow records
+the result once and tells the agent, which applies the completion once by its
+message identity and schedules the next action or finishes the run. A runner
+restart resumes the pending action and reuses every completed result.
+`issue_review_run` gains the result columns the frontend shows: the
+classification, the default branch and commit the evidence was read from, the
+agent-authored findings and uncertainty, the validated evidence list and the
+limitation that ended a run without a completed result. Action rows are removed
+with their run. No data changes.

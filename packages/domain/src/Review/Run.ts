@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import { ReviewClassification, ReviewEvidence } from "./Findings.ts"
 
 /**
  * Wire shapes for GitHub-invoked issue review (ADR 0007, ADR 0012): the
@@ -72,6 +73,18 @@ export const ReviewRun = Schema.Struct({
   /** Why a cancelled run stopped, in the words the frontend shows. */
   cancelReason: Schema.NullOr(Schema.String),
   cancelledBy: Schema.NullOr(Schema.String),
+  /** The agent's classification once the run concluded. */
+  classification: Schema.NullOr(ReviewClassification),
+  /** The default branch and its commit the evidence was read from. */
+  defaultBranch: Schema.NullOr(Schema.String),
+  commitSha: Schema.NullOr(Schema.String),
+  /** Agent-authored findings and uncertainty; null until the run concluded. */
+  findings: Schema.NullOr(Schema.String),
+  uncertainty: Schema.NullOr(Schema.String),
+  /** Evidence the run cited, verified against what it observed. */
+  evidence: Schema.Array(ReviewEvidence),
+  /** What ended a run short of a conclusion: the deadline, a lost sandbox, a failure. */
+  limitation: Schema.NullOr(Schema.String),
 })
 export type ReviewRun = typeof ReviewRun.Type
 

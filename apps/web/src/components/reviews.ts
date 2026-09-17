@@ -22,8 +22,11 @@ import { cn } from "@/lib/utils"
 /**
  * The issue review history of one repository: every run an authorized
  * mention created, newest first, with its place in its issue's queue and,
- * once it stopped, why. Cancel run asks the server, which checks the
- * teammate's current GitHub permission before stopping the run.
+ * once it stopped, why. A concluded run shows its classification, the
+ * commit its evidence was read from, the agent's findings and uncertainty,
+ * and the evidence it cited; a run that stopped short shows what stopped it.
+ * Cancel run asks the server, which checks the teammate's current GitHub
+ * permission before stopping the run.
  */
 
 export const Model = Schema.Struct({
@@ -215,6 +218,115 @@ const cell = (
   className?: string,
 ) => Table.cell(h, { className: cn("py-2 align-top", className), children })
 
+const classificationVariant: Record<NonNullable<ReviewRun["classification"]>, ChipVariant> = {
+  bug: "danger",
+  enhancement: "agent",
+  question: "neutral",
+  unclear: "neutral",
+}
+
+const paragraphs = (h: HtmlBuilder<Message>, text: string, className: string) =>
+  text
+    .split(/\n{2,}/)
+    .filter((part) => part.trim() !== "")
+    .map((part) => h.p([h.Class(cn("whitespace-pre-wrap", className))], [part.trim()]))
+
+const evidenceItem = (h: HtmlBuilder<Message>, item: ReviewRun["evidence"][number]): Html => {
+  const label =
+    item.kind === "file"
+      ? item.reference
+      : `${item.kind === "issue" ? "issue" : "PR"} #${item.reference}`
+  return h.li(
+    [h.Class("text-body-sm")],
+    [
+      item.url === null
+        ? h.span([h.Class("font-mono text-mono-sm")], [label])
+        : h.a(
+            [
+              h.Href(item.url),
+              h.Target("_blank"),
+              h.Rel("noreferrer"),
+              h.Class("font-mono text-mono-sm text-primary hover:underline"),
+            ],
+            [label],
+          ),
+      ...(item.verified
+        ? []
+        : [chip(h, { className: "ml-1", children: ["not observed in this run"] })]),
+      ...(item.note.trim() === "" ? [] : [h.span([h.Class("ml-2 text-ink-muted")], [item.note])]),
+    ],
+  )
+}
+
+/** The completed result, or what stopped the run short of one. */
+const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> => {
+  if (
+    run.classification === null &&
+    run.findings === null &&
+    run.limitation === null &&
+    run.evidence.length === 0 &&
+    run.commitSha === null
+  )
+    return []
+  return [
+    h.details(
+      [h.Class("mt-2"), h.DataAttribute("slot", "findings")],
+      [
+        h.summary(
+          [h.Class("cursor-pointer text-body-sm text-ink-muted")],
+          [
+            run.findings === null ? "Run details" : "Findings",
+            ...(run.classification === null
+              ? []
+              : [
+                  chip(h, {
+                    className: "ml-2",
+                    variant: classificationVariant[run.classification],
+                    children: [run.classification],
+                  }),
+                ]),
+          ],
+        ),
+        h.div(
+          [h.Class("mt-2 flex flex-col gap-2")],
+          [
+            ...(run.commitSha === null
+              ? []
+              : [
+                  h.p(
+                    [h.Class("text-body-sm text-ink-muted")],
+                    [
+                      `Evidence read at ${run.defaultBranch ?? "the default branch"} `,
+                      h.span([h.Class("font-mono text-mono-sm")], [run.commitSha.slice(0, 12)]),
+                    ],
+                  ),
+                ]),
+            ...(run.limitation === null
+              ? []
+              : [h.p([h.Class("text-body-sm text-destructive")], [run.limitation])]),
+            ...(run.findings === null ? [] : paragraphs(h, run.findings, "text-body-md")),
+            ...(run.uncertainty === null || run.uncertainty.trim() === ""
+              ? []
+              : [
+                  h.p([h.Class("text-body-sm font-medium text-ink-muted")], ["Uncertainty"]),
+                  ...paragraphs(h, run.uncertainty, "text-body-sm text-ink-muted"),
+                ]),
+            ...(run.evidence.length === 0
+              ? []
+              : [
+                  h.p([h.Class("text-body-sm font-medium text-ink-muted")], ["Evidence"]),
+                  h.ul(
+                    [h.Class("flex flex-col gap-1")],
+                    run.evidence.map((item) => evidenceItem(h, item)),
+                  ),
+                ]),
+          ],
+        ),
+      ],
+    ),
+  ]
+}
+
 const runRow = (h: HtmlBuilder<Message>, model: Model, run: ReviewRun): Html => {
   const live = run.queuePosition !== null
   const busy = model.cancelling === run.runId
@@ -257,6 +369,7 @@ const runRow = (h: HtmlBuilder<Message>, model: Model, run: ReviewRun): Html => 
                   ],
                 ),
               ]),
+          ...findings(h, run),
         ],
         "w-full max-w-0",
       ),

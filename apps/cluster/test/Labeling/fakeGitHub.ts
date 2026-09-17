@@ -68,6 +68,9 @@ export class FakeGitHub {
   readonly comments = new Map<number, FakeComment>()
   readonly permissions = new Map<string, FakePermission>()
   labels: Array<FakeLabel> = []
+  /** What `/repos/{owner}/{repo}` and `/branches/{default}` answer for the default branch. */
+  defaultBranch = "main"
+  defaultBranchSha = "c".repeat(40)
   readonly requests: Array<GitHubRequest> = []
   /** Runs before every request; fail it to simulate throttling or outages. */
   intercept: (
@@ -185,9 +188,42 @@ export class FakeGitHub {
         suspended_at: null,
         permissions: { metadata: "read", issues: "write", pull_requests: "read", checks: "read" },
       })
+    if (request.method === "GET" && pathname === "/search/issues") {
+      const query = search.get("q") ?? ""
+      const scoped = query.split(/\s+/).filter((term) => term.length > 0)
+      const repo = scoped.find((term) => term.startsWith("repo:"))
+      if (repo !== `repo:${this.path.slice("/repos/".length)}`) return this.failed(422)
+      const terms = scoped.filter((term) => !term.includes(":")).map((term) => term.toLowerCase())
+      const items = [...this.issues.values()]
+        .filter((issue) =>
+          terms.every((term) => `${issue.title}\n${issue.body ?? ""}`.toLowerCase().includes(term)),
+        )
+        .sort((a, b) => b.number - a.number)
+        .slice(0, Number(search.get("per_page") ?? "30"))
+        .map((issue) => this.body(issue))
+      return this.ok({ total_count: items.length, items })
+    }
     const rest = pathname!.startsWith(this.path) ? pathname!.slice(this.path.length) : null
     if (rest === null) return this.failed(404)
-    if (request.method === "GET" && rest === "") return this.ok({ id: this.repositoryId })
+    if (request.method === "GET" && rest === "")
+      return this.ok({ id: this.repositoryId, default_branch: this.defaultBranch })
+    if (request.method === "GET" && rest === `/branches/${this.defaultBranch}`)
+      return this.ok({ name: this.defaultBranch, commit: { sha: this.defaultBranchSha } })
+    const issueComments = /^\/issues\/(\d+)\/comments$/.exec(rest)
+    if (issueComments && request.method === "GET") {
+      if (!this.issues.has(Number(issueComments[1]))) return this.failed(404)
+      const comments = [...this.comments.values()]
+        .filter((comment) => comment.issueNumber === Number(issueComments[1]))
+        .sort((a, b) => a.id - b.id)
+        .map((comment) => ({
+          id: comment.id,
+          body: comment.body,
+          user: comment.user,
+          created_at: comment.createdAt ?? "2026-09-17T10:00:00Z",
+          updated_at: comment.updatedAt ?? comment.createdAt ?? "2026-09-17T10:00:00Z",
+        }))
+      return this.page(pathname!, search, comments)
+    }
     if (request.method === "GET" && rest === "/labels")
       return this.ok(
         this.labels.map((label) => ({ id: label.id, node_id: `LA_${label.id}`, name: label.name })),

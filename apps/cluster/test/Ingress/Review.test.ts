@@ -51,6 +51,13 @@ const run: ReviewRun = {
   finishedAt: null,
   cancelReason: null,
   cancelledBy: null,
+  classification: null,
+  defaultBranch: null,
+  commitSha: null,
+  findings: null,
+  uncertainty: null,
+  evidence: [],
+  limitation: null,
 }
 
 const settings: IssueReviewSettings["Service"] = {

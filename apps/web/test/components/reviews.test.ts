@@ -24,8 +24,50 @@ const run = (id: string, status: ReviewRun["status"], queuePosition: number | nu
   finishedAt: status === "cancelled" ? at : null,
   cancelReason: status === "cancelled" ? "The issue was closed." : null,
   cancelledBy: null,
+  classification: null,
+  defaultBranch: null,
+  commitSha: null,
+  findings: null,
+  uncertainty: null,
+  evidence: [],
+  limitation: null,
 })
 const runs = [run("a", "running", 1), run("b", "queued", 2), run("c", "cancelled", null)]
+
+const concluded: ReviewRun = {
+  ...run("d", "completed", null),
+  classification: "question",
+  defaultBranch: "main",
+  commitSha: "0123456789abcdef0123456789abcdef01234567",
+  findings: "Retries are configured in src/config.ts.\n\nSee #31 for the earlier answer.",
+  uncertainty: "The README may lag the code.",
+  evidence: [
+    {
+      kind: "issue",
+      reference: "31",
+      note: "Earlier report.",
+      verified: true,
+      url: "https://github.com/effect/one/issues/31",
+    },
+    { kind: "pull_request", reference: "99", note: "Never opened.", verified: false, url: null },
+  ],
+  limitation: null,
+}
+const stopped: ReviewRun = {
+  ...run("e", "interrupted", null),
+  defaultBranch: "main",
+  commitSha: "fedcba9876543210fedcba9876543210fedcba98",
+  limitation: "The sandbox workspace was lost before the investigation finished.",
+  evidence: [
+    {
+      kind: "file",
+      reference: "README.md",
+      note: "Inspected during the run.",
+      verified: true,
+      url: null,
+    },
+  ],
+}
 
 const activated = () =>
   Reviews.update(Reviews.init(), Reviews.Message.Activated({ repositoryId: "701", active: true }))
@@ -119,6 +161,28 @@ describe("Reviews", () => {
         Reviews.Message.CancelFailed({ runId: "a", reason: "Connect your GitHub account." }),
       ),
       Scene.expect(Scene.role("button", { name: "Cancelling…" })).toBeAbsent(),
+    )
+  })
+
+  it("shows a concluded run's findings, evidence links, and a stopped run's limitation", () => {
+    const { model } = activated()
+    const loaded = { ...model, loading: false, initialized: true, runs: [concluded, stopped] }
+    Scene.scene(
+      { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
+      Scene.given(loaded),
+      Scene.expect(Scene.text("question")).toExist(),
+      Scene.expect(Scene.text("Retries are configured in src/config.ts.")).toExist(),
+      Scene.expect(Scene.text("The README may lag the code.")).toExist(),
+      Scene.expect(Scene.role("link", { name: "issue #31" })).toExist(),
+      Scene.expect(Scene.text("PR #99")).toExist(),
+      Scene.expect(Scene.text("not observed in this run")).toExist(),
+      Scene.expect(Scene.text("0123456789ab")).toExist(),
+      Scene.expect(
+        Scene.text("The sandbox workspace was lost before the investigation finished."),
+      ).toExist(),
+      Scene.expect(Scene.text("README.md")).toExist(),
+      // Concluded and stopped runs cannot be cancelled.
+      Scene.expectAll(Scene.all.role("button", { name: "Cancel run" })).toHaveCount(0),
     )
   })
 })
