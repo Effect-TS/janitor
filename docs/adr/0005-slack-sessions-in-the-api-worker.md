@@ -18,7 +18,7 @@ Repository selection is optional until a tool needs it. A thread selects one con
 
 Conversation history, repository selection, queued inputs and recent delivery identities live in Durable Object storage. Container files are ephemeral. Replacement can lose unpublished edits; the next repository operation can re-clone. An interrupted turn is reported without replaying model or tool execution, then later inputs can proceed. There are no workspace backups or Retry/Skip protocol in this path.
 
-The root stack no longer deploys the separate runner. Old runner modules and database-backed observations remain historical code; new sessions do not appear in that dashboard or consume GitHub review feedback. Existing runner resources and session data require an explicit deployment cutover. Deploying and changing live Slack configuration require user approval.
+The root stack no longer deploys the separate runner. Its application, orchestration modules, GitHub feedback processing and database-backed session dashboard are retired. Migration 0037 removes their PostgreSQL state and pending workflow requests while retaining repository access checks and labeling data. New session state lives in Durable Objects and is unaffected by that migration. Historical ADRs 0001 through 0004 remain as decision history. Existing Cloudflare runner resources require a separate deployment cutover; deleting their source code does not establish that those resources were destroyed. Deploying and changing live Slack configuration require user approval.
 
 ## Configuration and validation
 

@@ -4,9 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "effect-tsgo patch --oxlint",
-    "runner:check": "vp run --filter @janitor/runner typecheck",
-    "runner:build": "vp run --filter @janitor/runner build"
+    "prepare": "effect-tsgo patch --oxlint"
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",

@@ -134,51 +134,6 @@ In the MVP, a teammate connects one Slack account per workspace, and each Slack 
 **Slack session sandbox**:
 A lazily started Node container owned by a Slack session's Durable Object. It holds one repository checkout and runs filesystem, Git and shell tools. Its files are ephemeral; conversation history and queued inputs survive container replacement, but unpublished edits may not.
 
-### Legacy runner collaboration
-
-The terms below describe the previous runner path. [ADR 0005](docs/adr/0005-slack-sessions-in-the-api-worker.md) replaces it for new Slack sessions. Recovery points, Retry/Skip, publication, GitHub feedback and dashboard observations are not implemented by the new path.
-
-**Runner handoff**:
-Janitor's durable record that an accepted agent input has been sent to the session runner but not yet confirmed as durably accepted there. Inputs are delivered in acceptance order; an earlier input whose receipt is uncertain is retried with its same runner message id before any later input can overtake it.
-_Avoid_: Delivery retry queue
-
-**Catch-up obligation**:
-The persisted promise, kept per agent session, to read the runner's durable turn events after the consumer's cursor at a due time. The next obligation is written before the current read is released, so a final event cannot be stranded on a missed notification.
-
-**Session sandbox**:
-The Linux container owned by one agent session's Durable Object, holding that session's isolated repository checkout, its commands and its background processes. Sessions in separate threads never share a mutable checkout, even for the same repository. The sandbox stays awake while a turn works or saves and stops after five minutes of inactivity; sleeping does not end the session.
-
-**Turn attempt**:
-One run of an accepted agent input: prepare or restore the workspace, run the model, stop background processes, then save. An attempt ends completed, interrupted or unable to save; a later attempt of the same input starts from the last recovery point and is told which workspace was restored.
-
-**Recovery point**:
-The saved copy of a session's workspace committed with its completed turn: unpublished source, untracked work and Git metadata, omitting only disposable caches. A session keeps its latest recovery point for its lifetime and deletes the predecessor only after the replacement is committed. Final success is reported only after the recovery point is committed.
-_Avoid_: Checkpoint, snapshot
-
-**Turn message**:
-An assistant text block the model finished while a turn works, delivered to the thread as it lands rather than at the end of the turn. The last block repeats as the turn's final text; Slack posts it once. GitHub replies wait for the whole answer.
-
-**Interrupted turn**:
-An attempt that did not reach a committed recovery point: the runner or sandbox stopped, the turn exceeded its allowance, or the model failed. Later inputs stay queued, the workspace is restored to the last recovery point on the next attempt, and the home thread offers Retry and Skip. Native model recovery never restarts the turn on its own.
-
-**Retry and Skip**:
-An authorized teammate's decision on one specific interrupted attempt, deduplicated by the click. Retry reconciles uncertain external writes and runs the input again; Skip records the choice and releases the queued inputs. A button for an earlier attempt cannot affect newer work.
-
-**Publication tool**:
-The Durable Object-controlled tool that pushes a session's commits and creates or updates its pull request with scoped, short-lived credentials. Shell commands may edit, test and commit locally but never hold GitHub write credentials; the tool inspects uncertain branch and PR outcomes before repeating a write.
-
-**Automatic PR review handling**:
-Agent work prompted by an authorized teammate's PR review feedback, with changes and replies made on GitHub without another request in the session's home thread. Outside contributors' feedback requires an authorized teammate's request before the agent acts on it.
-
-**Feedback hydration**:
-Fetching the comments of an accepted GitHub review contribution page by page before the agent acts on it. A contribution is hydrating until every page is in.
-
-**Janitor dashboard**:
-The team-wide observation view of agent sessions and their usage, including token usage, independent of home-channel membership. Collaboration with agents takes place in their home threads.
-
-**Deployment interruption**:
-A deployment may replace runner objects and sandboxes while turns are active. Completed turns, recovery points and accepted inputs are retained; an interrupted turn waits for Retry or Skip. There is no drain protocol, and permission to interrupt is not permission to discard retained state.
-
 ### Repository connections and synchronization
 
 **Repository visibility**:
@@ -209,13 +164,10 @@ A connected repository whose automations and synchronization pipeline are stoppe
 The re-enabling of a paused repository, requiring successful synchronization against GitHub's current state before automation runs again. Events received while paused are not replayed.
 
 **Repository disconnection**:
-Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. The legacy runner also retires its sessions. New Slack sessions refuse subsequent tools against a disconnected repository but retain their conversation and ephemeral container until separately removed. Work and labels already published on GitHub remain unchanged.
-
-**Cleanup tombstone**:
-The record Janitor keeps for an agent session ended by repository disconnection or retired at cutover until the runner confirms its conversation, sandbox and recovery points are gone. It carries the session identity, generation and native session id, fences stale work for that identity, and is deleted on confirmation; Janitor retries the remote cleanup with backoff while the runner is unreachable.
+Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Slack sessions refuse subsequent tools against a disconnected repository but retain their conversation and workspace until separately removed. Work and labels already published on GitHub remain unchanged.
 
 **Repository block reason**:
-The one concrete reason new repository work in an agent session is fenced: the repository is disconnected, its GitHub access is unavailable, it is paused, its synchronization failed or synchronization is still in progress. Pause and access loss retain session data and workspaces; the reason is shown on the dashboard and reported to the agent when a repository operation is refused.
+The one concrete reason new repository work in an agent session is refused: the repository is disconnected, its GitHub access is unavailable, it is paused, its synchronization failed or synchronization is still in progress. Pause and access loss retain session data and workspaces; the agent receives the reason when a repository operation is refused.
 
 **Repository reconnection**:
 A fresh connection of a previously disconnected repository, starting without its former policies, labeling rules, or stored data. Successful synchronization is required before automation becomes ready, and existing GitHub labels remain unchanged.

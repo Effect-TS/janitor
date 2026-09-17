@@ -15,8 +15,6 @@ export const Topic = Schema.Literals([
   "consent",
   "test",
   "repository",
-  "sessions",
-  "membership",
 ])
 class HeartbeatTimeout extends Schema.TaggedError<HeartbeatTimeout>()("HeartbeatTimeout", {}) {}
 const Frame = Schema.Union([
@@ -31,9 +29,8 @@ export const Model = Schema.Struct({
 export type Model = typeof Model.Type
 export const init = (): Model => ({ visible: true, status: "connecting", retry: 0 })
 /**
- * A channel names what the browser is watching: a repository ID, or the
- * team-wide `sessions` channel. Messages carry it so a late frame from a
- * channel the page has left can be ignored.
+ * Messages carry the repository ID so a late frame from a repository the
+ * page has left can be ignored.
  */
 export const Message = defineMessageUnion({
   Received: { channel: Schema.String, topics: Schema.Array(Topic), connected: Schema.Boolean },
@@ -47,8 +44,6 @@ export type State = Model & { channel: string; endpoint: string }
 
 export const repositoryEndpoint = (repositoryId: string) =>
   `/api/v1/repositories/${encodeURIComponent(repositoryId)}/live`
-export const SESSIONS_CHANNEL = "sessions"
-export const sessionsEndpoint = "/api/v1/sessions/live"
 
 /** Effect Socket owns the browser connection and closes it when this subscription is cancelled. */
 const connection = (channel: string, endpoint: string) =>

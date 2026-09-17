@@ -1,71 +1,24 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
-import {
-  agentRunnerConnection,
-  deployment,
-  requiredSecret,
-  requiredText,
-} from "../src/Deployment.ts"
-import * as Redacted from "effect/Redacted"
+import { deployment, requiredSecret, requiredText } from "../src/Deployment.ts"
 import { aiCacheTtlConfig } from "../src/Labeling/Classifier.ts"
 
 const config = (values: Record<string, string>) =>
   ConfigProvider.layer(ConfigProvider.fromUnknown(values))
 describe("deployment configuration", () => {
-  it.effect(
-    "connects production to the stack-owned runner and rejects missing service secrets",
-    () =>
-      Effect.gen(function* () {
-        const values = {
-          ALCHEMY_DEV: "false",
-          JANITOR_STAGE: "production",
-          JANITOR_AGENT_RUNNER_URL: "https://obsolete-runner.example",
-          JANITOR_AGENT_RUNNER_TOKEN: "runner-token",
-          REPOSITORY_SERVICE_TOKEN: "repository-token",
-        }
-        const connection = yield* agentRunnerConnection.pipe(Effect.provide(config(values)))
-        assert.strictEqual(connection.url, "https://runner.janitor.effectful.co")
-        assert.strictEqual(Redacted.value(connection.token), "runner-token")
-        assert.strictEqual(Redacted.value(connection.repositoryToken), "repository-token")
-        for (const key of ["JANITOR_AGENT_RUNNER_TOKEN", "REPOSITORY_SERVICE_TOKEN"]) {
-          const missing: Record<string, string> = { ...values }
-          delete missing[key]
-          assert.strictEqual(
-            (yield* Effect.flip(agentRunnerConnection.pipe(Effect.provide(config(missing)))))._tag,
-            "ConfigError",
-          )
-        }
-        for (const value of ["", "CHANGE_ME", "with spaces"]) {
-          assert.strictEqual(
-            (yield* Effect.flip(
-              requiredSecret("JANITOR_AGENT_RUNNER_MODEL_API_KEY").pipe(
-                Effect.provide(config({ JANITOR_AGENT_RUNNER_MODEL_API_KEY: value })),
-              ),
-            ))._tag,
-            "ConfigError",
-          )
-        }
-      }),
-  )
-  it.effect("connects the stack-owned local runner by default and permits an override", () =>
+  it.effect("rejects invalid model secrets", () =>
     Effect.gen(function* () {
-      const empty = yield* agentRunnerConnection.pipe(
-        Effect.provide(config({ ALCHEMY_DEV: "true" })),
-      )
-      assert.strictEqual(empty.url, "http://localhost:8790")
-      assert.strictEqual(Redacted.value(empty.token), "janitor-local-runner")
-      const local = yield* agentRunnerConnection.pipe(
-        Effect.provide(
-          config({
-            ALCHEMY_DEV: "true",
-            JANITOR_AGENT_RUNNER_URL: "http://127.0.0.1:8788",
-            JANITOR_AGENT_RUNNER_TOKEN: "local-token",
-          }),
-        ),
-      )
-      assert.strictEqual(local.url, "http://127.0.0.1:8788")
-      assert.strictEqual(Redacted.value(local.token), "local-token")
+      for (const value of ["", "CHANGE_ME", "with spaces"]) {
+        assert.strictEqual(
+          (yield* Effect.flip(
+            requiredSecret("JANITOR_AGENT_RUNNER_MODEL_API_KEY").pipe(
+              Effect.provide(config({ JANITOR_AGENT_RUNNER_MODEL_API_KEY: value })),
+            ),
+          ))._tag,
+          "ConfigError",
+        )
+      }
     }),
   )
   it.effect("defaults the AI cache to 24 hours and validates whole positive seconds", () =>

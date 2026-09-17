@@ -1,12 +1,9 @@
-import type { OutboxRequest } from "../WorkflowOutbox.ts"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import { SlackConfig } from "./Config.ts"
-import { SlackConversation } from "./Conversation.ts"
 
 const Envelope = Schema.Struct({
   type: Schema.String,
@@ -33,25 +30,24 @@ export interface SlackRequest {
   readonly body: string
   readonly signature: string
   readonly timestamp: string
-  readonly retry?: string
 }
+export class SlackError extends Schema.TaggedError<SlackError>()("SlackError", {
+  message: Schema.String,
+}) {}
+
+export type AdmitMessage = (message: typeof Event.Type) => Effect.Effect<void, SlackError>
+
 export class SlackWebhook extends Context.Service<
   SlackWebhook,
   {
     readonly receive: (request: SlackRequest) => Effect.Effect<{
       readonly status: number
       readonly body: string
-      readonly work?: OutboxRequest | undefined
     }>
   }
->()("@janitor/cluster/Slack/Webhook") {
-  static readonly layer = Layer.effect(
-    this,
-    Effect.flatMap(SlackConversation, (conversation) => makeSlackWebhook(conversation.record)),
-  )
-}
+>()("@janitor/cluster/Slack/Webhook") {}
 
-export const makeSlackWebhook = (record: SlackConversation["Service"]["record"]) =>
+export const makeSlackWebhook = (admit: AdmitMessage) =>
   Effect.gen(function* () {
     const config = yield* SlackConfig
     const key = yield* Effect.promise(() =>
@@ -110,13 +106,8 @@ export const makeSlackWebhook = (record: SlackConversation["Service"]["record"])
           !event.app_id &&
           event.edited === undefined &&
           event.user !== config.botUserId
-        const work = yield* record(
-          envelope.event_id,
-          envelope,
-          eligible ? event : null,
-          request.retry,
-        )
-        return { status: 200, body: "Accepted", work }
+        if (eligible) yield* admit(event)
+        return { status: 200, body: "Accepted" }
       }).pipe(
         Effect.catchCause((cause) =>
           Effect.logError("Slack receipt failed", cause).pipe(

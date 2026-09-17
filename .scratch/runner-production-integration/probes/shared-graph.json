@@ -1,6 +1,0 @@
-{
-  "sameEffectModule": true,
-  "packages": ["root", "runner", "@opencode/ai", "@opencode/core", "alchemy"],
-  "effectSource": "ec83cbdb3c0b0f89df627a7895939a359db9f4ab",
-  "opencode": "2.0.2"
-}

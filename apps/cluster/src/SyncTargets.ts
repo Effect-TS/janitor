@@ -1,4 +1,3 @@
-import { resumeRepositorySessions } from "./Slack/ProcessingRequest.ts"
 import { withRepositoryActivity } from "./RepositoryActivity.ts"
 import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import {
@@ -342,18 +341,7 @@ export class SyncTargets extends Context.Service<
             return true
           }),
         )
-        .pipe(
-          wrap("complete"),
-          Effect.tap((completed) =>
-            completed &&
-            (request.scope._tag === "RepositoryTrack" || request.scope._tag === "Entity")
-              ? resumeRepositorySessions(request.scope.repositoryId).pipe(
-                  Effect.provideService(SqlClient.SqlClient, sql),
-                  Effect.provideService(WorkflowOutbox, outbox),
-                )
-              : Effect.void,
-          ),
-        )
+        .pipe(wrap("complete"))
     })
 
     const withRun = <A, E, R>(

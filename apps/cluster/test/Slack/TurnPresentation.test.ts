@@ -21,8 +21,6 @@ it.effect("keeps activity in one message, throttles updates and posts commentary
     const updates: string[] = []
     const slack = SlackTransport.of({
       channel: unavailable,
-      replies: unavailable,
-      ephemeral: unavailable,
       update: (channel, ts, text) =>
         Effect.sync(() => {
           assert.strictEqual(channel, input.channel)
@@ -75,8 +73,6 @@ it.effect("presentation failures do not fail the turn or retry uncertain sends",
     const presentation = yield* makeTurnPresentation(input).pipe(
       Effect.provideService(SlackTransport, {
         channel: unavailable,
-        replies: unavailable,
-        ephemeral: unavailable,
         update: unavailable,
         post: () =>
           Effect.sync(() => {

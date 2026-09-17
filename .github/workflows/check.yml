@@ -27,6 +27,4 @@ jobs:
           run-install: false
       - run: vp install --frozen-lockfile
       - run: vp check
-      - run: vp run runner:check
-      - run: vp run runner:build
       - run: vp test
