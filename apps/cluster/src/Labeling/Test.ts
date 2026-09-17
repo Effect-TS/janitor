@@ -1,3 +1,4 @@
+import type { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { LabelingRevision, PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import { evaluate } from "@janitor/domain/Labeling/Policy/Evaluate"
@@ -18,6 +19,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { type EntityView, GitHubReadModel } from "../GitHub/ReadModel.ts"
+import { GitHubTransport } from "../GitHub/Transport.ts"
 import { describeError } from "../SqlErrors.ts"
 import {
   LabelingConfiguration,
@@ -26,6 +28,7 @@ import {
 } from "./Configuration.ts"
 import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { evaluateLabeling } from "./Evaluation.ts"
+import { fetchIssue, fetchOpenItems, type RepositoryTarget, withBriefWaits } from "./GitHubIssue.ts"
 import { Policies } from "./Policies.ts"
 
 export class LabelingTestError extends Data.TaggedError("LabelingTestError")<{
@@ -77,10 +80,55 @@ export const entityFacts = (view: EntityView): FactSnapshot => {
   return snapshot
 }
 
+/** One item under test with the facts its evaluation reads, and where they came from. */
+interface TestItem {
+  readonly entity: Omit<TestEntity, "evaluation" | "plan">
+  readonly facts: FactSnapshot
+}
+
+const fromView = (view: EntityView): TestItem => ({
+  entity: {
+    number: view.entity.number,
+    kind: view.entity.kind,
+    title: view.entity.title,
+    authorLogin: view.entity.authorLogin,
+    baseRef: Option.map(view.pullRequest, (pr) => pr.baseRef).pipe(Option.getOrNull),
+    draft: Option.map(view.pullRequest, (pr) => pr.draft).pipe(Option.getOrNull),
+    labels: view.labels.map((label) => label.labelId),
+    source: "cache",
+  },
+  facts: entityFacts(view),
+})
+
+const fromIssue = (issue: GitHubIssueApi): TestItem => ({
+  entity: {
+    number: issue.number,
+    kind: "issue",
+    title: issue.title,
+    authorLogin: issue.user?.login ?? "ghost",
+    baseRef: null,
+    draft: null,
+    labels: issue.labels.map((label) => label.id),
+    labelNames: Object.fromEntries(issue.labels.map((label) => [label.id, label.name])),
+    source: "github",
+  },
+  facts: snapshotFacts({
+    kind: "issue",
+    title: issue.title,
+    body: issue.body,
+    authorLogin: issue.user?.login ?? "ghost",
+    state: issue.state,
+    labels: issue.labels.map((label) => label.id),
+    pullRequest: null,
+  }),
+})
+
 /**
  * The test bench (plan: "LabelingTest"). Evaluates a draft, a published
- * policy, or the configured revision against open entities from the read
- * model. Same evaluator as reconciliation, no mutation, no GitHub read.
+ * policy, or the configured revision against open items. Issues are read
+ * from GitHub when the test runs (ADR 0006); pull requests still come from
+ * the synchronized read model until their own migration. Same evaluator as
+ * reconciliation, no mutation.
  */
 export class LabelingTest extends Context.Service<
   LabelingTest,
@@ -105,6 +153,7 @@ export class LabelingTest extends Context.Service<
     const readModel = yield* GitHubReadModel
     const configuration = yield* LabelingConfiguration
     const policies = yield* Policies
+    const transport = yield* GitHubTransport
     const decodePointers = Schema.decodeUnknownEffect(Schema.Array(PointerRow))
 
     const wrap =
@@ -115,37 +164,80 @@ export class LabelingTest extends Context.Service<
           (error) => new LabelingTestError({ operation, message: describeError(error) }),
         )
 
-    const entities = (repositoryId: GitHubRepositoryDatabaseId, numbers: ReadonlyArray<number>) =>
-      numbers.length === 0
-        ? readModel.listOpenEntities(repositoryId, MAX_TEST_ENTITIES)
-        : Effect.forEach(numbers, (number) => readModel.getEntity(repositoryId, number)).pipe(
-            Effect.map((found) =>
-              found.flatMap((entity) => (Option.isSome(entity) ? [entity.value] : [])),
-            ),
-          )
+    const target = (repositoryId: GitHubRepositoryDatabaseId) =>
+      readModel.getRepository(repositoryId).pipe(
+        Effect.flatMap((repository) =>
+          Option.isNone(repository)
+            ? Effect.fail(new LabelingTestError({ operation: "repository", message: "unknown" }))
+            : Effect.succeed<RepositoryTarget>({
+                installationId: repository.value.installationId,
+                owner: repository.value.owner,
+                repo: repository.value.repo,
+              }),
+        ),
+        wrap("repository"),
+      )
+
+    const github = <A>(
+      effect: Effect.Effect<
+        A,
+        Effect.Error<ReturnType<typeof fetchIssue>>,
+        Effect.Services<ReturnType<typeof fetchIssue>>
+      >,
+    ) =>
+      withBriefWaits(effect).pipe(Effect.provideService(GitHubTransport, transport), wrap("github"))
+
+    /** A pull request keeps its cached facts; absent from the cache, it is not previewed yet. */
+    const cachedPullRequest = (repositoryId: GitHubRepositoryDatabaseId, number: number) =>
+      readModel.getEntity(repositoryId, number).pipe(
+        Effect.map((view) =>
+          Option.isSome(view) && view.value.entity.kind === "pull_request"
+            ? Option.some(fromView(view.value))
+            : Option.none<TestItem>(),
+        ),
+        wrap("entity"),
+      )
+
+    const items = Effect.fn("LabelingTest.items")(function* (
+      repositoryId: GitHubRepositoryDatabaseId,
+      numbers: ReadonlyArray<number>,
+    ) {
+      const repository = yield* target(repositoryId)
+      if (numbers.length === 0) {
+        const open = yield* github(fetchOpenItems(repository, MAX_TEST_ENTITIES))
+        return yield* Effect.forEach(open, (issue) =>
+          issue.pullRequest === undefined
+            ? Effect.succeed(Option.some(fromIssue(issue)))
+            : cachedPullRequest(repositoryId, issue.number),
+        ).pipe(Effect.map((found) => found.flatMap(Option.toArray)))
+      }
+      return yield* Effect.forEach(numbers, (number) =>
+        Effect.gen(function* () {
+          const cached = yield* cachedPullRequest(repositoryId, number)
+          if (Option.isSome(cached)) return cached
+          const fetched = yield* github(fetchIssue(repository, number, "foreground"))
+          // A pull request the cache does not know yet is not previewed.
+          return fetched._tag === "Found" &&
+            fetched.issue.state === "open" &&
+            fetched.issue.pullRequest === undefined
+            ? Option.some(fromIssue(fetched.issue))
+            : Option.none<TestItem>()
+        }),
+      ).pipe(Effect.map((found) => found.flatMap(Option.toArray)))
+    })
 
     const describe = (
-      view: EntityView,
+      item: TestItem,
       evaluation: TestEntity["evaluation"],
       planned: TestEntity["plan"],
-    ): TestEntity => ({
-      number: view.entity.number,
-      kind: view.entity.kind,
-      title: view.entity.title,
-      authorLogin: view.entity.authorLogin,
-      baseRef: Option.map(view.pullRequest, (pr) => pr.baseRef).pipe(Option.getOrNull),
-      draft: Option.map(view.pullRequest, (pr) => pr.draft).pipe(Option.getOrNull),
-      labels: view.labels.map((label) => label.labelId),
-      evaluation,
-      plan: planned,
-    })
+    ): TestEntity => ({ ...item.entity, evaluation, plan: planned })
 
     const run = Effect.fn("LabelingTest.run")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
       request: TestRequest,
     ) {
       yield* configuration.requireRepository(repositoryId)
-      const views = yield* entities(repositoryId, request.numbers).pipe(wrap("entities"))
+      const views = yield* items(repositoryId, request.numbers)
 
       switch (request.subject._tag) {
         case "Draft":
@@ -184,21 +276,21 @@ export class LabelingTest extends Context.Service<
             request.subject._tag === "Policy"
               ? (resolve(request.subject.policyId)?.versionId ?? "draft")
               : "draft"
-          const entities = yield* Effect.forEach(views, (view) =>
+          const entities = yield* Effect.forEach(views, (item) =>
             Effect.map(
               program.evaluator._tag === "Classifier"
                 ? classifyAi({
                     inspectInput: true,
                     repositoryId,
-                    number: view.entity.number,
+                    number: item.entity.number,
                     policyVersionId: PolicyVersionId.make(versionId),
                     program,
                     evaluator: program.evaluator,
-                    snapshot: entityFacts(view),
+                    snapshot: item.facts,
                     resolve,
                   })
-                : Effect.succeed(evaluate({ program, snapshot: entityFacts(view), resolve })),
-              (evaluation) => describe(view, evaluation, null),
+                : Effect.succeed(evaluate({ program, snapshot: item.facts, resolve })),
+              (evaluation) => describe(item, evaluation, null),
             ),
           )
           return { _tag: "Evaluated", entities } as const
@@ -222,12 +314,12 @@ export class LabelingTest extends Context.Service<
             Effect.map((rows) => rows[0]?.configured_revision === revision),
             wrap("current configuration"),
           )
-          const entities = yield* Effect.forEach(views, (view) =>
+          const entities = yield* Effect.forEach(views, (item) =>
             Effect.gen(function* () {
-              const facts = entityFacts(view)
+              const facts = item.facts
               const result = yield* evaluateLabeling({
                 configuration: snapshot.value,
-                number: view.entity.number,
+                number: item.entity.number,
                 facts,
                 currentLabels: new Set(
                   facts.facts.labels?._tag === "LabelSet" ? facts.facts.labels.value : [],
@@ -247,7 +339,7 @@ export class LabelingTest extends Context.Service<
                   report: () => Effect.void,
                 }),
               )
-              return describe(view, null, result.plan)
+              return describe(item, null, result.plan)
             }),
           )
           if (!(yield* isCurrent)) {
@@ -261,14 +353,14 @@ export class LabelingTest extends Context.Service<
       }
     })
 
-    const items = Effect.fn("LabelingTest.items")(function* (
+    const list = Effect.fn("LabelingTest.list")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
     ) {
       yield* configuration.requireRepository(repositoryId)
-      const views = yield* entities(repositoryId, []).pipe(wrap("items"))
-      return views.map((view) => describe(view, null, null))
+      const views = yield* items(repositoryId, [])
+      return views.map((item) => describe(item, null, null))
     })
-    return { run, items }
+    return { run, items: list }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

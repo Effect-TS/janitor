@@ -40,7 +40,7 @@ export const activityPage = Effect.fn("Labeling.activityPage")(function* (
     )
     SELECT r.number::text || ':' || r.snapshot_generation::text || ':' || r.rules_revision::text AS id,
       r.number, r.title, r.kind, r.created_at AS "createdAt", r.outcome, r.detail,
-      r.rules_revision::int AS revision, r.snapshot_generation::text AS generation, r.plan,
+      r.rules_revision::int AS revision, r.snapshot_generation::text AS generation, r.source, r.plan,
       COALESCE(a.actions, '[]'::jsonb) AS actions, COALESCE(ev.evaluations, '[]'::jsonb) AS evaluations
     FROM page r
     LEFT JOIN LATERAL (

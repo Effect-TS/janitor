@@ -3,6 +3,7 @@ import { GitHubRepositoryAccess } from "@janitor/domain/GitHub/ReadModel"
 import { SyncGeneration } from "@janitor/domain/GitHub/Sync"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import {
+  EvaluationSource,
   LabelActionRecord,
   type ReconciliationRecord,
   ReconciliationOutcome,
@@ -43,6 +44,7 @@ const ReconciliationRow = Schema.Struct({
   number: Schema.Int,
   snapshot_generation: SyncGeneration,
   rules_revision: RevisionFromText,
+  source: EvaluationSource,
   covered_sequence: GitHubWebhookJournalSequence,
   fingerprint: Schema.String,
   created_at: Schema.DateTimeUtcFromDate,
@@ -151,7 +153,7 @@ export class LabelingOverview extends Context.Service<
             detail: row.detail,
           }))
       const rows = yield* sql`
-        SELECT repository_id, number, snapshot_generation::text, rules_revision::text,
+        SELECT repository_id, number, snapshot_generation::text, rules_revision::text, source,
                covered_sequence::text, fingerprint, created_at, outcome, detail, plan, completed_at
         FROM labeling_reconciliation
         WHERE repository_id = ${repositoryId}
@@ -163,6 +165,7 @@ export class LabelingOverview extends Context.Service<
         number: row.number,
         snapshotGeneration: row.snapshot_generation,
         rulesRevision: row.rules_revision,
+        source: row.source,
         coveredSequence: row.covered_sequence,
         fingerprint: row.fingerprint,
         createdAt: row.created_at,

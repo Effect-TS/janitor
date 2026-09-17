@@ -9,8 +9,10 @@ import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJour
 import { applyEvent } from "../../src/GitHub/ProjectWebhook.ts"
 import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
 import { ContentPurge } from "../../src/ContentPurge.ts"
+import { AutomationIntegration } from "../../src/AutomationIntegration.ts"
 import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
 import { GitHubTransport, type GitHubRequest } from "../../src/GitHub/Transport.ts"
+import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { SnapshotHandoff } from "../../src/Labeling/SnapshotHandoff.ts"
@@ -30,7 +32,11 @@ import {
 } from "./support.ts"
 
 const writes: Array<GitHubRequest> = []
-const services = Layer.mergeAll(ReconcileEntityLayer, ContentPurge.layer).pipe(
+const services = Layer.mergeAll(
+  ReconcileEntityLayer,
+  ContentPurge.layer,
+  AutomationIntegration.noop,
+).pipe(
   Layer.provideMerge(Services),
   Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provide(
@@ -200,39 +206,41 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
         })
       yield* issueEvent("open", "10")
       const issueScope = { _tag: "Entity", repositoryId, number: 16 } as const
-      const finishIssue = Effect.gen(function* () {
-        const target = Option.getOrThrow(yield* targets.get(issueScope))
-        const run = yield* targets.begin(issueScope, target.dispatchedGeneration)
-        if (run._tag !== "Run") return yield* Effect.die("Expected an issue refresh")
-        yield* targets.complete({
-          scope: issueScope,
-          generation: run.generation,
-          outcome: { _tag: "Verified", watermark: Option.none() },
-        })
-        return yield* (yield* SnapshotHandoff).publish({
-          repositoryId,
-          number: 16,
-          generation: run.generation,
-          sequence: seq,
-        })
+      // Issues left the synchronized path: a verified issue snapshot is never
+      // handed off, and a legacy issue job the engine still holds is refused.
+      const issueTarget = Option.getOrThrow(yield* targets.get(issueScope))
+      const issueRun = yield* targets.begin(issueScope, issueTarget.dispatchedGeneration)
+      if (issueRun._tag !== "Run") return yield* Effect.die("Expected an issue refresh")
+      yield* targets.complete({
+        scope: issueScope,
+        generation: issueRun.generation,
+        outcome: { _tag: "Verified", watermark: Option.none() },
       })
-      const queuedIssue = yield* finishIssue
-      assert.strictEqual(queuedIssue._tag, "Published")
+      const queuedIssue = yield* (yield* SnapshotHandoff).publish({
+        repositoryId,
+        number: 16,
+        generation: issueRun.generation,
+        sequence: seq,
+      })
+      assert.deepStrictEqual(queuedIssue, { _tag: "Skipped", reason: "direct-path" })
+      const configured = (yield* (yield* LabelingConfiguration).view(repositoryId))
+        .configuredRevision
+      const legacy = yield* ReconcileEntity.execute({
+        repositoryId,
+        number: 16,
+        snapshotGeneration: issueRun.generation,
+        rulesRevision: configured,
+      })
+      assert.strictEqual(legacy.outcome, "not-qualified")
+      assert.strictEqual(writes.length, 1)
       yield* issueEvent("closed", "11")
-      if (queuedIssue._tag === "Published") yield* ReconcileEntity.execute(queuedIssue.identity)
-      assert.strictEqual((yield* finishIssue)._tag, "Skipped")
       assert.strictEqual(
         Option.getOrThrow(yield* (yield* GitHubReadModel).getEntity(repositoryId, 16)).entity.state,
         "closed",
       )
-      assert.strictEqual(writes.length, 1)
-      yield* issueEvent("open", "12")
-      const reopened = yield* finishIssue
-      assert.strictEqual(reopened._tag, "Published")
-      if (reopened._tag === "Published") yield* ReconcileEntity.execute(reopened.identity)
       assert.deepStrictEqual(
         writes.map((request) => request.url),
-        ["/repos/effect/one/issues/5/labels", "/repos/effect/one/issues/16/labels"],
+        ["/repos/effect/one/issues/5/labels"],
       )
       const pullEvent = (merged: boolean, sequence: string) =>
         Effect.gen(function* () {
@@ -270,7 +278,9 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
       yield* pullEvent(true, "21")
       if (beforeMerge._tag === "Published") yield* ReconcileEntity.execute(beforeMerge.identity)
       assert.strictEqual((yield* refresh(yield* webhookNow))._tag, "Skipped")
-      assert.strictEqual(writes.length, 2)
+      assert.strictEqual(writes.length, 1)
+      // Reopened, so access changes can be observed on a pull request.
+      yield* pullEvent(false, "22")
       const access = (issues: string, sequence: string) =>
         Effect.gen(function* () {
           const installation = yield* Schema.decodeUnknownEffect(GitHubInstallationSummary)({
@@ -287,11 +297,11 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
             sequence: GitHubWebhookJournalSequence.make(sequence),
           })
         })
-      const oldAccess = yield* refresh(yield* webhookNow, 16)
+      const oldAccess = yield* refresh(yield* webhookNow, 5)
       assert.strictEqual(oldAccess._tag, "Published")
       yield* access("read", "30")
       if (oldAccess._tag === "Published") yield* ReconcileEntity.execute(oldAccess.identity)
-      assert.strictEqual(writes.length, 2)
+      assert.strictEqual(writes.length, 1)
       const duringLoss = new Date()
       yield* access("write", "31")
       for (const track of ["labels", "entities", "pull_requests"] as const) {
@@ -302,13 +312,13 @@ layer(services, { timeout: "2 minutes" })("Labeling readiness", (it) => {
         })
         yield* verifyTrack(track)
       }
-      assert.strictEqual((yield* refresh(duringLoss, 16))._tag, "Skipped")
-      assert.strictEqual((yield* refresh(undefined, 16))._tag, "Skipped")
-      assert.strictEqual(writes.length, 2)
-      const afterAccess = yield* refresh(yield* webhookNow, 16)
+      assert.strictEqual((yield* refresh(duringLoss, 5))._tag, "Skipped")
+      assert.strictEqual((yield* refresh(undefined, 5))._tag, "Skipped")
+      assert.strictEqual(writes.length, 1)
+      const afterAccess = yield* refresh(yield* webhookNow, 5)
       assert.strictEqual(afterAccess._tag, "Published")
       if (afterAccess._tag === "Published") yield* ReconcileEntity.execute(afterAccess.identity)
-      assert.strictEqual(writes.length, 3)
+      assert.strictEqual(writes.length, 2)
     }),
   )
 })

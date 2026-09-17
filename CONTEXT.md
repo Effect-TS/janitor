@@ -185,7 +185,7 @@ A user-requested synchronization that refreshes a repository's stored facts with
 Eligibility to run repository automation, subject to connection, pause, valid GitHub access, and the workflow's enablement. Synchronization readiness or failure does not determine automation readiness.
 
 **Automatic labeling**:
-Evaluation of labeling rules for the open issue or pull request concerned by a new incoming webhook event, rather than every open item in the repository. Publishing a policy or changing a labeling rule affects future evaluations without triggering an immediate labeling run.
+Evaluation of labeling rules for the open issue or pull request concerned by a new incoming webhook event, rather than every open item in the repository. Issue evaluations and each label write read the current facts from GitHub when they run; pull request evaluations still use a verified synchronized snapshot until their migration. Publishing a policy or changing a labeling rule affects future evaluations without triggering an immediate labeling run.
 
 **Webhook updates**:
 Changes to Janitor's cached GitHub information from incoming webhook events. A cache update does not itself authorize issue review.

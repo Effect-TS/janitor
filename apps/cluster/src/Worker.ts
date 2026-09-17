@@ -21,6 +21,8 @@ import {
   DiscoverInstallationsRegistration,
 } from "./GitHub/DiscoverInstallations.ts"
 import { LabelingSyncIntegrationLayer } from "./Labeling/SyncIntegration.ts"
+import { LabelingAutomationIntegrationLayer } from "./Labeling/AutomationIntegration.ts"
+import { LabelIssueLayer, LabelIssueRegistration } from "./Labeling/IssueLabeling.ts"
 import * as AlchemyCloudflareCluster from "@effect/platform-cloudflare/AlchemyCloudflareCluster"
 import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -347,12 +349,15 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       SyncRepositoryTrackLayer,
       RefreshEntityLayer,
       ReconcileEntityLayer,
+      LabelIssueLayer,
       RuleTestJobLayer,
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
       SlackLayers,
     ).pipe(
-      Layer.provideMerge(LabelingSyncIntegrationLayer),
+      Layer.provideMerge(
+        Layer.mergeAll(LabelingSyncIntegrationLayer, LabelingAutomationIntegrationLayer),
+      ),
       Layer.provideMerge(
         Layer.mergeAll(
           SyncPlanner.layer,
@@ -381,6 +386,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           SyncRepositoryTrackRegistration,
           RefreshEntityRegistration,
           ReconcileEntityRegistration,
+          LabelIssueRegistration,
           RuleTestJobRegistration,
         ]),
       ),
@@ -389,6 +395,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provideMerge(
         Layer.mergeAll(
           RepositoryActivity.layer,
+          RepositoryEligibility.layer,
           GitHubWebhookJournal.layer,
           Readiness.layer,
           liveUpdatesLayer(liveEnvironment.RepositoryLive as LiveNamespace),

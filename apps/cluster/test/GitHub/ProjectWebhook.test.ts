@@ -18,6 +18,7 @@ import * as PayloadCipher from "../../src/PayloadCipher.ts"
 import { ProjectGitHubWebhook, ProjectGitHubWebhookLayer } from "../../src/GitHub/ProjectWebhook.ts"
 import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
 import { ContentPurge } from "../../src/ContentPurge.ts"
+import { AutomationIntegration } from "../../src/AutomationIntegration.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import {
   GitHubWebhookJournal,
@@ -128,6 +129,7 @@ const runWorkflow = (
             runDue: () => Effect.succeed({ purged: 0 }),
           }),
         ),
+        Layer.provide(AutomationIntegration.noop),
         Layer.provideMerge(WorkflowEngine.layerMemory),
       ),
     ),

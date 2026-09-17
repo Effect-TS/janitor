@@ -41,6 +41,8 @@ import {
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import type { ProgramSource } from "@janitor/domain/Labeling/Policy/Program"
 import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
+import { GitHubTransport } from "../../src/GitHub/Transport.ts"
+import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { RulesetActivation } from "../../src/Labeling/Activation.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
@@ -57,12 +59,28 @@ export const LabelingLayer = Layer.mergeAll(LabelingRules.layer, LabelingTest.la
   Layer.provideMerge(LabelingConfiguration.layer),
   Layer.provideMerge(SnapshotHandoff.layer),
   Layer.provideMerge(
-    Layer.mergeAll(SyncTargets.layer, GitHubReadModel.layer, RulesetActivation.layer),
+    Layer.mergeAll(
+      SyncTargets.layer,
+      GitHubReadModel.layer,
+      RulesetActivation.layer,
+      RepositoryEligibility.layer,
+    ),
   ),
   Layer.provideMerge(WorkflowOutbox.layer),
 )
 
-export const Services = LabelingLayer.pipe(Layer.provideMerge(MigratedPostgresLayer))
+/** Suites that never reach GitHub: any request is a test defect. */
+export const NoGitHub = Layer.succeed(GitHubTransport, {
+  request: (request) =>
+    Effect.die(
+      new Error(`Unexpected GitHub request in this suite: ${request.method} ${request.url}`),
+    ),
+})
+
+export const Services = LabelingLayer.pipe(
+  Layer.provide(NoGitHub),
+  Layer.provideMerge(MigratedPostgresLayer),
+)
 
 export const installationId = GitHubInstallationId.make("77")
 export const repositoryId = GitHubRepositoryDatabaseId.make("701")

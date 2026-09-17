@@ -40,6 +40,10 @@ export const TestEntity = Schema.Struct({
   baseRef: Schema.NullOr(Schema.String),
   draft: Schema.NullOr(Schema.Boolean),
   labels: Schema.Array(Schema.String),
+  /** Label names as GitHub reported them, so the bench does not need the label cache. */
+  labelNames: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  /** `github` when the facts were read from GitHub for this test; `cache` for synchronized facts. */
+  source: Schema.optionalKey(Schema.Literals(["github", "cache"])),
   /** The subject's evaluation; for the configuration, the plan carries every rule. */
   evaluation: Schema.NullOr(Evaluation),
   plan: Schema.NullOr(Plan),

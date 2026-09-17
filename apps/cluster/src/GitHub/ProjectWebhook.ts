@@ -1,4 +1,5 @@
 import { RepositoryActivity } from "../RepositoryActivity.ts"
+import { AutomationIntegration } from "../AutomationIntegration.ts"
 import * as DateTime from "effect/DateTime"
 import { GitHubWebhookDeliveryId, type GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
@@ -74,13 +75,14 @@ export const applyEvent = (
   receivedAt?: Date,
 ): Effect.Effect<
   void,
-  GitHubReadModelError | SyncTargetError | ContentPurgeError,
-  GitHubReadModel | SyncTargets | ContentPurge
+  GitHubReadModelError | SyncTargetError | ContentPurgeError | Error,
+  GitHubReadModel | SyncTargets | ContentPurge | AutomationIntegration
 > =>
   Effect.gen(function* () {
     const readModel = yield* GitHubReadModel
     const targets = yield* SyncTargets
     const purge = yield* ContentPurge
+    const automation = yield* AutomationIntegration
     const invalidateInventory = (installationId: GitHubInstallationId) =>
       targets.invalidate({
         scope: { _tag: "InstallationInventory", installationId },
@@ -163,6 +165,7 @@ export const applyEvent = (
           issue: payload.issue,
           sequence,
         })
+        // The cache refresh only serves the UI; automation reads GitHub itself.
         if (repository.value.enabled)
           yield* targets.invalidate({
             scope: {
@@ -173,6 +176,11 @@ export const applyEvent = (
             sequence: Option.some(sequence),
             webhookReceivedAt: receivedAt,
           })
+        yield* automation.issueEvent({
+          repositoryId: payload.repository.id,
+          issue: payload.issue,
+          sequence,
+        })
         return
       }
       case "pull_request": {

@@ -356,3 +356,23 @@ an operation, so a pause or disconnection waits for in-flight work, and refuses
 work that recorded an earlier generation even after restoration. Slack agent
 turns pin the generation first observed in the turn. The existing pause and
 access triggers still discard pending outbox work. No data changes.
+
+## Direct issue labeling
+
+`0039_direct_issue_labeling.sql` moves issue labeling to direct GitHub reads
+(ADR 0006). `labeling_reconciliation.source` says whether a row evaluated a
+synchronized snapshot (`sync`, the legacy path pull requests still use) or
+current GitHub facts (`github`). Direct rows keep the shared ledger: the
+observation generation in `snapshot_generation` is the admitting webhook's
+journal sequence, raised past any earlier generation of the same issue so later
+events always order after earlier ones.
+
+At cutover, pending legacy issue jobs are removed from the outbox and their
+pending rows close as `superseded`; an accepted legacy job that finds an issue
+refuses it. Pull request jobs are untouched. An installation's sync setting is
+a cache-only change: `reset_installation_automation_readiness` marks it for the
+transaction and `fence_repository_access` then neither discards direct issue
+work nor moves `webhooks_after`, so events received before the toggle are still
+admitted. Installation status and access-error changes, and every repository
+connection, pause, access or installation change, still fence both, and the
+pinned eligibility generation refuses work accepted before them.

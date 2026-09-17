@@ -13,6 +13,7 @@ import {
 import { GitHubWebhookJournal } from "../src/GitHub/WebhookJournal.ts"
 import { PayloadCipher } from "../src/PayloadCipher.ts"
 import { ContentPurge } from "../src/ContentPurge.ts"
+import { AutomationIntegration } from "../src/AutomationIntegration.ts"
 import { applyEvent } from "../src/GitHub/ProjectWebhook.ts"
 import { Policies } from "../src/Labeling/Policies.ts"
 import { SyncTargets } from "../src/SyncTargets.ts"
@@ -45,6 +46,7 @@ const services = Layer.mergeAll(
   RepositoryActivity.layer,
   GitHubWebhookJournal.layer,
   ContentPurge.layer,
+  AutomationIntegration.noop,
 ).pipe(
   Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(Services),
