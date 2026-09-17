@@ -23,6 +23,7 @@ import {
   SyncActivityFailure,
   withRateLimitWaits,
 } from "../GitHub/SyncSupport.ts"
+import type { GitHubTransport } from "../GitHub/Transport.ts"
 import { flushLive } from "../LiveUpdates.ts"
 import { changedReason, RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { describeError } from "../SqlErrors.ts"
@@ -31,7 +32,13 @@ import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import { ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
 import { evaluateLabeling } from "./Evaluation.ts"
-import { itemFacts, itemFingerprint, type ObservedItem, type ReadItem } from "./Facts.ts"
+import {
+  isOpenPullRequest,
+  itemFacts,
+  itemFingerprint,
+  type ObservedItem,
+  type ReadItem,
+} from "./Facts.ts"
 import {
   addLabel,
   fetchIssue,
@@ -343,7 +350,7 @@ const closedDetail = (issue: GitHubIssueApi) =>
     ? "issue is closed on GitHub"
     : "pull request is closed or merged on GitHub"
 
-type ItemRead =
+type ItemLookup =
   | { readonly _tag: "Found"; readonly item: ReadItem }
   | {
       readonly _tag: "Disqualified"
@@ -360,7 +367,7 @@ const readItem = (
   repository: RepositoryTarget,
   number: number,
   requiredTracks: Parameters<typeof collectionTracks>[0],
-) =>
+): Effect.Effect<ItemLookup, never, GitHubTransport | WorkflowEngine | WorkflowInstance> =>
   Effect.gen(function* () {
     const fetched = yield* withRateLimitWaits("LabelItem/Issue", () =>
       fetchIssue(repository, number, "foreground"),
@@ -402,7 +409,7 @@ const readItem = (
         return { _tag: "Disqualified", outcome: "failed", detail: read.success.detail } as const
       case "Found": {
         const { pullRequest, collections } = read.success
-        if (pullRequest.state !== "open" || pullRequest.merged === true)
+        if (!isOpenPullRequest(pullRequest))
           return {
             _tag: "Disqualified",
             outcome: "not-qualified",
@@ -411,7 +418,7 @@ const readItem = (
         return { _tag: "Found", item: { issue, pullRequest, collections } } as const
       }
     }
-  }) satisfies Effect.Effect<ItemRead, never, any>
+  })
 
 const ApplyResult = Schema.Struct({
   applied: Schema.Int,

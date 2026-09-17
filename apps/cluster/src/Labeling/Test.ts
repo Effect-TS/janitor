@@ -29,7 +29,7 @@ import {
 } from "./Configuration.ts"
 import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { evaluateLabeling } from "./Evaluation.ts"
-import { authorLogin, itemFacts, itemKind, type ReadItem } from "./Facts.ts"
+import { authorLogin, isOpenPullRequest, itemFacts, itemKind, type ReadItem } from "./Facts.ts"
 import {
   briefWaits,
   fetchIssue,
@@ -160,11 +160,7 @@ export class LabelingTest extends Context.Service<
               message: `Pull request #${issue.number} changed while its facts were read. Run the test again.`,
             })
           // Gone since the listing, or closed or merged: not an open item.
-          if (
-            read._tag === "Unavailable" ||
-            read.pullRequest.state !== "open" ||
-            read.pullRequest.merged === true
-          )
+          if (read._tag === "Unavailable" || !isOpenPullRequest(read.pullRequest))
             return Option.none<TestItem>()
           return Option.some(
             fromItem({ issue, pullRequest: read.pullRequest, collections: read.collections }),

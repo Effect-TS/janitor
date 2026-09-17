@@ -2,11 +2,7 @@ import type { GitHubIssueApi, GitHubPullRequestApi } from "@janitor/domain/GitHu
 import type { GitHubLabelDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { GitHubEntityKind } from "@janitor/domain/GitHub/ReadModel"
 import type { PullRequest as WebhookPullRequest } from "@janitor/domain/GitHub/WebhookEvent/PullRequest"
-import {
-  type FactSnapshot,
-  type FactValue,
-  snapshotFacts,
-} from "@janitor/domain/Labeling/Policy/Facts"
+import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import type { Collections } from "./GitHubPullRequest.ts"
@@ -31,8 +27,15 @@ export const itemKind = (issue: GitHubIssueApi): GitHubEntityKind =>
 
 export const authorLogin = (issue: GitHubIssueApi) => issue.user?.login ?? "ghost"
 
+/** Labeling scope: open, and for a pull request not merged. Merged implies closed on GitHub. */
+export const isOpenPullRequest = (pullRequest: {
+  readonly state: "open" | "closed"
+  readonly merged?: boolean
+}) => pullRequest.state === "open" && pullRequest.merged !== true
+
 export const itemFacts = (item: ReadItem): FactSnapshot => {
   const { issue, pullRequest, collections } = item
+  const { changedFiles, checks, reviews } = collections
   const snapshot = snapshotFacts({
     kind: itemKind(issue),
     title: issue.title,
@@ -48,23 +51,16 @@ export const itemFacts = (item: ReadItem): FactSnapshot => {
             draft: pullRequest.draft,
             headSha: pullRequest.head.sha,
           },
+    collections: {
+      ...(changedFiles?.complete ? { files: changedFiles.files } : {}),
+      ...(checks === undefined ? {} : { checks }),
+      ...(reviews === undefined ? {} : { reviews }),
+    },
   })
-  const facts: Record<string, FactValue> = { ...snapshot.facts }
-  const unavailableReasons: Record<string, string> = {}
-  if (collections.changedFiles !== undefined) {
-    if (collections.changedFiles.complete)
-      facts.changedFiles = { _tag: "Collection", value: collections.changedFiles.files }
-    else unavailableReasons.changedFiles = collections.changedFiles.reason
-  }
-  if (collections.checks !== undefined)
-    facts.checks = { _tag: "Collection", value: collections.checks }
-  if (collections.reviews !== undefined)
-    facts.reviews = { _tag: "Collection", value: collections.reviews }
-  return {
-    kind: snapshot.kind,
-    facts,
-    ...(Object.keys(unavailableReasons).length === 0 ? {} : { unavailableReasons }),
-  }
+  // An incomplete listing is unavailable, with the reason evaluation reports.
+  return changedFiles !== undefined && !changedFiles.complete
+    ? { ...snapshot, unavailableReasons: { changedFiles: changedFiles.reason } }
+    : snapshot
 }
 
 // OBSERVED ITEMS
@@ -101,7 +97,7 @@ export const observedPullRequest = (pullRequest: WebhookPullRequest): ObservedIt
   number: pullRequest.number,
   title: pullRequest.title,
   authorLogin: pullRequest.user.login,
-  open: pullRequest.state === "open" && !pullRequest.merged,
+  open: isOpenPullRequest(pullRequest),
   baseRef: pullRequest.base.ref,
   draft: pullRequest.draft,
   labels: pullRequest.labels.map((label) => label.id),

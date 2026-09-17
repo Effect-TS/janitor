@@ -406,6 +406,8 @@ Stop old workers before applying this migration. Pending legacy pull request
 jobs are removed from the outbox and their pending rows close as `superseded`;
 the legacy workflow is no longer registered, so a job the engine already
 accepted cannot resume. Pending direct issue work is renamed to the new tag
-and key and runs unchanged. The access fence's cache-only exemption follows
-the renamed tag. Legacy readiness predicates and `withRepositoryActivity`
+and key and runs unchanged; direct issue work the engine had already accepted
+under the old tag is closed as `superseded` with its planned actions settled
+as `failed`, so a write attempt still running elsewhere finds nothing to
+write. The access fence's cache-only exemption follows the renamed tag. Legacy readiness predicates and `withRepositoryActivity`
 remain for the ingress until synchronization becomes cache-only.

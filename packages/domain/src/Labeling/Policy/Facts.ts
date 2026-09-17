@@ -163,15 +163,15 @@ export interface EntityFields {
     readonly draft: boolean
     readonly headSha: string
   } | null
-  /** Present once an entity refresh fetched them; absent facts evaluate unknown. */
+  /** Each collection that was read completely; an absent one evaluates unknown. */
   readonly collections?: {
-    readonly files: ReadonlyArray<{ readonly path: string; readonly status: string }>
-    readonly checks: ReadonlyArray<{ readonly name: string; readonly state: string }>
-    readonly reviews: ReadonlyArray<{ readonly reviewer: string; readonly state: string }>
+    readonly files?: ReadonlyArray<{ readonly path: string; readonly status: string }>
+    readonly checks?: ReadonlyArray<{ readonly name: string; readonly state: string }>
+    readonly reviews?: ReadonlyArray<{ readonly reviewer: string; readonly state: string }>
   }
 }
 
-/** Builds the facts the read model can supply; collection facts stay absent until their tracks exist. */
+/** Builds the facts the fields supply; a collection that was not read stays absent. */
 export const snapshotFacts = (entity: EntityFields): FactSnapshot => {
   const facts: Partial<Record<FactName, FactValue>> = {
     title: { _tag: "Text", value: entity.title },
@@ -185,23 +185,22 @@ export const snapshotFacts = (entity: EntityFields): FactSnapshot => {
     facts.baseRef = { _tag: "Text", value: entity.pullRequest.baseRef }
     facts.headSha = { _tag: "Text", value: entity.pullRequest.headSha }
   }
-  if (entity.collections !== undefined) {
+  const { files, checks, reviews } = entity.collections ?? {}
+  if (files !== undefined)
     facts.changedFiles = {
       _tag: "Collection",
-      value: entity.collections.files.map((file) => ({ path: file.path, status: file.status })),
+      value: files.map((file) => ({ path: file.path, status: file.status })),
     }
+  if (checks !== undefined)
     facts.checks = {
       _tag: "Collection",
-      value: entity.collections.checks.map((check) => ({ name: check.name, state: check.state })),
+      value: checks.map((check) => ({ name: check.name, state: check.state })),
     }
+  if (reviews !== undefined)
     facts.reviews = {
       _tag: "Collection",
-      value: entity.collections.reviews.map((review) => ({
-        reviewer: review.reviewer,
-        state: review.state,
-      })),
+      value: reviews.map((review) => ({ reviewer: review.reviewer, state: review.state })),
     }
-  }
   return { kind: entity.kind, facts }
 }
 

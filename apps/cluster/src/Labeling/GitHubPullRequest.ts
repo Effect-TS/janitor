@@ -4,6 +4,7 @@ import {
   GitHubPullRequestFileApi,
   GitHubPullRequestReviewApi,
 } from "@janitor/domain/GitHub/Api"
+import * as Fold from "@janitor/domain/GitHub/PullRequestCollections"
 import type { FactTrack } from "@janitor/domain/Labeling/Policy/Facts"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -13,6 +14,7 @@ import type { GitHubTransport, GitHubRequest } from "../GitHub/Transport.ts"
 import {
   fetchPages,
   get,
+  type Pages,
   type RepositoryTarget,
   repositoryPath,
   type Waits,
@@ -114,9 +116,7 @@ const changedFiles = <X>(
       waits,
     })
     if (listed._tag === "Failed") return listed
-    const files = [...new Map(listed.items.map((file) => [file.filename, file])).values()].map(
-      (file) => ({ path: file.filename, status: file.status }),
-    )
+    const files = Fold.changedFiles(listed.items)
     const result: ChangedFiles = listed.truncated
       ? {
           files,
@@ -139,6 +139,18 @@ const changedFiles = <X>(
     return { _tag: "Ok", result } as const
   })
 
+/** A listing past its page bound is an operational failure, not a fact. */
+const bounded = <A, B>(
+  name: string,
+  listed: Pages<A>,
+  fold: (items: ReadonlyArray<A>) => B,
+): { readonly _tag: "Ok"; readonly result: B } | Extract<Pages<A>, { _tag: "Failed" }> =>
+  listed._tag === "Failed"
+    ? listed
+    : listed.truncated
+      ? { _tag: "Failed", status: 0, message: `${name} exceeded ${MAX_COLLECTION_PAGES} pages` }
+      : { _tag: "Ok", result: fold(listed.items) }
+
 const checkRuns = <X>(
   name: string,
   repository: RepositoryTarget,
@@ -153,27 +165,8 @@ const checkRuns = <X>(
     items: (body) => body.checkRuns,
     maxPages: MAX_COLLECTION_PAGES,
     waits,
-  }).pipe(
-    Effect.map((listed) =>
-      listed._tag === "Failed"
-        ? listed
-        : listed.truncated
-          ? ({
-              _tag: "Failed",
-              status: 0,
-              message: `${name} exceeded ${MAX_COLLECTION_PAGES} pages`,
-            } as const)
-          : ({
-              _tag: "Ok",
-              result: listed.items.map((run) => ({
-                name: run.name,
-                state: run.conclusion ?? run.status,
-              })),
-            } as const),
-    ),
-  )
+  }).pipe(Effect.map((listed) => bounded(name, listed, Fold.checkRuns)))
 
-/** The latest review per reviewer; dismissals clear it and comments do not count. */
 const reviews = <X>(name: string, repository: RepositoryTarget, number: number, waits: Waits<X>) =>
   fetchPages({
     name,
@@ -183,29 +176,7 @@ const reviews = <X>(name: string, repository: RepositoryTarget, number: number, 
     items: (items) => items,
     maxPages: MAX_COLLECTION_PAGES,
     waits,
-  }).pipe(
-    Effect.map((listed) => {
-      if (listed._tag === "Failed") return listed
-      if (listed.truncated)
-        return {
-          _tag: "Failed",
-          status: 0,
-          message: `${name} exceeded ${MAX_COLLECTION_PAGES} pages`,
-        } as const
-      const latest = new Map<string, string>()
-      for (const review of [...listed.items].sort((a, b) => a.id - b.id)) {
-        const reviewer = review.user?.login.toLowerCase()
-        if (reviewer === undefined) continue
-        if (review.state === "DISMISSED") latest.delete(reviewer)
-        else if (review.state !== "COMMENTED" && review.state !== "PENDING")
-          latest.set(reviewer, review.state)
-      }
-      return {
-        _tag: "Ok",
-        result: [...latest].map(([reviewer, state]) => ({ reviewer, state })),
-      } as const
-    }),
-  )
+  }).pipe(Effect.map((listed) => bounded(name, listed, Fold.latestReviews)))
 
 const same = (a: GitHubPullRequestApi, b: GitHubPullRequestApi) =>
   a.head.sha === b.head.sha &&

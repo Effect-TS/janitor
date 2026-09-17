@@ -66,7 +66,13 @@ layer(Services, { timeout: "2 minutes" })("Direct labeling cutover", (it) => {
         (${LABEL_ISSUE_TAG}, 'label-issue:701:19:8:2', '{"repositoryId":"701","number":19,"snapshotGeneration":"8","rulesRevision":2,"eligibilityGeneration":"1"}', CLOCK_TIMESTAMP())`
       yield* sql`INSERT INTO legacy_issues.labeling_reconciliation
         (repository_id, number, snapshot_generation, rules_revision, covered_sequence, fingerprint, outcome, source) VALUES
-        ('701', 18, 7, 2, 1, ${fingerprint}, NULL, 'github')`
+        ('701', 18, 7, 2, 1, ${fingerprint}, NULL, 'github'),
+        ('701', 19, 8, 2, 1, ${fingerprint}, 'evaluated', 'github')`
+      yield* sql`CREATE TABLE legacy_issues.labeling_label_action (LIKE public.labeling_label_action INCLUDING ALL)`
+      yield* sql`INSERT INTO legacy_issues.labeling_label_action
+        (repository_id, number, snapshot_generation, rules_revision, label_id, action, rule_id, status) VALUES
+        ('701', 19, 8, 2, '11', 'add', 'rule-1', 'planned'),
+        ('701', 18, 7, 2, '11', 'add', 'rule-1', 'planned')`
       yield* sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`SET LOCAL search_path TO legacy_issues, public`
@@ -76,9 +82,16 @@ layer(Services, { timeout: "2 minutes" })("Direct labeling cutover", (it) => {
       assert.deepStrictEqual(
         yield* sql`SELECT workflow_tag, execution_key FROM legacy_issues.workflow_outbox ORDER BY execution_key`,
         [
-          { workflow_tag: LABEL_ISSUE_TAG, execution_key: "label-issue:701:19:8:2" },
           { workflow_tag: LABEL_ITEM_TAG, execution_key: "label-item:701:18:7:2" },
           { workflow_tag: RECONCILE_ENTITY_TAG, execution_key: "reconcile:701:17:4:2" },
+        ],
+      )
+      // The accepted issue job that can no longer resume has nothing left to write.
+      assert.deepStrictEqual(
+        yield* sql`SELECT number, status, detail FROM legacy_issues.labeling_label_action ORDER BY number`,
+        [
+          { number: 18, status: "planned", detail: null },
+          { number: 19, status: "failed", detail: "Direct labeling restarted at cutover" },
         ],
       )
       assert.deepStrictEqual(
@@ -98,6 +111,7 @@ layer(Services, { timeout: "2 minutes" })("Direct labeling cutover", (it) => {
           },
           { number: 17, source: "sync", outcome: "evaluated", detail: null },
           { number: 18, source: "github", outcome: null, detail: null },
+          { number: 19, source: "github", outcome: "evaluated", detail: null },
         ],
       )
     }),

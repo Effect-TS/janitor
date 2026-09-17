@@ -22,6 +22,28 @@ UPDATE workflow_outbox
       execution_key = 'label-item:' || substr(execution_key, length('label-issue:') + 1)
   WHERE workflow_tag = 'Janitor/LabelIssueV1' AND accepted_at IS NULL;
 
+-- Direct issue work the engine had already accepted under the old tag cannot
+-- resume, since nothing registers that workflow any more. Its rows close as
+-- superseded and their planned actions settle as failed, so an attempt still
+-- running on an old worker finds nothing left to write. The next issue event
+-- evaluates afresh.
+UPDATE labeling_label_action a
+  SET status = 'failed', detail = 'Direct labeling restarted at cutover', completed_at = CLOCK_TIMESTAMP()
+  FROM workflow_outbox o
+  WHERE a.status = 'planned' AND o.workflow_tag = 'Janitor/LabelIssueV1' AND o.accepted_at IS NOT NULL
+    AND a.repository_id = o.payload->>'repositoryId' AND a.number = (o.payload->>'number')::int
+    AND a.snapshot_generation = (o.payload->>'snapshotGeneration')::bigint
+    AND a.rules_revision = (o.payload->>'rulesRevision')::int;
+UPDATE labeling_reconciliation r
+  SET outcome = 'superseded', completed_at = CLOCK_TIMESTAMP(),
+      detail = 'Direct labeling restarted at cutover'
+  FROM workflow_outbox o
+  WHERE r.outcome IS NULL AND o.workflow_tag = 'Janitor/LabelIssueV1' AND o.accepted_at IS NOT NULL
+    AND r.repository_id = o.payload->>'repositoryId' AND r.number = (o.payload->>'number')::int
+    AND r.snapshot_generation = (o.payload->>'snapshotGeneration')::bigint
+    AND r.rules_revision = (o.payload->>'rulesRevision')::int;
+DELETE FROM workflow_outbox WHERE workflow_tag = 'Janitor/LabelIssueV1';
+
 -- The cache-only exemption of the access fence follows the renamed tag.
 CREATE OR REPLACE FUNCTION fence_repository_access() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE

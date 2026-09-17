@@ -8,6 +8,7 @@ import {
   GitHubPullRequestReviewApi,
 } from "@janitor/domain/GitHub/Api"
 import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import * as Fold from "@janitor/domain/GitHub/PullRequestCollections"
 import { SyncGeneration } from "@janitor/domain/GitHub/Sync"
 import {
   GitHubWebhookJournalSequence,
@@ -117,7 +118,7 @@ const fetchCollections = (
       })
       if (files._tag !== "Complete")
         return yield* failure(files._tag === "Failed" ? files.message : files.reason)
-      const uniqueFiles = [...new Map(files.items.map((file) => [file.filename, file])).values()]
+      const uniqueFiles = Fold.changedFiles(files.items)
       const complete =
         files.complete && expectedFiles !== undefined && uniqueFiles.length === expectedFiles
       if (
@@ -130,7 +131,7 @@ const fetchCollections = (
           "Changed-file listing did not match the PR file count; refresh must retry",
         )
       Object.assign(collections, {
-        files: uniqueFiles.map((file) => ({ path: file.filename, status: file.status })),
+        files: uniqueFiles,
         filesComplete: complete,
         filesIncompleteReason: complete
           ? null
@@ -151,10 +152,7 @@ const fetchCollections = (
         return yield* failure(checks._tag === "Failed" ? checks.message : checks.reason)
       Object.assign(collections, {
         checksComplete: true,
-        checks: checks.items.map((run) => ({
-          name: run.name,
-          state: run.conclusion ?? run.status,
-        })),
+        checks: Fold.checkRuns(checks.items),
       })
     }
     if (required.includes("reviews")) {
@@ -167,17 +165,9 @@ const fetchCollections = (
       })
       if (reviews._tag !== "Complete")
         return yield* failure(reviews._tag === "Failed" ? reviews.message : reviews.reason)
-      const latest = new Map<string, string>()
-      for (const review of [...reviews.items].sort((a, b) => a.id - b.id)) {
-        const reviewer = review.user?.login.toLowerCase()
-        if (reviewer === undefined) continue
-        if (review.state === "DISMISSED") latest.delete(reviewer)
-        else if (review.state !== "COMMENTED" && review.state !== "PENDING")
-          latest.set(reviewer, review.state)
-      }
       Object.assign(collections, {
         reviewsComplete: true,
-        reviews: [...latest].map(([reviewer, state]) => ({ reviewer, state })),
+        reviews: Fold.latestReviews(reviews.items),
       })
     }
     return collections

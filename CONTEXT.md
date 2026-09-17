@@ -8,6 +8,9 @@ Janitor manages connected GitHub repositories through automatic labeling, agent 
 A named set of conditions belonging to one repository, defining which issues or pull requests are in scope and whether they match. Evaluation can produce a match, non-match, unknown, or not-applicable result.
 _Avoid_: AI policy, classifier
 
+**Item**:
+An issue or a pull request: the unit automatic labeling and the test bench evaluate. Its facts are read from GitHub when the evaluation runs.
+
 **Policy target**:
 The kind of item a policy evaluates: either issues or pull requests. Each policy has exactly one target.
 
