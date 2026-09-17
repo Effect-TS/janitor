@@ -14,13 +14,13 @@ Use one durable per-issue scheduling record to serialize runs and explicit publi
 
 The agent is a persistent cluster Entity that receives messages, owns its state, and emits messages. It coordinates admission rechecks, evidence acquisition, repository provisioning, investigation, validation, and publication. Embedded Effect Workflows model actions such as individual LLM invocations and publication operations. Each action has a stable identity and a persisted result; the complete agent is not a Workflow.
 
-Persist agent state explicitly rather than assuming persisted mailbox messages capture it. Apply each completed action result once to agent state, including after duplicate delivery. Pending external actions must not prevent cancellation messages from being processed. Entity lifetime and recovery semantics are pending clarification during ticket planning; the previously accepted prohibition on automatic investigation restart remains in force for now.
+Use one agent Entity per review run, with the separate per-issue scheduler coordinating independent runs and publication. Persist agent state explicitly rather than assuming persisted mailbox messages capture it. Apply each completed action result once to agent state, including after duplicate delivery. Pending external actions must not prevent cancellation messages from being processed.
 
 Record the actual default-branch name and commit. The orchestrator obtains repository contents from GitHub and supplies a checkout to the sandbox without credentials. Any historical revision needed for a confirmed-fixed comparison is provisioned the same way. Extraction and provisioning must not execute repository hooks or scripts on the orchestrator.
 
 Each active run owns an isolated, ephemeral sandbox with Node.js, pnpm, and common system tools. Package installation and tests use its internet access. Model calls and model credentials stay in trusted orchestration, which brokers filesystem and shell tools into the sandbox. Repository selection, remote reads, and publication use typed operations outside the sandbox; model-supplied URLs or branch names cannot select arbitrary repositories or writes.
 
-Persist the start time and deadline once. Installation, investigation, and testing share the 15-minute allowance. An interrupted investigation becomes terminal and retains available observations; replay cannot grant a fresh time allowance or rerun the agent. A completed investigation can proceed through publication recovery without repeating model calls.
+Persist the start time and deadline once. Installation, investigation, and testing share the 15-minute allowance. After runner restart, restore agent state and resume pending actions if the sandbox remains usable, reusing completed LLM results. Losing unfinished sandbox work makes the investigation interrupted and requires a new invocation; retain available observations. Recovery never grants a new time allowance or revives cancelled work. A completed investigation can proceed through publication recovery without repeating model calls.
 
 ## Durable records
 

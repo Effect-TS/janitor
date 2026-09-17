@@ -6,4 +6,8 @@ The agent is a persistent cluster Entity: it receives messages, owns agent state
 
 Persist messages and agent state explicitly. Give each action a stable identity so completed results can be consumed without repeating the action. Activities retain their role inside workflows for idempotency and external-write reconciliation. A lost GitHub response still requires reconciliation, and fresh authorization belongs inside each actual write attempt.
 
-This correction does not change invocation authority, sandbox isolation, per-issue serialization, or the 15-minute deadline. Entity lifetime and recovery after runner restart versus sandbox loss need clarification before the ticket breakdown is finalized. The earlier no-automatic-restart rule remains in force until that distinction is settled.
+Use one agent Entity per review run. A separate per-issue scheduler coordinates runs and publications, preserving independent instructions and execution state for each invocation.
+
+A runner restart restores persisted agent state and resumes pending actions when the sandbox remains usable. Reuse completed LLM results rather than issuing those calls again. Loss of the sandbox's unfinished work interrupts the investigation and requires a new invocation; the MVP does not reconstruct that workspace automatically. Cancellation, authorization changes, and the original 15-minute deadline still govern recovery.
+
+This refines ADR 0010's earlier blanket no-restart rule by distinguishing actor recovery from loss of unfinished sandbox work. Invocation authority, sandbox isolation, and per-issue serialization are unchanged.
