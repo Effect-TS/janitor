@@ -170,6 +170,18 @@ layer(Services, { timeout: "2 minutes" })("Labeling independence from the cache"
       assert.deepStrictEqual(labelsOn(5), [])
       assert.strictEqual((yield* label(5)).outcome, "evaluated")
       assert.deepStrictEqual(labelsOn(5), ["bug"])
+      // A transfer keeps the identity but fences work accepted under the old installation.
+      const transferred = yield* admit(5)
+      yield* sql`INSERT INTO github_installation (installation_id, account_database_id, account_handle, account_type,
+          repository_selection, status, html_url, projected_sequence, access_error)
+        SELECT '88', '2', 'new-owner', account_type, repository_selection, status, html_url, projected_sequence, NULL
+        FROM github_installation WHERE installation_id = ${installationId}`
+      yield* sql`UPDATE github_repository SET installation_id = '88' WHERE repository_id = ${repositoryId}`
+      assert.lengthOf(yield* queuedLabelWork, 0)
+      assert.strictEqual((yield* LabelItem.execute(transferred)).outcome, "not-qualified")
+      github.issues.get(5)!.labels = []
+      assert.strictEqual((yield* label(5)).outcome, "evaluated")
+      assert.deepStrictEqual(labelsOn(5), ["bug"])
     }),
   )
 })

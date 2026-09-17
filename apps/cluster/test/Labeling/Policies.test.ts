@@ -102,7 +102,6 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       )
       const afterRule = yield* configuration.view(repositoryId)
       assert.strictEqual(afterRule.configuredRevision, 3)
-      assert.deepStrictEqual(afterRule.pendingTracks, [])
       // Publication is immediately available without requesting synchronization.
       assert.strictEqual(afterRule.activeRevision, 3)
 

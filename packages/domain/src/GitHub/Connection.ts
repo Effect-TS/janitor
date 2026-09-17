@@ -1,8 +1,9 @@
 import * as Schema from "effect/Schema"
 /**
- * Whether the repository's cache refreshes and how the last refresh went.
- * `disabled` is a disconnected repository or an installation whose sync
- * setting is off.
+ * Why the repository's cache is not refreshing, or how its last refresh
+ * went. Displayed beside the block reason and never consulted to refuse
+ * work. `disabled` is a disconnected repository or an installation whose
+ * sync setting is off.
  */
 export const CacheState = Schema.Literals([
   "access-unavailable",
@@ -29,7 +30,6 @@ export const ConnectionCandidate = Schema.Struct({
   blockReason: Schema.optionalKey(Schema.NullOr(Schema.String)),
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
-  /** Health of the UI cache; never a reason work is refused. */
   syncState: CacheState,
   syncError: Schema.optionalKey(Schema.NullOr(Schema.String)),
 })

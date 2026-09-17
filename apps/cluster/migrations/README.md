@@ -410,7 +410,7 @@ and key and runs unchanged; direct issue work the engine had already accepted
 under the old tag is closed as `superseded` with its planned actions settled
 as `failed`, so a write attempt still running elsewhere finds nothing to
 write. The access fence's cache-only exemption follows the renamed tag. Legacy readiness predicates and `withRepositoryActivity`
-remain for the ingress until synchronization becomes cache-only.
+remained for the ingress until migration `0042` retired them.
 
 ## Cache-only synchronization
 

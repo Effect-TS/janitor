@@ -54,7 +54,6 @@ const detail: Workspace.RepositoryDetail = {
     repositoryId: "701",
     configuredRevision: 1,
     activeRevision: 1,
-    pendingTracks: [],
     policies: [policy.policy],
     rules: [],
     labels: [],

@@ -76,6 +76,8 @@ export const Message = defineMessageUnion({
     action: Schema.Literals(["connect", "disconnect", "resume", "pause"]),
   },
   Changed: { id: Schema.String, action: Schema.String, operationId: Schema.Int },
+  ClickedRetrySync: { id: Schema.String },
+  RetriedSync: { operationId: Schema.Int },
   ClickedGithub: { installationId: Schema.NullOr(Schema.String) },
   GotGithub: { url: Schema.String, operationId: Schema.Int },
   ClickedDisconnect: {},
@@ -150,6 +152,16 @@ const Change = Command.define("ChangeRepositoryConnection", {
       { enabled: action === "resume" },
     ).pipe(
       Effect.as(Message.Changed({ id, action, operationId })),
+      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+    ),
+})
+/** A cache refresh request; it never touches the repository's connection or pause. */
+const RetrySync = Command.define("RetryRepositorySync", {
+  args: { id: Schema.String, operationId: Schema.Int },
+  messages: [Message.RetriedSync, Message.Failed],
+  execute: ({ id, operationId }) =>
+    request("POST", `/api/v1/repositories/${encodeURIComponent(id)}/sync`, {}).pipe(
+      Effect.as(Message.RetriedSync({ operationId })),
       Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
@@ -284,6 +296,22 @@ export const update = (model: Model, message: Message) =>
         outMessage: OutMessage.Changed({ id, action }),
       }
     },
+    ClickedRetrySync: ({ id }) =>
+      isBusy(model)
+        ? { model }
+        : {
+            model: begin(model, "retry-sync", id),
+            commands: [RetrySync({ id, operationId: model.nextOperationId })],
+          },
+    RetriedSync: ({ operationId }) =>
+      !matchesOperation(model, operationId)
+        ? { model }
+        : reload(
+            evo(model, {
+              pending: () => Option.none(),
+              notice: () => "Synchronization requested.",
+            }),
+          ),
     ClickedGithub: ({ installationId }) =>
       isBusy(model)
         ? { model }
@@ -475,10 +503,7 @@ export const view = Submodel.defineView<
               "Pausing stops automation and synchronization. Configuration, stored facts and GitHub labels are kept.",
               [
                 syncBlocked(current)
-                  ? button(
-                      "Retry sync",
-                      Message.ClickedChange({ id: current.repositoryId, action: "resume" }),
-                    )
+                  ? button("Retry sync", Message.ClickedRetrySync({ id: current.repositoryId }))
                   : h.empty,
                 current.connected
                   ? button(
