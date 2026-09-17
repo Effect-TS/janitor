@@ -1,6 +1,6 @@
 # Janitor
 
-Janitor automates labeling of open GitHub issues and pull requests. Closed issues and closed or merged pull requests are outside its current labeling scope.
+Janitor manages connected GitHub repositories through automatic labeling, agent sessions, and explicitly invoked issue review. Closed issues and closed or merged pull requests are outside its labeling scope.
 
 ## Language
 
@@ -146,7 +146,7 @@ The identity of a GitHub repository independent of its name or owner. Renaming o
 An authorization for Janitor's GitHub App to access repositories belonging to a GitHub account. It determines which repositories are available to connect to Janitor.
 
 **Connected repository**:
-A GitHub repository explicitly selected for management in Janitor, with successful initial synchronization required before automation runs. GitHub App access makes a repository available to connect, but does not itself connect it.
+A GitHub repository explicitly selected for management in Janitor. GitHub App access makes a repository available to connect, but does not itself connect it.
 
 **Available repository**:
 A GitHub repository that Janitor's GitHub App can access but that has not been connected to Janitor. Newly granted access makes it available; someone must explicitly connect it before Janitor manages it.
@@ -161,37 +161,63 @@ All Janitor automations operating on a repository, currently automatic labeling 
 A connected repository whose automations and synchronization pipeline are stopped, retaining its configuration and existing labels. Incoming webhook requests are acknowledged without saving their events, updating stored facts, or triggering automation.
 
 **Repository resumption**:
-The re-enabling of a paused repository, requiring successful synchronization against GitHub's current state before automation runs again. Events received while paused are not replayed.
+The re-enabling of a paused repository, subject to valid GitHub access and workflow enablement. Synchronization readiness does not determine whether automation may resume.
 
 **Repository disconnection**:
 Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Slack sessions refuse subsequent tools against a disconnected repository but retain their conversation and workspace until separately removed. Work and labels already published on GitHub remain unchanged.
 
 **Repository block reason**:
-The one concrete reason new repository work in an agent session is refused: the repository is disconnected, its GitHub access is unavailable, it is paused, its synchronization failed or synchronization is still in progress. Pause and access loss retain session data and workspaces; the agent receives the reason when a repository operation is refused.
+A concrete reason repository work is refused, such as disconnection, unavailable GitHub access, or pause. Synchronization progress or failure is not a repository block reason.
 
 **Repository reconnection**:
-A fresh connection of a previously disconnected repository, starting without its former policies, labeling rules, or stored data. Successful synchronization is required before automation becomes ready, and existing GitHub labels remain unchanged.
+A fresh connection of a previously disconnected repository, starting without its former policies, labeling rules, or stored data. Existing GitHub labels remain unchanged.
 
 **Access unavailable**:
-A repository state in which Janitor lacks the GitHub access needed to operate, stopping automation and synchronization while retaining configuration and stored data. Restoring access leaves deliberately paused repositories paused; otherwise, fresh synchronization is required before automation resumes.
+A repository state in which Janitor lacks the GitHub access needed to operate, stopping affected work while retaining configuration and stored data. Restoring access leaves deliberately paused repositories paused.
 
 **Synchronization**:
-Janitor requesting current information from GitHub to refresh its stored facts, separately from updates received through webhook events.
+Refresh of Janitor's cached GitHub information for display in the frontend. It is solely a UI cache optimization, independent of automation eligibility.
 
 **Manual synchronization**:
 A user-requested synchronization that refreshes a repository's stored facts without triggering automation. It is unavailable while the repository is paused; the user must resume the repository first.
 
-**Automation blocked by synchronization failure**:
-A repository state in which a failed synchronization prevents all automation while configuration, stored facts, and existing labels are retained. Janitor retries synchronization automatically and resumes automation after successful synchronization unless the repository has been manually paused.
-
 **Automation readiness**:
-The state after successful initial synchronization or synchronization following repository resumption, in which new incoming webhook events may trigger automation. Becoming ready does not itself run automation on existing issues or pull requests.
+Eligibility to run repository automation, subject to connection, pause, valid GitHub access, and the workflow's enablement. Synchronization readiness or failure does not determine automation readiness.
 
 **Automatic labeling**:
 Evaluation of labeling rules for the open issue or pull request concerned by a new incoming webhook event, rather than every open item in the repository. Publishing a policy or changing a labeling rule affects future evaluations without triggering an immediate labeling run.
 
-**Automation recovery**:
-The clearing of a synchronization-failure block after successful synchronization, allowing future incoming webhook events to trigger automation. Recovery does not run catch-up automation or replay events received while blocked.
-
 **Webhook updates**:
-Changes to Janitor's stored facts from incoming GitHub webhook events. They continue while automation is blocked by synchronization failure, without running automation or clearing the block, but stop when the repository is manually paused.
+Changes to Janitor's cached GitHub information from incoming webhook events. A cache update does not itself authorize issue review.
+
+### Issue review
+
+**Issue review**:
+An explicitly invoked investigation that classifies an issue, searches the same repository for related issues and pull requests, and checks evidence against a recorded default-branch commit. It does not apply labels or fix bugs.
+
+**Authorized invocation**:
+A free-form request mentioning Janitor directly from a human with effective write or admin permission on that repository. Ordinary issue activity and reporter replies without a direct invocation do not authorize work.
+
+**Review run**:
+One investigation requested by an authorized invocation, using that invocation's instructions and treating previous discussion and findings as evidence. Only one run is active per issue; later invocations wait in order.
+
+**Review cancellation**:
+Stopping an active or queued review run without undoing completed publications. A cancelled run cannot resume; further work requires a new invocation.
+
+**Reproduction PR**:
+A linked draft pull request containing a minimal test that executes and fails for the reported bug. It contains no bug fix and Janitor never automatically marks it ready for review.
+
+**Confirmed fixed**:
+A review finding supported by a relevant test that fails on an affected revision and passes on the recorded default-branch commit.
+
+**Appears fixed**:
+A review finding supported by code or pull-request evidence without an executable comparison confirming the fix. It states what remains unverified.
+
+**Review summary**:
+The single Janitor comment on an issue that summarizes findings and is updated on subsequent authorized runs.
+
+**Review dry-run**:
+An investigation whose findings and proposed test changes appear in the frontend without automatic GitHub publication. A separately authorized Publish results action may publish one saved result while dry-run remains enabled.
+
+**Review publisher**:
+A frontend user with current effective repository write or admin permission who explicitly authorizes publication of saved review results. The publisher may differ from the original invoker.
