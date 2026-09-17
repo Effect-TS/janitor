@@ -22,7 +22,7 @@ The root stack no longer deploys the separate runner. Old runner modules and dat
 
 ## Configuration and validation
 
-- `JANITOR_CHAT_MODEL` selects the OpenRouter model. Its default is `stealth/union-alpha`.
+- `JANITOR_CHAT_MODEL` selects the OpenRouter model. Its default is `z-ai/glm-5.3-flash`.
 - `JANITOR_AGENT_RUNNER_MODEL_API_KEY` supplies the OpenRouter credential using the existing secret name.
 - Existing Slack workspace, app, bot token, signing secret and account-linking configuration remain required.
 - The webhook path remains `/api/v1/webhooks/slack`. Subscribe to app mentions and private-channel messages so ordinary thread replies reach the session.
