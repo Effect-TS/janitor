@@ -18,7 +18,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import { projectGitHubWebhookRequest } from "./ProjectWebhookRequest.ts"
-import { withRepositoryActivity } from "../RepositoryActivity.ts"
+import { admitWebhook } from "../RepositoryEligibility.ts"
 
 export class GitHubWebhookJournalError extends Schema.TaggedError<GitHubWebhookJournalError>()(
   "@janitor/cluster/GitHub/WebhookJournal/GitHubWebhookJournalError",
@@ -142,12 +142,7 @@ export class GitHubWebhookJournal extends Context.Service<
       return yield* (
         entry.repositoryId === undefined
           ? write
-          : withRepositoryActivity(
-              sql,
-              entry.repositoryId,
-              write,
-              DateTime.toDateUtc(entry.receivedAt),
-            ).pipe(
+          : admitWebhook(sql, entry.repositoryId, write, DateTime.toDateUtc(entry.receivedAt)).pipe(
               Effect.map(
                 Option.getOrElse(() => ({
                   sequence: GitHubWebhookJournalSequence.make("0"),

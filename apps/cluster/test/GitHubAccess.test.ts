@@ -18,11 +18,11 @@ import { applyEvent } from "../src/GitHub/ProjectWebhook.ts"
 import { Policies } from "../src/Labeling/Policies.ts"
 import { SyncTargets } from "../src/SyncTargets.ts"
 import { SyncPlanner } from "../src/SyncPlanner.ts"
-import { RepositoryActivity } from "../src/RepositoryActivity.ts"
+import { RepositoryEligibility } from "../src/RepositoryEligibility.ts"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
 import { GitHubTransport } from "../src/GitHub/Transport.ts"
 import { TestPayloadCipher } from "./support/PayloadCipher.ts"
-import { Services, actor, baseMain, repositoryId, webhookNow } from "./Labeling/support.ts"
+import { Services, actor, baseMain, repositoryId } from "./Labeling/support.ts"
 
 const permissions = { metadata: "read", issues: "write", pull_requests: "read", checks: "read" }
 let granted = { ...permissions }
@@ -43,7 +43,7 @@ const installation = () => ({
 const services = Layer.mergeAll(
   RepositoryConnections.layer,
   SyncPlanner.layer,
-  RepositoryActivity.layer,
+  RepositoryEligibility.layer,
   GitHubWebhookJournal.layer,
   ContentPurge.layer,
   AutomationIntegration.noop,
@@ -101,7 +101,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
         const connections = yield* RepositoryConnections
         const targets = yield* SyncTargets
         const planner = yield* SyncPlanner
-        const activity = yield* RepositoryActivity
+        const eligibility = yield* RepositoryEligibility
         granted = { ...permissions }
         listingDenied = false
         yield* connections.refresh
@@ -141,11 +141,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
           isPrivate = visibility
           for (const loss of ["issues", "checks", "suspend", "uninstall"] as const) {
             const scope = { _tag: "Entity", repositoryId, number: 5 } as const
-            const old = yield* targets.invalidate({
-              scope,
-              sequence: Option.none(),
-              webhookReceivedAt: yield* webhookNow,
-            })
+            const old = yield* targets.invalidate({ scope, sequence: Option.none() })
             yield* targets.begin(scope, old.generation)
             if (loss === "checks")
               yield* targets.complete({
@@ -165,7 +161,9 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
             )
             assert.strictEqual((yield* state).policyCount, 1)
             assert.isTrue(
-              Option.isNone(yield* activity.run(repositoryId, Effect.die("Unavailable work ran"))),
+              Option.isNone(
+                yield* eligibility.admit(repositoryId, Effect.die("Unavailable work ran")),
+              ),
             )
             assert.isFalse(
               (yield* targets.invalidate({ scope, sequence: Option.none() })).dispatched,
@@ -181,7 +179,11 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
             assert.strictEqual((yield* targets.begin(scope, old.generation))._tag, "Superseded")
             assert.isTrue(
               Option.isNone(
-                yield* activity.run(repositoryId, Effect.die("Old event replayed"), staleEvent),
+                yield* eligibility.admit(
+                  repositoryId,
+                  Effect.die("Old event replayed"),
+                  staleEvent,
+                ),
               ),
             )
             // Recovery scheduling is the same public interface used by the worker.

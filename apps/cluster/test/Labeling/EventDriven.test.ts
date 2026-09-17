@@ -125,7 +125,6 @@ layer(Services, { timeout: "2 minutes" })("Event-driven labeling", (it) => {
         )
         const view = yield* configuration.view(repositoryId)
         assert.strictEqual(view.activeRevision, view.configuredRevision)
-        assert.deepStrictEqual(view.pendingTracks, [])
         assert.include(
           yield* (yield* SyncIntegration).requiredCollections(repositoryId),
           "changed_files",

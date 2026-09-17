@@ -54,7 +54,6 @@ const detail: Workspace.RepositoryDetail = {
     repositoryId: "701",
     configuredRevision: 1,
     activeRevision: 1,
-    pendingTracks: [],
     policies: [policy.policy],
     rules: [],
     labels: [],
@@ -113,7 +112,6 @@ describe("application routing", () => {
             repo: "project",
             access: "accessible",
             enabled: false,
-            syncEnabled: false,
             ruleCount: 0,
             policyCount: 1,
             configuredRevision: 1,
@@ -133,7 +131,7 @@ describe("application routing", () => {
       workspace: {
         ...disabled.workspace,
         repositories: Option.map(disabled.workspace.repositories, (rows) =>
-          rows.map((row) => ({ ...row, enabled: true, syncEnabled: true })),
+          rows.map((row) => ({ ...row, enabled: true })),
         ),
       },
     }

@@ -79,7 +79,6 @@ const view: ConfigurationView = {
   repositoryId,
   configuredRevision: LabelingRevision.make(1),
   activeRevision: null,
-  pendingTracks: ["entities"],
   policies: [policy],
   rules: [rule],
   labels: [{ labelId: rule.labelId, name: "bug", availability: "available" }],
@@ -237,7 +236,7 @@ describe("RulesRoutes", () => {
         )
         assert.strictEqual(configured.status, 200)
         const body = yield* Effect.promise(() => configured.json())
-        assert.deepStrictEqual(body.pendingTracks, ["entities"])
+        assert.strictEqual(body.configuredRevision, 1)
         assert.strictEqual(body.rules[0].labelId, "11")
 
         const one = yield* Effect.promise(() =>

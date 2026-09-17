@@ -36,7 +36,6 @@ const fresh = () =>
       repositoryId: "701",
       configuredRevision: 0,
       activeRevision: null,
-      pendingTracks: [],
       policies: [],
       rules: [],
       labels: [],

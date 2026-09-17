@@ -1,4 +1,4 @@
-import { RepositoryActivity } from "../../src/RepositoryActivity.ts"
+import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -70,8 +70,11 @@ const runWorkflow = (
     Effect.provide(
       ProjectGitHubWebhookLayer.pipe(
         Layer.provide(
-          Layer.succeed(RepositoryActivity, {
-            run: (_id, effect) => Effect.map(effect, Option.some),
+          Layer.succeed(RepositoryEligibility, {
+            admit: (_id, effect) => Effect.map(effect, Option.some),
+            get: () => Effect.die("unused"),
+            list: Effect.die("unused"),
+            run: () => Effect.die("unused"),
           }),
         ),
         Layer.provide(

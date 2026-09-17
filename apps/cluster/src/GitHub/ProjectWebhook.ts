@@ -1,4 +1,4 @@
-import { RepositoryActivity } from "../RepositoryActivity.ts"
+import { RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { AutomationIntegration } from "../AutomationIntegration.ts"
 import * as DateTime from "effect/DateTime"
 import { GitHubWebhookDeliveryId, type GitHubInstallationId } from "@janitor/domain/GitHub/Id"
@@ -72,7 +72,6 @@ export const installationOf = (event: GitHubWebhookEvent): Option.Option<GitHubI
 export const applyEvent = (
   event: GitHubWebhookEvent,
   sequence: GitHubWebhookJournalSequence,
-  receivedAt?: Date,
 ): Effect.Effect<
   void,
   GitHubReadModelError | SyncTargetError | ContentPurgeError | Error,
@@ -174,7 +173,6 @@ export const applyEvent = (
               number: payload.issue.number,
             },
             sequence: Option.some(sequence),
-            webhookReceivedAt: receivedAt,
           })
         yield* automation.issueEvent({
           repositoryId: payload.repository.id,
@@ -203,7 +201,6 @@ export const applyEvent = (
               number: payload.pullRequest.number,
             },
             sequence: Option.some(sequence),
-            webhookReceivedAt: receivedAt,
           })
         }
         yield* automation.pullRequestEvent({
@@ -281,11 +278,7 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
   const projection = readModel
     .withTransaction(
       Effect.gen(function* () {
-        yield* applyEvent(
-          decoded.success,
-          row.sequence,
-          row.receivedAt === undefined ? undefined : DateTime.toDateUtc(row.receivedAt),
-        )
+        yield* applyEvent(decoded.success, row.sequence)
         yield* journal.markProjection(
           deliveryId,
           "projected",
@@ -300,9 +293,9 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
     decoded.success.name === "issues" ||
     decoded.success.name === "repository"
   ) {
-    const activity = yield* RepositoryActivity
-    const projected = yield* activity
-      .run(
+    const eligibility = yield* RepositoryEligibility
+    const projected = yield* eligibility
+      .admit(
         decoded.success.payload.repository.id,
         projection,
         row.receivedAt === undefined ? undefined : DateTime.toDateUtc(row.receivedAt),
@@ -313,10 +306,10 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
         .markProjection(
           deliveryId,
           "unsupported",
-          Option.some("Repository paused; event discarded"),
+          Option.some("Repository not eligible or event stale; discarded"),
         )
         .pipe(Effect.mapError((error) => fail(error.message)))
-      yield* record("unsupported", "Repository paused; event discarded")
+      yield* record("unsupported", "Repository not eligible or event stale; discarded")
       return "unsupported" as const
     }
   } else yield* projection

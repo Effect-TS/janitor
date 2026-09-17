@@ -62,8 +62,15 @@ export class RepositoryConnections extends Context.Service<
       (SELECT COALESCE(t.last_error,t.blocked_reason) FROM sync_target t
         WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health='blocked')
         ORDER BY t.updated_at DESC LIMIT 1) AS "syncError",
-      CASE WHEN NOT repository_access_available(r.repository_id) THEN 'access-unavailable' WHEN NOT r.sync_enabled THEN 'paused' WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id AND (t.last_error IS NOT NULL OR t.health = 'blocked')) THEN 'failed'
-        WHEN r.automation_ready_at IS NULL THEN 'syncing'
+      CASE WHEN NOT repository_access_current(r.repository_id) THEN 'access-unavailable'
+        WHEN NOT r.connected OR NOT i.sync_enabled THEN 'disabled'
+        WHEN NOT r.enabled THEN 'paused'
+        WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id
+          AND (t.last_error IS NOT NULL OR t.health = 'blocked')) THEN 'failed'
+        WHEN EXISTS(SELECT 1 FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id
+          AND (t.requested_generation > t.completed_generation OR t.full_requested))
+          OR (SELECT count(*) FROM sync_target t WHERE t.scope->>'repositoryId'=r.repository_id
+            AND t.scope->>'_tag'='RepositoryTrack' AND t.verified_at IS NOT NULL) < 3 THEN 'syncing'
         ELSE 'ready' END AS "syncState"
     FROM github_repository r JOIN github_installation i USING(installation_id) ORDER BY r.owner,r.repo
   `.pipe(

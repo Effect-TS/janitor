@@ -232,8 +232,6 @@ export const ConfigurationView = Schema.Struct({
   repositoryId: GitHubRepositoryDatabaseId,
   configuredRevision: LabelingRevision,
   activeRevision: Schema.NullOr(LabelingRevision),
-  /** Tracks the configured revision is still waiting on. Empty once active. */
-  pendingTracks: Schema.Array(FactTrack),
   policies: Schema.Array(PolicyRecord),
   rules: Schema.Array(RuleRecord),
   labels: Schema.Array(SynchronizedLabel),

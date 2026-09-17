@@ -31,6 +31,7 @@ import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
+  adjustUntil,
   bug,
   feature,
   github,
@@ -57,7 +58,6 @@ const issueEvent = (issue: {
   state?: "open" | "closed"
   action?: string
   pullRequest?: boolean
-  receivedAt?: Date
 }) =>
   Effect.gen(function* () {
     const event = yield* Schema.decodeUnknownEffect(GitHubWebhookEvent)({
@@ -82,7 +82,7 @@ const issueEvent = (issue: {
       },
     })
     const journal = GitHubWebhookJournalSequence.make(String(++sequence))
-    yield* applyEvent(event, journal, issue.receivedAt ?? (yield* webhookNow))
+    yield* applyEvent(event, journal)
     return journal
   })
 
@@ -382,11 +382,17 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       // An installation's cache setting is not an admission boundary: an
       // event received before the toggle is still admitted afterwards.
       const sql = yield* SqlClient.SqlClient
+      const eligibility = yield* RepositoryEligibility
       const receivedAt = yield* webhookNow
       yield* sql`UPDATE github_installation SET sync_enabled = FALSE WHERE installation_id = ${installationId}`
       yield* sql`UPDATE github_installation SET sync_enabled = TRUE WHERE installation_id = ${installationId}`
+      assert.isTrue(
+        Option.isSome(
+          yield* eligibility.admit(repositoryId, Effect.succeed("admitted"), receivedAt),
+        ),
+      )
       const before = (yield* queued).length
-      yield* issueEvent({ number: 24, title: "Hello", action: "edited", receivedAt })
+      yield* issueEvent({ number: 24, title: "Hello", action: "edited" })
       assert.strictEqual((yield* queued).length, before + 1)
       assert.strictEqual((yield* LabelItem.execute(yield* latestQueued)).outcome, "evaluated")
     }),
@@ -417,10 +423,7 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
         Effect.forkChild({ startImmediately: true }),
       )
       // Each failed read sleeps on the durable clock before the bounded retry.
-      for (let tick = 0; attempts < 4 && tick < 50; tick++) {
-        yield* Effect.yieldNow
-        yield* TestClock.adjust("20 seconds")
-      }
+      yield* adjustUntil(() => attempts >= 4, "20 seconds")
       const result = yield* Fiber.join(fiber)
       assert.strictEqual(attempts, 4)
       github.intercept = () => Effect.succeed(undefined)

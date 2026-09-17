@@ -48,9 +48,6 @@ const query = async (sql: string) => {
 it("seeds the baseline and rolls back all changes when a later seed fails", async () => {
   const result = await seed()
   expect(result.stdout).toContain("seed complete")
-  expect(await query("SELECT count(*) FROM github_repository WHERE sync_enabled <> enabled")).toBe(
-    "0",
-  )
   expect(await query("SELECT count(*) FROM github_installation WHERE sync_enabled")).toBe("0")
   expect(
     Number(await query("SELECT count(*) FROM github_repository WHERE enabled")),

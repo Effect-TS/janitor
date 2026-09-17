@@ -40,9 +40,9 @@ const services = RepositoryConnections.layer.pipe(
     }),
   ),
 )
-layer(services, { timeout: "2 minutes" })("Automation readiness", (it) => {
+layer(services, { timeout: "2 minutes" })("Cache health", (it) => {
   it.effect(
-    "requires every initial track and every failed target to recover, including after resumption",
+    "reports the cache as ready only once every track verified and every failure recovered",
     () =>
       Effect.gen(function* () {
         yield* seed

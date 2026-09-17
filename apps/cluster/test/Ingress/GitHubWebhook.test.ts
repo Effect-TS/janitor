@@ -1,4 +1,4 @@
-import { RepositoryActivity } from "../../src/RepositoryActivity.ts"
+import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { GitHubWebhookJournal, GitHubWebhookJournalError } from "../../src/GitHub/WebhookJournal.ts"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as Option from "effect/Option"
@@ -88,9 +88,12 @@ const makeHandler = (
           disableLogger: true,
           middleware: (app) =>
             app.pipe(
-              Effect.provideService(RepositoryActivity, {
-                run: (_id, effect) =>
+              Effect.provideService(RepositoryEligibility, {
+                admit: (_id, effect) =>
                   paused ? Effect.succeedNone : Effect.map(effect, Option.some),
+                get: () => Effect.die("unused"),
+                list: Effect.die("unused"),
+                run: () => Effect.die("unused"),
               }),
               Effect.provideService(GitHubWebhookJournal, {
                 record: (input) =>

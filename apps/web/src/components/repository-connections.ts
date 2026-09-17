@@ -76,6 +76,8 @@ export const Message = defineMessageUnion({
     action: Schema.Literals(["connect", "disconnect", "resume", "pause"]),
   },
   Changed: { id: Schema.String, action: Schema.String, operationId: Schema.Int },
+  ClickedRetrySync: { id: Schema.String },
+  RetriedSync: { operationId: Schema.Int },
   ClickedGithub: { installationId: Schema.NullOr(Schema.String) },
   GotGithub: { url: Schema.String, operationId: Schema.Int },
   ClickedDisconnect: {},
@@ -150,6 +152,16 @@ const Change = Command.define("ChangeRepositoryConnection", {
       { enabled: action === "resume" },
     ).pipe(
       Effect.as(Message.Changed({ id, action, operationId })),
+      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+    ),
+})
+/** A cache refresh request; it never touches the repository's connection or pause. */
+const RetrySync = Command.define("RetryRepositorySync", {
+  args: { id: Schema.String, operationId: Schema.Int },
+  messages: [Message.RetriedSync, Message.Failed],
+  execute: ({ id, operationId }) =>
+    request("POST", `/api/v1/repositories/${encodeURIComponent(id)}/sync`, {}).pipe(
+      Effect.as(Message.RetriedSync({ operationId })),
       Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
@@ -284,6 +296,22 @@ export const update = (model: Model, message: Message) =>
         outMessage: OutMessage.Changed({ id, action }),
       }
     },
+    ClickedRetrySync: ({ id }) =>
+      isBusy(model)
+        ? { model }
+        : {
+            model: begin(model, "retry-sync", id),
+            commands: [RetrySync({ id, operationId: model.nextOperationId })],
+          },
+    RetriedSync: ({ operationId }) =>
+      !matchesOperation(model, operationId)
+        ? { model }
+        : reload(
+            evo(model, {
+              pending: () => Option.none(),
+              notice: () => "Synchronization requested.",
+            }),
+          ),
     ClickedGithub: ({ installationId }) =>
       isBusy(model)
         ? { model }
@@ -349,7 +377,9 @@ const cacheHealth = (row: Row): { readonly label: string; readonly variant: Chip
       ? { label: "Sync failed", variant: "danger" }
       : row.syncState === "syncing"
         ? { label: "Synchronizing", variant: "neutral" }
-        : { label: "Synchronized", variant: "neutral" }
+        : row.syncState === "disabled"
+          ? { label: "Sync off", variant: "neutral" }
+          : { label: "Synchronized", variant: "neutral" }
 
 export const view = Submodel.defineView<
   Model,
@@ -473,10 +503,7 @@ export const view = Submodel.defineView<
               "Pausing stops automation and synchronization. Configuration, stored facts and GitHub labels are kept.",
               [
                 syncBlocked(current)
-                  ? button(
-                      "Retry sync",
-                      Message.ClickedChange({ id: current.repositoryId, action: "resume" }),
-                    )
+                  ? button("Retry sync", Message.ClickedRetrySync({ id: current.repositoryId }))
                   : h.empty,
                 current.connected
                   ? button(
@@ -503,7 +530,7 @@ export const view = Submodel.defineView<
                         h.span(
                           [h.Class("text-ink-muted")],
                           [
-                            " Automatic retries continue. Retry sync to refresh facts now. Agent sessions keep working; labeling waits for new webhook events after recovery.",
+                            " Automatic retries continue. Retry sync to refresh the cached facts now. Labeling and agent sessions read GitHub directly and keep working.",
                           ],
                         ),
                       ],
@@ -514,7 +541,7 @@ export const view = Submodel.defineView<
                   ? h.p(
                       [h.Class("text-body-sm text-ink-muted")],
                       [
-                        "Pausing retains your configuration and stored data. Resume to synchronize before automation runs.",
+                        "Pausing retains your configuration and stored data. Resume to restart automation and cache refresh.",
                       ],
                     )
                   : h.empty,

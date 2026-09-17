@@ -191,8 +191,6 @@ const PointerRow = Schema.Struct({
   active_revision: Schema.NullOr(RevisionFromText),
 })
 
-const PendingTrackRow = Schema.Struct({ track: Schema.String })
-
 const ZERO = LabelingRevision.make(0)
 
 /**
@@ -235,7 +233,6 @@ export class LabelingConfiguration extends Context.Service<
     const decodePolicies = Schema.decodeUnknownEffect(Schema.Array(PolicyRow))
     const decodeConfigurations = Schema.decodeUnknownEffect(Schema.Array(ConfigurationRow))
     const decodePointers = Schema.decodeUnknownEffect(Schema.Array(PointerRow))
-    const decodePendingTracks = Schema.decodeUnknownEffect(Schema.Array(PendingTrackRow))
     const encodeRules = Schema.encodeEffect(Schema.fromJsonString(Schema.Array(ConfiguredRule)))
     const encodeVersionIds = Schema.encodeEffect(
       Schema.fromJsonString(Schema.Array(PolicyVersionId)),
@@ -434,25 +431,6 @@ export class LabelingConfiguration extends Context.Service<
       return next
     })
 
-    /** Tracks whose verified generation is still below what the revision recorded. */
-    const pendingTracks = (repositoryId: GitHubRepositoryDatabaseId, preparation: Preparation) => {
-      const needed = Object.entries(preparation)
-      if (needed.length === 0) return Effect.succeed<ReadonlyArray<FactTrack>>([])
-      return Effect.forEach(needed, ([track, generation]) =>
-        sql`
-          SELECT ${track} AS track FROM (SELECT 1) AS one
-          WHERE NOT EXISTS (
-            SELECT 1 FROM sync_target
-            WHERE scope_key = ${`repository:${repositoryId}:${track}`}
-              AND health = 'ok' AND verified_generation >= ${generation}::bigint
-          )
-        `.pipe(Effect.flatMap(decodePendingTracks)),
-      ).pipe(
-        Effect.map((rows) => rows.flat().map((row) => row.track as FactTrack)),
-        wrap("pendingTracks"),
-      )
-    }
-
     const view = Effect.fn("LabelingConfiguration.view")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
     ) {
@@ -479,26 +457,10 @@ export class LabelingConfiguration extends Context.Service<
       )
       const configuredRevision = pointer[0]?.configured_revision ?? ZERO
       const activeRevision = pointer[0]?.active_revision ?? null
-      const pending =
-        configuredRevision === ZERO || activeRevision === configuredRevision
-          ? []
-          : yield* sql`
-              SELECT preparation FROM labeling_configuration
-              WHERE repository_id = ${repositoryId} AND revision = ${configuredRevision}
-            `.pipe(
-              Effect.flatMap(
-                Schema.decodeUnknownEffect(
-                  Schema.Array(Schema.Struct({ preparation: Preparation })),
-                ),
-              ),
-              wrap("view"),
-              Effect.flatMap((rows) => pendingTracks(repositoryId, rows[0]?.preparation ?? {})),
-            )
       const result: ConfigurationView = {
         repositoryId,
         configuredRevision,
         activeRevision,
-        pendingTracks: pending,
         policies: policies.map(toPolicyRecord),
         rules: rules.map(toRuleRecord),
         labels: synchronized.labels,

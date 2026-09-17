@@ -410,4 +410,25 @@ and key and runs unchanged; direct issue work the engine had already accepted
 under the old tag is closed as `superseded` with its planned actions settled
 as `failed`, so a write attempt still running elsewhere finds nothing to
 write. The access fence's cache-only exemption follows the renamed tag. Legacy readiness predicates and `withRepositoryActivity`
-remain for the ingress until synchronization becomes cache-only.
+remained for the ingress until migration `0042` retired them.
+
+## Cache-only synchronization
+
+`0042_cache_only_synchronization.sql` completes the migration ADR 0006
+describes: synchronization is a UI cache and nothing else reads its state.
+`repository_block_reason` and `repository_access_current` are the only
+eligibility predicates; the webhook admission boundary, cache writes and
+automation admission all use them. `repository_access_available`,
+`repository_automation_ready`, `entity_automation_eligible`, the readiness
+triggers, `github_repository.automation_ready_at`,
+`synchronization_required_after`, the generated `sync_enabled` column and
+`sync_target.automation_event_at` are dropped.
+
+`fence_repository_work` is the one fence for access and installation changes:
+it supersedes in-flight cache runs, asks every track for a full refresh once
+the cache may run again, retries failed items, and discards pending outbox
+work. The repository access trigger and the new installation trigger (status
+or verified access) call it and move `webhooks_after`; the pause trigger is
+unchanged. An installation's `sync_enabled` is a cache control with no other
+effect: `sync_scope_enabled` stops cache runs while it is off. The connection
+inventory derives cache health from `sync_target` alone. No data changes.

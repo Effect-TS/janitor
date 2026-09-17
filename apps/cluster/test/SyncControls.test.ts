@@ -34,10 +34,9 @@ layer(Services, { timeout: "2 minutes" })("Repository sync controls", (it) => {
       const old = yield* targets.invalidate({ scope, sequence: Option.none() })
       yield* targets.begin(scope, old.generation)
       yield* planner.setRepositoryEnabled(repositoryId, false)
-      assert.deepStrictEqual(
-        yield* sql`SELECT enabled, sync_enabled, repo FROM github_repository`,
-        [{ enabled: false, sync_enabled: false, repo: "offline" }],
-      )
+      assert.deepStrictEqual(yield* sql`SELECT enabled, repo FROM github_repository`, [
+        { enabled: false, repo: "offline" },
+      ])
       assert.isTrue(
         Option.isNone(yield* targets.withRun(scope, old.generation, Effect.succeed("stale"))),
       )

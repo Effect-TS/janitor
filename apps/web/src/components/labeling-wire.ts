@@ -38,7 +38,6 @@ export const RepositoryOverview = Schema.Struct({
   owner: Schema.String,
   repo: Schema.String,
   enabled: Schema.Boolean,
-  syncEnabled: Schema.optionalKey(Schema.Boolean),
   ruleCount: Schema.Int,
   policyCount: Schema.Int,
   access: Schema.Literals(["accessible", "suspect", "lost"]),
@@ -187,7 +186,6 @@ export const ConfigurationView = Schema.Struct({
   repositoryId: Schema.String,
   configuredRevision: Schema.Int,
   activeRevision: Schema.NullOr(Schema.Int),
-  pendingTracks: Schema.Array(Schema.String),
   policies: Schema.Array(PolicyRecord),
   rules: Schema.Array(RuleRecord),
   labels: Schema.Array(SynchronizedLabel),
@@ -365,8 +363,7 @@ export const describeRevision = (view: ConfigurationView): string => {
   if (view.activeRevision === view.configuredRevision) {
     return `Revision ${view.configuredRevision} active`
   }
-  const waiting = view.pendingTracks.length === 0 ? "promotion" : view.pendingTracks.join(", ")
-  return `Revision ${view.configuredRevision} waiting on ${waiting}`
+  return `Revision ${view.configuredRevision} waiting on promotion`
 }
 
 export const labelName = (labels: ReadonlyArray<SynchronizedLabel>, labelId: string): string =>

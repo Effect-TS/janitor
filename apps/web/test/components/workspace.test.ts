@@ -32,7 +32,6 @@ const configuration: Workspace.ConfigurationView = {
   repositoryId: "701",
   configuredRevision: 1,
   activeRevision: 1,
-  pendingTracks: [],
   policies: [
     {
       policyId: "p1",
@@ -330,9 +329,9 @@ describe("Repositories", () => {
 
   it("describes revisions and plans for people", () => {
     expect(describeRevision(configuration)).toBe("Revision 1 active")
-    expect(
-      describeRevision({ ...configuration, activeRevision: null, pendingTracks: ["labels"] }),
-    ).toBe("Revision 1 waiting on labels")
+    expect(describeRevision({ ...configuration, activeRevision: null })).toBe(
+      "Revision 1 waiting on promotion",
+    )
     expect(describeRevision({ ...configuration, configuredRevision: 0 })).toBe("Nothing configured")
     expect(describePlan(detail.reconciliations[0]!.plan!, configuration)).toEqual([
       "add bug (Base is main)",
