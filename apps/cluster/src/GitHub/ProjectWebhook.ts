@@ -194,7 +194,8 @@ export const applyEvent = (
         // The projection is a fast observation; a targeted refresh verifies it
         // against GitHub. Only enabled repositories earn that API budget.
         const repository = yield* readModel.getRepository(payload.repository.id)
-        if (Option.isSome(repository) && repository.value.enabled) {
+        if (Option.isNone(repository)) return
+        if (repository.value.enabled) {
           yield* targets.invalidate({
             scope: {
               _tag: "Entity",
@@ -205,6 +206,11 @@ export const applyEvent = (
             webhookReceivedAt: receivedAt,
           })
         }
+        yield* automation.pullRequestEvent({
+          repositoryId: payload.repository.id,
+          pullRequest: payload.pullRequest,
+          sequence,
+        })
         return
       }
       default:

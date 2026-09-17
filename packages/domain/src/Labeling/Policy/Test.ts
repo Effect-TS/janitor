@@ -42,7 +42,11 @@ export const TestEntity = Schema.Struct({
   labels: Schema.Array(Schema.String),
   /** Label names as GitHub reported them, so the bench does not need the label cache. */
   labelNames: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
-  /** `github` when the facts were read from GitHub for this test; `cache` for synchronized facts. */
+  /**
+   * `github`: the facts were read from GitHub for this test (ADR 0006).
+   * `cache` only appears in results stored before pull requests moved to
+   * direct reads; absent on older results still.
+   */
   source: Schema.optionalKey(Schema.Literals(["github", "cache"])),
   /** The subject's evaluation; for the configuration, the plan carries every rule. */
   evaluation: Schema.NullOr(Evaluation),

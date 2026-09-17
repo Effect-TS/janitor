@@ -5,33 +5,21 @@ import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
 import type { ProgramSource } from "@janitor/domain/Labeling/Policy/Program"
 import { RulesetActivation } from "../../src/Labeling/Activation.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
-import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
-import * as Layer from "effect/Layer"
-import { MigratedPostgresLayer } from "../support/Postgres.ts"
-import { FakeGitHub } from "./fakeGitHub.ts"
 import {
   actor,
   baseMain,
   bug,
   feature,
-  LabelingLayer,
+  github,
   repositoryId,
   seed,
   seedPullRequests,
+  Services,
   verifyTrack,
 } from "./support.ts"
-
-// The bench lists open items from GitHub; the two pull requests keep their cached facts.
-const github = new FakeGitHub()
-  .put({ number: 5, title: "Change 5", state: "open", labels: [], pullRequest: true })
-  .put({ number: 6, title: "Change 6", state: "open", labels: [], pullRequest: true })
-const Services = LabelingLayer.pipe(
-  Layer.provide(github.layer),
-  Layer.provideMerge(MigratedPostgresLayer),
-)
 
 layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres", (it) => {
   it.effect("creates, publishes, binds, and activates through the configuration revision", () =>
@@ -286,7 +274,8 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       })
       assert.strictEqual(rejected._tag, "Rejected")
 
-      // Collection facts are unknown until a refresh fetched them, then evaluate.
+      // Collection facts come from GitHub when the test runs. A listing GitHub
+      // cannot reconcile with its own file count leaves the fact unknown.
       const changeset: ProgramSource = {
         target: "pull_request",
         matchesWhen: {
@@ -294,6 +283,12 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
           where: { fact: "path", operator: "matchesGlob", value: ".changeset/*.md" },
         },
       }
+      const pull = github.pull(5)!
+      pull.files = [
+        { filename: ".changeset/brave-owls.md", status: "added" },
+        { filename: "src/a.ts", status: "modified" },
+      ]
+      pull.changedFiles = 4000
       const unknown = yield* test.run(repositoryId, {
         subject: { _tag: "Draft", source: changeset },
         numbers: [5],
@@ -302,22 +297,9 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         unknown._tag === "Evaluated" ? unknown.entities[0]?.evaluation?.outcome : unknown._tag,
         "unknown",
       )
-      const readModel = yield* GitHubReadModel
-      yield* readModel.applyPullRequestCollections({
-        repositoryId,
-        number: 5,
-        collections: {
-          files: [
-            { path: ".changeset/brave-owls.md", status: "added" },
-            { path: "src/a.ts", status: "modified" },
-          ],
-          filesComplete: true,
-          checksComplete: true,
-          reviewsComplete: true,
-          checks: [{ name: "ci", state: "success" }],
-          reviews: [{ reviewer: "octocat", state: "APPROVED" }],
-        },
-      })
+      delete pull.changedFiles
+      pull.checks = [{ name: "ci", status: "completed", conclusion: "success" }]
+      pull.reviews = [{ id: 1, user: "octocat", state: "APPROVED" }]
       const known = yield* test.run(repositoryId, {
         subject: { _tag: "Draft", source: changeset },
         numbers: [5],

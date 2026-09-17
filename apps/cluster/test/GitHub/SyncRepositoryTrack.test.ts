@@ -97,7 +97,6 @@ const services = (
     Layer.succeed(SyncIntegration, {
       requiredCollections: () => Effect.succeed(required),
       trackVerified: () => Effect.void,
-      entityVerified: () => Effect.void,
     }),
     Layer.succeed(GitHubHttpCache, {
       get: () => Effect.succeedNone,

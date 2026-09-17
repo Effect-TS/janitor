@@ -1,14 +1,7 @@
-import { executeAndReadActivity } from "./support.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
 import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
-import { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
-import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
-import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
-import { GitHubTransport, type GitHubRequest } from "../../src/GitHub/Transport.ts"
 import {
   AiClassifier,
   AiConsentService,
@@ -18,22 +11,21 @@ import {
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
-import { ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
-import { SnapshotHandoff } from "../../src/Labeling/SnapshotHandoff.ts"
-import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
   bug,
+  DirectLabelingLayer,
   feature,
+  github,
+  label,
   LabelingLayer,
   repositoryId,
-  seedReady as seed,
+  seed,
   seedPullRequests,
 } from "./support.ts"
 
-const writes: Array<GitHubRequest> = []
-const services = ReconcileEntityLayer.pipe(
+const services = DirectLabelingLayer.pipe(
   Layer.provideMerge(LabelingLayer),
   Layer.provideMerge(AiClassifier.layer),
   Layer.provideMerge(AiConsentService.layer),
@@ -52,22 +44,7 @@ const services = ReconcileEntityLayer.pipe(
             }),
     }),
   ),
-  Layer.provideMerge(
-    Layer.succeed(GitHubTransport, {
-      request: (request) =>
-        Effect.sync(() => {
-          writes.push(request)
-          return {
-            _tag: "Ok" as const,
-            status: 200,
-            body: {},
-            etag: Option.none(),
-            link: Option.none(),
-            requestId: Option.none(),
-          }
-        }),
-    }),
-  ),
+  Layer.provideMerge(github.layer),
   Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provideMerge(MigratedPostgresLayer),
 )
@@ -82,7 +59,6 @@ layer(services, { timeout: "2 minutes" })("Labeling group decisions", (it) => {
         const rules = yield* LabelingRules
         const policies = yield* Policies
         const test = yield* LabelingTest
-        const readModel = yield* GitHubReadModel
         const policy = yield* policies.create(
           repositoryId,
           {
@@ -136,30 +112,14 @@ layer(services, { timeout: "2 minutes" })("Labeling group decisions", (it) => {
           },
           actor,
         )
-        let sequenceNumber = 2
         const verify = (expected: Array<[string, string]>) =>
           Effect.gen(function* () {
-            writes.length = 0
-            const sequence = GitHubWebhookJournalSequence.make(String(sequenceNumber++))
-            yield* readModel.applyIssue({
-              repositoryId,
-              sequence,
-              issue: yield* Schema.decodeUnknownEffect(GitHubIssueApi)({
-                id: 1005,
-                node_id: "I_5",
-                number: 5,
-                title: "Change 5",
-                body: null,
-                state: "open",
-                user: { id: 9, login: "octocat" },
-                updated_at: "2026-09-03T15:00:00Z",
-                labels: [
-                  { id: 11, node_id: "LA_bug", name: "bug" },
-                  { id: 12, node_id: "LA_feature", name: "feature" },
-                ],
-                pull_request: { url: "https://api.github.com/x" },
-              }),
-            })
+            // GitHub holds both group labels before every round.
+            github.issues.get(5)!.labels = [
+              { id: 11, name: "bug" },
+              { id: 12, name: "feature" },
+            ]
+            github.requests.length = 0
             const preview = yield* test.run(repositoryId, {
               subject: { _tag: "Configuration" },
               numbers: [5],
@@ -173,31 +133,10 @@ layer(services, { timeout: "2 minutes" })("Labeling group decisions", (it) => {
               ]),
               expected,
             )
-            assert.deepStrictEqual(writes, [])
-            const targets = yield* SyncTargets
-            const scope = { _tag: "Entity" as const, repositoryId, number: 5 }
-            const { generation } = yield* targets.invalidate({
-              scope,
-              sequence: Option.some(sequence),
-              webhookReceivedAt: new Date(),
-            })
-            yield* targets.begin(scope, generation)
-            yield* targets.complete({
-              scope,
-              generation,
-              outcome: { _tag: "Verified", watermark: Option.none() },
-            })
-            const published = yield* (yield* SnapshotHandoff).publish({
-              repositoryId,
-              number: 5,
-              generation,
-              sequence,
-            })
-            assert.strictEqual(published._tag, "Published")
-            if (published._tag !== "Published") return
-            const result = yield* executeAndReadActivity(published.identity)
+            assert.deepStrictEqual(github.writes, [])
+            const result = yield* label(5)
             assert.deepStrictEqual(result.plan, preview.entities[0]?.plan)
-            assert.strictEqual(writes.length, expected.length)
+            assert.strictEqual(github.writes.length, expected.length)
           })
         yield* verify([["11", "remove"]])
         a = yield* rules.patch(repositoryId, a.id, { version: a.version, enabled: false }, actor)

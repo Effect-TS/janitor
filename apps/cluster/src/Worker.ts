@@ -22,7 +22,7 @@ import {
 } from "./GitHub/DiscoverInstallations.ts"
 import { LabelingSyncIntegrationLayer } from "./Labeling/SyncIntegration.ts"
 import { LabelingAutomationIntegrationLayer } from "./Labeling/AutomationIntegration.ts"
-import { LabelIssueLayer, LabelIssueRegistration } from "./Labeling/IssueLabeling.ts"
+import { LabelItemLayer, LabelItemRegistration } from "./Labeling/DirectLabeling.ts"
 import * as AlchemyCloudflareCluster from "@effect/platform-cloudflare/AlchemyCloudflareCluster"
 import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -71,7 +71,6 @@ import {
 import { ContentPurge } from "./ContentPurge.ts"
 import { RulesetActivation } from "./Labeling/Activation.ts"
 import { LabelingOverview } from "./Labeling/Overview.ts"
-import { ReconcileEntityLayer, ReconcileEntityRegistration } from "./Labeling/ReconcileEntity.ts"
 import {
   AiClassifier,
   AiConsentService,
@@ -85,7 +84,6 @@ import { LabelingConfiguration } from "./Labeling/Configuration.ts"
 import { Policies } from "./Labeling/Policies.ts"
 import { LabelingRules } from "./Labeling/Rules.ts"
 import { LabelingTest } from "./Labeling/Test.ts"
-import { SnapshotHandoff } from "./Labeling/SnapshotHandoff.ts"
 import { SyncPlanner } from "./SyncPlanner.ts"
 import { SyncRepairCronLayer, SyncRepairCronName } from "./SyncRepairCron.ts"
 import { SyncStatus } from "./SyncStatus.ts"
@@ -348,8 +346,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       SyncInstallationInventoryLayer,
       SyncRepositoryTrackLayer,
       RefreshEntityLayer,
-      ReconcileEntityLayer,
-      LabelIssueLayer,
+      LabelItemLayer,
       RuleTestJobLayer,
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
@@ -376,7 +373,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
       Layer.provideMerge(Policies.layer),
       Layer.provideMerge(Layer.mergeAll(LabelingConfiguration.layer, AiClassifier.layer)),
-      Layer.provideMerge(Layer.mergeAll(SnapshotHandoff.layer, AiConsentService.layer)),
+      Layer.provideMerge(AiConsentService.layer),
       Layer.provideMerge(ProviderLayer),
       Layer.provideMerge(
         WorkflowDispatcher.layer([
@@ -385,8 +382,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           SyncInstallationInventoryRegistration,
           SyncRepositoryTrackRegistration,
           RefreshEntityRegistration,
-          ReconcileEntityRegistration,
-          LabelIssueRegistration,
+          LabelItemRegistration,
           RuleTestJobRegistration,
         ]),
       ),

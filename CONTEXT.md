@@ -8,6 +8,9 @@ Janitor manages connected GitHub repositories through automatic labeling, agent 
 A named set of conditions belonging to one repository, defining which issues or pull requests are in scope and whether they match. Evaluation can produce a match, non-match, unknown, or not-applicable result.
 _Avoid_: AI policy, classifier
 
+**Item**:
+An issue or a pull request: the unit automatic labeling and the test bench evaluate. Its facts are read from GitHub when the evaluation runs.
+
 **Policy target**:
 The kind of item a policy evaluates: either issues or pull requests. Each policy has exactly one target.
 
@@ -185,7 +188,7 @@ A user-requested synchronization that refreshes a repository's stored facts with
 Eligibility to run repository automation, subject to connection, pause, valid GitHub access, and the workflow's enablement. Synchronization readiness or failure does not determine automation readiness.
 
 **Automatic labeling**:
-Evaluation of labeling rules for the open issue or pull request concerned by a new incoming webhook event, rather than every open item in the repository. Issue evaluations and each label write read the current facts from GitHub when they run; pull request evaluations still use a verified synchronized snapshot until their migration. Publishing a policy or changing a labeling rule affects future evaluations without triggering an immediate labeling run.
+Evaluation of labeling rules for the open issue or pull request concerned by a new incoming webhook event, rather than every open item in the repository. Evaluations and each label write read the current facts from GitHub when they run, including the pull request collections the rules need; synchronization never admits, qualifies or blocks them. Publishing a policy or changing a labeling rule affects future evaluations without triggering an immediate labeling run.
 
 **Webhook updates**:
 Changes to Janitor's cached GitHub information from incoming webhook events. A cache update does not itself authorize issue review.

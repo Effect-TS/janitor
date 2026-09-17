@@ -1,14 +1,7 @@
-import { executeAndReadActivity, webhookNow } from "./support.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
 import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
-import { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
-import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
-import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
-import { GitHubTransport, type GitHubRequest } from "../../src/GitHub/Transport.ts"
 import {
   AiClassifier,
   AiConsentService,
@@ -17,22 +10,21 @@ import {
 import { activityPage } from "../../src/Labeling/Activity.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
-import { ReconcileEntityLayer } from "../../src/Labeling/ReconcileEntity.ts"
-import { SnapshotHandoff } from "../../src/Labeling/SnapshotHandoff.ts"
-import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
   bug,
+  DirectLabelingLayer,
+  github,
+  label,
   LabelingLayer,
   repositoryId,
-  seedReady as seed,
+  seed,
   seedPullRequests,
 } from "./support.ts"
 
-const writes: Array<GitHubRequest> = []
 let requests = 0
-const services = ReconcileEntityLayer.pipe(
+const services = DirectLabelingLayer.pipe(
   Layer.provideMerge(LabelingLayer),
   Layer.provideMerge(AiClassifier.layer),
   Layer.provideMerge(AiConsentService.layer),
@@ -50,22 +42,7 @@ const services = ReconcileEntityLayer.pipe(
         }),
     }),
   ),
-  Layer.provideMerge(
-    Layer.succeed(GitHubTransport, {
-      request: (request) =>
-        Effect.sync(() => {
-          writes.push(request)
-          return {
-            _tag: "Ok" as const,
-            status: 200,
-            body: {},
-            etag: Option.none(),
-            link: Option.none(),
-            requestId: Option.none(),
-          }
-        }),
-    }),
-  ),
+  Layer.provideMerge(github.layer),
   Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provideMerge(MigratedPostgresLayer),
 )
@@ -77,26 +54,8 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
       Effect.gen(function* () {
         yield* seed
         yield* seedPullRequests
-        writes.length = 0
         requests = 0
-        const readModel = yield* GitHubReadModel
-        const sequence = GitHubWebhookJournalSequence.make("2")
-        yield* readModel.applyIssue({
-          repositoryId,
-          sequence,
-          issue: yield* Schema.decodeUnknownEffect(GitHubIssueApi)({
-            id: 1005,
-            node_id: "I_5",
-            number: 5,
-            title: "Change 5",
-            body: null,
-            state: "open",
-            user: { id: 9, login: "octocat" },
-            updated_at: "2026-09-03T15:00:00Z",
-            labels: [{ id: 11, node_id: "LA_bug", name: "bug" }],
-            pull_request: { url: "https://api.github.com/x" },
-          }),
-        })
+        github.issues.get(5)!.labels = [{ id: 11, name: "bug" }]
         const rules = yield* LabelingRules
         const rule = yield* rules.create(
           repositoryId,
@@ -122,7 +81,7 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
           blocked.entities.map((entity) => entity.plan?.actions),
           [[], []],
         )
-        assert.deepStrictEqual(writes, [])
+        assert.deepStrictEqual(github.writes, [])
         yield* (yield* AiConsentService).set(repositoryId, true, actor)
         const preview = yield* test.run(repositoryId, {
           subject: { _tag: "Configuration" },
@@ -139,40 +98,15 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
             [{ ruleId: rule.id, labelId: bug, action: "add" }],
           ],
         )
-        assert.deepStrictEqual(writes, [])
-        const reconcile = (number: number) =>
-          Effect.gen(function* () {
-            const targets = yield* SyncTargets
-            const scope = { _tag: "Entity" as const, repositoryId, number }
-            const { generation } = yield* targets.invalidate({
-              scope,
-              sequence: Option.some(sequence),
-              webhookReceivedAt: yield* webhookNow,
-            })
-            yield* targets.begin(scope, generation)
-            yield* targets.complete({
-              scope,
-              generation,
-              outcome: { _tag: "Verified", watermark: Option.none() },
-            })
-            const published = yield* (yield* SnapshotHandoff).publish({
-              repositoryId,
-              number,
-              generation,
-              sequence,
-            })
-            assert.strictEqual(published._tag, "Published")
-            if (published._tag !== "Published") return null
-            return yield* executeAndReadActivity(published.identity)
-          })
+        assert.deepStrictEqual(github.writes, [])
         for (const entity of preview.entities) {
-          const result = yield* reconcile(entity.number)
-          assert.deepStrictEqual(result?.plan, entity.plan)
+          const result = yield* label(entity.number)
+          assert.deepStrictEqual(result.plan, entity.plan)
         }
         // Automatic labeling reuses the configured answers populated by the preview.
         assert.strictEqual(requests, 2)
         assert.deepStrictEqual(
-          writes.map((request) => request.method),
+          github.writes.map((request) => request.method),
           ["DELETE", "POST"],
         )
         const activity = yield* activityPage(repositoryId, {
@@ -197,7 +131,7 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
           { version: rule.version, onMatch: "no-action", onNoMatch: "no-action" },
           actor,
         )
-        assert.strictEqual(writes.length, 2)
+        assert.strictEqual(github.writes.length, 2)
         const inactive = yield* test.run(repositoryId, {
           subject: { _tag: "Configuration" },
           numbers: [5, 6],
@@ -209,8 +143,8 @@ layer(services, { timeout: "2 minutes" })("Configured AI label actions", (it) =>
           [[], []],
         )
         for (const number of [5, 6])
-          assert.deepStrictEqual((yield* reconcile(number))?.plan?.actions, [])
-        assert.strictEqual(writes.length, 2)
+          assert.deepStrictEqual((yield* label(number)).plan?.actions, [])
+        assert.strictEqual(github.writes.length, 2)
         const history = yield* activityPage(repositoryId, {
           search: "",
           target: "all",

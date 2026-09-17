@@ -13,6 +13,19 @@ export interface FakeLabel {
   readonly name: string
 }
 
+/** The pull request side of an item: what `/pulls/{n}` and its collections answer. */
+export interface FakePullRequest {
+  draft?: boolean
+  merged?: boolean
+  baseRef?: string
+  headSha?: string
+  /** The `changed_files` count GitHub reports; defaults to the listed files. */
+  changedFiles?: number
+  files?: Array<{ filename: string; status: string }>
+  checks?: Array<{ name: string; status: string; conclusion: string | null }>
+  reviews?: Array<{ id: number; user: string | null; state: string }>
+}
+
 export interface FakeIssue {
   readonly number: number
   title: string
@@ -20,14 +33,18 @@ export interface FakeIssue {
   state: "open" | "closed"
   labels: Array<FakeLabel>
   user?: { id: number; login: string } | null
-  pullRequest?: boolean
+  /** `true` for a pull request with default details, or the details themselves. */
+  pullRequest?: boolean | FakePullRequest
   updatedAt?: string
 }
 
+const DEFAULT_HEAD = "a".repeat(40)
+
 /**
- * The GitHub the direct path reads and writes: a mutable issue set and label
+ * The GitHub the direct path reads and writes: a mutable item set and label
  * catalog behind the transport, so tests can change GitHub independently of
- * the read model and observe every write.
+ * the read model and observe every request. Collections page like GitHub,
+ * honouring `per_page` and answering a `Link: rel="next"` header.
  */
 export class FakeGitHub {
   readonly issues = new Map<number, FakeIssue>()
@@ -39,15 +56,31 @@ export class FakeGitHub {
   ) => Effect.Effect<GitHubResponse | undefined, GitHubTransportFailure> = () =>
     Effect.succeed(undefined)
 
-  constructor(readonly path = "/repos/effect/one") {}
+  constructor(
+    readonly path = "/repos/effect/one",
+    readonly repositoryId = 701,
+    readonly installationId = 77,
+  ) {}
 
   get writes() {
     return this.requests.filter((request) => request.method !== "GET")
   }
 
+  get reads() {
+    return this.requests.filter((request) => request.method === "GET")
+  }
+
   put(issue: FakeIssue) {
     this.issues.set(issue.number, issue)
     return this
+  }
+
+  /** The pull request details of an item, or `undefined` for an issue. */
+  pull(number: number): FakePullRequest | undefined {
+    const issue = this.issues.get(number)
+    if (issue === undefined || !issue.pullRequest) return undefined
+    if (issue.pullRequest === true) issue.pullRequest = {}
+    return issue.pullRequest
   }
 
   private body(issue: FakeIssue) {
@@ -69,13 +102,27 @@ export class FakeGitHub {
     }
   }
 
-  private ok(body: unknown): GitHubResponse {
+  private pullBody(issue: FakeIssue, pull: FakePullRequest) {
+    return {
+      ...this.body(issue),
+      id: 2000 + issue.number,
+      node_id: `PR_${issue.number}`,
+      draft: pull.draft ?? false,
+      merged: pull.merged ?? false,
+      merged_at: pull.merged ? "2026-09-17T11:00:00Z" : null,
+      changed_files: pull.changedFiles ?? pull.files?.length ?? 0,
+      head: { sha: pull.headSha ?? DEFAULT_HEAD },
+      base: { ref: pull.baseRef ?? "main", sha: "b".repeat(40) },
+    }
+  }
+
+  private ok(body: unknown, link: Option.Option<string> = Option.none()): GitHubResponse {
     return {
       _tag: "Ok",
       status: 200,
       body,
       etag: Option.none(),
-      link: Option.none(),
+      link,
       requestId: Option.none(),
     }
   }
@@ -84,13 +131,44 @@ export class FakeGitHub {
     return { _tag: "Failed", status, body: {}, requestId: Option.none() }
   }
 
+  /** One page of a listing, with GitHub's `Link` header when more follows. */
+  private page<A>(
+    pathname: string,
+    search: URLSearchParams,
+    items: ReadonlyArray<A>,
+    wrap: (items: ReadonlyArray<A>) => unknown = (items) => items,
+  ): GitHubResponse {
+    const perPage = Number(search.get("per_page") ?? "30")
+    const page = Number(search.get("page") ?? "1")
+    const slice = items.slice((page - 1) * perPage, page * perPage)
+    const link =
+      page * perPage < items.length
+        ? Option.some(
+            `<https://api.github.com${pathname}?per_page=${perPage}&page=${page + 1}>; rel="next"`,
+          )
+        : Option.none<string>()
+    return this.ok(wrap(slice), link)
+  }
+
   respond(request: GitHubRequest): GitHubResponse {
     const url = request.url.startsWith("https://")
       ? new URL(request.url).pathname + new URL(request.url).search
       : request.url
-    const [pathname] = url.split("?")
+    const [pathname, query] = url.split("?")
+    const search = new URLSearchParams(query ?? "")
+    // Connection changes verify the installation and the repository first.
+    if (request.method === "GET" && pathname === `/app/installations/${this.installationId}`)
+      return this.ok({
+        id: this.installationId,
+        account: { id: 1, login: "effect", type: "Organization" },
+        repository_selection: "all",
+        html_url: `https://github.com/settings/installations/${this.installationId}`,
+        suspended_at: null,
+        permissions: { metadata: "read", issues: "write", pull_requests: "read", checks: "read" },
+      })
     const rest = pathname!.startsWith(this.path) ? pathname!.slice(this.path.length) : null
     if (rest === null) return this.failed(404)
+    if (request.method === "GET" && rest === "") return this.ok({ id: this.repositoryId })
     if (request.method === "GET" && rest === "/labels")
       return this.ok(
         this.labels.map((label) => ({ id: label.id, node_id: `LA_${label.id}`, name: label.name })),
@@ -105,6 +183,45 @@ export class FakeGitHub {
     if (single && request.method === "GET") {
       const issue = this.issues.get(Number(single[1]))
       return issue === undefined ? this.failed(404) : this.ok(this.body(issue))
+    }
+    const pull = /^\/pulls\/(\d+)$/.exec(rest)
+    if (pull && request.method === "GET") {
+      const issue = this.issues.get(Number(pull[1]))
+      const details = this.pull(Number(pull[1]))
+      return issue === undefined || details === undefined
+        ? this.failed(404)
+        : this.ok(this.pullBody(issue, details))
+    }
+    const files = /^\/pulls\/(\d+)\/files$/.exec(rest)
+    if (files && request.method === "GET") {
+      const details = this.pull(Number(files[1]))
+      return details === undefined
+        ? this.failed(404)
+        : this.page(pathname!, search, details.files ?? [])
+    }
+    const reviews = /^\/pulls\/(\d+)\/reviews$/.exec(rest)
+    if (reviews && request.method === "GET") {
+      const details = this.pull(Number(reviews[1]))
+      return details === undefined
+        ? this.failed(404)
+        : this.page(
+            pathname!,
+            search,
+            (details.reviews ?? []).map((review) => ({
+              id: review.id,
+              user: review.user === null ? null : { id: 1, login: review.user },
+              state: review.state,
+            })),
+          )
+    }
+    const checks = /^\/commits\/([0-9a-f]+)\/check-runs$/.exec(rest)
+    if (checks && request.method === "GET") {
+      const details = [...this.issues.keys()]
+        .map((number) => this.pull(number))
+        .find((pull) => pull !== undefined && (pull.headSha ?? DEFAULT_HEAD) === checks[1])
+      return details === undefined
+        ? this.failed(404)
+        : this.page(pathname!, search, details.checks ?? [], (items) => ({ check_runs: items }))
     }
     const add = /^\/issues\/(\d+)\/labels$/.exec(rest)
     if (add && request.method === "POST") {

@@ -3,7 +3,6 @@ import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domai
 import { SyncGeneration } from "@janitor/domain/GitHub/Sync"
 import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
-import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
 import {
   ReconciliationIdentity,
   ReconciliationOutcome,
@@ -11,19 +10,20 @@ import {
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as Activity from "effect/unstable/workflow/Activity"
 import * as Workflow from "effect/unstable/workflow/Workflow"
+import type { WorkflowEngine, WorkflowInstance } from "effect/unstable/workflow/WorkflowEngine"
 import {
   logWorkflowFailure,
   SyncActivityError,
   SyncActivityFailure,
   withRateLimitWaits,
 } from "../GitHub/SyncSupport.ts"
+import type { GitHubTransport } from "../GitHub/Transport.ts"
 import { flushLive } from "../LiveUpdates.ts"
 import { changedReason, RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { describeError } from "../SqlErrors.ts"
@@ -33,12 +33,21 @@ import { ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
 import { evaluateLabeling } from "./Evaluation.ts"
 import {
+  isOpenPullRequest,
+  itemFacts,
+  itemFingerprint,
+  type ObservedItem,
+  type ReadItem,
+} from "./Facts.ts"
+import {
   addLabel,
   fetchIssue,
   fetchLabelCatalog,
   removeLabel,
   type RepositoryTarget,
+  type Waits,
 } from "./GitHubIssue.ts"
+import { collectionTracks, readPullRequest } from "./GitHubPullRequest.ts"
 import {
   aiConsentRevoked,
   describePlan,
@@ -51,41 +60,41 @@ import {
   settleRemaining,
 } from "./Ledger.ts"
 
-export const LABEL_ISSUE_TAG = "Janitor/LabelIssueV1"
+export const LABEL_ITEM_TAG = "Janitor/LabelItemV1"
 
 /**
- * The automation-owned identity of one direct issue evaluation: the issue,
- * the observation generation its admitting event received, the rules
- * revision configured at admission, and the repository eligibility
- * generation the work was accepted under. Nothing here comes from
- * synchronization.
+ * The automation-owned identity of one direct evaluation of an issue or
+ * pull request: the item, the observation generation its admitting event
+ * received, the rules revision configured at admission, and the repository
+ * eligibility generation the work was accepted under. Nothing here comes
+ * from synchronization.
  */
-export const IssueLabelingIdentity = Schema.Struct({
+export const DirectLabelingIdentity = Schema.Struct({
   ...ReconciliationIdentity.fields,
   eligibilityGeneration: Schema.String.check(Schema.isPattern(/^\d+$/)),
-}).annotate({ identifier: "IssueLabelingIdentity" })
-export type IssueLabelingIdentity = typeof IssueLabelingIdentity.Type
+}).annotate({ identifier: "DirectLabelingIdentity" })
+export type DirectLabelingIdentity = typeof DirectLabelingIdentity.Type
 
-export const labelIssueKey = (identity: ReconciliationIdentity): string =>
-  `label-issue:${identity.repositoryId}:${identity.number}:${identity.snapshotGeneration}:${identity.rulesRevision}`
+export const labelItemKey = (identity: ReconciliationIdentity): string =>
+  `label-item:${identity.repositoryId}:${identity.number}:${identity.snapshotGeneration}:${identity.rulesRevision}`
 
-export class IssueLabelingError extends Data.TaggedError("IssueLabelingError")<{
+export class DirectLabelingError extends Data.TaggedError("DirectLabelingError")<{
   readonly operation: string
   readonly message: string
 }> {}
 
 export interface AdmissionRequest {
   readonly repositoryId: GitHubRepositoryDatabaseId
-  /** The issue as the webhook described it; the work rereads GitHub when it runs. */
-  readonly issue: GitHubIssueApi
+  /** The item as the webhook described it; the work rereads GitHub when it runs. */
+  readonly item: ObservedItem
   readonly sequence: GitHubWebhookJournalSequence
 }
 
 export type AdmissionResult =
-  | { readonly _tag: "Admitted"; readonly identity: IssueLabelingIdentity }
+  | { readonly _tag: "Admitted"; readonly identity: DirectLabelingIdentity }
   | {
       readonly _tag: "Skipped"
-      readonly reason: "pull-request" | "closed" | "no-active-revision" | "repository-blocked"
+      readonly reason: "closed" | "no-active-revision" | "repository-blocked"
       readonly detail?: string
     }
 
@@ -95,39 +104,21 @@ const ConfiguredRow = Schema.Struct({
   ),
 })
 
-const sha256Hex = (text: string) =>
-  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).pipe(
-    Effect.map((digest) => Encoding.encodeHex(new Uint8Array(digest))),
-  )
-
-/** Only what concrete issue rules read, in a stable order. */
-export const issueFingerprint = (issue: GitHubIssueApi) =>
-  sha256Hex(
-    JSON.stringify({
-      kind: "issue",
-      title: issue.title,
-      author: (issue.user?.login ?? "ghost").toLowerCase(),
-      state: issue.state,
-      baseRef: null,
-      draft: null,
-      labels: issue.labels.map((label) => label.id).sort(),
-    }),
-  )
-
 /**
- * Admits one issue event onto the direct path: records the pending
- * evaluation and its outbox row in one transaction. The caller holds the
- * repository fence, so the observation generation is unique per issue and
- * later events always receive a larger one.
+ * Admits one issue or pull request event onto the direct path: records the
+ * pending evaluation and its outbox row in one transaction. Closed items,
+ * including merged pull requests, are outside labeling scope. The caller
+ * holds the repository fence, so the observation generation is unique per
+ * item and later events always receive a larger one.
  */
-export class IssueLabelingAdmission extends Context.Service<
-  IssueLabelingAdmission,
+export class DirectLabelingAdmission extends Context.Service<
+  DirectLabelingAdmission,
   {
     readonly admit: (
       request: AdmissionRequest,
-    ) => Effect.Effect<AdmissionResult, IssueLabelingError>
+    ) => Effect.Effect<AdmissionResult, DirectLabelingError>
   }
->()("@janitor/cluster/Labeling/IssueLabeling/IssueLabelingAdmission", {
+>()("@janitor/cluster/Labeling/DirectLabeling/DirectLabelingAdmission", {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     const eligibility = yield* RepositoryEligibility
@@ -138,18 +129,16 @@ export class IssueLabelingAdmission extends Context.Service<
       <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
         Effect.mapError(
           effect,
-          (error) => new IssueLabelingError({ operation, message: describeError(error) }),
+          (error) => new DirectLabelingError({ operation, message: describeError(error) }),
         )
 
-    const admit = Effect.fn("IssueLabelingAdmission.admit")(function* (request: AdmissionRequest) {
-      const { repositoryId, issue } = request
-      if (issue.pullRequest !== undefined)
-        return { _tag: "Skipped", reason: "pull-request" } as const
-      if (issue.state !== "open") return { _tag: "Skipped", reason: "closed" } as const
+    const admit = Effect.fn("DirectLabelingAdmission.admit")(function* (request: AdmissionRequest) {
+      const { repositoryId, item } = request
+      if (!item.open) return { _tag: "Skipped", reason: "closed" } as const
       const repository = yield* eligibility.get(repositoryId).pipe(Effect.result)
       if (repository._tag === "Failure") {
         if (repository.failure._tag !== "@janitor/cluster/RepositoryEligibility/RepositoryBlocked")
-          return yield* new IssueLabelingError({
+          return yield* new DirectLabelingError({
             operation: "eligibility",
             message: repository.failure.message,
           })
@@ -164,18 +153,18 @@ export class IssueLabelingAdmission extends Context.Service<
       `.pipe(Effect.flatMap(decodeConfigured), wrap("configuredRevision"))
       const rulesRevision = configured[0]?.configured_revision ?? null
       if (rulesRevision === null) return { _tag: "Skipped", reason: "no-active-revision" } as const
-      const fingerprint = yield* issueFingerprint(issue)
+      const fingerprint = yield* itemFingerprint(item)
       const identity = yield* sql
         .withTransaction(
           Effect.gen(function* () {
             const [row] = yield* sql<{ generation: string }>`
               SELECT GREATEST(${request.sequence}::bigint,
                 COALESCE((SELECT MAX(snapshot_generation) + 1 FROM labeling_reconciliation
-                  WHERE repository_id = ${repositoryId} AND number = ${issue.number}), 0))::text AS generation
+                  WHERE repository_id = ${repositoryId} AND number = ${item.number}), 0))::text AS generation
             `
-            const identity: IssueLabelingIdentity = {
+            const identity: DirectLabelingIdentity = {
               repositoryId,
-              number: issue.number,
+              number: item.number,
               snapshotGeneration: SyncGeneration.make(row!.generation),
               rulesRevision,
               eligibilityGeneration: repository.success.generation,
@@ -183,22 +172,23 @@ export class IssueLabelingAdmission extends Context.Service<
             yield* sql`
               INSERT INTO labeling_reconciliation
                 (repository_id, number, snapshot_generation, rules_revision, covered_sequence, fingerprint, source)
-              VALUES (${repositoryId}, ${issue.number}, ${identity.snapshotGeneration}, ${rulesRevision},
+              VALUES (${repositoryId}, ${item.number}, ${identity.snapshotGeneration}, ${rulesRevision},
                       ${request.sequence}, ${fingerprint}, 'github')
             `
             yield* outbox.enqueue({
-              workflowTag: LABEL_ISSUE_TAG,
-              executionKey: labelIssueKey(identity),
+              workflowTag: LABEL_ITEM_TAG,
+              executionKey: labelItemKey(identity),
               payload: identity,
             })
             return identity
           }),
         )
         .pipe(wrap("admit"))
-      yield* Effect.logInfo("Admitted issue for direct labeling").pipe(
+      yield* Effect.logInfo("Admitted item for direct labeling").pipe(
         Effect.annotateLogs({
           repositoryId,
-          number: issue.number,
+          number: item.number,
+          kind: item.kind,
           generation: identity.snapshotGeneration,
           rulesRevision,
         }),
@@ -214,27 +204,28 @@ export class IssueLabelingAdmission extends Context.Service<
 
 // WORKFLOW
 
-export class LabelIssueError extends Schema.TaggedError<LabelIssueError>()("LabelIssueError", {
+export class LabelItemError extends Schema.TaggedError<LabelItemError>()("LabelItemError", {
   message: Schema.String,
 }) {}
 
-export const LabelIssueResult = Schema.Struct({
+export const LabelItemResult = Schema.Struct({
   ...ReconciliationIdentity.fields,
   outcome: ReconciliationOutcome,
 })
 
 /**
- * Evaluates one admitted issue against current GitHub facts (ADR 0006).
- * Requalifies the work against the repository fence and the configured
- * revision, reads the issue from GitHub, evaluates every rule of the
+ * Evaluates one admitted issue or pull request against current GitHub facts
+ * (ADR 0006). Requalifies the work against the repository fence and the
+ * configured revision, reads the item and, for a pull request, the
+ * collections the revision needs from GitHub, evaluates every rule of the
  * revision, records the outcome, and applies the plan with fresh checks
  * inside each write attempt.
  */
-export const LabelIssue = Workflow.make(LABEL_ISSUE_TAG, {
-  payload: IssueLabelingIdentity,
-  success: LabelIssueResult,
-  error: LabelIssueError,
-  idempotencyKey: labelIssueKey,
+export const LabelItem = Workflow.make(LABEL_ITEM_TAG, {
+  payload: DirectLabelingIdentity,
+  success: LabelItemResult,
+  error: LabelItemError,
+  idempotencyKey: labelItemKey,
 })
 
 type Qualification =
@@ -245,7 +236,7 @@ type Qualification =
       readonly detail: string
     }
 
-const failure = (message: string) => new LabelIssueError({ message })
+const failure = (message: string) => new LabelItemError({ message })
 
 const configuredRevision = (repositoryId: GitHubRepositoryDatabaseId) =>
   Effect.flatMap(SqlClient.SqlClient, (sql) =>
@@ -260,13 +251,13 @@ const configuredRevision = (repositoryId: GitHubRepositoryDatabaseId) =>
  * the same observation is re-queued under the latest revision and the
  * current eligibility generation. Idempotent on the identity.
  */
-const handoffLatest = (identity: IssueLabelingIdentity, eligibilityGeneration: string) =>
+const handoffLatest = (identity: DirectLabelingIdentity, eligibilityGeneration: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     const outbox = yield* WorkflowOutbox
     const revision = yield* configuredRevision(identity.repositoryId)
     if (revision === null || revision === identity.rulesRevision) return
-    const latest: IssueLabelingIdentity = {
+    const latest: DirectLabelingIdentity = {
       ...identity,
       rulesRevision: revision,
       eligibilityGeneration,
@@ -285,8 +276,8 @@ const handoffLatest = (identity: IssueLabelingIdentity, eligibilityGeneration: s
         `
         if (inserted.length > 0)
           yield* outbox.enqueue({
-            workflowTag: LABEL_ISSUE_TAG,
-            executionKey: labelIssueKey(latest),
+            workflowTag: LABEL_ITEM_TAG,
+            executionKey: labelItemKey(latest),
             payload: latest,
           })
       }),
@@ -294,11 +285,11 @@ const handoffLatest = (identity: IssueLabelingIdentity, eligibilityGeneration: s
   })
 
 /**
- * Whether the work is still the current work for its issue: the repository
+ * Whether the work is still the current work for its item: the repository
  * fence and generation, the configured revision, and no later observation.
  * Synchronization state is never consulted.
  */
-const qualify = (identity: IssueLabelingIdentity) =>
+const qualify = (identity: DirectLabelingIdentity) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     const eligibility = yield* RepositoryEligibility
@@ -350,15 +341,83 @@ const qualify = (identity: IssueLabelingIdentity) =>
     } satisfies Qualification
   })
 
-const issueFacts = (issue: GitHubIssueApi): FactSnapshot =>
-  snapshotFacts({
-    kind: "issue",
-    title: issue.title,
-    body: issue.body,
-    authorLogin: issue.user?.login ?? "ghost",
-    state: issue.state,
-    labels: issue.labels.map((label) => label.id),
-    pullRequest: null,
+/** Waits on the workflow's durable clock, so a restart resumes the wait. */
+const durableWaits: Waits<WorkflowEngine | WorkflowInstance> = (name, effect) =>
+  withRateLimitWaits(name, () => effect)
+
+const closedDetail = (issue: GitHubIssueApi) =>
+  issue.pullRequest === undefined
+    ? "issue is closed on GitHub"
+    : "pull request is closed or merged on GitHub"
+
+type ItemLookup =
+  | { readonly _tag: "Found"; readonly item: ReadItem }
+  | {
+      readonly _tag: "Disqualified"
+      readonly outcome: "not-qualified" | "failed"
+      readonly detail: string
+    }
+
+/**
+ * Reads the item as the evaluation will see it. A pull request also needs
+ * its own record and the collections the revision's rules read; those are
+ * gathered as one observation of the same head.
+ */
+const readItem = (
+  repository: RepositoryTarget,
+  number: number,
+  requiredTracks: Parameters<typeof collectionTracks>[0],
+): Effect.Effect<ItemLookup, never, GitHubTransport | WorkflowEngine | WorkflowInstance> =>
+  Effect.gen(function* () {
+    const fetched = yield* withRateLimitWaits("LabelItem/Issue", () =>
+      fetchIssue(repository, number, "foreground"),
+    ).pipe(Effect.result)
+    if (fetched._tag === "Failure")
+      return { _tag: "Disqualified", outcome: "failed", detail: fetched.failure.message } as const
+    if (fetched.success._tag === "Unavailable")
+      return {
+        _tag: "Disqualified",
+        outcome: "failed",
+        detail: `Item could not be read: ${fetched.success.message}`,
+      } as const
+    const issue = fetched.success.issue
+    if (issue.state !== "open")
+      return {
+        _tag: "Disqualified",
+        outcome: "not-qualified",
+        detail: closedDetail(issue),
+      } as const
+    if (issue.pullRequest === undefined)
+      return { _tag: "Found", item: { issue, pullRequest: null, collections: {} } } as const
+    const read = yield* readPullRequest(
+      "LabelItem/PullRequest",
+      repository,
+      number,
+      collectionTracks(requiredTracks),
+      durableWaits,
+    ).pipe(Effect.result)
+    if (read._tag === "Failure")
+      return { _tag: "Disqualified", outcome: "failed", detail: read.failure.message } as const
+    switch (read.success._tag) {
+      case "Unavailable":
+        return {
+          _tag: "Disqualified",
+          outcome: "failed",
+          detail: `Pull request could not be read: ${read.success.message}`,
+        } as const
+      case "Changed":
+        return { _tag: "Disqualified", outcome: "failed", detail: read.success.detail } as const
+      case "Found": {
+        const { pullRequest, collections } = read.success
+        if (!isOpenPullRequest(pullRequest))
+          return {
+            _tag: "Disqualified",
+            outcome: "not-qualified",
+            detail: closedDetail(issue),
+          } as const
+        return { _tag: "Found", item: { issue, pullRequest, collections } } as const
+      }
+    }
   })
 
 const ApplyResult = Schema.Struct({
@@ -373,11 +432,12 @@ const sqlFailure = <A, R>(effect: Effect.Effect<A, { readonly message: string },
 /**
  * One write attempt (design: "Each actual label-write attempt obtains the
  * needed current remote state"). Holds the repository fence for the whole
- * attempt, rereads the issue and the label catalog from GitHub, and treats
- * an already-present or already-absent label as done. A throttle releases
- * the fence and the workflow waits durably before the next attempt.
+ * attempt, rereads the item and the label catalog from GitHub, and treats
+ * an already-present or already-absent label as done. A closed item, which
+ * includes a merged pull request, is out of scope. A throttle releases the
+ * fence and the workflow waits durably before the next attempt.
  */
-const applyPlan = (identity: IssueLabelingIdentity) =>
+const applyPlan = (identity: DirectLabelingIdentity) =>
   Effect.gen(function* () {
     const eligibility = yield* RepositoryEligibility
     const { repositoryId, number } = identity
@@ -396,10 +456,9 @@ const applyPlan = (identity: IssueLabelingIdentity) =>
       const { repository } = qualified
       const fetched = yield* fetchIssue(repository, number, "foreground")
       if (fetched._tag === "Unavailable")
-        return yield* skip(`Issue could not be read: ${fetched.message}`)
+        return yield* skip(`Item could not be read: ${fetched.message}`)
       const issue = fetched.issue
-      if (issue.pullRequest !== undefined) return yield* skip("item is a pull request")
-      if (issue.state !== "open") return yield* skip("issue is closed on GitHub")
+      if (issue.state !== "open") return yield* skip(closedDetail(issue))
       const present = new Map(issue.labels.map((label) => [label.id, label.name]))
       const catalog = planned.some((action) => action.action === "add")
         ? new Map((yield* fetchLabelCatalog(repository)).map((label) => [label.id, label.name]))
@@ -458,7 +517,7 @@ const applyPlan = (identity: IssueLabelingIdentity) =>
         if (written._tag === "Missing")
           yield* retireMissingLabel(repositoryId, action.labelId, name).pipe(sqlFailure)
       }
-      yield* Effect.logInfo("Applied issue label plan").pipe(
+      yield* Effect.logInfo("Applied label plan").pipe(
         Effect.annotateLogs({ repositoryId, number, applied, failed }),
       )
       return { applied, failed, skipped: "" }
@@ -482,13 +541,13 @@ const applyPlan = (identity: IssueLabelingIdentity) =>
     return result
   })
 
-export const LabelIssueLayer = LabelIssue.toLayer(
+export const LabelItemLayer = LabelItem.toLayer(
   Effect.fnUntraced(function* (identity) {
     const { repositoryId, number } = identity
 
-    // Facts and traces belong to deletable repository storage, so the fetch
+    // Facts and traces belong to deletable repository storage, so the reads
     // and the evaluation run in the workflow body and only outcomes become
-    // activity results. A replay refetches.
+    // activity results. A replay rereads.
     const evaluated: EvaluateResult = yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
       const configuration = yield* LabelingConfiguration
@@ -501,38 +560,16 @@ export const LabelIssueLayer = LabelIssue.toLayer(
       if (!admitted.length) return yield* failure("the admitted evaluation no longer exists")
       const qualified = yield* qualify(identity)
       if (qualified._tag === "Disqualified") return qualified
-      const fetched = yield* withRateLimitWaits("LabelIssue/Issue", () =>
-        fetchIssue(qualified.repository, number, "foreground"),
-      ).pipe(Effect.result)
-      if (fetched._tag === "Failure")
-        return { _tag: "Disqualified", outcome: "failed", detail: fetched.failure.message } as const
-      if (fetched.success._tag === "Unavailable")
-        return {
-          _tag: "Disqualified",
-          outcome: "failed",
-          detail: `Issue could not be read: ${fetched.success.message}`,
-        } as const
-      const issue = fetched.success.issue
-      if (issue.pullRequest !== undefined)
-        return {
-          _tag: "Disqualified",
-          outcome: "not-qualified",
-          detail: "item is a pull request; pull requests use the synchronized path",
-        } as const
-      if (issue.state !== "open")
-        return {
-          _tag: "Disqualified",
-          outcome: "not-qualified",
-          detail: "issue is closed on GitHub",
-        } as const
       const snapshot = yield* configuration.load(repositoryId, identity.rulesRevision)
       if (Option.isNone(snapshot))
         return yield* failure(`configuration revision ${identity.rulesRevision} does not exist`)
+      const read = yield* readItem(qualified.repository, number, snapshot.value.requiredTracks)
+      if (read._tag === "Disqualified") return read
       const result = yield* evaluateLabeling({
         configuration: snapshot.value,
         number,
-        facts: issueFacts(issue),
-        currentLabels: new Set(issue.labels.map((label) => label.id)),
+        facts: itemFacts(read.item),
+        currentLabels: new Set(read.item.issue.labels.map((label) => label.id)),
       }).pipe(
         Effect.provideService(EvaluationRetry, {
           claimKey: `${identity.snapshotGeneration}:${identity.rulesRevision}`,
@@ -566,9 +603,9 @@ export const LabelIssueLayer = LabelIssue.toLayer(
     const current =
       evaluated._tag !== "Evaluated" ||
       (yield* Activity.make({
-        name: "LabelIssue/CheckCurrent",
+        name: "LabelItem/CheckCurrent",
         success: Schema.Boolean,
-        error: LabelIssueError,
+        error: LabelItemError,
         execute: qualify(identity).pipe(
           Effect.map((qualified) => qualified._tag === "Current"),
           Effect.mapError((error) => failure(describeError(error))),
@@ -588,9 +625,9 @@ export const LabelIssueLayer = LabelIssue.toLayer(
     // The memoized outcome, not the replayed evaluation, decides whether to
     // apply: after a restart the ledger already holds the plan to write.
     const recorded = yield* Activity.make({
-      name: `LabelIssue/Record/${outcome.outcome}`,
+      name: `LabelItem/Record/${outcome.outcome}`,
       success: ReconciliationOutcome,
-      error: LabelIssueError,
+      error: LabelItemError,
       execute: recordOutcome(identity, outcome, current ? evaluated : null).pipe(
         Effect.as(outcome.outcome),
         Effect.mapError((error) => failure(describeError(error))),
@@ -598,9 +635,9 @@ export const LabelIssueLayer = LabelIssue.toLayer(
     })
 
     if (recorded === "evaluated") {
-      const applied = yield* withRateLimitWaits("LabelIssue/Apply", (attempt) =>
+      const applied = yield* withRateLimitWaits("LabelItem/Apply", (attempt) =>
         Activity.make({
-          name: `LabelIssue/Apply/${attempt}`,
+          name: `LabelItem/Apply/${attempt}`,
           success: ApplyResult,
           error: SyncActivityFailure,
           execute: applyPlan(identity),
@@ -610,8 +647,8 @@ export const LabelIssueLayer = LabelIssue.toLayer(
         // GitHub stayed unavailable through the bounded retries: the plan
         // failed operationally, which is not a non-match.
         yield* Activity.make({
-          name: "LabelIssue/ApplyFailed",
-          error: LabelIssueError,
+          name: "LabelItem/ApplyFailed",
+          error: LabelItemError,
           execute: settleRemaining(identity, applied.failure.message).pipe(
             Effect.asVoid,
             Effect.mapError((error) => failure(describeError(error))),
@@ -622,16 +659,16 @@ export const LabelIssueLayer = LabelIssue.toLayer(
 
     yield* flushLive
     return { ...identity, outcome: recorded }
-  }, logWorkflowFailure("LabelIssue")),
+  }, logWorkflowFailure("LabelItem")),
 )
 
-const decodePayload = Schema.decodeUnknownEffect(IssueLabelingIdentity)
+const decodePayload = Schema.decodeUnknownEffect(DirectLabelingIdentity)
 
-export const LabelIssueRegistration: WorkflowRegistration = {
-  tag: LABEL_ISSUE_TAG,
+export const LabelItemRegistration: WorkflowRegistration = {
+  tag: LABEL_ITEM_TAG,
   submit: (payload) =>
     decodePayload(payload).pipe(
-      Effect.flatMap((decoded) => LabelIssue.execute(decoded, { discard: true })),
+      Effect.flatMap((decoded) => LabelItem.execute(decoded, { discard: true })),
       Effect.asVoid,
     ),
 }

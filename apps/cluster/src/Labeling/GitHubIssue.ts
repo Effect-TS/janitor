@@ -15,11 +15,22 @@ import {
 import { GitHubTransport, type GitHubRequest, type GitHubResponse } from "../GitHub/Transport.ts"
 
 /**
- * Current issue facts read straight from GitHub (ADR 0006). Nothing here
+ * Current item facts read straight from GitHub (ADR 0006). Nothing here
  * touches the read model. Rate limits surface as `SyncRateLimited` so the
  * caller chooses how to wait: durably inside a workflow, briefly in a test
  * bench.
  */
+
+/**
+ * How a caller waits out a throttle or a transient failure of one read.
+ * `name` distinguishes durable clocks, so a caller passes a unique one per
+ * read. `X` is what the waiting itself requires (a workflow instance for
+ * durable waits, nothing for brief ones).
+ */
+export type Waits<X = never> = <A, R>(
+  name: string,
+  effect: Effect.Effect<A, SyncRateLimited | SyncActivityError, R>,
+) => Effect.Effect<A, SyncActivityError, R | X>
 
 export interface RepositoryTarget {
   readonly installationId: GitHubInstallationId
@@ -53,11 +64,11 @@ const request = (
 export const repositoryPath = (repository: RepositoryTarget) =>
   `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}`
 
-type Fetched<A> =
+export type Fetched<A> =
   | { readonly _tag: "Ok"; readonly body: A; readonly next: Option.Option<string> }
   | { readonly _tag: "Failed"; readonly status: number; readonly message: string }
 
-const get = <S extends Schema.Top>(
+export const get = <S extends Schema.Top>(
   target: GitHubRequest,
   schema: S,
 ): Effect.Effect<
@@ -98,6 +109,40 @@ const get = <S extends Schema.Top>(
           message: describeFailed(response),
         } satisfies Fetched<S["Type"]>
     }
+  })
+
+export type Pages<A> =
+  | { readonly _tag: "Ok"; readonly items: ReadonlyArray<A>; readonly truncated: boolean }
+  | { readonly _tag: "Failed"; readonly status: number; readonly message: string }
+
+/**
+ * Follows `Link: rel="next"` from `firstUrl`, waiting per page, for at most
+ * `maxPages` pages; `truncated` says more remained. Pages stay in memory:
+ * repository content never becomes a durable workflow result.
+ */
+export const fetchPages = <X, S extends Schema.Top, A>(options: {
+  readonly name: string
+  readonly repository: RepositoryTarget
+  readonly firstUrl: string
+  readonly page: S
+  readonly items: (body: S["Type"]) => ReadonlyArray<A>
+  readonly maxPages: number
+  readonly waits: Waits<X>
+}): Effect.Effect<Pages<A>, SyncActivityError, GitHubTransport | S["DecodingServices"] | X> =>
+  Effect.gen(function* () {
+    const items: Array<A> = []
+    let url: string | null = options.firstUrl
+    for (let ordinal = 0; url !== null; ordinal++) {
+      if (ordinal >= options.maxPages) return { _tag: "Ok", items, truncated: true } as const
+      const response: Fetched<S["Type"]> = yield* options.waits(
+        `${options.name}/${ordinal}`,
+        get(request(options.repository, "foreground", "GET", url), options.page),
+      )
+      if (response._tag === "Failed") return response
+      items.push(...options.items(response.body))
+      url = Option.getOrNull(response.next)
+    }
+    return { _tag: "Ok", items, truncated: false } as const
   })
 
 /** One issue by number. Pull requests come back too; the caller decides their scope. */
@@ -255,3 +300,6 @@ export const withBriefWaits = <A, R>(
       yield* Effect.sleep(Duration.max(wait, Duration.seconds(1)))
     }
   })
+
+/** Brief waits for callers outside a workflow. */
+export const briefWaits: Waits = (_name, effect) => withBriefWaits(effect)
