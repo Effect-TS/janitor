@@ -1,5 +1,5 @@
 diff --git a/dist/OpenAiClient.js b/dist/OpenAiClient.js
-index 041cc8efd686082b1371d4ba6064c13980aaf2fd..86b1841cb1ab8b07247c0365e644c25d42bf27db 100644
+index 041cc8efd686082b1371d4ba6064c13980aaf2fd..194d2dabfbfab6bc5abd2428ade9a18345299183 100644
 --- a/dist/OpenAiClient.js
 +++ b/dist/OpenAiClient.js
 @@ -14,6 +14,7 @@ import { identity } from "effect/Function";
@@ -10,11 +10,10 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..86b1841cb1ab8b07247c0365e644c25d
  import * as Stream from "effect/Stream";
  import * as Sse from "effect/unstable/encoding/Sse";
  import * as Headers from "effect/unstable/http/Headers";
-@@ -229,13 +230,18 @@ const ChatCompletionUsage = /*#__PURE__*/Schema.Struct({
+@@ -229,13 +230,17 @@ const ChatCompletionUsage = /*#__PURE__*/Schema.Struct({
    prompt_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any),
    completion_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any)
  });
-+// OpenRouter returns null when no service tier applies.
 +const ServiceTier = Schema.NullOr(Schema.String).pipe(Schema.decodeTo(Schema.UndefinedOr(Schema.String), SchemaTransformation.transform({
 +  decode: (value) => value ?? undefined,
 +  encode: (value) => value ?? null
@@ -30,7 +29,7 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..86b1841cb1ab8b07247c0365e644c25d
  });
  const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
    id: Schema.String,
-@@ -243,7 +249,7 @@ const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
+@@ -243,7 +248,7 @@ const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
    created: Schema.Int,
    choices: /*#__PURE__*/Schema.Array(ChatCompletionChoice),
    usage: /*#__PURE__*/Schema.optionalKey(/*#__PURE__*/Schema.NullOr(ChatCompletionUsage)),
@@ -39,8 +38,27 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..86b1841cb1ab8b07247c0365e644c25d
  });
  const parseJson = value => {
    try {
+@@ -252,7 +257,7 @@ const parseJson = value => {
+     return undefined;
+   }
+ };
+-const isChatCompletionChunk = /*#__PURE__*/Schema.is(ChatCompletionChunk);
++const decodeChatCompletionChunk = Schema.decodeUnknownResult(ChatCompletionChunk);
+ const decodeChatCompletionSseData = data => {
+   if (data === "[DONE]") {
+     return data;
+@@ -261,7 +266,8 @@ const decodeChatCompletionSseData = data => {
+   if (parsed === undefined) {
+     return undefined;
+   }
+-  return isChatCompletionChunk(parsed) ? parsed : {
++  const decoded = decodeChatCompletionChunk(parsed);
++  return decoded._tag === "Success" ? decoded.success : {
+     _tag: "UnknownChatCompletionEvent",
+     data: parsed
+   };
 diff --git a/src/OpenAiClient.ts b/src/OpenAiClient.ts
-index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..7bef31c6180443e7abe922bbe67e2be2abecfff5 100644
+index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..ed950bc71f7200a2756ff1206641ca9158ac8fd0 100644
 --- a/src/OpenAiClient.ts
 +++ b/src/OpenAiClient.ts
 @@ -15,6 +15,7 @@ import { identity } from "effect/Function"
@@ -51,11 +69,10 @@ index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..7bef31c6180443e7abe922bbe67e2be2
  import * as Stream from "effect/Stream"
  import type * as AiError from "effect/unstable/ai/AiError"
  import * as Sse from "effect/unstable/encoding/Sse"
-@@ -1144,13 +1145,21 @@ const ChatCompletionUsage = Schema.Struct({
+@@ -1144,13 +1145,20 @@ const ChatCompletionUsage = Schema.Struct({
    completion_tokens_details: Schema.optionalKey(Schema.Any)
  })
  
-+// OpenRouter returns null when no service tier applies.
 +const ServiceTier = Schema.NullOr(Schema.String).pipe(
 +  Schema.decodeTo(Schema.UndefinedOr(Schema.String), SchemaTransformation.transform({
 +    decode: (value) => value ?? undefined,
@@ -74,7 +91,7 @@ index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..7bef31c6180443e7abe922bbe67e2be2
  })
  
  const ChatCompletionChunk = Schema.Struct({
-@@ -1159,7 +1168,7 @@ const ChatCompletionChunk = Schema.Struct({
+@@ -1159,7 +1167,7 @@ const ChatCompletionChunk = Schema.Struct({
    created: Schema.Int,
    choices: Schema.Array(ChatCompletionChoice),
    usage: Schema.optionalKey(Schema.NullOr(ChatCompletionUsage)),
@@ -83,3 +100,22 @@ index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..7bef31c6180443e7abe922bbe67e2be2
  })
  
  /**
+@@ -1231,7 +1239,7 @@ const parseJson = (value: string): unknown => {
+   }
+ }
+ 
+-const isChatCompletionChunk = Schema.is(ChatCompletionChunk)
++const decodeChatCompletionChunk = Schema.decodeUnknownResult(ChatCompletionChunk)
+ 
+ const decodeChatCompletionSseData = (
+   data: string
+@@ -1243,7 +1251,8 @@ const decodeChatCompletionSseData = (
+   if (parsed === undefined) {
+     return undefined
+   }
+-  return isChatCompletionChunk(parsed) ? parsed : {
++  const decoded = decodeChatCompletionChunk(parsed)
++  return decoded._tag === "Success" ? decoded.success : {
+     _tag: "UnknownChatCompletionEvent",
+     data: parsed
+   }
