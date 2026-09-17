@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Singleton from "effect/unstable/cluster/Singleton"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { WorkflowDispatcher } from "./WorkflowDispatcher.ts"
+import { pruneWebhookPayloads } from "./GitHub/PruneWebhookPayloads.ts"
 
 export const WorkflowOutboxCronName = "workflow-outbox-dispatch"
 
@@ -10,6 +11,13 @@ export const WorkflowOutboxCronName = "workflow-outbox-dispatch"
 export const WorkflowOutboxCronLayer = Singleton.make(
   WorkflowOutboxCronName,
   Effect.gen(function* () {
+    // Run before other writes so dispatch failures cannot starve cleanup.
+    yield* pruneWebhookPayloads.pipe(
+      Effect.flatMap((pruned) =>
+        Effect.logInfo("Pruned terminal webhook payloads").pipe(Effect.annotateLogs({ pruned })),
+      ),
+      Effect.catchCause((cause) => Effect.logError("Webhook payload pruning failed", cause)),
+    )
     yield* flushLive
     const dispatcher = yield* WorkflowDispatcher
     const sql = yield* SqlClient.SqlClient

@@ -15,6 +15,7 @@ import {
 } from "../../src/GitHub/WebhookJournal.ts"
 import { WorkflowOutbox } from "../../src/WorkflowOutbox.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
+import { pruneWebhookPayloads } from "../../src/GitHub/PruneWebhookPayloads.ts"
 
 const JournalLayer = GitHubWebhookJournal.layer.pipe(
   Layer.provideMerge(WorkflowOutbox.layer),
@@ -35,6 +36,51 @@ const entry = (deliveryId: string): GitHubWebhookJournalEntry => ({
 })
 
 layer(JournalLayer, { timeout: "2 minutes" })("GitHubWebhookJournal against Postgres", (it) => {
+  it.effect("prunes terminal payloads while preserving pending work and duplicate protection", () =>
+    Effect.gen(function* () {
+      const journal = yield* GitHubWebhookJournal
+      const sql = yield* SqlClient.SqlClient
+      const statuses = ["pending", "projected", "unsupported", "failed"] as const
+      for (const status of statuses) {
+        yield* journal.record(entry(`prune-${status}`))
+        yield* sql`UPDATE github_webhook_delivery SET projection_status=${status},
+          projection_error='retained detail' WHERE delivery_id=${`prune-${status}`}`
+      }
+      yield* pruneWebhookPayloads
+      for (const status of statuses) {
+        const [row] = yield* sql<{
+          bytes: number
+          purged: boolean
+          projection_status: string
+          projection_error: string
+        }>`SELECT octet_length(payload) AS bytes, purged_at IS NOT NULL AS purged,
+          projection_status, projection_error FROM github_webhook_delivery
+          WHERE delivery_id=${`prune-${status}`}`
+        assert.strictEqual(row!.bytes, status === "pending" ? entry("unused").payload.length : 0)
+        assert.strictEqual(row!.purged, status !== "pending")
+        assert.strictEqual(row!.projection_status, status)
+        assert.strictEqual(row!.projection_error, "retained detail")
+        assert.isTrue((yield* journal.record(entry(`prune-${status}`))).duplicate)
+      }
+      assert.strictEqual(yield* pruneWebhookPayloads, 0)
+    }),
+  )
+  it.effect("bounds pruning batches and drains the remaining backlog on the next run", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      yield* pruneWebhookPayloads
+      yield* sql`INSERT INTO github_webhook_delivery
+        (delivery_id, event_name, received_at, payload_sha256, encryption_algorithm,
+         encryption_key_id, encryption_iv, payload, projection_status)
+        SELECT 'prune-batch-' || n, 'ping', CLOCK_TIMESTAMP(), repeat('a', 64),
+          'AES-256-GCM', 'key-1', ''::bytea, 'payload'::bytea, 'projected'
+        FROM generate_series(1, 1001) AS n`
+      assert.strictEqual(yield* pruneWebhookPayloads, 1000)
+      assert.strictEqual(yield* pruneWebhookPayloads, 1)
+      assert.strictEqual(yield* pruneWebhookPayloads, 0)
+    }),
+  )
+
   it.effect("records a delivery with a monotonic sequence and pending status", () =>
     Effect.gen(function* () {
       const journal = yield* GitHubWebhookJournal
