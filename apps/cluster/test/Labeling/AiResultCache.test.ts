@@ -25,6 +25,7 @@ import {
   bug,
   feature,
   LabelingLayer,
+  NoGitHub,
   repositoryId,
   seed,
   seedPullRequests,
@@ -41,6 +42,7 @@ const Provider = Layer.succeed(ClassifierProvider, {
     })),
 })
 const Services = LabelingLayer.pipe(
+  Layer.provide(NoGitHub),
   Layer.provideMerge(AiClassifier.layer),
   Layer.provideMerge(AiConsentService.layer),
   Layer.provideMerge(Provider),

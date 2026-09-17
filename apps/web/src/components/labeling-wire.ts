@@ -338,6 +338,9 @@ export const TestEntity = Schema.Struct({
   baseRef: Schema.NullOr(Schema.String),
   draft: Schema.NullOr(Schema.Boolean),
   labels: Schema.Array(Schema.String),
+  /** Label names as GitHub reported them, when the facts were read live. */
+  labelNames: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  source: Schema.optionalKey(Schema.Literals(["github", "cache"])),
   evaluation: Schema.NullOr(Evaluation),
   plan: Schema.NullOr(Plan),
 })

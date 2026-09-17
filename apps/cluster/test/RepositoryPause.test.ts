@@ -28,6 +28,7 @@ import { GitHubTransport } from "../src/GitHub/Transport.ts"
 import { GitHubWebhookJournal } from "../src/GitHub/WebhookJournal.ts"
 import { projectDelivery } from "../src/GitHub/ProjectWebhook.ts"
 import { ContentPurge } from "../src/ContentPurge.ts"
+import { AutomationIntegration } from "../src/AutomationIntegration.ts"
 import { GitHubEventQueue } from "../src/GitHub/EventQueue.ts"
 import { GitHubPayloadStore, payloadKey } from "../src/GitHub/PayloadStore.ts"
 import { PayloadCipher, make as makeCipher } from "../src/PayloadCipher.ts"
@@ -46,6 +47,7 @@ const Services = Layer.mergeAll(
   SyncStatus.layer,
   GitHubWebhookJournal.layer,
   ContentPurge.layer,
+  AutomationIntegration.noop,
 ).pipe(
   Layer.provideMerge(SyncTargets.layer),
   Layer.provideMerge(GitHubReadModel.layer),

@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import { Plan } from "./Policy/Plan.ts"
+import { EvaluationSource } from "./Reconciliation.ts"
 
 export const ActivityCursor = Schema.Struct({
   number: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -25,6 +26,8 @@ export const ActivityEntry = Schema.Struct({
   outcome: Schema.NullOr(Schema.Literals(["evaluated", "superseded", "not-qualified", "failed"])),
   detail: Schema.NullOr(Schema.String),
   revision: Schema.Int,
+  /** Where the evaluated facts came from: GitHub directly, or the synchronized snapshot. */
+  source: Schema.optionalKey(EvaluationSource),
   plan: Schema.NullOr(Plan),
   actions: Schema.Array(ActivityAction),
   evaluations: Schema.optionalKey(

@@ -6,7 +6,7 @@ import {
 import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
 import { syncScopeKey } from "@janitor/domain/GitHub/Sync"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
-import { Plan, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
+import { Plan } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -21,10 +21,19 @@ import { describeError } from "../SqlErrors.ts"
 import { freshnessOf } from "../SyncFreshness.ts"
 import { SyncTargets } from "../SyncTargets.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
-import { recordAudit } from "./Audit.ts"
 import { ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
 import { evaluateLabeling } from "./Evaluation.ts"
+import {
+  aiConsentRevoked,
+  describePlan,
+  type EvaluateResult,
+  type RecordedOutcome,
+  recordOutcome,
+  retireMissingLabel,
+  settleAction,
+  settleRemaining,
+} from "./Ledger.ts"
 import { EVALUATION_MAX_AGE, RECONCILE_ENTITY_TAG, SnapshotHandoff } from "./SnapshotHandoff.ts"
 import { entityFacts } from "./Test.ts"
 
@@ -40,10 +49,11 @@ export const ReconcileEntityResult = Schema.Struct({
 })
 
 /**
- * Reconciles one qualified snapshot (design: "Workflow activities"): loads
- * and re-qualifies the snapshot, evaluates every rule of the configured
- * revision, plans, and records per-rule outcomes and per-label actions.
- * Applying the plan to GitHub is a later activity.
+ * Reconciles one qualified pull request snapshot (design: "Workflow
+ * activities"): loads and re-qualifies the snapshot, evaluates every rule of
+ * the configured revision, plans, and records per-rule outcomes and per-label
+ * actions. Applying the plan to GitHub is a later activity. Issues no longer
+ * take this path (ADR 0006); an issue identity is refused.
  */
 export const ReconcileEntity = Workflow.make(RECONCILE_ENTITY_TAG, {
   payload: ReconciliationIdentity,
@@ -53,29 +63,13 @@ export const ReconcileEntity = Workflow.make(RECONCILE_ENTITY_TAG, {
     `${identity.repositoryId}:${identity.number}:${identity.snapshotGeneration}:${identity.rulesRevision}`,
 })
 
-const RuleEvaluationRecord = Schema.Struct({
-  ruleId: RuleId,
-  policyVersionId: Schema.String,
-  evaluation: Schema.Struct({
-    outcome: Schema.Literals(["match", "no-match", "unknown", "not-applicable", "failed"]),
-    reason: Schema.String,
-    trace: Schema.Unknown,
-  }),
-})
-
-const EvaluateResult = Schema.Union([
-  Schema.TaggedStruct("Evaluated", { plan: Plan, evaluations: Schema.Array(RuleEvaluationRecord) }),
-  Schema.TaggedStruct("Disqualified", {
-    outcome: Schema.Literals(["superseded", "not-qualified"]),
-    detail: Schema.String,
-  }),
-])
-
 const ConfiguredRow = Schema.Struct({
   configured_revision: Schema.NullOr(
     Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision)),
   ),
 })
+
+export const DIRECT_PATH_DETAIL = "issue labeling moved to direct GitHub evaluation"
 
 /** Retain the event's work when its queued or journaled plan uses an old revision. */
 const handoffLatest = (identity: ReconciliationIdentity) =>
@@ -130,20 +124,13 @@ const evaluationIsCurrent = (identity: ReconciliationIdentity) =>
     )
   })
 
-const encodePlan = Schema.encodeEffect(Schema.fromJsonString(Plan))
-
-const describePlan = (evaluated: Plan): string =>
-  evaluated.actions.length === 0
-    ? `no changes (${evaluated.rules.filter((rule) => rule.selected).length} of ${evaluated.rules.length} rules selected)`
-    : `${evaluated.actions.length} change${evaluated.actions.length === 1 ? "" : "s"} planned`
-
 export const ReconcileEntityLayer = ReconcileEntity.toLayer(
   Effect.fnUntraced(function* (identity) {
     const { repositoryId, number } = identity
 
     // Evaluation traces belong to deletable repository storage. Keeping them in
     // workflow activity results would preserve facts after disconnection.
-    const evaluated: typeof EvaluateResult.Type = yield* Effect.gen(function* () {
+    const evaluated: EvaluateResult = yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
       const targets = yield* SyncTargets
       const readModel = yield* GitHubReadModel
@@ -215,6 +202,13 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
           detail: "entity is no longer in the read model",
         }
       }
+      if (entity.value.entity.kind === "issue") {
+        return {
+          _tag: "Disqualified" as const,
+          outcome: "not-qualified" as const,
+          detail: DIRECT_PATH_DETAIL,
+        }
+      }
       const result = yield* evaluateLabeling({
         configuration: snapshot.value,
         number,
@@ -270,80 +264,22 @@ export const ReconcileEntityLayer = ReconcileEntity.toLayer(
         }).pipe(Effect.mapError((error) => failure(describeError(error)))),
       }))
 
-    const outcome = !current
+    const outcome: RecordedOutcome = !current
       ? {
-          outcome: "superseded" as const,
+          outcome: "superseded",
           detail: "evaluation was superseded or repository automation became unavailable",
           plan: null,
         }
       : evaluated._tag === "Evaluated"
-        ? {
-            outcome: "evaluated" as const,
-            detail: describePlan(evaluated.plan),
-            plan: evaluated.plan,
-          }
+        ? { outcome: "evaluated", detail: describePlan(evaluated.plan), plan: evaluated.plan }
         : { outcome: evaluated.outcome, detail: evaluated.detail, plan: null }
 
     yield* Activity.make({
       name: `ReconcileEntity/Record/${outcome.outcome}`,
       error: ReconcileActivityError,
-      execute: Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient
-        const encoded =
-          outcome.plan === null
-            ? null
-            : yield* encodePlan(outcome.plan).pipe(
-                Effect.mapError((error) => failure(describeError(error))),
-              )
-        yield* sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const recorded = yield* sql`
-                UPDATE labeling_reconciliation
-                SET outcome = ${outcome.outcome}, detail = ${outcome.detail},
-                    plan = ${encoded}::jsonb, completed_at = CLOCK_TIMESTAMP()
-                WHERE repository_id = ${repositoryId} AND number = ${number}
-                  AND snapshot_generation = ${identity.snapshotGeneration}
-                  AND rules_revision = ${identity.rulesRevision}
-                RETURNING repository_id
-              `
-              if (!recorded.length || evaluated._tag !== "Evaluated" || !current) return
-              const selected = new Set(
-                evaluated.plan.rules.filter((rule) => rule.selected).map((rule) => rule.ruleId),
-              )
-              for (const entry of evaluated.evaluations) {
-                yield* sql`
-                  INSERT INTO labeling_rule_evaluation
-                    (repository_id, number, snapshot_generation, rules_revision, rule_id,
-                     policy_version_id, outcome, selected, reason, trace)
-                  VALUES (${repositoryId}, ${number}, ${identity.snapshotGeneration}, ${identity.rulesRevision},
-                          ${entry.ruleId}, ${entry.policyVersionId}, ${entry.evaluation.outcome},
-                          ${selected.has(entry.ruleId)}, ${entry.evaluation.reason},
-                          ${JSON.stringify(entry.evaluation.trace)}::jsonb)
-                  ON CONFLICT DO NOTHING
-                `
-              }
-              for (const action of evaluated.plan.actions) {
-                yield* sql`
-                  INSERT INTO labeling_label_action
-                    (repository_id, number, snapshot_generation, rules_revision, label_id, action, rule_id)
-                  VALUES (${repositoryId}, ${number}, ${identity.snapshotGeneration}, ${identity.rulesRevision},
-                          ${action.labelId}, ${action.action}, ${action.ruleId})
-                  ON CONFLICT DO NOTHING
-                `
-              }
-            }),
-          )
-          .pipe(Effect.mapError((error) => failure(describeError(error))))
-        yield* Effect.logInfo("Reconciled entity snapshot").pipe(
-          Effect.annotateLogs({
-            repositoryId,
-            number,
-            outcome: outcome.outcome,
-            detail: outcome.detail,
-          }),
-        )
-      }),
+      execute: recordOutcome(identity, outcome, current ? evaluated : null).pipe(
+        Effect.mapError((error) => failure(describeError(error))),
+      ),
     })
 
     if (current && evaluated._tag === "Evaluated" && evaluated.plan.actions.length > 0) {
@@ -370,27 +306,7 @@ const ApplyResult = Schema.Struct({
   skipped: Schema.String,
 })
 
-/** Janitor itself, as the actor on rules it disables. */
-const SYSTEM_ACTOR = { issuer: "janitor", subject: "system" }
-
 class ApplyFailure extends Data.TaggedError("ApplyFailure")<{ readonly message: string }> {}
-
-const settle = (
-  identity: ReconciliationIdentity,
-  labelId: string,
-  status: "applied" | "failed",
-  detail: string | null,
-) =>
-  Effect.flatMap(
-    SqlClient.SqlClient,
-    (sql) => sql`
-      UPDATE labeling_label_action
-      SET status = ${status}, detail = ${detail}, completed_at = CLOCK_TIMESTAMP()
-      WHERE repository_id = ${identity.repositoryId} AND number = ${identity.number}
-        AND snapshot_generation = ${identity.snapshotGeneration}
-        AND rules_revision = ${identity.rulesRevision} AND label_id = ${labelId}
-    `,
-  )
 
 /**
  * Applies the remaining set difference (design: "Reconciliation"). GitHub
@@ -407,22 +323,17 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
           const sql = yield* SqlClient.SqlClient
           const readModel = yield* GitHubReadModel
           const transport = yield* GitHubTransport
-          const configuration = yield* LabelingConfiguration
           const { repositoryId, number } = identity
           const wrapSql = <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
             Effect.mapError(effect, (error) => new ApplyFailure({ message: describeError(error) }))
 
           const skip = (reason: string) =>
-            Effect.forEach(
-              planned.actions,
-              (action) => settle(identity, action.labelId, "failed", reason),
-              {
-                discard: true,
-              },
-            ).pipe(
+            settleRemaining(identity, reason).pipe(
               wrapSql,
               Effect.as({ applied: 0, failed: planned.actions.length, skipped: reason }),
             )
+          const settle = (labelId: string, status: "applied" | "failed", detail: string | null) =>
+            settleAction(identity, labelId, status, detail).pipe(wrapSql)
 
           // Serialize disconnect against the complete external-write attempt.
           const [membership] = yield* sql<{
@@ -455,6 +366,7 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
             return yield* skip("evaluation is superseded or no longer qualified")
           const entity = yield* readModel.getEntity(repositoryId, number).pipe(wrapSql)
           if (Option.isNone(entity)) return yield* skip("entity is gone")
+          if (entity.value.entity.kind === "issue") return yield* skip(DIRECT_PATH_DETAIL)
           const labels = yield* readModel.listLabels(repositoryId).pipe(wrapSql)
           const nameOf = new Map(labels.map((label) => [label.labelId, label.name]))
           const present = new Set(entity.value.labels.map((label) => label.labelId))
@@ -467,31 +379,18 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
           let applied = 0
           let failed = 0
           for (const action of planned.actions) {
-            const blockedAi =
-              yield* sql`SELECT e.rule_id FROM labeling_rule_evaluation e JOIN labeling_policy_version v ON v.version_id=e.policy_version_id
-              WHERE e.repository_id=${repositoryId} AND e.number=${number} AND e.snapshot_generation=${identity.snapshotGeneration} AND e.rules_revision=${identity.rulesRevision}
-              AND e.rule_id=${action.ruleId} AND v.program->'evaluator'->>'_tag'='Classifier'
-              AND NOT EXISTS (SELECT 1 FROM labeling_ai_consent WHERE repository_id=${repositoryId} AND state='enabled')`.pipe(
-                wrapSql,
-              )
-            if (blockedAi.length) {
+            if (yield* aiConsentRevoked(identity, action.ruleId).pipe(wrapSql)) {
               yield* settle(
-                identity,
                 action.labelId,
                 "failed",
                 "AI access was disabled before applying labels",
-              ).pipe(wrapSql)
+              )
               failed++
               continue
             }
             const name = nameOf.get(action.labelId)
             if (name === undefined) {
-              yield* settle(
-                identity,
-                action.labelId,
-                "failed",
-                "label is no longer synchronized",
-              ).pipe(wrapSql)
+              yield* settle(action.labelId, "failed", "label is no longer synchronized")
               failed++
               continue
             }
@@ -499,12 +398,7 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
             const done =
               action.action === "add" ? present.has(action.labelId) : !present.has(action.labelId)
             if (done) {
-              yield* settle(
-                identity,
-                action.labelId,
-                "applied",
-                "already in the desired state",
-              ).pipe(wrapSql)
+              yield* settle(action.labelId, "applied", "already in the desired state")
               applied++
               continue
             }
@@ -527,55 +421,21 @@ const applyPlan = (identity: ReconciliationIdentity, planned: Plan) =>
               )
               .pipe(Effect.mapError((error) => new ApplyFailure({ message: error.message })))
             if (response._tag === "Ok" || response._tag === "NotModified") {
-              yield* settle(identity, action.labelId, "applied", null).pipe(wrapSql)
+              yield* settle(action.labelId, "applied", null)
               applied++
               continue
             }
             // Removing a label GitHub already dropped is the desired state.
             if (action.action === "remove" && response.status === 404) {
-              yield* settle(identity, action.labelId, "applied", "already absent on GitHub").pipe(
-                wrapSql,
-              )
+              yield* settle(action.labelId, "applied", "already absent on GitHub")
               applied++
               continue
             }
-            yield* settle(
-              identity,
-              action.labelId,
-              "failed",
-              `GitHub answered ${response.status}`,
-            ).pipe(wrapSql)
+            yield* settle(action.labelId, "failed", `GitHub answered ${response.status}`)
             failed++
             // Adding a label GitHub does not know: retire the rules bound to it.
-            if (action.action === "add" && response.status === 404) {
-              yield* sql
-                .withTransaction(
-                  Effect.gen(function* () {
-                    const retired = yield* sql<{ rule_id: string }>`
-                UPDATE labeling_rule SET label_status = 'missing', enabled = FALSE,
-                  version = version + 1, updated_at = CLOCK_TIMESTAMP()
-                WHERE repository_id = ${repositoryId} AND label_id = ${action.labelId} AND enabled
-                RETURNING rule_id
-              `
-                    for (const row of retired) {
-                      yield* recordAudit(sql, {
-                        repositoryId,
-                        subject: { _tag: "Rule", ruleId: RuleId.make(row.rule_id) },
-                        actor: SYSTEM_ACTOR,
-                        operation: "update",
-                        before: { enabled: true, labelStatus: "valid" },
-                        after: {
-                          enabled: false,
-                          labelStatus: "missing",
-                          reason: `label ${name} is missing on GitHub`,
-                        },
-                      })
-                    }
-                    if (retired.length > 0) yield* configuration.advance(repositoryId, SYSTEM_ACTOR)
-                  }),
-                )
-                .pipe(wrapSql)
-            }
+            if (action.action === "add" && response.status === 404)
+              yield* retireMissingLabel(repositoryId, action.labelId, name).pipe(wrapSql)
           }
           yield* flushLive
           yield* Effect.logInfo("Applied label plan").pipe(

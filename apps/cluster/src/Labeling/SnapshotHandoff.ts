@@ -48,6 +48,8 @@ export type HandoffResult =
       readonly reason:
         | "no-active-revision"
         | "no-entity"
+        /** Issues evaluate current GitHub facts directly (ADR 0006). */
+        | "direct-path"
         | "not-verified"
         | "automation-not-eligible"
     }
@@ -103,6 +105,9 @@ export class SnapshotHandoff extends Context.Service<
       const entity = yield* readModel.getEntity(repositoryId, number).pipe(wrap("getEntity"))
       if (Option.isNone(entity)) {
         return { _tag: "Skipped", reason: "no-entity" } as const
+      }
+      if (entity.value.entity.kind === "issue") {
+        return { _tag: "Skipped", reason: "direct-path" } as const
       }
       const target = yield* targets
         .get({ _tag: "Entity", repositoryId, number })

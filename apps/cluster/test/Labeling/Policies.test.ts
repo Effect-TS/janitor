@@ -9,17 +9,29 @@ import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
+import * as Layer from "effect/Layer"
+import { MigratedPostgresLayer } from "../support/Postgres.ts"
+import { FakeGitHub } from "./fakeGitHub.ts"
 import {
   actor,
   baseMain,
   bug,
   feature,
+  LabelingLayer,
   repositoryId,
   seed,
   seedPullRequests,
-  Services,
   verifyTrack,
 } from "./support.ts"
+
+// The bench lists open items from GitHub; the two pull requests keep their cached facts.
+const github = new FakeGitHub()
+  .put({ number: 5, title: "Change 5", state: "open", labels: [], pullRequest: true })
+  .put({ number: 6, title: "Change 6", state: "open", labels: [], pullRequest: true })
+const Services = LabelingLayer.pipe(
+  Layer.provide(github.layer),
+  Layer.provideMerge(MigratedPostgresLayer),
+)
 
 layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres", (it) => {
   it.effect("creates, publishes, binds, and activates through the configuration revision", () =>

@@ -207,6 +207,7 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
     `by ${entity.authorLogin}`,
     entity.baseRef === null ? "" : `into ${entity.baseRef}`,
     entity.draft === true ? "draft" : "",
+    entity.source === "github" ? "read from GitHub" : "",
   ].filter((part) => part.length > 0)
   return h.li(
     [
@@ -230,7 +231,11 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
                 : h.div(
                     [h.Class("mt-0.5 flex flex-wrap gap-1")],
                     entity.labels.map((labelId) =>
-                      labelChip(h, labelName(model.configuration.labels, labelId)),
+                      labelChip(
+                        h,
+                        entity.labelNames?.[labelId] ??
+                          labelName(model.configuration.labels, labelId),
+                      ),
                     ),
                   ),
             ],

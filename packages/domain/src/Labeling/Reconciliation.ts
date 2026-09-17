@@ -35,6 +35,16 @@ export const ReconciliationOutcome = Schema.Literals([
 ]).annotate({ identifier: "ReconciliationOutcome" })
 export type ReconciliationOutcome = typeof ReconciliationOutcome.Type
 
+/**
+ * Which path produced an evaluation: `github` reads current facts from
+ * GitHub when the work runs; `sync` (legacy, pull requests) evaluates a
+ * verified synchronized snapshot.
+ */
+export const EvaluationSource = Schema.Literals(["sync", "github"]).annotate({
+  identifier: "EvaluationSource",
+})
+export type EvaluationSource = typeof EvaluationSource.Type
+
 export const LabelActionStatus = Schema.Literals(["planned", "applied", "failed"]).annotate({
   identifier: "LabelActionStatus",
 })
@@ -51,6 +61,7 @@ export type LabelActionRecord = typeof LabelActionRecord.Type
 
 export const ReconciliationRecord = Schema.Struct({
   ...ReconciliationIdentity.fields,
+  source: Schema.optionalKey(EvaluationSource),
   coveredSequence: GitHubWebhookJournalSequence,
   /** Hash of the fields and labels rules read, so unchanged inputs are recognisable. */
   fingerprint: Schema.String,
