@@ -1,11 +1,15 @@
+import * as Config from "effect/Config"
 import * as Context from "effect/Context"
 
+/** Deployment opt-in, separate from each repository's review settings. */
+export const issueReviewEnabled = Config.Boolean("JANITOR_ISSUE_REVIEW_ENABLED").pipe(
+  Config.withDefault(false),
+)
+
 /**
- * The development gate (ticket 13): issue review stays unavailable in a
- * deployment until the complete review path and the synchronization
- * migration are verified. While it is off, settings cannot enable review
- * and admission denies every invocation, without bypassing the
- * per-repository opt-in once it is on.
+ * While the deployment gate is off, settings cannot enable review and
+ * admission denies every invocation. Opening this gate still requires
+ * per-repository opt-in; it never enables a repository by itself.
  */
 export const IssueReviewAvailable = Context.Reference<boolean>("Review/IssueReviewAvailable", {
   defaultValue: () => false,

@@ -3,10 +3,38 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import { deployment, requiredSecret, requiredText } from "../src/Deployment.ts"
 import { aiCacheTtlConfig } from "../src/Labeling/Classifier.ts"
+import { issueReviewEnabled } from "../src/Review/Gate.ts"
 
 const config = (values: Record<string, string>) =>
   ConfigProvider.layer(ConfigProvider.fromUnknown(values))
 describe("deployment configuration", () => {
+  it.effect(
+    "requires explicit production review opt-in and ignores the retired development flag",
+    () =>
+      Effect.gen(function* () {
+        for (const values of [{}, { JANITOR_ISSUE_REVIEW_DEVELOPMENT: "true" }]) {
+          assert.isFalse(yield* issueReviewEnabled.pipe(Effect.provide(config(values))))
+        }
+        assert.isTrue(
+          yield* issueReviewEnabled.pipe(
+            Effect.provide(config({ JANITOR_ISSUE_REVIEW_ENABLED: "true" })),
+          ),
+        )
+        assert.isFalse(
+          yield* issueReviewEnabled.pipe(
+            Effect.provide(config({ JANITOR_ISSUE_REVIEW_ENABLED: "false" })),
+          ),
+        )
+        assert.strictEqual(
+          (yield* Effect.flip(
+            issueReviewEnabled.pipe(
+              Effect.provide(config({ JANITOR_ISSUE_REVIEW_ENABLED: "typo" })),
+            ),
+          ))._tag,
+          "ConfigError",
+        )
+      }),
+  )
   it.effect("rejects invalid model secrets", () =>
     Effect.gen(function* () {
       for (const value of ["", "CHANGE_ME", "with spaces"]) {
