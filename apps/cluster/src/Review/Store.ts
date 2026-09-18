@@ -1,3 +1,4 @@
+import { ReviewPublication } from "@janitor/domain/Review/Publication"
 import { Reproduction } from "@janitor/domain/Review/Reproduction"
 import {
   ReviewClassification,
@@ -99,11 +100,12 @@ export const RunRecord = Schema.Struct({
   uncertainty: Schema.NullOr(Schema.String),
   evidence: Schema.Array(ReviewEvidence),
   reproduction: Reproduction,
+  publication: ReviewPublication,
   limitation: Schema.NullOr(Schema.String),
 })
 export type RunRecord = typeof RunRecord.Type
 
-export const ActionKind = Schema.Literals(["prepare", "model"])
+export const ActionKind = Schema.Literals(["prepare", "model", "publish"])
 export type ActionKind = typeof ActionKind.Type
 
 /** One action of a run: its identity is the run and its sequence number. */
@@ -189,7 +191,7 @@ const runColumnsOf = (t: string) => `
   ${t}accepted_at AS "acceptedAt", ${t}started_at AS "startedAt", ${t}deadline_at AS "deadlineAt",
   ${t}finished_at AS "finishedAt", ${t}cancel_reason AS "cancelReason", ${t}cancelled_by AS "cancelledBy",
   ${t}agent_state AS "agentState", ${t}classification, ${t}default_branch AS "defaultBranch",
-  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation, ${t}reproduction`
+  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation, ${t}reproduction, ${t}publication`
 const runColumns = runColumnsOf("")
 
 const settingColumns = `
@@ -215,6 +217,10 @@ const ByIssue = Schema.Struct({ repositoryId: Schema.String, issueNumber: Schema
 export class IssueReviewStore extends Context.Service<
   IssueReviewStore,
   {
+    readonly savePublication: (
+      runId: string,
+      publication: ReviewPublication,
+    ) => Effect.Effect<void, IssueReviewError>
     readonly settings: (
       repositoryId: string,
     ) => Effect.Effect<Option.Option<SettingRow>, IssueReviewError>
@@ -447,14 +453,22 @@ export class IssueReviewStore extends Context.Service<
         SELECT ${sql.literal(runColumns)} FROM ended ORDER BY accepted_at, run_id`,
     })
     const cancelRuns = (selection: CancelSelection, cancellation: Cancellation) =>
-      cancelQuery({
-        repositoryId: selection.repositoryId,
-        issueNumber: selection.issueNumber ?? null,
-        commentId: selection.commentId ?? null,
-        runId: selection.runId ?? null,
-        reason: cancellation.reason,
-        actor: cancellation.actor,
-      }).pipe(wrap("cancelRuns"))
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${selection.repositoryId} FOR NO KEY UPDATE`
+            yield* sql`SELECT issue_number FROM issue_review_issue WHERE repository_id = ${selection.repositoryId} ORDER BY issue_number FOR UPDATE`
+            return yield* cancelQuery({
+              repositoryId: selection.repositoryId,
+              issueNumber: selection.issueNumber ?? null,
+              commentId: selection.commentId ?? null,
+              runId: selection.runId ?? null,
+              reason: cancellation.reason,
+              actor: cancellation.actor,
+            })
+          }),
+        )
+        .pipe(wrap("cancelRuns"))
     const findLive = SqlSchema.findAll({
       Request: Schema.Struct({
         repositoryId: Schema.String,
@@ -652,6 +666,11 @@ export class IssueReviewStore extends Context.Service<
       )
 
     return {
+      savePublication: (runId, publication) =>
+        sql`UPDATE issue_review_run SET publication = ${JSON.stringify(publication)}::jsonb WHERE run_id::text = ${runId}`.pipe(
+          Effect.asVoid,
+          wrap("savePublication"),
+        ),
       settings,
       upsertSettings,
       recordReceipt,

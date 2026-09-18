@@ -37,6 +37,8 @@ import {
   webhookNow,
 } from "../Labeling/support.ts"
 import { FakeModel, userText } from "./fakeModel.ts"
+import { ReviewComments } from "../../src/Review/Comments.ts"
+import { IssueReviewPublication } from "../../src/Review/Publication.ts"
 
 /**
  * An admitted invocation investigated end to end: the agent schedules
@@ -180,6 +182,26 @@ const model = new FakeModel()
 const live = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.provideService(effect, Clock.Clock, Clock.Clock.defaultValue())
 
+const publishedComments = new Map<string, { id: string; body: string }>()
+const commentWrites: Array<string> = []
+let renderedLinksSafe = true
+let writeOutcome: "ok" | "lost" | "absent" = "ok"
+let afterCommentWrite: Effect.Effect<void> = Effect.void
+const CommentsLayer = Layer.succeed(ReviewComments, {
+  checkLinks: () => Effect.sync(() => renderedLinksSafe),
+  list: () => Effect.succeed([...publishedComments.values()]),
+  get: (_repository, id) => Effect.succeed(publishedComments.get(id) ?? null),
+  write: (_repository, _issue, id, body) =>
+    Effect.gen(function* () {
+      const comment = { id: id ?? String(publishedComments.size + 10000), body }
+      if (writeOutcome !== "absent") publishedComments.set(comment.id, comment)
+      commentWrites.push(comment.id)
+      yield* afterCommentWrite
+      if (writeOutcome !== "ok") return yield* Effect.fail("Lost response")
+      return comment
+    }),
+})
+
 const ReviewLayer = Layer.mergeAll(
   AdmitReviewLayer,
   ReviewActionLayer,
@@ -187,6 +209,7 @@ const ReviewLayer = Layer.mergeAll(
   IssueReviewAdmission.layer,
   AgentHarness,
 ).pipe(
+  Layer.provideMerge(IssueReviewPublication.layer.pipe(Layer.provide(CommentsLayer))),
   Layer.provideMerge(IssueReviewScheduler.layer),
   Layer.provideMerge(
     Layer.mergeAll(IssueReviewStore.layer, TestAgentClient, ManualDispatch, workspaces.layer),
@@ -249,12 +272,13 @@ const shown = (runId: string) =>
 const actions = (runId: string) => Effect.flatMap(store, (s) => s.actions(runId))
 const drive = (runId: string, sequence: number) => ReviewAction.execute({ runId, sequence })
 
-const pendingActions = Effect.flatMap(
-  SqlClient.SqlClient,
-  (sql) => sql<{ execution_key: string }>`
+const pendingActions = (runId: string) =>
+  Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql<{ execution_key: string }>`
     SELECT execution_key FROM workflow_outbox WHERE workflow_tag = ${REVIEW_ACTION_TAG}
-      AND accepted_at IS NULL ORDER BY execution_key`,
-)
+      AND payload->>'runId' = ${runId} AND accepted_at IS NULL ORDER BY execution_key`,
+  )
 
 const conclusion = (overrides: Record<string, unknown> = {}) => ({
   classification: "question",
@@ -268,7 +292,361 @@ const conclusion = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+let summaryCommentSequence = 5000
+const prepareSummary = (findings?: string) =>
+  Effect.gen(function* () {
+    const runId = yield* invoke({
+      id: ++summaryCommentSequence,
+      issue: 30,
+      body: "@janitor investigate",
+    })
+    yield* drive(runId, 0)
+    model.script({
+      _tag: "Answer",
+      calls: [
+        {
+          name: "finish",
+          params: conclusion({
+            findings: findings ?? `Investigated ${github.defaultBranchSha}. More detail is needed.`,
+            evidence: [],
+          }),
+        },
+      ],
+    })
+    yield* drive(runId, 1)
+    return runId
+  })
+
+const publicationSetup = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`DELETE FROM issue_review_run`
+  yield* sql`DELETE FROM issue_review_issue`
+  yield* seed
+  yield* sql`UPDATE github_repository SET access = 'accessible' WHERE repository_id = ${repositoryId}`
+  model.reset()
+  publishedComments.clear()
+  commentWrites.length = 0
+  renderedLinksSafe = true
+  writeOutcome = "ok"
+  afterCommentWrite = Effect.void
+  github.permissions.set("octocat", { id: 9, permission: "write" })
+  github.put({ number: 30, title: "Question", body: "How?", state: "open", labels: [] })
+  yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+    settings.set(repositoryId, { enabled: true, dryRun: false }, actor),
+  )
+})
+
 layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => {
+  for (const operation of ["create", "update"] as const) {
+    it.effect(
+      `reconciles a lost ${operation} response without another write or investigation`,
+      () =>
+        live(
+          Effect.gen(function* () {
+            yield* publicationSetup
+            if (operation === "update") {
+              const earlier = yield* prepareSummary()
+              yield* drive(earlier, 2)
+            }
+            const runId = yield* prepareSummary()
+            writeOutcome = "lost"
+            yield* drive(runId, 2)
+            const calls = model.prompts.length
+            yield* drive(runId, 2)
+            assert.strictEqual((yield* shown(runId)).publication.status, "published")
+            assert.strictEqual(commentWrites.length, operation === "create" ? 1 : 2)
+            assert.strictEqual(publishedComments.size, 1)
+            assert.strictEqual(model.prompts.length, calls)
+          }),
+        ),
+    )
+  }
+
+  it.effect("recovers an interrupted write after cancellation and retains its publication", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        const runId = yield* prepareSummary()
+        const written = yield* Deferred.make<void>()
+        afterCommentWrite = Deferred.succeed(written, undefined).pipe(Effect.andThen(Effect.never))
+        const publisher = yield* IssueReviewPublication
+        const sending = yield* publisher.publish(runId).pipe(Effect.forkChild)
+        yield* Deferred.await(written)
+        yield* Fiber.interrupt(sending)
+        afterCommentWrite = Effect.void
+        const scheduler = yield* IssueReviewScheduler
+        yield* scheduler.cancel(
+          { repositoryId, runId },
+          { messageId: "cancel-after-send", reason: "Cancelled", actor: null },
+        )
+        yield* drive(runId, 2)
+        const history = yield* shown(runId)
+        assert.strictEqual(history.status, "cancelled")
+        assert.strictEqual(history.publication.status, "published")
+        assert.strictEqual(commentWrites.length, 1)
+      }),
+    ),
+  )
+
+  it.effect("shows unresolved publication and blocks subsequent runs from writing", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        const first = yield* prepareSummary()
+        writeOutcome = "absent"
+        yield* drive(first, 2)
+        assert.strictEqual((yield* shown(first)).publication.status, "unresolved")
+        writeOutcome = "ok"
+        const next = yield* prepareSummary()
+        yield* drive(next, 2)
+        assert.strictEqual((yield* shown(next)).publication.status, "blocked")
+        assert.strictEqual(commentWrites.length, 1)
+        assert.strictEqual(publishedComments.size, 0)
+      }),
+    ),
+  )
+
+  for (const unsafe of [
+    "@octocat",
+    "other/repo#123",
+    "(#999)",
+    "GH-999",
+    "a".repeat(40),
+    "[dashboard](https://janitor.example.test)",
+    "[link](/frontend)",
+    "&#64;octocat",
+    "https://github.com/effect/one/issues/999",
+    "x".repeat(16000),
+  ]) {
+    it.effect(`rejects unsafe output ${unsafe.slice(0, 50)}`, () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          const findings = `Investigated ${github.defaultBranchSha}. ${unsafe}`
+          // The overlong combined summary stays within each conclusion field's bound.
+          const runId = yield* prepareSummary(
+            findings.length > 16000 ? "x".repeat(16000) : findings,
+          )
+          assert.strictEqual((yield* shown(runId)).publication.status, "rejected")
+          assert.strictEqual(commentWrites.length, 0)
+        }),
+      ),
+    )
+  }
+
+  for (const changed of [
+    "permission",
+    "edited",
+    "deleted",
+    "closed",
+    "dry-run",
+    "disabled",
+    "paused",
+    "access",
+    "disconnected",
+    "cancelled",
+  ] as const) {
+    it.effect(`blocks publication after ${changed}`, () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          const runId = yield* prepareSummary()
+          const settings = yield* IssueReviewSettings
+          const sql = yield* SqlClient.SqlClient
+          if (changed === "permission")
+            github.permissions.set("octocat", { id: 9, permission: "read" })
+          if (changed === "edited")
+            github.comments.get(Number((yield* run(runId)).commentId))!.body += " edited"
+          if (changed === "deleted") github.comments.delete(Number((yield* run(runId)).commentId))
+          if (changed === "closed") github.issues.get(30)!.state = "closed"
+          if (changed === "dry-run") {
+            yield* settings.set(repositoryId, { enabled: true, dryRun: true }, actor)
+            yield* settings.set(repositoryId, { enabled: true, dryRun: false }, actor)
+          }
+          if (changed === "disabled")
+            yield* settings.set(repositoryId, { enabled: false, dryRun: false }, actor)
+          if (changed === "paused")
+            yield* sql`UPDATE github_repository SET enabled = FALSE WHERE repository_id = ${repositoryId}`
+          if (changed === "access")
+            yield* sql`UPDATE github_repository SET access = 'lost' WHERE repository_id = ${repositoryId}`
+          if (changed === "disconnected")
+            yield* sql`UPDATE github_repository SET connected = FALSE WHERE repository_id = ${repositoryId}`
+          if (changed === "cancelled")
+            yield* Effect.flatMap(IssueReviewScheduler, (scheduler) =>
+              scheduler.cancel(
+                { repositoryId, runId },
+                { messageId: "cancel-before-send", reason: "Cancelled", actor: null },
+              ),
+            )
+          yield* drive(runId, 2)
+          assert.strictEqual(commentWrites.length, 0)
+          assert.strictEqual((yield* shown(runId)).publication.status, "blocked")
+        }),
+      ),
+    )
+  }
+
+  for (const change of ["edited", "deleted"] as const) {
+    it.effect(`does not overwrite a ${change} summary`, () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          const first = yield* prepareSummary()
+          yield* drive(first, 2)
+          if (change === "edited") publishedComments.get("10000")!.body = "Human correction"
+          else publishedComments.delete("10000")
+          const next = yield* prepareSummary()
+          yield* drive(next, 2)
+          assert.strictEqual((yield* shown(next)).publication.status, "blocked")
+          assert.strictEqual(commentWrites.length, 1)
+        }),
+      ),
+    )
+  }
+
+  it.effect("keeps completed writes when dry-run changes during an in-flight publication", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        const runId = yield* prepareSummary()
+        const accepted = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        afterCommentWrite = Deferred.succeed(accepted, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+        )
+        const publisher = yield* IssueReviewPublication
+        const sending = yield* publisher.publish(runId).pipe(Effect.forkChild)
+        yield* Deferred.await(accepted)
+        const settings = yield* IssueReviewSettings
+        const changing = yield* settings
+          .set(repositoryId, { enabled: true, dryRun: true }, actor)
+          .pipe(Effect.forkChild)
+        yield* Deferred.succeed(release, undefined)
+        yield* Fiber.join(sending)
+        yield* Fiber.join(changing)
+        afterCommentWrite = Effect.void
+        yield* drive(runId, 2)
+        assert.strictEqual((yield* shown(runId)).publication.status, "published")
+        assert.strictEqual(commentWrites.length, 1)
+      }),
+    ),
+  )
+
+  for (const initiallyDry of [true, false]) {
+    it.effect(
+      `never upgrades old findings when dry-run is disabled, initially dry=${initiallyDry}`,
+      () =>
+        live(
+          Effect.gen(function* () {
+            yield* publicationSetup
+            const settings = yield* IssueReviewSettings
+            yield* settings.set(repositoryId, { enabled: true, dryRun: initiallyDry }, actor)
+            const runId = yield* invoke({
+              id: ++summaryCommentSequence,
+              issue: 30,
+              body: "@janitor investigate",
+            })
+            yield* drive(runId, 0)
+            yield* settings.set(repositoryId, { enabled: true, dryRun: true }, actor)
+            yield* settings.set(repositoryId, { enabled: true, dryRun: false }, actor)
+            model.script({ _tag: "Answer", calls: [{ name: "finish", params: conclusion() }] })
+            yield* drive(runId, 1)
+            assert.strictEqual((yield* shown(runId)).status, "completed")
+            assert.strictEqual((yield* shown(runId)).dryRun, true)
+            assert.strictEqual(commentWrites.length, 0)
+          }),
+        ),
+    )
+  }
+
+  it.effect("publishes agent-authored links only after observing their evidence", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        const runId = yield* invoke({
+          id: ++summaryCommentSequence,
+          issue: 30,
+          body: "@janitor investigate",
+        })
+        yield* drive(runId, 0)
+        const text = `Investigated ${github.defaultBranchSha}. See [config](https://github.com/effect/one/blob/${github.defaultBranchSha}/src/config.ts#L1).`
+        model.script(
+          {
+            _tag: "Answer",
+            calls: [
+              { name: "readFile", params: { path: "src/config.ts", offset: null, limit: null } },
+            ],
+          },
+          {
+            _tag: "Answer",
+            calls: [
+              {
+                name: "finish",
+                params: conclusion({
+                  findings: text,
+                  evidence: [{ kind: "file", reference: "src/config.ts", note: "Configuration" }],
+                }),
+              },
+            ],
+          },
+        )
+        yield* drive(runId, 1)
+        yield* drive(runId, 2)
+        yield* drive(runId, 3)
+        assert.strictEqual((yield* shown(runId)).publication.status, "published")
+        assert.include(publishedComments.get("10000")!.body, text)
+      }),
+    ),
+  )
+
+  it.effect("retains rejected rendered output without blocking a later valid summary", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        const first = yield* prepareSummary()
+        renderedLinksSafe = false
+        yield* drive(first, 2)
+        assert.strictEqual((yield* shown(first)).publication.status, "rejected")
+        assert.strictEqual(commentWrites.length, 0)
+        renderedLinksSafe = true
+        const next = yield* prepareSummary()
+        yield* drive(next, 2)
+        assert.strictEqual((yield* shown(next)).publication.status, "published")
+        assert.strictEqual(commentWrites.length, 1)
+      }),
+    ),
+  )
+
+  it.effect("publishes one summary and updates it on the next authorized run", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        for (const id of [800, 801]) {
+          const runId = yield* invoke({ id, issue: 30, body: "@janitor investigate" })
+          yield* drive(runId, 0)
+          model.script({
+            _tag: "Answer",
+            calls: [
+              {
+                name: "finish",
+                params: conclusion({
+                  findings: `Investigated ${github.defaultBranchSha}. The question needs more detail. Run ${id}.`,
+                  evidence: [],
+                }),
+              },
+            ],
+          })
+          yield* drive(runId, 1)
+          yield* drive(runId, 2)
+          assert.strictEqual((yield* shown(runId)).publication.status, "published")
+        }
+        assert.strictEqual(publishedComments.size, 1)
+        assert.deepStrictEqual(commentWrites, ["10000", "10000"])
+        assert.include(publishedComments.get("10000")!.body, "Run 801.")
+      }),
+    ),
+  )
+
   it.effect("reviews a question from evidence and records validated findings", () =>
     live(
       Effect.gen(function* () {
@@ -300,7 +678,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
         // Admission started the run and scheduled the prepare action.
         assert.strictEqual((yield* run(runId)).status, "running")
         assert.deepStrictEqual(
-          (yield* pendingActions).map((row) => row.execution_key),
+          (yield* pendingActions(runId)).map((row) => row.execution_key),
           [`review-action:${runId}:0`],
         )
         const prepared = yield* drive(runId, 0)
@@ -310,9 +688,10 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
           [afterPrepare.defaultBranch, afterPrepare.commitSha],
           ["main", github.defaultBranchSha],
         )
-        assert.deepStrictEqual(workspaces.provisions, [
-          { runId, remoteUrl: REMOTE, commitSha: github.defaultBranchSha },
-        ])
+        assert.deepStrictEqual(
+          workspaces.provisions.filter((entry) => entry.runId === runId),
+          [{ runId, remoteUrl: REMOTE, commitSha: github.defaultBranchSha }],
+        )
         // The prepare action refreshed the invoker's authority on GitHub.
         assert.include(
           github.reads.map((request) => request.url),

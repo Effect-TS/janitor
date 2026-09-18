@@ -8,11 +8,17 @@
 
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0007, 0010 as refined by 0012. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
-- [ ] Persist intended agent-authored text and publication identity before writing. The agent Entity requests durable publication actions; individual Activities own their idempotency and report results back to persisted agent state.
-- [ ] Maintain a durable summary identity per issue and update it rather than creating a comment for every run. Each claim names the actual investigated commit and accurately states evidence and uncertainty.
-- [ ] Trusted output checks prevent mentions and frontend links, verify links against permitted evidence, and enforce bounded length. Use no application-owned prose template; invalid output cannot be published verbatim.
-- [ ] Each actual write attempt obtains fresh author permission and checks unchanged source invocation, open issue, connection, pause, access, review enablement, cancellation, and publication mode under per-issue serialization.
-- [ ] Dry-run blocks automatic publication, including when enabled during investigation. Disabling it never publishes old results automatically. No Slack output, label writes, or labeling inputs are introduced.
-- [ ] Use repository-scoped, least-privilege credentials outside the sandbox and expose only the permitted comment operation to publication code.
-- [ ] Reconcile lost responses against GitHub before retrying. An unresolved outcome stops further writes and appears in frontend history; completed writes remain after cancellation or later failure.
-- [ ] Verify first publication, subsequent update, ambiguous creation/update outcomes, output rejection, permission revocation, edit/deletion, closure, and dry-run/control changes racing publication.
+- [x] Persist intended agent-authored text and publication identity before writing. The agent Entity requests durable publication actions; individual Activities own their idempotency and report results back to persisted agent state.
+- [x] Maintain a durable summary identity per issue and update it rather than creating a comment for every run. Each claim names the actual investigated commit and accurately states evidence and uncertainty.
+- [x] Trusted output checks prevent mentions and frontend links, verify links against permitted evidence, and enforce bounded length. Use no application-owned prose template; invalid output cannot be published verbatim.
+- [x] Each actual write attempt obtains fresh author permission and checks unchanged source invocation, open issue, connection, pause, access, review enablement, cancellation, and publication mode under per-issue serialization.
+- [x] Dry-run blocks automatic publication, including when enabled during investigation. Disabling it never publishes old results automatically. No Slack output, label writes, or labeling inputs are introduced.
+- [x] Use repository-scoped, least-privilege credentials outside the sandbox and expose only the permitted comment operation to publication code.
+- [x] Reconcile lost responses against GitHub before retrying. An unresolved outcome stops further writes and appears in frontend history; completed writes remain after cancellation or later failure.
+- [x] Verify first publication, subsequent update, ambiguous creation/update outcomes, output rejection, permission revocation, edit/deletion, closure, and dry-run/control changes racing publication.
+
+## Comments
+
+Implemented summary creation and updates as durable agent actions. Publication intent, exact output, ownership fingerprints, and unresolved outcomes survive action interruption. Fresh authority and repository checks run under serialization; enabling dry-run remains sticky for existing runs. Trusted validation checks both source text and GitHub-rendered evidence links. History shows publication status and summary links. Production enablement remains gated by ticket 13.
+
+Validation: full suite passed, 707 tests across 122 files. Standards and spec reviews have no outstanding findings; the shorthand-link bypass found during review was fixed.

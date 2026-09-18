@@ -47,6 +47,11 @@ export class GitHubAppAuth extends Context.Service<
     readonly appJwt: Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError>
     readonly installationToken: (
       installationId: GitHubInstallationId,
+      restriction?: {
+        readonly repositoryId: string
+        readonly issues: "read" | "write"
+        readonly contents?: "read"
+      },
     ) => Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError>
     /** Drops a cached token after GitHub rejected it. */
     readonly invalidateInstallationToken: (
@@ -204,9 +209,14 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
 
   const installationToken = Effect.fn("GitHubAppAuth.installationToken")(function* (
     installationId: GitHubInstallationId,
+    restriction?: {
+      readonly repositoryId: string
+      readonly issues: "read" | "write"
+      readonly contents?: "read"
+    },
   ) {
     const now = yield* DateTime.now
-    const cached = tokens.get(installationId)
+    const cached = restriction === undefined ? tokens.get(installationId) : undefined
     if (
       cached !== undefined &&
       DateTime.isGreaterThan(cached.expiresAt, DateTime.addDuration(now, TOKEN_REFRESH_MARGIN))
@@ -224,7 +234,17 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
         "user-agent": GITHUB_USER_AGENT,
       }),
     )
-    const response = yield* http.execute(request).pipe(
+    const scopedRequest =
+      restriction === undefined
+        ? request
+        : yield* HttpClientRequest.bodyJson(request, {
+            repository_ids: [Number(restriction.repositoryId)],
+            permissions: {
+              issues: restriction.issues,
+              ...(restriction.contents === undefined ? {} : { contents: restriction.contents }),
+            },
+          }).pipe(Effect.orDie)
+    const response = yield* http.execute(scopedRequest).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.flatMap(decodeToken),
       Effect.mapError(
@@ -236,7 +256,7 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
           }),
       ),
     )
-    tokens.set(installationId, response.body)
+    if (restriction === undefined) tokens.set(installationId, response.body)
     return response.body.token
   })
 

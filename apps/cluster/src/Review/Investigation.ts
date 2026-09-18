@@ -1,3 +1,4 @@
+import { IssueReviewPublication } from "./Publication.ts"
 import * as Semaphore from "effect/Semaphore"
 import { ReviewConclusion } from "@janitor/domain/Review/Findings"
 import type { Reproduction, TestAttempt } from "@janitor/domain/Review/Reproduction"
@@ -207,6 +208,7 @@ export const ReviewActionLayer = ReviewAction.toLayer(
     const eligibility = yield* RepositoryEligibility
     const workspaces = yield* ReviewWorkspaces
     const agents = yield* ReviewAgentClient
+    const publication = yield* IssueReviewPublication
     const transport = yield* GitHubTransport
     const model = yield* Effect.serviceOption(LanguageModel.LanguageModel)
 
@@ -693,6 +695,10 @@ export const ReviewActionLayer = ReviewAction.toLayer(
         return yield* record(
           yield* decodeResult(action.value.result).pipe(Effect.mapError(failure)),
         )
+      if (action.value.kind === "publish") {
+        yield* publication.publish(runId).pipe(Effect.mapError(failure))
+        return yield* record({ _tag: "PublicationFinished" })
+      }
       if (run.value.status !== "running") {
         // The run ended meanwhile: nothing runs, and the sandbox is let go.
         yield* workspaces.open(runId).release.pipe(Effect.ignore)
