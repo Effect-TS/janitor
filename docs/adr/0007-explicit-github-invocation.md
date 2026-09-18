@@ -4,7 +4,7 @@ Status: accepted.
 
 Issue review starts or resumes only through an explicit GitHub invocation by someone with sufficient repository permissions, in a repository that has opted in. Issue creation, edits, and ordinary comments cannot initiate or continue work. This gives repository operators control over execution at the cost of requiring another invocation after a reporter supplies missing information.
 
-Initial invocation accepts a free-form request containing an actual `@effect-janitor` mention anywhere outside quoted text, code, or link destinations in a newly created comment on an open issue. No fixed `review` command or first-line command grammar is required. Issue bodies, edited comments, quoted invocations, PR comments, and closed issues are excluded. A comment without the mention cannot start or resume work.
+Initial invocation accepts a free-form request containing an actual `@janitor` mention anywhere outside quoted text, code, or link destinations in a newly created comment on an open issue. No fixed `review` command or first-line command grammar is required. Issue bodies, edited comments, quoted invocations, PR comments, and closed issues are excluded. A comment without the mention cannot start or resume work.
 
 Human invokers need effective repository write or admin permission, including custom roles with that base access. No additional Janitor operator allowlist is required. Permission lookup failures deny execution. Janitor and other GitHub bot or App identities cannot invoke review; an ordinary user account used for automation remains a limitation of account-type checks.
 
