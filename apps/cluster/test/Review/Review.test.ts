@@ -583,6 +583,22 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
     }),
   )
 
+  it.effect("ends an overdue investigation when its action never delivers completion", () =>
+    Effect.gen(function* () {
+      yield* deliver({ id: 40, issue: 40, body: "/janitor investigate" })
+      yield* admit(40)
+      const running = (yield* runFor(40))!
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`UPDATE issue_review_run SET deadline_at = started_at - INTERVAL '1 second'
+        WHERE run_id::text = ${running.runId}`
+      const recovered = yield* withAgent(running.runId, (client) =>
+        client.Start({ messageId: "recovery:overdue" }),
+      )
+      assert.strictEqual(recovered.status, "failed")
+      assert.isNotNull((yield* runFor(40))?.finishedAt)
+    }),
+  )
+
   it.effect("restores the agent from persisted state after a restart", () =>
     Effect.gen(function* () {
       // A fresh in-memory client stands in for a runner restart: the entity

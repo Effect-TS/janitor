@@ -288,6 +288,8 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
           (yield* now).getTime() >= DateTime.toEpochMillis(run.deadlineAt)
         switch (result._tag) {
           case "Ready":
+            if (overdue)
+              return yield* ended(run, "failed", limitations.deadline, rounds, repository)
             return yield* investigating(run, schedule, sequence + 1)
           case "Denied":
             return yield* cancelled(run, result.reason, null)
@@ -383,6 +385,26 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
       Effect.gen(function* () {
         const rows = yield* orDie(store.actions(runId))
         const latest = rows.at(-1)
+        if (
+          run.status === "running" &&
+          run.classification === null &&
+          run.deadlineAt !== null &&
+          (yield* now).getTime() >= DateTime.toEpochMillis(run.deadlineAt) &&
+          latest?.status !== "completed"
+        ) {
+          const results = yield* Effect.forEach(
+            rows.filter((row) => row.status === "completed"),
+            (row) => decodeResult(row.result),
+          ).pipe(Effect.orDie)
+          const prepared = results.find((result): result is Prepared => result._tag === "Ready")
+          return yield* ended(
+            run,
+            "failed",
+            limitations.deadline,
+            results.filter((result): result is Round => result._tag === "Round"),
+            prepared?.repository,
+          )
+        }
         if (latest === undefined || latest.status !== "completed") return run
         const fresh = yield* orDie(
           store.recordMessage({

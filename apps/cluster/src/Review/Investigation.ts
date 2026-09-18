@@ -201,7 +201,7 @@ const providerFailure = (error: unknown, now: number) => {
       : 0,
   )
   return reason.isRetryable
-    ? { _tag: "Retry" as const, retryAfterMs: Math.max(retryAfterMs, 1_000) }
+    ? { _tag: "Retry" as const, category: reason._tag, retryAfterMs: Math.max(retryAfterMs, 1_000) }
     : { _tag: "Failed" as const, category: reason._tag }
 }
 
@@ -678,7 +678,13 @@ export const ReviewActionLayer = ReviewAction.toLayer(
         const verdict = providerFailure(response.failure, DateTime.toEpochMillis(now))
         // Log the category only; provider errors can echo prompts and keys.
         yield* Effect.logWarning("Review model call failed").pipe(
-          Effect.annotateLogs({ runId, sequence, attempt, verdict: verdict._tag }),
+          Effect.annotateLogs({
+            runId,
+            sequence,
+            attempt,
+            verdict: verdict._tag,
+            category: "category" in verdict ? verdict.category : undefined,
+          }),
         )
         if (verdict._tag === "TimedOut") return { _tag: "TimedOut" } satisfies ModelResult
         if (verdict._tag === "Failed")

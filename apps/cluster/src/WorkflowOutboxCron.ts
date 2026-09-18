@@ -1,3 +1,4 @@
+import { recoverReviewRuns } from "./Review/Recovery.ts"
 import { expireReviewHistory } from "./Review/Retention.ts"
 import { flushLive } from "./LiveUpdates.ts"
 import * as Effect from "effect/Effect"
@@ -21,6 +22,9 @@ export const WorkflowOutboxCronLayer = Singleton.make(
     )
     yield* expireReviewHistory.pipe(
       Effect.catchCause((cause) => Effect.logError("Review history expiry failed", cause)),
+    )
+    yield* recoverReviewRuns.pipe(
+      Effect.catchCause((cause) => Effect.logError("Review run recovery failed", cause)),
     )
     yield* flushLive
     const dispatcher = yield* WorkflowDispatcher
