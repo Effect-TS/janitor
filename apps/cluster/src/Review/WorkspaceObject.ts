@@ -6,6 +6,8 @@ import {
 import * as Cloudflare from "alchemy/Cloudflare"
 import { DurableObjectState } from "alchemy/Cloudflare/Workers"
 import { ALCHEMY_PHASE } from "alchemy/Phase"
+import * as Deferred from "effect/Deferred"
+import * as Semaphore from "effect/Semaphore"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -57,27 +59,44 @@ export const ReviewWorkspaceObjectLive = ReviewWorkspaceObject.make(
     const sandbox = yield* Sandbox.pipe(
       Effect.provide(layerContainerSession({ enableInternet: true })),
     )
+    const lock = yield* Semaphore.make(1)
+    const stopped = yield* Deferred.make<never, string>()
     return Effect.sync(() => {
       const workspace = makeReviewWorkspace(sandbox)
+      const guard = <A>(operation: Effect.Effect<A, string>) =>
+        Effect.gen(function* () {
+          const state = yield* Effect.serviceOption(DurableObjectState)
+          if (
+            Option.isSome(state) &&
+            (yield* Effect.promise(() => state.value.raw.storage.get<boolean>("released")))
+          )
+            return yield* Effect.fail("Review workspace released.")
+          return yield* operation
+        }).pipe(Effect.raceFirst(Deferred.await(stopped)), Semaphore.withPermits(lock, 1))
       return {
-        provision: workspace.provision,
-        execute: workspace.execute,
-        status: () => workspace.status,
-        listFiles: workspace.listFiles,
+        provision: (request) => guard(workspace.provision(request)),
+        execute: (request) => guard(workspace.execute(request)),
+        status: () => guard(workspace.status),
+        listFiles: (path) => guard(workspace.listFiles(path)),
         readFile: (path, offset, limit) =>
-          workspace.readFile(path, { offset: offset ?? undefined, limit: limit ?? undefined }),
-        search: (pattern, path) => workspace.search(pattern, path ?? undefined),
-        release: () =>
-          workspace.release.pipe(
-            Effect.ensuring(
-              Effect.gen(function* () {
-                // Destroy also stops background children and work from a prior object instance.
-                const state = yield* Effect.serviceOption(DurableObjectState)
-                if (Option.isSome(state) && state.value.container !== undefined)
-                  yield* Effect.promise(() => state.value.container!.destroy())
-              }),
-            ),
+          guard(
+            workspace.readFile(path, { offset: offset ?? undefined, limit: limit ?? undefined }),
           ),
+        search: (pattern, path) => guard(workspace.search(pattern, path ?? undefined)),
+        release: () =>
+          Effect.gen(function* () {
+            const state = yield* Effect.serviceOption(DurableObjectState)
+            // This marker survives object eviction and container replacement. Set it
+            // before interrupting work so a delayed call cannot recreate the checkout.
+            if (Option.isSome(state))
+              yield* Effect.promise(() => state.value.raw.storage.put("released", true))
+            yield* Deferred.fail(stopped, "Review workspace released.")
+            yield* (
+              Option.isSome(state) && state.value.container !== undefined
+                ? Effect.promise(() => state.value.container!.destroy())
+                : workspace.release
+            ).pipe(Semaphore.withPermits(lock, 1))
+          }),
       } satisfies ReviewWorkspaceObjectShape
     })
   }),

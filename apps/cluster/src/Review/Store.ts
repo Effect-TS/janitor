@@ -420,7 +420,7 @@ export class IssueReviewStore extends Context.Service<
       sql`
         UPDATE issue_review_receipt SET outcome = ${decision.outcome}, reason = ${decision.reason ?? null},
           run_id = ${decision.runId ?? null}::uuid, decided_at = CLOCK_TIMESTAMP()
-        WHERE repository_id = ${repositoryId} AND comment_id = ${commentId} AND outcome = 'pending'
+        WHERE repository_id = ${repositoryId} AND comment_id = ${commentId} AND outcome = 'pending' AND NOT details_expired
         RETURNING comment_id
       `.pipe(
         Effect.map((rows) => rows.length === 1),
@@ -431,13 +431,13 @@ export class IssueReviewStore extends Context.Service<
       Request: ById,
       Result: RunRecord,
       execute: ({ runId }) =>
-        sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run WHERE run_id::text = ${runId}`,
+        sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run WHERE run_id::text = ${runId} AND accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days'`,
     })
     const lockRunQuery = SqlSchema.findOneOption({
       Request: ById,
       Result: RunRecord,
       execute: ({ runId }) =>
-        sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run WHERE run_id::text = ${runId} FOR UPDATE`,
+        sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run WHERE run_id::text = ${runId} AND accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days' FOR UPDATE`,
     })
     const cancelQuery = SqlSchema.findAll({
       Request: Schema.Struct({
@@ -498,6 +498,7 @@ export class IssueReviewStore extends Context.Service<
         sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run
           WHERE repository_id = ${repositoryId} AND status IN ('queued', 'running')
             AND (${issueNumber === null} OR issue_number = ${issueNumber ?? 0})
+            AND accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days'
           ORDER BY accepted_at, run_id`,
     })
     const findNextQueued = SqlSchema.findOneOption({
@@ -506,6 +507,7 @@ export class IssueReviewStore extends Context.Service<
       execute: ({ repositoryId, issueNumber }) =>
         sql`SELECT ${sql.literal(runColumns)} FROM issue_review_run
           WHERE repository_id = ${repositoryId} AND issue_number = ${issueNumber} AND status = 'queued'
+            AND accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days'
           ORDER BY accepted_at, run_id LIMIT 1`,
     })
 
@@ -577,14 +579,18 @@ export class IssueReviewStore extends Context.Service<
       Result: ActionRow,
       execute: ({ runId, sequence }) =>
         sql`SELECT ${sql.literal(actionColumns)} FROM issue_review_action
-          WHERE run_id::text = ${runId} AND sequence = ${sequence}`,
+          WHERE run_id::text = ${runId} AND sequence = ${sequence}
+            AND EXISTS (SELECT 1 FROM issue_review_run r WHERE r.run_id = issue_review_action.run_id
+              AND r.accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days')`,
     })
     const findActions = SqlSchema.findAll({
       Request: ById,
       Result: ActionRow,
       execute: ({ runId }) =>
         sql`SELECT ${sql.literal(actionColumns)} FROM issue_review_action
-          WHERE run_id::text = ${runId} ORDER BY sequence`,
+          WHERE run_id::text = ${runId}
+            AND EXISTS (SELECT 1 FROM issue_review_run r WHERE r.run_id = issue_review_action.run_id
+              AND r.accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days') ORDER BY sequence`,
     })
 
     const completeAction = (runId: string, sequence: number, result: unknown) =>
@@ -617,8 +623,16 @@ export class IssueReviewStore extends Context.Service<
 
     const lockIssue = (repositoryId: string, issueNumber: number) =>
       Effect.gen(function* () {
+        // Serialize creation with disconnection. A delayed release without a current run
+        // cannot recreate management records after disconnect or reconnect.
+        yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
         yield* sql`INSERT INTO issue_review_issue (repository_id, issue_number)
-          VALUES (${repositoryId}, ${issueNumber}) ON CONFLICT DO NOTHING`
+          SELECT ${repositoryId}, ${issueNumber} WHERE EXISTS (
+            SELECT 1 FROM issue_review_run r JOIN github_repository g USING (repository_id)
+            WHERE r.repository_id = ${repositoryId} AND r.issue_number = ${issueNumber}
+              AND g.connected AND r.eligibility_generation = g.eligibility_generation
+              AND r.accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days'
+          ) ON CONFLICT DO NOTHING`
         const [row] = yield* sql<{ active_run_id: string | null }>`
           SELECT active_run_id::text AS active_run_id FROM issue_review_issue
           WHERE repository_id = ${repositoryId} AND issue_number = ${issueNumber} FOR UPDATE`
@@ -646,6 +660,7 @@ export class IssueReviewStore extends Context.Service<
         FROM issue_review_run r
         LEFT JOIN github_entity e ON e.repository_id = r.repository_id AND e.number = r.issue_number
         WHERE r.repository_id = ${repositoryId}
+          AND r.accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days'
         ORDER BY r.accepted_at DESC, r.run_id DESC
         LIMIT 200`,
     })
@@ -662,6 +677,7 @@ export class IssueReviewStore extends Context.Service<
         FROM issue_review_run
         WHERE repository_id = ${repositoryId} AND issue_number = ${issueNumber}
           AND run_id::text <> ${runId} AND status = 'completed' AND findings IS NOT NULL
+          AND accepted_at > CLOCK_TIMESTAMP() - INTERVAL '14 days'
         ORDER BY accepted_at DESC, run_id DESC
         LIMIT ${PRIOR_CONCLUSION_LIMIT}`,
     })

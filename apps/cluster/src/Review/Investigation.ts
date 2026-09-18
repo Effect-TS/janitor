@@ -1,3 +1,4 @@
+import { describeError } from "../SqlErrors.ts"
 import { IssueReviewDraftPublication } from "./DraftPublication.ts"
 import { IssueReviewPublication } from "./Publication.ts"
 import * as Semaphore from "effect/Semaphore"
@@ -25,7 +26,6 @@ import {
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import { type RepositoryTarget, repositoryTarget } from "../Labeling/GitHubIssue.ts"
 import { changedReason, RepositoryEligibility } from "../RepositoryEligibility.ts"
-import { describeError } from "../SqlErrors.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import {
   actionMessageId,
@@ -91,8 +91,9 @@ export const ReviewAction = Workflow.make(REVIEW_ACTION_TAG, {
   idempotencyKey: reviewActionKey,
 })
 
-const failure = (error: { readonly message: string }) =>
-  new ReviewActionError({ message: describeError(error) })
+// Workflow journals outlive detailed review history. Keep their errors free of result data.
+const failure = (_error: { readonly message: string }) =>
+  new ReviewActionError({ message: "The review action could not complete." })
 
 const TOOL_RESULT_LIMIT = 16_000
 /** How long after the deadline a completion is still worth delivering. */
@@ -217,7 +218,7 @@ export const ReviewActionLayer = ReviewAction.toLayer(
     const model = yield* Effect.serviceOption(LanguageModel.LanguageModel)
 
     const run = yield* store.run(runId).pipe(Effect.mapError(failure))
-    if (Option.isNone(run)) return yield* failure({ message: "the run no longer exists" })
+    if (Option.isNone(run)) return { result: "Skipped", recorded: false }
     const action = yield* store.action(runId, sequence).pipe(Effect.mapError(failure))
     if (Option.isNone(action)) return yield* failure({ message: "the action was never scheduled" })
 
@@ -739,6 +740,7 @@ export const ReviewActionLayer = ReviewAction.toLayer(
     // agent also resyncs whenever the scheduler starts it again.
     const notify = agents.actionCompleted(runId, actionMessageId(payload), sequence)
     for (let attempt = 0; ; attempt++) {
+      if (Option.isNone(yield* store.run(runId).pipe(Effect.mapError(failure)))) break
       const delivered = yield* notify.pipe(Effect.asVoid, Effect.result)
       if (delivered._tag === "Success") break
       const now = yield* DateTime.now

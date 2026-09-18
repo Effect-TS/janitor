@@ -214,8 +214,9 @@ export const AdmitReview = Workflow.make(ADMIT_REVIEW_TAG, {
   idempotencyKey: admitReviewKey,
 })
 
-const failure = (error: { readonly message: string }) =>
-  new AdmitReviewError({ message: describeError(error) })
+// Durable workflow errors must not retain invocation or provider details.
+const failure = (_error: { readonly message: string }) =>
+  new AdmitReviewError({ message: "Review admission could not complete." })
 
 /** The receipt was settled by an edit or deletion while the decision ran. */
 class ReceiptSettled extends Schema.TaggedError<ReceiptSettled>()("ReceiptSettled", {}) {}
