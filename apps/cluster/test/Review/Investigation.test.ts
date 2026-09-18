@@ -2509,6 +2509,64 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
       ),
   )
 
+  it.effect("bounds setup commands and can conclude after an install timeout", () =>
+    live(
+      Effect.gen(function* () {
+        model.reset()
+        github.put({
+          number: 90,
+          title: "Slow installation",
+          body: "Bug",
+          state: "open",
+          labels: [],
+        })
+        const runId = yield* invoke({ id: 900, issue: 90, body: "/janitor reproduce" })
+        yield* drive(runId, 0)
+        let commandTimeout = 0
+        workspaces.execute = (request) => {
+          commandTimeout = request.timeout
+          return Effect.fail("command timed out; last output: downloading dependencies")
+        }
+        model.script({
+          _tag: "Answer",
+          calls: [
+            {
+              name: "execute",
+              params: {
+                command: "pnpm install --frozen-lockfile",
+                kind: "setup",
+                testPath: null,
+                commitSha: null,
+              },
+            },
+          ],
+        })
+        yield* drive(runId, 1)
+        assert.isAtMost(commandTimeout, 180_000)
+        assert.isAbove(commandTimeout, 0)
+        const attempted = yield* shown(runId)
+        assert.strictEqual(attempted.status, "running")
+        assert.include(attempted.reproduction.attempts[0]!.output, "downloading dependencies")
+        model.script({
+          _tag: "Answer",
+          calls: [
+            {
+              name: "finish",
+              params: conclusion({
+                classification: "unclear",
+                findings: "Installation timed out before the reproduction could run.",
+                uncertainty: "The reported behavior remains unverified.",
+                evidence: [],
+              }),
+            },
+          ],
+        })
+        yield* drive(runId, 2)
+        assert.strictEqual((yield* run(runId)).status, "completed")
+      }),
+    ),
+  )
+
   it.effect("keeps attempted setup and saved patches after a deadline or workspace loss", () =>
     live(
       Effect.gen(function* () {

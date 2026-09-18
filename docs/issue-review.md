@@ -53,3 +53,39 @@ Lost responses trigger reconciliation using persisted intent and publication own
 Detailed history expires 14 days after invocation acceptance, including instructions, model/action data, evidence, patches, and reports. The retention sweep also queues workspace destruction, retrying failed cleanup. Expired results cannot be explicitly published even before the next sweep removes them.
 
 While the repository remains connected, minimal invocation receipts prevent webhook replay, and summary identity plus branch/PR ownership fingerprints allow later runs to recognize publications and human edits. These records do not retain full old reports. Disconnection removes management records and fences delayed work; published GitHub comments and PRs remain.
+
+## Sandbox resources and slow reviews
+
+Review sandboxes use a custom Cloudflare allocation: 2 vCPUs,
+6 GiB memory, and 8 GB disk. Cloudflare requires at least 3 GiB per vCPU,
+so a 2-vCPU container cannot use only 4 GiB. This is separate from the Slack sandbox application.
+The implicit `lite` default provides only 1/16 vCPU and 256 MiB memory and is too
+small for Janitor's dependency installation. See [Cloudflare instance types](https://developers.cloudflare.com/containers/platform/limits/).
+
+Setup commands are capped at three minutes and test commands at two minutes,
+always within the original 15-minute review deadline. The workspace RPC gets up
+to 15 additional seconds for process cleanup and evidence collection, also within
+the deadline. Command timeouts remain inconclusive evidence; the model can inspect
+the failure and conclude instead of waiting out the whole review. The sandbox
+retains bounded stdout/stderr in timeout errors. Avoid piping commands to `tail`,
+which hides their output until the pipe closes.
+
+Production logs include `Review command started` and `Review command finished`
+with run, sequence, attempt, kind, time limit, elapsed time, and exit status.
+They omit command text and output. A `Review model call failed` timeout may include
+time executing tools; correlate it with workspace RPC and command timings before
+attributing it to the model provider.
+
+On September 18, 2026, issue #81's run
+`62cde073-11c6-41ba-8217-92969e377499` completed 15 rounds, then spent about
+625 seconds in `execute` installing dependencies. It also encountered 52 transient
+provider failures earlier, accounting for roughly one minute. A clean container
+comparison at the recorded commit `a51348d125ce`, with Node 24.21.0 and pnpm
+11.20.0, reproduced an OOM kill on the production-sized allocation. The same
+install succeeded in 67 seconds with `standard-1` CPU/memory limits. This identifies
+undersizing as a reproduced failure mode; the production timeout did not retain
+enough install output to establish the exact package or process where it stalled.
+The minimal issue #81 fixture then ran in 0.53 seconds in the larger container,
+with three failures for the reported indented-fence bug and two passing controls.
+The fixture was run against the recorded commit, outside the working checkout;
+this infrastructure change does not fix the parser bug under review.
