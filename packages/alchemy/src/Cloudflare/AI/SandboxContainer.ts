@@ -15,92 +15,93 @@ export class SandboxContainerImage extends Container.Container<
   SandboxContainerShape
 >()("SandboxContainer") {}
 
-const makeContainer = Effect.gen(function* () {
-  const sandbox = yield* SandboxContainerImage
-  return Sandbox.of({
-    exec: (command, args, execOptions) => sandbox.exec(command, args, execOptions),
-    readFile: (path) => sandbox.readFile(path),
-    writeFile: (path, content) => sandbox.writeFile(path, content),
-    deleteFile: (path) => sandbox.deleteFile(path),
-    mkdir: (path) => sandbox.mkdir(path),
-    listFiles: (path) => sandbox.listFiles(path),
-    exists: (path) => sandbox.exists(path),
+/** Each Durable Object namespace needs its own container application declaration. */
+export const makeSandboxContainerLayers = <Self extends SandboxContainerShape>(
+  image: Container.Container.Decl<
+    Self,
+    SandboxContainerShape,
+    string,
+    Container.Container.Application<Self>
+  >,
+) => {
+  const makeContainer = Effect.gen(function* () {
+    const sandbox = yield* image
+    return Sandbox.of({
+      exec: (command, args, execOptions) => sandbox.exec(command, args, execOptions),
+      readFile: (path) => sandbox.readFile(path),
+      writeFile: (path, content) => sandbox.writeFile(path, content),
+      deleteFile: (path) => sandbox.deleteFile(path),
+      mkdir: (path) => sandbox.mkdir(path),
+      listFiles: (path) => sandbox.listFiles(path),
+      exists: (path) => sandbox.exists(path),
+    })
   })
-})
 
-/** A sandbox backed by the calling Durable Object's container. Disk is ephemeral. */
-export const layerContainer = (
-  options?: Container.ContainerStartupOptions,
-): Layer.Layer<
-  Sandbox,
-  never,
-  Container.Container.Application<SandboxContainerImage> | Providers
-> =>
-  Layer.effect(Sandbox, makeContainer).pipe(
-    Layer.provide(Container.layer(SandboxContainerImage, options)),
-  )
+  /** A sandbox backed by the calling Durable Object's container. Disk is ephemeral. */
+  const layerContainer = (
+    options?: Container.ContainerStartupOptions,
+  ): Layer.Layer<Sandbox, never, Container.Container.Application<Self> | Providers> =>
+    Layer.effect(Sandbox, makeContainer).pipe(Layer.provide(Container.layer(image, options)))
 
-const containers = new WeakMap<
-  object,
-  Effect.Effect<Container.Container.Instance<SandboxContainerImage>>
->()
+  const containers = new WeakMap<object, Effect.Effect<Container.Container.Instance<Self>>>()
 
-const makeContainerSession = Effect.fnUntraced(function* (
-  options?: Container.ContainerStartupOptions,
-) {
-  const context = yield* Effect.context<
-    Container.Container.Application<SandboxContainerImage> | Providers
-  >()
+  const makeContainerSession = Effect.fnUntraced(function* (
+    options?: Container.ContainerStartupOptions,
+  ) {
+    const context = yield* Effect.context<Container.Container.Application<Self> | Providers>()
 
-  const sandbox = Effect.gen(function* () {
-    const state = yield* Effect.serviceOption(DurableObjectState)
+    const sandbox = Effect.gen(function* () {
+      const state = yield* Effect.serviceOption(DurableObjectState)
 
-    if (Option.isNone(state)) {
-      return yield* Effect.fail(
-        "Sandbox session requires the calling Durable Object's state. " +
-          "Provide DurableObjectState when invoking sandbox methods.",
+      if (Option.isNone(state)) {
+        return yield* Effect.fail(
+          "Sandbox session requires the calling Durable Object's state. " +
+            "Provide DurableObjectState when invoking sandbox methods.",
+        )
+      }
+
+      const existing = containers.get(state.value)
+      if (existing !== undefined) {
+        return yield* existing
+      }
+
+      const started = yield* Effect.cached(
+        // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context
+        Container.startContainer(image, options).pipe(
+          Effect.provide(context),
+          Effect.orDie,
+        ) as Effect.Effect<Container.Container.Instance<Self>>,
       )
-    }
 
-    const existing = containers.get(state.value)
-    if (existing !== undefined) {
-      return yield* existing
-    }
+      // Publish before starting so concurrent calls share the same initialization.
+      containers.set(state.value, started)
 
-    const started = yield* Effect.cached(
-      // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context
-      Container.startContainer(SandboxContainerImage, options).pipe(
-        Effect.provide(context),
-        Effect.orDie,
-      ) as Effect.Effect<Container.Container.Instance<SandboxContainerImage>>,
-    )
+      return yield* started
+    })
 
-    // Publish before starting so concurrent calls share the same initialization.
-    containers.set(state.value, started)
+    const withSandbox = <A>(use: (instance: Sandbox["Service"]) => Effect.Effect<A, string>) =>
+      Effect.flatMap(sandbox, use)
 
-    return yield* started
+    return Sandbox.of({
+      exec: (command, args, execOptions) =>
+        withSandbox((instance) => instance.exec(command, args, execOptions)),
+      readFile: (path) => withSandbox((instance) => instance.readFile(path)),
+      writeFile: (path, content) => withSandbox((instance) => instance.writeFile(path, content)),
+      deleteFile: (path) => withSandbox((instance) => instance.deleteFile(path)),
+      mkdir: (path) => withSandbox((instance) => instance.mkdir(path)),
+      listFiles: (path) => withSandbox((instance) => instance.listFiles(path)),
+      exists: (path) => withSandbox((instance) => instance.exists(path)),
+    })
   })
 
-  const withSandbox = <A>(use: (instance: Sandbox["Service"]) => Effect.Effect<A, string>) =>
-    Effect.flatMap(sandbox, use)
+  /** Resolve and start the calling session's container on first use, not layer construction. */
+  const layerContainerSession = (
+    options?: Container.ContainerStartupOptions,
+  ): Layer.Layer<Sandbox, never, Container.Container.Application<Self> | Providers> =>
+    Layer.effect(Sandbox, makeContainerSession(options))
 
-  return Sandbox.of({
-    exec: (command, args, execOptions) =>
-      withSandbox((instance) => instance.exec(command, args, execOptions)),
-    readFile: (path) => withSandbox((instance) => instance.readFile(path)),
-    writeFile: (path, content) => withSandbox((instance) => instance.writeFile(path, content)),
-    deleteFile: (path) => withSandbox((instance) => instance.deleteFile(path)),
-    mkdir: (path) => withSandbox((instance) => instance.mkdir(path)),
-    listFiles: (path) => withSandbox((instance) => instance.listFiles(path)),
-    exists: (path) => withSandbox((instance) => instance.exists(path)),
-  })
-})
+  return { layerContainer, layerContainerSession }
+}
 
-/** Resolve and start the calling session's container on first use, not layer construction. */
-export const layerContainerSession = (
-  options?: Container.ContainerStartupOptions,
-): Layer.Layer<
-  Sandbox,
-  never,
-  Container.Container.Application<SandboxContainerImage> | Providers
-> => Layer.effect(Sandbox, makeContainerSession(options))
+export const { layerContainer, layerContainerSession } =
+  makeSandboxContainerLayers(SandboxContainerImage)
