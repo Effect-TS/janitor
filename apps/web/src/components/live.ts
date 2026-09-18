@@ -16,11 +16,16 @@ export const Topic = Schema.Literals([
   "test",
   "repository",
   "review",
+  "connections",
+  "account",
 ])
 class HeartbeatTimeout extends Schema.TaggedError<HeartbeatTimeout>()("HeartbeatTimeout", {}) {}
 const Frame = Schema.Union([
   Schema.TaggedStruct("Ready", {}),
-  Schema.TaggedStruct("Changed", { revision: Schema.String, topics: Schema.Array(Topic) }),
+  Schema.TaggedStruct("Changed", {
+    revision: Schema.BigIntFromString,
+    topics: Schema.Array(Topic),
+  }),
 ])
 export const Model = Schema.Struct({
   visible: Schema.Boolean,
@@ -38,10 +43,12 @@ export const Message = defineMessageUnion({
   Disconnected: { channel: Schema.String, denied: Schema.Boolean },
   Visibility: { visible: Schema.Boolean },
   Retry: {},
-  Fallback: { channel: Schema.String },
 })
 export type Message = typeof Message.Type
 export type State = Model & { channel: string; endpoint: string }
+
+export const APPLICATION_CHANNEL = "application"
+export const applicationEndpoint = "/api/v1/live"
 
 export const repositoryEndpoint = (repositoryId: string) =>
   `/api/v1/repositories/${encodeURIComponent(repositoryId)}/live`
@@ -51,6 +58,7 @@ const connection = (channel: string, endpoint: string) =>
   Stream.callback<Message, never, HttpClient.HttpClient>((queue) =>
     Effect.gen(function* () {
       let attempt = 0
+      const revisions = new Map<typeof Topic.Type, bigint>()
       while (true) {
         const available = yield* HttpClient.get(endpoint).pipe(
           Effect.timeout("10 seconds"),
@@ -96,12 +104,21 @@ const connection = (channel: string, endpoint: string) =>
                     text,
                   )
                   attempt = 0
+                  const topics =
+                    frame._tag === "Ready"
+                      ? []
+                      : frame.topics.filter((topic) => {
+                          if ((revisions.get(topic) ?? -1n) >= frame.revision) return false
+                          revisions.set(topic, frame.revision)
+                          return true
+                        })
+                  if (frame._tag === "Changed" && topics.length === 0) return
                   yield* Queue.offer(
                     queue,
                     Message.Received({
                       channel,
                       connected: frame._tag === "Ready",
-                      topics: frame._tag === "Ready" ? [] : frame.topics,
+                      topics,
                     }),
                   )
                 })
@@ -159,23 +176,6 @@ export const subscriptions = Subscription.make<State, Message, HttpClient.HttpCl
         }),
         dependenciesToStream: ({ channel, endpoint, visible }) =>
           channel && visible ? connection(channel, endpoint) : Stream.empty,
-      },
-    ),
-    liveFallback: entry(
-      { channel: Schema.String, visible: Schema.Boolean, status: Model.fields.status },
-      {
-        modelToDependencies: (model) => ({
-          channel: model.channel,
-          visible: model.visible,
-          status: model.status,
-        }),
-        dependenciesToStream: ({ channel, visible, status }) =>
-          channel && visible && status !== "connected" && status !== "denied"
-            ? Stream.tick("60 seconds").pipe(
-                Stream.drop(1),
-                Stream.map(() => Message.Fallback({ channel })),
-              )
-            : Stream.empty,
       },
     ),
     liveVisibility: entry(

@@ -275,7 +275,7 @@ export const update = (model: Model, message: Message): Return =>
     SettledSearch: ({ generation }) =>
       generation === model.generation ? fetchPage({ ...model, searchPending: false }) : { model },
     ChangedTarget: ({ target }) => fetchPage(reset({ ...model, target })),
-    Polled: () => (model.error || model.searchPending ? { model } : fetchPage(model)),
+    Polled: () => (model.searchPending ? { model } : fetchPage(model)),
     ClickedMore: () => fetchPage(model, true),
     ClickedRetry: () => fetchPage(model, model.loadingOlder),
     ClickedRefresh: () => fetchPage({ ...model, error: null }),

@@ -24,39 +24,42 @@ it.effect("checks origin and bounds websocket lifetime to the verified Access se
             flush: Effect.void,
             connect: (repositoryId, expiry) =>
               Effect.sync(() => {
-                assert.strictEqual(repositoryId, "701")
+                assert.include(["701", "application"], repositoryId)
                 calls.push(expiry)
                 return new Response(null, { status: 204 })
               }),
           }),
         )
-        for (const origin of ["https://elsewhere.example", "null"]) {
-          const response = yield* Effect.promise(() =>
-            handler(
-              new Request("https://janitor.example/repositories/701/live", {
-                headers: { origin, upgrade: "websocket" },
-              }),
-              context,
-            ),
-          )
-          assert.strictEqual(response.status, 403)
+        for (const path of ["/repositories/701/live", "/live"]) {
+          for (const origin of ["https://elsewhere.example", "null"]) {
+            const response = yield* Effect.promise(() =>
+              handler(
+                new Request(`https://janitor.example${path}`, {
+                  headers: { origin, upgrade: "websocket" },
+                }),
+                context,
+              ),
+            )
+            assert.strictEqual(response.status, 403)
+          }
+          assert.lengthOf(calls, 0)
+          for (const upgrade of [false, true]) {
+            const response = yield* Effect.promise(() =>
+              handler(
+                new Request(`https://janitor.example${path}`, {
+                  headers: {
+                    origin: "https://janitor.example",
+                    ...(upgrade ? { upgrade: "websocket" } : {}),
+                  },
+                }),
+                context,
+              ),
+            )
+            assert.strictEqual(response.status, 204)
+          }
+          assert.deepStrictEqual(calls, [0, expiresAt])
+          calls.length = 0
         }
-        assert.lengthOf(calls, 0)
-        for (const upgrade of [false, true]) {
-          const response = yield* Effect.promise(() =>
-            handler(
-              new Request("https://janitor.example/repositories/701/live", {
-                headers: {
-                  origin: "https://janitor.example",
-                  ...(upgrade ? { upgrade: "websocket" } : {}),
-                },
-              }),
-              context,
-            ),
-          )
-          assert.strictEqual(response.status, 204)
-        }
-        assert.deepStrictEqual(calls, [0, expiresAt])
       }),
     ({ dispose }) => Effect.promise(dispose),
   ),

@@ -847,9 +847,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           ? { model: { ...model, jobRefresh: true } }
           : {
               model: { ...model, jobLoading: true },
-              commands: [
-                PollRuleTest({ repositoryId: model.repositoryId, ...model.liveJob, delayMs: 0 }),
-              ],
+              commands: [FetchRuleTest({ repositoryId: model.repositoryId, ...model.liveJob })],
             },
     QueuedTest: ({
       testId,
@@ -864,7 +862,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       if (generation !== model.testGeneration || model.testResult._tag !== "Running")
         return { model }
       const phase = model.testResult.status === "running" ? ("running" as const) : status
-      const fetchAgain = model.liveJob?.generation !== generation || model.jobRefresh || !!pollError
+      const fetchAgain =
+        model.jobRefresh || (!pollError && model.liveJob?.generation !== generation)
       return {
         model: evo(model, {
           liveJob: () => ({ testId, generation, polls, startedAt, status: phase }),
@@ -880,14 +879,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         }),
         commands: fetchAgain
           ? [
-              PollRuleTest({
+              FetchRuleTest({
                 repositoryId: model.repositoryId,
                 testId,
                 generation,
                 polls,
                 startedAt,
                 status: phase,
-                delayMs: pollError ? 10000 : 0,
               }),
             ]
           : [],
@@ -1117,7 +1115,16 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
         ),
         result.progress ? h.span([], [result.progress]) : h.empty,
         result.pollError
-          ? h.span([], ["Unable to check progress. Retrying the same test…"])
+          ? h.span(
+              [],
+              [
+                "Unable to check progress. ",
+                h.button(
+                  [h.OnClick(Message.RefreshTest()), h.Class("text-primary underline")],
+                  ["Retry"],
+                ),
+              ],
+            )
           : result.status === "queued" && result.elapsedSeconds >= 5
             ? h.span([], ["Waiting for an evaluation slot."])
             : h.empty,
@@ -1906,9 +1913,8 @@ const testJobMessage = (
     ...(job.message ? { progress: job.message } : {}),
   })
 }
-export const PollRuleTest = FoldkitCommand.define("PollRuleTest", {
+export const FetchRuleTest = FoldkitCommand.define("FetchRuleTest", {
   args: {
-    delayMs: Schema.Number,
     repositoryId: Schema.String,
     testId: Schema.String,
     generation: Schema.Int,
@@ -1917,9 +1923,8 @@ export const PollRuleTest = FoldkitCommand.define("PollRuleTest", {
     status: Schema.Literals(["queued", "running"]),
   },
   messages: [Message.QueuedTest, Message.CompletedTest, Message.FailedTest],
-  execute: ({ repositoryId, testId, generation, polls, startedAt, status, delayMs }) =>
+  execute: ({ repositoryId, testId, generation, polls, startedAt, status }) =>
     Effect.gen(function* () {
-      if (delayMs > 0) yield* Effect.sleep(delayMs)
       if ((yield* Clock.currentTimeMillis) - startedAt >= 240_000)
         return Message.FailedTest({ generation, reason: "The test timed out. Run it again." })
 

@@ -39,6 +39,7 @@ export const Model = Schema.Struct({
       repositoryId: Schema.NullOr(Schema.String),
     }),
   ),
+  liveRefresh: Schema.Boolean,
   nextRequestId: Schema.Int,
   maybeLoadRequest: Schema.Option(Schema.Int),
   dialog: Dialog.Model,
@@ -53,6 +54,7 @@ export const init = (returnPath = Routes.home()): Model => ({
   search: "",
   nextOperationId: 1,
   pending: Option.none(),
+  liveRefresh: false,
   nextRequestId: 1,
   maybeLoadRequest: Option.none(),
   dialog: Dialog.init({ id: "disconnect-repository", focusSelector: "#cancel-disconnect" }),
@@ -66,6 +68,7 @@ export const Message = defineMessageUnion({
   ClickedCancel: {},
   GotDialogMessage: { message: Dialog.Message },
   LoadRequested: { state: Schema.String },
+  LiveChanged: {},
   Loaded: { inventory: Inventory, requestId: Schema.Int },
   LoadFailed: { reason: Schema.String, requestId: Schema.Int },
   Failed: { reason: Schema.String, operationId: Schema.Int },
@@ -118,20 +121,11 @@ export const Load = Command.define("LoadConnectionInventory", {
         )
       : load(requestId),
 })
-export const Poll = Mount.defineStream("PollRepositoryConnections", {
+export const LoadOnMount = Mount.defineStream("LoadRepositoryConnections", {
   args: { state: Schema.String, refresh: Schema.Boolean },
   messages: [Message.LoadRequested, Message.ClickedRefresh],
   execute: ({ state, refresh }) =>
-    Stream.make(
-      state || !refresh ? Message.LoadRequested({ state }) : Message.ClickedRefresh(),
-    ).pipe(
-      Stream.concat(
-        Stream.tick("3 seconds").pipe(
-          Stream.take(40),
-          Stream.map(() => Message.LoadRequested({ state: "" })),
-        ),
-      ),
-    ),
+    Stream.make(state || !refresh ? Message.LoadRequested({ state }) : Message.ClickedRefresh()),
 })
 const Refresh = Command.define("RefreshConnectionInventory", {
   args: { operationId: Schema.Int },
@@ -193,6 +187,7 @@ const begin = (model: Model, action: string, repositoryId: string | null = null)
   })
 const reload = (model: Model, state = "") => ({
   model: evo(model, {
+    liveRefresh: () => false,
     nextRequestId: (id) => id + 1,
     maybeLoadRequest: () => Option.some(model.nextRequestId),
   }),
@@ -207,30 +202,43 @@ export const update = (model: Model, message: Message) =>
       isBusy(model) ? { model } : mapDialog(model, Dialog.update(model.dialog, message)),
     LoadRequested: ({ state }) =>
       Option.isSome(model.maybeLoadRequest) ? { model } : reload(model, state),
+    LiveChanged: () =>
+      Option.isSome(model.maybeLoadRequest)
+        ? { model: { ...model, liveRefresh: true } }
+        : reload(model),
     Loaded: ({ inventory, requestId }) =>
       !Option.contains(model.maybeLoadRequest, requestId)
         ? { model }
-        : {
-            model: evo(model, {
-              inventory: () => Option.some(inventory),
-              loadError: () => Option.none(),
-              maybeLoadRequest: () => Option.none(),
-              notice: (current) =>
-                current === "Refreshing repository list…"
-                  ? "Available repositories are up to date."
-                  : current,
-            }),
-          },
+        : model.liveRefresh
+          ? reload({
+              ...model,
+              inventory: Option.some(inventory),
+              liveRefresh: false,
+              maybeLoadRequest: Option.none(),
+            })
+          : {
+              model: evo(model, {
+                inventory: () => Option.some(inventory),
+                loadError: () => Option.none(),
+                maybeLoadRequest: () => Option.none(),
+                notice: (current) =>
+                  current === "Refreshing repository list…"
+                    ? "Available repositories are up to date."
+                    : current,
+              }),
+            },
     LoadFailed: ({ reason, requestId }) =>
       !Option.contains(model.maybeLoadRequest, requestId)
         ? { model }
-        : {
-            model: evo(model, {
-              loadError: () => Option.some(reason),
-              maybeLoadRequest: () => Option.none(),
-              notice: () => "",
-            }),
-          },
+        : model.liveRefresh
+          ? reload(model)
+          : {
+              model: evo(model, {
+                loadError: () => Option.some(reason),
+                maybeLoadRequest: () => Option.none(),
+                notice: () => "",
+              }),
+            },
     Failed: ({ reason, operationId }) =>
       !matchesOperation(model, operationId)
         ? { model }
@@ -460,7 +468,7 @@ export const view = Submodel.defineView<
     )
 
   if (settings) {
-    const attributes = [h.OnMount(Poll({ state: inputs.state, refresh: false }))]
+    const attributes = [h.OnMount(LoadOnMount({ state: inputs.state, refresh: false }))]
     if (!current) {
       return h.div(
         [h.Class("flex flex-col gap-6"), ...attributes],
@@ -731,7 +739,7 @@ export const view = Submodel.defineView<
     ],
   )
   return Page.layout(h, {
-    attributes: [h.OnMount(Poll({ state: inputs.state, refresh: true }))],
+    attributes: [h.OnMount(LoadOnMount({ state: inputs.state, refresh: true }))],
     main: [
       Page.header(h, {
         title: "Connect a repository",
