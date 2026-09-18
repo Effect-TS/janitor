@@ -1,9 +1,15 @@
 import * as Config from "effect/Config"
 import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
 
 /** Deployment opt-in, separate from each repository's review settings. */
 export const issueReviewEnabled = Config.Boolean("JANITOR_ISSUE_REVIEW_ENABLED").pipe(
   Config.withDefault(false),
+)
+
+/** Declare this in Worker props so flag-only changes participate in deployment diffing. */
+export const issueReviewDeploymentEnv = issueReviewEnabled.pipe(
+  Effect.map((enabled) => ({ JANITOR_ISSUE_REVIEW_ENABLED: String(enabled) })),
 )
 
 /**
