@@ -467,9 +467,11 @@ after enablement. Both
 `issue_review_setting` and `issue_review_run` notify the `review` live topic.
 `delete_repository_data` removes all five tables' rows on disconnection.
 
-Issue review stays behind a deployment gate until ticket 13: settings refuse to
-enable it and admission denies invocations unless `alchemy dev` is running or
-`JANITOR_ISSUE_REVIEW_DEVELOPMENT=true` is set. No data changes.
+Issue review stays behind a deployment gate: settings refuse to enable it and
+admission denies invocations unless `alchemy dev` is running or
+`JANITOR_ISSUE_REVIEW_ENABLED=true` is set. Ticket 13 retires the temporary
+`JANITOR_ISSUE_REVIEW_DEVELOPMENT` variable. Repository opt-in is still separate.
+See the [operator guide](../../../docs/issue-review.md). No data changes.
 
 ## Issue review investigation
 

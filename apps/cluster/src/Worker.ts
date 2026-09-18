@@ -41,7 +41,7 @@ import {
 } from "./Review/WorkspaceObject.ts"
 import { agentModel } from "./AgentModel.ts"
 import { IssueReviewControl } from "./Review/Control.ts"
-import { IssueReviewAvailable } from "./Review/Gate.ts"
+import { IssueReviewAvailable, issueReviewEnabled } from "./Review/Gate.ts"
 import { IssueReviewScheduler } from "./Review/Scheduler.ts"
 import { IssueReviewSettings } from "./Review/Settings.ts"
 import { IssueReviewStore } from "./Review/Store.ts"
@@ -247,11 +247,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       }),
     ).pipe(Effect.provide(localCredentials))
     const GitHubPayloadCipherLayer = PayloadCipher.layerFrom(secrets.cipher)
-    // The development gate (ticket 13): issue review is off in a deployment
-    // until it is explicitly switched on; `alchemy dev` always has it.
-    const reviewAvailable =
-      dev ||
-      (yield* Config.Boolean("JANITOR_ISSUE_REVIEW_DEVELOPMENT").pipe(Config.withDefault(false)))
+    // Production requires an explicit deployment opt-in. Local development
+    // exposes the controls, but live GitHub access remains disabled below.
+    const reviewAvailable = dev || (yield* issueReviewEnabled)
     // Account linking is optional per platform; the account page says which
     // platforms this deployment can connect.
     const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)

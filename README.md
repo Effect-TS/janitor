@@ -1,6 +1,8 @@
 # Janitor
 
-Janitor automates GitHub labeling and collaborates with teammates through Slack agent sessions.
+Janitor automates GitHub labeling, reviews explicitly invoked issues, and collaborates with teammates through Slack agent sessions.
+
+Issue review requires deployment configuration and separate repository opt-in. See the [issue review operator guide](docs/issue-review.md) for setup, dry-run publication, cancellation, retention, and rollout checks.
 
 ## Development
 

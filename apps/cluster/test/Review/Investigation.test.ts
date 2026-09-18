@@ -38,6 +38,7 @@ import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
   github,
+  installationId,
   LabelingLayer,
   repositoryId,
   seed,
@@ -46,6 +47,7 @@ import {
 import { FakeModel, userText } from "./fakeModel.ts"
 import { ReviewComments } from "../../src/Review/Comments.ts"
 import { IssueReviewPublication } from "../../src/Review/Publication.ts"
+import { SyncTargets } from "../../src/SyncTargets.ts"
 
 /**
  * An admitted invocation investigated end to end: the agent schedules
@@ -455,6 +457,194 @@ const prepareReproduction = (
   })
 
 layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => {
+  for (const dryRun of [false, true]) {
+    it.effect(
+      `reviews through reproduction and publication during cache failure, dry-run=${dryRun}`,
+      () =>
+        live(
+          Effect.gen(function* () {
+            yield* publicationSetup
+            const settings = yield* IssueReviewSettings
+            yield* settings.set(repositoryId, { enabled: true, dryRun }, actor)
+            const targets = yield* SyncTargets
+            const scope = { _tag: "RepositoryTrack", repositoryId, track: "entities" } as const
+            const { generation } = yield* targets.invalidate({ scope, sequence: Option.none() })
+            yield* targets.begin(scope, generation)
+            yield* targets.complete({
+              scope,
+              generation,
+              outcome: { _tag: "Failed", error: "Cache unavailable" },
+            })
+            const sql = yield* SqlClient.SqlClient
+            yield* sql`UPDATE github_installation SET sync_enabled = FALSE WHERE installation_id = ${installationId}`
+            const previousExecute = workspaces.execute
+            let executions = 0
+            workspaces.execute = (request) =>
+              Effect.sync(() => {
+                executions += 1
+                return {
+                  id: request.id,
+                  patchId: request.patch?.id ?? null,
+                  commitSha: request.commitSha,
+                  kind: request.kind,
+                  command: request.command,
+                  testPath: request.testPath,
+                  exitCode: 1,
+                  output: "not ok 1 - answer is 42\nAssertionError: expected 42, received 41",
+                  truncated: false,
+                  integrity: true,
+                  limitation: null,
+                }
+              })
+            yield* Effect.addFinalizer(() =>
+              Effect.gen(function* () {
+                workspaces.execute = previousExecute
+                github.permissions.set("octocat", { id: 9, permission: "write" })
+                yield* sql`UPDATE github_installation SET sync_enabled = TRUE WHERE installation_id = ${installationId}`.pipe(
+                  Effect.orDie,
+                )
+              }),
+            )
+            const id = yield* invoke({
+              id: ++summaryCommentSequence,
+              issue: 30,
+              body: "Could @janitor investigate the wrong answer and try a minimal test?",
+            })
+            yield* drive(id, 0)
+            const base = (yield* shown(id)).commitSha!
+            model.script({
+              _tag: "Answer",
+              calls: [
+                {
+                  name: "proposeTests",
+                  params: {
+                    files: [
+                      {
+                        path: "test/repro.test.js",
+                        content: "assert.equal(answer, 42)\n",
+                        rationale:
+                          "Checks the reported value mismatch in the existing test layout.",
+                      },
+                    ],
+                  },
+                },
+              ],
+            })
+            yield* drive(id, 1)
+            model.script({
+              _tag: "Answer",
+              calls: [
+                {
+                  name: "execute",
+                  params: {
+                    command: "node --test test/repro.test.js",
+                    kind: "test",
+                    testPath: "test/repro.test.js",
+                    commitSha: null,
+                  },
+                },
+              ],
+            })
+            yield* drive(id, 2)
+            const attempt = (yield* shown(id)).reproduction.attempts[0]!
+            model.script({
+              _tag: "Answer",
+              calls: [
+                {
+                  name: "assessReproduction",
+                  params: {
+                    outcome: "reproduced",
+                    rationale: "The test reaches the reported wrong-answer assertion.",
+                    unverified: "",
+                    tests: [
+                      {
+                        attemptId: attempt.id,
+                        result: "behavior_failure",
+                        testName: "answer is 42",
+                        outputExcerpt: "AssertionError: expected 42, received 41",
+                        relevance: "Matches the reported value mismatch.",
+                      },
+                    ],
+                    duplicate: null,
+                  },
+                },
+              ],
+            })
+            yield* drive(id, 3)
+            const summary = `Reproduced at ${base}. See [draft]({{pr_url}}).`
+            model.script({
+              _tag: "Answer",
+              calls: [
+                {
+                  name: "finish",
+                  params: conclusion({
+                    classification: "bug",
+                    findings: `Reproduced at ${base}.`,
+                    evidence: [],
+                    reproductionPr: {
+                      title: "Reproduce the wrong answer",
+                      body: `Failing test at ${base}. See [issue](https://github.com/effect/one/issues/30).`,
+                      publishedSummary: summary,
+                      blockedSummary: `Reproduced at ${base}. Publication did not complete; no draft PR was confirmed.`,
+                      reuseBlockedSummary: `Reproduced at ${base}. Proposed changes were not fully published to [the existing PR]({{pr_url}}).`,
+                    },
+                  }),
+                },
+              ],
+            })
+            yield* drive(id, 4)
+            const saved = yield* shown(id)
+            assert.strictEqual(saved.reproduction.assessment?.outcome, "reproduced")
+            let publisher: TeammateId | undefined
+            if (dryRun) {
+              assert.strictEqual(saved.status, "completed")
+              assert.isEmpty(draftGithub.mutations)
+              assert.isEmpty(commentWrites)
+              publisher = yield* linkPublisher
+              github.permissions.set("octocat", { id: 9, permission: "read" })
+              yield* (yield* IssueReviewControl).publish(repositoryId, id, publisher)
+            }
+            const modelCalls = model.prompts.length
+            for (const sequence of [5, 6, 7]) yield* drive(id, sequence)
+            const result = yield* shown(id)
+            assert.strictEqual(result.status, "completed")
+            assert.strictEqual(result.draftPublication?.status, "published")
+            assert.lengthOf(draftGithub.pulls, 1)
+            assert.strictEqual(draftGithub.pulls[0]!.draft, true)
+            assert.include(String(draftGithub.pulls[0]!.body), base)
+            assert.lengthOf(commentWrites, 1)
+            assert.include(
+              [...publishedComments.values()][0]!.body,
+              "https://github.com/effect/one/pull/123",
+            )
+            assert.deepStrictEqual(result.reproduction, saved.reproduction)
+            if (publisher !== undefined) {
+              assert.strictEqual(
+                (yield* (yield* IssueReviewControl).publish(repositoryId, id, publisher)).status,
+                "completed",
+              )
+              assert.isTrue((yield* settings.get(repositoryId)).dryRun)
+            }
+            yield* drive(id, 7)
+            assert.lengthOf(commentWrites, 1)
+            assert.lengthOf(draftGithub.pulls, 1)
+            assert.strictEqual(model.prompts.length, modelCalls)
+            assert.strictEqual(executions, 1)
+            assert.deepStrictEqual(
+              github.writes.map((write) => write.url),
+              [
+                "/repos/effect/one/git/trees",
+                "/repos/effect/one/git/commits",
+                "/repos/effect/one/git/refs",
+                "/repos/effect/one/pulls",
+              ],
+            )
+            assert.isTrue(model.tools.flat().every((name) => !/slack|label/i.test(name)))
+          }),
+        ).pipe(Effect.scoped),
+    )
+  }
+
   it.effect("removes ownership on disconnect and fences delayed work after reconnect", () =>
     live(
       Effect.gen(function* () {
@@ -1925,7 +2115,12 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
   it.effect("restores after a restart, reuses recorded results and reports a lost sandbox", () =>
     live(
       Effect.gen(function* () {
-        model.reset()
+        yield* publicationSetup
+        yield* (yield* IssueReviewSettings).set(
+          repositoryId,
+          { enabled: true, dryRun: true },
+          actor,
+        )
         github.put({
           number: 33,
           title: "Retries never stop",
@@ -1941,6 +2136,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
         })
         yield* drive(runId, 1)
         assert.strictEqual(model.prompts.length, 1)
+        const original = yield* shown(runId)
         // A runner restart: a fresh entity with no memory reads the run record
         // and finds action 2 pending; the recorded round is not repeated.
         const before = agentClient
@@ -1965,10 +2161,20 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
           (yield* actions(runId)).map((row) => `${row.sequence}:${row.status}`).join(","),
           "0:completed,1:completed,2:pending",
         )
+        // Resume the pending action with its surviving workspace and deadline.
+        model.script({
+          _tag: "Answer",
+          calls: [{ name: "readFile", params: { path: "README.md", offset: null, limit: null } }],
+        })
+        yield* drive(runId, 2)
+        assert.strictEqual(model.prompts.length, 2)
+        const resumed = yield* shown(runId)
+        assert.deepStrictEqual(resumed.startedAt, original.startedAt)
+        assert.deepStrictEqual(resumed.deadlineAt, original.deadlineAt)
         // The container was replaced: the checkout is gone, so the run is
         // interrupted with what it had observed, and no model call is made.
         workspaces.lose(runId)
-        yield* drive(runId, 2)
+        yield* drive(runId, 3)
         const done = yield* shown(runId)
         assert.deepStrictEqual(
           [done.status, done.limitation, done.findings],
@@ -1983,11 +2189,12 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
             url: null,
           },
         ])
-        assert.strictEqual(model.prompts.length, 1)
+        assert.strictEqual(model.prompts.length, 2)
+        assert.deepStrictEqual(done.deadlineAt, original.deadlineAt)
         // An interrupted run schedules nothing further.
         assert.strictEqual(
           (yield* actions(runId)).map((row) => `${row.sequence}:${row.status}`).join(","),
-          "0:completed,1:completed,2:completed",
+          "0:completed,1:completed,2:completed,3:completed",
         )
       }),
     ).pipe(Effect.scoped),
