@@ -18,6 +18,14 @@ Streaming chunks must run through the decoder rather than `Schema.is`, so the nu
 
 ## Cloudflare container enablement
 
+### Custom resource sizes
+
+The pinned Alchemy provider exposes the legacy `memory` string but does not forward the SDK's numeric `memoryMib` field. Cloudflare evaluated the review sandbox's 2-vCPU update against 256 MiB despite `memory: "6GiB"` being set, rejecting deployment. Our patch adds `memoryMib` to the source and shipped declarations and forwards it in the live provider's shared create/update/rollout configuration. It also prevents the default `lite` instance type from being added when only numeric memory is specified. The review sandbox uses `memoryMib: 6144` and `disk: { size_mb: 8000 }`.
+
+`ContainerSizing.test.ts` inspects the serialized HTTP bodies for creation, update, and rollout. Remove this patch when the pinned Alchemy release forwards numeric memory allocations upstream.
+
+### Namespace readiness
+
 Alchemy publishes existing Durable Object namespace IDs early to break Worker/Container dependency cycles. Container creation can then reach Cloudflare before the concurrent Worker upload enables container support for that namespace. The Alchemy patch retries `DurableObjectNotContainerEnabled` during creation with a namespace binding every three seconds, at most 20 retries. Other errors keep their existing handling; persistent enablement errors still fail deployment after the retry budget.
 
 The patch covers TypeScript and shipped JavaScript. `ContainerDeployment.test.ts` exercises the live provider with simulated Cloudflare HTTP responses for recovery, exhaustion, and unrelated errors. `SandboxBindings.test.ts` checks that both sandbox classes appear in the compiled Worker's container metadata. Remove the patch when the pinned Alchemy version handles this deployment race upstream.

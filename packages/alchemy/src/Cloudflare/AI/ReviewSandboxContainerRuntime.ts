@@ -8,8 +8,8 @@ export const ReviewSandboxContainerRuntime = ReviewSandboxContainerImage.make(
     dockerfile: SANDBOX_DOCKERFILE,
     // Cloudflare requires at least 3 GiB of memory per custom vCPU.
     vcpu: 2,
-    memory: "6GiB",
-    disk: { size: "8GB" },
+    memoryMib: 6144,
+    disk: { size_mb: 8000 },
   },
   sandboxContainerGuest,
 )

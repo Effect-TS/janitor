@@ -53,8 +53,8 @@ it.live("binds each sandbox container application to just one Durable Object nam
         )!.Props
         assert.isUndefined(review.instanceType)
         assert.strictEqual(review.vcpu, 2)
-        assert.strictEqual(review.memory, "6GiB")
-        assert.deepStrictEqual(review.disk, { size: "8GB" })
+        assert.strictEqual(review.memoryMib, 6144)
+        assert.deepStrictEqual(review.disk, { size_mb: 8000 })
         assert.deepStrictEqual(
           Object.fromEntries(
             containers.map((resource) => [
