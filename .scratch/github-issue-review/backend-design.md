@@ -1,5 +1,7 @@
 # Backend design
 
+Implementation status, 2026-09-18: this design has been implemented through tickets 01–13. The confirmation language below is historical. See [completion review](completion-review.md) for the current status.
+
 Confirmed by the user as part of the consolidated design. This document records the mechanics beneath the accepted [spec](spec.md). Confirmation does not authorize implementation. Existing capabilities and gaps are recorded in [implementation-facts.md](implementation-facts.md).
 
 ## Admission and identity

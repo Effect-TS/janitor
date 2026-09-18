@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Completion:** complete. Reconciled on 2026-09-18. See [completion review](../completion-review.md).
+
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0011, 0012. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
 - [x] Offer Publish results only for the latest invocation's completed result within 14 days, with no newer active or queued invocation, an unchanged existing source comment, and a run that was not cancelled.
@@ -22,3 +24,5 @@
 Implemented on 2026-09-18. Saved publication uses the existing action workflows and per-issue scheduler, with separate publisher attribution and fresh eligibility checks before writes. The frontend shows publication eligibility and durable outcomes.
 
 Validation: `vp check` passed with 345 warnings; `vp test` passed all 784 tests across 125 files. The focused post-review run passed 111 tests. Standards review found two minor smells, both resolved; spec review found no gaps.
+
+2026-09-18 completion review: implementation commit `46b8f98` and current code/test coverage support completion of this ticket. Earlier comments describe each slice at implementation time; later tickets supersede their temporary limitations. Live deployment verification remains separate, as recorded in [the completion review](../completion-review.md).
