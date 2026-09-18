@@ -1,0 +1,18 @@
+import { describe, expect, it } from "vite-plus/test"
+import { invokesReview } from "@janitor/domain/Review/Invocation"
+
+const direct = (body: string) => invokesReview(body)
+
+describe("review invocation in Markdown blockquotes", () => {
+  it("ignores a mention in a lazy blockquote continuation", () => {
+    expect(direct("> Quoted request:\n/janitor please investigate this bug.")).toBe(false)
+  })
+
+  it("ignores a mention when every quoted line has a marker", () => {
+    expect(direct("> Quoted request:\n> /janitor please investigate this bug.")).toBe(false)
+  })
+
+  it("accepts a direct mention after a blank line ends the quote", () => {
+    expect(direct("> Quoted request:\n\n/janitor please investigate this bug.")).toBe(true)
+  })
+})
