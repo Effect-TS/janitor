@@ -30,6 +30,7 @@ const run = (id: string, status: ReviewRun["status"], queuePosition: number | nu
   findings: null,
   uncertainty: null,
   evidence: [],
+  reproduction: { patch: null, attempts: [], assessment: null },
   limitation: null,
 })
 const runs = [run("a", "running", 1), run("b", "queued", 2), run("c", "cancelled", null)]

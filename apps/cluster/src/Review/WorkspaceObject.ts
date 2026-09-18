@@ -4,11 +4,14 @@ import {
   layerContainerSession,
 } from "@janitor/alchemy/Cloudflare/AI/SandboxContainer"
 import * as Cloudflare from "alchemy/Cloudflare"
+import { DurableObjectState } from "alchemy/Cloudflare/Workers"
 import { ALCHEMY_PHASE } from "alchemy/Phase"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import {
   makeReviewWorkspace,
+  type ExecutionRequest,
   type ProvisionOutcome,
   type ProvisionRequest,
   ReviewWorkspaces,
@@ -33,6 +36,9 @@ export interface ReviewWorkspaceObjectShape {
     limit: number | null,
   ) => Effect.Effect<string, string>
   readonly search: (pattern: string, path: string | null) => Effect.Effect<string, string>
+  readonly execute: (
+    request: ExecutionRequest,
+  ) => ReturnType<import("./Workspace.ts").ReviewWorkspace["execute"]>
   readonly release: () => Effect.Effect<void, string>
 }
 
@@ -55,12 +61,23 @@ export const ReviewWorkspaceObjectLive = ReviewWorkspaceObject.make(
       const workspace = makeReviewWorkspace(sandbox)
       return {
         provision: workspace.provision,
+        execute: workspace.execute,
         status: () => workspace.status,
         listFiles: workspace.listFiles,
         readFile: (path, offset, limit) =>
           workspace.readFile(path, { offset: offset ?? undefined, limit: limit ?? undefined }),
         search: (pattern, path) => workspace.search(pattern, path ?? undefined),
-        release: () => workspace.release,
+        release: () =>
+          workspace.release.pipe(
+            Effect.ensuring(
+              Effect.gen(function* () {
+                // Destroy also stops background children and work from a prior object instance.
+                const state = yield* Effect.serviceOption(DurableObjectState)
+                if (Option.isSome(state) && state.value.container !== undefined)
+                  yield* Effect.promise(() => state.value.container!.destroy())
+              }),
+            ),
+          ),
       } satisfies ReviewWorkspaceObjectShape
     })
   }),
@@ -75,6 +92,7 @@ export const layerWorkspaceObjects = (objects: {
       const stub = objects.getByName(runId)
       return {
         provision: (request) => stub.provision(request),
+        execute: (request) => stub.execute(request),
         status: Effect.suspend(() => stub.status()),
         listFiles: (path) => stub.listFiles(path),
         readFile: (path, options) =>

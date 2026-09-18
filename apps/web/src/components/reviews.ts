@@ -265,7 +265,9 @@ const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> 
     run.findings === null &&
     run.limitation === null &&
     run.evidence.length === 0 &&
-    run.commitSha === null
+    run.commitSha === null &&
+    run.reproduction.patch === null &&
+    run.reproduction.attempts.length === 0
   )
     return []
   return [
@@ -305,6 +307,7 @@ const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> 
               ? []
               : [h.p([h.Class("text-body-sm text-destructive")], [run.limitation])]),
             ...(run.findings === null ? [] : paragraphs(h, run.findings, "text-body-md")),
+            ...reproductionDetails(h, run),
             ...(run.uncertainty === null || run.uncertainty.trim() === ""
               ? []
               : [
@@ -324,6 +327,78 @@ const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> 
         ),
       ],
     ),
+  ]
+}
+
+const reproductionDetails = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> => {
+  const { patch, attempts, assessment } = run.reproduction
+  return [
+    ...(assessment === null
+      ? []
+      : [
+          h.p([h.Class("text-body-sm font-medium")], [assessment.outcome.replaceAll("_", " ")]),
+          ...paragraphs(h, assessment.rationale, "text-body-sm"),
+          ...paragraphs(h, assessment.unverified, "text-body-sm text-ink-muted"),
+          ...(assessment.duplicate === null
+            ? []
+            : [
+                h.p(
+                  [h.Class("text-body-sm")],
+                  [
+                    "No new reproduction proposed. ",
+                    h.a(
+                      [
+                        h.Href(assessment.duplicate.url),
+                        h.Target("_blank"),
+                        h.Rel("noreferrer"),
+                        h.Class("text-primary hover:underline"),
+                      ],
+                      [`Existing issue #${assessment.duplicate.issueNumber}`],
+                    ),
+                  ],
+                ),
+                ...paragraphs(h, assessment.duplicate.rationale, "text-body-sm text-ink-muted"),
+              ]),
+        ]),
+    ...attempts.map((attempt) =>
+      h.details(
+        [h.Class("text-body-sm")],
+        [
+          h.summary(
+            [h.Class("cursor-pointer")],
+            [
+              `${attempt.kind} ${attempt.id}: ${attempt.exitCode === null ? "incomplete" : `exit ${attempt.exitCode}`} at ${attempt.commitSha.slice(0, 12)}`,
+            ],
+          ),
+          h.pre([h.Class("overflow-x-auto whitespace-pre-wrap text-mono-sm")], [attempt.command]),
+          ...(attempt.limitation === null
+            ? []
+            : [h.p([h.Class("text-destructive")], [attempt.limitation])]),
+          h.pre(
+            [h.Class("max-h-80 overflow-auto whitespace-pre-wrap text-mono-sm")],
+            [attempt.output],
+          ),
+          ...(attempt.truncated
+            ? [h.p([h.Class("text-ink-muted")], ["Earlier output was truncated."])]
+            : []),
+        ],
+      ),
+    ),
+    ...(patch === null
+      ? []
+      : [
+          h.details(
+            [h.Class("text-body-sm")],
+            [
+              h.summary(
+                [h.Class("cursor-pointer")],
+                [`Validated test patch at ${patch.baseCommit.slice(0, 12)}`],
+              ),
+              ...patch.files.map((file) => h.p([], [`${file.path}: ${file.rationale}`])),
+              h.pre([h.Class("max-h-96 overflow-auto whitespace-pre text-mono-sm")], [patch.diff]),
+            ],
+          ),
+        ]),
   ]
 }
 

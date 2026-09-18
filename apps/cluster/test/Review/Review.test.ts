@@ -76,6 +76,7 @@ const NoWorkspaces = Layer.succeed(ReviewWorkspaces, {
       readFile: () => unavailable,
       search: () => unavailable,
       release: unavailable,
+      execute: () => unavailable,
     }
   },
 })
