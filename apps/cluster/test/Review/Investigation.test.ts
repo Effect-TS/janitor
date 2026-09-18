@@ -1,3 +1,4 @@
+import { recoverReviewRuns } from "../../src/Review/Recovery.ts"
 import { expireReviewHistory } from "../../src/Review/Retention.ts"
 import { IssueReviewControl } from "../../src/Review/Control.ts"
 import { TeammateId } from "@janitor/domain/Team/Account"
@@ -2557,5 +2558,107 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
         assert.deepStrictEqual(github.writes, [])
       }),
     ),
+  )
+  it.effect("recovers an accepted action and does not repeat completed model calls", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+          settings.set(repositoryId, { enabled: true, dryRun: true }, actor),
+        )
+        const id = yield* invoke({
+          id: ++summaryCommentSequence,
+          issue: 30,
+          body: "/janitor investigate",
+        })
+        yield* drive(id, 0)
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE workflow_outbox SET accepted_at = CLOCK_TIMESTAMP()
+        WHERE workflow_tag = ${REVIEW_ACTION_TAG} AND payload->>'runId' = ${id}`
+        model.script({
+          _tag: "Answer",
+          calls: [{ name: "finish", params: conclusion({ evidence: [] }) }],
+        })
+        yield* recoverReviewRuns
+        yield* drive(id, 1)
+        assert.strictEqual((yield* run(id)).status, "completed")
+        assert.lengthOf(model.prompts, 1)
+        yield* recoverReviewRuns
+        assert.lengthOf(model.prompts, 1)
+      }),
+    ),
+  )
+
+  it.effect("cron ends a stopped investigation at its deadline and retains observed evidence", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+          settings.set(repositoryId, { enabled: true, dryRun: true }, actor),
+        )
+        const id = yield* invoke({
+          id: ++summaryCommentSequence,
+          issue: 30,
+          body: "/janitor investigate",
+        })
+        yield* drive(id, 0)
+        model.script({
+          _tag: "Answer",
+          calls: [
+            { name: "readFile", params: { path: "src/config.ts", offset: null, limit: null } },
+          ],
+        })
+        yield* drive(id, 1)
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_run SET deadline_at = started_at - INTERVAL '1 second'
+        WHERE run_id::text = ${id}`
+        yield* recoverReviewRuns
+        const ended = yield* run(id)
+        assert.strictEqual(ended.status, "failed")
+        assert.strictEqual(ended.limitation, limitations.deadline)
+        assert.isNotNull(ended.finishedAt)
+        assert.isTrue(ended.evidence.some((item) => item.reference === "src/config.ts"))
+        assert.lengthOf(model.prompts, 1)
+        assert.isAbove(workspaces.state(id).released, 0)
+        yield* recoverReviewRuns
+        assert.lengthOf(model.prompts, 1)
+      }),
+    ),
+  )
+  it.effect(
+    "cron applies a saved completion even after the deadline without rerunning the model",
+    () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+            settings.set(repositoryId, { enabled: true, dryRun: true }, actor),
+          )
+          const id = yield* invoke({
+            id: ++summaryCommentSequence,
+            issue: 30,
+            body: "/janitor investigate",
+          })
+          yield* drive(id, 0)
+          yield* Effect.flatMap(IssueReviewStore, (store) =>
+            store.completeAction(id, 1, {
+              _tag: "Round",
+              text: "",
+              tools: [],
+              observed: { items: [], files: [] },
+              conclusion: conclusion({ evidence: [] }),
+            }),
+          )
+          const sql = yield* SqlClient.SqlClient
+          yield* sql`UPDATE issue_review_run SET deadline_at = started_at - INTERVAL '1 second'
+        WHERE run_id::text = ${id}`
+          yield* recoverReviewRuns
+          assert.strictEqual((yield* run(id)).status, "completed")
+          assert.strictEqual((yield* run(id)).findings, conclusion().findings)
+          assert.lengthOf(model.prompts, 0)
+          yield* recoverReviewRuns
+          assert.lengthOf(model.prompts, 0)
+        }),
+      ),
   )
 })
