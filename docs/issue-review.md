@@ -56,8 +56,9 @@ While the repository remains connected, minimal invocation receipts prevent webh
 
 ## Sandbox resources and slow reviews
 
-Review sandboxes use Cloudflare's `standard-1` allocation: half a vCPU,
-4 GiB memory, and 8 GB disk. This is separate from the Slack sandbox application.
+Review sandboxes use a custom Cloudflare allocation: 2 vCPUs,
+6 GiB memory, and 8 GB disk. Cloudflare requires at least 3 GiB per vCPU,
+so a 2-vCPU container cannot use only 4 GiB. This is separate from the Slack sandbox application.
 The implicit `lite` default provides only 1/16 vCPU and 256 MiB memory and is too
 small for Janitor's dependency installation. See [Cloudflare instance types](https://developers.cloudflare.com/containers/platform/limits/).
 

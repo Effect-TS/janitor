@@ -6,8 +6,10 @@ export const ReviewSandboxContainerRuntime = ReviewSandboxContainerImage.make(
     main: import.meta.url,
     runtime: "node",
     dockerfile: SANDBOX_DOCKERFILE,
-    // Package installation and test runners exceed the default lite allocation.
-    instanceType: "standard-1",
+    // Cloudflare requires at least 3 GiB of memory per custom vCPU.
+    vcpu: 2,
+    memory: "6GiB",
+    disk: { size: "8GB" },
   },
   sandboxContainerGuest,
 )
