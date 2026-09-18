@@ -1,3 +1,4 @@
+import { summaryIntent } from "./Output.ts"
 import { ReviewRunId, ReviewRunStatus, isTerminalReviewStatus } from "@janitor/domain/Review/Run"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -289,14 +290,27 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
                 mergeObserved(rounds),
                 repository ?? "",
               )
-              return yield* orDie(
+              const concluded = yield* orDie(
                 store.transition(run.runId, {
-                  status: "completed",
-                  finishedAt: yield* now,
+                  status: run.dryRun ? "completed" : "running",
+                  finishedAt: run.dryRun ? yield* now : undefined,
                   conclusion: { ...result.conclusion, evidence },
-                  agentState: { phase: "completed" },
+                  agentState: { phase: run.dryRun ? "completed" : "publishing" },
                 }),
               )
+              if (run.dryRun) return concluded
+              const intent = summaryIntent(concluded, repository ?? "")
+              yield* orDie(store.savePublication(runId, intent))
+              if (intent.status === "rejected")
+                return yield* orDie(
+                  store.transition(runId, {
+                    status: "completed",
+                    finishedAt: yield* now,
+                    agentState: { phase: "completed" },
+                  }),
+                )
+              yield* schedule(sequence + 1, "publish")
+              return concluded
             }
             if (overdue)
               return yield* ended(run, "failed", limitations.deadline, rounds, repository)
@@ -313,6 +327,14 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
             return yield* ended(run, "interrupted", result.reason, rounds, repository)
           case "Failed":
             return yield* ended(run, "failed", result.reason, rounds, repository)
+          case "PublicationFinished":
+            return yield* orDie(
+              store.transition(runId, {
+                status: "completed",
+                finishedAt: yield* now,
+                agentState: { phase: "completed" },
+              }),
+            )
           case "Skipped":
             return run
         }

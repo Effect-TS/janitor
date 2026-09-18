@@ -38,6 +38,11 @@ export class GitHubRateLimited extends Data.TaggedError("GitHubRateLimited")<{
 }> {}
 
 export interface GitHubRequest {
+  readonly repositoryPermission?: {
+    readonly repositoryId: string
+    readonly issues: "read" | "write"
+    readonly contents?: "read"
+  }
   readonly scope: GitHubApiScope
   readonly priority: GitHubRequestPriority
   readonly method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
@@ -111,8 +116,13 @@ export class GitHubTransport extends Context.Service<
           ),
         )
 
-      const credential = (scope: GitHubApiScope) =>
-        scope._tag === "App" ? auth.appJwt : auth.installationToken(scope.installationId)
+      const credential = (
+        scope: GitHubApiScope,
+        restriction: GitHubRequest["repositoryPermission"],
+      ) =>
+        scope._tag === "App"
+          ? auth.appJwt
+          : auth.installationToken(scope.installationId, restriction)
 
       const send = Effect.fn("GitHubTransport.send")(function* (
         request: GitHubRequest,
@@ -157,7 +167,11 @@ export class GitHubTransport extends Context.Service<
               ),
             )
           })
-        const token = yield* stage("authentication", credential(request.scope), 15)
+        const token = yield* stage(
+          "authentication",
+          credential(request.scope, request.repositoryPermission),
+          15,
+        )
 
         const decision = yield* stage(
           "budget-acquire",
@@ -340,6 +354,7 @@ export class GitHubTransport extends Context.Service<
             if (
               first._tag !== "Failed" ||
               first.status !== 401 ||
+              request.repositoryPermission !== undefined ||
               request.scope._tag !== "Installation"
             )
               return first

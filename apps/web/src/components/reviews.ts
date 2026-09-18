@@ -267,7 +267,8 @@ const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> 
     run.evidence.length === 0 &&
     run.commitSha === null &&
     run.reproduction.patch === null &&
-    run.reproduction.attempts.length === 0
+    run.reproduction.attempts.length === 0 &&
+    run.publication.status === "none"
   )
     return []
   return [
@@ -308,6 +309,29 @@ const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> 
               : [h.p([h.Class("text-body-sm text-destructive")], [run.limitation])]),
             ...(run.findings === null ? [] : paragraphs(h, run.findings, "text-body-md")),
             ...reproductionDetails(h, run),
+            ...(run.publication.status === "none"
+              ? []
+              : [
+                  h.p(
+                    [
+                      h.Class("text-body-sm text-ink-muted"),
+                      h.DataAttribute("slot", "publication"),
+                    ],
+                    [
+                      `Summary publication: ${run.publication.status}.`,
+                      ...(run.publication.reason === null ? [] : [` ${run.publication.reason}`]),
+                      ...(run.publication.url === null
+                        ? []
+                        : [
+                            " ",
+                            h.a(
+                              [h.Href(run.publication.url), h.Class("underline")],
+                              ["View summary"],
+                            ),
+                          ]),
+                    ],
+                  ),
+                ]),
             ...(run.uncertainty === null || run.uncertainty.trim() === ""
               ? []
               : [
