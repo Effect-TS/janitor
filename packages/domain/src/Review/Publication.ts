@@ -1,3 +1,4 @@
+import { TeammateId } from "../Team/Account.ts"
 import * as Schema from "effect/Schema"
 
 export const ReviewPublication = Schema.Struct({
@@ -24,3 +25,13 @@ export const noPublication: ReviewPublication = {
   url: null,
   reason: null,
 }
+
+/** One explicit grant for one saved result; invocation attribution stays unchanged. */
+export const SavedPublication = Schema.Struct({
+  teammateId: TeammateId,
+  githubId: Schema.String,
+  githubLogin: Schema.String,
+  requestedAt: Schema.String,
+  status: Schema.Literals(["pending", "completed", "blocked", "partial", "unresolved"]),
+})
+export type SavedPublication = typeof SavedPublication.Type

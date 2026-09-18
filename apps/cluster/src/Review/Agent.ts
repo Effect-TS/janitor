@@ -1,3 +1,4 @@
+import { savedPublicationOutcome } from "./SavedPublication.ts"
 import { draftIntent, summaryIntent } from "./Output.ts"
 import { ReviewRunId, ReviewRunStatus, isTerminalReviewStatus } from "@janitor/domain/Review/Run"
 import * as Context from "effect/Context"
@@ -168,7 +169,8 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
             const current = yield* store.lockRun(runId)
             if (Option.isNone(current)) return yield* missing
             const run = current.value
-            const live = !isTerminalReviewStatus(run.status)
+            const live =
+              !isTerminalReviewStatus(run.status) || run.savedPublication?.status === "pending"
             const fresh = yield* store.recordMessage({
               runId,
               messageId: message.messageId,
@@ -194,7 +196,9 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
             const applied = yield* apply(run, schedule)
             return {
               run: applied,
-              released: isTerminalReviewStatus(applied.status),
+              released:
+                isTerminalReviewStatus(applied.status) &&
+                applied.savedPublication?.status !== "pending",
               fresh,
               scheduled,
             }
@@ -261,6 +265,11 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
         const completed = rows.filter((row) => row.status === "completed")
         const action = completed.find((row) => row.sequence === sequence)
         if (action === undefined) return run
+        if (
+          run.savedPublication != null &&
+          !["publish", "publish_branch", "publish_pr"].includes(action.kind)
+        )
+          return run
         const results = yield* Effect.forEach(completed, (row) =>
           decodeResult(row.result).pipe(Effect.map((result) => [row.sequence, result] as const)),
         ).pipe(Effect.orDie)
@@ -304,9 +313,9 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
                 result.conclusion.reproductionPr,
               )
               if (draft !== null) yield* orDie(store.saveDraft(runId, draft))
-              if (run.dryRun) return concluded
               const intent = summaryIntent(concluded, repository ?? "")
               yield* orDie(store.savePublication(runId, intent))
+              if (run.dryRun) return concluded
               if (intent.status === "rejected")
                 return yield* orDie(
                   store.transition(runId, {
@@ -346,6 +355,12 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
             yield* schedule(sequence + 1, "publish")
             return run
           case "PublicationFinished":
+            if (run.savedPublication?.status === "pending") {
+              yield* orDie(
+                sql`UPDATE issue_review_run SET saved_publication = ${JSON.stringify({ ...run.savedPublication, status: savedPublicationOutcome(run) })}::jsonb WHERE run_id::text = ${runId}`,
+              )
+              return Option.getOrThrow(yield* orDie(store.run(runId)))
+            }
             return yield* orDie(
               store.transition(runId, {
                 status: "completed",
@@ -388,6 +403,7 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
         // it; a redelivered message to a finished run does not start a container.
         if (
           result.fresh &&
+          result.run.savedPublication == null &&
           isTerminalReviewStatus(result.run.status) &&
           result.run.commitSha !== null
         )
@@ -411,7 +427,8 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
           { messageId: envelope.payload.messageId, kind: "Start", payload: envelope.payload },
           (run, schedule) =>
             Effect.gen(function* () {
-              if (run.status === "running") return yield* resync(run, schedule)
+              if (run.status === "running" || run.savedPublication?.status === "pending")
+                return yield* resync(run, schedule)
               if (run.status !== "queued") return run
               // Fresh repository eligibility before execution: the generation
               // the invocation was accepted under must still be current.
@@ -459,7 +476,7 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
             payload: envelope.payload,
           },
           (run, schedule) =>
-            run.status === "running"
+            run.status === "running" || run.savedPublication?.status === "pending"
               ? applyAction(run, schedule, envelope.payload.sequence)
               : Effect.succeed(run),
         ).pipe(Effect.flatMap(finish)),

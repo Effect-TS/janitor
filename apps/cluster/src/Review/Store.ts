@@ -1,5 +1,5 @@
 import { DraftPublication } from "@janitor/domain/Review/Draft"
-import { ReviewPublication } from "@janitor/domain/Review/Publication"
+import { SavedPublication, ReviewPublication } from "@janitor/domain/Review/Publication"
 import { Reproduction } from "@janitor/domain/Review/Reproduction"
 import {
   ReviewClassification,
@@ -101,6 +101,7 @@ export const RunRecord = Schema.Struct({
   uncertainty: Schema.NullOr(Schema.String),
   evidence: Schema.Array(ReviewEvidence),
   reproduction: Reproduction,
+  savedPublication: Schema.optionalKey(Schema.NullOr(SavedPublication)),
   publication: ReviewPublication,
   draftPublication: Schema.NullOr(DraftPublication),
   limitation: Schema.NullOr(Schema.String),
@@ -199,7 +200,7 @@ const runColumnsOf = (t: string) => `
   ${t}accepted_at AS "acceptedAt", ${t}started_at AS "startedAt", ${t}deadline_at AS "deadlineAt",
   ${t}finished_at AS "finishedAt", ${t}cancel_reason AS "cancelReason", ${t}cancelled_by AS "cancelledBy",
   ${t}agent_state AS "agentState", ${t}classification, ${t}default_branch AS "defaultBranch",
-  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation, ${t}reproduction, ${t}publication, ${t}draft_publication AS "draftPublication"`
+  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation, ${t}reproduction, ${t}publication, ${t}saved_publication AS "savedPublication", ${t}draft_publication AS "draftPublication"`
 const runColumns = runColumnsOf("")
 
 const settingColumns = `
@@ -470,6 +471,12 @@ export class IssueReviewStore extends Context.Service<
           Effect.gen(function* () {
             yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${selection.repositoryId} FOR NO KEY UPDATE`
             yield* sql`SELECT issue_number FROM issue_review_issue WHERE repository_id = ${selection.repositoryId} ORDER BY issue_number FOR UPDATE`
+            // Remember invalidation of saved results even after an issue reopens.
+            yield* sql`UPDATE issue_review_run SET cancel_reason = ${cancellation.reason}
+              WHERE repository_id = ${selection.repositoryId} AND status = 'completed' AND dry_run
+                AND (${selection.issueNumber === undefined} OR issue_number = ${selection.issueNumber ?? 0})
+                AND (${selection.commentId === undefined} OR comment_id = ${selection.commentId ?? ""})
+                AND (${selection.runId === undefined} OR run_id::text = ${selection.runId ?? ""})`
             return yield* cancelQuery({
               repositoryId: selection.repositoryId,
               issueNumber: selection.issueNumber ?? null,

@@ -1,3 +1,4 @@
+import { authorizePublication } from "./PublicationGuard.ts"
 import { permittedSummaryLinks, summaryIntent } from "./Output.ts"
 import type { ReviewPublication } from "@janitor/domain/Review/Publication"
 import * as Context from "effect/Context"
@@ -5,12 +6,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { GitHubTransport } from "../GitHub/Transport.ts"
-import { repositoryTarget } from "../Labeling/GitHubIssue.ts"
 import { RepositoryEligibility } from "../RepositoryEligibility.ts"
-import { checkInvocation } from "./Authority.ts"
 import { ReviewComments, type SummaryComment } from "./Comments.ts"
-import { IssueReviewAvailable } from "./Gate.ts"
 import { IssueReviewError, IssueReviewStore } from "./Store.ts"
 
 const fingerprint = (body: string) =>
@@ -28,8 +25,8 @@ export class IssueReviewPublication extends Context.Service<IssueReviewPublicati
       const store = yield* IssueReviewStore
       const eligibility = yield* RepositoryEligibility
       const comments = yield* ReviewComments
-      const transport = yield* GitHubTransport
-      const available = yield* IssueReviewAvailable
+      const context =
+        yield* Effect.context<Effect.Services<ReturnType<typeof authorizePublication>>>()
 
       const publish = (runId: string) =>
         Effect.gen(function* () {
@@ -111,7 +108,7 @@ export class IssueReviewPublication extends Context.Service<IssueReviewPublicati
                 (r) => r.repositoryId === initial.repositoryId,
               )
               if (repository === undefined) return
-              const issueState = yield* store.lockIssue(initial.repositoryId, initial.issueNumber)
+              yield* store.lockIssue(initial.repositoryId, initial.issueNumber)
               const locked = yield* store.lockRun(runId)
               if (Option.isNone(locked)) return
               const run = locked.value
@@ -170,54 +167,16 @@ export class IssueReviewPublication extends Context.Service<IssueReviewPublicati
               )
               if (!claimed) return yield* reconcile
 
-              const currentRepository = yield* eligibility.get(run.repositoryId).pipe(Effect.result)
-              const setting = yield* store.settings(run.repositoryId)
-              if (
-                currentRepository._tag === "Failure" ||
-                currentRepository.success.generation !== run.eligibilityGeneration ||
-                !available ||
-                !Option.exists(setting, (s) => s.enabled) ||
-                run.status !== "running" ||
-                issueState.activeRunId !== runId
-              ) {
-                return yield* save(
-                  "blocked",
-                  "The run or repository is no longer eligible for publication.",
-                )
-              }
-              if (run.dryRun || Option.exists(setting, (s) => s.dryRun))
-                return yield* save(
-                  "blocked",
-                  "Dry-run blocks automatic publication of this result.",
-                )
-              const authority = yield* checkInvocation(
-                repositoryTarget(currentRepository.success),
-                run.repositoryId,
-                {
-                  issueNumber: run.issueNumber,
-                  commentId: run.commentId,
-                  authorId: run.invokerId,
-                  authorLogin: run.invokerLogin,
-                  body: run.instructions,
-                },
-              ).pipe(
-                Effect.provideService(GitHubTransport, {
-                  request: (request) =>
-                    transport.request({
-                      ...request,
-                      repositoryPermission: { repositoryId: run.repositoryId, issues: "read" },
-                    }),
-                }),
+              const authority = yield* authorizePublication(runId).pipe(
+                Effect.provide(context),
                 Effect.result,
               )
-              if (authority._tag === "Failure" || authority.success._tag === "Denied")
+              if (authority._tag === "Failure")
                 return yield* save(
                   "blocked",
-                  authority._tag === "Failure"
-                    ? "Publication authority could not be verified."
-                    : authority.success._tag === "Denied"
-                      ? authority.success.reason
-                      : "Publication authority could not be verified.",
+                  typeof authority.failure === "string"
+                    ? authority.failure
+                    : "Publication authority could not be verified.",
                 )
               const checked = yield* comments
                 .checkLinks(repository, body, permittedSummaryLinks(run, repository.name))

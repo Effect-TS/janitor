@@ -1,3 +1,4 @@
+import { TeammateId } from "@janitor/domain/Team/Account"
 import * as DateTime from "effect/DateTime"
 import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
@@ -76,6 +77,71 @@ const activated = () =>
   Reviews.update(Reviews.init(), Reviews.Message.Activated({ repositoryId: "701", active: true }))
 
 describe("Reviews", () => {
+  it("shows Publish results only when eligible and renders every saved publication outcome", () => {
+    const eligible = { ...concluded, canPublish: true }
+    const outcomes = ["pending", "completed", "blocked", "partial", "unresolved"] as const
+    const history = outcomes.map((status, i) => ({
+      ...concluded,
+      runId: ReviewRunId.make(`saved-${i}`),
+      savedPublication: {
+        teammateId: TeammateId.make("member"),
+        githubId: "21",
+        githubLogin: "stranger",
+        requestedAt: "2026-09-18T12:00:00Z",
+        status,
+      },
+    }))
+    Scene.scene(
+      { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
+      Scene.given({ ...activated().model, loading: false, runs: [eligible, ...history] }),
+      Scene.expectAll(Scene.all.role("button", { name: "Publish results" })).toHaveCount(1),
+      ...outcomes.map((status) =>
+        Scene.expect(Scene.text(`Publication: ${status}. Authorized by stranger.`)).toExist(),
+      ),
+      Scene.click(Scene.role("button", { name: "Publish results" })),
+      Scene.expect(Scene.role("button", { name: "Publishing…" })).toExist(),
+      Scene.Command.resolve(
+        Reviews.PublishRun({ repositoryId: "701", runId: eligible.runId, generation: 1 }),
+        Reviews.Message.Published({
+          runId: eligible.runId,
+          generation: 1,
+          publication: history[0]!.savedPublication,
+        }),
+      ),
+    )
+  })
+
+  it("publishes only eligible results, ignores duplicate clicks, and retains the durable outcome", () => {
+    const ready = { ...concluded, canPublish: true }
+    const model = { ...activated().model, loading: false, runs: [ready] }
+    const clicked = Reviews.update(model, Reviews.Message.ClickedPublish({ runId: ready.runId }))
+    expect(clicked.model.publishing).toBe(ready.runId)
+    expect(
+      Reviews.update(clicked.model, Reviews.Message.ClickedPublish({ runId: ready.runId }))
+        .commands,
+    ).toBeUndefined()
+    const publication = {
+      teammateId: TeammateId.make("member"),
+      githubId: "21",
+      githubLogin: "stranger",
+      requestedAt: "2026-09-18T12:00:00Z",
+      status: "pending" as const,
+    }
+    const done = Reviews.update(
+      clicked.model,
+      Reviews.Message.Published({ runId: ready.runId, generation: model.generation, publication }),
+    )
+    expect(done.model.runs[0]?.savedPublication).toEqual(publication)
+    expect(done.model.runs[0]?.canPublish).toBe(false)
+    expect(done.model.publishing).toBeNull()
+    expect(
+      Reviews.update(
+        { ...model, runs: [concluded] },
+        Reviews.Message.ClickedPublish({ runId: concluded.runId }),
+      ).commands,
+    ).toBeUndefined()
+  })
+
   it("loads the history when activated, fences stale answers, and refreshes after a cancel", () => {
     Story.story(
       Reviews.update,

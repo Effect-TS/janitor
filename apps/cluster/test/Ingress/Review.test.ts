@@ -86,6 +86,17 @@ const store = {
 
 const cancelled: Array<string> = []
 const control: IssueReviewControl["Service"] = {
+  canPublish: () => Effect.succeed(false),
+  publish: (_repositoryId, id, teammateId) =>
+    id === runId
+      ? Effect.succeed({
+          teammateId,
+          githubId: "9",
+          githubLogin: "octocat",
+          requestedAt: "2026-09-18T12:00:00Z",
+          status: "pending",
+        })
+      : Effect.fail(new ReviewForbidden({ message: "Publication is blocked." })),
   cancel: (_repositoryId, id, teammateId, reason) =>
     id === runId
       ? teammateId === teammate.teammateId
@@ -127,6 +138,31 @@ const request = (method: string, path: string, body?: unknown, site = "same-orig
 const base = "/repositories/701"
 
 describe("ReviewRoutes", () => {
+  it.effect(
+    "publishes with the authenticated teammate and protects the action from cross-site requests",
+    () =>
+      withHandler((handler) =>
+        Effect.gen(function* () {
+          const published = yield* Effect.promise(() =>
+            handler(request("POST", `${base}/reviews/${runId}/publish`, { teammateId: "spoofed" })),
+          )
+          assert.strictEqual(published.status, 200)
+          assert.strictEqual(
+            (yield* Effect.promise(() => published.json())).teammateId,
+            teammate.teammateId,
+          )
+          const forbidden = yield* Effect.promise(() =>
+            handler(request("POST", `${base}/reviews/blocked/publish`, {})),
+          )
+          assert.strictEqual(forbidden.status, 403)
+          const crossSite = yield* Effect.promise(() =>
+            handler(request("POST", `${base}/reviews/${runId}/publish`, {}, "cross-site")),
+          )
+          assert.strictEqual(crossSite.status, 403)
+        }),
+      ),
+  )
+
   it.effect("serves settings and history, and maps a missing repository to 404", () =>
     withHandler((handler) =>
       Effect.gen(function* () {

@@ -1,3 +1,4 @@
+import { authorizeSavedPublication } from "./SavedPublication.ts"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -23,6 +24,8 @@ export const authorizePublication = (runId: string) =>
     const locked = yield* store.lockRun(runId)
     if (Option.isNone(locked)) return yield* Effect.fail("The review run no longer exists.")
     const run = locked.value
+    if (run.savedPublication?.status === "pending")
+      return yield* authorizeSavedPublication(run, run.savedPublication)
     const repository = yield* eligibility.get(run.repositoryId)
     const settings = yield* store.settings(run.repositoryId)
     if (

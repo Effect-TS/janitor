@@ -1,5 +1,5 @@
 import { DraftPublication } from "@janitor/domain/Review/Draft"
-import { ReviewPublication } from "./Publication.ts"
+import { SavedPublication, ReviewPublication } from "./Publication.ts"
 import { Reproduction } from "@janitor/domain/Review/Reproduction"
 import * as Schema from "effect/Schema"
 import { ReviewClassification, ReviewEvidence } from "./Findings.ts"
@@ -87,8 +87,10 @@ export const ReviewRun = Schema.Struct({
   /** Evidence the run cited, verified against what it observed. */
   evidence: Schema.Array(ReviewEvidence),
   reproduction: Reproduction,
+  savedPublication: Schema.optionalKey(Schema.NullOr(SavedPublication)),
   publication: ReviewPublication,
   draftPublication: Schema.NullOr(DraftPublication),
+  canPublish: Schema.optionalKey(Schema.Boolean),
   /** What ended a run short of a conclusion: the deadline, a lost sandbox, a failure. */
   limitation: Schema.NullOr(Schema.String),
 })
