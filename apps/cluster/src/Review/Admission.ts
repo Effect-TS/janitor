@@ -1,4 +1,4 @@
-import { mentionsDirectly, REVIEW_MENTION_HANDLE } from "@janitor/domain/Review/Mention"
+import { invokesReview } from "@janitor/domain/Review/Invocation"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -58,7 +58,7 @@ export type AdmissionOutcome =
   | { readonly _tag: "Denied"; readonly reason: string }
 
 export const admissionReasons = {
-  noMention: "no direct mention",
+  noCommand: "no direct /janitor command",
   duplicate: "the comment already has a receipt",
   disabled: disabledReason,
   beforeEnablement: "The comment was posted before issue review was enabled.",
@@ -101,8 +101,8 @@ export class IssueReviewAdmission extends Context.Service<
       request: CommentCreated,
     ) {
       const { repositoryId, comment } = request
-      if (!mentionsDirectly(comment.body, REVIEW_MENTION_HANDLE))
-        return { _tag: "Ignored", reason: admissionReasons.noMention } as const
+      if (!invokesReview(comment.body))
+        return { _tag: "Ignored", reason: admissionReasons.noCommand } as const
       const repository = yield* eligibility
         .get(repositoryId)
         .pipe(

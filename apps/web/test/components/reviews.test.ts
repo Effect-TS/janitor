@@ -15,7 +15,7 @@ const run = (id: string, status: ReviewRun["status"], queuePosition: number | nu
   commentId: id,
   invokerId: "9",
   invokerLogin: "octocat",
-  instructions: "@janitor is this a regression?",
+  instructions: "/janitor is this a regression?",
   dryRun: true,
   status,
   queuePosition,

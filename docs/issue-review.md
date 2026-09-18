@@ -1,6 +1,6 @@
 # Operating issue review
 
-Issue review investigates a newly posted, authorized GitHub mention. It can publish a draft PR containing a failing reproduction test and maintain one summary comment on the issue. It does not fix production code, apply labels, feed labeling, or send Slack notifications.
+Issue review investigates a newly posted, authorized `/janitor` command in a GitHub issue comment. It can publish a draft PR containing a failing reproduction test and maintain one summary comment on the issue. It does not fix production code, apply labels, feed labeling, or send Slack notifications.
 
 ## Configuration and repository opt-in
 
@@ -19,10 +19,10 @@ Repository opt-in delegates downstream CI safety to repository administrators. J
 A human with current effective GitHub write or admin permission posts a new comment on an open issue, for example:
 
 ```text
-Could @janitor investigate why retries never stop and try a minimal reproduction?
+/janitor Please investigate why retries never stop and try a minimal reproduction.
 ```
 
-The mention can appear anywhere outside quotes, code, or link destinations. Issue bodies, edited comments, PR comments, bots, and ordinary replies do not invoke review. Permission lookup failures deny work. Review stores the accepted instructions unchanged. Editing or deleting that invocation stops its run; post a new comment to supply replacement instructions.
+The command can appear anywhere outside quotes, code, or link destinations. Issue bodies, edited comments, PR comments, bots, and ordinary replies do not invoke review. The former `@janitor` syntax no longer invokes review. Permission lookup failures deny work. Review stores the accepted instructions unchanged. Editing or deleting that invocation stops its run; post a new comment to supply replacement instructions.
 
 The agent searches related issues and PRs in the same repository, inspects the recorded default-branch commit, and investigates with a 15-minute deadline that includes installation and testing. One run is active per issue; later invocations queue in order. Different issues can run concurrently. A runner restart may resume persisted actions if the workspace remains usable, without repeating completed model calls. Workspace loss interrupts unfinished investigation and requires a new invocation. Neither recovery path resets the deadline.
 

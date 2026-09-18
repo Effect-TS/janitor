@@ -385,7 +385,7 @@ describe("Repositories", () => {
       Story.expectOutMessage(
         Workspace.OutMessage.Notified({
           title: "Issue review enabled in dry-run",
-          description: "Authorized @janitor mentions start runs whose findings stay in Janitor.",
+          description: "Authorized /janitor commands start runs whose findings stay in Janitor.",
         }),
       ),
       Story.model((next) => {
