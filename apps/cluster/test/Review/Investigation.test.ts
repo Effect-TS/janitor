@@ -26,6 +26,7 @@ import { ReviewAction, ReviewActionLayer } from "../../src/Review/Investigation.
 import { IssueReviewScheduler } from "../../src/Review/Scheduler.ts"
 import { IssueReviewSettings } from "../../src/Review/Settings.ts"
 import { IssueReviewStore } from "../../src/Review/Store.ts"
+import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { type ReviewWorkspace, ReviewWorkspaces } from "../../src/Review/Workspace.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
@@ -232,6 +233,32 @@ const invoke = (comment: { id: number; issue: number; body: string }) =>
       GitHubWebhookJournalSequence.make(String(++sequence)),
       yield* webhookNow,
     )
+    // TEMPORARY CI DIAGNOSTIC
+    const diagnostics = yield* Effect.gen(function* () {
+      const s = yield* IssueReviewStore
+      const receipt = yield* s.receipt(repositoryId, String(comment.id))
+      if (Option.isSome(receipt)) return undefined
+      const sql = yield* SqlClient.SqlClient
+      const admission = yield* IssueReviewAdmission
+      const eligibility = yield* RepositoryEligibility
+      const outcome = yield* admission
+        .commentCreated({
+          repositoryId,
+          deliveryId: "diag",
+          receivedAt: yield* webhookNow,
+          issueNumber: comment.issue,
+          comment: { id: String(comment.id), body: comment.body, user: octocat },
+        } as never)
+        .pipe(Effect.result)
+      const eligible = yield* eligibility.get(repositoryId).pipe(Effect.result)
+      const repos = yield* sql`SELECT * FROM github_repository`
+      const installs = yield* sql`SELECT * FROM github_installation`
+      const settings = yield* sql`SELECT * FROM issue_review_setting`
+      const receipts = yield* sql`SELECT * FROM issue_review_receipt`
+      return { outcome, eligible, repos, installs, settings, receipts, tz: process.env.TZ }
+    })
+    if (diagnostics !== undefined)
+      return yield* Effect.die(new Error(`DIAG ${JSON.stringify(diagnostics, null, 1)}`))
     const decided = yield* AdmitReview.execute({ repositoryId, commentId: String(comment.id) })
     assert.strictEqual(decided.outcome, "admitted")
     return decided.runId!
