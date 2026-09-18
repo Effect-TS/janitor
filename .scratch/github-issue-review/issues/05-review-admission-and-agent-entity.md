@@ -6,17 +6,19 @@
 
 **Status:** ready-for-agent
 
+**Completion:** complete. Reconciled on 2026-09-18. See [completion review](../completion-review.md).
+
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0007, 0012. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
-- [ ] Persist per-repository review enablement and dry-run settings using existing Cloudflare Access plus active Janitor membership authorization; no new human repository-admin restriction for settings.
-- [ ] Admit only newly created comments on open issues with an actual @effect-janitor mention outside quotes, code, and link destinations. Accept free-form instructions without command keywords; exclude PR comments, issue bodies, ordinary replies, edits, and bot/App identities.
-- [ ] Query GitHub for the current issue/comment/repository and human effective write or admin permission, including custom roles with that base permission. Match stable identities and deny on failed checks.
-- [ ] Persist the immutable invocation and a receipt keyed by repository/comment before scheduling. Delivery replay cannot create another run; separately posted identical comments remain distinct.
-- [ ] Fence delayed comments from disabled, paused, or disconnected periods so restoring eligibility never admits stale work. Edited or deleted invocations cannot be used as replacement instructions.
-- [ ] Create one agent Entity per run with explicitly persisted state and messages. The Entity owns its lifecycle; embedded workflows implement actions rather than representing the entire agent.
-- [ ] Serialize runs per issue while allowing different issues to run concurrently without feature-specific repository queue or concurrency caps. Expose invoker, instructions, queue position/status, and terminal cancellation reasons in frontend history.
-- [ ] Provide Cancel run to linked frontend users with current effective write/admin permission. Edits/deletion, issue closure, and repository pause/disconnect/access loss/review disablement invalidate the appropriate active and queued work; restoration never revives it.
-- [ ] Verify replay, quoted/forged/bot invocations, permission failures, queue ordering, cross-issue concurrency, actor state restoration, and cancellation without invoking a model or making GitHub writes.
+- [x] Persist per-repository review enablement and dry-run settings using existing Cloudflare Access plus active Janitor membership authorization; no new human repository-admin restriction for settings.
+- [x] Admit only newly created comments on open issues with an actual @janitor mention outside quotes, code, and link destinations. Accept free-form instructions without command keywords; exclude PR comments, issue bodies, ordinary replies, edits, and bot/App identities.
+- [x] Query GitHub for the current issue/comment/repository and human effective write or admin permission, including custom roles with that base permission. Match stable identities and deny on failed checks.
+- [x] Persist the immutable invocation and a receipt keyed by repository/comment before scheduling. Delivery replay cannot create another run; separately posted identical comments remain distinct.
+- [x] Fence delayed comments from disabled, paused, or disconnected periods so restoring eligibility never admits stale work. Edited or deleted invocations cannot be used as replacement instructions.
+- [x] Create one agent Entity per run with explicitly persisted state and messages. The Entity owns its lifecycle; embedded workflows implement actions rather than representing the entire agent.
+- [x] Serialize runs per issue while allowing different issues to run concurrently without feature-specific repository queue or concurrency caps. Expose invoker, instructions, queue position/status, and terminal cancellation reasons in frontend history.
+- [x] Provide Cancel run to linked frontend users with current effective write/admin permission. Edits/deletion, issue closure, and repository pause/disconnect/access loss/review disablement invalidate the appropriate active and queued work; restoration never revives it.
+- [x] Verify replay, quoted/forged/bot invocations, permission failures, queue ordering, cross-issue concurrency, actor state restoration, and cancellation without invoking a model or making GitHub writes.
 
 ## Comments
 
@@ -25,3 +27,5 @@
 Scope notes for later tickets: the scheduler starts the head run at once, so a single invocation shows as `running` (queue position 1) with its 15-minute deadline recorded; the investigation itself, the pre-execution GitHub permission recheck, and the `Finish` transition belong to ticket 06. Start rechecks repository eligibility, the accepted generation, the deployment gate and review enablement.
 
 Recorded after review: cancellation is persisted first and the agent told second. Repository-level changes cancel through a database trigger on the eligibility generation; review disablement, issue closure, comment edits or deletions and the frontend's Cancel run end runs in the caller's transaction and then notify the agent, so a message the agent never receives changes nothing. A settings change holds the repository row to serialize with admission; admission rolls its run back when an edit settled the receipt meanwhile; a delivery with no receipt time is denied. The mention parser also ignores `<pre>`/`<code>` HTML, indented code and longer closing fences. Not addressed: a lost `Start` is only re-sent by the next advance of that issue, and blockquote lazy-continuation lines are treated as prose.
+
+2026-09-18 completion review: implementation commit `02cfa47` and current code/test coverage support completion of this ticket. Earlier comments describe each slice at implementation time; later tickets supersede their temporary limitations. Live deployment verification remains separate, as recorded in [the completion review](../completion-review.md).

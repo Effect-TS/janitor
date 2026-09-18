@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Completion:** complete. Reconciled on 2026-09-18. See [completion review](../completion-review.md).
+
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0006–0012. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
 - [x] Keep production issue review gated until the synchronization-as-cache migration and complete review path are present; remove temporary development-only limitations without bypassing per-repository opt-in.
@@ -25,3 +27,5 @@ Implemented 2026-09-18. Production configuration now uses `JANITOR_ISSUE_REVIEW_
 Operator instructions and the acceptance coverage map are in [the operator guide](../../../docs/issue-review.md) and [the verification record](../../../docs/issue-review-verification.md). The record distinguishes controlled external services, real local execution, and live smoke tests still required. No deployment plan, deployment, or live repository opt-in was performed.
 
 Validation: `vp install` succeeded; `vp check --fix` passed with 0 errors and 347 existing warnings; `vp test` passed 790 tests across 125 files. The post-review investigation suite passed all 110 tests. Standards review found one use of internal persistence in new assertions, resolved by using public history; no remaining findings. Spec review found no gaps.
+
+2026-09-18 completion review: implementation commit `96a6cd3` and current code/test coverage support completion of this ticket. Earlier comments describe each slice at implementation time; later tickets supersede their temporary limitations. Live deployment verification remains separate, as recorded in [the completion review](../completion-review.md).

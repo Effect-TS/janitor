@@ -6,18 +6,22 @@
 
 **Status:** ready-for-agent
 
+**Completion:** complete. Reconciled on 2026-09-18. See [completion review](../completion-review.md).
+
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0006. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
-- [ ] Shared eligibility distinguishes connection, pause, current GitHub access, and workflow enablement from synchronization progress or failure; it does not consume synchronized issue/PR facts.
-- [ ] Slack repository listing, selection, and subsequent repository operations use the new eligibility contract. UI status and refusal reasons distinguish access or pause from cache health.
-- [ ] Repository operations reject missing or disconnected repositories and reject unavailable access. Installation discovery can still discover repositories before connection.
-- [ ] Pause, disconnect, and access changes fence pending work; restoration does not revive work accepted under an obsolete connection or access generation.
-- [ ] Stable repository identity survives rename or transfer, with current installation/access revalidation after transfer.
-- [ ] Introduce the new contract alongside legacy labeling eligibility. Do not release old label jobs by removing their synchronization checks in this slice.
-- [ ] Verify operations during initial sync, sync failure, pause, access loss/restoration, and disconnect/reconnect, including a local control change racing a repository operation.
+- [x] Shared eligibility distinguishes connection, pause, current GitHub access, and workflow enablement from synchronization progress or failure; it does not consume synchronized issue/PR facts.
+- [x] Slack repository listing, selection, and subsequent repository operations use the new eligibility contract. UI status and refusal reasons distinguish access or pause from cache health.
+- [x] Repository operations reject missing or disconnected repositories and reject unavailable access. Installation discovery can still discover repositories before connection.
+- [x] Pause, disconnect, and access changes fence pending work; restoration does not revive work accepted under an obsolete connection or access generation.
+- [x] Stable repository identity survives rename or transfer, with current installation/access revalidation after transfer.
+- [x] Introduce the new contract alongside legacy labeling eligibility. Do not release old label jobs by removing their synchronization checks in this slice.
+- [x] Verify operations during initial sync, sync failure, pause, access loss/restoration, and disconnect/reconnect, including a local control change racing a repository operation.
 
 ## Comments
 
 2026-09-17: Implemented on this branch. Migration `0038_repository_eligibility.sql` adds `repository_access_current`, redefines `repository_block_reason` without synchronization clauses, and adds `eligibility_generation` with triggers on repository and installation changes. `apps/cluster/src/RepositoryEligibility.ts` is the shared contract (`get`, `list`, `run` with a row-lock fence and generation check). Slack repository listing, selection and credentials use it, and each agent turn pins the generation it first observes. The connection inventory carries `blockReason`, and the settings page shows repository readiness and cache health as separate chips. Legacy labeling predicates, `withRepositoryActivity` and the ingress fence are unchanged. Workflow enablement has no shared flag yet: workflows check their own enablement inside `RepositoryEligibility.run`; ticket 05 adds the issue-review setting.
 
 Deferred from this slice, recorded after review: `withRepositoryActivity` (the legacy ingress and labeling fence) still runs when the repository row is absent; it stays for webhook journaling and installation discovery until ticket 04 retires it. `RepositoryEligibility.run` has no production caller yet: Slack sessions run in Durable Objects and cannot hold a database row lock across sandbox commands, so they pin the generation per turn instead; ticket 05's admission and publication writes are its first cluster-side users.
+
+2026-09-18 completion review: implementation commit `1ab61b5` and current code/test coverage support completion of this ticket. Earlier comments describe each slice at implementation time; later tickets supersede their temporary limitations. Live deployment verification remains separate, as recorded in [the completion review](../completion-review.md).

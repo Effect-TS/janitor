@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Completion:** complete. Reconciled on 2026-09-18. See [completion review](../completion-review.md).
+
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0007, 0010 as refined by 0012. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
 - [x] Persist intended agent-authored text and publication identity before writing. The agent Entity requests durable publication actions; individual Activities own their idempotency and report results back to persisted agent state.
@@ -22,3 +24,5 @@
 Implemented summary creation and updates as durable agent actions. Publication intent, exact output, ownership fingerprints, and unresolved outcomes survive action interruption. Fresh authority and repository checks run under serialization; enabling dry-run remains sticky for existing runs. Trusted validation checks both source text and GitHub-rendered evidence links. History shows publication status and summary links. Production enablement remains gated by ticket 13.
 
 Validation: full suite passed, 707 tests across 122 files. Standards and spec reviews have no outstanding findings; the shorthand-link bypass found during review was fixed.
+
+2026-09-18 completion review: implementation commit `b2272e7` and current code/test coverage support completion of this ticket. Earlier comments describe each slice at implementation time; later tickets supersede their temporary limitations. Live deployment verification remains separate, as recorded in [the completion review](../completion-review.md).

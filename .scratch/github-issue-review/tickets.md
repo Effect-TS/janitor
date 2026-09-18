@@ -1,10 +1,10 @@
 # Issue-review implementation tickets
 
-Status: approved breakdown, published as local tickets. Implementation has not started.
+Status: all 13 implementation tickets complete. Reconciled on 2026-09-18 against code, tests, and implementation commits. See [completion review](completion-review.md) for evidence and remaining live verification.
 
-Read the [confirmed specification](spec.md), [backend design](backend-design.md), and [verified implementation facts](implementation-facts.md) before implementing a ticket. Each ticket contains its own acceptance criteria and blocking edges and uses the ready-for-agent status.
+Read the [confirmed specification](spec.md), [backend design](backend-design.md), and [verified implementation facts](implementation-facts.md) before implementing a ticket. Each ticket retains its acceptance criteria and original blocking edges. `Status:` records the canonical triage role; `Completion:` and checked acceptance criteria record implementation completion, since the triage vocabulary has no completed status.
 
-Work any ticket whose blockers are complete. Start with ticket 01; afterward, the labeling migration and review development can proceed independently. Ticket 13 gates production readiness on both tracks and retention. No ticket authorizes deployment or live repository opt-in by itself.
+The dependency graph below records implementation order. All blockers are complete, including ticket 13's production-configuration preparation. Deployment, live repository opt-in, and the documented deployment smoke tests remain separate work. No ticket authorizes deployment or live repository opt-in by itself.
 
 | Ticket                                                                                                         | Blocked by |
 | -------------------------------------------------------------------------------------------------------------- | ---------- |

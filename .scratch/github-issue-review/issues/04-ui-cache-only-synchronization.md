@@ -4,17 +4,19 @@
 
 **Blocked by:** 03: Evaluate PR labeling directly against GitHub.
 
-**Status:** in-review
+**Status:** ready-for-agent
+
+**Completion:** complete. Reconciled on 2026-09-18. See [completion review](../completion-review.md).
 
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0006. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
-- [ ] Remove remaining synchronization-readiness and synchronization-health dependencies from automation admission, facts, repository access checks, and publication qualification after all consumers have migrated.
-- [ ] Separate installation access/availability from inventory or synchronization controls. Audit lifecycle triggers and pending-work cleanup so cache changes cannot cancel or release automation incorrectly.
-- [ ] Retain actual connection, pause, access, stale-work, and configuration safeguards while deleting obsolete compatibility paths introduced for the migration.
-- [ ] Frontend repository status reports cache refresh health separately from why automation or repository operations are permitted or refused.
-- [ ] Synchronization and webhook projections may update the UI cache but cannot trigger catch-up labeling or authorize issue review; preserve the accepted event-driven labeling semantics.
-- [ ] Verify initial connection, failed/manual sync, pause/resume, access restoration, rename/transfer, and disconnect/reconnect across issue labeling, PR labeling, and Slack repository access.
-- [ ] Provide evidence that automation uses direct GitHub reads even when cached records are stale or absent. Complete this migration before production issue-review enablement.
+- [x] Remove remaining synchronization-readiness and synchronization-health dependencies from automation admission, facts, repository access checks, and publication qualification after all consumers have migrated.
+- [x] Separate installation access/availability from inventory or synchronization controls. Audit lifecycle triggers and pending-work cleanup so cache changes cannot cancel or release automation incorrectly.
+- [x] Retain actual connection, pause, access, stale-work, and configuration safeguards while deleting obsolete compatibility paths introduced for the migration.
+- [x] Frontend repository status reports cache refresh health separately from why automation or repository operations are permitted or refused.
+- [x] Synchronization and webhook projections may update the UI cache but cannot trigger catch-up labeling or authorize issue review; preserve the accepted event-driven labeling semantics.
+- [x] Verify initial connection, failed/manual sync, pause/resume, access restoration, rename/transfer, and disconnect/reconnect across issue labeling, PR labeling, and Slack repository access.
+- [x] Provide evidence that automation uses direct GitHub reads even when cached records are stale or absent. Complete this migration before production issue-review enablement.
 
 ## Comments
 
@@ -23,3 +25,5 @@
 Applied after review: the configuration view no longer reports `pendingTracks`, the last activation surface that read `sync_target` health (its preparation was always empty since activation became immediate); the repository page's "Retry sync" now posts to the repository sync endpoint instead of resuming the repository, so a cache retry is neither a control change nor an audited resumption; the evidence test also covers a transfer to another installation.
 
 Recorded, not changed here: after an access restoration the cache's full refresh waits for the repair cron's retry pass rather than starting inside the restoring request. The `labeling_reconciliation.source` column stays because `sync` still describes historical rows.
+
+2026-09-18 completion review: implementation commit `d65762c` and current code/test coverage support completion of this ticket. Earlier comments describe each slice at implementation time; later tickets supersede their temporary limitations. Live deployment verification remains separate, as recorded in [the completion review](../completion-review.md).

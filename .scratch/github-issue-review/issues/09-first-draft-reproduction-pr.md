@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Completion:** complete. Reconciled on 2026-09-18. See [completion review](../completion-review.md).
+
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0008, 0012. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
 - [x] Persist the validated patch, test evidence, agent-authored PR content, exact base, and intended branch/PR writes before the first remote mutation.
@@ -34,3 +36,5 @@ No outstanding findings against ticket 09. Safe PR reuse and explicit frontend p
 Review totals: 0 Standards findings, 0 Spec findings.
 
 Validation: `vp check` passed. The full suite passed, 738 tests across 125 files. The final scoped-credential adjustment passed all 66 focused publication and adapter tests. GitHub publication was exercised through the test transport; no live repository was published to or enabled.
+
+2026-09-18 completion review: implementation commit `c440f54` and current code/test coverage support completion of this ticket. Earlier comments describe each slice at implementation time; later tickets supersede their temporary limitations. Live deployment verification remains separate, as recorded in [the completion review](../completion-review.md).

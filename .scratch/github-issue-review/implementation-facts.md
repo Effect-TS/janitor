@@ -1,5 +1,7 @@
 # Verified implementation facts
 
+Historical baseline from the design interview, before implementation. Statements below about missing capabilities are not current gaps. See [completion review](completion-review.md) for the implemented state and remaining verification.
+
 Inspected during the design interview. These are existing capabilities and gaps, not evidence that the proposed review workflow is implemented.
 
 ## Invocation and authorization
