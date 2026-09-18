@@ -1,0 +1,15 @@
+import { describe, expect, it } from "vite-plus/test"
+import { invokesReview } from "@janitor/domain/Review/Invocation"
+
+describe("indented tilde fences", () => {
+  it.each([1, 2, 3])("ignores a command inside a fence indented by %i spaces", (indent) => {
+    const spaces = " ".repeat(indent)
+    expect(invokesReview(`${spaces}~~~text\n/janitor please investigate\n${spaces}~~~`)).toBe(false)
+  })
+  it("ignores the same command inside an unindented tilde fence", () => {
+    expect(invokesReview("~~~text\n/janitor please investigate\n~~~")).toBe(false)
+  })
+  it("accepts a command after an indented tilde fence", () => {
+    expect(invokesReview("  ~~~text\nexample\n  ~~~\n\n/janitor please investigate")).toBe(true)
+  })
+})
