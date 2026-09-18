@@ -8,10 +8,16 @@
 
 **Design context:** Use the confirmed GitHub-invoked issue review specification and backend design, the domain glossary, and ADR 0011, 0012. This ticket is one slice of the approved design; production review enablement waits for ticket 13.
 
-- [ ] Retain invoker/instructions, commit, findings, test evidence, proposed patch, and publication links for the accepted 14-day window, including agent/action records that contain equivalent detailed data.
-- [ ] Expire detailed records and artifacts after the window without leaving copies indefinitely in actor state, action results, or auxiliary persistence.
-- [ ] Retain minimal invocation receipts, summary identity, branch/PR ownership, and last-publication fingerprints while the repository remains connected; use fingerprints rather than full historical prose where sufficient.
-- [ ] Expired results are not publishable through any endpoint, even if a client has cached an earlier eligible view. History renders expired/unavailable data accurately.
-- [ ] Replay after expiry cannot create another run or repeat publication. New invocations can still identify owned artifacts and detect human changes without old detailed logs.
-- [ ] Respect repository disconnection and admission-generation fencing so retained or delayed messages cannot recreate management state after disconnect/reconnect.
-- [ ] Verify time-boundary expiry, expired publication requests, retained deduplication, later PR reuse, human edits after log expiry, and repository removal.
+- [x] Retain invoker/instructions, commit, findings, test evidence, proposed patch, and publication links for the accepted 14-day window, including agent/action records that contain equivalent detailed data.
+- [x] Expire detailed records and artifacts after the window without leaving copies indefinitely in actor state, action results, or auxiliary persistence.
+- [x] Retain minimal invocation receipts, summary identity, branch/PR ownership, and last-publication fingerprints while the repository remains connected; use fingerprints rather than full historical prose where sufficient.
+- [x] Expired results are not publishable through any endpoint, even if a client has cached an earlier eligible view. History renders expired/unavailable data accurately.
+- [x] Replay after expiry cannot create another run or repeat publication. New invocations can still identify owned artifacts and detect human changes without old detailed logs.
+- [x] Respect repository disconnection and admission-generation fencing so retained or delayed messages cannot recreate management state after disconnect/reconnect.
+- [x] Verify time-boundary expiry, expired publication requests, retained deduplication, later PR reuse, human edits after log expiry, and repository removal.
+
+## Comments
+
+Implemented 2026-09-18. Detailed runs expire from acceptance, with database and workspace cleanup, retained invocation receipts and ownership fingerprints, and guards against expired publication and delayed work after disconnection. History explains the 14-day window.
+
+Validation: `vp check --fix` passed with warnings; `vp test` passed all 787 tests across 125 files. Standards review: 0 findings. Spec review: 0 remaining findings. Production enablement still waits for ticket 13.

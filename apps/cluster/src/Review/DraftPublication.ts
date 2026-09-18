@@ -1,3 +1,4 @@
+import { reviewIsRetained } from "./Retention.ts"
 import type { DraftPublication } from "@janitor/domain/Review/Draft"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -375,6 +376,10 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
                       yield* stop("blocked", String(checked.failure))
                       return false
                     }
+                  }
+                  if (!(yield* reviewIsRetained(runId))) {
+                    yield* fence(false)
+                    return false
                   }
                   const result = yield* write.pipe(Effect.result)
                   if (result._tag === "Failure") {

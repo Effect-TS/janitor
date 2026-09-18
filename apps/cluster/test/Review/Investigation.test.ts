@@ -1,3 +1,4 @@
+import { expireReviewHistory } from "../../src/Review/Retention.ts"
 import { IssueReviewControl } from "../../src/Review/Control.ts"
 import { TeammateId } from "@janitor/domain/Team/Account"
 import type { ReproductionAssessment } from "@janitor/domain/Review/Reproduction"
@@ -192,10 +193,11 @@ const live = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 const publishedComments = new Map<string, { id: string; body: string }>()
 const commentWrites: Array<string> = []
 let renderedLinksSafe = true
+let afterLinkValidation: Effect.Effect<void> = Effect.void
 let writeOutcome: "ok" | "lost" | "absent" = "ok"
 let afterCommentWrite: Effect.Effect<void> = Effect.void
 const CommentsLayer = Layer.succeed(ReviewComments, {
-  checkLinks: () => Effect.sync(() => renderedLinksSafe),
+  checkLinks: () => afterLinkValidation.pipe(Effect.as(renderedLinksSafe)),
   list: () => Effect.succeed([...publishedComments.values()]),
   get: (_repository, id) => Effect.succeed(publishedComments.get(id) ?? null),
   write: (_repository, _issue, id, body) =>
@@ -353,6 +355,7 @@ const publicationSetup = Effect.gen(function* () {
   publishedComments.clear()
   commentWrites.length = 0
   renderedLinksSafe = true
+  afterLinkValidation = Effect.void
   writeOutcome = "ok"
   afterCommentWrite = Effect.void
   github.permissions.set("octocat", { id: 9, permission: "write" })
@@ -452,6 +455,122 @@ const prepareReproduction = (
   })
 
 layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => {
+  it.effect("removes ownership on disconnect and fences delayed work after reconnect", () =>
+    live(
+      Effect.gen(function* () {
+        const id = yield* prepareReproduction()
+        for (const sequence of [2, 3, 4]) yield* drive(id, sequence)
+        const old = yield* run(id)
+        const sql = yield* SqlClient.SqlClient
+        const store = yield* IssueReviewStore
+        yield* sql`UPDATE github_repository SET connected = FALSE WHERE repository_id = ${repositoryId}`
+        yield* sql`SELECT delete_repository_data(${repositoryId})`
+        yield* expireReviewHistory
+        for (const connected of [false, true]) {
+          yield* sql`UPDATE github_repository SET connected = ${connected} WHERE repository_id = ${repositoryId}`
+          yield* (yield* IssueReviewScheduler).release(repositoryId, 30)
+          assert.isFalse(
+            yield* store.recordReceipt({
+              repositoryId,
+              commentId: old.commentId,
+              deliveryId: "delayed",
+              issueNumber: 30,
+              authorId: "9",
+              authorLogin: "octocat",
+              body: old.instructions,
+              receivedAt: new Date(),
+              eligibilityGeneration: old.eligibilityGeneration,
+            }),
+          )
+          assert.deepStrictEqual(yield* store.history(repositoryId), [])
+          const [retained] = yield* sql<{ owners: number; issues: number; receipts: number }>`
+          SELECT (SELECT count(*)::int FROM issue_review_draft_owner WHERE repository_id = ${repositoryId}) AS owners,
+            (SELECT count(*)::int FROM issue_review_issue WHERE repository_id = ${repositoryId}) AS issues,
+            (SELECT count(*)::int FROM issue_review_receipt WHERE repository_id = ${repositoryId}) AS receipts`
+          assert.deepStrictEqual(retained, { owners: 0, issues: 0, receipts: 0 })
+        }
+        assert.lengthOf(draftGithub.pulls, 1)
+      }),
+    ),
+  )
+  it.effect("does not publish when validation crosses the retention boundary", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        const id = yield* prepareSummary()
+        const sql = yield* SqlClient.SqlClient
+        afterLinkValidation =
+          sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' WHERE run_id::text = ${id}`.pipe(
+            Effect.orDie,
+            Effect.asVoid,
+          )
+        yield* drive(id, 2)
+        assert.lengthOf(commentWrites, 0)
+      }),
+    ),
+  )
+  it.effect("expires all detailed copies at fourteen days and retains the invocation receipt", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        const id = yield* prepareSummary()
+        const original = yield* run(id)
+        const store = yield* IssueReviewStore
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' + INTERVAL '1 minute' WHERE run_id::text = ${id}`
+        yield* expireReviewHistory
+        assert.isDefined(yield* shown(id))
+        yield* sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' WHERE run_id::text = ${id}`
+        yield* sql`UPDATE issue_review_receipt SET created_at = CLOCK_TIMESTAMP() - INTERVAL '15 days' WHERE run_id::text = ${id}`
+        assert.isUndefined(yield* shown(id))
+        yield* expireReviewHistory
+        assert.isTrue(Option.isNone(yield* store.run(id)))
+        assert.deepStrictEqual(yield* store.actions(id), [])
+        assert.isFalse(yield* store.completeAction(id, 1, { findings: "late result" }))
+        assert.isFalse(
+          yield* store.recordMessage({
+            runId: id,
+            messageId: "late",
+            kind: "ActionCompleted",
+            payload: { text: "late details" },
+            applied: true,
+          }),
+        )
+        const receipt = Option.getOrThrow(yield* store.receipt(repositoryId, original.commentId))
+        assert.strictEqual(receipt.outcome, "admitted")
+        assert.strictEqual(receipt.body, "")
+        assert.strictEqual(receipt.authorLogin, "")
+        assert.isFalse(
+          yield* store.recordReceipt({
+            repositoryId,
+            commentId: original.commentId,
+            deliveryId: "replayed",
+            issueNumber: 30,
+            authorId: "9",
+            authorLogin: "octocat",
+            body: original.instructions,
+            receivedAt: new Date(),
+            eligibilityGeneration: original.eligibilityGeneration,
+          }),
+        )
+        yield* drive(id, 2)
+        assert.lengthOf(commentWrites, 0)
+        assert.deepStrictEqual(yield* store.history(repositoryId), [])
+        // Physical removal matters: hiding data from the history query is insufficient.
+        const [copies] = yield* sql<{
+          runs: number
+          actions: number
+          messages: number
+          outbox: number
+        }>`
+        SELECT (SELECT count(*)::int FROM issue_review_run WHERE run_id::text = ${id}) AS runs,
+        (SELECT count(*)::int FROM issue_review_action WHERE run_id::text = ${id}) AS actions,
+        (SELECT count(*)::int FROM issue_review_message WHERE run_id::text = ${id}) AS messages,
+        (SELECT count(*)::int FROM workflow_outbox WHERE payload->>'runId' = ${id}) AS outbox`
+        assert.deepStrictEqual(copies, { runs: 0, actions: 0, messages: 0, outbox: 0 })
+      }),
+    ),
+  )
   it.effect("refuses older, expired, cancelled and unauthorized results before enqueueing", () =>
     live(
       Effect.gen(function* () {
@@ -483,6 +602,11 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
             (yield* control.publish(repositoryId, id, publisher).pipe(Effect.result))._tag,
             "Failure",
           )
+          if (reason === "expired") {
+            assert.isUndefined(yield* shown(id))
+            assert.deepStrictEqual(yield* actions(id), [])
+            continue
+          }
           assert.isNull((yield* shown(id)).savedPublication)
           assert.deepStrictEqual(
             (yield* actions(id)).map((a) => a.kind),
@@ -658,7 +782,8 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
             yield* sql`UPDATE github_repository SET connected = FALSE WHERE repository_id = ${repositoryId}`
           yield* drive(id, 2)
           assert.strictEqual(commentWrites.length, 0)
-          assert.strictEqual((yield* shown(id)).savedPublication?.status, "blocked")
+          if (changed === "expired") assert.isUndefined(yield* shown(id))
+          else assert.strictEqual((yield* shown(id)).savedPublication?.status, "blocked")
         }),
       ),
     )
@@ -804,6 +929,9 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
           const first = yield* prepareReproduction()
           for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
           const before = (yield* shown(first)).draftPublication!
+          const sql = yield* SqlClient.SqlClient
+          yield* sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' WHERE run_id::text = ${first}`
+          yield* expireReviewHistory
           const pr = draftGithub.pulls[0]!
           if (change === "body" || change === "title") pr[change] = "Human text"
           if (change === "ready") pr.draft = false
@@ -970,12 +1098,16 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
       ),
     )
   }
-  it.effect("reuses the unchanged owned draft on a later invocation", () =>
+  it.effect("reuses the unchanged owned draft after detailed history expires", () =>
     live(
       Effect.gen(function* () {
         const first = yield* prepareReproduction()
         for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
         const before = (yield* shown(first)).draftPublication!
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' WHERE run_id::text = ${first}`
+        yield* expireReviewHistory
+        assert.isUndefined(yield* shown(first))
         const next = yield* prepareReproduction({ subsequent: true })
         for (const sequence of [2, 3, 4]) yield* drive(next, sequence)
         const result = (yield* shown(next)).draftPublication!

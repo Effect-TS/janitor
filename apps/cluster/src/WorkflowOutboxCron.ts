@@ -1,3 +1,4 @@
+import { expireReviewHistory } from "./Review/Retention.ts"
 import { flushLive } from "./LiveUpdates.ts"
 import * as Effect from "effect/Effect"
 import * as Singleton from "effect/unstable/cluster/Singleton"
@@ -17,6 +18,9 @@ export const WorkflowOutboxCronLayer = Singleton.make(
         Effect.logInfo("Pruned terminal webhook payloads").pipe(Effect.annotateLogs({ pruned })),
       ),
       Effect.catchCause((cause) => Effect.logError("Webhook payload pruning failed", cause)),
+    )
+    yield* expireReviewHistory.pipe(
+      Effect.catchCause((cause) => Effect.logError("Review history expiry failed", cause)),
     )
     yield* flushLive
     const dispatcher = yield* WorkflowDispatcher

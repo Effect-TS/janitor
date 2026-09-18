@@ -72,8 +72,8 @@ export const ReviewAgent = Entity.make("ReviewAgent", [
     primaryKey: ({ messageId }) => messageId,
     success: RunSnapshot,
     error: ReviewRunMissing,
-  }),
-  /** Stop the run wherever it is; a cancelled run never resumes. */
+  }).annotate(ClusterSchema.Persisted, true),
+  /** Cancellation details live in the expiring application journal, not the cluster mailbox. */
   Rpc.make("Cancel", {
     payload: {
       messageId: Schema.String,
@@ -90,13 +90,14 @@ export const ReviewAgent = Entity.make("ReviewAgent", [
     primaryKey: ({ messageId }) => messageId,
     success: RunSnapshot,
     error: ReviewRunMissing,
-  }),
-]).annotateRpcs(ClusterSchema.Persisted, true)
+  }).annotate(ClusterSchema.Persisted, true),
+])
 
 const snapshot = (run: RunRecord): RunSnapshot => ({
   runId: run.runId,
   status: run.status,
-  cancelReason: run.cancelReason,
+  // Detailed reasons are read from expiring history, never copied into durable RPC replies.
+  cancelReason: null,
 })
 
 /**

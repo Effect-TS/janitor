@@ -625,7 +625,7 @@ export const view = Submodel.defineView<Model, Message, Record<string, never>>((
     main: [
       Page.header(h, {
         title: "Reviews",
-        lede: "Every review run an authorized @janitor mention started in this repository, newest first. One run is active per issue; later invocations wait behind it.",
+        lede: "Review runs from the last 14 days, newest first. Older details expire. One run is active per issue; later invocations wait behind it.",
         actions: [
           Button.view(h, {
             variant: "secondary",
@@ -654,7 +654,7 @@ export const view = Submodel.defineView<Model, Message, Record<string, never>>((
         ? emptyPanel(h, {
             children: [
               model.initialized
-                ? "No review runs yet. Mention @janitor in a comment on an open issue to start one."
+                ? "No review runs in the last 14 days. Older details have expired. Mention @janitor in a comment on an open issue to start one."
                 : "Loading review history…",
             ],
           })

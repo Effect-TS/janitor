@@ -1,3 +1,4 @@
+import { reviewIsRetained } from "./Retention.ts"
 import { authorizePublication } from "./PublicationGuard.ts"
 import { permittedSummaryLinks, summaryIntent } from "./Output.ts"
 import type { ReviewPublication } from "@janitor/domain/Review/Publication"
@@ -204,6 +205,11 @@ export class IssueReviewPublication extends Context.Service<IssueReviewPublicati
                     "blocked",
                     "The owned summary was deleted, edited, or could not be verified.",
                   )
+              }
+              if (!(yield* reviewIsRetained(runId))) {
+                yield* sql`UPDATE issue_review_issue SET publication_unresolved = FALSE
+                  WHERE repository_id = ${run.repositoryId} AND issue_number = ${run.issueNumber}`
+                return
               }
               const written = yield* comments
                 .write(repository, run.issueNumber, intent.commentId, body)
