@@ -654,7 +654,7 @@ export const view = Submodel.defineView<Model, Message, Record<string, never>>((
         ? emptyPanel(h, {
             children: [
               model.initialized
-                ? "No review runs in the last 14 days. Older details have expired. Mention @janitor in a comment on an open issue to start one."
+                ? "No review runs in the last 14 days. Older details have expired. Post /janitor in a new comment on an open issue to start one."
                 : "Loading review history…",
             ],
           })

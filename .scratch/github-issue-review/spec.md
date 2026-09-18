@@ -1,5 +1,7 @@
 # GitHub-invoked issue review
 
+Invocation update, 2026-09-18: new review requests use the `/janitor` slash command, replacing user mentions to avoid notifying an unrelated GitHub account. ADR 0007 records the current invocation contract.
+
 Implementation status, 2026-09-18: tickets 01–13 are complete in the repository. The design-confirmation language below records the original authorization boundary. See [completion review](completion-review.md) for implementation evidence and outstanding live verification.
 
 Design confirmed by the user, including the requirements below and the mechanics in [backend-design.md](backend-design.md). The design interview is complete. Implementation remains out of scope and is not authorized by this confirmation.

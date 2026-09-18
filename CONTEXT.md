@@ -199,7 +199,7 @@ Changes to Janitor's cached GitHub information from incoming webhook events. A c
 An explicitly invoked investigation that classifies an issue, searches the same repository for related issues and pull requests, and checks evidence against a recorded default-branch commit. It does not apply labels or fix bugs.
 
 **Authorized invocation**:
-A free-form request mentioning Janitor directly from a human with effective write or admin permission on that repository. Ordinary issue activity and reporter replies without a direct invocation do not authorize work.
+A free-form request containing the `/janitor` command from a human with effective write or admin permission on that repository. Ordinary issue activity and reporter replies without a direct invocation do not authorize work.
 
 **Review run**:
 One investigation requested by an authorized invocation, using that invocation's instructions and treating previous discussion and findings as evidence. Only one run is active per issue; later invocations wait in order.
