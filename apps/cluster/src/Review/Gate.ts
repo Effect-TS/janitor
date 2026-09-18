@@ -9,7 +9,9 @@ export const issueReviewEnabled = Config.Boolean("JANITOR_ISSUE_REVIEW_ENABLED")
 
 /** Declare this in Worker props so flag-only changes participate in deployment diffing. */
 export const issueReviewDeploymentEnv = issueReviewEnabled.pipe(
-  Effect.map((enabled) => ({ JANITOR_ISSUE_REVIEW_ENABLED: String(enabled) })),
+  // Alchemy's runtime accessor JSON-parses plain bindings. "true" becomes a
+  // boolean and breaks Config.Boolean's string decoder during Worker init.
+  Effect.map((enabled) => ({ JANITOR_ISSUE_REVIEW_ENABLED: enabled ? "yes" : "no" })),
 )
 
 /**
