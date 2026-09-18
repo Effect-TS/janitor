@@ -57,6 +57,13 @@ it.live("binds each sandbox container application to just one Durable Object nam
           ),
           { SandboxContainer: ["SlackSession"], ReviewSandboxContainer: ["ReviewWorkspace"] },
         )
+        const workerContainers = (compiled.bindings.SandboxBindingsTest ?? []).flatMap(
+          (binding) => binding.data.containers ?? [],
+        )
+        assert.deepStrictEqual(workerContainers.map((container) => container.className).sort(), [
+          "ReviewWorkspace",
+          "SlackSession",
+        ])
       }),
     { stage: "test" },
   ).pipe(
