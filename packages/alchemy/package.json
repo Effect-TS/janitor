@@ -17,6 +17,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@distilled.cloud/cloudflare": "1.0.0-rc.8",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:"
   }
