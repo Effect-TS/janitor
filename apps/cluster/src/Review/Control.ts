@@ -1,3 +1,7 @@
+import { summaryIntent } from "./Output.ts"
+import type { SavedPublication } from "@janitor/domain/Review/Publication"
+import { authorizeSavedPublication, linkedPublisher } from "./SavedPublication.ts"
+import { ReviewActionDispatch } from "./Actions.ts"
 import { isTerminalReviewStatus } from "@janitor/domain/Review/Run"
 import { GITHUB_WORKSPACE_ID, type TeammateId } from "@janitor/domain/Team/Account"
 import * as Context from "effect/Context"
@@ -48,6 +52,16 @@ const LinkRow = Schema.Struct({ account_id: Schema.String, display_name: Schema.
 export class IssueReviewControl extends Context.Service<
   IssueReviewControl,
   {
+    readonly publish: (
+      repositoryId: string,
+      runId: string,
+      teammateId: TeammateId,
+    ) => Effect.Effect<SavedPublication, ReviewRunNotFound | ReviewForbidden>
+    readonly canPublish: (
+      repositoryId: string,
+      runId: string,
+      teammateId: TeammateId,
+    ) => Effect.Effect<boolean>
     readonly cancel: (
       repositoryId: string,
       runId: string,
@@ -61,6 +75,9 @@ export class IssueReviewControl extends Context.Service<
 >()("@janitor/cluster/Review/IssueReviewControl", {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
+    const dispatch = yield* ReviewActionDispatch
+    const context =
+      yield* Effect.context<Effect.Services<ReturnType<typeof authorizeSavedPublication>>>()
     const store = yield* IssueReviewStore
     const eligibility = yield* RepositoryEligibility
     const scheduler = yield* IssueReviewScheduler
@@ -127,7 +144,82 @@ export class IssueReviewControl extends Context.Service<
       return snapshot
     })
 
-    return { cancel }
+    const inspectPublication = (
+      repositoryId: string,
+      runId: string,
+      teammateId: TeammateId,
+      enqueue: boolean,
+    ) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
+            const found = yield* store.run(runId)
+            if (Option.isNone(found) || found.value.repositoryId !== repositoryId)
+              return yield* new ReviewRunNotFound({ runId })
+            yield* store.lockIssue(repositoryId, found.value.issueNumber)
+            const run = Option.getOrThrow(yield* store.lockRun(runId))
+            // A repeated request observes the durable grant, never replaces its publisher.
+            if (run.savedPublication != null)
+              return { publication: run.savedPublication, payload: null }
+            const repository = yield* eligibility.get(repositoryId)
+            const intent =
+              run.publication.status === "none"
+                ? summaryIntent(run, repository.name)
+                : run.publication
+            if (intent.status !== "pending" || intent.body === null)
+              return yield* new ReviewForbidden({
+                message: "This run has no saved validated publication text.",
+              })
+            const link = yield* linkedPublisher(teammateId)
+            const grant = yield* authorizeSavedPublication(run, {
+              teammateId,
+              githubId: link.account_id,
+            })
+            const publication: SavedPublication = {
+              teammateId,
+              githubId: link.account_id,
+              githubLogin: grant.login,
+              requestedAt: DateTime.formatIso(yield* DateTime.now),
+              status: "pending",
+            }
+            if (enqueue) yield* store.savePublication(runId, intent)
+            const payload = enqueue ? yield* scheduler.publish(run, publication) : null
+            return { publication, payload }
+          }),
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof ReviewRunNotFound || error instanceof ReviewForbidden
+              ? error
+              : new ReviewForbidden({
+                  message:
+                    typeof error === "string"
+                      ? error
+                      : "Publication eligibility could not be verified.",
+                }),
+          ),
+        )
+
+    const publish = Effect.fn("IssueReviewControl.publish")(function* (
+      repositoryId: string,
+      runId: string,
+      teammateId: TeammateId,
+    ) {
+      const result = yield* inspectPublication(repositoryId, runId, teammateId, true).pipe(
+        Effect.provide(context),
+      )
+      if (result.payload !== null) yield* dispatch.dispatch(result.payload)
+      return result.publication
+    })
+    const canPublish = (repositoryId: string, runId: string, teammateId: TeammateId) =>
+      inspectPublication(repositoryId, runId, teammateId, false).pipe(
+        Effect.provide(context),
+        Effect.map(() => true),
+        Effect.catch(() => Effect.succeed(false)),
+      )
+
+    return { cancel, publish, canPublish }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

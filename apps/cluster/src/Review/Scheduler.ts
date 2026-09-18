@@ -1,3 +1,6 @@
+import type { SavedPublication } from "@janitor/domain/Review/Publication"
+import { WorkflowOutbox } from "../WorkflowOutbox.ts"
+import { REVIEW_ACTION_TAG, reviewActionKey, type ReviewActionPayload } from "./Actions.ts"
 import { isTerminalReviewStatus } from "@janitor/domain/Review/Run"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -9,7 +12,8 @@ import {
   type Cancellation,
   type CancelSelection,
   IssueReviewStore,
-  type IssueReviewError,
+  IssueReviewError,
+  type RunRecord,
 } from "./Store.ts"
 
 /**
@@ -23,6 +27,10 @@ import {
 export class IssueReviewScheduler extends Context.Service<
   IssueReviewScheduler,
   {
+    readonly publish: (
+      run: RunRecord,
+      publisher: SavedPublication,
+    ) => Effect.Effect<ReviewActionPayload, IssueReviewError>
     /** Starts the issue's next run when it has no active run. Idempotent. */
     readonly advance: (
       repositoryId: string,
@@ -49,6 +57,7 @@ export class IssueReviewScheduler extends Context.Service<
     const sql = yield* SqlClient.SqlClient
     const store = yield* IssueReviewStore
     const agents = yield* ReviewAgentClient
+    const outbox = yield* WorkflowOutbox
 
     /** Picks the run to start under the issue's scheduling record. */
     const choose = (repositoryId: string, issueNumber: number) =>
@@ -60,7 +69,11 @@ export class IssueReviewScheduler extends Context.Service<
               const active = yield* store.run(activeRunId)
               // A start that was lost in delivery is sent again, and a running
               // run resyncs with its latest action; the agent applies each once.
-              if (Option.isSome(active) && !isTerminalReviewStatus(active.value.status))
+              if (
+                Option.isSome(active) &&
+                (!isTerminalReviewStatus(active.value.status) ||
+                  active.value.savedPublication?.status === "pending")
+              )
                 return active
             }
             const next = yield* store.nextQueued(repositoryId, issueNumber)
@@ -101,6 +114,31 @@ export class IssueReviewScheduler extends Context.Service<
       return started
     })
 
+    const publish = (run: RunRecord, publisher: SavedPublication) =>
+      Effect.gen(function* () {
+        yield* store.setActiveRun(run.repositoryId, run.issueNumber, run.runId)
+        yield* sql`UPDATE issue_review_run SET saved_publication = ${JSON.stringify(publisher)}::jsonb
+          WHERE run_id::text = ${run.runId}`
+        const sequence = ((yield* store.actions(run.runId)).at(-1)?.sequence ?? -1) + 1
+        const payload = { runId: run.runId, sequence }
+        yield* store.insertAction(
+          run.runId,
+          sequence,
+          run.draftPublication?.status === "pending" ? "publish_branch" : "publish",
+        )
+        yield* outbox.enqueue({
+          workflowTag: REVIEW_ACTION_TAG,
+          executionKey: reviewActionKey(payload),
+          payload,
+        })
+        return payload
+      }).pipe(
+        Effect.mapError(
+          (error) =>
+            new IssueReviewError({ operation: "schedulePublication", message: String(error) }),
+        ),
+      )
+
     const cancel = Effect.fn("IssueReviewScheduler.cancel")(function* (
       selection: CancelSelection,
       cancellation: Cancellation,
@@ -134,6 +172,7 @@ export class IssueReviewScheduler extends Context.Service<
 
     return {
       advance,
+      publish,
       release: (repositoryId, issueNumber) => Effect.asVoid(advance(repositoryId, issueNumber)),
       cancel,
     }

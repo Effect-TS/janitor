@@ -133,7 +133,7 @@ export const effectivePermission = (
   )
 
 /** Every check an invocation must pass before it becomes a run. */
-export const checkInvocation = (
+export const checkInvocationSource = (
   repository: RepositoryTarget,
   repositoryId: string,
   invocation: Invocation,
@@ -171,17 +171,23 @@ export const checkInvocation = (
     )
       return denied(deniedReasons.commentEdited)
 
-    const permission = yield* effectivePermission(
-      repository,
-      current.user.login,
-      invocation.authorId,
-    )
-    if (permission._tag === "Insufficient") return denied(permission.reason)
     return {
       _tag: "Authorized",
       issueId: issue.body.id,
       instructions: current.body,
       commentCreatedAt: DateTime.toDateUtc(current.createdAt),
-      login: permission.login,
+      login: current.user.login,
     }
+  })
+
+export const checkInvocation = (
+  repository: RepositoryTarget,
+  repositoryId: string,
+  invocation: Invocation,
+): Effect.Effect<Authority, SyncRateLimited | SyncActivityError, GitHubTransport> =>
+  Effect.gen(function* () {
+    const source = yield* checkInvocationSource(repository, repositoryId, invocation)
+    if (source._tag === "Denied") return source
+    const permission = yield* effectivePermission(repository, source.login, invocation.authorId)
+    return permission._tag === "Insufficient" ? denied(permission.reason) : source
   })

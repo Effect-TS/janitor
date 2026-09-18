@@ -1,3 +1,4 @@
+import { SavedPublication } from "@janitor/domain/Review/Publication"
 import { ReviewHistory, ReviewRun, ReviewRunStatus } from "@janitor/domain/Review/Run"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -39,6 +40,7 @@ export const Model = Schema.Struct({
   generation: Schema.Int,
   /** The run whose cancellation is in flight. */
   cancelling: Schema.NullOr(Schema.String),
+  publishing: Schema.NullOr(Schema.String),
 })
 export type Model = typeof Model.Type
 
@@ -51,6 +53,7 @@ export const init = (): Model => ({
   error: null,
   generation: 0,
   cancelling: null,
+  publishing: null,
 })
 
 export const Message = defineMessageUnion({
@@ -59,6 +62,9 @@ export const Message = defineMessageUnion({
   ClickedRefresh: {},
   Loaded: { generation: Schema.Int, runs: ReviewHistory.fields.runs },
   Failed: { generation: Schema.Int, reason: Schema.String },
+  ClickedPublish: { runId: Schema.String },
+  Published: { runId: Schema.String, generation: Schema.Int, publication: SavedPublication },
+  PublishFailed: { runId: Schema.String, generation: Schema.Int, reason: Schema.String },
   ClickedCancel: { runId: Schema.String },
   Cancelled: { runId: Schema.String, status: ReviewRunStatus },
   CancelFailed: { runId: Schema.String, reason: Schema.String },
@@ -122,6 +128,24 @@ export const CancelRun = Command.define("CancelReviewRun", {
     ),
 })
 
+export const PublishRun = Command.define("PublishReviewResults", {
+  args: { repositoryId: Schema.String, runId: Schema.String, generation: Schema.Int },
+  messages: [Message.Published, Message.PublishFailed],
+  execute: ({ repositoryId, runId, generation }) =>
+    request(
+      "POST",
+      `${historyEndpoint(repositoryId)}/${encodeURIComponent(runId)}/publish`,
+      {},
+    ).pipe(
+      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(SavedPublication)),
+      Effect.timeout("15 seconds"),
+      Effect.map((publication) => Message.Published({ runId, generation, publication })),
+      Effect.catch((error) =>
+        Effect.succeed(Message.PublishFailed({ runId, generation, reason: reasonOf(error) })),
+      ),
+    ),
+})
+
 type Return = Update.ReturnWithOutMessage<Model, Message, OutMessage, HttpClient.HttpClient>
 
 const fetchHistory = (model: Model): Return =>
@@ -140,7 +164,7 @@ export const update = (model: Model, message: Message): Return =>
       if (model.repositoryId === repositoryId && model.active === active) return { model }
       const next: Model =
         repositoryId === model.repositoryId
-          ? { ...model, active, loading: false, generation: model.generation + 1 }
+          ? { ...model, active, loading: false, publishing: null, generation: model.generation + 1 }
           : { ...init(), repositoryId, active, generation: model.generation + 1 }
       return active ? fetchHistory(next) : { model: next }
     },
@@ -154,6 +178,39 @@ export const update = (model: Model, message: Message): Return =>
       generation !== model.generation
         ? { model }
         : { model: { ...model, loading: false, error: reason } },
+    ClickedPublish: ({ runId }) =>
+      model.publishing !== null || !model.runs.some((run) => run.runId === runId && run.canPublish)
+        ? { model }
+        : {
+            model: { ...model, publishing: runId },
+            commands: [
+              PublishRun({ repositoryId: model.repositoryId, runId, generation: model.generation }),
+            ],
+          },
+    Published: ({ runId, generation, publication }) =>
+      generation !== model.generation || model.publishing !== runId
+        ? { model }
+        : {
+            model: {
+              ...model,
+              publishing: null,
+              runs: model.runs.map((run) =>
+                run.runId === runId
+                  ? { ...run, savedPublication: publication, canPublish: false }
+                  : run,
+              ),
+            },
+          },
+    PublishFailed: ({ runId, generation, reason }) =>
+      generation !== model.generation || model.publishing !== runId
+        ? { model }
+        : {
+            ...fetchHistory({ ...model, publishing: null }),
+            outMessage: OutMessage.Failed({
+              title: "Publication could not be confirmed. Refresh to check its status.",
+              reason,
+            }),
+          },
     ClickedCancel: ({ runId }) =>
       model.cancelling !== null ||
       !model.runs.some((run) => run.runId === runId && run.queuePosition !== null)
@@ -318,7 +375,11 @@ const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> 
                       h.DataAttribute("slot", "publication"),
                     ],
                     [
-                      `Summary publication: ${run.publication.status}.`,
+                      run.dryRun &&
+                      run.savedPublication == null &&
+                      run.publication.status === "pending"
+                        ? "Validated summary saved."
+                        : `Summary publication: ${run.publication.status}.`,
                       ...(run.publication.reason === null ? [] : [` ${run.publication.reason}`]),
                       ...(run.publication.url === null
                         ? []
@@ -509,6 +570,19 @@ const runRow = (h: HtmlBuilder<Message>, model: Model, run: ReviewRun): Html => 
                   ],
                 ),
               ]),
+          ...(run.savedPublication == null
+            ? []
+            : [
+                h.p(
+                  [
+                    h.Class("text-body-sm text-ink-muted"),
+                    h.DataAttribute("slot", "saved-publication"),
+                  ],
+                  [
+                    `Publication: ${run.savedPublication.status}. Authorized by ${run.savedPublication.githubLogin}.`,
+                  ],
+                ),
+              ]),
           ...findings(h, run),
         ],
         "w-full max-w-0",
@@ -527,7 +601,18 @@ const runRow = (h: HtmlBuilder<Message>, model: Model, run: ReviewRun): Html => 
                 attributes: [h.DataAttribute("action", "cancel-run")],
               }),
             ]
-          : [],
+          : run.canPublish && run.savedPublication == null
+            ? [
+                Button.view(h, {
+                  variant: "secondary",
+                  size: "sm",
+                  label: model.publishing === run.runId ? "Publishing…" : "Publish results",
+                  onClick: Message.ClickedPublish({ runId: run.runId }),
+                  isDisabled: model.publishing !== null,
+                  attributes: [h.DataAttribute("action", "publish-results")],
+                }),
+              ]
+            : [],
         "text-right",
       ),
     ],

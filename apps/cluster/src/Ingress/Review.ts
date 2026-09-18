@@ -1,3 +1,4 @@
+import { SavedPublication } from "@janitor/domain/Review/Publication"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import {
   CancelReviewRequest,
@@ -98,12 +99,33 @@ const reads = HttpRouter.addAll([
       // Settings first: an unknown repository is a 404, not an empty history.
       yield* (yield* IssueReviewSettings).get(repositoryId)
       const runs = yield* (yield* IssueReviewStore).history(repositoryId)
-      return yield* json(ReviewHistory)({ runs })
+      const teammate = yield* CurrentTeammate
+      const control = yield* IssueReviewControl
+      const eligible = yield* Effect.forEach(runs, (run) =>
+        run.dryRun && run.status === "completed" && run.savedPublication == null
+          ? control
+              .canPublish(repositoryId, run.runId, teammate.teammateId)
+              .pipe(Effect.map((canPublish) => ({ ...run, canPublish })))
+          : Effect.succeed({ ...run, canPublish: false }),
+      )
+      return yield* json(ReviewHistory)({ runs: eligible })
     }).pipe(handled("history")),
   ),
 ])
 
 const writes = HttpRouter.addAll([
+  HttpRouter.route(
+    "POST",
+    "/repositories/:repositoryId/reviews/:runId/publish",
+    Effect.gen(function* () {
+      const { repositoryId, runId } = yield* HttpRouter.schemaPathParams(RunPath)
+      const teammate = yield* CurrentTeammate
+      return yield* json(SavedPublication)(
+        yield* (yield* IssueReviewControl).publish(repositoryId, runId, teammate.teammateId),
+      )
+    }).pipe(handled("publish")),
+  ),
+
   HttpRouter.route(
     "PUT",
     "/repositories/:repositoryId/issue-review",

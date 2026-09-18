@@ -1,3 +1,5 @@
+import { IssueReviewControl } from "../../src/Review/Control.ts"
+import { TeammateId } from "@janitor/domain/Team/Account"
 import type { ReproductionAssessment } from "@janitor/domain/Review/Reproduction"
 import { FakeDraftGitHub } from "./fakeDraftGitHub.ts"
 import { IssueReviewDraftPublication } from "../../src/Review/DraftPublication.ts"
@@ -211,6 +213,7 @@ const ReviewLayer = Layer.mergeAll(
   AdmitReviewLayer,
   ReviewActionLayer,
   IssueReviewSettings.layer,
+  IssueReviewControl.layer,
   IssueReviewAdmission.layer,
   AgentHarness,
 ).pipe(
@@ -326,6 +329,17 @@ const prepareSummary = (findings?: string) =>
     return runId
   })
 
+const linkPublisher = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient
+  const [member] = yield* sql<{ id: string }>`INSERT INTO teammate (issuer, subject, role)
+    VALUES ('https://publish.test', gen_random_uuid()::text, 'member') RETURNING teammate_id::text AS id`
+  yield* sql`UPDATE teammate_link SET status = 'disconnected' WHERE platform = 'github' AND account_id = '21'`
+  yield* sql`INSERT INTO teammate_link (teammate_id, platform, workspace_id, account_id, display_name)
+    VALUES (${member!.id}::uuid, 'github', 'github.com', '21', 'stranger')`
+  github.permissions.set("stranger", { id: 21, permission: "write" })
+  return TeammateId.make(member!.id)
+})
+
 const publicationSetup = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
   yield* sql`DELETE FROM issue_review_draft_owner`
@@ -438,6 +452,309 @@ const prepareReproduction = (
   })
 
 layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => {
+  it.effect("refuses older, expired, cancelled and unauthorized results before enqueueing", () =>
+    live(
+      Effect.gen(function* () {
+        for (const reason of ["older", "expired", "cancelled", "unlinked", "revoked"] as const) {
+          yield* publicationSetup
+          yield* (yield* IssueReviewSettings).set(
+            repositoryId,
+            { enabled: true, dryRun: true },
+            actor,
+          )
+          const id = yield* prepareSummary()
+          const publisher = yield* linkPublisher
+          const sql = yield* SqlClient.SqlClient
+          if (reason === "older") yield* prepareSummary()
+          if (reason === "expired")
+            yield* sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' WHERE run_id::text = ${id}`
+          if (reason === "cancelled")
+            yield* (yield* IssueReviewScheduler).cancel(
+              { repositoryId, runId: id },
+              { messageId: `closed:${id}`, reason: "Closed", actor: null },
+            )
+          if (reason === "unlinked")
+            yield* sql`UPDATE teammate_link SET status = 'disconnected' WHERE teammate_id::text = ${publisher}`
+          if (reason === "revoked")
+            github.permissions.set("stranger", { id: 21, permission: "read" })
+          const control = yield* IssueReviewControl
+          assert.isFalse(yield* control.canPublish(repositoryId, id, publisher))
+          assert.strictEqual(
+            (yield* control.publish(repositoryId, id, publisher).pipe(Effect.result))._tag,
+            "Failure",
+          )
+          assert.isNull((yield* shown(id)).savedPublication)
+          assert.deepStrictEqual(
+            (yield* actions(id)).map((a) => a.kind),
+            ["prepare", "model"],
+          )
+        }
+      }),
+    ),
+  )
+
+  it.effect(
+    "recovers an interrupted saved publication without new authority or another write",
+    () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          yield* (yield* IssueReviewSettings).set(
+            repositoryId,
+            { enabled: true, dryRun: true },
+            actor,
+          )
+          const id = yield* prepareSummary()
+          const publisher = yield* linkPublisher
+          const control = yield* IssueReviewControl
+          yield* control.publish(repositoryId, id, publisher)
+          const written = yield* Deferred.make<void>()
+          afterCommentWrite = Deferred.succeed(written, undefined).pipe(
+            Effect.andThen(Effect.never),
+          )
+          const sending = yield* (yield* IssueReviewPublication).publish(id).pipe(Effect.forkChild)
+          yield* Deferred.await(written)
+          yield* Fiber.interrupt(sending)
+          afterCommentWrite = Effect.void
+          github.permissions.set("stranger", { id: 21, permission: "read" })
+          yield* drive(id, 2)
+          assert.strictEqual(
+            (yield* control.publish(repositoryId, id, publisher)).status,
+            "completed",
+          )
+          assert.strictEqual(commentWrites.length, 1)
+        }),
+      ),
+  )
+
+  for (const revoke of [false, true]) {
+    it.effect(`publishes a saved test patch without retesting, revoked before PR=${revoke}`, () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          yield* (yield* IssueReviewSettings).set(
+            repositoryId,
+            { enabled: true, dryRun: true },
+            actor,
+          )
+          const id = yield* prepareReproduction({ subsequent: true })
+          const original = yield* shown(id)
+          const publisher = yield* linkPublisher
+          yield* (yield* IssueReviewControl).publish(repositoryId, id, publisher)
+          github.permissions.set("octocat", { id: 9, permission: "read" })
+          github.defaultBranchSha = "e".repeat(40)
+          yield* drive(id, 2)
+          assert.strictEqual((yield* shown(id)).draftPublication?.status, "branch")
+          if (revoke) github.permissions.set("stranger", { id: 21, permission: "read" })
+          yield* drive(id, 3)
+          yield* drive(id, 4)
+          const result = yield* shown(id)
+          assert.strictEqual(result.savedPublication?.status, revoke ? "partial" : "completed")
+          assert.strictEqual(result.commitSha, original.commitSha)
+          assert.deepStrictEqual(result.reproduction, original.reproduction)
+          assert.lengthOf(draftGithub.pulls, revoke ? 0 : 1)
+          assert.deepStrictEqual(
+            (yield* actions(id)).map((a) => a.kind),
+            ["prepare", "model", "publish_branch", "publish_pr", "publish"],
+          )
+        }),
+      ),
+    )
+  }
+
+  it.effect("validates and publishes results saved before explicit publication was supported", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        yield* (yield* IssueReviewSettings).set(
+          repositoryId,
+          { enabled: true, dryRun: true },
+          actor,
+        )
+        const id = yield* prepareSummary()
+        yield* (yield* IssueReviewStore).savePublication(id, {
+          status: "none",
+          body: null,
+          commentId: null,
+          url: null,
+          reason: null,
+        })
+        const publisher = yield* linkPublisher
+        const control = yield* IssueReviewControl
+        assert.isTrue(yield* control.canPublish(repositoryId, id, publisher))
+        yield* control.publish(repositoryId, id, publisher)
+        yield* drive(id, 2)
+        assert.strictEqual((yield* shown(id)).savedPublication?.status, "completed")
+      }),
+    ),
+  )
+
+  for (const changed of [
+    "revoked",
+    "unlinked",
+    "removed",
+    "expired",
+    "newer",
+    "edited",
+    "deleted",
+    "closed",
+    "reopened",
+    "disabled",
+    "paused",
+    "access",
+    "disconnected",
+  ] as const) {
+    it.effect(`rechecks saved publication after ${changed} before the write`, () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          yield* (yield* IssueReviewSettings).set(
+            repositoryId,
+            { enabled: true, dryRun: true },
+            actor,
+          )
+          const id = yield* prepareSummary()
+          const publisher = yield* linkPublisher
+          const control = yield* IssueReviewControl
+          assert.isTrue(yield* control.canPublish(repositoryId, id, publisher))
+          yield* control.publish(repositoryId, id, publisher)
+          const sql = yield* SqlClient.SqlClient
+          if (changed === "revoked")
+            github.permissions.set("stranger", { id: 21, permission: "read" })
+          if (changed === "unlinked")
+            yield* sql`UPDATE teammate_link SET status = 'disconnected' WHERE teammate_id::text = ${publisher}`
+          if (changed === "removed")
+            yield* sql`UPDATE teammate SET status = 'removed' WHERE teammate_id::text = ${publisher}`
+          if (changed === "expired")
+            yield* sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' WHERE run_id::text = ${id}`
+          if (changed === "newer") {
+            const next = yield* invoke({
+              id: ++summaryCommentSequence,
+              issue: 30,
+              body: "@janitor investigate again",
+            })
+            assert.strictEqual((yield* shown(next)).status, "queued")
+          }
+          if (changed === "edited")
+            github.comments.get(Number((yield* run(id)).commentId))!.body += " changed"
+          if (changed === "deleted") github.comments.delete(Number((yield* run(id)).commentId))
+          if (changed === "closed") github.issues.get(30)!.state = "closed"
+          if (changed === "reopened")
+            yield* (yield* IssueReviewScheduler).cancel(
+              { repositoryId, issueNumber: 30 },
+              { messageId: `close:${id}`, reason: "Issue was closed.", actor: null },
+            )
+          if (changed === "disabled")
+            yield* (yield* IssueReviewSettings).set(
+              repositoryId,
+              { enabled: false, dryRun: true },
+              actor,
+            )
+          if (changed === "paused")
+            yield* sql`UPDATE github_repository SET enabled = FALSE WHERE repository_id = ${repositoryId}`
+          if (changed === "access")
+            yield* sql`UPDATE github_repository SET access = 'lost' WHERE repository_id = ${repositoryId}`
+          if (changed === "disconnected")
+            yield* sql`UPDATE github_repository SET connected = FALSE WHERE repository_id = ${repositoryId}`
+          yield* drive(id, 2)
+          assert.strictEqual(commentWrites.length, 0)
+          assert.strictEqual((yield* shown(id)).savedPublication?.status, "blocked")
+        }),
+      ),
+    )
+  }
+
+  for (const outcome of ["lost", "absent"] as const) {
+    it.effect(`retains a saved publication after an ambiguous ${outcome} response`, () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          yield* (yield* IssueReviewSettings).set(
+            repositoryId,
+            { enabled: true, dryRun: true },
+            actor,
+          )
+          const id = yield* prepareSummary()
+          const publisher = yield* linkPublisher
+          const control = yield* IssueReviewControl
+          yield* control.publish(repositoryId, id, publisher)
+          writeOutcome = outcome
+          yield* drive(id, 2)
+          const repeated = yield* control.publish(repositoryId, id, publisher)
+          assert.strictEqual(repeated.status, outcome === "lost" ? "completed" : "unresolved")
+          assert.strictEqual(commentWrites.length, 1)
+        }),
+      ),
+    )
+  }
+
+  it.effect(
+    "publishes a saved reproduction at its recorded commit and preserves human-edited PRs",
+    () =>
+      live(
+        Effect.gen(function* () {
+          yield* publicationSetup
+          const first = yield* prepareReproduction({ subsequent: true })
+          yield* drive(first, 2)
+          yield* drive(first, 3)
+          yield* drive(first, 4)
+          yield* (yield* IssueReviewSettings).set(
+            repositoryId,
+            { enabled: true, dryRun: true },
+            actor,
+          )
+          const next = yield* prepareReproduction({ subsequent: true })
+          const old = draftGithub.pulls[0]!
+          old.body = "Human edits to preserve"
+          const publisher = yield* linkPublisher
+          yield* (yield* IssueReviewControl).publish(repositoryId, next, publisher)
+          yield* drive(next, 2)
+          yield* drive(next, 3)
+          const result = yield* shown(next)
+          assert.strictEqual(old.body, "Human edits to preserve")
+          assert.strictEqual(result.draftPublication?.status, "blocked")
+          assert.strictEqual(result.savedPublication?.status, "partial")
+          assert.strictEqual(result.reproduction.patch?.baseCommit, github.defaultBranchSha)
+          assert.deepStrictEqual(
+            (yield* actions(next)).map((a) => a.kind),
+            ["prepare", "model", "publish_branch", "publish"],
+          )
+        }),
+      ),
+  )
+
+  it.effect(
+    "publishes saved results with dry-run on using a different publisher after invoker revocation",
+    () =>
+      Effect.gen(function* () {
+        yield* publicationSetup
+        yield* (yield* IssueReviewSettings).set(
+          repositoryId,
+          { enabled: true, dryRun: true },
+          actor,
+        )
+        const id = yield* prepareSummary()
+        const publisher = yield* linkPublisher
+        github.permissions.set("octocat", { id: 9, permission: "read" })
+        const control = yield* IssueReviewControl
+        const first = yield* control.publish(repositoryId, id, publisher)
+        const repeated = yield* control.publish(repositoryId, id, publisher)
+        assert.deepStrictEqual(repeated, first)
+        yield* drive(id, 2)
+        const result = yield* shown(id)
+        assert.strictEqual(result.savedPublication?.status, "completed")
+        assert.strictEqual(result.invokerLogin, "octocat")
+        assert.strictEqual(result.savedPublication?.githubLogin, "stranger")
+        assert.strictEqual(result.publication.status, "published")
+        assert.strictEqual((yield* (yield* IssueReviewSettings).get(repositoryId)).dryRun, true)
+        assert.deepStrictEqual(
+          (yield* actions(id)).map((a) => a.kind),
+          ["prepare", "model", "publish"],
+        )
+        assert.strictEqual(commentWrites.length, 1)
+      }),
+  )
+
   it.effect("rejects an incomplete-update summary that omits the existing PR link", () =>
     live(
       Effect.gen(function* () {
