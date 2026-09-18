@@ -356,7 +356,48 @@ const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> 
 
 const reproductionDetails = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> => {
   const { patch, attempts, assessment } = run.reproduction
+  const draft = run.draftPublication
   return [
+    ...(draft === null
+      ? []
+      : [
+          h.div(
+            [h.DataAttribute("slot", "draft-publication"), h.Class("space-y-2 text-body-sm")],
+            [
+              h.p(
+                [],
+                [
+                  `Reproduction PR: ${draft.status}.`,
+                  ...(draft.reason === null ? [] : [` ${draft.reason}`]),
+                ],
+              ),
+              ...(draft.url === null
+                ? []
+                : [
+                    h.a(
+                      [
+                        h.Href(draft.url),
+                        h.Target("_blank"),
+                        h.Rel("noreferrer"),
+                        h.Class("underline"),
+                      ],
+                      [`View PR #${draft.prNumber}`],
+                    ),
+                  ]),
+              ...(draft.reuse === undefined || draft.status === "published"
+                ? []
+                : [h.p([], ["Findings and the proposed test patch are retained below."])]),
+              h.details(
+                [],
+                [
+                  h.summary([h.Class("cursor-pointer")], ["Proposed PR text"]),
+                  h.p([], [draft.text.title]),
+                  h.pre([h.Class("max-h-80 overflow-auto whitespace-pre-wrap")], [draft.text.body]),
+                ],
+              ),
+            ],
+          ),
+        ]),
     ...(assessment === null
       ? []
       : [

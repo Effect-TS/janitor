@@ -24,7 +24,7 @@ export interface ReproductionPullRequest {
   readonly owned: boolean
 }
 
-/** Only immutable Git objects, new owned refs and new draft PRs can be written. */
+/** Publication guards establish ownership and compare remote state before updates. */
 export class ReviewPullRequests extends Context.Service<
   ReviewPullRequests,
   {
@@ -61,6 +61,16 @@ export class ReviewPullRequests extends Context.Service<
       intent: DraftPublication,
       body: string,
     ) => Effect.Effect<ReproductionPullRequest, unknown>
+    readonly updateBranch: (
+      repository: Eligibility,
+      branch: string,
+      commit: string,
+    ) => Effect.Effect<void, unknown>
+    readonly update: (
+      repository: Eligibility,
+      intent: DraftPublication,
+      body: string,
+    ) => Effect.Effect<ReproductionPullRequest, unknown>
   }
 >()("Review/PullRequests") {
   static readonly layer = Layer.effect(
@@ -69,7 +79,7 @@ export class ReviewPullRequests extends Context.Service<
       const transport = yield* GitHubTransport
       const request = (
         repository: Eligibility,
-        method: "GET" | "POST",
+        method: "GET" | "POST" | "PATCH",
         path: string,
         body?: unknown,
       ) =>
@@ -143,6 +153,29 @@ export class ReviewPullRequests extends Context.Service<
         owned: value.user.id === bot && value.head.repo?.id === value.base.repo.id,
       })
       return {
+        updateBranch: (repository, branch, commit) =>
+          // Each reproduction has the exact tested base as its sole parent.
+          // The publisher rechecks the old head and PR immediately before this
+          // replacement. REST has no compare-and-swap; the backend design's
+          // accepted remote check/write race still applies.
+          request(repository, "PATCH", `git/refs/heads/${encodeURIComponent(branch)}`, {
+            sha: commit,
+            force: true,
+          }).pipe(
+            Effect.flatMap(read(Schema.Struct({ object: Sha }))),
+            Effect.flatMap((value) =>
+              value.object.sha === commit ? Effect.void : Effect.fail("Unexpected branch head."),
+            ),
+          ),
+        update: (repository, intent, body) =>
+          Effect.gen(function* () {
+            const bot = yield* owner(repository)
+            const value = yield* request(repository, "PATCH", `pulls/${intent.prNumber}`, {
+              title: intent.text.title,
+              body,
+            }).pipe(Effect.flatMap(read(Pull)))
+            return pull(value, bot)
+          }),
         validate: (repository, patch) =>
           Effect.gen(function* () {
             const target = repositoryTarget(repository)

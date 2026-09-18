@@ -135,3 +135,35 @@ it.effect("revalidates saved test scope against GitHub before any mutation", () 
     assert.lengthOf(fake.mutations, 0)
   }).pipe(Effect.provide(withGitHub(fake)))
 })
+
+it.effect("updates the selected ref and PR text without changing PR state or base", () => {
+  const fake = new FakeDraftGitHub()
+  return Effect.gen(function* () {
+    const github = yield* ReviewPullRequests
+    yield* github.createBranch(repository, draft.branch, draft.commitSha!)
+    const prior = yield* github.create(repository, draft, "Prior body")
+    const updated = { ...draft, prNumber: prior.number, commitSha: "f".repeat(40) }
+    yield* github.updateBranch(repository, updated.branch, updated.commitSha)
+    const pr = yield* github.update(repository, updated, "New body")
+    assert.strictEqual(pr.headSha, updated.commitSha)
+    assert.strictEqual(pr.body, "New body")
+    assert.isTrue(pr.draft)
+    assert.deepStrictEqual(
+      fake.mutations.slice(2).map((r) => [r.method, r.url, r.repositoryPermission, r.body]),
+      [
+        [
+          "PATCH",
+          "/repos/effect/one/git/refs/heads/janitor%2Freproduction%2F30%2Frun",
+          { repositoryId: "701", issues: "read", contents: "write" },
+          { sha: updated.commitSha, force: true },
+        ],
+        [
+          "PATCH",
+          "/repos/effect/one/pulls/123",
+          { repositoryId: "701", issues: "read", pullRequests: "write" },
+          { title: draft.text.title, body: "New body" },
+        ],
+      ],
+    )
+  }).pipe(Effect.provide(withGitHub(fake)))
+})

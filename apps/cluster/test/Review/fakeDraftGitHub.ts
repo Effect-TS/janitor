@@ -57,20 +57,45 @@ export class FakeDraftGitHub {
           const sha = fake.branches.get(decodeURIComponent(path.slice("git/ref/heads/".length)))
           return sha === undefined ? absent : ok({ object: { sha } })
         }
-        if (path.startsWith("pulls?")) return ok(fake.pulls)
+        if (path.startsWith("pulls?")) {
+          const branch = new URLSearchParams(path.split("?")[1]).get("head")?.split(":")[1]
+          return ok(fake.pulls.filter((pr) => (pr.head as { ref: string }).ref === branch))
+        }
         return undefined
       }
-      if (!["git/trees", "git/commits", "git/refs", "pulls"].includes(path)) return undefined
+      if (
+        !["git/trees", "git/commits", "git/refs", "pulls"].includes(path) &&
+        !path.startsWith("git/refs/heads/") &&
+        !path.startsWith("pulls/")
+      )
+        return undefined
       fake.mutations.push(r)
       const body = r.body as Record<string, unknown>
       let operation: "tree" | "commit" | "branch" | "pr"
       let result: GitHubResponse
-      if (path === "git/trees") {
+      if (path.startsWith("git/refs/heads/")) {
+        operation = "branch"
+        const branch = decodeURIComponent(path.slice("git/refs/heads/".length))
+        fake.branches.set(branch, String(body.sha))
+        for (const pr of fake.pulls) {
+          const head = pr.head as { ref: string; sha: string }
+          if (head.ref === branch) head.sha = String(body.sha)
+        }
+        result = ok({ object: { sha: body.sha } })
+      } else if (path.startsWith("pulls/")) {
+        operation = "pr"
+        if (fake.rejectPr)
+          return { _tag: "Failed", status: 503, body: {}, requestId: Option.none() }
+        const pr = fake.pulls.find((pr) => pr.number === Number(path.slice(6)))!
+        Object.assign(pr, body)
+        result = ok(pr)
+      } else if (path === "git/trees") {
         operation = "tree"
         result = ok({ sha: "d".repeat(40) })
       } else if (path === "git/commits") {
         operation = "commit"
-        result = ok({ sha: "e".repeat(40) })
+        const count = fake.mutations.filter((r) => r.url.endsWith("/git/commits")).length
+        result = ok({ sha: count === 1 ? "e".repeat(40) : count.toString(16).padStart(40, "a") })
       } else if (path === "git/refs") {
         operation = "branch"
         fake.branches.set(String(body.ref).replace("refs/heads/", ""), String(body.sha))
@@ -80,7 +105,7 @@ export class FakeDraftGitHub {
         if (fake.rejectPr)
           return { _tag: "Failed", status: 503, body: {}, requestId: Option.none() }
         const pr = {
-          number: 123,
+          number: 123 + fake.pulls.length,
           title: body.title,
           body: body.body,
           state: "open",

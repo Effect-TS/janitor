@@ -65,7 +65,15 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
                   draft = current
                   return
                 }
-                yield* save({ ...draft, status, reason })
+                yield* save({
+                  ...draft,
+                  status,
+                  reason:
+                    reason +
+                    (draft.reuse !== undefined && draft.status === "branch"
+                      ? " The branch update completed; PR text was not confirmed."
+                      : ""),
+                })
                 // An unrelated unresolved operation must never be cleared here.
                 if (status === "unresolved") yield* fence(true)
                 else if (draft.attempted !== null) yield* fence(false)
@@ -75,13 +83,21 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
             const [owner] = yield* sql<{
               run_id: string
               commit_sha: string | null
-            }>`SELECT run_id, commit_sha FROM issue_review_draft_owner WHERE repository_id = ${initial.repositoryId} AND branch = ${draft.branch}`
-            return owner?.run_id === runId && owner.commit_sha === draft.commitSha
+              pr_hash: string | null
+              pr_number: number | null
+            }>`SELECT run_id, commit_sha, pr_hash, pr_number FROM issue_review_draft_owner WHERE repository_id = ${initial.repositoryId} AND branch = ${draft.branch}`
+            return (
+              owner?.run_id === (draft.reuse?.ownerRunId ?? runId) &&
+              owner.commit_sha === (draft.reuse?.headSha ?? draft.commitSha) &&
+              (draft.reuse === undefined ||
+                (owner.pr_hash === draft.reuse.prHash && owner.pr_number === draft.prNumber))
+            )
           })
           const matches = (pr: ReproductionPullRequest) =>
             pr.owned &&
             pr.open &&
             pr.draft &&
+            (draft.reuse === undefined || pr.number === draft.prNumber) &&
             pr.repositoryId === initial.repositoryId &&
             pr.head === draft.branch &&
             pr.headSha === draft.commitSha &&
@@ -91,7 +107,12 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
           const recordPr = (pr: ReproductionPullRequest) =>
             Effect.gen(function* () {
               const hash = yield* fingerprint(JSON.stringify([pr.title, pr.body]))
-              yield* sql`UPDATE issue_review_draft_owner SET pr_number = ${pr.number}, pr_hash = ${hash} WHERE repository_id = ${initial.repositoryId} AND branch = ${draft.branch} AND run_id = ${runId}`
+              if (draft.reuse !== undefined && hash !== draft.reuse.newPrHash)
+                return yield* stop(
+                  "unresolved",
+                  "The updated PR does not match the intended publication fingerprint.",
+                )
+              yield* sql`UPDATE issue_review_draft_owner SET pr_number = ${pr.number}, pr_hash = ${hash}, run_id = ${runId}, commit_sha = ${draft.commitSha} WHERE repository_id = ${initial.repositoryId} AND branch = ${draft.branch} AND run_id = ${draft.reuse?.ownerRunId ?? runId}`
               yield* save({
                 ...draft,
                 status: "published",
@@ -102,6 +123,91 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
               })
               yield* fence(false)
             })
+          const unchanged = (head: string) =>
+            Effect.gen(function* () {
+              if (!(yield* owned))
+                return yield* Effect.fail(
+                  "The reproduction branch is no longer recorded as Janitor-owned.",
+                )
+              const prs = yield* github.list(repository, draft.branch)
+              const pr = prs.find((pr) => pr.number === draft.prNumber)
+              if (
+                prs.length !== 1 ||
+                pr === undefined ||
+                !pr.owned ||
+                !pr.open ||
+                !pr.draft ||
+                pr.repositoryId !== initial.repositoryId ||
+                pr.head !== draft.branch ||
+                pr.base !== draft.reuse!.base ||
+                pr.headSha !== head ||
+                (yield* github.branch(repository, draft.branch)) !== head ||
+                (yield* fingerprint(JSON.stringify([pr.title, pr.body]))) !== draft.reuse!.prHash
+              )
+                return yield* Effect.fail(
+                  "The reproduction branch or PR changed, is missing, or is no longer an open draft. Proposed changes are retained.",
+                )
+            })
+          const selectReuse = Effect.gen(function* () {
+            if (draft.reuse !== undefined || draft.treeSha !== null) return
+            const owners = yield* sql<{
+              branch: string
+              run_id: string
+              commit_sha: string | null
+              pr_number: number
+              pr_hash: string | null
+              default_branch: string | null
+            }>`SELECT branch, run_id, commit_sha, pr_number, pr_hash, default_branch
+              FROM issue_review_draft_owner WHERE repository_id = ${initial.repositoryId}
+              AND issue_number = ${initial.issueNumber} AND pr_number IS NOT NULL`
+            const candidates = []
+            const retainPr = (branch: string, number: number) =>
+              save({
+                ...draft,
+                branch,
+                prNumber: number,
+                url: `https://github.com/${repository.name}/pull/${number}`,
+              })
+            for (const owner of owners) {
+              const prs = yield* github.list(repository, owner.branch)
+              const pr = prs.find((pr) => pr.number === owner.pr_number)
+              if (pr === undefined) {
+                yield* retainPr(owner.branch, owner.pr_number)
+                return yield* Effect.fail(
+                  "The recorded reproduction PR could not be found. Proposed changes are retained.",
+                )
+              }
+              if (pr.open) candidates.push({ owner, pr })
+            }
+            if (candidates.length === 0) return
+            const { owner, pr } = candidates[0]!
+            yield* retainPr(owner.branch, pr.number)
+            if (candidates.length !== 1)
+              return yield* Effect.fail("Multiple open reproduction PRs require human review.")
+            if (
+              owner.commit_sha === null ||
+              owner.pr_hash === null ||
+              owner.default_branch !== draft.defaultBranch
+            )
+              return yield* Effect.fail(
+                "The previous publication fingerprints or tested base branch cannot be established.",
+              )
+            yield* save({
+              ...draft,
+              branch: owner.branch,
+              prNumber: pr.number,
+              url: `https://github.com/${repository.name}/pull/${pr.number}`,
+              reuse: {
+                ownerRunId: owner.run_id,
+                headSha: owner.commit_sha,
+                prHash: owner.pr_hash,
+                base: owner.default_branch,
+                newPrHash: yield* fingerprint(
+                  JSON.stringify([draft.text.title, draftBody(draft, runId)]),
+                ),
+              },
+            })
+          })
           const reconcile = Effect.gen(function* () {
             if (!(yield* owned))
               return yield* stop("unresolved", "Publication ownership could not be established.")
@@ -116,7 +222,11 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
             }
             if (draft.attempted === "pr") {
               const candidates = yield* github.list(repository, draft.branch)
-              if (candidates.length === 1 && matches(candidates[0]!))
+              if (
+                candidates.length === 1 &&
+                matches(candidates[0]!) &&
+                (yield* github.branch(repository, draft.branch)) === draft.commitSha
+              )
                 return yield* recordPr(candidates[0]!)
             }
             // Unreturned Git object IDs cannot safely be inferred. No ref is retried
@@ -148,63 +258,74 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
             return
           }
 
-          const preflight = yield* sql
-            .withTransaction(
-              Effect.gen(function* () {
-                const current = yield* authorize(runId)
-                const [issue] = yield* sql<{
-                  publication_unresolved: boolean
-                }>`SELECT publication_unresolved FROM issue_review_issue WHERE repository_id = ${initial.repositoryId} AND issue_number = ${initial.issueNumber}`
-                if (issue!.publication_unresolved)
-                  return yield* Effect.fail(
-                    "An earlier publication is unresolved. Further writes are blocked.",
-                  )
-                const checked = draftIntent(current.run, repository.name, draft.text)
-                if (
-                  checked?.status !== "pending" ||
-                  checked.branch !== draft.branch ||
-                  checked.baseCommit !== draft.baseCommit ||
-                  checked.defaultBranch !== draft.defaultBranch
+          const preflight = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const current = yield* authorize(runId)
+              const [issue] = yield* sql<{
+                publication_unresolved: boolean
+              }>`SELECT publication_unresolved FROM issue_review_issue WHERE repository_id = ${initial.repositoryId} AND issue_number = ${initial.issueNumber}`
+              if (issue!.publication_unresolved)
+                return yield* Effect.fail(
+                  "An earlier publication is unresolved. Further writes are blocked.",
                 )
-                  return yield* Effect.fail(
-                    "The saved reproduction or publication text is not eligible.",
-                  )
-                const links = [
-                  ...permittedSummaryLinks(current.run, repository.name),
+              const checked = draftIntent(current.run, repository.name, draft.text)
+              if (
+                checked?.status !== "pending" ||
+                (draft.reuse === undefined && checked.branch !== draft.branch) ||
+                checked.baseCommit !== draft.baseCommit ||
+                checked.defaultBranch !== draft.defaultBranch
+              )
+                return yield* Effect.fail(
+                  "The saved reproduction or publication text is not eligible.",
+                )
+              const links = [
+                ...permittedSummaryLinks(current.run, repository.name),
+                `https://github.com/${repository.name}/issues/${initial.issueNumber}`,
+              ]
+              for (const body of [
+                draft.text.title,
+                draft.text.body,
+                draft.text.publishedSummary.replaceAll(
+                  "{{pr_url}}",
                   `https://github.com/${repository.name}/issues/${initial.issueNumber}`,
-                ]
-                for (const body of [
-                  draft.text.title,
-                  draft.text.body,
-                  draft.text.publishedSummary.replaceAll(
-                    "{{pr_url}}",
-                    `https://github.com/${repository.name}/issues/${initial.issueNumber}`,
-                  ),
-                  draft.text.blockedSummary,
-                ]) {
-                  if (!(yield* comments.checkLinks(repository, body, links)))
-                    return yield* Effect.fail(
-                      "PR text renders a link outside the permitted evidence.",
-                    )
-                }
-                const head = yield* github.branch(repository, draft.branch)
-                const prs = yield* github.list(repository, draft.branch)
-                if (action === "branch") {
-                  if (head !== null || prs.length !== 0)
-                    return yield* Effect.fail(
-                      "The intended branch or PR already exists without a recorded publication. It will not be overwritten.",
-                    )
-                  yield* sql`INSERT INTO issue_review_draft_owner (repository_id, branch, run_id) VALUES (${initial.repositoryId}, ${draft.branch}, ${runId}) ON CONFLICT DO NOTHING`
-                  if (!(yield* owned))
-                    return yield* Effect.fail("The publication identity is owned by another run.")
-                } else if (!(yield* owned) || head !== draft.commitSha || prs.length !== 0)
+                ),
+                draft.text.blockedSummary,
+                ...(draft.text.reuseBlockedSummary === undefined
+                  ? []
+                  : [
+                      draft.text.reuseBlockedSummary.replaceAll(
+                        "{{pr_url}}",
+                        `https://github.com/${repository.name}/issues/${initial.issueNumber}`,
+                      ),
+                    ]),
+              ]) {
+                if (!(yield* comments.checkLinks(repository, body, links)))
                   return yield* Effect.fail(
-                    "The owned branch changed or an unrelated PR exists. It will not be overwritten.",
+                    "PR text renders a link outside the permitted evidence.",
                   )
+              }
+              if (action === "branch") yield* selectReuse
+              if (draft.reuse !== undefined) {
+                yield* unchanged(action === "pr" ? draft.commitSha! : draft.reuse.headSha)
                 return current.run.reproduction.patch!
-              }),
-            )
-            .pipe(Effect.result)
+              }
+              const head = yield* github.branch(repository, draft.branch)
+              const prs = yield* github.list(repository, draft.branch)
+              if (action === "branch") {
+                if (head !== null || prs.length !== 0)
+                  return yield* Effect.fail(
+                    "The intended branch or PR already exists without a recorded publication. It will not be overwritten.",
+                  )
+                yield* sql`INSERT INTO issue_review_draft_owner (repository_id, branch, run_id, issue_number, default_branch) VALUES (${initial.repositoryId}, ${draft.branch}, ${runId}, ${initial.issueNumber}, ${draft.defaultBranch}) ON CONFLICT DO NOTHING`
+                if (!(yield* owned))
+                  return yield* Effect.fail("The publication identity is owned by another run.")
+              } else if (!(yield* owned) || head !== draft.commitSha || prs.length !== 0)
+                return yield* Effect.fail(
+                  "The owned branch changed or an unrelated PR exists. It will not be overwritten.",
+                )
+              return current.run.reproduction.patch!
+            }).pipe(Effect.result),
+          )
           if (preflight._tag === "Failure") {
             yield* stop("blocked", String(preflight.failure))
             return
@@ -246,6 +367,15 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
                   // A concurrent recovery may already have settled this attempt.
                   if (JSON.stringify(grant.success.run.draftPublication) !== JSON.stringify(draft))
                     return false
+                  if (draft.reuse !== undefined) {
+                    const checked = yield* unchanged(
+                      operation === "pr" ? draft.commitSha! : draft.reuse.headSha,
+                    ).pipe(Effect.result)
+                    if (checked._tag === "Failure") {
+                      yield* stop("blocked", String(checked.failure))
+                      return false
+                    }
+                  }
                   const result = yield* write.pipe(Effect.result)
                   if (result._tag === "Failure") {
                     yield* reconcile
@@ -284,7 +414,8 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
                 ),
                 (commitSha) =>
                   Effect.gen(function* () {
-                    yield* sql`UPDATE issue_review_draft_owner SET commit_sha = ${commitSha} WHERE repository_id = ${initial.repositoryId} AND branch = ${draft.branch} AND run_id = ${runId}`
+                    if (draft.reuse === undefined)
+                      yield* sql`UPDATE issue_review_draft_owner SET commit_sha = ${commitSha} WHERE repository_id = ${initial.repositoryId} AND branch = ${draft.branch} AND run_id = ${runId}`
                     yield* save({ ...draft, commitSha, attempted: null })
                   }),
               ))
@@ -292,12 +423,18 @@ export class IssueReviewDraftPublication extends Context.Service<IssueReviewDraf
               return
             yield* attempt(
               "branch",
-              github.createBranch(repository, draft.branch, draft.commitSha!),
+              draft.reuse === undefined
+                ? github.createBranch(repository, draft.branch, draft.commitSha!)
+                : github.updateBranch(repository, draft.branch, draft.commitSha!),
               () => save({ ...draft, status: "branch", attempted: null }),
             )
           } else {
-            yield* attempt("pr", github.create(repository, draft, draftBody(draft, runId)), (pr) =>
-              matches(pr) ? recordPr(pr) : reconcile,
+            yield* attempt(
+              "pr",
+              draft.reuse === undefined
+                ? github.create(repository, draft, draftBody(draft, runId))
+                : github.update(repository, draft, draftBody(draft, runId)),
+              (pr) => (matches(pr) ? recordPr(pr) : reconcile),
             )
           }
         }).pipe(
