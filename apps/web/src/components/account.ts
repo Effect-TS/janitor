@@ -57,6 +57,7 @@ export const Model = Schema.Struct({
   pending: Schema.Option(
     Schema.Struct({ operationId: Schema.Int, action: PendingAction, subject: Schema.String }),
   ),
+  liveRefresh: Schema.Boolean,
   nextRequestId: Schema.Int,
   maybeLoadRequest: Schema.Option(Schema.Int),
   /** Whether the Team section lists removed teammates. View-local, not persisted. */
@@ -71,6 +72,7 @@ export const init = (): Model => ({
   notice: "",
   nextOperationId: 1,
   pending: Option.none(),
+  liveRefresh: false,
   nextRequestId: 1,
   maybeLoadRequest: Option.none(),
   showRemoved: false,
@@ -78,6 +80,7 @@ export const init = (): Model => ({
 
 export const Message = defineMessageUnion({
   LoadRequested: {},
+  LiveChanged: {},
   Loaded: { view: AccountView, requestId: Schema.Int },
   LoadFailed: { reason: Schema.String, requestId: Schema.Int },
   ClickedConnect: { platform: LinkPlatform },
@@ -225,6 +228,7 @@ const begin = (model: Model, action: PendingAction, subject: string): Model =>
   })
 const reload = (model: Model) => ({
   model: evo(model, {
+    liveRefresh: () => false,
     nextRequestId: (id) => id + 1,
     maybeLoadRequest: () => Option.some(model.nextRequestId),
   }),
@@ -256,25 +260,38 @@ export const returned = (model: Model, params: ReturnParams): Step => {
 export const update = (model: Model, message: Message): Step =>
   Message.match<Step>(message, {
     LoadRequested: () => (Option.isSome(model.maybeLoadRequest) ? { model } : reload(model)),
+    LiveChanged: () =>
+      Option.isSome(model.maybeLoadRequest)
+        ? { model: { ...model, liveRefresh: true } }
+        : reload(model),
     Loaded: ({ view, requestId }) =>
       !Option.contains(model.maybeLoadRequest, requestId)
         ? { model }
-        : {
-            model: evo(model, {
-              view: () => Option.some(view),
-              loadError: () => Option.none(),
-              maybeLoadRequest: () => Option.none(),
-            }),
-          },
+        : model.liveRefresh
+          ? reload({
+              ...model,
+              view: Option.some(view),
+              liveRefresh: false,
+              maybeLoadRequest: Option.none(),
+            })
+          : {
+              model: evo(model, {
+                view: () => Option.some(view),
+                loadError: () => Option.none(),
+                maybeLoadRequest: () => Option.none(),
+              }),
+            },
     LoadFailed: ({ reason, requestId }) =>
       !Option.contains(model.maybeLoadRequest, requestId)
         ? { model }
-        : {
-            model: evo(model, {
-              loadError: () => Option.some(reason),
-              maybeLoadRequest: () => Option.none(),
-            }),
-          },
+        : model.liveRefresh
+          ? reload(model)
+          : {
+              model: evo(model, {
+                loadError: () => Option.some(reason),
+                maybeLoadRequest: () => Option.none(),
+              }),
+            },
     ClickedConnect: ({ platform }) =>
       isBusy(model)
         ? { model }

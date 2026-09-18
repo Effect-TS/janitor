@@ -1017,7 +1017,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       const append = (result: UpdateReturn) => {
         next = { ...result, commands: [...(next.commands ?? []), ...(result.commands ?? [])] }
       }
-      if (topics.includes("repository")) append(refreshRepositories(next.model))
+      if (topics.includes("repository") || topics.includes("connections"))
+        append(refreshRepositories(next.model))
       if (model.activity.active) {
         if (topics.includes("activity")) {
           const result = Activity.update(model.activity, Activity.Message.Polled())
@@ -1430,6 +1431,7 @@ const liveRefresh = Subscription.make<Model, Message>()((entry) => ({
       modelToDependencies: (model) => ({
         topics: model.liveTopics,
         busy:
+          Option.isSome(model.maybeRepositoriesRequest) ||
           Option.isSome(model.maybeDetailRequest) ||
           Option.isSome(model.maybeConsentRequest) ||
           Option.isSome(model.maybeReviewRequest) ||

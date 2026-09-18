@@ -168,7 +168,7 @@ export const update = (model: Model, message: Message): Return =>
           : { ...init(), repositoryId, active, generation: model.generation + 1 }
       return active ? fetchHistory(next) : { model: next }
     },
-    Polled: () => (model.error ? { model } : fetchHistory(model)),
+    Polled: () => fetchHistory(model),
     ClickedRefresh: () => fetchHistory({ ...model, error: null }),
     Loaded: ({ generation, runs }) =>
       generation !== model.generation || !model.active

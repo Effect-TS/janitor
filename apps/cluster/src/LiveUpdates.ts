@@ -32,7 +32,7 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
           disconnected: boolean
         }>`
       SELECT n.repository_id,n.topic,n.revision::text,
-        NOT COALESCE(r.connected AND r.access='accessible',false) AS disconnected
+        n.repository_id <> 'application' AND NOT COALESCE(r.connected AND r.access='accessible',false) AS disconnected
       FROM live_notification n LEFT JOIN github_repository r USING(repository_id) ORDER BY n.revision LIMIT 500`
         const groups = new Map<string, (typeof rows)[number][]>()
         for (const row of rows) {
@@ -80,6 +80,10 @@ export const liveUpdatesLayer = (namespace: LiveNamespace) =>
         flush,
         connect: (repositoryId, expiresAt) =>
           Effect.gen(function* () {
+            if (repositoryId === "application")
+              return expiresAt === 0
+                ? new Response(null, { status: 204 })
+                : yield* upgrade(repositoryId, `expiresAt=${expiresAt}`)
             const rows =
               yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected AND access='accessible'`.pipe(
                 Effect.orDie,

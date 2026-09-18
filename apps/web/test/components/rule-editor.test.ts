@@ -463,7 +463,7 @@ describe("rule flow testing", () => {
     expect(old.model.testResult).toMatchObject({ status: "running" })
     expect(old.commands).toEqual([])
     const refreshed = RuleEditor.update(old.model, RuleEditor.Message.RefreshTest())
-    expect(refreshed.commands?.[0]?.name).toBe("PollRuleTest")
+    expect(refreshed.commands?.[0]?.name).toBe("FetchRuleTest")
     const repeated = RuleEditor.update(refreshed.model, RuleEditor.Message.RefreshTest())
     expect(repeated.commands).toBeUndefined()
     expect(repeated.model.jobRefresh).toBe(true)
@@ -486,7 +486,7 @@ describe("rule flow testing", () => {
       ).model,
     ).toBe(done)
   })
-  it("polls the same job after a transient read failure and fences stale input inspection", () => {
+  it("waits for a live event or manual retry after a transient read failure and fences stale input inspection", () => {
     const started = RuleEditor.update(fresh(), RuleEditor.Message.ClickedTest()).model
     const next = RuleEditor.update(
       started,
@@ -500,8 +500,10 @@ describe("rule flow testing", () => {
         pollError: "offline",
       }),
     )
-    expect(next.commands?.[0]?.args).toMatchObject({ testId: "same-job" })
-    expect(next.commands?.[0]?.name).toBe("PollRuleTest")
+    expect(next.commands ?? []).toEqual([])
+    const retry = RuleEditor.update(next.model, RuleEditor.Message.RefreshTest())
+    expect(retry.commands?.[0]?.args).toMatchObject({ testId: "same-job" })
+    expect(retry.commands?.[0]?.name).toBe("FetchRuleTest")
     const edited = RuleEditor.update(
       next.model,
       RuleEditor.Message.UpdatedPriority({ value: "1" }),

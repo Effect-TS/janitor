@@ -23,7 +23,7 @@ export const liveExpiry = (
     ? Math.min(DateTime.toEpochMillis(identity.expiresAt), Date.now() + 3600000)
     : 0
 
-export const LiveRoutesLayer = HttpRouter.add(
+const repositoryRoute = HttpRouter.add(
   "GET",
   "/repositories/:repositoryId/live",
   Effect.gen(function* () {
@@ -38,3 +38,18 @@ export const LiveRoutesLayer = HttpRouter.add(
     return Response.setBody(Response.empty({ status: response.status }), Body.raw(response))
   }),
 ).pipe(Layer.provide(SameOriginMiddleware))
+
+const applicationRoute = HttpRouter.add(
+  "GET",
+  "/live",
+  Effect.gen(function* () {
+    const identity = yield* CurrentAccessIdentity
+    const request = yield* Request.HttpServerRequest
+    const service = yield* Effect.serviceOption(LiveUpdates)
+    if (Option.isNone(service)) return Response.empty({ status: 503 })
+    const response = yield* service.value.connect("application", liveExpiry(identity, request))
+    return Response.setBody(Response.empty({ status: response.status }), Body.raw(response))
+  }),
+).pipe(Layer.provide(SameOriginMiddleware))
+
+export const LiveRoutesLayer = Layer.mergeAll(repositoryRoute, applicationRoute)

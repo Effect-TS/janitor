@@ -616,7 +616,7 @@ const refreshSyncStatus = Update.foldChildStep({
   foldOutMessage: foldSyncOutMessage,
 })
 
-export const update = (model: Model, message: Message) =>
+export const update = (model: Model, message: Message): Step =>
   Message.match<Update.Return<Model, Message, AppServices>>(message, {
     GotConnectionsMessage: ({ message }) => {
       const next = Connections.update(model.connections, message)
@@ -731,7 +731,7 @@ export const update = (model: Model, message: Message) =>
             live: { ...model.live, retry: model.live.retry + 1, status: "connecting" },
           },
         }
-      if (!Option.contains(model.workspace.dataRepositoryId, message.channel)) return { model }
+      if (message.channel !== liveChannel(model)) return { model }
       if (message._tag === "Disconnected")
         return {
           model: {
@@ -739,19 +739,66 @@ export const update = (model: Model, message: Message) =>
             live: { ...model.live, status: message.denied ? "denied" : "disconnected" },
           },
         }
-      const all = message._tag === "Fallback" || message.connected
-      const topics = message._tag === "Fallback" ? [] : message.topics
-      const updated = updateWorkspace(
+      const all = message.connected
+      const topics = message.topics
+      if (message.channel === Live.APPLICATION_CHANNEL) {
+        let next: Step = { model: { ...model, live: { ...model.live, status: "connected" } } }
+        const append = (step: Step) => {
+          next = { ...step, commands: [...(next.commands ?? []), ...(step.commands ?? [])] }
+        }
+        if (all || topics.includes("connections")) {
+          append(
+            updateWorkspace(
+              next.model,
+              Workspace.Message.LiveChanged({ topics: ["connections"], all: false }),
+            ),
+          )
+          if (showsConnections(model))
+            append(
+              update(
+                next.model,
+                Message.GotConnectionsMessage({ message: Connections.Message.LiveChanged() }),
+              ),
+            )
+          append(refreshSyncStatus(next.model))
+        }
+        if ((all || topics.includes("account")) && isAccountRoute(model.navigation.route))
+          append(
+            update(
+              next.model,
+              Message.GotAccountMessage({ message: Account.Message.LiveChanged() }),
+            ),
+          )
+        return next
+      }
+      let updated = updateWorkspace(
         {
           ...model,
           live: {
             ...model.live,
-            status: message._tag === "Fallback" ? model.live.status : "connected",
+            status: "connected",
           },
         },
         Workspace.Message.LiveChanged({ topics, all }),
       )
-      if (!all && !topics.includes("sync") && !topics.includes("repository")) return updated
+      if ((all || topics.includes("connections")) && showsConnections(model)) {
+        const connections = update(
+          updated.model,
+          Message.GotConnectionsMessage({ message: Connections.Message.LiveChanged() }),
+        )
+        updated = {
+          ...updated,
+          model: connections.model,
+          commands: [...(updated.commands ?? []), ...(connections.commands ?? [])],
+        }
+      }
+      if (
+        !all &&
+        !topics.includes("sync") &&
+        !topics.includes("repository") &&
+        !topics.includes("connections")
+      )
+        return updated
       const synced = refreshSyncStatus(updated.model)
       return { ...synced, commands: [...(updated.commands ?? []), ...(synced.commands ?? [])] }
     },
@@ -817,13 +864,54 @@ const themeSubscriptions = Subscription.lift(ThemeSwitcher.subscriptions)<Model,
   toParentMessage: (message) => Message.GotThemeSwitcherMessage({ message }),
 })
 
+const showsConnections = (model: Model): boolean => {
+  const route = model.navigation.route
+  // The callback's mount must consume its state before any inventory-only read.
+  // It then navigates to Connect, whose mount reads the current inventory.
+  if (route._tag === "ConnectReturn") return false
+  return (
+    route._tag === "Connect" ||
+    route._tag === "Settings" ||
+    ("repositoryId" in route &&
+      Option.exists(
+        model.workspace.repositories,
+        (repositories) =>
+          !repositories.some(
+            (repository) =>
+              repository.repositoryId === route.repositoryId && repository.access === "accessible",
+          ),
+      ))
+  )
+}
+
+const liveChannel = (model: Model): string => {
+  const route = model.navigation.route
+  if (route._tag === "Connect" || route._tag === "ConnectReturn" || !("repositoryId" in route))
+    return Live.APPLICATION_CHANNEL
+  if (
+    Option.exists(
+      model.workspace.repositories,
+      (repositories) =>
+        !repositories.some(
+          (repository) =>
+            repository.repositoryId === route.repositoryId && repository.access === "accessible",
+        ),
+    )
+  )
+    return Live.APPLICATION_CHANNEL
+  return route.repositoryId
+}
+
 const liveSubscriptions = Subscription.lift(Live.subscriptions)<Model, Message>({
   toChildModel: (model) => {
-    const repositoryId = Option.getOrElse(model.workspace.dataRepositoryId, () => "")
+    const repositoryId = liveChannel(model)
     return {
       ...model.live,
       channel: repositoryId,
-      endpoint: Live.repositoryEndpoint(repositoryId),
+      endpoint:
+        repositoryId === Live.APPLICATION_CHANNEL
+          ? Live.applicationEndpoint
+          : Live.repositoryEndpoint(repositoryId),
     }
   },
   toParentMessage: (message) => Message.GotLiveMessage({ message }),
@@ -1157,7 +1245,6 @@ const mainHeader = (h: HtmlBuilder<Message>, model: Model): Html =>
           h.div(
             [h.Class("flex items-center gap-1")],
             [
-              Option.isSome(model.workspace.dataRepositoryId) &&
               model.live.visible &&
               (model.live.status === "disconnected" || model.live.status === "denied")
                 ? h.button(

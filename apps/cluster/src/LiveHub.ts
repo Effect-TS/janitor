@@ -17,6 +17,8 @@ export const LiveNotice = Schema.Struct({
       "test",
       "repository",
       "review",
+      "connections",
+      "account",
     ]),
   ),
   disconnected: Schema.Boolean,

@@ -24,7 +24,10 @@ describe("Repository connections", () => {
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
       Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [failed] }) }),
-      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Mount.resolve(
+        Connections.LoadOnMount,
+        Connections.Message.LoadRequested({ state: "" }),
+      ),
       Scene.Command.resolve(
         Connections.Load,
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [failed] } }),
@@ -44,7 +47,10 @@ describe("Repository connections", () => {
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
       Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [candidate] }) }),
-      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Mount.resolve(
+        Connections.LoadOnMount,
+        Connections.Message.LoadRequested({ state: "" }),
+      ),
       Scene.Command.resolve(
         Connections.Load,
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [candidate] } }),
@@ -87,7 +93,10 @@ describe("Repository connections", () => {
         ...Connections.update(Connections.init(), Connections.Message.ClickedDisconnect()).model,
         inventory: Option.some({ repositories: [candidate] }),
       }),
-      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Mount.resolve(
+        Connections.LoadOnMount,
+        Connections.Message.LoadRequested({ state: "" }),
+      ),
       Scene.Command.resolve(
         Connections.Load,
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [candidate] } }),
@@ -107,7 +116,10 @@ describe("Repository connections", () => {
         view: Scene.withViewInputs(Connections.view, { ...settings, repositoryId: null })(),
       },
       Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [] }) }),
-      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Mount.resolve(
+        Connections.LoadOnMount,
+        Connections.Message.LoadRequested({ state: "" }),
+      ),
       Scene.Command.resolve(
         Connections.Load,
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [] } }),
@@ -212,7 +224,10 @@ describe("connection result handling", () => {
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
       Scene.given({ ...Connections.init(), inventory: Option.some({ repositories: [paused] }) }),
-      Scene.Mount.resolve(Connections.Poll, Connections.Message.LoadRequested({ state: "" })),
+      Scene.Mount.resolve(
+        Connections.LoadOnMount,
+        Connections.Message.LoadRequested({ state: "" }),
+      ),
       Scene.Command.resolve(
         Connections.Load,
         Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [paused] } }),
@@ -223,5 +238,31 @@ describe("connection result handling", () => {
       ).toExist(),
       Scene.expect(Scene.text("Synchronizing")).not.toExist(),
     )
+  })
+})
+
+describe("Live invalidation during a read", () => {
+  it.each([false, true])("queues one follow-up and then stops, failed=%s", (failed) => {
+    const loading = Connections.update(
+      Connections.init(),
+      Connections.Message.LoadRequested({ state: "" }),
+    )
+    const dirty = Connections.update(loading.model, Connections.Message.LiveChanged())
+    const repeated = Connections.update(dirty.model, Connections.Message.LiveChanged())
+    expect(repeated.commands ?? []).toHaveLength(0)
+    const next = Connections.update(
+      repeated.model,
+      failed
+        ? Connections.Message.LoadFailed({ requestId: 1, reason: "unavailable" })
+        : Connections.Message.Loaded({ requestId: 1, inventory: { repositories: [candidate] } }),
+    )
+    expect(next.commands).toHaveLength(1)
+    expect(next.model.liveRefresh).toBe(false)
+    const settled = Connections.update(
+      next.model,
+      Connections.Message.Loaded({ requestId: 2, inventory: { repositories: [candidate] } }),
+    )
+    expect(settled.commands ?? []).toHaveLength(0)
+    expect(Option.isNone(settled.model.maybeLoadRequest)).toBe(true)
   })
 })

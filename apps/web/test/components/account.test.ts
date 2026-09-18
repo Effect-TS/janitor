@@ -217,3 +217,26 @@ describe("Account linking flow", () => {
     expect(failed.model.error).toEqual(Option.some("This connection attempt expired."))
   })
 })
+
+describe("Live invalidation during a read", () => {
+  it.each([false, true])("queues one follow-up and then stops, failed=%s", (failed) => {
+    const loading = Account.update(Account.init(), Account.Message.LoadRequested())
+    const dirty = Account.update(loading.model, Account.Message.LiveChanged())
+    const repeated = Account.update(dirty.model, Account.Message.LiveChanged())
+    expect(repeated.commands ?? []).toHaveLength(0)
+    const next = Account.update(
+      repeated.model,
+      failed
+        ? Account.Message.LoadFailed({ requestId: 1, reason: "unavailable" })
+        : Account.Message.Loaded({ requestId: 1, view: memberView }),
+    )
+    expect(next.commands).toHaveLength(1)
+    expect(next.model.liveRefresh).toBe(false)
+    const settled = Account.update(
+      next.model,
+      Account.Message.Loaded({ requestId: 2, view: memberView }),
+    )
+    expect(settled.commands ?? []).toHaveLength(0)
+    expect(Option.isNone(settled.model.maybeLoadRequest)).toBe(true)
+  })
+})
