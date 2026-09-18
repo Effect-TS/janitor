@@ -41,7 +41,11 @@ import {
 } from "./Review/WorkspaceObject.ts"
 import { agentModel } from "./AgentModel.ts"
 import { IssueReviewControl } from "./Review/Control.ts"
-import { IssueReviewAvailable, issueReviewEnabled } from "./Review/Gate.ts"
+import {
+  IssueReviewAvailable,
+  issueReviewDeploymentEnv,
+  issueReviewEnabled,
+} from "./Review/Gate.ts"
 import { IssueReviewScheduler } from "./Review/Scheduler.ts"
 import { IssueReviewSettings } from "./Review/Settings.ts"
 import { IssueReviewStore } from "./Review/Store.ts"
@@ -170,6 +174,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       // Read at init from the environment: the plan-phase Config interceptor
       // only binds values it can resolve from the deploy environment.
       env: {
+        ...(yield* issueReviewDeploymentEnv),
         ACCESS_AUD: access?.aud ?? "",
         LOCAL_DEV_AUDIENCE: localDev?.audience ?? "",
         // Platform callbacks return to the browser at this origin.
