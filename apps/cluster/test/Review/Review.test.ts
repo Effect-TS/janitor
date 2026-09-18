@@ -272,7 +272,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       const first = yield* deliver({
         id: 1,
         issue: 20,
-        body: "@effect-janitor is this a regression?",
+        body: "@janitor is this a regression?",
       })
       assert.deepStrictEqual(
         (yield* queuedAdmissions).map((row) => row.execution_key),
@@ -287,7 +287,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       assert.strictEqual(run?.queuePosition, 1)
       assert.strictEqual(run?.invokerLogin, "octocat")
       assert.strictEqual(run?.invokerId, "9")
-      assert.strictEqual(run?.instructions, "@effect-janitor is this a regression?")
+      assert.strictEqual(run?.instructions, "@janitor is this a regression?")
       assert.strictEqual(run?.dryRun, true)
       assert.isNotNull(run?.deadlineAt)
       assert.deepStrictEqual(
@@ -303,10 +303,10 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
 
       // The same delivery again, and the same comment under a new delivery id.
       yield* deliver(
-        { id: 1, issue: 20, body: "@effect-janitor is this a regression?" },
+        { id: 1, issue: 20, body: "@janitor is this a regression?" },
         { deliveryId: first },
       )
-      yield* deliver({ id: 1, issue: 20, body: "@effect-janitor is this a regression?" })
+      yield* deliver({ id: 1, issue: 20, body: "@janitor is this a regression?" })
       // The admission workflow is keyed by the comment: a replay returns the
       // recorded decision without another GitHub read or run.
       const reads = github.reads.length
@@ -318,7 +318,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
         1,
       )
       // A separately posted comment with identical text is its own invocation.
-      yield* deliver({ id: 2, issue: 20, body: "@effect-janitor is this a regression?" })
+      yield* deliver({ id: 2, issue: 20, body: "@janitor is this a regression?" })
       yield* admit(2)
       const second = yield* runFor(2)
       assert.strictEqual(second?.status, "queued")
@@ -331,18 +331,18 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       github.permissions.set("reader", { id: 10, permission: "read" })
       const store = yield* IssueReviewStore
       // No direct mention: nothing is recorded at all.
-      yield* deliver({ id: 30, issue: 21, body: "> @effect-janitor look\n\nquoting the above" })
-      yield* deliver({ id: 31, issue: 21, body: "run `@effect-janitor` locally" })
+      yield* deliver({ id: 30, issue: 21, body: "> @janitor look\n\nquoting the above" })
+      yield* deliver({ id: 31, issue: 21, body: "run `@janitor` locally" })
       assert.isTrue(Option.isNone(yield* store.receipt(repositoryId, "30")))
       assert.isTrue(Option.isNone(yield* store.receipt(repositoryId, "31")))
       // A pull request conversation is not an issue.
-      yield* deliver({ id: 32, issue: 22, body: "@effect-janitor review" }, { pullRequest: true })
+      yield* deliver({ id: 32, issue: 22, body: "@janitor review" }, { pullRequest: true })
       assert.isTrue(Option.isNone(yield* store.receipt(repositoryId, "32")))
       // Bots are denied at once; the receipt records why.
-      yield* deliver({ id: 33, issue: 21, body: "@effect-janitor review", user: bot })
+      yield* deliver({ id: 33, issue: 21, body: "@janitor review", user: bot })
       assert.strictEqual((yield* receipt(33)).reason, deniedReasons.bot)
       // Read permission is not enough, and the receipt settles once.
-      yield* deliver({ id: 34, issue: 21, body: "@effect-janitor review", user: reader })
+      yield* deliver({ id: 34, issue: 21, body: "@janitor review", user: reader })
       const denied = yield* admit(34)
       assert.deepStrictEqual([denied.outcome, denied.reason], ["denied", deniedReasons.permission])
       assert.isUndefined(yield* runFor(34))
@@ -350,19 +350,19 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       yield* deliver({
         id: 35,
         issue: 21,
-        body: "@effect-janitor review",
+        body: "@janitor review",
         user: { id: 12, login: "ghost", type: "User" },
       })
       assert.strictEqual((yield* admit(35)).reason, deniedReasons.permissionUnavailable)
       // A comment edited before admission is not the comment that was posted.
-      yield* deliver({ id: 36, issue: 21, body: "@effect-janitor review", edited: true })
+      yield* deliver({ id: 36, issue: 21, body: "@janitor review", edited: true })
       assert.strictEqual((yield* admit(36)).reason, deniedReasons.commentEdited)
       // A forged author: GitHub names someone else as the comment's author.
-      yield* deliver({ id: 37, issue: 21, body: "@effect-janitor review" })
+      yield* deliver({ id: 37, issue: 21, body: "@janitor review" })
       github.comments.get(37)!.user = reader
       assert.strictEqual((yield* admit(37)).reason, deniedReasons.commentAuthor)
       // The issue closed between delivery and admission.
-      yield* deliver({ id: 38, issue: 23, body: "@effect-janitor review" })
+      yield* deliver({ id: 38, issue: 23, body: "@janitor review" })
       github.issues.get(23)!.state = "closed"
       assert.strictEqual((yield* admit(38)).reason, deniedReasons.issueClosed)
       assert.lengthOf(
@@ -376,7 +376,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
     Effect.gen(function* () {
       // Issue 20 already has a running run and a queued one; another issue
       // starts at once.
-      yield* deliver({ id: 3, issue: 24, body: "@effect-janitor check the docs" })
+      yield* deliver({ id: 3, issue: 24, body: "@janitor check the docs" })
       yield* admit(3)
       assert.strictEqual((yield* runFor(3))?.status, "running")
       assert.strictEqual((yield* runFor(2))?.status, "queued")
@@ -476,7 +476,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       // Issue 24's run is running; an edit of its comment stops it and a
       // deleted comment cannot start anything later.
       yield* deliver(
-        { id: 3, issue: 24, body: "@effect-janitor check the docs (edited)" },
+        { id: 3, issue: 24, body: "@janitor check the docs (edited)" },
         { action: "edited" },
       )
       const edited = yield* runFor(3)
@@ -486,15 +486,15 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       )
       assert.strictEqual((yield* receipt(3)).outcome, "admitted")
       // A pending receipt whose comment is deleted before admission settles denied.
-      yield* deliver({ id: 4, issue: 25, body: "@effect-janitor please" })
-      yield* deliver({ id: 4, issue: 25, body: "@effect-janitor please" }, { action: "deleted" })
+      yield* deliver({ id: 4, issue: 25, body: "@janitor please" })
+      yield* deliver({ id: 4, issue: 25, body: "@janitor please" }, { action: "deleted" })
       assert.strictEqual((yield* admit(4)).outcome, "settled")
       assert.strictEqual((yield* receipt(4)).reason, admissionReasons.deleted)
       assert.isUndefined(yield* runFor(4))
       // Closing an issue cancels its active and queued runs, nothing else.
-      yield* deliver({ id: 5, issue: 26, body: "@effect-janitor one" })
-      yield* deliver({ id: 6, issue: 26, body: "@effect-janitor two" })
-      yield* deliver({ id: 7, issue: 27, body: "@effect-janitor other issue" })
+      yield* deliver({ id: 5, issue: 26, body: "@janitor one" })
+      yield* deliver({ id: 6, issue: 26, body: "@janitor two" })
+      yield* deliver({ id: 7, issue: 27, body: "@janitor other issue" })
       yield* admit(5)
       yield* admit(6)
       yield* admit(7)
@@ -535,18 +535,18 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       const whileOff = yield* webhookNow
       yield* enable()
       yield* deliver(
-        { id: 8, issue: 28, body: "@effect-janitor from the off period" },
+        { id: 8, issue: 28, body: "@janitor from the off period" },
         { receivedAt: whileOff },
       )
       assert.strictEqual((yield* receipt(8)).reason, admissionReasons.beforeEnablement)
       // A delivery whose receipt time is unknown cannot be placed after enablement.
-      yield* deliver({ id: 13, issue: 28, body: "@effect-janitor undated" }, { receivedAt: null })
+      yield* deliver({ id: 13, issue: 28, body: "@janitor undated" }, { receivedAt: null })
       assert.strictEqual((yield* receipt(13)).reason, admissionReasons.unknownReceipt)
-      yield* deliver({ id: 9, issue: 28, body: "@effect-janitor after enabling" })
+      yield* deliver({ id: 9, issue: 28, body: "@janitor after enabling" })
       yield* admit(9)
       assert.strictEqual((yield* runFor(9))?.status, "running")
       // A pause ends every live run with the repository's block reason.
-      yield* deliver({ id: 10, issue: 28, body: "@effect-janitor queued behind" })
+      yield* deliver({ id: 10, issue: 28, body: "@janitor queued behind" })
       yield* admit(10)
       yield* sql`UPDATE github_repository SET enabled = FALSE WHERE repository_id = ${repositoryId}`
       const paused = yield* runFor(9)
@@ -555,7 +555,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       assert.strictEqual((yield* runFor(10))?.status, "cancelled")
       // The pause discarded pending admission work, and a comment arriving
       // while paused records nothing (the projection fence drops it first).
-      yield* deliver({ id: 11, issue: 28, body: "@effect-janitor during pause" })
+      yield* deliver({ id: 11, issue: 28, body: "@janitor during pause" })
       assert.isTrue(
         Option.isNone(
           yield* Effect.flatMap(IssueReviewStore, (store) => store.receipt(repositoryId, "11")),
@@ -574,7 +574,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review", (it) => {
       assert.strictEqual((yield* runFor(9))?.status, "cancelled")
       assert.strictEqual((yield* runFor(10))?.status, "cancelled")
       // New work after resumption runs under the new generation.
-      yield* deliver({ id: 12, issue: 28, body: "@effect-janitor after resume" })
+      yield* deliver({ id: 12, issue: 28, body: "@janitor after resume" })
       yield* admit(12)
       assert.strictEqual((yield* runFor(12))?.status, "running")
     }),
