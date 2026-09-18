@@ -173,7 +173,8 @@ it.live(
         ...request,
         command: 'node -e "setTimeout(() => {}, 30000)"',
         commitSha: second,
-        timeout: 50,
+        // The allowance includes Git setup, which can exceed 50 ms on CI runners.
+        timeout: 1000,
       })
       assert.isNull(timeout.exitCode)
       assert.include(timeout.limitation!, "inconclusive")
