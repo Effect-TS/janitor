@@ -48,19 +48,26 @@ export const makeSandboxLocal: Effect.Effect<
         .kill({ killSignal: "SIGTERM", forceKillAfter: "1 second" })
         .pipe(Effect.ignore)
 
-      const consume = <E>(stream: Stream.Stream<Uint8Array, E>) =>
+      const retained = {
+        stdout: { text: "", truncated: false },
+        stderr: { text: "", truncated: false },
+      }
+      const consume = <E>(stream: Stream.Stream<Uint8Array, E>, channel: keyof typeof retained) =>
         Stream.decodeText(stream).pipe(
           Stream.runFold(
             () => ({ text: "", truncated: false }),
             (output, chunk) => {
               const text = output.text + chunk
               const bytes = new TextEncoder().encode(text)
-              return bytes.byteLength > maxBytes
-                ? {
-                    text: new TextDecoder().decode(bytes.slice(bytes.byteLength - maxBytes)),
-                    truncated: true,
-                  }
-                : { text, truncated: output.truncated }
+              const next =
+                bytes.byteLength > maxBytes
+                  ? {
+                      text: new TextDecoder().decode(bytes.slice(bytes.byteLength - maxBytes)),
+                      truncated: true,
+                    }
+                  : { text, truncated: output.truncated }
+              retained[channel] = next
+              return next
             },
           ),
           Effect.mapError(String),
@@ -68,7 +75,7 @@ export const makeSandboxLocal: Effect.Effect<
 
       const running = Effect.gen(function* () {
         const [exitCode, stdout, stderr] = yield* Effect.all(
-          [handle.exitCode, consume(handle.stdout), consume(handle.stderr)],
+          [handle.exitCode, consume(handle.stdout, "stdout"), consume(handle.stderr, "stderr")],
           { concurrency: 3 },
         )
         return {
@@ -89,9 +96,9 @@ export const makeSandboxLocal: Effect.Effect<
         running,
         Effect.sleep(`${timeout} millis`).pipe(
           Effect.andThen(Effect.forkChild(terminate)),
-          Effect.andThen(
+          Effect.andThen(() =>
             Effect.fail(
-              `command timed out after ${timeout}ms; retry with a larger timeout if it needs longer`,
+              `command timed out after ${timeout}ms\nstdout${retained.stdout.truncated ? " (tail)" : ""}:\n${retained.stdout.text}\nstderr${retained.stderr.truncated ? " (tail)" : ""}:\n${retained.stderr.text}`,
             ),
           ),
         ),

@@ -100,8 +100,14 @@ describe("sandbox guest operations", () => {
   it("terminates commands after their timeout", () =>
     withSandbox((sandbox) =>
       Effect.gen(function* () {
-        const failure = yield* sandbox.exec("sleep 30", [], { timeout: 30 }).pipe(Effect.flip)
-        expect(failure).toContain("timed out after 30ms")
+        const failure = yield* sandbox
+          .exec("printf 'install progress'; printf 'registry retry' >&2; sleep 30", [], {
+            timeout: 200,
+          })
+          .pipe(Effect.flip)
+        expect(failure).toContain("timed out after 200ms")
+        expect(failure).toContain("install progress")
+        expect(failure).toContain("registry retry")
       }),
     ))
 })

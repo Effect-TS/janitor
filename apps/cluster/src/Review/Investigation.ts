@@ -147,7 +147,7 @@ const tools = Toolkit.make(
   }),
   Tool.make("execute", {
     description:
-      "Execute setup or a minimal test inside the sandbox. Installation and testing share the run deadline. Test commands must name a proposed test path. null commitSha selects the recorded default-branch commit; a full historical SHA permits comparison. Tracked files are restored and the saved patch applied before each command. Results are persisted.",
+      "Execute setup or a minimal test inside the sandbox. Setup commands have at most 3 minutes; tests have at most 2 minutes, within the run deadline. Use non-interactive, one-shot commands. Do not pipe output to tail: output is already bounded and retained. Test commands must name a proposed test path. null commitSha selects the recorded default-branch commit; a full historical SHA permits comparison. Tracked files are restored and the saved patch applied before each command. Results are persisted.",
     parameters: Schema.Struct({
       command: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
       kind: Schema.Literals(["setup", "test"]),
@@ -574,6 +574,22 @@ export const ReviewActionLayer = ReviewAction.toLayer(
                       assessment: null,
                       attempts: [...reproduction.attempts, attempt],
                     })
+                    const left = Duration.toMillis(yield* remaining(deadline))
+                    const timeout = Math.max(
+                      1,
+                      Math.min(params.kind === "setup" ? 180_000 : 120_000, left),
+                    )
+                    const startedAt = DateTime.toEpochMillis(yield* DateTime.now)
+                    const annotations = {
+                      runId,
+                      sequence,
+                      attemptId: attempt.id,
+                      kind: params.kind,
+                      timeoutMs: timeout,
+                    }
+                    yield* Effect.logInfo("Review command started").pipe(
+                      Effect.annotateLogs(annotations),
+                    )
                     const result = yield* workspace
                       .execute({
                         ...params,
@@ -582,11 +598,19 @@ export const ReviewActionLayer = ReviewAction.toLayer(
                         testPath,
                         commitSha,
                         patch: reproduction.patch,
-                        timeout: Math.max(1, Duration.toMillis(yield* remaining(deadline))),
+                        timeout,
                       })
                       .pipe(
+                        // Allow the guest to terminate the process and collect evidence,
+                        // but bound an unresponsive RPC as well as the guest command.
+                        Effect.timeout(Math.min(timeout + 15_000, Math.max(1, left))),
                         Effect.catch((error) =>
-                          Effect.succeed({ ...attempt, output: String(error).slice(0, 16000) }),
+                          Effect.succeed({
+                            ...attempt,
+                            output: Cause.isTimeoutError(error)
+                              ? "The workspace did not return command evidence within its time limit."
+                              : String(error).slice(0, 16000),
+                          }),
                         ),
                       )
                     yield* saveReproduction({
@@ -595,6 +619,14 @@ export const ReviewActionLayer = ReviewAction.toLayer(
                         entry.id === result.id ? result : entry,
                       ),
                     })
+                    yield* Effect.logInfo("Review command finished").pipe(
+                      Effect.annotateLogs({
+                        ...annotations,
+                        elapsedMs: DateTime.toEpochMillis(yield* DateTime.now) - startedAt,
+                        exitCode: result.exitCode,
+                        inconclusive: result.limitation !== null,
+                      }),
+                    )
                     return JSON.stringify(result)
                   }),
                 ),

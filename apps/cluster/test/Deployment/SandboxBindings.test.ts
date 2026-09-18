@@ -48,6 +48,11 @@ it.live("binds each sandbox container application to just one Durable Object nam
         const containers = Object.values(compiled.resources).filter(
           (resource) => resource.Type === "Cloudflare.Container",
         )
+        assert.strictEqual(
+          containers.find((resource) => resource.FQN === "ReviewSandboxContainer")?.Props
+            .instanceType,
+          "standard-1",
+        )
         assert.deepStrictEqual(
           Object.fromEntries(
             containers.map((resource) => [
