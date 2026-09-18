@@ -60,6 +60,20 @@ export class IssueReviewPublication extends Context.Service<IssueReviewPublicati
                 return false
               }
               const draft = current.value.draftPublication
+              if (
+                draft !== null &&
+                draft.prNumber !== null &&
+                draft.status !== "published" &&
+                draft.text.reuseBlockedSummary === undefined
+              ) {
+                yield* store.savePublication(runId, {
+                  ...current.value.publication,
+                  status: "blocked",
+                  reason:
+                    "The saved result has no summary for an incomplete update to an existing PR. The previous summary is retained.",
+                })
+                return false
+              }
               const intent =
                 draft === null
                   ? current.value.publication
@@ -69,7 +83,9 @@ export class IssueReviewPublication extends Context.Service<IssueReviewPublicati
                         ?.name ?? "",
                       draft.status === "published" && draft.url !== null
                         ? draft.text.publishedSummary.replaceAll("{{pr_url}}", draft.url)
-                        : draft.text.blockedSummary,
+                        : draft.prNumber !== null && draft.url !== null
+                          ? draft.text.reuseBlockedSummary!.replaceAll("{{pr_url}}", draft.url)
+                          : draft.text.blockedSummary,
                     )
               if (intent.status === "rejected") {
                 yield* store.savePublication(runId, intent)

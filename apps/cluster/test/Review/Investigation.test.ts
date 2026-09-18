@@ -328,6 +328,7 @@ const prepareSummary = (findings?: string) =>
 
 const publicationSetup = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
+  yield* sql`DELETE FROM issue_review_draft_owner`
   yield* sql`DELETE FROM issue_review_run`
   yield* sql`DELETE FROM issue_review_issue`
   yield* seed
@@ -351,10 +352,11 @@ const prepareReproduction = (
   options: {
     conclusion?: Record<string, unknown>
     assessment?: Partial<ReproductionAssessment>
+    subsequent?: boolean
   } = {},
 ) =>
   Effect.gen(function* () {
-    yield* publicationSetup
+    if (!options.subsequent) yield* publicationSetup
     const runId = yield* invoke({
       id: ++summaryCommentSequence,
       issue: 30,
@@ -421,6 +423,10 @@ const prepareReproduction = (
                 "Reproduced at " +
                 base +
                 ". Publication did not complete; no draft PR was confirmed.",
+              reuseBlockedSummary:
+                "Reproduced at " +
+                base +
+                ". Proposed changes were not fully published to [the existing PR]({{pr_url}}). Its branch may have been updated, but its PR text was not confirmed. Findings and the proposed patch are retained.",
             },
             ...options.conclusion,
           }),
@@ -432,6 +438,239 @@ const prepareReproduction = (
   })
 
 layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => {
+  it.effect("rejects an incomplete-update summary that omits the existing PR link", () =>
+    live(
+      Effect.gen(function* () {
+        const base = github.defaultBranchSha
+        const runId = yield* prepareReproduction({
+          conclusion: {
+            reproductionPr: {
+              title: "Reproduce the wrong answer",
+              body: `Tested ${base}. [Issue](https://github.com/effect/one/issues/30).`,
+              publishedSummary: `Tested ${base}. [Draft]({{pr_url}}).`,
+              blockedSummary: `Tested ${base}. No draft was confirmed.`,
+              reuseBlockedSummary: `Tested ${base}. The proposed update did not complete.`,
+            },
+          },
+        })
+        assert.strictEqual((yield* shown(runId)).draftPublication?.status, "rejected")
+        assert.lengthOf(draftGithub.mutations, 0)
+      }),
+    ),
+  )
+  it.effect("keeps the existing PR link when publication fingerprints are incomplete", () =>
+    live(
+      Effect.gen(function* () {
+        const first = yield* prepareReproduction()
+        for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_draft_owner SET default_branch = 'previous-main' WHERE repository_id = ${repositoryId}`
+        const next = yield* prepareReproduction({ subsequent: true })
+        yield* drive(next, 2)
+        yield* drive(next, 3)
+        const result = yield* shown(next)
+        assert.strictEqual(result.draftPublication?.status, "blocked")
+        assert.strictEqual(result.draftPublication?.url, "https://github.com/effect/one/pull/123")
+        assert.include(publishedComments.get("10000")!.body, "not fully published")
+        assert.include(
+          publishedComments.get("10000")!.body,
+          "https://github.com/effect/one/pull/123",
+        )
+        assert.notInclude(publishedComments.get("10000")!.body, "no draft PR was confirmed")
+      }),
+    ),
+  )
+  for (const change of ["body", "title", "head", "ready", "missing"] as const) {
+    it.effect(`retains the proposal without writes after a human changes ${change}`, () =>
+      live(
+        Effect.gen(function* () {
+          const first = yield* prepareReproduction()
+          for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+          const before = (yield* shown(first)).draftPublication!
+          const pr = draftGithub.pulls[0]!
+          if (change === "body" || change === "title") pr[change] = "Human text"
+          if (change === "ready") pr.draft = false
+          if (change === "head") draftGithub.branches.set(before.branch, "f".repeat(40))
+          if (change === "missing") draftGithub.branches.delete(before.branch)
+          const next = yield* prepareReproduction({ subsequent: true })
+          const writes = draftGithub.mutations.length
+          yield* drive(next, 2)
+          const result = yield* shown(next)
+          assert.strictEqual(
+            result.draftPublication?.status,
+            "blocked",
+            JSON.stringify(result.draftPublication),
+          )
+          assert.isNotNull(result.reproduction.patch)
+          assert.isNotNull(result.draftPublication?.reason)
+          assert.lengthOf(draftGithub.mutations, writes)
+        }),
+      ),
+    )
+  }
+  for (const operation of ["branch", "pr"] as const) {
+    it.effect(`reconciles a lost ${operation} update and consumes repeated completion once`, () =>
+      live(
+        Effect.gen(function* () {
+          const first = yield* prepareReproduction()
+          for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+          const next = yield* prepareReproduction({ subsequent: true })
+          draftGithub.lost = operation
+          const calls = model.prompts.length
+          for (const sequence of [2, 3, 4, 2, 3]) yield* drive(next, sequence)
+          const result = (yield* shown(next)).draftPublication!
+          assert.strictEqual(result.status, "published", JSON.stringify(result))
+          assert.lengthOf(draftGithub.pulls, 1)
+          assert.lengthOf(draftGithub.mutations, 8)
+          assert.strictEqual(model.prompts.length, calls)
+          assert.strictEqual(publishedComments.size, 1)
+          const third = yield* prepareReproduction({ subsequent: true })
+          draftGithub.lost = null
+          for (const sequence of [2, 3, 4]) yield* drive(third, sequence)
+          assert.strictEqual((yield* shown(third)).draftPublication?.status, "published")
+          assert.lengthOf(draftGithub.pulls, 1)
+        }),
+      ),
+    )
+  }
+  it.effect("reports a partial update without overwriting intervening human PR text", () =>
+    live(
+      Effect.gen(function* () {
+        const first = yield* prepareReproduction()
+        for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+        const next = yield* prepareReproduction({ subsequent: true })
+        yield* drive(next, 2)
+        draftGithub.pulls[0]!.body = "Human text"
+        const writes = draftGithub.mutations.length
+        yield* drive(next, 3)
+        yield* drive(next, 4)
+        const result = yield* shown(next)
+        assert.strictEqual(result.draftPublication?.status, "blocked")
+        assert.include(result.draftPublication!.reason!, "branch update completed")
+        assert.strictEqual(draftGithub.pulls[0]!.body, "Human text")
+        assert.lengthOf(draftGithub.mutations, writes)
+        assert.notInclude(publishedComments.get("10000")!.body, "no draft PR was confirmed")
+        assert.include(publishedComments.get("10000")!.body, "not fully published")
+      }),
+    ),
+  )
+  for (const state of ["closed", "merged"] as const) {
+    it.effect(`creates a new draft without changing the ${state} reproduction`, () =>
+      live(
+        Effect.gen(function* () {
+          const first = yield* prepareReproduction()
+          for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+          const old = draftGithub.pulls[0]!
+          old.state = "closed"
+          old.merged_at = state === "merged" ? "2026-09-18T00:00:00Z" : null
+          const snapshot = JSON.stringify(old)
+          const next = yield* prepareReproduction({ subsequent: true })
+          for (const sequence of [2, 3, 4]) yield* drive(next, sequence)
+          assert.strictEqual((yield* shown(next)).draftPublication?.status, "published")
+          assert.lengthOf(draftGithub.pulls, 2)
+          assert.strictEqual(JSON.stringify(old), snapshot)
+          assert.strictEqual(publishedComments.size, 1)
+        }),
+      ),
+    )
+  }
+  it.effect("fences uncertain PR updates and retains the confirmed branch update", () =>
+    live(
+      Effect.gen(function* () {
+        const first = yield* prepareReproduction()
+        for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+        const summary = publishedComments.get("10000")!.body
+        const next = yield* prepareReproduction({ subsequent: true })
+        yield* drive(next, 2)
+        draftGithub.rejectPr = true
+        yield* drive(next, 3)
+        yield* drive(next, 4)
+        const result = yield* shown(next)
+        assert.strictEqual(result.draftPublication?.status, "unresolved")
+        assert.strictEqual(
+          draftGithub.branches.get(result.draftPublication!.branch),
+          result.draftPublication!.commitSha,
+        )
+        assert.strictEqual(result.publication.status, "blocked")
+        assert.strictEqual(publishedComments.get("10000")!.body, summary)
+        const writes = draftGithub.mutations.length
+        yield* drive(next, 3)
+        assert.lengthOf(draftGithub.mutations, writes)
+        assert.lengthOf(draftGithub.pulls, 1)
+        assert.isNotNull(result.reproduction.patch)
+      }),
+    ),
+  )
+  for (const change of ["revoked", "cancelled", "dry-run"] as const) {
+    it.effect(`blocks reuse after ${change} before the PR write`, () =>
+      live(
+        Effect.gen(function* () {
+          const first = yield* prepareReproduction()
+          for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+          const next = yield* prepareReproduction({ subsequent: true })
+          yield* drive(next, 2)
+          const body = draftGithub.pulls[0]!.body
+          const writes = draftGithub.mutations.length
+          if (change === "revoked") github.permissions.set("octocat", { id: 9, permission: "read" })
+          if (change === "cancelled")
+            yield* withAgent(next, (client) =>
+              client.Cancel({ messageId: "cancel-reuse", reason: "Stop", actor: "9" }),
+            )
+          if (change === "dry-run")
+            yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+              settings.set(repositoryId, { enabled: true, dryRun: true }, actor),
+            )
+          yield* drive(next, 3)
+          assert.strictEqual((yield* shown(next)).draftPublication?.status, "blocked")
+          assert.strictEqual(draftGithub.pulls[0]!.body, body)
+          assert.lengthOf(draftGithub.mutations, writes)
+        }),
+      ),
+    )
+  }
+  for (const change of ["head", "body", "ready"] as const) {
+    it.effect(`checks ${change} again after Git object creation before updating the branch`, () =>
+      live(
+        Effect.gen(function* () {
+          const first = yield* prepareReproduction()
+          for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+          const before = (yield* shown(first)).draftPublication!
+          const next = yield* prepareReproduction({ subsequent: true })
+          draftGithub.afterWrite = Effect.sync(() => {
+            if (!draftGithub.mutations.at(-1)!.url.endsWith("/git/commits")) return
+            if (change === "head") draftGithub.branches.set(before.branch, "f".repeat(40))
+            if (change === "body") draftGithub.pulls[0]!.body = "Human text"
+            if (change === "ready") draftGithub.pulls[0]!.draft = false
+          })
+          yield* drive(next, 2)
+          assert.strictEqual((yield* shown(next)).draftPublication?.status, "blocked")
+          assert.lengthOf(draftGithub.mutations, 6)
+          assert.strictEqual(
+            draftGithub.branches.get(before.branch),
+            change === "head" ? "f".repeat(40) : before.commitSha,
+          )
+        }),
+      ),
+    )
+  }
+  it.effect("reuses the unchanged owned draft on a later invocation", () =>
+    live(
+      Effect.gen(function* () {
+        const first = yield* prepareReproduction()
+        for (const sequence of [2, 3, 4]) yield* drive(first, sequence)
+        const before = (yield* shown(first)).draftPublication!
+        const next = yield* prepareReproduction({ subsequent: true })
+        for (const sequence of [2, 3, 4]) yield* drive(next, sequence)
+        const result = (yield* shown(next)).draftPublication!
+        assert.strictEqual(result.status, "published", JSON.stringify(result))
+        assert.strictEqual(result.branch, before.branch)
+        assert.strictEqual(result.prNumber, before.prNumber)
+        assert.lengthOf(draftGithub.pulls, 1)
+        assert.strictEqual(publishedComments.size, 1)
+      }),
+    ),
+  )
+
   for (const unsafe of [
     "@octocat",
     "https://janitor.example.test/reviews",

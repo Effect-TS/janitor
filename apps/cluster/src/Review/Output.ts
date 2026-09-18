@@ -120,8 +120,19 @@ export const draftIntent = (
           [issueUrl],
         ) ??
         outputReason(run, repository, text.blockedSummary) ??
-        (!text.body.includes(issueUrl) || !text.publishedSummary.includes("{{pr_url}}")
-          ? "PR text must link the original issue and the published summary must include {{pr_url}}."
+        (text.reuseBlockedSummary === undefined
+          ? null
+          : outputReason(
+              run,
+              repository,
+              text.reuseBlockedSummary.replaceAll("{{pr_url}}", issueUrl),
+              true,
+              [issueUrl],
+            )) ??
+        (!text.body.includes(issueUrl) ||
+        !text.publishedSummary.includes("{{pr_url}}") ||
+        (text.reuseBlockedSummary !== undefined && !text.reuseBlockedSummary.includes("{{pr_url}}"))
+          ? "PR text must link the original issue and summaries referring to a PR must include {{pr_url}}."
           : null))
   return {
     status: reason === null ? "pending" : "rejected",
