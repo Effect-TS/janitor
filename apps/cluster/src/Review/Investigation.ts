@@ -1,6 +1,8 @@
+import { IssueReviewDraftPublication } from "./DraftPublication.ts"
 import { IssueReviewPublication } from "./Publication.ts"
 import * as Semaphore from "effect/Semaphore"
 import { ReviewConclusion } from "@janitor/domain/Review/Findings"
+import { ReproductionPrText } from "@janitor/domain/Review/Draft"
 import type { Reproduction, TestAttempt } from "@janitor/domain/Review/Reproduction"
 import * as Cause from "effect/Cause"
 import * as DateTime from "effect/DateTime"
@@ -163,6 +165,7 @@ const tools = Toolkit.make(
     description:
       "Record the review and end the run. classification is bug, enhancement, question or unclear. findings and uncertainty are prose for a maintainer. evidence lists the issues, pull requests and files you looked at: kind is issue, pull_request or file; reference is the number or the path; note says why it matters.",
     parameters: Schema.Struct({
+      reproductionPr: Schema.optionalKey(Schema.NullOr(ReproductionPrText)),
       classification: Schema.String,
       findings: Schema.String,
       uncertainty: Schema.String,
@@ -209,6 +212,7 @@ export const ReviewActionLayer = ReviewAction.toLayer(
     const workspaces = yield* ReviewWorkspaces
     const agents = yield* ReviewAgentClient
     const publication = yield* IssueReviewPublication
+    const drafts = yield* IssueReviewDraftPublication
     const transport = yield* GitHubTransport
     const model = yield* Effect.serviceOption(LanguageModel.LanguageModel)
 
@@ -695,6 +699,14 @@ export const ReviewActionLayer = ReviewAction.toLayer(
         return yield* record(
           yield* decodeResult(action.value.result).pipe(Effect.mapError(failure)),
         )
+      if (action.value.kind === "publish_branch" || action.value.kind === "publish_pr") {
+        yield* drafts
+          .publish(runId, action.value.kind === "publish_branch" ? "branch" : "pr")
+          .pipe(Effect.mapError(failure))
+        return yield* record({
+          _tag: action.value.kind === "publish_branch" ? "BranchFinished" : "DraftFinished",
+        })
+      }
       if (action.value.kind === "publish") {
         yield* publication.publish(runId).pipe(Effect.mapError(failure))
         return yield* record({ _tag: "PublicationFinished" })

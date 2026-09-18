@@ -50,7 +50,8 @@ export class GitHubAppAuth extends Context.Service<
       restriction?: {
         readonly repositoryId: string
         readonly issues: "read" | "write"
-        readonly contents?: "read"
+        readonly contents?: "read" | "write"
+        readonly pullRequests?: "read" | "write"
       },
     ) => Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError>
     /** Drops a cached token after GitHub rejected it. */
@@ -212,7 +213,8 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
     restriction?: {
       readonly repositoryId: string
       readonly issues: "read" | "write"
-      readonly contents?: "read"
+      readonly contents?: "read" | "write"
+      readonly pullRequests?: "read" | "write"
     },
   ) {
     const now = yield* DateTime.now
@@ -241,6 +243,9 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
             repository_ids: [Number(restriction.repositoryId)],
             permissions: {
               issues: restriction.issues,
+              ...(restriction.pullRequests === undefined
+                ? {}
+                : { pull_requests: restriction.pullRequests }),
               ...(restriction.contents === undefined ? {} : { contents: restriction.contents }),
             },
           }).pipe(Effect.orDie)

@@ -41,7 +41,8 @@ export interface GitHubRequest {
   readonly repositoryPermission?: {
     readonly repositoryId: string
     readonly issues: "read" | "write"
-    readonly contents?: "read"
+    readonly contents?: "read" | "write"
+    readonly pullRequests?: "read" | "write"
   }
   readonly scope: GitHubApiScope
   readonly priority: GitHubRequestPriority

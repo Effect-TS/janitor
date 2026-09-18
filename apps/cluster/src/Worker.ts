@@ -1,3 +1,5 @@
+import { IssueReviewDraftPublication } from "./Review/DraftPublication.ts"
+import { ReviewPullRequests } from "./Review/PullRequests.ts"
 import { IssueReviewPublication } from "./Review/Publication.ts"
 import { ReviewComments } from "./Review/Comments.ts"
 import { SlackSession, SessionObjectLive } from "./Slack/SessionObject.ts"
@@ -392,7 +394,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           IssueReviewControl.layer,
         ),
       ),
-      Layer.provideMerge(IssueReviewPublication.layer.pipe(Layer.provide(ReviewComments.layer))),
+      Layer.provideMerge(
+        Layer.mergeAll(IssueReviewPublication.layer, IssueReviewDraftPublication.layer).pipe(
+          Layer.provide(Layer.mergeAll(ReviewComments.layer, ReviewPullRequests.layer)),
+        ),
+      ),
       Layer.provideMerge(IssueReviewScheduler.layer),
       Layer.provideMerge(
         Layer.mergeAll(

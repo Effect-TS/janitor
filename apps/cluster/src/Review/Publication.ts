@@ -1,4 +1,4 @@
-import { permittedSummaryLinks } from "./Output.ts"
+import { permittedSummaryLinks, summaryIntent } from "./Output.ts"
 import type { ReviewPublication } from "@janitor/domain/Review/Publication"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -55,12 +55,28 @@ export class IssueReviewPublication extends Context.Service<IssueReviewPublicati
                 yield* store.savePublication(runId, {
                   ...current.value.publication,
                   status: "blocked",
-                  reason: "An earlier summary write is unresolved. Further writes are blocked.",
+                  reason: "An earlier publication is unresolved. Further writes are blocked.",
                 })
                 return false
               }
+              const draft = current.value.draftPublication
+              const intent =
+                draft === null
+                  ? current.value.publication
+                  : summaryIntent(
+                      current.value,
+                      (yield* eligibility.list).find((r) => r.repositoryId === initial.repositoryId)
+                        ?.name ?? "",
+                      draft.status === "published" && draft.url !== null
+                        ? draft.text.publishedSummary.replaceAll("{{pr_url}}", draft.url)
+                        : draft.text.blockedSummary,
+                    )
+              if (intent.status === "rejected") {
+                yield* store.savePublication(runId, intent)
+                return false
+              }
               yield* store.savePublication(runId, {
-                ...current.value.publication,
+                ...intent,
                 status: "attempted",
                 commentId: issue!.summary_comment_id,
               })

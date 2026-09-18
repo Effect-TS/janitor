@@ -1,4 +1,4 @@
-import { summaryIntent } from "./Output.ts"
+import { draftIntent, summaryIntent } from "./Output.ts"
 import { ReviewRunId, ReviewRunStatus, isTerminalReviewStatus } from "@janitor/domain/Review/Run"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -298,6 +298,12 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
                   agentState: { phase: run.dryRun ? "completed" : "publishing" },
                 }),
               )
+              const draft = draftIntent(
+                concluded,
+                repository ?? "",
+                result.conclusion.reproductionPr,
+              )
+              if (draft !== null) yield* orDie(store.saveDraft(runId, draft))
               if (run.dryRun) return concluded
               const intent = summaryIntent(concluded, repository ?? "")
               yield* orDie(store.savePublication(runId, intent))
@@ -309,7 +315,10 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
                     agentState: { phase: "completed" },
                   }),
                 )
-              yield* schedule(sequence + 1, "publish")
+              yield* schedule(
+                sequence + 1,
+                draft?.status === "pending" ? "publish_branch" : "publish",
+              )
               return concluded
             }
             if (overdue)
@@ -327,6 +336,15 @@ export const ReviewAgentLayer = ReviewAgent.toLayer(
             return yield* ended(run, "interrupted", result.reason, rounds, repository)
           case "Failed":
             return yield* ended(run, "failed", result.reason, rounds, repository)
+          case "BranchFinished":
+            yield* schedule(
+              sequence + 1,
+              run.draftPublication?.status === "branch" ? "publish_pr" : "publish",
+            )
+            return run
+          case "DraftFinished":
+            yield* schedule(sequence + 1, "publish")
+            return run
           case "PublicationFinished":
             return yield* orDie(
               store.transition(runId, {
