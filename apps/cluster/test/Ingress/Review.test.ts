@@ -41,7 +41,7 @@ const run: ReviewRun = {
   commentId: "1",
   invokerId: "9",
   invokerLogin: "octocat",
-  instructions: "@effect-janitor is this a regression?",
+  instructions: "@janitor is this a regression?",
   dryRun: true,
   status: "running",
   queuePosition: 1,

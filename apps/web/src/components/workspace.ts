@@ -949,8 +949,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             : "Issue review disabled",
           description: settings.enabled
             ? settings.dryRun
-              ? "Authorized @effect-janitor mentions start runs whose findings stay in Janitor."
-              : "Authorized @effect-janitor mentions start runs that may publish to GitHub."
+              ? "Authorized @janitor mentions start runs whose findings stay in Janitor."
+              : "Authorized @janitor mentions start runs that may publish to GitHub."
             : "Active and queued runs were cancelled. New mentions are ignored.",
         }),
       }
@@ -2252,8 +2252,8 @@ const reviewSection = (h: HtmlBuilder<Message>, model: Model): Html => {
                     [h.Class("text-body-md text-ink-muted")],
                     [
                       review.enabled
-                        ? "A comment on an open issue that mentions @effect-janitor, from someone with write or admin permission, starts a review run. One run is active per issue; later mentions wait behind it."
-                        : "Mentions of @effect-janitor on this repository's issues are ignored. Enabling admits comments posted from now on; earlier ones never start work.",
+                        ? "A comment on an open issue that mentions @janitor, from someone with write or admin permission, starts a review run. One run is active per issue; later mentions wait behind it."
+                        : "Mentions of @janitor on this repository's issues are ignored. Enabling admits comments posted from now on; earlier ones never start work.",
                     ],
                   ),
                   SwitchControl.view(h, {

@@ -5,8 +5,8 @@
  * request they are making. Trusted code decides this; the model never does.
  */
 
-/** The GitHub handle a comment must mention to invoke issue review. */
-export const REVIEW_MENTION_HANDLE = "effect-janitor"
+/** The command handle a comment must mention to invoke issue review. */
+export const REVIEW_MENTION_HANDLE = "janitor"
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
