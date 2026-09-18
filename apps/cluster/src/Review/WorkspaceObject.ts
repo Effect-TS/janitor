@@ -2,7 +2,7 @@ import { Sandbox } from "@janitor/alchemy/AI/Sandbox"
 import {
   layerContainer,
   layerContainerSession,
-} from "@janitor/alchemy/Cloudflare/AI/SandboxContainer"
+} from "@janitor/alchemy/Cloudflare/AI/ReviewSandboxContainer"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { DurableObjectState } from "alchemy/Cloudflare/Workers"
 import { ALCHEMY_PHASE } from "alchemy/Phase"
