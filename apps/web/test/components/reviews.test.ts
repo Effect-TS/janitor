@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ReviewRun } from "@janitor/domain/Review/Run"
 import { ReviewRunId } from "@janitor/domain/Review/Run"
 import * as Reviews from "@/components/reviews"
+import * as Sheet from "@/components/ui/sheet"
 
 const at = DateTime.makeUnsafe("2026-09-17T12:00:00.000Z")
 const run = (id: string, status: ReviewRun["status"], queuePosition: number | null): ReviewRun => ({
@@ -76,6 +77,12 @@ const stopped: ReviewRun = {
 const activated = () =>
   Reviews.update(Reviews.init(), Reviews.Message.Activated({ repositoryId: "701", active: true }))
 
+const selected = (model: Reviews.Model, runId: string): Reviews.Model => ({
+  ...model,
+  selectedRunId: runId,
+  drawer: Sheet.init({ id: "review-details", isOpen: true }),
+})
+
 describe("Reviews", () => {
   it("shows Publish results only when eligible and renders every saved publication outcome", () => {
     const eligible = { ...concluded, canPublish: true }
@@ -93,11 +100,14 @@ describe("Reviews", () => {
     }))
     Scene.scene(
       { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
-      Scene.given({ ...activated().model, loading: false, runs: [eligible, ...history] }),
-      Scene.expectAll(Scene.all.role("button", { name: "Publish results" })).toHaveCount(1),
-      ...outcomes.map((status) =>
-        Scene.expect(Scene.text(`Publication: ${status}. Authorized by stranger.`)).toExist(),
+      Scene.given(
+        selected(
+          { ...activated().model, loading: false, runs: [eligible, ...history] },
+          eligible.runId,
+        ),
       ),
+      Scene.expectAll(Scene.all.role("button", { name: "Publish results" })).toHaveCount(1),
+
       Scene.click(Scene.role("button", { name: "Publish results" })),
       Scene.expect(Scene.role("button", { name: "Publishing…" })).toExist(),
       Scene.Command.resolve(
@@ -109,6 +119,16 @@ describe("Reviews", () => {
         }),
       ),
     )
+    for (const saved of history) {
+      Scene.scene(
+        { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
+        Scene.given(selected({ ...activated().model, runs: [saved] }, saved.runId)),
+        Scene.expect(
+          Scene.text(`Publication: ${saved.savedPublication.status}. Authorized by stranger.`),
+        ).toExist(),
+        Scene.expect(Scene.role("button", { name: "Publish results" })).toBeAbsent(),
+      )
+    }
   })
 
   it("publishes only eligible results, ignores duplicate clicks, and retains the durable outcome", () => {
@@ -219,10 +239,10 @@ describe("Reviews", () => {
     expect(Reviews.statusLabel(runs[0]!)).toBe("running")
     Scene.scene(
       { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
-      Scene.given(loaded),
+      Scene.given(selected(loaded, "a")),
       Scene.expect(Scene.text("queued #2")).toExist(),
-      Scene.expect(Scene.text("The issue was closed.")).toExist(),
-      Scene.expectAll(Scene.all.role("button", { name: "Cancel run" })).toHaveCount(2),
+
+      Scene.expectAll(Scene.all.role("button", { name: "Cancel run" })).toHaveCount(1),
       Scene.click(Scene.role("button", { name: "Cancel run" })),
       Scene.expect(Scene.role("button", { name: "Cancelling…" })).toExist(),
       Scene.Command.resolve(
@@ -238,20 +258,133 @@ describe("Reviews", () => {
     const loaded = { ...model, loading: false, initialized: true, runs: [concluded, stopped] }
     Scene.scene(
       { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
-      Scene.given(loaded),
+      Scene.given(selected(loaded, concluded.runId)),
       Scene.expect(Scene.text("question")).toExist(),
       Scene.expect(Scene.text("Retries are configured in src/config.ts.")).toExist(),
       Scene.expect(Scene.text("The README may lag the code.")).toExist(),
+      Scene.click(Scene.role("button", { name: "Evidence 2" })),
       Scene.expect(Scene.role("link", { name: "issue #31" })).toExist(),
       Scene.expect(Scene.text("PR #99")).toExist(),
       Scene.expect(Scene.text("not observed in this run")).toExist(),
       Scene.expect(Scene.text("0123456789ab")).toExist(),
-      Scene.expect(
-        Scene.text("The sandbox workspace was lost before the investigation finished."),
-      ).toExist(),
-      Scene.expect(Scene.text("README.md")).toExist(),
       // Concluded and stopped runs cannot be cancelled.
       Scene.expectAll(Scene.all.role("button", { name: "Cancel run" })).toHaveCount(0),
+    )
+  })
+  it("keeps details out of the table, opens a run, and retains its selection through live updates", () => {
+    const model = {
+      ...activated().model,
+      loading: false,
+      initialized: true,
+      runs: [concluded, stopped],
+    }
+    Scene.scene(
+      { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
+      Scene.given(model),
+      Scene.expect(Scene.text(concluded.instructions)).toBeAbsent(),
+      Scene.expect(Scene.text("Retries are configured in src/config.ts.")).toBeAbsent(),
+      Scene.expect(Scene.role("button", { name: "View run d for issue #20" })).toExist(),
+    )
+    const opened = Reviews.update(model, Reviews.Message.ClickedRun({ runId: "d" }))
+    expect(opened.model.drawer.isOpen).toBe(true)
+    expect(opened.commands?.some((command) => command.name === "ShowDialog")).toBe(true)
+    const changed = Reviews.update(
+      opened.model,
+      Reviews.Message.ClickedDetailTab({ tab: "Evidence" }),
+    ).model
+    const refreshed = Reviews.update(
+      changed,
+      Reviews.Message.Loaded({
+        generation: changed.generation,
+        runs: [{ ...concluded, findings: "Updated findings" }, stopped],
+      }),
+    ).model
+    expect(refreshed.selectedRunId).toBe("d")
+    expect(refreshed.detailTab).toBe("Evidence")
+    expect(refreshed.drawer.isOpen).toBe(true)
+    const navigated = Reviews.update(
+      refreshed,
+      Reviews.Message.Activated({ repositoryId: "another", active: true }),
+    ).model
+    expect(navigated.selectedRunId).toBeNull()
+    expect(navigated.drawer.isOpen).toBe(false)
+    expect(navigated.runs).toEqual([])
+  })
+
+  it("shows interruption and cancellation explanations in the selected drawer", () => {
+    for (const item of [stopped, runs[2]!]) {
+      Scene.scene(
+        { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
+        Scene.given(selected({ ...activated().model, runs: [item] }, item.runId)),
+        Scene.expect(Scene.text(item.limitation ?? item.cancelReason!)).toExist(),
+        Scene.expect(Scene.role("button", { name: "Cancel run" })).toBeAbsent(),
+      )
+    }
+  })
+
+  it("filters the history and keeps an empty filter distinct from an empty history", () => {
+    Scene.scene(
+      { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
+      Scene.given({ ...activated().model, loading: false, runs }),
+      Scene.click(Scene.role("button", { name: "Active 2" })),
+      Scene.expect(Scene.role("button", { name: "View run c for issue #20" })).toBeAbsent(),
+      Scene.click(Scene.role("button", { name: "Failed 0" })),
+      Scene.expect(Scene.text("No runs match this filter.")).toExist(),
+    )
+  })
+
+  it("keeps command output and test patches in their own detail sections", () => {
+    const reproduced: ReviewRun = {
+      ...concluded,
+      reproduction: {
+        assessment: {
+          outcome: "reproduced",
+          rationale: "The regression test fails.",
+          unverified: "Other environments were not tested.",
+          attemptIds: ["test-1"],
+          duplicate: null,
+        },
+        attempts: [
+          {
+            id: "test-1",
+            patchId: "patch-1",
+            commitSha: concluded.commitSha!,
+            kind: "test",
+            command: "vp test regression.test.ts",
+            testPath: "regression.test.ts",
+            exitCode: 1,
+            output: "Expected false, received true",
+            truncated: true,
+            integrity: true,
+            limitation: null,
+          },
+        ],
+        patch: {
+          id: "patch-1",
+          baseCommit: concluded.commitSha!,
+          diff: "+ regression test",
+          files: [
+            {
+              path: "regression.test.ts",
+              content: "test",
+              rationale: "Covers the reported failure.",
+            },
+          ],
+        },
+      },
+    }
+    Scene.scene(
+      { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
+      Scene.given(selected({ ...activated().model, runs: [reproduced] }, reproduced.runId)),
+      Scene.expect(Scene.text("The regression test fails.")).toExist(),
+      Scene.expect(Scene.text("Expected false, received true")).toBeAbsent(),
+      Scene.click(Scene.role("button", { name: "Execution" })),
+      Scene.expect(Scene.text("Expected false, received true")).toExist(),
+      Scene.expect(Scene.text("Earlier output was truncated.")).toExist(),
+      Scene.expect(Scene.text("+ regression test")).toBeAbsent(),
+      Scene.click(Scene.role("button", { name: "Patch" })),
+      Scene.expect(Scene.text("+ regression test")).toExist(),
+      Scene.expect(Scene.text("Expected false, received true")).toBeAbsent(),
     )
   })
 })
