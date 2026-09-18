@@ -1,3 +1,4 @@
+import { DraftPublication } from "@janitor/domain/Review/Draft"
 import { ReviewPublication } from "@janitor/domain/Review/Publication"
 import { Reproduction } from "@janitor/domain/Review/Reproduction"
 import {
@@ -101,11 +102,18 @@ export const RunRecord = Schema.Struct({
   evidence: Schema.Array(ReviewEvidence),
   reproduction: Reproduction,
   publication: ReviewPublication,
+  draftPublication: Schema.NullOr(DraftPublication),
   limitation: Schema.NullOr(Schema.String),
 })
 export type RunRecord = typeof RunRecord.Type
 
-export const ActionKind = Schema.Literals(["prepare", "model", "publish"])
+export const ActionKind = Schema.Literals([
+  "prepare",
+  "model",
+  "publish",
+  "publish_branch",
+  "publish_pr",
+])
 export type ActionKind = typeof ActionKind.Type
 
 /** One action of a run: its identity is the run and its sequence number. */
@@ -191,7 +199,7 @@ const runColumnsOf = (t: string) => `
   ${t}accepted_at AS "acceptedAt", ${t}started_at AS "startedAt", ${t}deadline_at AS "deadlineAt",
   ${t}finished_at AS "finishedAt", ${t}cancel_reason AS "cancelReason", ${t}cancelled_by AS "cancelledBy",
   ${t}agent_state AS "agentState", ${t}classification, ${t}default_branch AS "defaultBranch",
-  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation, ${t}reproduction, ${t}publication`
+  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation, ${t}reproduction, ${t}publication, ${t}draft_publication AS "draftPublication"`
 const runColumns = runColumnsOf("")
 
 const settingColumns = `
@@ -217,6 +225,10 @@ const ByIssue = Schema.Struct({ repositoryId: Schema.String, issueNumber: Schema
 export class IssueReviewStore extends Context.Service<
   IssueReviewStore,
   {
+    readonly saveDraft: (
+      runId: string,
+      draft: DraftPublication,
+    ) => Effect.Effect<void, IssueReviewError>
     readonly savePublication: (
       runId: string,
       publication: ReviewPublication,
@@ -666,6 +678,11 @@ export class IssueReviewStore extends Context.Service<
       )
 
     return {
+      saveDraft: (runId, draft) =>
+        sql`UPDATE issue_review_run SET draft_publication = ${JSON.stringify(draft)}::jsonb WHERE run_id::text = ${runId}`.pipe(
+          Effect.asVoid,
+          wrap("saveDraft"),
+        ),
       savePublication: (runId, publication) =>
         sql`UPDATE issue_review_run SET publication = ${JSON.stringify(publication)}::jsonb WHERE run_id::text = ${runId}`.pipe(
           Effect.asVoid,

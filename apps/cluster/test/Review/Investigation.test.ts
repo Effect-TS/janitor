@@ -1,3 +1,7 @@
+import type { ReproductionAssessment } from "@janitor/domain/Review/Reproduction"
+import { FakeDraftGitHub } from "./fakeDraftGitHub.ts"
+import { IssueReviewDraftPublication } from "../../src/Review/DraftPublication.ts"
+import { ReviewPullRequests } from "../../src/Review/PullRequests.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Clock from "effect/Clock"
 import * as Deferred from "effect/Deferred"
@@ -177,6 +181,7 @@ class FakeWorkspaces {
 
 const workspaces = new FakeWorkspaces()
 const model = new FakeModel()
+const draftGithub = new FakeDraftGitHub()
 
 /** Provider waits and deadlines use real time here, not the test clock. */
 const live = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -209,7 +214,11 @@ const ReviewLayer = Layer.mergeAll(
   IssueReviewAdmission.layer,
   AgentHarness,
 ).pipe(
-  Layer.provideMerge(IssueReviewPublication.layer.pipe(Layer.provide(CommentsLayer))),
+  Layer.provideMerge(
+    Layer.mergeAll(IssueReviewPublication.layer, IssueReviewDraftPublication.layer).pipe(
+      Layer.provide(Layer.mergeAll(CommentsLayer, ReviewPullRequests.layer)),
+    ),
+  ),
   Layer.provideMerge(IssueReviewScheduler.layer),
   Layer.provideMerge(
     Layer.mergeAll(IssueReviewStore.layer, TestAgentClient, ManualDispatch, workspaces.layer),
@@ -324,6 +333,8 @@ const publicationSetup = Effect.gen(function* () {
   yield* seed
   yield* sql`UPDATE github_repository SET access = 'accessible' WHERE repository_id = ${repositoryId}`
   model.reset()
+  draftGithub.reset()
+  github.intercept = draftGithub.request
   publishedComments.clear()
   commentWrites.length = 0
   renderedLinksSafe = true
@@ -336,7 +347,376 @@ const publicationSetup = Effect.gen(function* () {
   )
 })
 
+const prepareReproduction = (
+  options: {
+    conclusion?: Record<string, unknown>
+    assessment?: Partial<ReproductionAssessment>
+  } = {},
+) =>
+  Effect.gen(function* () {
+    yield* publicationSetup
+    const runId = yield* invoke({
+      id: ++summaryCommentSequence,
+      issue: 30,
+      body: "@janitor reproduce",
+    })
+    yield* drive(runId, 0)
+    const store = yield* IssueReviewStore
+    const base = github.defaultBranchSha
+    yield* store.saveReproduction(runId, {
+      patch: {
+        id: "patch",
+        baseCommit: base,
+        diff: "diff --git a/test/repro.test.js b/test/repro.test.js\nnew file mode 100644\n--- /dev/null\n+++ b/test/repro.test.js\n@@ -0,0 +1,1 @@\n+assert.equal(answer, 42)\n",
+        files: [
+          {
+            path: "test/repro.test.js",
+            content: "assert.equal(answer, 42)\n",
+            rationale: "Reproduces the reported wrong answer.",
+          },
+        ],
+      },
+      attempts: [
+        {
+          id: "attempt",
+          patchId: "patch",
+          commitSha: base,
+          kind: "test",
+          command: "node --test test/repro.test.js",
+          testPath: "test/repro.test.js",
+          exitCode: 1,
+          output: "AssertionError: expected 42",
+          truncated: false,
+          integrity: true,
+          limitation: null,
+        },
+      ],
+      assessment: {
+        outcome: "reproduced",
+        rationale: "Relevant assertion failed.",
+        unverified: "",
+        attemptIds: ["attempt"],
+        duplicate: null,
+        ...options.assessment,
+      },
+    })
+    model.script({
+      _tag: "Answer",
+      calls: [
+        {
+          name: "finish",
+          params: conclusion({
+            classification: "bug",
+            findings: "Reproduced at " + base + ".",
+            evidence: [],
+            reproductionPr: {
+              title: "Reproduce the wrong answer",
+              body:
+                "Failing test at " +
+                base +
+                ". See [issue](https://github.com/effect/one/issues/30).",
+              publishedSummary:
+                "Reproduced at " + base + ". Draft reproduction: [draft]({{pr_url}}).",
+              blockedSummary:
+                "Reproduced at " +
+                base +
+                ". Publication did not complete; no draft PR was confirmed.",
+            },
+            ...options.conclusion,
+          }),
+        },
+      ],
+    })
+    yield* drive(runId, 1)
+    return runId
+  })
+
 layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => {
+  for (const unsafe of [
+    "@octocat",
+    "https://janitor.example.test/reviews",
+    "[hidden](javascript:alert)",
+  ]) {
+    it.effect(`rejects unsafe agent PR text: ${unsafe}`, () =>
+      live(
+        Effect.gen(function* () {
+          const base = github.defaultBranchSha
+          const runId = yield* prepareReproduction({
+            conclusion: {
+              reproductionPr: {
+                title: "Reproduce the wrong answer",
+                body: `Tested ${base}. [Issue](https://github.com/effect/one/issues/30). ${unsafe}`,
+                publishedSummary: `Tested ${base}. [Draft]({{pr_url}}).`,
+                blockedSummary: `Tested ${base}. No draft was confirmed.`,
+              },
+            },
+          })
+          yield* drive(runId, 2)
+          assert.strictEqual((yield* shown(runId)).draftPublication?.status, "rejected")
+          assert.lengthOf(draftGithub.mutations, 0)
+        }),
+      ),
+    )
+  }
+
+  for (const classification of ["question", "enhancement", "unclear"] as const) {
+    it.effect(`never schedules a reproduction PR for ${classification}`, () =>
+      live(
+        Effect.gen(function* () {
+          const runId = yield* prepareReproduction({ conclusion: { classification } })
+          yield* drive(runId, 2)
+          assert.isNull((yield* shown(runId)).draftPublication)
+          assert.lengthOf(draftGithub.mutations, 0)
+        }),
+      ),
+    )
+  }
+  for (const outcome of [
+    "inconclusive",
+    "not_reproduced",
+    "appears_fixed",
+    "confirmed_fixed",
+  ] as const) {
+    it.effect(`never schedules a reproduction PR for ${outcome}`, () =>
+      live(
+        Effect.gen(function* () {
+          const runId = yield* prepareReproduction({ assessment: { outcome } })
+          yield* drive(runId, 2)
+          assert.isNull((yield* shown(runId)).draftPublication)
+          assert.lengthOf(draftGithub.mutations, 0)
+        }),
+      ),
+    )
+  }
+  it.effect("honors the validated duplicate assessment without publishing a branch", () =>
+    live(
+      Effect.gen(function* () {
+        const runId = yield* prepareReproduction({
+          assessment: {
+            duplicate: {
+              issueNumber: 31,
+              url: "https://github.com/effect/one/issues/31",
+              rationale:
+                "The inspected issue tracks the same unresolved assertion under equivalent conditions.",
+            },
+          },
+        })
+        yield* drive(runId, 2)
+        assert.isNull((yield* shown(runId)).draftPublication)
+        assert.lengthOf(draftGithub.mutations, 0)
+      }),
+    ),
+  )
+
+  for (const operation of ["branch", "pr"] as const) {
+    it.effect(`recovers an interrupted ${operation} write even after cancellation`, () =>
+      live(
+        Effect.gen(function* () {
+          const runId = yield* prepareReproduction()
+          if (operation === "pr") yield* drive(runId, 2)
+          const accepted = yield* Deferred.make<void>()
+          draftGithub.afterWrite = Effect.gen(function* () {
+            if (
+              draftGithub.mutations
+                .at(-1)!
+                .url.endsWith(operation === "branch" ? "/git/refs" : "/pulls")
+            ) {
+              yield* Deferred.succeed(accepted, undefined)
+              return yield* Effect.never
+            }
+          })
+          const publisher = yield* IssueReviewDraftPublication
+          const sending = yield* publisher.publish(runId, operation).pipe(Effect.forkChild)
+          yield* Deferred.await(accepted)
+          yield* Fiber.interrupt(sending)
+          yield* withAgent(runId, (client) =>
+            client.Cancel({ messageId: "cancel-interrupted-draft", reason: "Stop", actor: "9" }),
+          )
+          const mutations = draftGithub.mutations.length
+          yield* publisher.publish(runId, operation)
+          const result = yield* shown(runId)
+          assert.strictEqual(result.status, "cancelled")
+          assert.strictEqual(
+            result.draftPublication?.status,
+            operation === "branch" ? "branch" : "published",
+          )
+          assert.lengthOf(draftGithub.mutations, mutations)
+        }),
+      ),
+    )
+  }
+
+  it.effect("schedules a durable branch action only for a confirmed reproduction", () =>
+    live(
+      Effect.gen(function* () {
+        const runId = yield* prepareReproduction()
+        assert.strictEqual(
+          (yield* run(runId)).draftPublication?.status,
+          "pending",
+          JSON.stringify((yield* run(runId)).draftPublication),
+        )
+        assert.deepStrictEqual(
+          (yield* actions(runId)).map((a) => a.kind),
+          ["prepare", "model", "publish_branch"],
+        )
+        const base = (yield* shown(runId)).commitSha
+        const originalDefault = github.defaultBranchSha
+        github.defaultBranchSha = "f".repeat(40)
+        yield* drive(runId, 2)
+        assert.strictEqual(
+          (yield* shown(runId)).draftPublication?.status,
+          "branch",
+          JSON.stringify((yield* shown(runId)).draftPublication),
+        )
+        yield* drive(runId, 3)
+        yield* drive(runId, 4)
+        const result = yield* shown(runId)
+        assert.strictEqual(
+          result.draftPublication?.status,
+          "published",
+          JSON.stringify(result.draftPublication),
+        )
+        assert.strictEqual(result.publication.status, "published")
+        assert.include(
+          publishedComments.get("10000")!.body,
+          "https://github.com/effect/one/pull/123",
+        )
+        assert.lengthOf(draftGithub.pulls, 1)
+        assert.strictEqual(draftGithub.pulls[0]!.draft, true)
+        assert.deepStrictEqual(
+          (
+            draftGithub.mutations.find((r) => r.url.endsWith("/git/commits"))!.body as {
+              parents: string[]
+            }
+          ).parents,
+          [base],
+        )
+        const calls = model.prompts.length
+        yield* drive(runId, 2)
+        yield* drive(runId, 3)
+        assert.lengthOf(draftGithub.pulls, 1)
+        assert.lengthOf(draftGithub.mutations, 4)
+        assert.strictEqual(model.prompts.length, calls)
+        github.defaultBranchSha = originalDefault
+      }),
+    ),
+  )
+
+  for (const operation of ["branch", "pr"] as const) {
+    it.effect(
+      `reconciles a lost ${operation} response into one draft without repeating model work`,
+      () =>
+        live(
+          Effect.gen(function* () {
+            const runId = yield* prepareReproduction()
+            draftGithub.lost = operation
+            const calls = model.prompts.length
+            yield* drive(runId, 2)
+            yield* drive(runId, 3)
+            yield* drive(runId, 4)
+            assert.strictEqual((yield* shown(runId)).draftPublication?.status, "published")
+            assert.lengthOf(draftGithub.pulls, 1)
+            assert.lengthOf(draftGithub.mutations, 4)
+            assert.strictEqual(model.prompts.length, calls)
+          }),
+        ),
+    )
+  }
+
+  for (const collision of ["branch", "pr"] as const) {
+    it.effect(`refuses an unowned ${collision} collision and reports incomplete publication`, () =>
+      live(
+        Effect.gen(function* () {
+          const runId = yield* prepareReproduction()
+          const draft = (yield* shown(runId)).draftPublication!
+          if (collision === "branch") draftGithub.branches.set(draft.branch, "f".repeat(40))
+          else
+            draftGithub.pulls.push({
+              number: 99,
+              title: "Human PR",
+              body: "unrelated",
+              draft: true,
+              state: "open",
+              user: { id: 7 },
+              head: { ref: draft.branch, sha: "f".repeat(40), repo: { id: 701 } },
+              base: { ref: "main", repo: { id: 701 } },
+            })
+          yield* drive(runId, 2)
+          yield* drive(runId, 3)
+          assert.strictEqual((yield* shown(runId)).draftPublication?.status, "blocked")
+          assert.lengthOf(draftGithub.mutations, 0)
+          assert.include(publishedComments.get("10000")!.body, "no draft PR was confirmed")
+        }),
+      ),
+    )
+  }
+
+  it.effect("retains the orphan branch and fences later writes when PR creation is uncertain", () =>
+    live(
+      Effect.gen(function* () {
+        const runId = yield* prepareReproduction()
+        yield* drive(runId, 2)
+        draftGithub.rejectPr = true
+        yield* drive(runId, 3)
+        yield* drive(runId, 4)
+        const result = yield* shown(runId)
+        assert.strictEqual(result.draftPublication?.status, "unresolved")
+        assert.strictEqual(
+          draftGithub.branches.get(result.draftPublication!.branch),
+          result.draftPublication!.commitSha,
+        )
+        assert.strictEqual(result.publication.status, "blocked")
+        assert.lengthOf(commentWrites, 0)
+        const next = yield* prepareSummary()
+        yield* drive(next, 2)
+        assert.strictEqual((yield* shown(next)).publication.status, "blocked")
+        assert.lengthOf(commentWrites, 0)
+      }),
+    ),
+  )
+
+  for (const change of ["revoked", "cancelled", "dry-run", "human branch edit"] as const) {
+    it.effect(`preserves the branch but blocks the draft after ${change}`, () =>
+      live(
+        Effect.gen(function* () {
+          const runId = yield* prepareReproduction()
+          yield* drive(runId, 2)
+          const draft = (yield* shown(runId)).draftPublication!
+          if (change === "revoked") github.permissions.set("octocat", { id: 9, permission: "read" })
+          if (change === "cancelled")
+            yield* withAgent(runId, (client) =>
+              client.Cancel({ messageId: "cancel-draft", reason: "Stop", actor: "9" }),
+            )
+          if (change === "dry-run")
+            yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+              settings.set(repositoryId, { enabled: true, dryRun: true }, actor),
+            )
+          if (change === "human branch edit") draftGithub.branches.set(draft.branch, "f".repeat(40))
+          yield* drive(runId, 3)
+          assert.strictEqual((yield* shown(runId)).draftPublication?.status, "blocked")
+          assert.lengthOf(draftGithub.pulls, 0)
+          assert.isTrue(draftGithub.branches.has(draft.branch))
+          assert.lengthOf(draftGithub.mutations, 3)
+        }),
+      ),
+    )
+  }
+
+  it.effect("rechecks authority before each Git object and branch mutation", () =>
+    live(
+      Effect.gen(function* () {
+        const runId = yield* prepareReproduction()
+        draftGithub.afterWrite = Effect.sync(() =>
+          github.permissions.set("octocat", { id: 9, permission: "read" }),
+        )
+        yield* drive(runId, 2)
+        assert.strictEqual((yield* shown(runId)).draftPublication?.status, "blocked")
+        assert.lengthOf(draftGithub.mutations, 1)
+        assert.strictEqual(draftGithub.branches.size, 0)
+      }),
+    ),
+  )
+
   for (const operation of ["create", "update"] as const) {
     it.effect(
       `reconciles a lost ${operation} response without another write or investigation`,

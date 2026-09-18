@@ -1,3 +1,4 @@
+import { ReproductionPrText } from "./Draft.ts"
 import * as Schema from "effect/Schema"
 
 /**
@@ -23,6 +24,7 @@ export type ReviewCitation = typeof ReviewCitation.Type
 
 /** The contract of the agent's `finish` call. Sizes bound the stored prose. */
 export const ReviewConclusion = Schema.Struct({
+  reproductionPr: Schema.optionalKey(Schema.NullOr(ReproductionPrText)),
   classification: ReviewClassification,
   findings: Schema.String.check(Schema.isMaxLength(16_000)),
   uncertainty: Schema.String.check(Schema.isMaxLength(4_000)),
