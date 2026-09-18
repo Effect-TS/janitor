@@ -10,7 +10,8 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
-import { RotateCw } from "lucide"
+import { RotateCw, X } from "lucide"
+import * as Sheet from "./ui/sheet"
 import * as Button from "./ui/button"
 import { chip, type ChipVariant } from "./ui/chip"
 import * as Page from "./ui/page"
@@ -30,7 +31,14 @@ import { cn } from "@/lib/utils"
  * permission before stopping the run.
  */
 
+const DetailTab = Schema.Literals(["Overview", "Execution", "Evidence", "Patch"])
+const RunFilter = Schema.Literals(["All runs", "Active", "Failed"])
+
 export const Model = Schema.Struct({
+  selectedRunId: Schema.NullOr(Schema.String),
+  detailTab: DetailTab,
+  filter: RunFilter,
+  drawer: Sheet.Model,
   repositoryId: Schema.String,
   active: Schema.Boolean,
   runs: Schema.Array(ReviewRun),
@@ -45,6 +53,10 @@ export const Model = Schema.Struct({
 export type Model = typeof Model.Type
 
 export const init = (): Model => ({
+  selectedRunId: null,
+  detailTab: "Overview",
+  filter: "All runs",
+  drawer: Sheet.init({ id: "review-details", focusSelector: "#close-review-details" }),
   repositoryId: "",
   active: false,
   runs: [],
@@ -58,6 +70,10 @@ export const init = (): Model => ({
 
 export const Message = defineMessageUnion({
   Activated: { repositoryId: Schema.String, active: Schema.Boolean },
+  ClickedRun: { runId: Schema.String },
+  ClickedDetailTab: { tab: DetailTab },
+  ClickedFilter: { filter: RunFilter },
+  GotDrawerMessage: { message: Sheet.Message },
   Polled: {},
   ClickedRefresh: {},
   Loaded: { generation: Schema.Int, runs: ReviewHistory.fields.runs },
@@ -158,15 +174,34 @@ const fetchHistory = (model: Model): Return =>
         ],
       }
 
+const mapDrawer = (model: Model, result: ReturnType<typeof Sheet.open>): Return => ({
+  model: { ...model, drawer: result.model },
+  commands: Command.mapMessages(result.commands, (message) =>
+    Message.GotDrawerMessage({ message }),
+  ),
+})
+
 export const update = (model: Model, message: Message): Return =>
   Message.match<Return>(message, {
+    ClickedRun: ({ runId }) =>
+      model.runs.some((run) => run.runId === runId)
+        ? mapDrawer(
+            { ...model, selectedRunId: runId, detailTab: "Overview" },
+            Sheet.open(model.drawer),
+          )
+        : { model },
+    ClickedDetailTab: ({ tab }) => ({ model: { ...model, detailTab: tab } }),
+    ClickedFilter: ({ filter }) => ({ model: { ...model, filter } }),
+    GotDrawerMessage: ({ message }) => mapDrawer(model, Sheet.update(model.drawer, message)),
     Activated: ({ repositoryId, active }) => {
       if (model.repositoryId === repositoryId && model.active === active) return { model }
       const next: Model =
         repositoryId === model.repositoryId
           ? { ...model, active, loading: false, publishing: null, generation: model.generation + 1 }
           : { ...init(), repositoryId, active, generation: model.generation + 1 }
-      return active ? fetchHistory(next) : { model: next }
+      const closed = mapDrawer({ ...next, selectedRunId: null }, Sheet.close(model.drawer))
+      const refreshed = active ? fetchHistory(closed.model) : { model: closed.model }
+      return { ...refreshed, commands: [...(closed.commands ?? []), ...(refreshed.commands ?? [])] }
     },
     Polled: () => fetchHistory(model),
     ClickedRefresh: () => fetchHistory({ ...model, error: null }),
@@ -267,6 +302,18 @@ const stamp = (at: DateTime.Utc) =>
     hour12: false,
   }) + " UTC"
 
+const duration = (run: ReviewRun): string => {
+  if (run.startedAt === null) return run.status === "queued" ? "Not started" : "Unavailable"
+  if (run.finishedAt === null) return "In progress"
+  const seconds = Math.max(
+    0,
+    Math.floor(
+      (DateTime.toEpochMillis(run.finishedAt) - DateTime.toEpochMillis(run.startedAt)) / 1000,
+    ),
+  )
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
 const head = (h: HtmlBuilder<Message>, text: string, className?: string) =>
   Table.headCell(h, { className: cn("h-8", className), children: [text] })
 const cell = (
@@ -315,111 +362,157 @@ const evidenceItem = (h: HtmlBuilder<Message>, item: ReviewRun["evidence"][numbe
   )
 }
 
-/** The completed result, or what stopped the run short of one. */
-const findings = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> => {
-  if (
-    run.classification === null &&
-    run.findings === null &&
-    run.limitation === null &&
-    run.evidence.length === 0 &&
-    run.commitSha === null &&
-    run.reproduction.patch === null &&
-    run.reproduction.attempts.length === 0 &&
-    run.publication.status === "none"
-  )
-    return []
-  return [
-    h.details(
-      [h.Class("mt-2"), h.DataAttribute("slot", "findings")],
-      [
-        h.summary(
-          [h.Class("cursor-pointer text-body-sm text-ink-muted")],
-          [
-            run.findings === null ? "Run details" : "Findings",
-            ...(run.classification === null
-              ? []
-              : [
-                  chip(h, {
-                    className: "ml-2",
-                    variant: classificationVariant[run.classification],
-                    children: [run.classification],
-                  }),
-                ]),
-          ],
-        ),
-        h.div(
-          [h.Class("mt-2 flex flex-col gap-2")],
-          [
-            ...(run.commitSha === null
-              ? []
-              : [
-                  h.p(
-                    [h.Class("text-body-sm text-ink-muted")],
-                    [
-                      `Evidence read at ${run.defaultBranch ?? "the default branch"} `,
-                      h.span([h.Class("font-mono text-mono-sm")], [run.commitSha.slice(0, 12)]),
-                    ],
-                  ),
-                ]),
-            ...(run.limitation === null
-              ? []
-              : [h.p([h.Class("text-body-sm text-destructive")], [run.limitation])]),
-            ...(run.findings === null ? [] : paragraphs(h, run.findings, "text-body-md")),
-            ...reproductionDetails(h, run),
-            ...(run.publication.status === "none"
-              ? []
-              : [
-                  h.p(
-                    [
-                      h.Class("text-body-sm text-ink-muted"),
-                      h.DataAttribute("slot", "publication"),
-                    ],
-                    [
-                      run.dryRun &&
-                      run.savedPublication == null &&
-                      run.publication.status === "pending"
-                        ? "Validated summary saved."
-                        : `Summary publication: ${run.publication.status}.`,
-                      ...(run.publication.reason === null ? [] : [` ${run.publication.reason}`]),
-                      ...(run.publication.url === null
-                        ? []
-                        : [
-                            " ",
-                            h.a(
-                              [h.Href(run.publication.url), h.Class("underline")],
-                              ["View summary"],
-                            ),
-                          ]),
-                    ],
-                  ),
-                ]),
-            ...(run.uncertainty === null || run.uncertainty.trim() === ""
-              ? []
-              : [
-                  h.p([h.Class("text-body-sm font-medium text-ink-muted")], ["Uncertainty"]),
-                  ...paragraphs(h, run.uncertainty, "text-body-sm text-ink-muted"),
-                ]),
-            ...(run.evidence.length === 0
-              ? []
-              : [
-                  h.p([h.Class("text-body-sm font-medium text-ink-muted")], ["Evidence"]),
-                  h.ul(
-                    [h.Class("flex flex-col gap-1")],
-                    run.evidence.map((item) => evidenceItem(h, item)),
-                  ),
-                ]),
-          ],
-        ),
-      ],
-    ),
-  ]
-}
+const sectionTitle = (h: HtmlBuilder<Message>, text: string) =>
+  h.h3([h.Class("text-body-sm font-semibold")], [text])
 
-const reproductionDetails = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> => {
+const overview = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyArray<Html> => [
+  ...(run.classification === null
+    ? []
+    : [
+        chip(h, {
+          variant: classificationVariant[run.classification],
+          children: [run.classification],
+        }),
+      ]),
+  ...(run.limitation === null
+    ? []
+    : [
+        h.div(
+          [
+            h.Class("border-l-2 border-destructive bg-surface-muted p-3 text-body-sm"),
+            h.DataAttribute("slot", "limitation"),
+          ],
+          [run.limitation],
+        ),
+      ]),
+  ...(run.cancelReason === null
+    ? []
+    : [
+        h.p(
+          [h.Class("text-body-sm text-ink-muted")],
+          [
+            run.cancelledBy === null
+              ? run.cancelReason
+              : `${run.cancelReason} (${run.cancelledBy})`,
+          ],
+        ),
+      ]),
+  ...(run.findings === null
+    ? [
+        h.p(
+          [h.Class("text-body-sm text-ink-muted")],
+          [
+            run.status === "queued"
+              ? "Waiting for earlier runs on this issue."
+              : run.status === "running"
+                ? "Investigation in progress. Execution and evidence update as the run proceeds."
+                : "No findings were saved for this run.",
+          ],
+        ),
+      ]
+    : paragraphs(h, run.findings, "text-body-md")),
+  ...reproductionDetails(h, run, "Overview"),
+  ...(run.uncertainty === null || run.uncertainty.trim() === ""
+    ? []
+    : [
+        sectionTitle(h, "Uncertainty"),
+        ...paragraphs(h, run.uncertainty, "text-body-sm text-ink-muted"),
+      ]),
+  sectionTitle(h, "Execution summary"),
+  h.ol(
+    [h.Class("ml-1 space-y-4 border-l border-border pl-5 text-body-sm")],
+    [
+      h.li([], ["Invocation accepted", h.p([h.Class("text-ink-muted")], [stamp(run.acceptedAt)])]),
+      ...(run.commitSha === null
+        ? []
+        : [
+            h.li(
+              [],
+              [
+                "Repository inspected",
+                h.p([h.Class("text-ink-muted")], [`${run.evidence.length} saved evidence items`]),
+              ],
+            ),
+          ]),
+      ...run.reproduction.attempts
+        .slice(-1)
+        .map((attempt) =>
+          h.li(
+            [],
+            [
+              attempt.exitCode === null
+                ? "Latest command has no saved exit result"
+                : `Latest ${attempt.kind} command exited with code ${attempt.exitCode}`,
+              h.p(
+                [h.Class("font-mono text-mono-sm text-ink-muted line-clamp-2")],
+                [attempt.command],
+              ),
+            ],
+          ),
+        ),
+      ...(run.finishedAt === null
+        ? []
+        : [
+            h.li(
+              [],
+              [`Review ${run.status}`, h.p([h.Class("text-ink-muted")], [stamp(run.finishedAt)])],
+            ),
+          ]),
+    ],
+  ),
+  Button.view(h, {
+    variant: "secondary",
+    size: "sm",
+    label: "Inspect commands & output",
+    onClick: Message.ClickedDetailTab({ tab: "Execution" }),
+  }),
+  sectionTitle(h, "Invocation"),
+  h.p(
+    [h.Class("border-l-2 border-border pl-3 whitespace-pre-wrap text-body-sm text-ink-muted")],
+    [run.instructions],
+  ),
+  sectionTitle(h, "Publication"),
+  ...(run.savedPublication == null
+    ? []
+    : [
+        h.p(
+          [h.Class("text-body-sm text-ink-muted"), h.DataAttribute("slot", "saved-publication")],
+          [
+            `Publication: ${run.savedPublication.status}. Authorized by ${run.savedPublication.githubLogin}.`,
+          ],
+        ),
+      ]),
+  h.p(
+    [h.Class("text-body-sm text-ink-muted"), h.DataAttribute("slot", "publication")],
+    [
+      run.publication.status === "none"
+        ? "No summary has been published."
+        : run.dryRun && run.savedPublication == null && run.publication.status === "pending"
+          ? "Validated summary saved."
+          : `Summary publication: ${run.publication.status}.`,
+      ...(run.publication.reason === null ? [] : [` ${run.publication.reason}`]),
+      ...(run.publication.url === null
+        ? []
+        : [
+            " ",
+            h.a(
+              [h.Href(run.publication.url), h.Class("text-primary hover:underline")],
+              ["View summary"],
+            ),
+          ]),
+    ],
+  ),
+]
+
+const reproductionDetails = (
+  h: HtmlBuilder<Message>,
+  run: ReviewRun,
+  tab: typeof DetailTab.Type,
+): ReadonlyArray<Html> => {
   const { patch, attempts, assessment } = run.reproduction
   const draft = run.draftPublication
   return [
-    ...(draft === null
+    ...(draft === null || tab !== "Patch"
       ? []
       : [
           h.div(
@@ -459,7 +552,7 @@ const reproductionDetails = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyA
             ],
           ),
         ]),
-    ...(assessment === null
+    ...(assessment === null || tab !== "Overview"
       ? []
       : [
           h.p([h.Class("text-body-sm font-medium")], [assessment.outcome.replaceAll("_", " ")]),
@@ -486,9 +579,9 @@ const reproductionDetails = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyA
                 ...paragraphs(h, assessment.duplicate.rationale, "text-body-sm text-ink-muted"),
               ]),
         ]),
-    ...attempts.map((attempt) =>
+    ...(tab === "Execution" ? attempts : []).map((attempt) =>
       h.details(
-        [h.Class("text-body-sm")],
+        [h.Class("rounded-md border border-border p-3 text-body-sm")],
         [
           h.summary(
             [h.Class("cursor-pointer")],
@@ -510,7 +603,7 @@ const reproductionDetails = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyA
         ],
       ),
     ),
-    ...(patch === null
+    ...(patch === null || tab !== "Patch"
       ? []
       : [
           h.details(
@@ -528,96 +621,212 @@ const reproductionDetails = (h: HtmlBuilder<Message>, run: ReviewRun): ReadonlyA
   ]
 }
 
-const runRow = (h: HtmlBuilder<Message>, model: Model, run: ReviewRun): Html => {
-  const live = run.queuePosition !== null
-  const busy = model.cancelling === run.runId
-  return Table.row(h, {
-    className: "border-b border-border-subtle last:border-b-0",
-    attributes: [h.DataAttribute("run", run.runId), h.DataAttribute("status", run.status)],
+const runActions = (h: HtmlBuilder<Message>, model: Model, run: ReviewRun): ReadonlyArray<Html> =>
+  run.queuePosition !== null
+    ? [
+        Button.view(h, {
+          variant: "secondary",
+          size: "sm",
+          label: model.cancelling === run.runId ? "Cancelling…" : "Cancel run",
+          onClick: Message.ClickedCancel({ runId: run.runId }),
+          isDisabled: model.cancelling !== null,
+          attributes: [h.DataAttribute("action", "cancel-run")],
+        }),
+      ]
+    : run.canPublish && run.savedPublication == null
+      ? [
+          Button.view(h, {
+            variant: "secondary",
+            size: "sm",
+            label: model.publishing === run.runId ? "Publishing…" : "Publish results",
+            onClick: Message.ClickedPublish({ runId: run.runId }),
+            isDisabled: model.publishing !== null,
+            attributes: [h.DataAttribute("action", "publish-results")],
+          }),
+        ]
+      : []
+
+const runRow = (h: HtmlBuilder<Message>, model: Model, run: ReviewRun): Html =>
+  Table.row(h, {
+    className: cn(
+      "cursor-pointer border-b border-border-subtle last:border-b-0 hover:bg-surface-muted",
+      model.drawer.isOpen && model.selectedRunId === run.runId && "bg-accent",
+    ),
+    attributes: [
+      h.DataAttribute("run", run.runId),
+      h.DataAttribute("status", run.status),
+      h.OnClick(Message.ClickedRun({ runId: run.runId })),
+    ],
     children: [
       cell(
         h,
         [
-          h.span([h.Class("font-mono text-mono-sm")], [`#${run.issueNumber}`]),
-          ...(run.issueTitle === null
-            ? []
-            : [h.span([h.Class("ml-2 text-body-md")], [run.issueTitle])]),
+          Button.view(h, {
+            variant: "ghost",
+            className: "h-auto min-h-10 w-full justify-start whitespace-normal text-left",
+            label: `#${run.issueNumber} ${run.issueTitle ?? "Issue review"}`,
+            onClick: Message.ClickedRun({ runId: run.runId }),
+            attributes: [
+              h.AriaLabel(`View run ${run.runId} for issue #${run.issueNumber}`),
+              h.Attribute("aria-haspopup", "dialog"),
+            ],
+          }),
         ],
-        "min-w-40 whitespace-nowrap",
+        "w-full min-w-40",
       ),
-      cell(h, [h.span([h.Class("font-mono text-mono-sm")], [run.invokerLogin])], "min-w-28"),
       cell(
         h,
         [
           chip(h, { variant: statusVariant[run.status], children: [statusLabel(run)] }),
           ...(run.dryRun ? [chip(h, { className: "ml-1", children: ["dry-run"] })] : []),
         ],
-        "min-w-36 whitespace-nowrap",
+        "min-w-28",
       ),
-      cell(
-        h,
-        [
-          h.p([h.Class("line-clamp-2 text-body-md")], [run.instructions]),
-          ...(run.cancelReason === null
-            ? []
-            : [
-                h.p(
-                  [h.Class("mt-1 text-body-sm text-ink-muted")],
-                  [
-                    run.cancelledBy === null
-                      ? run.cancelReason
-                      : `${run.cancelReason} (${run.cancelledBy})`,
-                  ],
-                ),
-              ]),
-          ...(run.savedPublication == null
-            ? []
-            : [
-                h.p(
-                  [
-                    h.Class("text-body-sm text-ink-muted"),
-                    h.DataAttribute("slot", "saved-publication"),
-                  ],
-                  [
-                    `Publication: ${run.savedPublication.status}. Authorized by ${run.savedPublication.githubLogin}.`,
-                  ],
-                ),
-              ]),
-          ...findings(h, run),
-        ],
-        "w-full max-w-0",
-      ),
-      cell(h, [stamp(run.acceptedAt)], "min-w-36 whitespace-nowrap text-ink-muted"),
-      cell(
-        h,
-        live
-          ? [
-              Button.view(h, {
-                variant: "secondary",
-                size: "sm",
-                label: busy ? "Cancelling…" : "Cancel run",
-                onClick: Message.ClickedCancel({ runId: run.runId }),
-                isDisabled: model.cancelling !== null,
-                attributes: [h.DataAttribute("action", "cancel-run")],
-              }),
-            ]
-          : run.canPublish && run.savedPublication == null
-            ? [
-                Button.view(h, {
-                  variant: "secondary",
-                  size: "sm",
-                  label: model.publishing === run.runId ? "Publishing…" : "Publish results",
-                  onClick: Message.ClickedPublish({ runId: run.runId }),
-                  isDisabled: model.publishing !== null,
-                  attributes: [h.DataAttribute("action", "publish-results")],
-                }),
-              ]
-            : [],
-        "text-right",
-      ),
+      cell(h, [run.invokerLogin], "hidden font-mono text-mono-sm md:table-cell"),
+      cell(h, [stamp(run.acceptedAt)], "hidden whitespace-nowrap text-ink-muted sm:table-cell"),
     ],
   })
+
+const drawer = (h: HtmlBuilder<Message>, model: Model): Html => {
+  const run = model.runs.find((candidate) => candidate.runId === model.selectedRunId)
+  return h.submodel({
+    slotId: "review-details",
+    model: model.drawer,
+    view: Sheet.view,
+    toParentMessage: (message) => Message.GotDrawerMessage({ message }),
+    viewInputs: Sheet.styledViewInputs(h, {
+      side: "right",
+      panelClass:
+        "data-[side=right]:w-full data-[side=right]:sm:max-w-[620px] data-[side=right]:rounded-none overflow-y-auto overscroll-contain",
+      content: (h, render) => [
+        h.div(
+          [h.Class("relative min-w-0 space-y-5 p-5 sm:p-7 [overflow-wrap:anywhere]")],
+          [
+            h.button(
+              [
+                ...render.closeButton,
+                h.Id("close-review-details"),
+                h.AriaLabel("Close run details"),
+                h.Class(
+                  "absolute right-4 top-4 flex size-10 items-center justify-center rounded-md hover:bg-surface-muted",
+                ),
+              ],
+              [Icon.view(h, X, "size-4")],
+            ),
+            h.h2(
+              [...render.title, h.Class("pr-10 text-h2 font-semibold")],
+              [
+                run === undefined
+                  ? "Run details"
+                  : `#${run.issueNumber} ${run.issueTitle ?? "Issue review"}`,
+              ],
+            ),
+            h.p(
+              [...render.description, h.Class("text-body-sm text-ink-muted")],
+              [
+                run === undefined
+                  ? "This run is no longer in the recent history."
+                  : `Invoked by ${run.invokerLogin} · ${stamp(run.acceptedAt)}`,
+              ],
+            ),
+            ...(run === undefined
+              ? []
+              : [
+                  h.div(
+                    [h.Class("flex flex-wrap gap-2")],
+                    [
+                      chip(h, { variant: statusVariant[run.status], children: [statusLabel(run)] }),
+                      ...(run.dryRun ? [chip(h, { children: ["dry-run"] })] : []),
+                    ],
+                  ),
+                  h.p([h.Class("text-body-sm text-ink-muted")], [`Duration: ${duration(run)}`]),
+                  ...(run.commitSha === null
+                    ? []
+                    : [
+                        h.p(
+                          [h.Class("border-y border-border py-3 text-body-sm text-ink-muted")],
+                          [
+                            `Evidence read at ${run.defaultBranch ?? "the default branch"} `,
+                            h.span(
+                              [h.Class("font-mono text-mono-sm")],
+                              [run.commitSha.slice(0, 12)],
+                            ),
+                          ],
+                        ),
+                      ]),
+                  h.nav(
+                    [
+                      h.AriaLabel("Run detail sections"),
+                      h.Class("flex gap-1 border-b border-border"),
+                    ],
+                    DetailTab.literals.map((tab) =>
+                      Button.view(h, {
+                        variant: "ghost",
+                        size: "sm",
+                        label: tab === "Evidence" ? `Evidence ${run.evidence.length}` : tab,
+                        onClick: Message.ClickedDetailTab({ tab }),
+                        attributes: [h.Attribute("aria-pressed", String(model.detailTab === tab))],
+                        className: cn(
+                          "rounded-none border-0 border-b-2 border-transparent pb-3 pt-2 h-auto",
+                          model.detailTab === tab && "border-primary text-primary",
+                        ),
+                      }),
+                    ),
+                  ),
+                  h.div(
+                    [h.Class("space-y-4"), h.DataAttribute("slot", "run-detail-content")],
+                    model.detailTab === "Overview"
+                      ? overview(h, run)
+                      : model.detailTab === "Evidence"
+                        ? [
+                            run.evidence.length === 0
+                              ? h.p(
+                                  [h.Class("text-body-sm text-ink-muted")],
+                                  ["No evidence has been saved yet."],
+                                )
+                              : h.ul(
+                                  [h.Class("space-y-4")],
+                                  run.evidence.map((item) => evidenceItem(h, item)),
+                                ),
+                          ]
+                        : model.detailTab === "Execution" && run.reproduction.attempts.length === 0
+                          ? [
+                              h.p(
+                                [h.Class("text-body-sm text-ink-muted")],
+                                ["No setup or test commands have been saved yet."],
+                              ),
+                            ]
+                          : model.detailTab === "Patch" &&
+                              run.reproduction.patch === null &&
+                              run.draftPublication === null
+                            ? [
+                                h.p(
+                                  [h.Class("text-body-sm text-ink-muted")],
+                                  ["No test patch has been proposed."],
+                                ),
+                              ]
+                            : reproductionDetails(h, run, model.detailTab),
+                  ),
+                  h.div(
+                    [h.Class("flex flex-wrap gap-2 border-t border-border pt-4")],
+                    runActions(h, model, run),
+                  ),
+                ]),
+          ],
+        ),
+      ],
+    }),
+  })
 }
+
+const filteredRuns = (model: Model) =>
+  model.runs.filter(
+    (run) =>
+      model.filter === "All runs" ||
+      (model.filter === "Active"
+        ? run.queuePosition !== null
+        : run.status === "failed" || run.status === "interrupted"),
+  )
 
 export const view = Submodel.defineView<Model, Message, Record<string, never>>((model, _, h) =>
   Page.layout(h, {
@@ -650,40 +859,53 @@ export const view = Submodel.defineView<Model, Message, Record<string, never>>((
             ],
           )
         : h.empty,
-      model.runs.length === 0
-        ? emptyPanel(h, {
-            children: [
-              model.initialized
-                ? "No review runs in the last 14 days. Older details have expired. Post /janitor in a new comment on an open issue to start one."
-                : "Loading review history…",
-            ],
-          })
-        : panel(h, {
-            flush: true,
-            children: [
-              Table.table(h, {
-                children: [
-                  Table.head(h, [
-                    h.tr(
-                      [],
-                      [
-                        head(h, "Issue"),
-                        head(h, "Invoked by"),
-                        head(h, "Status"),
-                        head(h, "Instructions"),
-                        head(h, "Accepted"),
-                        head(h, "", "w-32"),
-                      ],
-                    ),
-                  ]),
-                  Table.body(
-                    h,
-                    model.runs.map((run) => runRow(h, model, run)),
-                  ),
-                ],
-              }),
-            ],
+      h.nav(
+        [h.AriaLabel("Filter review runs"), h.Class("flex gap-2")],
+        RunFilter.literals.map((filter) =>
+          Button.view(h, {
+            variant: model.filter === filter ? "secondary" : "ghost",
+            size: "sm",
+            label: `${filter} ${filteredRuns({ ...model, filter }).length}`,
+            onClick: Message.ClickedFilter({ filter }),
+            attributes: [h.Attribute("aria-pressed", String(model.filter === filter))],
           }),
+        ),
+      ),
+      model.runs.length > 0 && filteredRuns(model).length === 0
+        ? emptyPanel(h, { children: ["No runs match this filter."] })
+        : model.runs.length === 0
+          ? emptyPanel(h, {
+              children: [
+                model.initialized
+                  ? "No review runs in the last 14 days. Older details have expired. Post /janitor in a new comment on an open issue to start one."
+                  : "Loading review history…",
+              ],
+            })
+          : panel(h, {
+              flush: true,
+              children: [
+                Table.table(h, {
+                  children: [
+                    Table.head(h, [
+                      h.tr(
+                        [],
+                        [
+                          head(h, "Issue"),
+                          head(h, "Status"),
+                          head(h, "Invoked by", "hidden md:table-cell"),
+                          head(h, "Accepted", "hidden sm:table-cell"),
+                        ],
+                      ),
+                    ]),
+                    Table.body(
+                      h,
+                      filteredRuns(model).map((run) => runRow(h, model, run)),
+                    ),
+                  ],
+                }),
+              ],
+            }),
+      drawer(h, model),
     ],
   }),
 )
