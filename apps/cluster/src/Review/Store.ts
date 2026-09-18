@@ -1,3 +1,4 @@
+import { Reproduction } from "@janitor/domain/Review/Reproduction"
 import {
   ReviewClassification,
   type ReviewConclusion,
@@ -97,6 +98,7 @@ export const RunRecord = Schema.Struct({
   findings: Schema.NullOr(Schema.String),
   uncertainty: Schema.NullOr(Schema.String),
   evidence: Schema.Array(ReviewEvidence),
+  reproduction: Reproduction,
   limitation: Schema.NullOr(Schema.String),
 })
 export type RunRecord = typeof RunRecord.Type
@@ -187,7 +189,7 @@ const runColumnsOf = (t: string) => `
   ${t}accepted_at AS "acceptedAt", ${t}started_at AS "startedAt", ${t}deadline_at AS "deadlineAt",
   ${t}finished_at AS "finishedAt", ${t}cancel_reason AS "cancelReason", ${t}cancelled_by AS "cancelledBy",
   ${t}agent_state AS "agentState", ${t}classification, ${t}default_branch AS "defaultBranch",
-  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation`
+  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation, ${t}reproduction`
 const runColumns = runColumnsOf("")
 
 const settingColumns = `
@@ -259,6 +261,10 @@ export class IssueReviewStore extends Context.Service<
       patch: RunTransition,
     ) => Effect.Effect<RunRecord, IssueReviewError>
     /** Records the default-branch revision the run reads its evidence from. */
+    readonly saveReproduction: (
+      runId: string,
+      reproduction: Reproduction,
+    ) => Effect.Effect<void, IssueReviewError>
     readonly recordRevision: (
       runId: string,
       revision: { readonly defaultBranch: string; readonly commitSha: string },
@@ -659,6 +665,15 @@ export class IssueReviewStore extends Context.Service<
         findLive({ repositoryId, issueNumber: issueNumber ?? null }).pipe(wrap("liveRuns")),
       transition,
       recordRevision,
+      saveReproduction: (runId, reproduction) =>
+        Schema.encodeEffect(Schema.fromJsonString(Reproduction))(reproduction).pipe(
+          Effect.flatMap(
+            (value) =>
+              sql`UPDATE issue_review_run SET reproduction = ${value}::jsonb WHERE run_id::text = ${runId} AND status = 'running'`,
+          ),
+          Effect.asVoid,
+          wrap("saveReproduction"),
+        ),
       insertAction,
       action: (runId, sequence) => findAction({ runId, sequence }).pipe(wrap("action")),
       actions: (runId) => findActions({ runId }).pipe(wrap("actions")),

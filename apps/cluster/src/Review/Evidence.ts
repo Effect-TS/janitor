@@ -1,3 +1,4 @@
+import { PATCH_BYTES, TreeEntry } from "./Patch.ts"
 import { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
 import { GitHubUserDatabaseIdFromStringOrNumber } from "@janitor/domain/GitHub/Id"
 import * as DateTime from "effect/DateTime"
@@ -272,3 +273,51 @@ export const waitsWithin =
         yield* Effect.sleep(DateTime.distance(now, until))
       }
     })
+
+/** Complete tree from GitHub, independent of any scripts run in the guest. */
+export const fetchTree = (repository: RepositoryTarget, commit: string) =>
+  get(
+    request(repository, `${repositoryPath(repository)}/git/trees/${commit}?recursive=1`),
+    Schema.Struct({ truncated: Schema.Boolean, tree: Schema.Array(TreeEntry) }),
+  ).pipe(
+    Effect.flatMap((result) =>
+      result._tag === "Failed"
+        ? Effect.fail(new SyncActivityError({ message: result.message }))
+        : result.body.truncated
+          ? Effect.fail(
+              new SyncActivityError({
+                message: "Repository tree is truncated; test scope cannot be established.",
+              }),
+            )
+          : Effect.succeed(result.body.tree),
+    ),
+  )
+
+export const fetchBlob = (repository: RepositoryTarget, sha: string) =>
+  get(
+    request(repository, `${repositoryPath(repository)}/git/blobs/${sha}`),
+    Schema.Struct({ encoding: Schema.String, content: Schema.String, size: Schema.Int }),
+  ).pipe(
+    Effect.flatMap((result) => {
+      if (result._tag === "Failed")
+        return Effect.fail(new SyncActivityError({ message: result.message }))
+      if (result.body.encoding !== "base64" || result.body.size > PATCH_BYTES)
+        return Effect.fail(
+          new SyncActivityError({
+            message: "Base file is too large or has unsupported encoding.",
+          }),
+        )
+      return Effect.try({
+        try: () =>
+          new TextDecoder("utf-8", { fatal: true }).decode(
+            Uint8Array.from(atob(result.body.content.replace(/\s/g, "")), (char) =>
+              char.charCodeAt(0),
+            ),
+          ),
+        catch: () =>
+          new SyncActivityError({
+            message: "Base file is not UTF-8 text.",
+          }),
+      })
+    }),
+  )

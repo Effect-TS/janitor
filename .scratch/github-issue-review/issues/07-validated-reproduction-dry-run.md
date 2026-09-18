@@ -17,3 +17,11 @@
 - [ ] Suppress redundant reproduction proposals only with evidence of the same behavior under materially equivalent conditions and an existing issue tracking the unresolved problem or adequate reproduction. Link and explain; similarity or a closed issue alone is insufficient.
 - [ ] Persist the bounded validated patch, base commit, evidence, and generated findings outside the ephemeral sandbox. Expose them in frontend history; no GitHub or Slack writes.
 - [ ] Verify genuine failure, passing/non-reproducing behavior, broken setup, forbidden patches, duplicate suppression, confirmed-versus-apparent fix, timeout, and workspace loss.
+
+## Comments
+
+2026-09-17: Implemented. The sandbox image includes Node 24, pnpm 11.20.0, Python, make and g++; review containers retain internet access and receive no application credentials. The agent can propose complete test files, run setup and test commands, and assess recorded evidence. Trusted validation reads the recorded tree and original blobs from GitHub, discovers existing test conventions, rejects prohibited paths and file kinds, and limits proposals to 20 files and 128,000 diff bytes. Unsupported layouts fail with an explanation.
+
+Migration `0045_issue_review_reproduction.sql` saves the patch, base commit, execution attempts and assessment on the run. Attempts are saved before execution, so deadline expiry or workspace loss retains the command and an inconclusive limitation. History displays the patch, commands, exit results, output, rationale and duplicate links. Historical comparisons restore the default revision before further inspection. No GitHub or Slack writes were added.
+
+Validation: `vp check` passes with warnings. The full suite passed 668 tests across 121 files; focused regression tests subsequently covered the review fixes. Standards review found a duplicated outcome schema, now shared. Spec review found suite-load failures accepted as assertions, untracked execution inputs, cancellation leaving processes running, and restarted actions reusing artifact identities. Those cases now have regression coverage and fixes. Named Jest matcher failures are also recognized without accepting generic suite failures. The Cloudflare container path was typechecked but not deployed locally.

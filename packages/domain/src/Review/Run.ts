@@ -1,3 +1,4 @@
+import { Reproduction } from "@janitor/domain/Review/Reproduction"
 import * as Schema from "effect/Schema"
 import { ReviewClassification, ReviewEvidence } from "./Findings.ts"
 
@@ -83,6 +84,7 @@ export const ReviewRun = Schema.Struct({
   uncertainty: Schema.NullOr(Schema.String),
   /** Evidence the run cited, verified against what it observed. */
   evidence: Schema.Array(ReviewEvidence),
+  reproduction: Reproduction,
   /** What ended a run short of a conclusion: the deadline, a lost sandbox, a failure. */
   limitation: Schema.NullOr(Schema.String),
 })

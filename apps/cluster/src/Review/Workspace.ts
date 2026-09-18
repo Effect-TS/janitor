@@ -1,12 +1,15 @@
+import type { ValidatedPatch, TestAttempt } from "@janitor/domain/Review/Reproduction"
 import type { Sandbox } from "@janitor/alchemy/AI/Sandbox"
 import * as Context from "effect/Context"
+import * as Clock from "effect/Clock"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 /**
  * The run's sandbox workspace (ADR 0009): an isolated, ephemeral checkout of
- * the recorded default-branch commit with read-only inspection over it. The
+ * the recorded default-branch commit with inspection and reproduction tools. The
  * checkout is fetched by Git inside the sandbox without any credential, so
  * nothing in it can reach GitHub, the model or Janitor's secrets, and no
  * repository hook or script runs outside the sandbox. Losing the workspace
@@ -17,6 +20,17 @@ export interface ProvisionRequest {
   /** The public clone URL trusted code derived from the repository's name. */
   readonly remoteUrl: string
   readonly commitSha: string
+}
+
+export interface ExecutionRequest {
+  readonly remoteUrl: string
+  readonly id: string
+  readonly command: string
+  readonly kind: "setup" | "test"
+  readonly testPath: string | null
+  readonly commitSha: string
+  readonly patch: ValidatedPatch | null
+  readonly timeout: number
 }
 
 export type ProvisionOutcome =
@@ -39,6 +53,7 @@ export interface ReviewWorkspace {
   ) => Effect.Effect<string, string>
   /** ripgrep matches of a pattern under a path, bounded. */
   readonly search: (pattern: string, path?: string) => Effect.Effect<string, string>
+  readonly execute: (request: ExecutionRequest) => Effect.Effect<TestAttempt, string>
   /** Removes the checkout; idempotent. */
   readonly release: Effect.Effect<void, string>
 }
@@ -69,6 +84,7 @@ const bounded = (text: string, limit: number) =>
 
 /** A workspace over one sandbox; the sandbox belongs to exactly one run. */
 export const makeReviewWorkspace = (sandbox: Sandbox["Service"]): ReviewWorkspace => {
+  const stopped = Deferred.makeUnsafe<never, string>()
   const git = (args: ReadonlyArray<string>, timeout = 120_000) =>
     Effect.gen(function* () {
       const result = yield* sandbox.exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
@@ -203,5 +219,83 @@ export const makeReviewWorkspace = (sandbox: Sandbox["Service"]): ReviewWorkspac
       return bounded(result.stdout, SEARCH_CHAR_LIMIT)
     })
 
-  return { provision, status, listFiles, readFile, search, release: wipe }
+  const execute = (request: ExecutionRequest) =>
+    Effect.gen(function* () {
+      const endsAt = (yield* Clock.currentTimeMillis) + request.timeout
+      const budget = Effect.gen(function* () {
+        const left = endsAt - (yield* Clock.currentTimeMillis)
+        return left > 0 ? left : yield* Effect.fail("Execution deadline exhausted.")
+      })
+      const ready = yield* status
+      if (ready._tag !== "Ready")
+        return yield* Effect.fail("Workspace lost; start a new invocation.")
+      if (!/^[a-f0-9]{40}$/.test(request.commitSha))
+        return yield* Effect.fail("Invalid test revision.")
+      // Discard tracked edits before every command and restore the exact proposed tests.
+      const head = yield* git(["rev-parse", "HEAD"])
+      if (head !== request.commitSha) {
+        yield* git(
+          ["fetch", "-q", "--depth", "1", request.remoteUrl, request.commitSha],
+          yield* budget,
+        )
+      }
+      yield* git(["reset", "--hard", request.commitSha])
+      // Keep ignored installed dependencies, remove earlier untracked proposals.
+      yield* git(["clean", "-fd"])
+      for (const file of request.patch?.files ?? [])
+        yield* sandbox.writeFile(file.path, file.content)
+      const result = yield* sandbox
+        .exec(request.command, [], {
+          timeout: yield* budget,
+          maxRetainedBytes: 8000,
+          env: { CI: "true", GIT_TERMINAL_PROMPT: "0" },
+        })
+        .pipe(Effect.result)
+      let integrity = (yield* git(["rev-parse", "HEAD"])) === request.commitSha
+      const changed = (yield* git(["diff", "--name-only", request.commitSha, "--"]))
+        .split("\n")
+        .filter(Boolean)
+      const untracked = (yield* git(["ls-files", "--others", "--exclude-standard"]))
+        .split("\n")
+        .filter(Boolean)
+      const paths = new Set(request.patch?.files.map((file) => file.path) ?? [])
+      if ([...changed, ...untracked].some((path) => !paths.has(path))) integrity = false
+      for (const file of request.patch?.files ?? []) {
+        const content = yield* sandbox.readFile(file.path).pipe(Effect.result)
+        if (content._tag === "Failure" || content.success !== file.content) integrity = false
+      }
+      const attempt = {
+        id: request.id,
+        patchId: request.patch?.id ?? null,
+        commitSha: request.commitSha,
+        command: request.command,
+        kind: request.kind,
+        testPath: request.testPath,
+        exitCode: result._tag === "Success" ? result.success.exitCode : null,
+        output:
+          result._tag === "Success"
+            ? (result.success.stdout + "\n" + result.success.stderr).slice(-16000)
+            : String(result.failure).slice(0, 16000),
+        truncated:
+          result._tag === "Success" &&
+          (result.success.stdoutTruncated || result.success.stderrTruncated),
+        integrity,
+        limitation:
+          result._tag === "Failure"
+            ? "Execution failed or timed out; reproduction is inconclusive."
+            : !integrity
+              ? "The command changed files outside the validated patch or altered the proposed tests."
+              : null,
+      } satisfies TestAttempt
+      // Subsequent code inspection always sees the recorded default revision.
+      if (request.commitSha !== ready.commitSha) {
+        yield* git(["reset", "--hard", ready.commitSha])
+        for (const file of request.patch?.files ?? [])
+          yield* sandbox.writeFile(file.path, file.content)
+      }
+      return attempt
+    }).pipe(Effect.raceFirst(Deferred.await(stopped)))
+
+  const release = Deferred.fail(stopped, "Review workspace released.").pipe(Effect.andThen(wipe))
+  return { provision, status, listFiles, readFile, search, execute, release }
 }

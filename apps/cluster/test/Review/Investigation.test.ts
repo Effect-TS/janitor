@@ -85,6 +85,7 @@ interface FakeWorkspaceState {
 
 /** In-memory workspaces: provisioning copies the fixture; `lose` drops a checkout. */
 class FakeWorkspaces {
+  execute: ReviewWorkspace["execute"] = () => Effect.fail("Execution not configured")
   readonly states = new Map<string, FakeWorkspaceState>()
   readonly provisions: Array<{ runId: string; remoteUrl: string; commitSha: string }> = []
 
@@ -157,6 +158,7 @@ class FakeWorkspaces {
               )
               .join("\n") || "(no matches)",
         ),
+      execute: (request) => self.execute(request),
       release: Effect.sync(() => {
         const current = state()
         current.released += 1
@@ -386,7 +388,8 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
           model.tools.map((names) => names.join(",")),
           Array.from(
             { length: 2 },
-            () => "searchItems,readItem,listFiles,readFile,searchFiles,finish",
+            () =>
+              "searchItems,readItem,listFiles,readFile,searchFiles,proposeTests,execute,assessReproduction,finish",
           ),
         )
         // A later invocation on the same issue receives the earlier conclusion as evidence.
@@ -691,6 +694,213 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
         yield* drive(idle, 3)
         const gaveUp = yield* run(idle)
         assert.deepStrictEqual([gaveUp.status, gaveUp.limitation], ["failed", limitations.idle])
+      }),
+    ),
+  )
+  it.effect(
+    "retains validated tests and assertion evidence in history without external writes",
+    () =>
+      live(
+        Effect.gen(function* () {
+          model.reset()
+          github.put({
+            number: 41,
+            title: "Answer is wrong",
+            body: "Expected 42, got 41.",
+            state: "open",
+            labels: [],
+          })
+          const previous = github.intercept
+          github.intercept = (request) =>
+            request.url.includes("/git/trees/")
+              ? Effect.succeed({
+                  _tag: "Ok",
+                  status: 200,
+                  body: {
+                    truncated: false,
+                    tree: [
+                      {
+                        path: "test/existing.test.js",
+                        mode: "100644",
+                        type: "blob",
+                        sha: "b".repeat(40),
+                      },
+                    ],
+                  },
+                  etag: Option.none(),
+                  link: Option.none(),
+                  requestId: Option.none(),
+                })
+              : previous(request)
+          workspaces.execute = (request) =>
+            Effect.succeed({
+              id: request.id,
+              patchId: request.patch?.id ?? null,
+              commitSha: request.commitSha,
+              kind: request.kind,
+              command: request.command,
+              testPath: request.testPath,
+              exitCode: 1,
+              output: "not ok 1 - answer is 42\nAssertionError: expected 42, received 41",
+              truncated: false,
+              integrity: true,
+              limitation: null,
+            })
+          const runId = yield* invoke({ id: 410, issue: 41, body: "@janitor reproduce this" })
+          yield* drive(runId, 0)
+          // A restarted action can find a proposal persisted before its model result.
+          yield* Effect.flatMap(IssueReviewStore, (store) =>
+            store.saveReproduction(runId, {
+              patch: {
+                id: "1:1",
+                baseCommit: github.defaultBranchSha,
+                diff: "old proposal",
+                files: [],
+              },
+              attempts: [],
+              assessment: null,
+            }),
+          )
+          model.script({
+            _tag: "Answer",
+            calls: [
+              {
+                name: "proposeTests",
+                params: {
+                  files: [
+                    {
+                      path: "test/repro.test.js",
+                      content: "assert.equal(answer, 42)\n",
+                      rationale: "Checks the reported wrong answer.",
+                    },
+                  ],
+                },
+              },
+            ],
+          })
+          yield* drive(runId, 1)
+          const proposed = (yield* shown(runId)).reproduction.patch
+          assert.notStrictEqual(proposed?.id, "1:1")
+          assert.isNotNull(proposed)
+          assert.strictEqual(proposed!.baseCommit, github.defaultBranchSha)
+          model.script({
+            _tag: "Answer",
+            calls: [
+              {
+                name: "execute",
+                params: {
+                  command: "node --test test/repro.test.js",
+                  kind: "test",
+                  testPath: "test/repro.test.js",
+                  commitSha: null,
+                },
+              },
+            ],
+          })
+          yield* drive(runId, 2)
+          const attempt = (yield* shown(runId)).reproduction.attempts[0]!
+          assert.strictEqual(attempt.exitCode, 1)
+          assert.strictEqual(attempt.patchId, proposed!.id)
+          model.script({
+            _tag: "Answer",
+            calls: [
+              {
+                name: "assessReproduction",
+                params: {
+                  outcome: "reproduced",
+                  rationale: "The minimal test reaches the wrong answer assertion.",
+                  unverified: "",
+                  tests: [
+                    {
+                      attemptId: attempt.id,
+                      result: "behavior_failure",
+                      testName: "answer is 42",
+                      outputExcerpt: "AssertionError: expected 42, received 41",
+                      relevance: "Matches the reported value mismatch.",
+                    },
+                  ],
+                  duplicate: null,
+                },
+              },
+            ],
+          })
+          yield* drive(runId, 3)
+          model.script({
+            _tag: "Answer",
+            calls: [
+              {
+                name: "finish",
+                params: conclusion({
+                  classification: "bug",
+                  findings: "Reproduced the wrong answer at the recorded commit.",
+                  evidence: [],
+                }),
+              },
+            ],
+          })
+          yield* drive(runId, 4)
+          const done = yield* shown(runId)
+          assert.strictEqual(done.status, "completed")
+          assert.strictEqual(done.reproduction.assessment?.outcome, "reproduced")
+          assert.include(done.reproduction.patch!.diff, "+assert.equal(answer, 42)")
+          assert.include(done.reproduction.attempts[0]!.output, "AssertionError")
+          assert.strictEqual(workspaces.state(runId).released, 1)
+          assert.deepStrictEqual(github.writes, [])
+          const replay = yield* drive(runId, 2)
+          assert.strictEqual(replay.result, "Round")
+          assert.lengthOf((yield* shown(runId)).reproduction.attempts, 1)
+          github.intercept = previous
+        }),
+      ),
+  )
+
+  it.effect("keeps attempted setup and saved patches after a deadline or workspace loss", () =>
+    live(
+      Effect.gen(function* () {
+        model.reset()
+        github.put({ number: 42, title: "Slow install", body: "Bug", state: "open", labels: [] })
+        const runId = yield* invoke({ id: 420, issue: 42, body: "@janitor reproduce" })
+        yield* drive(runId, 0)
+        const store = yield* IssueReviewStore
+        yield* store.saveReproduction(runId, {
+          patch: {
+            id: "saved",
+            baseCommit: github.defaultBranchSha,
+            diff: "saved validated patch",
+            files: [],
+          },
+          attempts: [],
+          assessment: null,
+        })
+        workspaces.execute = () => Effect.never
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_run SET deadline_at = CLOCK_TIMESTAMP() + interval '0.3 seconds' WHERE run_id::text = ${runId}`
+        model.script({
+          _tag: "Answer",
+          calls: [
+            {
+              name: "execute",
+              params: { command: "pnpm install", kind: "setup", testPath: null, commitSha: null },
+            },
+          ],
+        })
+        yield* drive(runId, 1)
+        const timedOut = yield* shown(runId)
+        assert.strictEqual(timedOut.status, "failed")
+        assert.strictEqual(timedOut.reproduction.attempts[0]?.command, "pnpm install")
+        assert.isNull(timedOut.reproduction.attempts[0]!.exitCode)
+        assert.include(timedOut.reproduction.attempts[0]!.limitation!, "inconclusive")
+        assert.strictEqual(timedOut.reproduction.patch?.id, "saved")
+        github.put({ number: 43, title: "Workspace loss", body: "Bug", state: "open", labels: [] })
+        const lost = yield* invoke({ id: 430, issue: 43, body: "@janitor reproduce" })
+        yield* drive(lost, 0)
+        yield* store.saveReproduction(lost, timedOut.reproduction)
+        workspaces.lose(lost)
+        yield* drive(lost, 1)
+        const stopped = yield* shown(lost)
+        assert.strictEqual(stopped.status, "interrupted")
+        assert.deepStrictEqual(stopped.reproduction, timedOut.reproduction)
+        assert.deepStrictEqual(github.writes, [])
       }),
     ),
   )

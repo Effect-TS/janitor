@@ -1,4 +1,6 @@
+import * as Semaphore from "effect/Semaphore"
 import { ReviewConclusion } from "@janitor/domain/Review/Findings"
+import type { Reproduction, TestAttempt } from "@janitor/domain/Review/Reproduction"
 import * as Cause from "effect/Cause"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
@@ -43,6 +45,8 @@ import {
 } from "./Conversation.ts"
 import {
   fetchIssueEvidence,
+  fetchTree,
+  fetchBlob,
   fetchItem,
   fetchRevision,
   searchItems,
@@ -50,6 +54,8 @@ import {
 } from "./Evidence.ts"
 import { type ActionRow, IssueReviewStore, type RunRecord } from "./Store.ts"
 import { ReviewWorkspaces } from "./Workspace.ts"
+import { ProposedFiles, canonicalPath, validatePatch } from "./Patch.ts"
+import { AssessmentInput, assessReproduction } from "./Reproduction.ts"
 
 /**
  * The embedded action workflow of a review run (ADR 0012): one execution
@@ -88,7 +94,6 @@ const failure = (error: { readonly message: string }) =>
 const TOOL_RESULT_LIMIT = 16_000
 /** How long after the deadline a completion is still worth delivering. */
 const NOTIFY_GRACE = Duration.minutes(5)
-const MAX_TOOL_TIMEOUT = Duration.seconds(60)
 
 const bounded = (text: string) =>
   text.length > TOOL_RESULT_LIMIT
@@ -128,6 +133,29 @@ const tools = Toolkit.make(
     description:
       "Search the checkout with a ripgrep regular expression, optionally under a path. Returns matching lines with file and line number.",
     parameters: Schema.Struct({ pattern: Schema.String, path: Schema.NullOr(Schema.String) }),
+    success: Schema.String,
+  }),
+  Tool.make("proposeTests", {
+    description:
+      "Validate and save complete UTF-8 test files against the recorded base and discovered test layout. Replaces the previous proposal. No fixes or configuration changes.",
+    parameters: Schema.Struct({ files: ProposedFiles }),
+    success: Schema.String,
+  }),
+  Tool.make("execute", {
+    description:
+      "Execute setup or a minimal test inside the sandbox. Installation and testing share the run deadline. Test commands must name a proposed test path. null commitSha selects the recorded default-branch commit; a full historical SHA permits comparison. Tracked files are restored and the saved patch applied before each command. Results are persisted.",
+    parameters: Schema.Struct({
+      command: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
+      kind: Schema.Literals(["setup", "test"]),
+      testPath: Schema.NullOr(Schema.String),
+      commitSha: Schema.NullOr(Schema.String),
+    }),
+    success: Schema.String,
+  }),
+  Tool.make("assessReproduction", {
+    description:
+      "Record a reproduction assessment. Quote an actual test name and output excerpt for each attempt, explain relevance, and state unverified parts. Duplicate suppression requires excerpts from an inspected existing issue.",
+    parameters: AssessmentInput,
     success: Schema.String,
   }),
   Tool.make("finish", {
@@ -338,6 +366,27 @@ export const ReviewActionLayer = ReviewAction.toLayer(
       const observedItems = new Map<number, ObservedItem>()
       const observedFiles = new Set<string>()
       let conclusion: ReviewConclusion | null = null
+      let reproduction: Reproduction = current.reproduction
+      // A workflow retry may restore artifacts from an unfinished model action.
+      // Never attach that evidence to a new proposal with a reused identity.
+      let toolSequence = Math.max(
+        0,
+        ...[
+          reproduction.patch?.id,
+          ...reproduction.attempts.flatMap((attempt) => [attempt.id, attempt.patchId]),
+        ].flatMap((id) =>
+          id?.startsWith(`${sequence}:`) ? [Number(id.slice(id.indexOf(":") + 1)) || 0] : [],
+        ),
+      )
+      const toolLock = yield* Semaphore.make(1)
+      const saveReproduction = (value: Reproduction) =>
+        store.saveReproduction(runId, value).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              reproduction = value
+            }),
+          ),
+        )
 
       /**
        * Every tool answers with text within the run's remaining time, and
@@ -351,7 +400,7 @@ export const ReviewActionLayer = ReviewAction.toLayer(
             .pipe(Effect.catch(() => Effect.succeed(Option.none<RunRecord>())))
           if (Option.isNone(state) || state.value.status !== "running")
             return "Tool failed: the run has ended. Stop and do not call more tools."
-          const budget = Duration.min(yield* remaining(deadline), MAX_TOOL_TIMEOUT)
+          const budget = yield* remaining(deadline)
           return yield* use.pipe(
             Effect.timeout(budget),
             Effect.map(bounded),
@@ -405,6 +454,11 @@ export const ReviewActionLayer = ReviewAction.toLayer(
                     number,
                     kind: item.value.kind,
                     title: item.value.title,
+                    state: item.value.state,
+                    body:
+                      item.value.body +
+                      "\n" +
+                      item.value.comments.map((comment) => comment.body).join("\n"),
                   })
                   const comments = item.value.comments
                     .map(
@@ -443,6 +497,121 @@ export const ReviewActionLayer = ReviewAction.toLayer(
                       const file = /^([^:\n]+):\d+:/.exec(line)?.[1]
                       if (file !== undefined) observedFiles.add(file.replace(/^\.\//, ""))
                     }
+                  }),
+                ),
+              ),
+            proposeTests: ({ files }) =>
+              visible(
+                toolLock.withPermits(1)(
+                  Effect.gen(function* () {
+                    const tree = yield* github(
+                      "patch-tree",
+                      fetchTree(target, prepared.revision.commitSha),
+                    )
+                    const originals: Record<string, string> = {}
+                    for (const file of files) {
+                      const path = canonicalPath(file.path)
+                      if (path === null) return yield* Effect.fail("Invalid patch path.")
+                      const entry = tree.find((entry) => entry.path === path)
+                      if (entry?.type === "blob" && entry.mode === "100644")
+                        originals[path] = yield* github("patch-base", fetchBlob(target, entry.sha))
+                    }
+                    const patch = {
+                      ...(yield* validatePatch({
+                        baseCommit: prepared.revision.commitSha,
+                        tree,
+                        files,
+                        originals,
+                      })),
+                      id: `${sequence}:${++toolSequence}`,
+                    }
+                    yield* saveReproduction({ ...reproduction, patch, assessment: null })
+                    return `Validated and saved patch ${patch.id} at ${patch.baseCommit}: ${patch.files.map((file) => file.path).join(", ")}. Use execute to test it.`
+                  }),
+                ),
+              ),
+            execute: (params) =>
+              visible(
+                toolLock.withPermits(1)(
+                  Effect.gen(function* () {
+                    const commitSha = params.commitSha ?? prepared.revision.commitSha
+                    if (!/^[a-f0-9]{40}$/.test(commitSha))
+                      return yield* Effect.fail("Use a full commit SHA.")
+                    const testPath =
+                      params.testPath === null ? null : canonicalPath(params.testPath)
+                    if (
+                      params.kind === "test" &&
+                      (testPath === null ||
+                        !reproduction.patch?.files.some((file) => file.path === testPath) ||
+                        !params.command.includes(testPath))
+                    )
+                      return yield* Effect.fail(
+                        "A minimal test command must name a file from the validated patch.",
+                      )
+                    const attempt: TestAttempt = {
+                      id: `${sequence}:${++toolSequence}`,
+                      patchId: reproduction.patch?.id ?? null,
+                      commitSha,
+                      command: params.command,
+                      kind: params.kind,
+                      testPath,
+                      exitCode: null,
+                      output: "",
+                      truncated: false,
+                      integrity: false,
+                      limitation:
+                        "Execution did not complete. It may have timed out or lost its workspace; reproduction is inconclusive.",
+                    }
+                    yield* saveReproduction({
+                      ...reproduction,
+                      assessment: null,
+                      attempts: [...reproduction.attempts, attempt],
+                    })
+                    const result = yield* workspace
+                      .execute({
+                        ...params,
+                        remoteUrl: `https://github.com/${prepared.repository}.git`,
+                        id: attempt.id,
+                        testPath,
+                        commitSha,
+                        patch: reproduction.patch,
+                        timeout: Math.max(1, Duration.toMillis(yield* remaining(deadline))),
+                      })
+                      .pipe(
+                        Effect.catch((error) =>
+                          Effect.succeed({ ...attempt, output: String(error).slice(0, 16000) }),
+                        ),
+                      )
+                    yield* saveReproduction({
+                      ...reproduction,
+                      attempts: reproduction.attempts.map((entry) =>
+                        entry.id === result.id ? result : entry,
+                      ),
+                    })
+                    return JSON.stringify(result)
+                  }),
+                ),
+              ),
+            assessReproduction: (params) =>
+              visible(
+                toolLock.withPermits(1)(
+                  Effect.gen(function* () {
+                    if (params.duplicate?.issueNumber === current.issueNumber)
+                      return yield* Effect.fail(
+                        "An issue cannot suppress its own reproduction proposal.",
+                      )
+                    const assessment = yield* assessReproduction(
+                      params,
+                      reproduction,
+                      prepared.revision.commitSha,
+                      [
+                        ...rounds.flatMap((round) => round.observed.items),
+                        ...observedItems.values(),
+                      ],
+                      prepared.repository,
+                    )
+                    yield* saveReproduction({ ...reproduction, assessment })
+                    return JSON.stringify(assessment)
                   }),
                 ),
               ),

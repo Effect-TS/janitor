@@ -11,8 +11,10 @@ export const SANDBOX_DOCKERFILE = Dockerfile.inline`
 
   RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      ca-certificates curl git ripgrep openssh-client \
+      ca-certificates curl git ripgrep openssh-client python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
+
+  RUN npm install --global pnpm@11.20.0
 
   WORKDIR /workspace
 `

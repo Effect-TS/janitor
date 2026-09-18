@@ -57,6 +57,7 @@ const run: ReviewRun = {
   findings: null,
   uncertainty: null,
   evidence: [],
+  reproduction: { patch: null, attempts: [], assessment: null },
   limitation: null,
 }
 

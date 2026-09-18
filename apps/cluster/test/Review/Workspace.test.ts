@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import { makeReviewWorkspace } from "../../src/Review/Workspace.ts"
 
 /**
@@ -105,5 +106,103 @@ it.live("refuses a foreign workspace and reports an unreachable commit", () =>
     assert.include(missing._tag === "Failed" ? missing.reason : "", "git fetch")
     // A failed provisioning leaves no ready marker behind.
     assert.deepStrictEqual(yield* review.status, { _tag: "Absent" })
+  }),
+)
+
+it.live(
+  "runs the same minimal test on affected and default revisions, keeping setup failures inconclusive",
+  () =>
+    Effect.gen(function* () {
+      const { url, first, second } = remote()
+      const { review } = yield* workspace
+      yield* review.provision({ remoteUrl: url, commitSha: second })
+      const patch = {
+        id: "patch",
+        baseCommit: second,
+        diff: "",
+        files: [
+          {
+            path: "test/repro.test.mjs",
+            rationale: "Checks the wrong answer.",
+            content:
+              'import { test } from "node:test"\nimport assert from "node:assert/strict"\nimport { answer } from "../index.js"\ntest("answer is 42", () => assert.equal(answer, 42))\n',
+          },
+        ],
+      }
+      const request = {
+        remoteUrl: url,
+        id: "attempt",
+        command: "node --test test/repro.test.mjs",
+        kind: "test" as const,
+        testPath: "test/repro.test.mjs",
+        commitSha: first,
+        patch,
+        timeout: 5000,
+      }
+      const failed = yield* review.execute(request)
+      assert.strictEqual(failed.exitCode, 1)
+      assert.include(failed.output, "answer is 42")
+      assert.include(failed.output, "ERR_ASSERTION")
+      assert.isTrue(failed.integrity)
+      assert.include(yield* review.readFile("index.js"), "answer = 42")
+      const passed = yield* review.execute({ ...request, commitSha: second })
+      assert.strictEqual(passed.exitCode, 0)
+      assert.include(passed.output, "answer is 42")
+      const broken = yield* review.execute({
+        ...request,
+        command: "node missing-module.js",
+        kind: "setup",
+        commitSha: second,
+        testPath: null,
+      })
+      assert.notStrictEqual(broken.exitCode, 0)
+      assert.include(broken.output, "MODULE_NOT_FOUND")
+      const altered = yield* review.execute({
+        ...request,
+        command: "echo changed > index.js",
+        commitSha: second,
+      })
+      assert.isFalse(altered.integrity)
+      const untracked = yield* review.execute({
+        ...request,
+        command: "echo extra > surprise.js",
+        commitSha: second,
+      })
+      assert.isFalse(untracked.integrity)
+      const timeout = yield* review.execute({
+        ...request,
+        command: 'node -e "setTimeout(() => {}, 30000)"',
+        commitSha: second,
+        timeout: 50,
+      })
+      assert.isNull(timeout.exitCode)
+      assert.include(timeout.limitation!, "inconclusive")
+      yield* review.release
+      assert.strictEqual((yield* review.execute(request).pipe(Effect.result))._tag, "Failure")
+    }),
+)
+
+it.live("release interrupts an executing command before removing its workspace", () =>
+  Effect.gen(function* () {
+    const { url, first } = remote()
+    const { review, sandbox } = yield* workspace
+    yield* review.provision({ remoteUrl: url, commitSha: first })
+    const running = yield* review
+      .execute({
+        remoteUrl: url,
+        id: "cancel",
+        command: `node -e 'require("fs").writeFileSync("started", ""); setTimeout(() => require("fs").writeFileSync("late", ""), 1000)'`,
+        kind: "setup",
+        testPath: null,
+        commitSha: first,
+        patch: null,
+        timeout: 5000,
+      })
+      .pipe(Effect.result, Effect.forkChild)
+    while (!(yield* sandbox.exists("started"))) yield* Effect.sleep("10 millis")
+    yield* review.release
+    assert.strictEqual((yield* Fiber.join(running))._tag, "Failure")
+    yield* Effect.sleep("1100 millis")
+    assert.deepStrictEqual(yield* sandbox.listFiles("."), [])
   }),
 )
