@@ -25,6 +25,8 @@ jobs:
           version: "0.3.0"
           node-version: "24.19.0"
           run-install: false
+      - name: Install ripgrep (used by review workspace tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
       - run: vp install --frozen-lockfile
       - run: vp check
       - run: vp test

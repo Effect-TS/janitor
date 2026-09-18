@@ -28,6 +28,14 @@ import {
   IssueReviewAdmission,
 } from "./Review/Admission.ts"
 import { ReviewAgent, ReviewAgentClient, ReviewAgentLayer } from "./Review/Agent.ts"
+import { ReviewActionDispatch } from "./Review/Actions.ts"
+import { ReviewActionLayer, ReviewActionRegistration } from "./Review/Investigation.ts"
+import {
+  layerWorkspaceObjects,
+  ReviewWorkspaceObject,
+  ReviewWorkspaceObjectLive,
+} from "./Review/WorkspaceObject.ts"
+import { agentModel } from "./AgentModel.ts"
 import { IssueReviewControl } from "./Review/Control.ts"
 import { IssueReviewAvailable } from "./Review/Gate.ts"
 import { IssueReviewScheduler } from "./Review/Scheduler.ts"
@@ -52,9 +60,9 @@ import { ingressSecrets } from "./Ingress/GitHubWebhook.ts"
 import * as Access from "./Ingress/Access.ts"
 import { makeRoutesLayer } from "./Ingress/Routes.ts"
 import * as Config from "effect/Config"
-import * as PayloadCipher from "./PayloadCipher.ts"
 import * as OpenAiClient from "@effect/ai-openai-compat/OpenAiClient"
 import * as OpenAiLanguageModel from "@effect/ai-openai-compat/OpenAiLanguageModel"
+import * as PayloadCipher from "./PayloadCipher.ts"
 import * as Cause from "effect/Cause"
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
@@ -286,6 +294,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     yield* RepositoryLive
+    const reviewWorkspaces = yield* ReviewWorkspaceObject.pipe(
+      Effect.provide(ReviewWorkspaceObjectLive),
+    )
+    const model = yield* agentModel
     const liveEnvironment = yield* Cloudflare.Workers.WorkerEnvironment
     // Empty everywhere except under `alchemy dev`; see the bind phase.
     const localDevAudience =
@@ -314,10 +326,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     let notifyOutbox: Effect.Effect<void> = Effect.void
     const SlackLayers = slackConfigured
       ? yield* Effect.gen(function* () {
-          const key = yield* Config.Redacted("JANITOR_AGENT_RUNNER_MODEL_API_KEY")
-          const model = yield* Config.String("JANITOR_CHAT_MODEL").pipe(
-            Config.withDefault("z-ai/glm-5.3-flash"),
-          )
           const slackConfig = Layer.succeed(SlackConfig, {
             workspaceId: slackWorkspace,
             appId: slackApp,
@@ -326,15 +334,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             signingSecret: slackSecret,
           })
           const transport = SlackTransport.layer.pipe(Layer.provide(slackConfig))
-          const modelLayer = OpenAiLanguageModel.layer({
-            model,
-            config: { max_completion_tokens: 2048 },
-          }).pipe(
-            Layer.provide(
-              OpenAiClient.layer({ apiKey: key, apiUrl: "https://openrouter.ai/api/v1" }),
-            ),
-            Layer.provide(FetchHttpClient.layer),
-          )
+          if (Option.isNone(model))
+            // Slack needs the agent model; the missing key is a configuration error.
+            yield* Config.Redacted("JANITOR_AGENT_RUNNER_MODEL_API_KEY")
+          const modelLayer = Option.getOrThrow(model)({ maxCompletionTokens: 2048 })
           const repositories = layerRepositories.pipe(
             Layer.provide(RepositoryEligibility.layer.pipe(Layer.provide(DatabaseLayer))),
             Layer.provide([GitHubAuthLayer, FetchHttpClient.layer]),
@@ -365,6 +368,14 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       RuleTestJobLayer,
       AdmitReviewLayer,
       ReviewAgentLayer,
+      ReviewActionLayer.pipe(
+        Layer.provide(
+          Option.match(model, {
+            onNone: () => Layer.empty,
+            onSome: (make) => make({ maxCompletionTokens: 4096 }),
+          }),
+        ),
+      ),
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
       SlackLayers,
@@ -380,7 +391,14 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ),
       ),
       Layer.provideMerge(IssueReviewScheduler.layer),
-      Layer.provideMerge(Layer.mergeAll(IssueReviewStore.layer, ReviewAgentClient.layer)),
+      Layer.provideMerge(
+        Layer.mergeAll(
+          IssueReviewStore.layer,
+          ReviewAgentClient.layer,
+          ReviewActionDispatch.layer,
+          layerWorkspaceObjects(reviewWorkspaces),
+        ),
+      ),
       Layer.provideMerge(
         Layer.mergeAll(
           SyncPlanner.layer,
@@ -411,6 +429,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           LabelItemRegistration,
           RuleTestJobRegistration,
           AdmitReviewRegistration,
+          ReviewActionRegistration,
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),

@@ -204,6 +204,18 @@ A free-form request mentioning Janitor directly from a human with effective writ
 **Review run**:
 One investigation requested by an authorized invocation, using that invocation's instructions and treating previous discussion and findings as evidence. Only one run is active per issue; later invocations wait in order.
 
+**Review action**:
+One durable step of a review run with a stable identity and a persisted result: first the preparation (authority refresh, recorded default-branch commit, issue evidence, sandbox provisioning), then one action per model invocation. The run's agent schedules each action, applies its completion once, and decides whether the run continues, concludes or stops.
+
+**Review workspace**:
+The isolated, ephemeral sandbox checkout of a run's recorded default-branch commit, fetched by Git inside the sandbox without any credential. The agent inspects it through typed read-only tools; losing it interrupts the run.
+
+**Review findings**:
+The agent-authored result of a concluded run: a classification (bug, enhancement, question or unclear), findings and uncertainty in the agent's words, and cited evidence. Trusted code marks each citation verified only when the run observed that item or file, and never rewrites the prose.
+
+**Review limitation**:
+What ended a run without a conclusion: the deadline, a lost workspace, a provider failure or a model that stopped investigating. The run keeps the evidence it observed.
+
 **Review cancellation**:
 Stopping an active or queued review run without undoing completed publications. A cancelled run cannot resume; further work requires a new invocation.
 

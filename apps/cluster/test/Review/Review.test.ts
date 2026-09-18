@@ -22,7 +22,9 @@ import {
   admissionReasons,
   IssueReviewAdmission,
 } from "../../src/Review/Admission.ts"
+import { ReviewActionDispatch } from "../../src/Review/Actions.ts"
 import { ReviewAgent, ReviewAgentClient, ReviewAgentLayer } from "../../src/Review/Agent.ts"
+import { ReviewWorkspaces } from "../../src/Review/Workspace.ts"
 import { deniedReasons } from "../../src/Review/Authority.ts"
 import { forbiddenReasons, IssueReviewControl } from "../../src/Review/Control.ts"
 import {
@@ -57,6 +59,25 @@ const withAgent = <A, E>(
 const TestAgentClient = Layer.succeed(ReviewAgentClient, {
   start: (runId, messageId) => withAgent(runId, (client) => client.Start({ messageId })),
   cancel: (runId, message) => withAgent(runId, (client) => client.Cancel(message)),
+  actionCompleted: (runId, messageId, sequence) =>
+    withAgent(runId, (client) => client.ActionCompleted({ messageId, sequence })),
+})
+
+// This suite covers admission and the queue: scheduled actions stay in the
+// outbox, and no run ever reaches a sandbox.
+const NoDispatch = Layer.succeed(ReviewActionDispatch, { dispatch: () => Effect.void })
+const NoWorkspaces = Layer.succeed(ReviewWorkspaces, {
+  open: () => {
+    const unavailable = Effect.die(new Error("Unexpected workspace use in this suite"))
+    return {
+      provision: () => unavailable,
+      status: unavailable,
+      listFiles: () => unavailable,
+      readFile: () => unavailable,
+      search: () => unavailable,
+      release: unavailable,
+    }
+  },
 })
 
 const AgentHarness = Layer.effectDiscard(
@@ -73,7 +94,9 @@ const ReviewLayer = Layer.mergeAll(
   AgentHarness,
 ).pipe(
   Layer.provideMerge(IssueReviewScheduler.layer),
-  Layer.provideMerge(Layer.mergeAll(IssueReviewStore.layer, TestAgentClient)),
+  Layer.provideMerge(
+    Layer.mergeAll(IssueReviewStore.layer, TestAgentClient, NoDispatch, NoWorkspaces),
+  ),
   Layer.provide(ShardingConfig.layerDefaults),
 )
 

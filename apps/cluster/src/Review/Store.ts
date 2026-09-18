@@ -1,3 +1,8 @@
+import {
+  ReviewClassification,
+  type ReviewConclusion,
+  ReviewEvidence,
+} from "@janitor/domain/Review/Findings"
 import { type ReviewRun, ReviewRunId, ReviewRunStatus } from "@janitor/domain/Review/Run"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -86,8 +91,43 @@ export const RunRecord = Schema.Struct({
   cancelReason: Schema.NullOr(Schema.String),
   cancelledBy: Schema.NullOr(Schema.String),
   agentState: Schema.Unknown,
+  classification: Schema.NullOr(ReviewClassification),
+  defaultBranch: Schema.NullOr(Schema.String),
+  commitSha: Schema.NullOr(Schema.String),
+  findings: Schema.NullOr(Schema.String),
+  uncertainty: Schema.NullOr(Schema.String),
+  evidence: Schema.Array(ReviewEvidence),
+  limitation: Schema.NullOr(Schema.String),
 })
 export type RunRecord = typeof RunRecord.Type
+
+export const ActionKind = Schema.Literals(["prepare", "model"])
+export type ActionKind = typeof ActionKind.Type
+
+/** One action of a run: its identity is the run and its sequence number. */
+export const ActionRow = Schema.Struct({
+  runId: ReviewRunId,
+  sequence: Schema.Int,
+  kind: ActionKind,
+  status: Schema.Literals(["pending", "completed"]),
+  result: Schema.Unknown,
+  createdAt: Schema.DateTimeUtcFromDate,
+  completedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+})
+export type ActionRow = typeof ActionRow.Type
+
+export const PriorConclusion = Schema.Struct({
+  invokerLogin: Schema.String,
+  acceptedAt: Schema.DateTimeUtcFromDate,
+  commitSha: Schema.NullOr(Schema.String),
+  classification: ReviewClassification,
+  findings: Schema.String,
+  uncertainty: Schema.String,
+})
+export type PriorConclusion = typeof PriorConclusion.Type
+
+/** How many earlier conclusions of an issue a new run receives as evidence. */
+export const PRIOR_CONCLUSION_LIMIT = 3
 
 export interface NewRun {
   readonly repositoryId: string
@@ -125,6 +165,12 @@ export interface RunTransition {
   readonly cancelReason?: string | undefined
   readonly cancelledBy?: string | undefined
   readonly agentState?: unknown
+  /** The validated conclusion, or the limitation that ended the run without one. */
+  readonly conclusion?:
+    | (Omit<ReviewConclusion, "evidence"> & { readonly evidence: ReadonlyArray<ReviewEvidence> })
+    | undefined
+  readonly evidence?: ReadonlyArray<ReviewEvidence> | undefined
+  readonly limitation?: string | undefined
 }
 
 const HistoryRow = Schema.Struct({
@@ -140,7 +186,8 @@ const runColumnsOf = (t: string) => `
   ${t}eligibility_generation::text AS "eligibilityGeneration", ${t}dry_run AS "dryRun", ${t}status,
   ${t}accepted_at AS "acceptedAt", ${t}started_at AS "startedAt", ${t}deadline_at AS "deadlineAt",
   ${t}finished_at AS "finishedAt", ${t}cancel_reason AS "cancelReason", ${t}cancelled_by AS "cancelledBy",
-  ${t}agent_state AS "agentState"`
+  ${t}agent_state AS "agentState", ${t}classification, ${t}default_branch AS "defaultBranch",
+  ${t}commit_sha AS "commitSha", ${t}findings, ${t}uncertainty, ${t}evidence, ${t}limitation`
 const runColumns = runColumnsOf("")
 
 const settingColumns = `
@@ -153,7 +200,12 @@ const receiptColumns = `
   received_at AS "receivedAt", eligibility_generation::text AS "eligibilityGeneration",
   outcome, reason, run_id::text AS "runId"`
 
+const actionColumns = `
+  run_id::text AS "runId", sequence, kind, status, result, created_at AS "createdAt",
+  completed_at AS "completedAt"`
+
 const ById = Schema.Struct({ runId: Schema.String })
+const ByAction = Schema.Struct({ runId: Schema.String, sequence: Schema.Int })
 const ByRepository = Schema.Struct({ repositoryId: Schema.String })
 const ByComment = Schema.Struct({ repositoryId: Schema.String, commentId: Schema.String })
 const ByIssue = Schema.Struct({ repositoryId: Schema.String, issueNumber: Schema.Int })
@@ -206,6 +258,29 @@ export class IssueReviewStore extends Context.Service<
       runId: string,
       patch: RunTransition,
     ) => Effect.Effect<RunRecord, IssueReviewError>
+    /** Records the default-branch revision the run reads its evidence from. */
+    readonly recordRevision: (
+      runId: string,
+      revision: { readonly defaultBranch: string; readonly commitSha: string },
+    ) => Effect.Effect<void, IssueReviewError>
+    /** Adds the next pending action; joins the caller's transaction. */
+    readonly insertAction: (
+      runId: string,
+      sequence: number,
+      kind: ActionKind,
+    ) => Effect.Effect<ActionRow, IssueReviewError>
+    readonly action: (
+      runId: string,
+      sequence: number,
+    ) => Effect.Effect<Option.Option<ActionRow>, IssueReviewError>
+    /** Every action of the run in sequence order. */
+    readonly actions: (runId: string) => Effect.Effect<ReadonlyArray<ActionRow>, IssueReviewError>
+    /** False when the action was already completed: a result is recorded once. */
+    readonly completeAction: (
+      runId: string,
+      sequence: number,
+      result: unknown,
+    ) => Effect.Effect<boolean, IssueReviewError>
     /** False when the message was already recorded for the run. */
     readonly recordMessage: (message: {
       readonly runId: string
@@ -228,6 +303,12 @@ export class IssueReviewStore extends Context.Service<
       repositoryId: string,
       issueNumber: number,
     ) => Effect.Effect<Option.Option<RunRecord>, IssueReviewError>
+    /** Concluded runs of the issue other than `runId`, newest first, bounded. */
+    readonly priorConclusions: (
+      repositoryId: string,
+      issueNumber: number,
+      runId: string,
+    ) => Effect.Effect<ReadonlyArray<PriorConclusion>, IssueReviewError>
     /** The repository's runs, newest first, with each live run's queue position. */
     readonly history: (
       repositoryId: string,
@@ -403,10 +484,14 @@ export class IssueReviewStore extends Context.Service<
           RETURNING ${sql.literal(runColumns)}`,
       })(undefined).pipe(wrap("insertRun"))
 
+    const encodeEvidence = Schema.encodeEffect(Schema.fromJsonString(Schema.Array(ReviewEvidence)))
+
     const transition = (runId: string, patch: RunTransition) =>
       Effect.gen(function* () {
         const agentState =
           patch.agentState === undefined ? undefined : yield* encodeJson(patch.agentState)
+        const evidence = patch.conclusion?.evidence ?? patch.evidence
+        const encodedEvidence = evidence === undefined ? null : yield* encodeEvidence(evidence)
         return yield* SqlSchema.findOne({
           Request: Schema.Void,
           Result: RunRecord,
@@ -417,11 +502,62 @@ export class IssueReviewStore extends Context.Service<
               finished_at = COALESCE(${patch.finishedAt ?? null}, finished_at),
               cancel_reason = COALESCE(${patch.cancelReason ?? null}, cancel_reason),
               cancelled_by = COALESCE(${patch.cancelledBy ?? null}, cancelled_by),
-              agent_state = COALESCE(${agentState ?? null}::jsonb, agent_state)
+              agent_state = COALESCE(${agentState ?? null}::jsonb, agent_state),
+              classification = COALESCE(${patch.conclusion?.classification ?? null}, classification),
+              findings = COALESCE(${patch.conclusion?.findings ?? null}, findings),
+              uncertainty = COALESCE(${patch.conclusion?.uncertainty ?? null}, uncertainty),
+              evidence = COALESCE(${encodedEvidence}::jsonb, evidence),
+              limitation = COALESCE(${patch.limitation ?? null}, limitation)
             WHERE run_id::text = ${runId}
             RETURNING ${sql.literal(runColumns)}`,
         })(undefined)
       }).pipe(wrap("transition"))
+
+    const recordRevision = (
+      runId: string,
+      revision: { readonly defaultBranch: string; readonly commitSha: string },
+    ) =>
+      sql`UPDATE issue_review_run SET default_branch = ${revision.defaultBranch},
+        commit_sha = ${revision.commitSha} WHERE run_id::text = ${runId}`.pipe(
+        Effect.asVoid,
+        wrap("recordRevision"),
+      )
+
+    const insertAction = (runId: string, sequence: number, kind: ActionKind) =>
+      SqlSchema.findOne({
+        Request: Schema.Void,
+        Result: ActionRow,
+        execute: () => sql`
+          INSERT INTO issue_review_action (run_id, sequence, kind)
+          VALUES (${runId}::uuid, ${sequence}, ${kind})
+          RETURNING ${sql.literal(actionColumns)}`,
+      })(undefined).pipe(wrap("insertAction"))
+
+    const findAction = SqlSchema.findOneOption({
+      Request: ByAction,
+      Result: ActionRow,
+      execute: ({ runId, sequence }) =>
+        sql`SELECT ${sql.literal(actionColumns)} FROM issue_review_action
+          WHERE run_id::text = ${runId} AND sequence = ${sequence}`,
+    })
+    const findActions = SqlSchema.findAll({
+      Request: ById,
+      Result: ActionRow,
+      execute: ({ runId }) =>
+        sql`SELECT ${sql.literal(actionColumns)} FROM issue_review_action
+          WHERE run_id::text = ${runId} ORDER BY sequence`,
+    })
+
+    const completeAction = (runId: string, sequence: number, result: unknown) =>
+      Effect.gen(function* () {
+        const encoded = yield* encodeJson(result)
+        const rows = yield* sql`
+          UPDATE issue_review_action SET status = 'completed', result = ${encoded}::jsonb,
+            completed_at = CLOCK_TIMESTAMP()
+          WHERE run_id::text = ${runId} AND sequence = ${sequence} AND status = 'pending'
+          RETURNING sequence`
+        return rows.length === 1
+      }).pipe(wrap("completeAction"))
 
     const recordMessage = (message: {
       readonly runId: string
@@ -474,6 +610,25 @@ export class IssueReviewStore extends Context.Service<
         ORDER BY r.accepted_at DESC, r.run_id DESC
         LIMIT 200`,
     })
+    const priorQuery = SqlSchema.findAll({
+      Request: Schema.Struct({
+        repositoryId: Schema.String,
+        issueNumber: Schema.Int,
+        runId: Schema.String,
+      }),
+      Result: PriorConclusion,
+      execute: ({ repositoryId, issueNumber, runId }) => sql`
+        SELECT invoker_login AS "invokerLogin", accepted_at AS "acceptedAt",
+          commit_sha AS "commitSha", classification, findings, uncertainty
+        FROM issue_review_run
+        WHERE repository_id = ${repositoryId} AND issue_number = ${issueNumber}
+          AND run_id::text <> ${runId} AND status = 'completed' AND findings IS NOT NULL
+        ORDER BY accepted_at DESC, run_id DESC
+        LIMIT ${PRIOR_CONCLUSION_LIMIT}`,
+    })
+    const priorConclusions = (repositoryId: string, issueNumber: number, runId: string) =>
+      priorQuery({ repositoryId, issueNumber, runId }).pipe(wrap("priorConclusions"))
+
     const history = (repositoryId: string) =>
       historyQuery({ repositoryId }).pipe(
         Effect.map((rows) =>
@@ -503,11 +658,17 @@ export class IssueReviewStore extends Context.Service<
       liveRuns: (repositoryId, issueNumber) =>
         findLive({ repositoryId, issueNumber: issueNumber ?? null }).pipe(wrap("liveRuns")),
       transition,
+      recordRevision,
+      insertAction,
+      action: (runId, sequence) => findAction({ runId, sequence }).pipe(wrap("action")),
+      actions: (runId) => findActions({ runId }).pipe(wrap("actions")),
+      completeAction,
       recordMessage,
       lockIssue,
       setActiveRun,
       nextQueued: (repositoryId, issueNumber) =>
         findNextQueued({ repositoryId, issueNumber }).pipe(wrap("nextQueued")),
+      priorConclusions,
       history,
     }
   }),
