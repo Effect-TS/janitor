@@ -70,6 +70,12 @@ the failure and conclude instead of waiting out the whole review. The sandbox
 retains bounded stdout/stderr in timeout errors. Avoid piping commands to `tail`,
 which hides their output until the pipe closes.
 
+Each model call receives the remaining time. With two minutes left, only
+assessment of saved attempts and conclusion are offered; with one minute left,
+only conclusion is offered. Tool handlers also reject late investigation calls,
+and command timeouts leave room for cleanup before that reserve. The original
+deadline still applies, including to provider requests that fail or stall.
+
 Production logs include `Review command started` and `Review command finished`
 with run, sequence, attempt, kind, time limit, elapsed time, and exit status.
 They omit command text and output. A `Review model call failed` timeout may include
@@ -89,3 +95,12 @@ The minimal issue #81 fixture then ran in 0.53 seconds in the larger container,
 with three failures for the reported indented-fence bug and two passing controls.
 The fixture was run against the recorded commit, outside the working checkout;
 this infrastructure change does not fix the parser bug under review.
+
+A later issue #81 run, `a3236260-01c6-4a14-a0c4-9d2af49da501`,
+used the corrected 2-vCPU, 6-GiB allocation. Its ten commands took 72 seconds
+combined, including a successful 44-second setup. It completed 31 model rounds
+and timed out on round 32; two model calls retried after tool-parameter validation
+errors. Most elapsed time was therefore outside command execution. The agent
+previously offered all investigation tools until the deadline and supplied no
+updated time budget. The conclusion reserve addresses that scheduling defect;
+command outputs are still needed to explain the repeated test attempts.

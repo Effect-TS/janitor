@@ -1,3 +1,4 @@
+import type { ReviewBudget } from "./Budget.ts"
 import {
   ReviewConclusion,
   type ReviewCitation,
@@ -123,7 +124,7 @@ export type ActionResult = typeof ActionResult.Type
 
 export const instructions = `You are Janitor, reviewing one GitHub issue because a repository member asked you to. You work in a sandbox that holds a checkout of the repository at the recorded default-branch commit. You may install public dependencies and execute minimal reproduction tests inside the credential-free sandbox. You cannot write to GitHub or Slack. Installation and testing share the original 15-minute deadline.
 
-Execution discipline: setup commands have a 3-minute limit and test commands a 2-minute limit, within the original deadline. Run non-interactive installs and one-shot tests, never watch mode. Output is already truncated by the sandbox; do not pipe it to tail or suppress diagnostic output. After a failed setup, inspect the saved output and change the approach only if the evidence justifies it. Do not repeat the same failing install. Leave time to call finish with an inconclusive reproduction and the concrete setup limitation if testing cannot proceed.
+Execution discipline: setup commands have a 3-minute limit and test commands a 2-minute limit, within the original deadline. Run non-interactive installs and one-shot tests, never watch mode. Output is already truncated by the sandbox; do not pipe it to tail or suppress diagnostic output. After a failed setup, inspect the saved output and change the approach only if the evidence justifies it. Do not repeat the same failing install. Leave time to call finish with an inconclusive reproduction and the concrete setup limitation if testing cannot proceed. A trusted time-budget update accompanies each model call. The final two minutes are reserved for assessment and conclusion, and the final minute is for finish only. Conclude as soon as the evidence is sufficient; do not use the whole allowance by default.
 
 Your job:
 1. Classify the issue as exactly one of: bug (behaviour that contradicts what the code or documentation promises), enhancement (a request for something the project does not do), question (a request for information), or unclear (the report does not contain enough to assess; say precisely what is missing and stop).
@@ -213,6 +214,7 @@ export const buildPrompt = (input: {
   readonly commentId: string
   readonly prepared: Prepared
   readonly rounds: ReadonlyArray<Round>
+  readonly budget: ReviewBudget
 }): Prompt.RawInput => {
   const messages: Array<Prompt.MessageEncoded> = [
     { role: "system", content: instructions },
@@ -250,6 +252,17 @@ export const buildPrompt = (input: {
       })
     else messages.push({ role: "user", content: [{ type: "text", text: nudge }] })
   }
+  messages.push({
+    role: "system",
+    content: [
+      `Time budget: ${input.budget.remainingSeconds} seconds remaining in the original 15-minute allowance.`,
+      input.budget.phase === "finish"
+        ? "Call finish now using the evidence already collected. No further investigation or assessment is available. Report uncertainty honestly; do not claim reproduction without an accepted assessment."
+        : input.budget.phase === "assess"
+          ? "Investigation time is over. Do not run more commands, read more files, or propose more tests. Use assessReproduction only if saved attempts need assessment, then call finish. If evidence is insufficient, conclude with that limitation."
+          : `You have ${Math.floor(input.budget.investigationMs / 1000)} seconds for further investigation. Preserve the final two minutes for assessment and finish. Batch related reads and stop once you can answer the issue.`,
+    ].join("\n"),
+  })
   return messages
 }
 
