@@ -26,7 +26,7 @@ The command can appear anywhere outside quotes, code, or link destinations. Issu
 
 The agent searches related issues and PRs in the same repository, inspects the recorded default-branch commit, and investigates with a 15-minute deadline that includes installation and testing. One run is active per issue; later invocations queue in order. Different issues can run concurrently. A runner restart may resume persisted actions if the workspace remains usable, without repeating completed model calls. Workspace loss interrupts unfinished investigation and requires a new invocation. Neither recovery path resets the deadline.
 
-Open the repository's Reviews page for instructions, invoker, tested commit, findings, evidence, proposed tests, and publication outcomes. A confirmed reproduction requires an executed, relevant assertion failure. Setup failures are inconclusive, and a passing test does not prove the reported bug absent. Reproduction patches may contain tests and necessary test-only helpers or fixtures in the discovered layout. Production fixes, workflows, manifests, lockfiles, and build configuration are prohibited.
+Open the repository's Reviews page for instructions, invoker, tested commit, findings, evidence, proposed tests, and publication outcomes. The model records its reproduction assessment for human review. For the MVP, application code does not approve that interpretation by matching quotations, recognizing assertion text, comparing test exit codes, or requiring current-patch evidence. Commands, output, commit and patch identities, and execution limitations remain available beside the assessment. The model is instructed to treat setup failures as inconclusive and passing tests as insufficient to prove the bug absent. Draft publication still requires an intact failed execution of the current permitted test patch, publication authorization, and validated GitHub output. Reproduction patches may contain tests and necessary test-only helpers or fixtures in the discovered layout. Production fixes, workflows, manifests, lockfiles, and build configuration are prohibited.
 
 ## Dry-run and explicit publication
 
@@ -104,3 +104,10 @@ errors. Most elapsed time was therefore outside command execution. The agent
 previously offered all investigation tools until the deadline and supplied no
 updated time budget. The conclusion reserve addresses that scheduling defect;
 command outputs are still needed to explain the repeated test attempts.
+
+The assessment approval checks were removed for the MVP after the saved record of
+run `a3236260-01c6-4a14-a0c4-9d2af49da501` showed seven rejected assessments
+after a successful reproduction. Exact quotation checks, suite-level exit codes,
+and replacement-patch requirements drove extra model calls and test executions.
+`assessReproduction` now saves the model interpretation without an evidence
+approval loop. Basic input shape and size limits still apply.

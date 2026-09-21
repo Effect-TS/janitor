@@ -59,7 +59,7 @@ import {
 import { type ActionRow, IssueReviewStore, type RunRecord } from "./Store.ts"
 import { ReviewWorkspaces } from "./Workspace.ts"
 import { ProposedFiles, canonicalPath, validatePatch } from "./Patch.ts"
-import { AssessmentInput, assessReproduction } from "./Reproduction.ts"
+import { AssessmentInput, recordReproductionAssessment } from "./Reproduction.ts"
 
 /**
  * The embedded action workflow of a review run (ADR 0012): one execution
@@ -159,7 +159,7 @@ const tools = Toolkit.make(
   }),
   Tool.make("assessReproduction", {
     description:
-      "Record a reproduction assessment. Quote an actual test name and output excerpt for each attempt, explain relevance, and state unverified parts. Duplicate suppression requires excerpts from an inspected existing issue.",
+      "Save your reproduction assessment for human review. Explain what the saved executions show and what remains uncertain. Test names and excerpts provide context, not an exact-match approval check. Individual controls may pass in a failing suite. This tool records your judgment; it does not verify it.",
     parameters: AssessmentInput,
     success: Schema.String,
   }),
@@ -646,20 +646,7 @@ export const ReviewActionLayer = ReviewAction.toLayer(
               visible(
                 toolLock.withPermits(1)(
                   Effect.gen(function* () {
-                    if (params.duplicate?.issueNumber === current.issueNumber)
-                      return yield* Effect.fail(
-                        "An issue cannot suppress its own reproduction proposal.",
-                      )
-                    const assessment = yield* assessReproduction(
-                      params,
-                      reproduction,
-                      prepared.revision.commitSha,
-                      [
-                        ...rounds.flatMap((round) => round.observed.items),
-                        ...observedItems.values(),
-                      ],
-                      prepared.repository,
-                    )
+                    const assessment = recordReproductionAssessment(params, prepared.repository)
                     yield* saveReproduction({ ...reproduction, assessment })
                     return JSON.stringify(assessment)
                   }),

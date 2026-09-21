@@ -2353,7 +2353,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
     ),
   )
   it.effect(
-    "retains validated tests and assertion evidence in history without external writes",
+    "records model interpretation without evidence approval and retains raw execution history",
     () =>
       live(
         Effect.gen(function* () {
@@ -2470,8 +2470,15 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
                       attemptId: attempt.id,
                       result: "behavior_failure",
                       testName: "answer is 42",
-                      outputExcerpt: "AssertionError: expected 42, received 41",
+                      outputExcerpt: "The assertion expected 42 but got 41.",
                       relevance: "Matches the reported value mismatch.",
+                    },
+                    {
+                      attemptId: attempt.id,
+                      result: "passed",
+                      testName: "control reported by the model",
+                      outputExcerpt: "The control passed within the failing suite.",
+                      relevance: "Model interpretation is recorded without an approval loop.",
                     },
                   ],
                   duplicate: null,
