@@ -2353,7 +2353,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
     ),
   )
   it.effect(
-    "retains validated tests and assertion evidence in history without external writes",
+    "records model interpretation without evidence approval and retains raw execution history",
     () =>
       live(
         Effect.gen(function* () {
@@ -2470,8 +2470,15 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
                       attemptId: attempt.id,
                       result: "behavior_failure",
                       testName: "answer is 42",
-                      outputExcerpt: "AssertionError: expected 42, received 41",
+                      outputExcerpt: "The assertion expected 42 but got 41.",
                       relevance: "Matches the reported value mismatch.",
+                    },
+                    {
+                      attemptId: attempt.id,
+                      result: "passed",
+                      testName: "control reported by the model",
+                      outputExcerpt: "The control passed within the failing suite.",
+                      relevance: "Model interpretation is recorded without an approval loop.",
                     },
                   ],
                   duplicate: null,
@@ -2507,6 +2514,87 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
           github.intercept = previous
         }),
       ),
+  )
+
+  it.effect("reserves the final minute for a conclusion and refuses late investigation tools", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+          settings.set(repositoryId, { enabled: true, dryRun: true }, actor),
+        )
+        github.put({
+          number: 91,
+          title: "A slow investigation",
+          body: "Bug",
+          state: "open",
+          labels: [],
+        })
+        const runId = yield* invoke({ id: 910, issue: 91, body: "/janitor reproduce" })
+        yield* drive(runId, 0)
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_run SET deadline_at = CLOCK_TIMESTAMP() + interval '45 seconds' WHERE run_id::text = ${runId}`
+        const deadline = (yield* run(runId)).deadlineAt
+        model.script({
+          _tag: "Answer",
+          calls: [
+            // A provider may ignore tool_choice. Trusted code must still refuse this.
+            {
+              name: "execute",
+              params: { command: "pnpm install", kind: "setup", testPath: null, commitSha: null },
+            },
+            {
+              name: "finish",
+              params: conclusion({
+                classification: "unclear",
+                findings: `Investigation at ${github.defaultBranchSha} remains inconclusive.`,
+                uncertainty: "Testing was not completed within the investigation budget.",
+                evidence: [],
+              }),
+            },
+          ],
+        })
+        yield* drive(runId, 1)
+        assert.deepStrictEqual(model.tools[0], ["finish"])
+        const prompt = model.prompts[0]!.content.filter((message) => message.role === "system")
+          .map((message) => message.content)
+          .join("\n")
+        assert.include(prompt, "seconds remaining")
+        assert.include(prompt, "Call finish now")
+        assert.lengthOf((yield* shown(runId)).reproduction.attempts, 0)
+        assert.strictEqual((yield* run(runId)).status, "completed")
+        assert.deepStrictEqual((yield* run(runId)).deadlineAt, deadline)
+      }),
+    ),
+  )
+
+  it.effect("allows assessment but no new experiments in the final two minutes", () =>
+    live(
+      Effect.gen(function* () {
+        yield* publicationSetup
+        yield* Effect.flatMap(IssueReviewSettings, (settings) =>
+          settings.set(repositoryId, { enabled: true, dryRun: true }, actor),
+        )
+        github.put({
+          number: 92,
+          title: "An unfinished reproduction",
+          body: "Bug",
+          state: "open",
+          labels: [],
+        })
+        const runId = yield* invoke({ id: 920, issue: 92, body: "/janitor reproduce" })
+        yield* drive(runId, 0)
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_run SET deadline_at = CLOCK_TIMESTAMP() + interval '90 seconds' WHERE run_id::text = ${runId}`
+        model.script({
+          _tag: "Answer",
+          calls: [{ name: "finish", params: conclusion({ evidence: [] }) }],
+        })
+        yield* drive(runId, 1)
+        assert.deepStrictEqual(model.tools[0], ["assessReproduction", "finish"])
+        assert.strictEqual((yield* run(runId)).status, "completed")
+      }),
+    ),
   )
 
   it.effect("bounds setup commands and can conclude after an install timeout", () =>
@@ -2547,6 +2635,20 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
         const attempted = yield* shown(runId)
         assert.strictEqual(attempted.status, "running")
         assert.include(attempted.reproduction.attempts[0]!.output, "downloading dependencies")
+        const sql = yield* SqlClient.SqlClient
+        yield* sql`UPDATE issue_review_run SET deadline_at = CLOCK_TIMESTAMP() + interval '150 seconds' WHERE run_id::text = ${runId}`
+        model.script({
+          _tag: "Answer",
+          calls: [
+            {
+              name: "execute",
+              params: { command: "node -v", kind: "setup", testPath: null, commitSha: null },
+            },
+          ],
+        })
+        yield* drive(runId, 2)
+        assert.isAbove(commandTimeout, 0)
+        assert.isAtMost(commandTimeout, 15_000)
         model.script({
           _tag: "Answer",
           calls: [
@@ -2561,7 +2663,7 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
             },
           ],
         })
-        yield* drive(runId, 2)
+        yield* drive(runId, 3)
         assert.strictEqual((yield* run(runId)).status, "completed")
       }),
     ),
@@ -2582,20 +2684,29 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
             diff: "saved validated patch",
             files: [],
           },
-          attempts: [],
+          attempts: [
+            {
+              id: "previous:1",
+              patchId: "saved",
+              commitSha: github.defaultBranchSha,
+              kind: "setup",
+              command: "pnpm install",
+              testPath: null,
+              exitCode: null,
+              output: "",
+              truncated: false,
+              integrity: false,
+              limitation: "Execution did not complete; reproduction is inconclusive.",
+            },
+          ],
           assessment: null,
         })
-        workspaces.execute = () => Effect.never
         const sql = yield* SqlClient.SqlClient
         yield* sql`UPDATE issue_review_run SET deadline_at = CLOCK_TIMESTAMP() + interval '0.3 seconds' WHERE run_id::text = ${runId}`
         model.script({
-          _tag: "Answer",
-          calls: [
-            {
-              name: "execute",
-              params: { command: "pnpm install", kind: "setup", testPath: null, commitSha: null },
-            },
-          ],
+          _tag: "Wait",
+          until: yield* Deferred.make<void>(),
+          then: { _tag: "Answer", text: "Unfinished investigation." },
         })
         yield* drive(runId, 1)
         const timedOut = yield* shown(runId)

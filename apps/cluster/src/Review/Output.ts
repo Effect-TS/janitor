@@ -74,7 +74,7 @@ export const summaryIntent = (
   }
 }
 
-/** Only trusted, confirmed test evidence can authorize a reproduction proposal. */
+/** A model assessment may propose a draft only with an intact execution of its test patch. */
 export const draftIntent = (
   run: RunRecord,
   repository: string,

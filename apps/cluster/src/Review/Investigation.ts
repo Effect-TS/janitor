@@ -1,3 +1,4 @@
+import { reviewBudget } from "./Budget.ts"
 import { describeError } from "../SqlErrors.ts"
 import { IssueReviewDraftPublication } from "./DraftPublication.ts"
 import { IssueReviewPublication } from "./Publication.ts"
@@ -58,7 +59,7 @@ import {
 import { type ActionRow, IssueReviewStore, type RunRecord } from "./Store.ts"
 import { ReviewWorkspaces } from "./Workspace.ts"
 import { ProposedFiles, canonicalPath, validatePatch } from "./Patch.ts"
-import { AssessmentInput, assessReproduction } from "./Reproduction.ts"
+import { AssessmentInput, recordReproductionAssessment } from "./Reproduction.ts"
 
 /**
  * The embedded action workflow of a review run (ADR 0012): one execution
@@ -158,7 +159,7 @@ const tools = Toolkit.make(
   }),
   Tool.make("assessReproduction", {
     description:
-      "Record a reproduction assessment. Quote an actual test name and output excerpt for each attempt, explain relevance, and state unverified parts. Duplicate suppression requires excerpts from an inspected existing issue.",
+      "Save your reproduction assessment for human review. Explain what the saved executions show and what remains uncertain. Test names and excerpts provide context, not an exact-match approval check. Individual controls may pass in a failing suite. This tool records your judgment; it does not verify it.",
     parameters: AssessmentInput,
     success: Schema.String,
   }),
@@ -400,21 +401,27 @@ export const ReviewActionLayer = ReviewAction.toLayer(
        * refuses once the run was cancelled, so a round in flight stops
        * investigating as soon as it next reaches for a tool.
        */
-      const visible = <E, R>(use: Effect.Effect<string, E, R>) =>
+      const visible = <E, R>(use: Effect.Effect<string, E, R>, assessment = false) =>
         Effect.gen(function* () {
           const state = yield* store
             .run(runId)
             .pipe(Effect.catch(() => Effect.succeed(Option.none<RunRecord>())))
           if (Option.isNone(state) || state.value.status !== "running")
             return "Tool failed: the run has ended. Stop and do not call more tools."
-          const budget = yield* remaining(deadline)
+          const left = Duration.toMillis(yield* remaining(deadline))
+          const budget = reviewBudget(left)
+          if (
+            (!assessment && budget.phase !== "investigate") ||
+            (assessment && budget.phase === "finish")
+          )
+            return "Investigation time is over. Call finish with the saved evidence and state any remaining uncertainty."
           return yield* use.pipe(
-            Effect.timeout(budget),
+            Effect.timeout(assessment ? left : budget.investigationMs),
             Effect.map(bounded),
             Effect.catch((error) =>
               Effect.succeed(
                 Cause.isTimeoutError(error)
-                  ? "Tool failed: the run's time allowance is exhausted."
+                  ? "Tool timed out. Investigation time may be over; use the remaining time to assess saved evidence and call finish."
                   : `Tool failed: ${typeof error === "string" ? error : describeError(error as { readonly message: string })}`,
               ),
             ),
@@ -541,6 +548,11 @@ export const ReviewActionLayer = ReviewAction.toLayer(
               visible(
                 toolLock.withPermits(1)(
                   Effect.gen(function* () {
+                    const left = reviewBudget(
+                      Duration.toMillis(yield* remaining(deadline)),
+                    ).investigationMs
+                    if (left <= 15_000)
+                      return "There is not enough investigation time for another command and cleanup. Assess the saved attempts and call finish."
                     const commitSha = params.commitSha ?? prepared.revision.commitSha
                     if (!/^[a-f0-9]{40}$/.test(commitSha))
                       return yield* Effect.fail("Use a full commit SHA.")
@@ -574,10 +586,9 @@ export const ReviewActionLayer = ReviewAction.toLayer(
                       assessment: null,
                       attempts: [...reproduction.attempts, attempt],
                     })
-                    const left = Duration.toMillis(yield* remaining(deadline))
                     const timeout = Math.max(
                       1,
-                      Math.min(params.kind === "setup" ? 180_000 : 120_000, left),
+                      Math.min(params.kind === "setup" ? 180_000 : 120_000, left - 15_000),
                     )
                     const startedAt = DateTime.toEpochMillis(yield* DateTime.now)
                     const annotations = {
@@ -635,24 +646,12 @@ export const ReviewActionLayer = ReviewAction.toLayer(
               visible(
                 toolLock.withPermits(1)(
                   Effect.gen(function* () {
-                    if (params.duplicate?.issueNumber === current.issueNumber)
-                      return yield* Effect.fail(
-                        "An issue cannot suppress its own reproduction proposal.",
-                      )
-                    const assessment = yield* assessReproduction(
-                      params,
-                      reproduction,
-                      prepared.revision.commitSha,
-                      [
-                        ...rounds.flatMap((round) => round.observed.items),
-                        ...observedItems.values(),
-                      ],
-                      prepared.repository,
-                    )
+                    const assessment = recordReproductionAssessment(params, prepared.repository)
                     yield* saveReproduction({ ...reproduction, assessment })
                     return JSON.stringify(assessment)
                   }),
                 ),
+                true,
               ),
             finish: (params) =>
               decodeConclusion(params).pipe(
@@ -670,18 +669,34 @@ export const ReviewActionLayer = ReviewAction.toLayer(
         ),
       )
 
-      const prompt = buildPrompt({
-        invokerLogin: current.invokerLogin,
-        instructions: current.instructions,
-        commentId: current.commentId,
-        prepared,
-        rounds,
-      })
       for (let attempt = 1; ; attempt++) {
         const budget = yield* remaining(deadline)
         if (Duration.isZero(budget)) return { _tag: "TimedOut" } satisfies ModelResult
+        const timing = reviewBudget(Duration.toMillis(budget))
+        const prompt = buildPrompt({
+          invokerLogin: current.invokerLogin,
+          instructions: current.instructions,
+          commentId: current.commentId,
+          prepared,
+          rounds,
+          budget: timing,
+        })
         const response = yield* model.value
-          .generateText({ prompt, toolkit })
+          .generateText({
+            prompt,
+            toolkit,
+            ...(timing.phase === "investigate"
+              ? {}
+              : {
+                  toolChoice: {
+                    mode: "required" as const,
+                    oneOf:
+                      timing.phase === "finish"
+                        ? (["finish"] as const)
+                        : (["assessReproduction", "finish"] as const),
+                  },
+                }),
+          })
           .pipe(Effect.timeout(budget), Effect.result)
         if (response._tag === "Success") {
           const results = new Map(
