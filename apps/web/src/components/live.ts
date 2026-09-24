@@ -185,10 +185,10 @@ export const subscriptions = Subscription.make<State, Message, HttpClient.HttpCl
         dependenciesToStream: () =>
           Stream.concat(
             Stream.fromEffect(Effect.sync(() => Message.Visibility({ visible: !document.hidden }))),
-            Subscription.fromEvent<Event, Message>({
+            Subscription.fromEvent({
               target: () => document,
               type: "visibilitychange",
-              toMessage: () => Message.Visibility({ visible: !document.hidden }),
+              mapEvent: () => Message.Visibility({ visible: !document.hidden }),
             }),
           ),
       },

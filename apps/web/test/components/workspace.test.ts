@@ -179,6 +179,7 @@ describe("Repositories", () => {
         Scene.click(Scene.role("button", { name: "Delete policy" })),
       ),
       Scene.Command.resolve(Dialog.ShowDialog, Dialog.Message.SucceededShowDialog()),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.inside(
         Scene.role("dialog", { name: "Delete policy?" }),
         Scene.expect(Scene.role("button", { name: "Delete policy" })).toExist(),
@@ -186,6 +187,7 @@ describe("Repositories", () => {
       ),
       Scene.Command.resolve(Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()),
       Scene.expect(Scene.role("dialog", { name: "Delete policy?" })).toBeAbsent(),
+      Scene.Mount.expectEnded(Dialog.AcquireResources),
     )
   })
 

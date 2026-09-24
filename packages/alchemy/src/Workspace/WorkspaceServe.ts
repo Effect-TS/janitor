@@ -37,7 +37,7 @@ export const serveWorkspace = Effect.fnUntraced(function* (options: {
       return yield* rpc
     }),
   )
-  if (server.address._tag !== "TcpAddress")
+  if (server.address._tag === "UnixPathAddress")
     return yield* Effect.die("workspace server requires TCP")
   return `http://127.0.0.1:${server.address.port}`
 }, Effect.provide(NodeServices.layer))

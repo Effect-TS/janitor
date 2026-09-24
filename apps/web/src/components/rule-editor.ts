@@ -18,9 +18,9 @@ import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
-import type * as Update from "foldkit/update"
+import * as Update from "foldkit/update"
 import { ArrowLeft, ChevronRight, Play, Trash2 } from "lucide"
 import * as Button from "@/components/ui/button"
 import { input } from "@/components/ui/input"
@@ -538,14 +538,14 @@ const snapshot = (model: Model): string =>
 
 export const init = (input: Parameters<typeof initialize>[0]): Model => {
   const model = initialize(input)
-  return evo(model, { savedSnapshot: () => snapshot(model) })
+  return modifyFields(model, { savedSnapshot: () => snapshot(model) })
 }
 
 export const hasUnsavedChanges = (model: Model): boolean =>
   model.submission._tag === "Submitting" || snapshot(model) !== model.savedSnapshot
 
 const edited = (model: Model): Model =>
-  evo(model, {
+  modifyFields(model, {
     testResult: () => ({ _tag: "Idle" as const }),
     inputInspection: () => ({ _tag: "Idle" as const }),
     testGeneration: (id) => id + 1,
@@ -553,24 +553,24 @@ const edited = (model: Model): Model =>
       current._tag === "Submitting" ? current : { _tag: "NotSubmitted" as const },
   })
 
-const mapDeleteDialog = (model: Model, result: ReturnType<typeof Dialog.open>): UpdateReturn => ({
-  model: evo(model, { deleteDialog: () => result.model }),
-  commands: FoldkitCommand.mapMessages(result.commands, (message) =>
-    Message.GotDeleteDialogMessage({ message }),
-  ),
-})
+const mapDeleteDialog = (model: Model, result: ReturnType<typeof Dialog.open>): UpdateReturn =>
+  Update.foldChildInit(result, {
+    toParentModel: (deleteDialog) => modifyFields(model, { deleteDialog: () => deleteDialog }),
+    toParentMessage: (message) => Message.GotDeleteDialogMessage({ message }),
+    toParentOutMessage: (): OutMessage | undefined => undefined,
+  })
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     PreparedCreation: ({ key }) => ({
-      model: evo(model, { creationKey: (current) => current ?? key }),
+      model: modifyFields(model, { creationKey: (current) => current ?? key }),
     }),
     SelectedType: ({ value }) =>
       model.identity._tag !== "New"
         ? { model }
         : {
             model: edited(
-              evo(model, {
+              modifyFields(model, {
                 ai: () =>
                   value === "ai"
                     ? {
@@ -584,17 +584,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ),
           },
     EditedPrompt: ({ value }) => ({
-      model: model.ai ? edited(evo(model, { ai: () => ({ ...model.ai!, prompt: value }) })) : model,
+      model: model.ai
+        ? edited(modifyFields(model, { ai: () => ({ ...model.ai!, prompt: value }) }))
+        : model,
     }),
     SelectedGate: ({ value }) => ({
       model: model.ai
-        ? edited(evo(model, { ai: () => ({ ...model.ai!, gatePolicyId: value || null }) }))
+        ? edited(modifyFields(model, { ai: () => ({ ...model.ai!, gatePolicyId: value || null }) }))
         : model,
     }),
     SelectedTarget: ({ value }) => ({
       model: model.ai
         ? edited(
-            evo(model, {
+            modifyFields(model, {
               ai: () => ({
                 ...model.ai!,
                 target: value === "issue" ? ("issue" as const) : ("pull_request" as const),
@@ -606,7 +608,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ChangedConfidence: ({ value }) => ({
       model: model.ai
         ? edited(
-            evo(model, {
+            modifyFields(model, {
               ai: () => ({
                 ...model.ai!,
                 minimumConfidence: Math.max(0, Math.min(1, Number(value) / 100)),
@@ -616,30 +618,40 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : model,
     }),
     FailedPromptEditor: ({ reason }) => ({
-      model: evo(model, { submission: () => ({ _tag: "SubmitError" as const, message: reason }) }),
+      model: modifyFields(model, {
+        submission: () => ({ _tag: "SubmitError" as const, message: reason }),
+      }),
     }),
     SelectedLabel: ({ labelId }) => ({
       model: edited(
-        evo(model, { maybeLabelId: () => (labelId === "" ? Option.none() : Option.some(labelId)) }),
+        modifyFields(model, {
+          maybeLabelId: () => (labelId === "" ? Option.none() : Option.some(labelId)),
+        }),
       ),
     }),
     UpdatedPolicy: ({ value }) => ({
       model: edited(
-        evo(model, { maybePolicyId: () => (value === "" ? Option.none() : Option.some(value)) }),
+        modifyFields(model, {
+          maybePolicyId: () => (value === "" ? Option.none() : Option.some(value)),
+        }),
       ),
     }),
     UpdatedOnMatch: ({ value }) => ({
-      model: Schema.is(ResultAction)(value) ? edited(evo(model, { onMatch: () => value })) : model,
+      model: Schema.is(ResultAction)(value)
+        ? edited(modifyFields(model, { onMatch: () => value }))
+        : model,
     }),
     UpdatedOnNoMatch: ({ value }) => ({
       model: Schema.is(ResultAction)(value)
-        ? edited(evo(model, { onNoMatch: () => value }))
+        ? edited(modifyFields(model, { onNoMatch: () => value }))
         : model,
     }),
-    UpdatedGroup: ({ value }) => ({ model: edited(evo(model, { group: () => value })) }),
-    UpdatedPriority: ({ value }) => ({ model: edited(evo(model, { priority: () => value })) }),
+    UpdatedGroup: ({ value }) => ({ model: edited(modifyFields(model, { group: () => value })) }),
+    UpdatedPriority: ({ value }) => ({
+      model: edited(modifyFields(model, { priority: () => value })),
+    }),
     ToggledEnabled: ({ isChecked }) => ({
-      model: edited(evo(model, { enabled: () => isChecked })),
+      model: edited(modifyFields(model, { enabled: () => isChecked })),
     }),
 
     MovedGroupRule: ({ ruleId, direction }) => {
@@ -656,7 +668,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       if (!moving || !neighbor) return { model }
       const operationId = model.nextOperationId
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           nextOperationId: (id) => id + 1,
           submission: () => ({
             _tag: "Submitting" as const,
@@ -695,7 +707,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       const current = rules.find((rule) => rule.id === identity.ruleId)
       if (!current) return { model }
       const clean = snapshot(model) === model.submission.snapshot
-      const next = evo(model, {
+      const next = modifyFields(model, {
         rules: (existing) =>
           existing.map((rule) => rules.find((updated) => updated.id === rule.id) ?? rule),
         identity: () => ({ ...identity, version: current.version }),
@@ -717,7 +729,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
           )
       return {
-        model: evo(next, { savedSnapshot: () => saved }),
+        model: modifyFields(next, { savedSnapshot: () => saved }),
         outMessage: OutMessage.Saved({ rule: current, closeEditor: false }),
       }
     },
@@ -726,7 +738,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       if (Option.isNone(model.maybeLabelId) || (!model.ai && Option.isNone(model.maybePolicyId)))
         return { model }
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           submission: () => ({
             _tag: "Submitting" as const,
             operationId: model.nextOperationId,
@@ -763,7 +775,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         return { model }
       const submitted = model.submission.snapshot
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           identity: () => ({ _tag: "Existing" as const, ruleId: rule.id, version: rule.version }),
           savedSnapshot: () => submitted,
           submission: () => ({ _tag: "NotSubmitted" as const }),
@@ -775,7 +787,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.submission._tag !== "Submitting" || model.submission.operationId !== operationId
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               identity: () => ({
                 _tag: "Existing" as const,
                 ruleId: rule.id,
@@ -788,20 +800,22 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.submission._tag !== "Submitting" || model.submission.operationId !== operationId
         ? { model }
         : {
-            model: evo(model, { submission: () => ({ _tag: "Rejected" as const, issues }) }),
+            model: modifyFields(model, {
+              submission: () => ({ _tag: "Rejected" as const, issues }),
+            }),
           },
     FailedSaveRule: ({ reason, operationId }) =>
       model.submission._tag !== "Submitting" || model.submission.operationId !== operationId
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               submission: () => ({ _tag: "SubmitError" as const, message: reason }),
             }),
             outMessage: OutMessage.SaveFailed({ reason }),
           },
-    ToggledGroup: ({ isOpen }) => ({ model: evo(model, { groupOpen: () => isOpen }) }),
+    ToggledGroup: ({ isOpen }) => ({ model: modifyFields(model, { groupOpen: () => isOpen }) }),
     SelectedTestItem: ({ number }) => ({
-      model: edited(evo(model, { selectedNumber: () => number })),
+      model: edited(modifyFields(model, { selectedNumber: () => number })),
     }),
     ClickedTest: () => {
       const item = selectedTestItem(model)
@@ -814,7 +828,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         return { model }
       const generation = model.testGeneration + 1
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           testGeneration: () => generation,
           testResult: () => ({
             _tag: "Running" as const,
@@ -865,7 +879,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       const fetchAgain =
         model.jobRefresh || (!pollError && model.liveJob?.generation !== generation)
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           liveJob: () => ({ testId, generation, polls, startedAt, status: phase }),
           jobLoading: () => fetchAgain,
           jobRefresh: () => false,
@@ -895,7 +909,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       generation !== model.testGeneration || model.testResult._tag !== "Running"
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               testResult: () => ({
                 _tag: "Done" as const,
                 response,
@@ -910,7 +924,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.inputInspection._tag === "Ready"
         ? { model }
         : {
-            model: evo(model, { inputInspection: () => ({ _tag: "Loading" as const }) }),
+            model: modifyFields(model, { inputInspection: () => ({ _tag: "Loading" as const }) }),
             commands: [
               LoadInput({
                 repositoryId: model.repositoryId,
@@ -922,15 +936,25 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     LoadedInput: ({ generation, details }) =>
       generation !== model.testGeneration
         ? { model }
-        : { model: evo(model, { inputInspection: () => ({ _tag: "Ready" as const, details }) }) },
+        : {
+            model: modifyFields(model, {
+              inputInspection: () => ({ _tag: "Ready" as const, details }),
+            }),
+          },
     FailedInput: ({ generation, reason }) =>
       generation !== model.testGeneration
         ? { model }
-        : { model: evo(model, { inputInspection: () => ({ _tag: "Failed" as const, reason }) }) },
+        : {
+            model: modifyFields(model, {
+              inputInspection: () => ({ _tag: "Failed" as const, reason }),
+            }),
+          },
     FailedTest: ({ reason, generation }) =>
       generation !== model.testGeneration || model.testResult._tag !== "Running"
         ? { model }
-        : { model: evo(model, { testResult: () => ({ _tag: "Failed" as const, reason }) }) },
+        : {
+            model: modifyFields(model, { testResult: () => ({ _tag: "Failed" as const, reason }) }),
+          },
     GotDeleteDialogMessage: ({ message }) =>
       mapDeleteDialog(model, Dialog.update(model.deleteDialog, message)),
     CancelledDelete: () => mapDeleteDialog(model, Dialog.close(model.deleteDialog)),
@@ -1802,6 +1826,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
           view: Dialog.view,
           toParentMessage: (message) => Message.GotDeleteDialogMessage({ message }),
           viewInputs: {
+            hasDescription: true,
             toView: (render) =>
               DialogChrome.view(h, {
                 dialog: render.dialog,
@@ -1840,7 +1865,7 @@ export const reflectConfiguration = (
   configuration: ConfigurationView,
   testCandidates?: TestCandidates,
 ): Model => {
-  const next = evo(model, {
+  const next = modifyFields(model, {
     labels: () => configuration.labels,
     policies: () => configuration.policies,
     rules: () => configuration.rules,
@@ -1850,7 +1875,10 @@ export const reflectConfiguration = (
     selectedPolicy(model)?.publishedVersionId !== selectedPolicy(next)?.publishedVersionId ||
     selectedTestItem(model)?.number !== selectedTestItem(next)?.number
   return changed
-    ? evo(next, { testResult: () => ({ _tag: "Idle" as const }), testGeneration: (id) => id + 1 })
+    ? modifyFields(next, {
+        testResult: () => ({ _tag: "Idle" as const }),
+        testGeneration: (id) => id + 1,
+      })
     : next
 }
 

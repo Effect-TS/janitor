@@ -6,6 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { describeError } from "../../src/SqlErrors.ts"
+import { runScript } from "../support/Postgres.ts"
 import { actor, bug, feature, repositoryId, seed, Services } from "./support.ts"
 
 layer(Services, { timeout: "2 minutes" })("Labeling group migration", (it) => {
@@ -43,12 +44,12 @@ layer(Services, { timeout: "2 minutes" })("Labeling group migration", (it) => {
         )
         yield* sql`UPDATE labeling_rule SET rule_group = 'legacy' WHERE repository_id = ${repositoryId}`
         const before = yield* rules.list(repositoryId)
-        const error = yield* Effect.flip(sql.unsafe(migration))
+        const error = yield* Effect.flip(runScript(sql, migration))
         for (const value of [repositoryId, "legacy", a.id, b.id])
           assert.include(describeError(error), value)
         assert.deepStrictEqual(yield* rules.list(repositoryId), before)
         yield* sql`UPDATE labeling_rule SET policy_id = ${a.policyId}, priority = ${a.priority} WHERE rule_id = ${b.id}`
-        assert.include(describeError(yield* Effect.flip(sql.unsafe(migration))), "priority")
+        assert.include(describeError(yield* Effect.flip(runScript(sql, migration))), "priority")
         yield* sql`UPDATE labeling_rule SET priority = ${b.priority} WHERE rule_id = ${b.id}`
         // Recreate the old snapshot omission of disabled rules.
         const configuration = yield* LabelingConfiguration
@@ -59,7 +60,7 @@ layer(Services, { timeout: "2 minutes" })("Labeling group migration", (it) => {
           repositoryId,
           previousView.configuredRevision,
         )
-        yield* sql.unsafe(migration)
+        yield* runScript(sql, migration)
         assert.deepStrictEqual(
           yield* configuration.load(repositoryId, previousView.configuredRevision),
           previousSnapshot,

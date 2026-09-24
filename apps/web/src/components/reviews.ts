@@ -9,7 +9,7 @@ import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
-import type * as Update from "foldkit/update"
+import * as Update from "foldkit/update"
 import { RotateCw, X } from "lucide"
 import * as Sheet from "./ui/sheet"
 import * as Button from "./ui/button"
@@ -174,12 +174,12 @@ const fetchHistory = (model: Model): Return =>
         ],
       }
 
-const mapDrawer = (model: Model, result: ReturnType<typeof Sheet.open>): Return => ({
-  model: { ...model, drawer: result.model },
-  commands: Command.mapMessages(result.commands, (message) =>
-    Message.GotDrawerMessage({ message }),
-  ),
-})
+const mapDrawer = (model: Model, result: ReturnType<typeof Sheet.open>): Return =>
+  Update.foldChildInit(result, {
+    toParentModel: (drawer) => ({ ...model, drawer }),
+    toParentMessage: (message) => Message.GotDrawerMessage({ message }),
+    toParentOutMessage: (): OutMessage | undefined => undefined,
+  })
 
 export const update = (model: Model, message: Message): Return =>
   Message.match<Return>(message, {
@@ -695,6 +695,7 @@ const drawer = (h: HtmlBuilder<Message>, model: Model): Html => {
     view: Sheet.view,
     toParentMessage: (message) => Message.GotDrawerMessage({ message }),
     viewInputs: Sheet.styledViewInputs(h, {
+      hasDescription: true,
       side: "right",
       panelClass:
         "data-[side=right]:w-full data-[side=right]:sm:max-w-[620px] data-[side=right]:rounded-none overflow-y-auto overscroll-contain",

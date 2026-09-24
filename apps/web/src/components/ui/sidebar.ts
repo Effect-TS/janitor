@@ -1,10 +1,8 @@
 import * as Effect from "effect/Effect"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
-import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
 import {
   childAttributes,
@@ -13,7 +11,7 @@ import {
   type Html,
   type HtmlBuilder,
 } from "foldkit/html"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Subscription from "foldkit/subscription"
 import { defineView, type View } from "foldkit/submodel"
 import * as Update from "foldkit/update"
@@ -25,7 +23,7 @@ import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import { PanelLeft } from "lucide"
 
-export const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+export const SIDEBAR_KEYBOARD_SHORTCUT = "Mod+B"
 
 export const SIDEBAR_WIDTH = "var(--spacing-sidebar)"
 
@@ -80,15 +78,17 @@ export type State = "expanded" | "collapsed"
 export const state = (model: Model): State => (model.isOpen ? "expanded" : "collapsed")
 
 export const setOpen = (model: Model, isOpen: boolean): Model =>
-  evo(model, { isOpen: () => isOpen })
+  modifyFields(model, { isOpen: () => isOpen })
 
 const mapSheet = (
   model: Model,
   update: Update.ReturnWithOutMessage<Sheet.Model, Sheet.Message, Sheet.OutMessage>,
-): Update.Return<Model, Message> => ({
-  model: evo(model, { sheet: () => update.model }),
-  commands: Command.mapMessages(update.commands, (message) => Message.GotSheetMessage({ message })),
-})
+): Update.Return<Model, Message> =>
+  Update.foldChildInit(update, {
+    toParentModel: (sheet) => modifyFields(model, { sheet: () => sheet }),
+    toParentMessage: (message) => Message.GotSheetMessage({ message }),
+    foldOutMessage: foldSheetOutMessage,
+  })
 
 export const openMobile = (model: Model): Update.Return<Model, Message> =>
   mapSheet(model, Sheet.open(model.sheet))
@@ -116,7 +116,7 @@ const foldSheetOutMessage = Match.type<Sheet.OutMessage>().pipe(
 const foldSheet = Update.foldChild({
   update: Sheet.update,
   read: (model: Model) => Option.some(model.sheet),
-  write: (model, next) => evo(model, { sheet: () => next }),
+  write: (model, next) => modifyFields(model, { sheet: () => next }),
   toParentMessage: (message) => Message.GotSheetMessage({ message }),
   foldOutMessage: foldSheetOutMessage,
 })
@@ -125,7 +125,7 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
   Message.match(message, {
     Toggled: () => toggle(model),
     SetIsOpen: ({ isOpen }) => ({ model: setOpen(model, isOpen) }),
-    SetIsMobile: ({ isMobile }) => ({ model: evo(model, { isMobile: () => isMobile }) }),
+    SetIsMobile: ({ isMobile }) => ({ model: modifyFields(model, { isMobile: () => isMobile }) }),
     GotSheetMessage: ({ message }) => foldSheet(model, message),
   })
 
@@ -135,16 +135,14 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
     {
       modelToDependencies: () => ({ isListening: true }),
       dependenciesToStream: ({ isListening }) =>
-        Subscription.fromEventFilterMap<KeyboardEvent, Message>({
-          target: window,
-          type: "keydown",
-          toMessage: (event) => {
-            if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              return Option.some(Message.Toggled())
-            }
-            return Option.none()
-          },
+        Subscription.keyBindings({
+          bindings: [
+            {
+              keys: SIDEBAR_KEYBOARD_SHORTCUT,
+              whileTyping: "Allow",
+              mapEvent: () => Message.Toggled(),
+            },
+          ],
         }).pipe(Stream.when(Effect.sync(() => isListening))),
     },
   ),
@@ -153,26 +151,21 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
     {
       modelToDependencies: () => ({ isListening: true }),
       dependenciesToStream: ({ isListening }) =>
-        Stream.callback<Message>((queue) =>
-          Effect.acquireRelease(
-            Effect.sync(() => {
-              const mediaQuery = window.matchMedia(SIDEBAR_MOBILE_MEDIA_QUERY)
-              const handler = (event: MediaQueryListEvent) => {
-                const message = Message.SetIsMobile({ isMobile: event.matches })
-                Queue.offerUnsafe(queue, message)
-              }
-              mediaQuery.addEventListener("change", handler)
-              // Emit once on subscribe so that a mobile viewport corrects the
-              // desktop default right after mount
-              const message = Message.SetIsMobile({ isMobile: mediaQuery.matches })
-              Queue.offerUnsafe(queue, message)
-              return { handler, mediaQuery }
-            }),
-            ({ handler, mediaQuery }) =>
-              Effect.sync(() => {
-                mediaQuery.removeEventListener("change", handler)
+        Stream.concat(
+          // Emit once on subscribe so that a mobile viewport corrects the
+          // desktop default right after mount
+          Stream.fromEffect(
+            Effect.sync(() =>
+              Message.SetIsMobile({
+                isMobile: window.matchMedia(SIDEBAR_MOBILE_MEDIA_QUERY).matches,
               }),
-          ).pipe(Effect.andThen(Effect.never)),
+            ),
+          ),
+          Subscription.fromEvent({
+            target: () => window.matchMedia(SIDEBAR_MOBILE_MEDIA_QUERY),
+            type: "change",
+            mapEvent: (event) => Message.SetIsMobile({ isMobile: event.matches }),
+          }),
         ).pipe(Stream.when(Effect.sync(() => isListening))),
     },
   ),
@@ -283,6 +276,7 @@ export const view = defineView<Model, Message, ViewInputs>((model, viewInputs, h
   if (model.isMobile) {
     const mobileSheetView: View<Sheet.Model, Sheet.Message, Sheet.ViewInputs> = Sheet.view
     const mobileSheetInputs: Sheet.ViewInputs = Sheet.styledViewInputs(h, {
+      hasDescription: true,
       side,
       panelClass: sidebarMobilePanelClass,
       content: (sheetH, { description, title }) => [

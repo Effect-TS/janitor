@@ -208,24 +208,20 @@ export const sections = [
   "Settings",
 ] as const
 export type Section = (typeof sections)[number]
-export const section = (route: AppRoute): Section => {
-  switch (route._tag) {
-    case "Repository":
-      return "Overview"
-    case "Rules":
-    case "NewRule":
-    case "Rule":
-      return "Rules"
-    case "Activity":
-      return "Activity"
-    case "Reviews":
-      return "Reviews"
-    case "Settings":
-      return "Settings"
-    default:
-      return "Policies"
-  }
-}
+export const section = (route: AppRoute): Section =>
+  AppRoute.matchOrElse(
+    route,
+    {
+      Repository: (): Section => "Overview",
+      Rules: (): Section => "Rules",
+      NewRule: (): Section => "Rules",
+      Rule: (): Section => "Rules",
+      Activity: (): Section => "Activity",
+      Reviews: (): Section => "Reviews",
+      Settings: (): Section => "Settings",
+    },
+    (): Section => "Policies",
+  )
 export const sectionPath = (repositoryId: string, section: Section): string =>
   ({
     Overview: repositoryHome,
@@ -238,15 +234,13 @@ export const sectionPath = (repositoryId: string, section: Section): string =>
     repositoryId,
   })
 export const urlPath = (url: Url.Url): string => path(parse(url))
-export const documentPath = (route: AppRoute): string => {
-  switch (route._tag) {
-    case "Policies":
-      return policies({ repositoryId: route.repositoryId })
-    case "NewPolicy":
-      return newPolicy({ repositoryId: route.repositoryId })
-    case "Policy":
-      return policy({ repositoryId: route.repositoryId, policyId: route.policyId })
-    default:
-      return path(route)
-  }
-}
+export const documentPath = (route: AppRoute): string =>
+  AppRoute.matchOrElse(
+    route,
+    {
+      Policies: ({ repositoryId }) => policies({ repositoryId }),
+      NewPolicy: ({ repositoryId }) => newPolicy({ repositoryId }),
+      Policy: ({ repositoryId, policyId }) => policy({ repositoryId, policyId }),
+    },
+    path,
+  )

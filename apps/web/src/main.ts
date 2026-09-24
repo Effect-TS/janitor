@@ -12,7 +12,7 @@ import * as Command from "foldkit/command"
 import * as Runtime from "foldkit/runtime"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as JanitorIcon from "@/components/janitor-icon"
@@ -145,7 +145,7 @@ export const requestNavigation = (
     external,
   })
   return {
-    model: evo(model, { navigation: () => next.model }),
+    model: modifyFields(model, { navigation: () => next.model }),
     commands: navigationCommands(next.commands ?? []),
   }
 }
@@ -174,10 +174,11 @@ const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
               : model.account,
         }
   return {
-    model: evo(model, {
+    model: modifyFields(model, {
       navigation: (navigation) => Navigation.enter(navigation, route),
       account: () => entered.model,
-      workspace: () => evo(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
+      workspace: () =>
+        modifyFields(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
     }),
     commands: Command.mapMessages(entered.commands, (message) =>
       Message.GotAccountMessage({ message }),
@@ -197,7 +198,7 @@ const enterRoute = (previous: Model, route: Routes.AppRoute): Step => {
   const model =
     wasEditor === willBeEditor || previous.sidebar.isMobile
       ? previous
-      : evo(previous, { sidebar: (sidebar) => Sidebar.setOpen(sidebar, !willBeEditor) })
+      : modifyFields(previous, { sidebar: (sidebar) => Sidebar.setOpen(sidebar, !willBeEditor) })
   return enterOtherRoute(model, route)
 }
 
@@ -205,7 +206,7 @@ const enterOtherRoute = (model: Model, route: Routes.AppRoute): Step => {
   if (isAccountRoute(route)) return enterAccount(model, route)
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return {
-      model: evo(model, {
+      model: modifyFields(model, {
         navigation: (navigation) => Navigation.enter(navigation, route),
         connections: (previous) => {
           const entered = Connections.enter(
@@ -215,13 +216,14 @@ const enterOtherRoute = (model: Model, route: Routes.AppRoute): Step => {
               : previous.returnPath,
           )
           return route._tag === "ConnectReturn" && route.setup_action === "request"
-            ? evo(entered, {
+            ? modifyFields(entered, {
                 notice: () =>
                   "Your GitHub installation request is awaiting organization approval. Refresh after an owner approves access.",
               })
             : entered
         },
-        workspace: () => evo(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
+        workspace: () =>
+          modifyFields(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
       }),
     }
   if (route._tag === "Home" && Option.isSome(model.workspace.repositories)) {
@@ -232,7 +234,11 @@ const enterOtherRoute = (model: Model, route: Routes.AppRoute): Step => {
       Option.contains(model.lastRepositoryId, repo.repositoryId),
     )
     return selected === undefined
-      ? { model: evo(model, { navigation: (navigation) => Navigation.enter(navigation, route) }) }
+      ? {
+          model: modifyFields(model, {
+            navigation: (navigation) => Navigation.enter(navigation, route),
+          }),
+        }
       : requestNavigation(
           model,
           Routes.repositoryHome({ repositoryId: selected.repositoryId }),
@@ -260,7 +266,7 @@ const enterOtherRoute = (model: Model, route: Routes.AppRoute): Step => {
       ),
     )
   return {
-    model: evo(model, {
+    model: modifyFields(model, {
       navigation: (navigation) => Navigation.enter(navigation, route),
       workspace: () => loaded.model,
       lastRepositoryId: (previous) => (accessible ? Option.some(route.repositoryId) : previous),
@@ -277,7 +283,7 @@ const enterOtherRoute = (model: Model, route: Routes.AppRoute): Step => {
 const updateNavigation = (model: Model, message: Navigation.Message): Step => {
   const next = Navigation.update(model.navigation, message, navigationContext(model))
   const updated =
-    next.model === model.navigation ? model : evo(model, { navigation: () => next.model })
+    next.model === model.navigation ? model : modifyFields(model, { navigation: () => next.model })
   const entered = next.outMessage
     ? Navigation.OutMessage.match(next.outMessage, {
         AcceptedRoute: ({ route }) => enterRoute(updated, route),
@@ -301,7 +307,7 @@ const foldAccountOutMessage =
 const foldAccount = Update.foldChild({
   update: Account.update,
   read: (model: Model) => Option.some(model.account),
-  write: (model, next) => evo(model, { account: () => next }),
+  write: (model, next) => modifyFields(model, { account: () => next }),
   toParentMessage: (message) => Message.GotAccountMessage({ message }),
   foldOutMessage: foldAccountOutMessage,
 })
@@ -309,14 +315,14 @@ const foldAccount = Update.foldChild({
 const foldSidebar = Update.foldChild({
   update: Sidebar.update,
   read: (model: Model) => Option.some(model.sidebar),
-  write: (model, next) => evo(model, { sidebar: () => next }),
+  write: (model, next) => modifyFields(model, { sidebar: () => next }),
   toParentMessage: (message) => Message.GotSidebarMessage({ message }),
 })
 
 const foldThemeSwitcher = Update.foldChild({
   update: ThemeSwitcher.update,
   read: (model: Model) => Option.some(model.theme),
-  write: (model, next) => evo(model, { theme: () => next }),
+  write: (model, next) => modifyFields(model, { theme: () => next }),
   toParentMessage: (message) => Message.GotThemeSwitcherMessage({ message }),
 })
 
@@ -330,7 +336,7 @@ const foldToastOutMessage = Match.type<typeof AppToast.OutMessage.Type>().pipe(
 const foldToast = Update.foldChild({
   update: AppToast.update,
   read: (model: Model) => Option.some(model.toast),
-  write: (model, next) => evo(model, { toast: () => next }),
+  write: (model, next) => modifyFields(model, { toast: () => next }),
   toParentMessage: (message) => Message.GotToastMessage({ message }),
   foldOutMessage: foldToastOutMessage,
 })
@@ -390,7 +396,7 @@ const foldSyncOutMessage =
         ? Workspace.refreshAfterSync(model.workspace)
         : { model: model.workspace, commands: [] }
     return {
-      model: evo(model, { toast: () => shown.model, workspace: () => refreshed.model }),
+      model: modifyFields(model, { toast: () => shown.model, workspace: () => refreshed.model }),
       commands: [
         ...Command.mapMessages(shown.commands, (message) => Message.GotToastMessage({ message })),
         ...Command.mapMessages(refreshed.commands, (message) =>
@@ -457,7 +463,7 @@ const foldWorkspaceOutMessage =
         : { model: refreshed.model }
     const shown = AppToast.show(routed.model.toast, input)
     return {
-      model: evo(routed.model, { toast: () => shown.model }),
+      model: modifyFields(routed.model, { toast: () => shown.model }),
       commands: [
         ...(refreshed.commands ?? []),
         ...(routed.commands ?? []),
@@ -469,7 +475,7 @@ const foldWorkspaceOutMessage =
 const foldWorkspace = Update.foldChild({
   update: Workspace.update,
   read: (model: Model) => Option.some(model.workspace),
-  write: (model, next) => evo(model, { workspace: () => next }),
+  write: (model, next) => modifyFields(model, { workspace: () => next }),
   toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
   foldOutMessage: foldWorkspaceOutMessage,
 })
@@ -530,7 +536,7 @@ const updateWorkspace = (model: Model, message: Workspace.Message): Step => {
     )
   ) {
     return {
-      model: evo(next.model, { lastRepositoryId: () => Option.some(repositoryId) }),
+      model: modifyFields(next.model, { lastRepositoryId: () => Option.some(repositoryId) }),
       commands: [...(next.commands ?? []), PersistRepository({ repositoryId })],
     }
   }
@@ -540,7 +546,7 @@ const updateWorkspace = (model: Model, message: Workspace.Message): Step => {
   ) {
     const loaded = Workspace.openRoute(next.model.workspace, model.navigation.route, false)
     return {
-      model: evo(next.model, { workspace: () => loaded.model }),
+      model: modifyFields(next.model, { workspace: () => loaded.model }),
       commands: [
         ...(next.commands ?? []),
         ...Command.mapMessages(loaded.commands, (message) =>
@@ -595,7 +601,7 @@ const foldRepositorySwitcherOutMessage = Match.type<RepositorySwitcher.OutMessag
 const foldRepositorySwitcher = Update.foldChild({
   update: RepositorySwitcher.update,
   read: (model: Model) => Option.some(model.repositorySwitcher),
-  write: (model, next) => evo(model, { repositorySwitcher: () => next }),
+  write: (model, next) => modifyFields(model, { repositorySwitcher: () => next }),
   toParentMessage: (message) => Message.GotRepositorySwitcherMessage({ message }),
   foldOutMessage: foldRepositorySwitcherOutMessage,
 })
@@ -603,7 +609,7 @@ const foldRepositorySwitcher = Update.foldChild({
 const foldSyncButton = Update.foldChild({
   update: SyncButton.update,
   read: (model: Model) => Option.some(model.sync),
-  write: (model, next) => evo(model, { sync: () => next }),
+  write: (model, next) => modifyFields(model, { sync: () => next }),
   toParentMessage: (message) => Message.GotSyncButtonMessage({ message }),
   foldOutMessage: foldSyncOutMessage,
 })
@@ -611,7 +617,7 @@ const foldSyncButton = Update.foldChild({
 const refreshSyncStatus = Update.foldChildStep({
   update: SyncButton.informWorkChanged,
   read: (model: Model) => Option.some(model.sync),
-  write: (model, next) => evo(model, { sync: () => next }),
+  write: (model, next) => modifyFields(model, { sync: () => next }),
   toParentMessage: (message) => Message.GotSyncButtonMessage({ message }),
   foldOutMessage: foldSyncOutMessage,
 })
@@ -620,7 +626,7 @@ export const update = (model: Model, message: Message): Step =>
   Message.match<Update.Return<Model, Message, AppServices>>(message, {
     GotConnectionsMessage: ({ message }) => {
       const next = Connections.update(model.connections, message)
-      const updated = evo(model, { connections: () => next.model })
+      const updated = modifyFields(model, { connections: () => next.model })
       if (
         message._tag === "Loaded" &&
         Option.contains(model.connections.maybeLoadRequest, message.requestId) &&
@@ -670,7 +676,7 @@ export const update = (model: Model, message: Message): Step =>
           },
         })
         const repositoryChange = Workspace.informConnectionChanged(updated.workspace, id, action)
-        const refreshed = evo(updated, {
+        const refreshed = modifyFields(updated, {
           toast: () => shown.model,
           lastRepositoryId: (previous) =>
             action === "disconnect" && Option.contains(previous, id) ? Option.none() : previous,
@@ -931,15 +937,15 @@ const navigationSubscriptions = Subscription.make<Model, Message>()((entry) => (
       }),
       dependenciesToStream: ({ dirty }) =>
         dirty
-          ? Subscription.fromEvent<BeforeUnloadEvent, Message>({
+          ? Subscription.fromEventFilterMapPreventDefault({
               target: () => window,
               type: "beforeunload",
-              toMessage: (event) => {
-                event.preventDefault()
-                return Message.GotNavigationMessage({
-                  message: Navigation.Message.AttemptedUnload(),
-                })
-              },
+              filterMapEvent: () =>
+                Option.some(
+                  Message.GotNavigationMessage({
+                    message: Navigation.Message.AttemptedUnload(),
+                  }),
+                ),
             })
           : Stream.empty,
     },

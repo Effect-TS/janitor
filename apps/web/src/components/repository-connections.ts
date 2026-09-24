@@ -12,7 +12,7 @@ import * as Dialog from "@foldkit/ui/dialog"
 import type * as Update from "foldkit/update"
 import * as Submodel from "foldkit/submodel"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Button from "@/components/ui/button"
 import * as DialogChrome from "@/components/ui/dialog"
 import { chip, type ChipVariant } from "@/components/ui/chip"
@@ -62,7 +62,7 @@ export const init = (returnPath = Routes.home()): Model => ({
 })
 /** Enter from a repository route, or retain the destination across the GitHub callback. */
 export const enter = (model: Model, returnPath = model.returnPath): Model =>
-  evo(model, { returnPath: () => returnPath })
+  modifyFields(model, { returnPath: () => returnPath })
 
 export const Message = defineMessageUnion({
   ClickedCancel: {},
@@ -170,7 +170,7 @@ const Github = Command.define("OpenGitHubInstallation", {
     ),
 })
 const mapDialog = (model: Model, result: ReturnType<typeof Dialog.open>) => ({
-  model: evo(model, { dialog: () => result.model }),
+  model: modifyFields(model, { dialog: () => result.model }),
   commands: Command.mapMessages(result.commands, (message) =>
     Message.GotDialogMessage({ message }),
   ),
@@ -179,14 +179,14 @@ const isBusy = (model: Model): boolean => Option.isSome(model.pending)
 const matchesOperation = (model: Model, operationId: number) =>
   Option.exists(model.pending, (pending) => pending.operationId === operationId)
 const begin = (model: Model, action: string, repositoryId: string | null = null): Model =>
-  evo(model, {
+  modifyFields(model, {
     pending: () => Option.some({ operationId: model.nextOperationId, action, repositoryId }),
     nextOperationId: (id) => id + 1,
     error: () => Option.none(),
     notice: () => "",
   })
 const reload = (model: Model, state = "") => ({
-  model: evo(model, {
+  model: modifyFields(model, {
     liveRefresh: () => false,
     nextRequestId: (id) => id + 1,
     maybeLoadRequest: () => Option.some(model.nextRequestId),
@@ -217,7 +217,7 @@ export const update = (model: Model, message: Message) =>
               maybeLoadRequest: Option.none(),
             })
           : {
-              model: evo(model, {
+              model: modifyFields(model, {
                 inventory: () => Option.some(inventory),
                 loadError: () => Option.none(),
                 maybeLoadRequest: () => Option.none(),
@@ -233,7 +233,7 @@ export const update = (model: Model, message: Message) =>
         : model.liveRefresh
           ? reload(model)
           : {
-              model: evo(model, {
+              model: modifyFields(model, {
                 loadError: () => Option.some(reason),
                 maybeLoadRequest: () => Option.none(),
                 notice: () => "",
@@ -242,8 +242,10 @@ export const update = (model: Model, message: Message) =>
     Failed: ({ reason, operationId }) =>
       !matchesOperation(model, operationId)
         ? { model }
-        : reload(evo(model, { pending: () => Option.none(), error: () => Option.some(reason) })),
-    Searched: ({ value }) => ({ model: evo(model, { search: () => value }) }),
+        : reload(
+            modifyFields(model, { pending: () => Option.none(), error: () => Option.some(reason) }),
+          ),
+    Searched: ({ value }) => ({ model: modifyFields(model, { search: () => value }) }),
     ClickedRefresh: () =>
       isBusy(model)
         ? { model }
@@ -255,7 +257,7 @@ export const update = (model: Model, message: Message) =>
       !matchesOperation(model, operationId)
         ? { model }
         : reload(
-            evo(model, {
+            modifyFields(model, {
               pending: () => Option.none(),
               notice: () => "Refreshing repository list…",
             }),
@@ -271,7 +273,7 @@ export const update = (model: Model, message: Message) =>
       if (!matchesOperation(model, operationId)) return { model }
       const dialogClose = mapDialog(model, Dialog.close(model.dialog))
       const next = reload(
-        evo(dialogClose.model, {
+        modifyFields(dialogClose.model, {
           pending: () => Option.none(),
           inventory: Option.map((inventory) => ({
             ...inventory,
@@ -315,7 +317,7 @@ export const update = (model: Model, message: Message) =>
       !matchesOperation(model, operationId)
         ? { model }
         : reload(
-            evo(model, {
+            modifyFields(model, {
               pending: () => Option.none(),
               notice: () => "Synchronization requested.",
             }),
@@ -331,7 +333,7 @@ export const update = (model: Model, message: Message) =>
       !matchesOperation(model, operationId)
         ? { model }
         : {
-            model: evo(model, { pending: () => Option.none() }),
+            model: modifyFields(model, { pending: () => Option.none() }),
             outMessage: OutMessage.OpenGithub({ url }),
           },
     ClickedDisconnect: () =>
@@ -595,6 +597,7 @@ export const view = Submodel.defineView<
       view: Dialog.view,
       toParentMessage: (message) => Message.GotDialogMessage({ message }),
       viewInputs: {
+        hasDescription: true,
         toView: (render) =>
           DialogChrome.view(h, {
             dialog: render.dialog,

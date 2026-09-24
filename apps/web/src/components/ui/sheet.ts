@@ -1,6 +1,7 @@
 import * as FoldkitDialog from "@foldkit/ui/dialog"
 import type { AnchorConfig } from "@foldkit/ui/anchor"
 import type { Attribute, ChildAttribute, HtmlBuilder, Html } from "foldkit/html"
+import type * as Update from "foldkit/update"
 import { cn } from "@/lib/utils"
 
 export const Model = FoldkitDialog.Model
@@ -23,6 +24,10 @@ export const init = (config: InitConfig): Model =>
     isAnimated: true,
     ...config,
   })
+
+/** Starts with the sheet already open, mirroring `init` for tests and restored state. */
+export const boot = (config: InitConfig): Update.ReturnWithOutMessage<Model, Message, OutMessage> =>
+  FoldkitDialog.boot({ isAnimated: true, ...config })
 
 export const update = FoldkitDialog.update
 
@@ -155,6 +160,7 @@ export type SheetContent<M> = {
 }
 
 export type StyledViewInputs<M> = {
+  readonly hasDescription?: boolean
   readonly side?: Side
   readonly className?: string
   readonly backdropClass?: string
@@ -179,6 +185,9 @@ export const styledViewInputs = <M>(
 ): ViewInputs => {
   const side = viewInputs.side ?? "right"
   return {
+    ...(viewInputs.hasDescription === undefined
+      ? {}
+      : { hasDescription: viewInputs.hasDescription }),
     toView: ({ backdrop, closeButton, description, dialog, isVisible, panel, title }) =>
       h.dialog(
         [...dialog, h.Class(cn("p-0 bg-transparent open:block", viewInputs.className))],

@@ -75,6 +75,7 @@ import * as Cause from "effect/Cause"
 import * as HttpServerRespondable from "effect/unstable/http/HttpServerRespondable"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { JanitorHyperdrive } from "./Database.ts"
+import * as PostgresTypes from "./PostgresTypes.ts"
 import {
   GitHubEventsDeadLetter,
   GitHubPayloadReader,
@@ -204,6 +205,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
 
     const DatabaseLayer = Postgres.PostgresLayer({
       url: hyperdrive.connectionString,
+      types: PostgresTypes.types,
     })
 
     // Every secret is read here, during init, so Alchemy binds it at deploy

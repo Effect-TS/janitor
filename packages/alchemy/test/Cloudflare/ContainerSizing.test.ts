@@ -5,6 +5,7 @@ import * as Alchemy from "alchemy"
 import { AlchemyContext } from "alchemy/AlchemyContext"
 import { provideFreshArtifactStore } from "alchemy/Artifacts"
 import { LoggingCli } from "alchemy/Cli/LoggingCli"
+import * as Interaction from "alchemy/Interaction"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { findProvider } from "alchemy/Provider"
 import { evalStack } from "alchemy/Stack"
@@ -108,7 +109,7 @@ for (const updating of [false, true]) {
           { stage: "test" },
         ).pipe(
           provideFreshArtifactStore,
-          Effect.provide([LoggingCli, inMemoryState()]),
+          Effect.provide([LoggingCli, Interaction.layerNonInteractive(), inMemoryState()]),
           Effect.provideService(AlchemyContext, {
             dotAlchemy: "/tmp/janitor-container-sizing-test",
             dev: false,

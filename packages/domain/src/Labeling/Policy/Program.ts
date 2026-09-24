@@ -10,6 +10,7 @@ import {
   conditionFacts,
   conditionFromSource,
   ConditionSource,
+  rejectingUnknownKeys,
   conditionToSource,
   PolicyId,
   type PolicyNames,
@@ -71,7 +72,7 @@ export const ClassifySource = Schema.Struct({
   evidence: ClassifierEvaluator.fields.evidence,
   minimumConfidence: Confidence.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0.8))),
 })
-export const ProgramSource = Schema.Union([
+const ProgramSourceShape = Schema.Union([
   Schema.Struct({
     target: PolicyTarget,
     appliesWhen: Schema.optionalKey(ConditionSource),
@@ -82,9 +83,11 @@ export const ProgramSource = Schema.Union([
     appliesWhen: Schema.optionalKey(ConditionSource),
     classify: ClassifySource,
   }),
-]).annotate({
+])
+
+/** An authored program. Misspelled or ambiguous keys are rejected rather than silently dropped. */
+export const ProgramSource = rejectingUnknownKeys(ProgramSourceShape).annotate({
   identifier: "ProgramSource",
-  parseOptions: { onExcessProperty: "error" },
 })
 export type ProgramSource = typeof ProgramSource.Type
 
@@ -145,7 +148,7 @@ export const evaluatorFacts = (evaluator: Evaluator): ReadonlyArray<FactName> =>
 export const ProgramFromSource = (names: PolicyNames) =>
   ProgramSource.pipe(
     Schema.decodeTo(Program, {
-      decode: SchemaGetter.transformOrFail(
+      decode: SchemaGetter.transformEffect(
         (source: ProgramSource): Effect.Effect<ProgramEncoded, SchemaIssue.Issue> => {
           const program = programFromSource(source, names)
           return program instanceof UnknownPolicyName

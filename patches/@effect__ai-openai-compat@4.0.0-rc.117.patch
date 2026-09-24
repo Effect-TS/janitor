@@ -1,5 +1,5 @@
 diff --git a/dist/OpenAiClient.js b/dist/OpenAiClient.js
-index 041cc8efd686082b1371d4ba6064c13980aaf2fd..194d2dabfbfab6bc5abd2428ade9a18345299183 100644
+index 041cc8efd686082b1371d4ba6064c13980aaf2fd..bcbdbfe5ebe954019fa05c6ed0d42f3d89353ace 100644
 --- a/dist/OpenAiClient.js
 +++ b/dist/OpenAiClient.js
 @@ -14,6 +14,7 @@ import { identity } from "effect/Function";
@@ -14,9 +14,9 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..194d2dabfbfab6bc5abd2428ade9a183
    prompt_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any),
    completion_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any)
  });
-+const ServiceTier = Schema.NullOr(Schema.String).pipe(Schema.decodeTo(Schema.UndefinedOr(Schema.String), SchemaTransformation.transform({
-+  decode: (value) => value ?? undefined,
-+  encode: (value) => value ?? null
++const ServiceTier = /*#__PURE__*/Schema.NullOr(Schema.String).pipe(/*#__PURE__*/Schema.decodeTo(/*#__PURE__*/Schema.UndefinedOr(Schema.String), /*#__PURE__*/SchemaTransformation.transform({
++  decode: value => value ?? undefined,
++  encode: value => value ?? null
 +})));
  const ChatCompletionResponse = /*#__PURE__*/Schema.Struct({
    id: Schema.String,
@@ -43,7 +43,7 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..194d2dabfbfab6bc5abd2428ade9a183
    }
  };
 -const isChatCompletionChunk = /*#__PURE__*/Schema.is(ChatCompletionChunk);
-+const decodeChatCompletionChunk = Schema.decodeUnknownResult(ChatCompletionChunk);
++const decodeChatCompletionChunk = /*#__PURE__*/Schema.decodeUnknownResult(ChatCompletionChunk);
  const decodeChatCompletionSseData = data => {
    if (data === "[DONE]") {
      return data;

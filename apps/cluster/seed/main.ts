@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema"
 import * as Schedule from "effect/Schedule"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { GitHubReadModel } from "../src/GitHub/ReadModel.ts"
+import * as PostgresTypes from "../src/PostgresTypes.ts"
 import { RulesetActivation } from "../src/Labeling/Activation.ts"
 import { LabelingConfiguration } from "../src/Labeling/Configuration.ts"
 import { Policies } from "../src/Labeling/Policies.ts"
@@ -234,7 +235,7 @@ const DatabaseUrl = Config.schema(Schema.Redacted(Schema.String), "DATABASE_URL"
 // Retry only connection acquisition; schema and seed errors still fail once.
 const Database = PgClient.layerFrom(
   Effect.flatMap(DatabaseUrl, (url) =>
-    PgClient.make({ url, connectTimeout: "1 second" }).pipe(
+    PgClient.make({ url, connectTimeout: "1 second", types: PostgresTypes.types }).pipe(
       Effect.retry({
         times: 30,
         schedule: Schedule.spaced("1 second"),

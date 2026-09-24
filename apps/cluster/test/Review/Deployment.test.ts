@@ -4,6 +4,7 @@ import * as Alchemy from "alchemy"
 import { AlchemyContext } from "alchemy/AlchemyContext"
 import { provideFreshArtifactStore } from "alchemy/Artifacts"
 import { LoggingCli } from "alchemy/Cli/LoggingCli"
+import * as Interaction from "alchemy/Interaction"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { evalStack } from "alchemy/Stack"
 import { inMemoryState } from "alchemy/State"
@@ -32,6 +33,14 @@ for (const enabled of [false, true]) {
             return {}
           }),
         ) {}
+        // The fixed ConfigProvider below hides the process environment (including
+        // CI) from Alchemy, which would otherwise fall back to the profile store
+        // that CI runners do not have. Fake environment credentials keep credential
+        // resolution lazy; nothing here contacts Cloudflare.
+        const cloudflareEnv = {
+          CLOUDFLARE_ACCOUNT_ID: "0".repeat(32),
+          CLOUDFLARE_API_TOKEN: "test",
+        }
         const stack = Alchemy.Stack(
           "ReviewConfigTest",
           { providers: Cloudflare.providers(), state: inMemoryState() },
@@ -60,9 +69,11 @@ for (const enabled of [false, true]) {
           Effect.provideService(Cloudflare.Workers.WorkerEnvironment, deploymentEnv),
           Effect.provide([
             LoggingCli,
+            Interaction.layerNonInteractive(),
             inMemoryState(),
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
+                ...cloudflareEnv,
                 ALCHEMY_PHASE: phase,
                 ...(phase === "plan"
                   ? { JANITOR_ISSUE_REVIEW_ENABLED: String(enabled) }

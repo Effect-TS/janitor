@@ -1,0 +1,47 @@
+diff --git a/lib/Cloudflare/Containers/ContainerProvider.js b/lib/Cloudflare/Containers/ContainerProvider.js
+index ce2f166bae12ef8fb7af28095ff1c128e4a46eb6..d08ef9c6b3c56706a596a882b368eb41eee68080 100644
+--- a/lib/Cloudflare/Containers/ContainerProvider.js
++++ b/lib/Cloudflare/Containers/ContainerProvider.js
+@@ -552,7 +552,18 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+             affinities: news.affinities,
+             configuration,
+             durableObjects,
+-        }).pipe(Effect.catchTag("DurableObjectAlreadyHasApplication", () => durableObjects
++        }).pipe(
++        // Worker/Container cycles publish existing namespace IDs before the
++        // Worker upload enables container support. Wait for that upload (and
++        // Cloudflare propagation), but surface persistent configuration errors.
++        Effect.retry({
++            while: (error) => durableObjects !== undefined &&
++                error._tag === "DurableObjectNotContainerEnabled",
++            schedule: Schedule.max([
++                Schedule.spaced("3 seconds"),
++                Schedule.recurs(20),
++            ]),
++        }), Effect.catchTag("DurableObjectAlreadyHasApplication", () => durableObjects
+             ? Effect.gen(function* () {
+                 const existing = yield* findApplicationByNamespace(durableObjects.namespaceId);
+                 const recovery = resolveDurableObjectApplicationRecovery({
+diff --git a/src/Cloudflare/Containers/ContainerProvider.ts b/src/Cloudflare/Containers/ContainerProvider.ts
+index b8d91e4d0a6a25802f118724bc8d46e4dd533038..87a98f944ab1b587c564af0df96b2718a750d966 100644
+--- a/src/Cloudflare/Containers/ContainerProvider.ts
++++ b/src/Cloudflare/Containers/ContainerProvider.ts
+@@ -825,6 +825,18 @@ export const LiveContainerProvider = () =>
+           configuration,
+           durableObjects,
+         }).pipe(
++          // Worker/Container cycles publish existing namespace IDs before the
++          // Worker upload enables container support. Wait for that upload (and
++          // Cloudflare propagation), but surface persistent configuration errors.
++          Effect.retry({
++            while: (error) =>
++              durableObjects !== undefined &&
++              error._tag === "DurableObjectNotContainerEnabled",
++            schedule: Schedule.max([
++              Schedule.spaced("3 seconds"),
++              Schedule.recurs(20),
++            ]),
++          }),
+           Effect.catchTag("DurableObjectAlreadyHasApplication", () =>
+             durableObjects
+               ? Effect.gen(function* () {

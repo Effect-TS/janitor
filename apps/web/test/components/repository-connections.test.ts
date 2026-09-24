@@ -1,4 +1,5 @@
 import * as Option from "effect/Option"
+import * as Dialog from "@foldkit/ui/dialog"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import * as Connections from "@/components/repository-connections"
@@ -93,6 +94,7 @@ describe("Repository connections", () => {
         ...Connections.update(Connections.init(), Connections.Message.ClickedDisconnect()).model,
         inventory: Option.some({ repositories: [candidate] }),
       }),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.Mount.resolve(
         Connections.LoadOnMount,
         Connections.Message.LoadRequested({ state: "" }),

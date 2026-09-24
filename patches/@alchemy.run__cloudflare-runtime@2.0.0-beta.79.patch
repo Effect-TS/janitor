@@ -1,0 +1,117 @@
+diff --git a/dist/core/node/Docker.mjs b/dist/core/node/Docker.mjs
+index d8dd5221c11c459e0da2f81cd945feafb35d9f24..2e1940746c27b79e36ac2d9bedfbc429e0bd4270 100644
+--- a/dist/core/node/Docker.mjs
++++ b/dist/core/node/Docker.mjs
+@@ -125,6 +125,7 @@ const DockerLive = Layer.effect(Docker, Effect.gen(function* () {
+ 		const isSidecarCreateRequest = isCreateRequest && req.url.endsWith("-proxy");
+ 		if (isCreateRequest && !isSidecarCreateRequest) {
+ 			const original = await extractJsonBody(req);
++			if (path.basename(bin).startsWith("podman")) delete original.HostConfig?.MemorySwappiness;
+ 			const image = registeredImages.get(original.Image);
+ 			const transformed = JSON.stringify({
+ 				...original,
+@@ -143,6 +144,7 @@ const DockerLive = Layer.effect(Docker, Effect.gen(function* () {
+ 			}).end(transformed);
+ 		} else if (isSidecarCreateRequest) {
+ 			const original = await extractJsonBody(req);
++			if (path.basename(bin).startsWith("podman")) delete original.HostConfig?.MemorySwappiness;
+ 			const ports = registeredLoopbackPorts();
+ 			ensureLoopbackUnixSockets(ports);
+ 			const transformed = JSON.stringify({
+@@ -297,20 +299,22 @@ const DockerLive = Layer.effect(Docker, Effect.gen(function* () {
+ 		},
+ 		generateImageTag,
+ 		build: (tag, image) => Effect.suspend(() => {
++			const podman = path.basename(bin).startsWith("podman");
++			const dockerfile = image.context ? path.resolve(image.context, image.dockerfile) : path.resolve(image.dockerfile);
+ 			const args = [
+ 				"build",
+-				"--load",
++				...(podman ? [] : ["--load"]),
+ 				"-t",
+ 				tag,
+ 				"--platform",
+ 				"linux/amd64",
+-				"--provenance=false",
++				...(podman ? [] : ["--provenance=false"]),
+ 				...Object.entries(image.buildArgs ?? {}).map(([name, value]) => `--build-arg ${name}=${value}`),
+ 				"-f",
+-				"-",
++				podman ? dockerfile : "-",
+ 				path.resolve(image.context ?? path.dirname(image.dockerfile))
+ 			];
+-			return run(args, fs.stream(image.context ? path.resolve(image.context, image.dockerfile) : path.resolve(image.dockerfile))).pipe(Effect.withLogSpan(`docker: build ${tag}`), Effect.mapError((cause) => new SystemError({
++			return run(args, podman ? "ignore" : fs.stream(dockerfile)).pipe(Effect.withLogSpan(`docker: build ${tag}`), Effect.mapError((cause) => new SystemError({
+ 				subtag: "DockerBuildFailed",
+ 				message: `Failed to build image "${tag}".`,
+ 				cause
+diff --git a/src/core/Docker.ts b/src/core/Docker.ts
+index ad4c4ab703c2984d13d934cd128fd46f57ace1ba..49863efc9f6058a5ec7df4060dbc9a44f4237381 100644
+--- a/src/core/Docker.ts
++++ b/src/core/Docker.ts
+@@ -265,7 +265,10 @@ export const DockerLive = Layer.effect(
+           const original = await extractJsonBody<{
+             Image: string;
+             Env: Array<string>;
++            HostConfig?: { MemorySwappiness?: number };
+           }>(req);
++          // Podman on cgroup v2 rejects Workerd's memory-swappiness field.
++          if (path.basename(bin).startsWith("podman")) delete original.HostConfig?.MemorySwappiness;
+           const image = registeredImages.get(original.Image);
+           const transformed = JSON.stringify({
+             ...original,
+@@ -289,8 +292,13 @@ export const DockerLive = Layer.effect(
+           // Linux maps it to 127.0.0.1 in this netns and bind-mounts unix
+           // sockets; a SYN to the bridge IP is host INPUT (UFW).
+           const original = await extractJsonBody<{
+-            HostConfig?: { ExtraHosts?: Array<string>; Binds?: Array<string> };
++            HostConfig?: {
++              ExtraHosts?: Array<string>;
++              Binds?: Array<string>;
++              MemorySwappiness?: number;
++            };
+           }>(req);
++          if (path.basename(bin).startsWith("podman")) delete original.HostConfig?.MemorySwappiness;
+           const ports = registeredLoopbackPorts();
+           ensureLoopbackUnixSockets(ports);
+           const transformed = JSON.stringify({
+@@ -537,29 +545,28 @@ export const DockerLive = Layer.effect(
+       generateImageTag,
+       build: (tag, image) =>
+         Effect.suspend(() => {
++          // Podman has no BuildKit flags and cannot read the SDK's socket-backed
++          // stdin as /dev/stdin, so pass the Dockerfile path directly.
++          const podman = path.basename(bin).startsWith("podman");
++          const dockerfile = image.context
++            ? path.resolve(image.context, image.dockerfile)
++            : path.resolve(image.dockerfile);
+           const args = [
+             "build",
+-            "--load",
++            ...(podman ? [] : ["--load"]),
+             "-t",
+             tag,
+             "--platform",
+             "linux/amd64",
+-            "--provenance=false",
++            ...(podman ? [] : ["--provenance=false"]),
+             ...Object.entries(image.buildArgs ?? {}).map(
+               ([name, value]) => `--build-arg ${name}=${value}`,
+             ),
+             "-f",
+-            "-",
++            podman ? dockerfile : "-",
+             path.resolve(image.context ?? path.dirname(image.dockerfile)),
+           ];
+-          return run(
+-            args,
+-            fs.stream(
+-              image.context
+-                ? path.resolve(image.context, image.dockerfile)
+-                : path.resolve(image.dockerfile),
+-            ),
+-          ).pipe(
++          return run(args, podman ? "ignore" : fs.stream(dockerfile)).pipe(
+             Effect.withLogSpan(`docker: build ${tag}`),
+             Effect.mapError(
+               (cause) =>

@@ -17,7 +17,7 @@ import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
@@ -220,14 +220,14 @@ const isBusy = (model: Model): boolean => Option.isSome(model.pending)
 const matchesOperation = (model: Model, operationId: number) =>
   Option.exists(model.pending, (pending) => pending.operationId === operationId)
 const begin = (model: Model, action: PendingAction, subject: string): Model =>
-  evo(model, {
+  modifyFields(model, {
     pending: () => Option.some({ operationId: model.nextOperationId, action, subject }),
     nextOperationId: (id) => id + 1,
     error: () => Option.none(),
     notice: () => "",
   })
 const reload = (model: Model) => ({
-  model: evo(model, {
+  model: modifyFields(model, {
     liveRefresh: () => false,
     nextRequestId: (id) => id + 1,
     maybeLoadRequest: () => Option.some(model.nextRequestId),
@@ -235,11 +235,11 @@ const reload = (model: Model) => ({
   commands: [Load({ requestId: model.nextRequestId })],
 })
 const settle = (model: Model, notice: string) =>
-  reload(evo(model, { pending: () => Option.none(), notice: () => notice }))
+  reload(modifyFields(model, { pending: () => Option.none(), notice: () => notice }))
 
 /** The platform came back without a code: nothing was proven. */
 export const declined = (model: Model, error: string | undefined): Model =>
-  evo(model, {
+  modifyFields(model, {
     error: () =>
       Option.some(
         error === undefined
@@ -275,7 +275,7 @@ export const update = (model: Model, message: Message): Step =>
               maybeLoadRequest: Option.none(),
             })
           : {
-              model: evo(model, {
+              model: modifyFields(model, {
                 view: () => Option.some(view),
                 loadError: () => Option.none(),
                 maybeLoadRequest: () => Option.none(),
@@ -287,7 +287,7 @@ export const update = (model: Model, message: Message): Step =>
         : model.liveRefresh
           ? reload(model)
           : {
-              model: evo(model, {
+              model: modifyFields(model, {
                 loadError: () => Option.some(reason),
                 maybeLoadRequest: () => Option.none(),
               }),
@@ -303,7 +303,7 @@ export const update = (model: Model, message: Message): Step =>
       !matchesOperation(model, operationId)
         ? { model }
         : {
-            model: evo(model, { pending: () => Option.none() }),
+            model: modifyFields(model, { pending: () => Option.none() }),
             outMessage: OutMessage.OpenPlatform({ url }),
           },
     ClickedDisconnect: ({ linkId }) =>
@@ -343,12 +343,12 @@ export const update = (model: Model, message: Message): Step =>
             ...settle(model, `${platformName(linked.platform)} account connected.`),
             outMessage: OutMessage.FinishedReturn(),
           },
-    ToggledRemoved: () => ({ model: evo(model, { showRemoved: (shown) => !shown }) }),
+    ToggledRemoved: () => ({ model: modifyFields(model, { showRemoved: (shown) => !shown }) }),
     Failed: ({ reason, operationId }) => {
       if (!matchesOperation(model, operationId)) return { model }
       const wasReturn = Option.exists(model.pending, (pending) => pending.action === "return")
       const next = reload(
-        evo(model, { pending: () => Option.none(), error: () => Option.some(reason) }),
+        modifyFields(model, { pending: () => Option.none(), error: () => Option.some(reason) }),
       )
       return wasReturn ? { ...next, outMessage: OutMessage.FinishedReturn() } : next
     },

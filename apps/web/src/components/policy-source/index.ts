@@ -8,7 +8,7 @@ import type { Html } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
 import * as Command from "foldkit/command"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import { FactDescription } from "@/components/labeling-wire"
@@ -146,17 +146,20 @@ export const update = (model: Model, message: Message): Update.Return<Model, Mes
         ? { model, commands: [FormatEditor({ id: model.id })] }
         : { model },
     FailedFormat: ({ reason }) => ({
-      model: evo(model, { maybeParseError: () => Option.some(reason) }),
+      model: modifyFields(model, { maybeParseError: () => Option.some(reason) }),
     }),
-    MountedEditor: () => ({ model: evo(model, { mountStatus: () => "Ready" as const }) }),
+    MountedEditor: () => ({ model: modifyFields(model, { mountStatus: () => "Ready" as const }) }),
     FailedToMountEditor: ({ reason }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         mountStatus: () => "Failed" as const,
         maybeParseError: () => Option.some(reason),
       }),
     }),
     EditedSource: ({ source }) => ({
-      model: evo(model, { source: () => source, maybeParseError: () => parseError(source) }),
+      model: modifyFields(model, {
+        source: () => source,
+        maybeParseError: () => parseError(source),
+      }),
     }),
   })
 
