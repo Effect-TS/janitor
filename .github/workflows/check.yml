@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  static:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -25,8 +25,49 @@ jobs:
           version: "0.3.0"
           node-version: "24.19.0"
           run-install: false
-      - name: Install ripgrep (used by review workspace tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+          cache: true
       - run: vp install --frozen-lockfile
       - run: vp check
-      - run: vp test
+
+  test:
+    name: test (${{ matrix.shard }}/2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: voidzero-dev/setup-vp@27ddd5a8e32d89312fdd2c227d7d1613ca5465b0 # v1.16.1
+        with:
+          version: "0.3.0"
+          node-version: "24.19.0"
+          run-install: false
+          cache: true
+      - name: Install ripgrep (used by review workspace tests)
+        env:
+          RIPGREP: ripgrep-15.2.0-x86_64-unknown-linux-musl
+          RIPGREP_SHA256: 33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/rg.tgz" \
+            "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/$RIPGREP.tar.gz"
+          echo "$RIPGREP_SHA256  $RUNNER_TEMP/rg.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/rg.tgz" -C "$RUNNER_TEMP/bin" --strip-components=1 "$RIPGREP/rg"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # Overlaps the image pull with the install instead of the first test file.
+      - name: Pull the Postgres test image
+        run: nohup docker pull --quiet postgres:18-alpine > /dev/null 2>&1 &
+      - run: vp install --frozen-lockfile
+      - run: vp test --shard=${{ matrix.shard }}/2
+
+  # The ruleset on main requires a status named `check`.
+  check:
+    if: always()
+    needs: [static, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

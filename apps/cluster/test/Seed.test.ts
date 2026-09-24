@@ -1,49 +1,42 @@
 import { execFile } from "node:child_process"
-import { readdir } from "node:fs/promises"
 import { promisify } from "node:util"
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
+import * as PgClient from "@effect/sql-pg/PgClient"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Redacted from "effect/Redacted"
+import * as Scope from "effect/Scope"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { afterAll, beforeAll, expect, it } from "vite-plus/test"
+import { migratedDatabase } from "./support/Postgres.ts"
 
 const run = promisify(execFile)
-let container: StartedPostgreSqlContainer
+let scope: Scope.Closeable
+let url: string
 
 beforeAll(async () => {
-  const migrations = new URL("../migrations/", import.meta.url)
-  const files = (await readdir(migrations)).filter((file) => file.endsWith(".sql")).sort()
-  container = await new PostgreSqlContainer("postgres:18-alpine")
-    .withCopyFilesToContainer(
-      files.map((file) => ({
-        source: new URL(file, migrations).pathname,
-        target: `/docker-entrypoint-initdb.d/${file}`,
-      })),
-    )
-    .start()
+  scope = await Effect.runPromise(Scope.make())
+  url = (await Effect.runPromise(Scope.provide(migratedDatabase, scope))).url
 }, 60_000)
 
 afterAll(async () => {
-  await container?.stop()
+  if (scope) await Effect.runPromise(Scope.close(scope, Exit.void))
 })
 
 const seed = () =>
   run(process.execPath, [new URL("../seed/main.ts", import.meta.url).pathname], {
-    env: { ...process.env, DATABASE_URL: container.getConnectionUri() },
+    env: { ...process.env, DATABASE_URL: url },
   })
 
-const query = async (sql: string) => {
-  const result = await container.exec([
-    "psql",
-    "-U",
-    container.getUsername(),
-    "-d",
-    container.getDatabase(),
-    "-v",
-    "ON_ERROR_STOP=1",
-    "-Atc",
-    sql,
-  ])
-  expect(result.exitCode).toBe(0)
-  return result.output.trim()
-}
+/** Runs `text` and returns the first column of its first row, as `psql -At` would. */
+const query = (text: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const rows = yield* sql.unsafe(text).unprepared
+      const first = rows[0]
+      return first === undefined ? "" : String(Object.values(first)[0])
+    }).pipe(Effect.provide(PgClient.layer({ url: Redacted.make(url) })), Effect.scoped),
+  )
 
 it("seeds the baseline and rolls back all changes when a later seed fails", async () => {
   const result = await seed()

@@ -19,6 +19,7 @@ import {
   type GitHubRequest,
   type GitHubResponse,
 } from "../../src/GitHub/Transport.ts"
+import { withElapsingClock } from "../support/TestTime.ts"
 
 const Probe = Workflow.make("Test/Paginate", {
   payload: Schema.Struct({ run: Schema.String }),
@@ -88,40 +89,37 @@ const ok = (body: unknown, etag: string, link?: string): GitHubResponse => ({
 })
 
 describe("paginate with the HTTP cache", () => {
-  it.live(
-    "caps transient retries and never retries permanent failures",
-    () =>
-      Effect.gen(function* () {
-        for (const retryable of [false, true]) {
-          let attempts = 0
-          const run = Probe.execute({ run: `retry-${retryable}` }).pipe(
-            Effect.provide(
-              Probe.toLayer(() =>
-                withRateLimitWaits("retry-test", (attempt) =>
-                  Activity.make({
-                    name: `attempt-${attempt}`,
-                    error: SyncActivityError,
-                    execute: Effect.suspend(() => {
-                      attempts++
-                      return Effect.fail(
-                        new SyncActivityError({ message: "injected failure", retryable }),
-                      )
-                    }),
+  it.effect("caps transient retries and never retries permanent failures", () =>
+    Effect.gen(function* () {
+      for (const retryable of [false, true]) {
+        let attempts = 0
+        const run = Probe.execute({ run: `retry-${retryable}` }).pipe(
+          Effect.provide(
+            Probe.toLayer(() =>
+              withRateLimitWaits("retry-test", (attempt) =>
+                Activity.make({
+                  name: `attempt-${attempt}`,
+                  error: SyncActivityError,
+                  execute: Effect.suspend(() => {
+                    attempts++
+                    return Effect.fail(
+                      new SyncActivityError({ message: "injected failure", retryable }),
+                    )
                   }),
-                ).pipe(
-                  Effect.as({ ids: [] }),
-                  Effect.mapError((error) => error.message),
-                ),
-              ).pipe(Layer.provideMerge(WorkflowEngine.layerMemory)),
-            ),
-            Effect.result,
-          )
-          const result = yield* run
-          assert.strictEqual(result._tag, "Failure")
-          assert.strictEqual(attempts, retryable ? 4 : 1)
-        }
-      }),
-    { timeout: 30000 },
+                }),
+              ).pipe(
+                Effect.as({ ids: [] }),
+                Effect.mapError((error) => error.message),
+              ),
+            ).pipe(Layer.provideMerge(WorkflowEngine.layerMemory)),
+          ),
+          Effect.result,
+        )
+        const result = yield* withElapsingClock(run)
+        assert.strictEqual(result._tag, "Failure")
+        assert.strictEqual(attempts, retryable ? 4 : 1)
+      }
+    }),
   )
   it.effect("sends stored etags and stores fresh pages with their next link", () =>
     Effect.gen(function* () {

@@ -1,7 +1,10 @@
 name: Deploy
 
 on:
-  push:
+  # Deploy only commits that passed Check, instead of repeating its work here.
+  workflow_run:
+    workflows: [Check]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -20,22 +23,30 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    if: >-
+      github.ref == 'refs/heads/main' && (
+        github.event_name == 'workflow_dispatch' || (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        )
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     environment: production
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # A workflow_run event otherwise checks out the latest main, not the commit Check passed.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: voidzero-dev/setup-vp@27ddd5a8e32d89312fdd2c227d7d1613ca5465b0 # v1.16.1
         with:
           version: "0.3.0"
           node-version: "24.19.0"
           run-install: false
-      - name: Install ripgrep (used by review workspace tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+          cache: true
       - run: vp install --frozen-lockfile
-      - run: vp check
       - run: docker info
-      - run: vp test
       - name: Plan or deploy production
         env:
           ALCHEMY_MODE: ${{ inputs.action == 'plan' && '--dry-run' || '--yes' }}

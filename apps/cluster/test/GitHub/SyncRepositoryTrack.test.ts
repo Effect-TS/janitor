@@ -27,6 +27,7 @@ import {
   type GitHubResponse,
 } from "../../src/GitHub/Transport.ts"
 import { type BeginResult, type CompleteRequest, SyncTargets } from "../../src/SyncTargets.ts"
+import { withElapsingClock } from "../support/TestTime.ts"
 
 const repositoryId = GitHubRepositoryDatabaseId.make("456")
 const installationId = GitHubInstallationId.make("789")
@@ -366,26 +367,27 @@ describe("SyncRepositoryTrack", () => {
     }),
   )
 
-  it.live(
+  it.effect(
     "commits an entity page before fetching the next and never verifies partial scans",
     () =>
       Effect.gen(function* () {
         const recorder = makeRecorder()
-        const result = yield* runTrack("entities", recorder, (request) => {
-          if (!request.url.includes("page=2"))
-            return ok(
-              [issue(1, "2026-09-02T12:00:00.000Z")],
-              '<https://api.github.com/repos/effect/janitor/issues?page=2>; rel="next"',
-            )
-          assert.strictEqual(recorder.issues.length, 1)
-          return failed(500)
-        })
+        const result = yield* withElapsingClock(
+          runTrack("entities", recorder, (request) => {
+            if (!request.url.includes("page=2"))
+              return ok(
+                [issue(1, "2026-09-02T12:00:00.000Z")],
+                '<https://api.github.com/repos/effect/janitor/issues?page=2>; rel="next"',
+              )
+            assert.strictEqual(recorder.issues.length, 1)
+            return failed(500)
+          }),
+        )
         assert.strictEqual(result.outcome, "failed")
         assert.strictEqual(recorder.completed[0]?.outcome._tag, "Failed")
         assert.strictEqual(recorder.issues.length, 1)
         assert.strictEqual(recorder.requests.length, 5)
       }),
-    { timeout: 30000 },
   )
   it.effect("a complete open scan requests targeted verification of missing local entities", () =>
     Effect.gen(function* () {
@@ -518,15 +520,14 @@ describe("RefreshEntity", () => {
       ])
     }),
   )
-  it.live(
-    "reads beyond 300 files and refuses incomplete or changing snapshots",
-    () =>
-      Effect.gen(function* () {
-        for (const scenario of ["complete", "limit", "mismatch", "changed", "failed"] as const) {
-          const recorder = makeRecorder()
-          let pullReads = 0
-          const total = scenario === "limit" ? 3100 : 350
-          const result = yield* runRefresh(
+  it.effect("reads beyond 300 files and refuses incomplete or changing snapshots", () =>
+    Effect.gen(function* () {
+      for (const scenario of ["complete", "limit", "mismatch", "changed", "failed"] as const) {
+        const recorder = makeRecorder()
+        let pullReads = 0
+        const total = scenario === "limit" ? 3100 : 350
+        const result = yield* withElapsingClock(
+          runRefresh(
             recorder,
             (request) => {
               if (request.url.endsWith("/issues/42"))
@@ -560,20 +561,20 @@ describe("RefreshEntity", () => {
               )
             },
             ["changed_files"],
-          )
-          if (scenario === "complete" || scenario === "limit") {
-            assert.strictEqual(result.outcome, "verified")
-            const collections = recorder.collections[0]!.collections
-            assert.strictEqual(collections.files.length, scenario === "limit" ? 3000 : 350)
-            assert.strictEqual(collections.filesComplete, scenario === "complete")
-            if (scenario === "limit")
-              assert.include(collections.filesIncompleteReason!, "3000 of 3100")
-          } else {
-            assert.strictEqual(result.outcome, "failed")
-            assert.lengthOf(recorder.collections, 0)
-          }
+          ),
+        )
+        if (scenario === "complete" || scenario === "limit") {
+          assert.strictEqual(result.outcome, "verified")
+          const collections = recorder.collections[0]!.collections
+          assert.strictEqual(collections.files.length, scenario === "limit" ? 3000 : 350)
+          assert.strictEqual(collections.filesComplete, scenario === "complete")
+          if (scenario === "limit")
+            assert.include(collections.filesIncompleteReason!, "3000 of 3100")
+        } else {
+          assert.strictEqual(result.outcome, "failed")
+          assert.lengthOf(recorder.collections, 0)
         }
-      }),
-    { timeout: 60000 },
+      }
+    }),
   )
 })

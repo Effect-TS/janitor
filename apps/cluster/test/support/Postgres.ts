@@ -1,4 +1,6 @@
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
+import { PostgreSqlContainer } from "@testcontainers/postgresql"
+import { inject } from "vite-plus/test"
+import type { TestProject } from "vite-plus/test/node"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as PgClient from "@effect/sql-pg/PgClient"
 import * as Effect from "effect/Effect"
@@ -80,23 +82,93 @@ const applyMigrations = Effect.gen(function* () {
   }
 })
 
-const PostgresLayer = Layer.unwrap(
+/** The migrated database every test database is copied from. */
+const TEMPLATE = "migrated"
+
+const clientLayer = (url: string) =>
+  PgClient.layer({
+    url: Redacted.make(url, { label: "postgres-connection-url" }),
+    types: PostgresTypes.types,
+  })
+
+const withDatabase = (url: string, database: string) => {
+  const next = new URL(url)
+  next.pathname = `/${database}`
+  return next.toString()
+}
+
+/** Runs `effect` against `url` with a short-lived client. */
+const usingDatabase = <A, E>(
+  url: string,
+  effect: Effect.Effect<A, E, SqlClient.SqlClient | FileSystem.FileSystem | Path.Path>,
+) => effect.pipe(Effect.provide(Layer.merge(clientLayer(url), NodeServices.layer)), Effect.scoped)
+
+/** Runs one statement that cannot run inside a transaction, such as `CREATE DATABASE`. */
+const execute = (url: string, statement: string) =>
+  usingDatabase(
+    url,
+    Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe(statement).unprepared),
+  )
+
+declare module "vitest" {
+  export interface ProvidedContext {
+    /** Connection URL for the shared server's maintenance database. */
+    readonly postgresUrl: string
+  }
+}
+
+/**
+ * Vitest global setup: starts one Postgres 18 server for the run and migrates
+ * the template database. Tests never survive a crash, so durability is off.
+ */
+export const setup = (project: TestProject) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const container = yield* Effect.promise(() =>
+        new PostgreSqlContainer("postgres:18-alpine")
+          .withCommand([
+            "postgres",
+            "-c",
+            "fsync=off",
+            "-c",
+            "synchronous_commit=off",
+            "-c",
+            "full_page_writes=off",
+            "-c",
+            "max_connections=500",
+          ])
+          .start(),
+      )
+      const url = container.getConnectionUri()
+      yield* execute(url, `CREATE DATABASE ${TEMPLATE}`)
+      yield* usingDatabase(withDatabase(url, TEMPLATE), applyMigrations)
+      // Refusing connections keeps the template copyable by every worker at once.
+      yield* execute(
+        url,
+        `ALTER DATABASE ${TEMPLATE} WITH IS_TEMPLATE true ALLOW_CONNECTIONS false`,
+      )
+      project.provide("postgresUrl", url)
+      return () => container.stop()
+    }),
+  )
+
+/**
+ * Copies the migrated template into a new database on the shared server and
+ * drops it when the scope closes. Returns the new database's connection URL.
+ */
+export const migratedDatabase = Effect.acquireRelease(
   Effect.gen(function* () {
-    const container = yield* Effect.acquireRelease(
-      Effect.promise((): Promise<StartedPostgreSqlContainer> =>
-        new PostgreSqlContainer("postgres:18-alpine").start(),
-      ),
-      (container) => Effect.promise(() => container.stop()),
-    )
-    return PgClient.layer({
-      url: Redacted.make(container.getConnectionUri(), { label: "postgres-connection-url" }),
-      types: PostgresTypes.types,
-    })
-  }),
+    const server = inject("postgresUrl")
+    // Not `Random`: test services may seed it, and names must differ across workers.
+    const name = `test_${crypto.randomUUID().replaceAll("-", "")}`
+    yield* execute(server, `CREATE DATABASE ${name} TEMPLATE ${TEMPLATE}`)
+    return { url: withDatabase(server, name), name, server }
+  }).pipe(Effect.orDie),
+  ({ name, server }) =>
+    execute(server, `DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).pipe(Effect.ignore),
 )
 
-/** A fresh Postgres 18 container with all migrations applied. */
-export const MigratedPostgresLayer = Layer.effectDiscard(applyMigrations).pipe(
-  Layer.provideMerge(PostgresLayer),
-  Layer.provide(NodeServices.layer),
+/** A fresh database with all migrations applied, on the run's shared server. */
+export const MigratedPostgresLayer = Layer.unwrap(
+  Effect.map(migratedDatabase, ({ url }) => clientLayer(url)),
 )
