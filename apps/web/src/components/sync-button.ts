@@ -10,7 +10,7 @@ import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import { RefreshCw } from "lucide"
@@ -170,7 +170,7 @@ const foldTooltipOutMessage = Match.type<Tooltip.OutMessage>().pipe(
 const foldTooltip = Update.foldChild({
   update: Tooltip.update,
   read: (model: Model) => Option.some(model.tooltip),
-  write: (model, next) => evo(model, { tooltip: () => next }),
+  write: (model, next) => modifyFields(model, { tooltip: () => next }),
   toParentMessage: (message) => Message.GotTooltipMessage({ message }),
   foldOutMessage: foldTooltipOutMessage,
 })
@@ -185,7 +185,7 @@ const absorbSummary = (
   receivedAt: DateTime.Utc,
 ): UpdateReturn => {
   const wasSyncing = stateOf(model) === "syncing"
-  const next: Model = evo(model, {
+  const next: Model = modifyFields(model, {
     summary: () => Option.some(summary),
     observedAt: () => Option.some(receivedAt),
     isPolling: () => false,
@@ -193,7 +193,7 @@ const absorbSummary = (
   })
   if (model.needsRefresh)
     return {
-      model: evo(next, { needsRefresh: () => false, isPolling: () => true }),
+      model: modifyFields(next, { needsRefresh: () => false, isPolling: () => true }),
       commands: [FetchSyncSummary()],
     }
   return wasSyncing && summary.state !== "syncing"
@@ -216,7 +216,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       isSyncing(model) || model.isPolling
         ? { model }
         : {
-            model: evo(model, { isRequesting: () => true, lastError: () => Option.none<string>() }),
+            model: modifyFields(model, {
+              isRequesting: () => true,
+              lastError: () => Option.none<string>(),
+            }),
             commands: [RequestSync(repositoryId === undefined ? {} : { repositoryId })],
           },
 
@@ -224,14 +227,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.isRequesting || model.isPolling
         ? { model }
         : {
-            model: evo(model, { isPolling: () => true }),
+            model: modifyFields(model, { isPolling: () => true }),
             commands: [FetchSyncSummary()],
           },
 
     GotSummary: ({ summary, receivedAt }) => absorbSummary(model, summary, receivedAt),
 
     FailedSummary: ({ reason }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         isPolling: () => model.needsRefresh,
         needsRefresh: () => false,
         lastError: () => Option.some(reason),
@@ -240,7 +243,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
 
     GotRequestResult: ({ summary, receivedAt }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         summary: () => Option.some(summary),
         observedAt: () => Option.some(receivedAt),
         isRequesting: () => false,
@@ -253,7 +256,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
 
     FailedRequest: ({ reason }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         isRequesting: () => false,
         isPolling: () => model.needsRefresh,
         needsRefresh: () => false,
@@ -267,7 +270,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 /** A confirmed mutation may have scheduled work while an older summary was in flight. */
 export const informWorkChanged = (model: Model): UpdateReturn =>
   model.isPolling || model.isRequesting
-    ? { model: evo(model, { needsRefresh: () => true }) }
+    ? { model: modifyFields(model, { needsRefresh: () => true }) }
     : update(model, Message.Polled())
 
 // VIEW

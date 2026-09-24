@@ -4,6 +4,7 @@ import * as Alchemy from "alchemy"
 import { AlchemyContext } from "alchemy/AlchemyContext"
 import { provideFreshArtifactStore } from "alchemy/Artifacts"
 import { LoggingCli } from "alchemy/Cli/LoggingCli"
+import * as Interaction from "alchemy/Interaction"
 import * as Cloudflare from "alchemy/Cloudflare"
 import { evalStack } from "alchemy/Stack"
 import { inMemoryState } from "alchemy/State"
@@ -60,6 +61,7 @@ for (const enabled of [false, true]) {
           Effect.provideService(Cloudflare.Workers.WorkerEnvironment, deploymentEnv),
           Effect.provide([
             LoggingCli,
+            Interaction.layerNonInteractive(),
             inMemoryState(),
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({

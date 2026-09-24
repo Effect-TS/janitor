@@ -10,7 +10,7 @@ import * as FoldkitCommand from "foldkit/command"
 import * as Mount from "foldkit/mount"
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
@@ -213,10 +213,10 @@ export const selectedTestItem = (model: Model) => {
 }
 
 export const withTestCandidates = (model: Model, candidates: TestCandidates): Model => {
-  const next = evo(model, { testCandidates: () => candidates })
+  const next = modifyFields(model, { testCandidates: () => candidates })
   return selectedTestItem(model)?.number === selectedTestItem(next)?.number
     ? next
-    : evo(next, {
+    : modifyFields(next, {
         testNumber: () => selectedTestItem(next)?.number ?? null,
         maybeTestBench: () => Option.none(),
         testGeneration: (current) => current + 1,
@@ -492,7 +492,7 @@ const foldSource = Update.foldChild({
   update: PolicySource.update,
   read: (model: Model) => Option.some(model.source),
   write: (model, nextSource) =>
-    evo(model, {
+    modifyFields(model, {
       source: () => nextSource,
       maybeTestBench: () =>
         model.source.source === nextSource.source ? model.maybeTestBench : Option.none(),
@@ -509,10 +509,10 @@ const foldTestBench = (generation: number) =>
     update: TestBench.update,
     read: (model: Model) =>
       model.testGeneration === generation ? model.maybeTestBench : Option.none(),
-    write: (model, bench) => evo(model, { maybeTestBench: () => Option.some(bench) }),
+    write: (model, bench) => modifyFields(model, { maybeTestBench: () => Option.some(bench) }),
     toParentMessage: (message) => Message.GotTestBenchMessage({ message, generation }),
     foldOutMessage: () => (model) => ({
-      model: evo(model, { maybeTestBench: () => Option.none() }),
+      model: modifyFields(model, { maybeTestBench: () => Option.none() }),
     }),
   })
 
@@ -536,15 +536,15 @@ const testDraft = (model: Model): UpdateReturn =>
           ...(model.identity._tag === "Existing" ? { policyId: model.identity.policyId } : {}),
         },
       })
-      return {
-        model: evo(model, {
-          maybeTestBench: () => Option.some(bench.model),
-          testGeneration: () => generation,
-        }),
-        commands: FoldkitCommand.mapMessages(bench.commands, (message) =>
-          Message.GotTestBenchMessage({ message, generation }),
-        ),
-      }
+      return Update.foldChildInit(bench, {
+        toParentModel: (bench) =>
+          modifyFields(model, {
+            maybeTestBench: () => Option.some(bench),
+            testGeneration: () => generation,
+          }),
+        toParentMessage: (message) => Message.GotTestBenchMessage({ message, generation }),
+        toParentOutMessage: (): OutMessage | undefined => undefined,
+      })
     },
   })
 
@@ -555,7 +555,7 @@ const submit = (model: Model, publish: boolean): UpdateReturn =>
       isSubmitting(model) || draftIssues(model).length > 0
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               submission: () => ({
                 _tag: "Submitting" as const,
                 publish,
@@ -578,7 +578,7 @@ const submit = (model: Model, publish: boolean): UpdateReturn =>
   })
 
 const mapDeleteDialog = (model: Model, result: ReturnType<typeof Dialog.open>): UpdateReturn => ({
-  model: evo(model, { deleteDialog: () => result.model }),
+  model: modifyFields(model, { deleteDialog: () => result.model }),
   commands: FoldkitCommand.mapMessages(result.commands, (message) =>
     Message.GotDeleteDialogMessage({ message }),
   ),
@@ -605,33 +605,35 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           }
         : { model },
     SelectedTestItem: ({ number }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         testNumber: () => number,
         maybeTestBench: () => Option.none(),
         testGeneration: (current) => current + 1,
       }),
     }),
-    ToggledUsedBy: ({ isOpen }) => ({ model: evo(model, { usedByOpen: () => isOpen }) }),
+    ToggledUsedBy: ({ isOpen }) => ({ model: modifyFields(model, { usedByOpen: () => isOpen }) }),
     UpdatedName: ({ value }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         name: () => value,
         submission: (submission) =>
           submission._tag === "Submitting" ? submission : { _tag: "NotSubmitted" as const },
       }),
     }),
-    UpdatedDescription: ({ value }) => ({ model: evo(model, { description: () => value }) }),
+    UpdatedDescription: ({ value }) => ({
+      model: modifyFields(model, { description: () => value }),
+    }),
     ClickedEditMetadata: ({ field }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         metadataEdits: (edits) => ({ ...edits, [field]: model[field] }),
       }),
     }),
     UpdatedMetadataDraft: ({ field, value }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         metadataEdits: (edits) => (edits[field] === null ? edits : { ...edits, [field]: value }),
       }),
     }),
     ClickedCancelMetadata: ({ field }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         metadataEdits: (edits) => ({ ...edits, [field]: null }),
       }),
     }),
@@ -639,7 +641,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       const value = model.metadataEdits[field]
       if (value === null || (field === "name" && value.trim().length === 0)) return { model }
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           name: (name) => (field === "name" ? value.trim() : name),
           description: (description) => (field === "description" ? value : description),
           metadataEdits: (edits) => ({ ...edits, [field]: null }),
@@ -657,7 +659,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : Option.match(parsedSource(model), {
             onNone: () => ({ model }),
             onSome: (source) => ({
-              model: evo(model, {
+              model: modifyFields(model, {
                 validationRequestId: (requestId) => requestId + 1,
                 validation: () => ({
                   _tag: "Validating" as const,
@@ -680,7 +682,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.validation._tag !== "Validating" || model.validation.requestId !== requestId
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               validation: () =>
                 response._tag === "Valid"
                   ? ({ _tag: "Valid", manifest: response.manifest } as const)
@@ -691,7 +693,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.validation._tag !== "Validating" || model.validation.requestId !== requestId
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               validation: () => ({ _tag: "Invalid" as const, message: reason }),
             }),
           },
@@ -700,7 +702,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedPublish: () => (hasChangesToPublish(model) ? submit(model, true) : { model }),
 
     SucceededSavePolicy: ({ detail, published }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         publishedRevision: () => detail.policy.publishedRevision,
         publishedSource: (current) =>
           published
@@ -719,7 +721,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       outMessage: OutMessage.Saved({ detail, published }),
     }),
     SavedDraftWithPublishError: ({ detail, reason }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         publishedRevision: () => detail.policy.publishedRevision,
         publishedSource: (current) => Option.orElse(publishedSourceOf(detail), () => current),
         savedFields: () => savedFields(model, detail),
@@ -738,7 +740,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     // The draft stays; the base version moves forward so the next save lands on top.
     ConflictedSavePolicy: ({ detail }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         publishedRevision: () => detail.policy.publishedRevision,
         hasBeenPublished: () => detail.policy.publishedVersionId !== null,
         publishedSource: () => publishedSourceOf(detail),
@@ -751,10 +753,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }),
     }),
     RejectedSavePolicy: ({ message }) => ({
-      model: evo(model, { submission: () => ({ _tag: "SubmitError" as const, message }) }),
+      model: modifyFields(model, { submission: () => ({ _tag: "SubmitError" as const, message }) }),
     }),
     FailedSavePolicy: ({ reason }) => ({
-      model: evo(model, { submission: () => ({ _tag: "SubmitError" as const, message: reason }) }),
+      model: modifyFields(model, {
+        submission: () => ({ _tag: "SubmitError" as const, message: reason }),
+      }),
       outMessage: OutMessage.SaveFailed({ reason }),
     }),
     ClickedCancel: () =>
@@ -1374,6 +1378,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
           view: Dialog.view,
           toParentMessage: (message) => Message.GotDeleteDialogMessage({ message }),
           viewInputs: {
+            hasDescription: true,
             toView: (render) =>
               DialogChrome.view(h, {
                 dialog: render.dialog,
@@ -1408,10 +1413,10 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
 
 /** Refresh shared configuration without replacing the author's draft. */
 export const reflectConfiguration = (model: Model, configuration: ConfigurationView): Model =>
-  evo(model, {
+  modifyFields(model, {
     configuration: () => configuration,
     source: (source) =>
-      evo(source, {
+      modifyFields(source, {
         referencePolicies: () =>
           configuration.policies
             .filter(

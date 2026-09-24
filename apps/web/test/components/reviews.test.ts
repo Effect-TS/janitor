@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ReviewRun } from "@janitor/domain/Review/Run"
 import { ReviewRunId } from "@janitor/domain/Review/Run"
 import * as Reviews from "@/components/reviews"
+import * as Dialog from "@foldkit/ui/dialog"
 import * as Sheet from "@/components/ui/sheet"
 
 const at = DateTime.makeUnsafe("2026-09-17T12:00:00.000Z")
@@ -80,7 +81,7 @@ const activated = () =>
 const selected = (model: Reviews.Model, runId: string): Reviews.Model => ({
   ...model,
   selectedRunId: runId,
-  drawer: Sheet.init({ id: "review-details", isOpen: true }),
+  drawer: Sheet.boot({ id: "review-details", isAnimated: false }).model,
 })
 
 describe("Reviews", () => {
@@ -106,6 +107,7 @@ describe("Reviews", () => {
           eligible.runId,
         ),
       ),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.expectAll(Scene.all.role("button", { name: "Publish results" })).toHaveCount(1),
 
       Scene.click(Scene.role("button", { name: "Publish results" })),
@@ -123,6 +125,7 @@ describe("Reviews", () => {
       Scene.scene(
         { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
         Scene.given(selected({ ...activated().model, runs: [saved] }, saved.runId)),
+        Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
         Scene.expect(
           Scene.text(`Publication: ${saved.savedPublication.status}. Authorized by stranger.`),
         ).toExist(),
@@ -240,6 +243,7 @@ describe("Reviews", () => {
     Scene.scene(
       { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
       Scene.given(selected(loaded, "a")),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.expect(Scene.text("queued #2")).toExist(),
 
       Scene.expectAll(Scene.all.role("button", { name: "Cancel run" })).toHaveCount(1),
@@ -259,6 +263,7 @@ describe("Reviews", () => {
     Scene.scene(
       { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
       Scene.given(selected(loaded, concluded.runId)),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.expect(Scene.text("question")).toExist(),
       Scene.expect(Scene.text("Retries are configured in src/config.ts.")).toExist(),
       Scene.expect(Scene.text("The README may lag the code.")).toExist(),
@@ -316,6 +321,7 @@ describe("Reviews", () => {
       Scene.scene(
         { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
         Scene.given(selected({ ...activated().model, runs: [item] }, item.runId)),
+        Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
         Scene.expect(Scene.text(item.limitation ?? item.cancelReason!)).toExist(),
         Scene.expect(Scene.role("button", { name: "Cancel run" })).toBeAbsent(),
       )
@@ -376,6 +382,7 @@ describe("Reviews", () => {
     Scene.scene(
       { update: Reviews.update, view: Scene.withViewInputs(Reviews.view, {})() },
       Scene.given(selected({ ...activated().model, runs: [reproduced] }, reproduced.runId)),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.expect(Scene.text("The regression test fails.")).toExist(),
       Scene.expect(Scene.text("Expected false, received true")).toBeAbsent(),
       Scene.click(Scene.role("button", { name: "Execution" })),

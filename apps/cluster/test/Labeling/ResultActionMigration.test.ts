@@ -6,6 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
+import { runScript } from "../support/Postgres.ts"
 import { actor, baseMain, bug, feature, repositoryId, seed, Services } from "./support.ts"
 
 layer(Services, { timeout: "2 minutes" })("Result action migration", (it) => {
@@ -57,7 +58,9 @@ layer(Services, { timeout: "2 minutes" })("Result action migration", (it) => {
       const snapshot = yield* config.load(repositoryId, revision)
       const sql = yield* SqlClient.SqlClient
       // Recreate the pre-0015 persisted representation, including revision snapshots.
-      yield* sql.unsafe(`
+      yield* runScript(
+        sql,
+        `
         ALTER TABLE labeling_rule DROP CONSTRAINT labeling_rule_on_no_match_check;
         ALTER TABLE labeling_rule DROP COLUMN on_match;
         UPDATE labeling_rule SET on_no_match = 'preserve' WHERE on_no_match = 'no-action';
@@ -71,8 +74,10 @@ layer(Services, { timeout: "2 minutes" })("Result action migration", (it) => {
           ) ORDER BY ordinal), '[]'::jsonb)
           FROM jsonb_array_elements(c.rules) WITH ORDINALITY AS entries(rule, ordinal)
         );
-      `)
-      yield* sql.unsafe(
+      `,
+      )
+      yield* runScript(
+        sql,
         readFileSync(
           new URL("../../migrations/0015_configurable_label_actions.sql", import.meta.url),
           "utf8",

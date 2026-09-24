@@ -248,19 +248,43 @@ const factSources: Array<AnyStruct> = factNames.flatMap((name): Array<AnyStruct>
   }
 })
 
-export const ConditionSource: Schema.Codec<ConditionSource, unknown> = Schema.suspend(
+/**
+ * Wraps an authoring schema so unknown keys fail instead of being dropped,
+ * whichever parse options the caller passes. Effect no longer reads
+ * `parseOptions` from annotations, so the strict pass has to be part of the
+ * codec itself for misspelled keys to reach the author as errors.
+ */
+export const rejectingUnknownKeys = <S extends Schema.Top>(
+  shape: S,
+): Schema.Codec<S["Type"], unknown, S["DecodingServices"], S["EncodingServices"]> => {
+  const strict = Schema.decodeUnknownEffect(shape, { onExcessProperty: "error" })
+  return Schema.Unknown.pipe(
+    Schema.decodeTo(shape, {
+      decode: SchemaGetter.transformEffect((input: unknown) =>
+        strict(input).pipe(
+          Effect.as(input as S["Encoded"]),
+          Effect.mapError((error) => error.issue),
+        ),
+      ),
+      encode: SchemaGetter.transform((encoded: S["Encoded"]) => encoded as unknown),
+    }),
+  )
+}
+
+const ConditionSourceShape: Schema.Codec<ConditionSource, unknown> = Schema.suspend(
   () =>
     Schema.Union([
-      Schema.Struct({ all: Group(ConditionSource) }),
-      Schema.Struct({ any: Group(ConditionSource) }),
-      Schema.Struct({ not: ConditionSource }),
+      Schema.Struct({ all: Group(ConditionSourceShape) }),
+      Schema.Struct({ any: Group(ConditionSourceShape) }),
+      Schema.Struct({ not: ConditionSourceShape }),
       ...factSources,
       Schema.Struct({ policy: Schema.String.check(Schema.isMinLength(1)) }),
     ]) as unknown as Schema.Codec<ConditionSource, unknown>,
-).annotate({
-  identifier: "ConditionSource",
-  parseOptions: { onExcessProperty: "error" },
-})
+)
+
+export const ConditionSource: Schema.Codec<ConditionSource, unknown> = rejectingUnknownKeys(
+  ConditionSourceShape,
+).annotate({ identifier: "ConditionSource" })
 
 // TRANSFORMATION
 
@@ -378,7 +402,7 @@ export const conditionToSource = (condition: Condition, names: PolicyNames): Con
 export const ConditionFromSource = (names: PolicyNames) =>
   ConditionSource.pipe(
     Schema.decodeTo(Condition, {
-      decode: SchemaGetter.transformOrFail(
+      decode: SchemaGetter.transformEffect(
         (source: ConditionSource): Effect.Effect<unknown, SchemaIssue.Issue> => {
           const condition = conditionFromSource(source, names)
           return condition instanceof UnknownPolicyName

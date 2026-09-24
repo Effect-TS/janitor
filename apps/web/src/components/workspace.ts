@@ -17,7 +17,7 @@ import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import { childAttributes, type Html, type HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
@@ -492,7 +492,7 @@ export const init = (): UpdateReturn => ({
 type Step = Update.Return<Model, Message, HttpClient.HttpClient>
 
 const closed = (model: Model): Model =>
-  evo(model, {
+  modifyFields(model, {
     panel: () => ({ _tag: "Closed" as const }),
   })
 
@@ -510,13 +510,13 @@ const hasMutation = (
   )
 
 const finishMutation = (model: Model, operationId: number): Model =>
-  evo(model, {
+  modifyFields(model, {
     pendingMutations: (mutations) =>
       mutations.filter((mutation) => mutation.operationId !== operationId),
   })
 
 const startMutation = (model: Model, mutation: Omit<Mutation, "operationId">): Model =>
-  evo(model, {
+  modifyFields(model, {
     pendingMutations: (mutations) => [
       ...mutations,
       { ...mutation, operationId: model.nextOperationId },
@@ -532,7 +532,7 @@ const refresh = (model: Model, force = true): Step => {
   const review = force || Option.isNone(model.maybeReviewRequest)
   const requestId = model.nextRequestId
   return {
-    model: evo(model, {
+    model: modifyFields(model, {
       nextRequestId: () => requestId + 3,
       maybeDetailRequest: (current) => (detail ? Option.some(requestId) : current),
       maybeConsentRequest: (current) => (consent ? Option.some(requestId + 1) : current),
@@ -552,7 +552,7 @@ const refreshReview = (model: Model): Step => {
     return { model }
   const requestId = model.nextRequestId
   return {
-    model: evo(model, {
+    model: modifyFields(model, {
       nextRequestId: () => requestId + 1,
       maybeReviewRequest: () => Option.some(requestId),
     }),
@@ -563,7 +563,7 @@ const refreshReview = (model: Model): Step => {
 const foldReviews = Update.foldChild({
   update: Reviews.update,
   read: (model: Model) => Option.some(model.reviews),
-  write: (model, reviews) => evo(model, { reviews: () => reviews }),
+  write: (model, reviews) => modifyFields(model, { reviews: () => reviews }),
   toParentMessage: (message) => Message.GotReviewsMessage({ message }),
   toParentOutMessage: (outMessage) =>
     Reviews.OutMessage.match<OutMessage>(outMessage, {
@@ -573,7 +573,7 @@ const foldReviews = Update.foldChild({
 })
 
 export const refreshRepositories = (model: Model): Step => ({
-  model: evo(model, {
+  model: modifyFields(model, {
     nextRequestId: (id) => id + 1,
     maybeRepositoriesRequest: () => Option.some(model.nextRequestId),
   }),
@@ -590,7 +590,7 @@ const updateConfiguration = (
     ...detail,
     configuration: transform(detail.configuration),
   }))
-  return evo(model, {
+  return modifyFields(model, {
     detail: () => detail,
     panel: (panel) =>
       panel._tag === "PolicyEditor" && Option.isSome(detail)
@@ -656,7 +656,7 @@ const openPolicyEditor = (model: Model, existing: Option.Option<PolicyDetail>): 
   Option.match(loaded(model), {
     onNone: () => model,
     onSome: ({ repositoryId, detail }) =>
-      evo(model, {
+      modifyFields(model, {
         panel: () => ({
           _tag: "PolicyEditor" as const,
           editor: PolicyEditor.init({
@@ -684,7 +684,7 @@ const openRuleEditor = (
             )
           : Option.none(),
       )
-      return evo(model, {
+      return modifyFields(model, {
         panel: () => ({
           _tag: "RuleEditor" as const,
           editor: RuleEditor.init({
@@ -706,7 +706,7 @@ const foldPolicyEditor = Update.foldChild({
   read: (model: Model) =>
     model.panel._tag === "PolicyEditor" ? Option.some(model.panel.editor) : Option.none(),
   write: (model, nextEditor) =>
-    evo(model, { panel: () => ({ _tag: "PolicyEditor" as const, editor: nextEditor }) }),
+    modifyFields(model, { panel: () => ({ _tag: "PolicyEditor" as const, editor: nextEditor }) }),
   toParentMessage: (message) => Message.GotPolicyEditorMessage({ message }),
   toParentOutMessage: (outMessage) =>
     PolicyEditor.OutMessage.match<OutMessage | undefined>(outMessage, {
@@ -742,7 +742,7 @@ const foldRuleEditor = Update.foldChild({
   read: (model: Model) =>
     model.panel._tag === "RuleEditor" ? Option.some(model.panel.editor) : Option.none(),
   write: (model, nextEditor) =>
-    evo(model, { panel: () => ({ _tag: "RuleEditor" as const, editor: nextEditor }) }),
+    modifyFields(model, { panel: () => ({ _tag: "RuleEditor" as const, editor: nextEditor }) }),
   toParentMessage: (message) => Message.GotRuleEditorMessage({ message }),
   toParentOutMessage: (outMessage) =>
     RuleEditor.OutMessage.match<OutMessage | undefined>(outMessage, {
@@ -825,10 +825,12 @@ const deleteSubject = (
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
-    UpdatedPolicySearch: ({ value }) => ({ model: evo(model, { policySearch: () => value }) }),
+    UpdatedPolicySearch: ({ value }) => ({
+      model: modifyFields(model, { policySearch: () => value }),
+    }),
     GotRepositories: ({ repositories, requestId }) => {
       if (!Option.contains(model.maybeRepositoriesRequest, requestId)) return { model }
-      const next = evo(model, {
+      const next = modifyFields(model, {
         repositories: () =>
           Option.some(
             repositories.map((row) => {
@@ -853,24 +855,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       !Option.contains(model.maybeRepositoriesRequest, requestId)
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               repositoriesError: () => Option.some(reason),
               maybeRepositoriesRequest: () => Option.none(),
             }),
           },
     GotCatalog: ({ catalog }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         catalog: () => catalog,
         panel: (panel) =>
           panel._tag === "PolicyEditor"
             ? {
                 ...panel,
-                editor: evo(panel.editor, {
-                  source: (source) => evo(source, { catalog: () => catalog }),
+                editor: modifyFields(panel.editor, {
+                  source: (source) => modifyFields(source, { catalog: () => catalog }),
                 }),
               }
             : panel._tag === "RuleEditor"
-              ? { ...panel, editor: evo(panel.editor, { catalog: () => catalog }) }
+              ? { ...panel, editor: modifyFields(panel.editor, { catalog: () => catalog }) }
               : panel,
       }),
     }),
@@ -889,7 +891,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeReviewRequest, requestId)
         ? {
-            model: evo(model, {
+            model: modifyFields(model, {
               maybeReview: () => Option.some(settings),
               reviewError: () => Option.none(),
               maybeReviewRequest: () => Option.none(),
@@ -900,7 +902,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeReviewRequest, requestId)
         ? {
-            model: evo(model, {
+            model: modifyFields(model, {
               reviewError: () => Option.some(reason),
               maybeReviewRequest: () => Option.none(),
             }),
@@ -935,7 +937,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         )
       )
         return { model }
-      const next = evo(finishMutation(model, operationId), {
+      const next = modifyFields(finishMutation(model, operationId), {
         maybeReview: (current) =>
           Option.contains(model.dataRepositoryId, repositoryId) ? Option.some(settings) : current,
       })
@@ -977,7 +979,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Option.contains(model.dataRepositoryId, repositoryId)
         ? { model }
         : refresh(
-            evo(closed(model), {
+            modifyFields(closed(model), {
               dataRepositoryId: () => Option.some(repositoryId),
               policySearch: () => "",
               selectedRuleId: () => null,
@@ -1060,7 +1062,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       return Option.contains(model.dataRepositoryId, repositoryId) &&
         Option.contains(model.maybeDetailRequest, requestId)
         ? {
-            model: evo(model, {
+            model: modifyFields(model, {
               detail: () => Option.some(detail),
               maybeDetailRequest: () => Option.none(),
               detailError: () => Option.none<string>(),
@@ -1105,7 +1107,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeDetailRequest, requestId)
         ? {
-            model: evo(model, {
+            model: modifyFields(model, {
               detailError: () => Option.some(reason),
               maybeDetailRequest: () => Option.none(),
             }),
@@ -1115,7 +1117,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeConsentRequest, requestId)
         ? {
-            model: evo(model, {
+            model: modifyFields(model, {
               maybeConsent: () => Option.some(consent),
               consentError: () => Option.none(),
               maybeConsentRequest: () => Option.none(),
@@ -1126,7 +1128,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeConsentRequest, requestId)
         ? {
-            model: evo(model, {
+            model: modifyFields(model, {
               consentError: () => Option.some(reason),
               maybeConsentRequest: () => Option.none(),
             }),
@@ -1164,7 +1166,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         )
       )
         return { model }
-      const next = evo(finishMutation(model, operationId), {
+      const next = modifyFields(finishMutation(model, operationId), {
         maybeConsent: (current) =>
           Option.contains(model.dataRepositoryId, repositoryId) ? Option.some(consent) : current,
       })
@@ -1223,7 +1225,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : Option.match(model.dataRepositoryId, {
             onNone: () => ({ model }),
             onSome: (repositoryId) => ({
-              model: evo(model, { panel: () => ({ _tag: "LoadingPolicy" as const, policyId }) }),
+              model: modifyFields(model, {
+                panel: () => ({ _tag: "LoadingPolicy" as const, policyId }),
+              }),
               commands: [FetchPolicyDetail({ repositoryId, policyId })],
             }),
           }),
@@ -1238,7 +1242,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       (repositoryId === undefined || Option.contains(model.dataRepositoryId, repositoryId)) &&
       (policyId === undefined || model.panel.policyId === policyId)
         ? {
-            model: evo(model, {
+            model: modifyFields(model, {
               panel: () => ({
                 _tag: "Unavailable" as const,
                 message: `This policy could not be opened. It may have been deleted or you may no longer have access. ${reason}`,
@@ -1248,8 +1252,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : { model },
     ClickedDeletePolicy: ({ policyId, version }) =>
       deleteSubject(model, "policy", policyId, version),
-    UpdatedRuleSearch: ({ value }) => ({ model: evo(model, { ruleSearch: () => value }) }),
-    SelectedRule: ({ ruleId }) => ({ model: evo(model, { selectedRuleId: () => ruleId }) }),
+    UpdatedRuleSearch: ({ value }) => ({ model: modifyFields(model, { ruleSearch: () => value }) }),
+    SelectedRule: ({ ruleId }) => ({
+      model: modifyFields(model, { selectedRuleId: () => ruleId }),
+    }),
     GotRuleMenuMessage: ({ ruleId, message }) => foldRuleMenu(ruleId)(model, message),
     ClickedNewRule: () => ({ model: openRuleEditor(model, Option.none()) }),
     ClickedEditRule: ({ ruleId }) =>
@@ -1651,7 +1657,8 @@ const foldRuleMenu = (ruleId: string) =>
   Update.foldChild({
     update: RuleMenu.update,
     read: (model: Model) => Option.some(ruleMenuModel(model, ruleId)),
-    write: (model, menu) => evo(model, { ruleMenus: (menus) => ({ ...menus, [ruleId]: menu }) }),
+    write: (model, menu) =>
+      modifyFields(model, { ruleMenus: (menus) => ({ ...menus, [ruleId]: menu }) }),
     toParentMessage: (message) => Message.GotRuleMenuMessage({ ruleId, message }),
     toParentOutMessage: () => OutMessage.RequestedRule({ ruleId }),
   })
@@ -2847,7 +2854,7 @@ export const informConnectionChanged = (
   repositoryId: string,
   action: string,
 ): UpdateReturn => {
-  const next = evo(model, {
+  const next = modifyFields(model, {
     repositories: Option.map((rows) =>
       action === "disconnect"
         ? rows.filter((row) => row.repositoryId !== repositoryId)
@@ -2879,7 +2886,7 @@ export const openRoute = (
       },
     }
   const selected = update(model, Message.Selected({ repositoryId: route.repositoryId }))
-  let next = evo(changedDocument ? closed(selected.model) : selected.model, {
+  let next = modifyFields(changedDocument ? closed(selected.model) : selected.model, {
     policySearch: () => ("q" in route ? (route.q ?? "") : ""),
   })
   const activity = update(
@@ -2925,7 +2932,7 @@ export const openRoute = (
         )
           ? update(next, Message.ClickedEditRule({ ruleId: route.ruleId }))
           : {
-              model: evo(next, {
+              model: modifyFields(next, {
                 panel: () => ({
                   _tag: "Unavailable" as const,
                   message: "This rule was not found in this repository.",
@@ -2945,12 +2952,12 @@ export const openRoute = (
         ? Number(route.item)
         : null
     if (next.panel.editor.testNumber !== number) {
-      const editor = evo(next.panel.editor, {
+      const editor = modifyFields(next.panel.editor, {
         testNumber: () => number,
         maybeTestBench: () => Option.none(),
         testGeneration: (generation) => generation + 1,
       })
-      next = evo(next, { panel: () => ({ _tag: "PolicyEditor" as const, editor }) })
+      next = modifyFields(next, { panel: () => ({ _tag: "PolicyEditor" as const, editor }) })
     }
   }
   return { model: next, commands: [...routeCommands, ...(result.commands ?? [])] }

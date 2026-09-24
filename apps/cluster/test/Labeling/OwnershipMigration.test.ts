@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { describeError } from "../../src/SqlErrors.ts"
+import { runScript } from "../support/Postgres.ts"
 import { actor, bug, repositoryId, seed, Services } from "./support.ts"
 
 layer(Services, { timeout: "2 minutes" })("Ownership migration", (it) => {
@@ -37,7 +38,7 @@ layer(Services, { timeout: "2 minutes" })("Ownership migration", (it) => {
           new URL("../../migrations/0016_label_ownership.sql", import.meta.url),
           "utf8",
         )
-        const error = yield* Effect.flip(sql.unsafe(migration))
+        const error = yield* Effect.flip(runScript(sql, migration))
         const message = describeError(error)
         for (const value of [repositoryId, bug, "issue", owner.id, "legacy-duplicate"])
           assert.include(message, value)
@@ -45,7 +46,7 @@ layer(Services, { timeout: "2 minutes" })("Ownership migration", (it) => {
         const duplicate = before.find((rule) => rule.id === "legacy-duplicate")!
         yield* rules.remove(repositoryId, duplicate.id, duplicate.version, actor)
         const resolved = yield* rules.list(repositoryId)
-        yield* sql.unsafe(migration)
+        yield* runScript(sql, migration)
         assert.deepStrictEqual(yield* rules.list(repositoryId), resolved)
       }),
   )

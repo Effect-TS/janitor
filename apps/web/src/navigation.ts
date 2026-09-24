@@ -1,5 +1,5 @@
 import * as Option from "effect/Option"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type * as Update from "foldkit/update"
 import * as Routes from "@/routes"
 import * as Effect from "effect/Effect"
@@ -39,7 +39,7 @@ export type OutMessage = typeof OutMessage.Type
 
 /** Commit the accepted route together with the parent's page transition. */
 export const enter = (model: Model, route: Routes.AppRoute): Model =>
-  evo(model, { route: () => route, pendingDestination: () => Option.none() })
+  modifyFields(model, { route: () => route, pendingDestination: () => Option.none() })
 
 export const Message = defineMessageUnion({
   RequestedUrl: { request: Navigation.UrlRequest },
@@ -125,7 +125,7 @@ export const request = (
     external || Routes.documentPath(Routes.parse(destination)) !== Routes.documentPath(model.route)
   if (leavingDocument && context.isSaving) return { model }
   return {
-    model: evo(model, { pendingDestination: () => Option.some(path) }),
+    model: modifyFields(model, { pendingDestination: () => Option.some(path) }),
     commands: [
       Navigate({
         path,
@@ -147,7 +147,7 @@ export const update = (model: Model, message: Message, context: Context): Update
     ChangedUrl: ({ url }) => {
       const requestId = model.requestId + 1
       return {
-        model: evo(model, { requestId: () => requestId }),
+        model: modifyFields(model, { requestId: () => requestId }),
         commands: [
           CheckHistoryNavigation({
             url,
@@ -169,14 +169,16 @@ export const update = (model: Model, message: Message, context: Context): Update
       requestId !== model.requestId || !allowed
         ? { model }
         : {
-            model: evo(model, {
+            model: modifyFields(model, {
               historyIndex: () => index,
               pendingDestination: () => Option.none(),
             }),
             outMessage: OutMessage.AcceptedRoute({ route: Routes.parse(url) }),
           },
     FinishedNavigation: ({ cancelled }) =>
-      cancelled ? { model: evo(model, { pendingDestination: () => Option.none() }) } : { model },
+      cancelled
+        ? { model: modifyFields(model, { pendingDestination: () => Option.none() }) }
+        : { model },
     InitializedHistory: () => ({ model }),
     AttemptedUnload: () => ({ model }),
   })

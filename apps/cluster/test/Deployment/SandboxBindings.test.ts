@@ -1,5 +1,6 @@
 import { provideFreshArtifactStore } from "alchemy/Artifacts"
 import { LoggingCli } from "alchemy/Cli/LoggingCli"
+import * as Interaction from "alchemy/Interaction"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { assert, it } from "@effect/vitest"
 import * as Alchemy from "alchemy"
@@ -75,7 +76,7 @@ it.live("binds each sandbox container application to just one Durable Object nam
     { stage: "test" },
   ).pipe(
     provideFreshArtifactStore,
-    Effect.provide([LoggingCli, inMemoryState()]),
+    Effect.provide([LoggingCli, Interaction.layerNonInteractive(), inMemoryState()]),
     Effect.provideService(AlchemyContext, {
       dotAlchemy: "/tmp/janitor-sandbox-bindings-test",
       dev: false,

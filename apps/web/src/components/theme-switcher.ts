@@ -4,14 +4,13 @@ import { cn } from "@/lib/utils"
 import * as Effect from "effect/Effect"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
-import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
@@ -149,7 +148,7 @@ const foldMenuOutMessage = Match.type<Menu.OutMessage<ThemePreference>>().pipe(
         })
 
         return {
-          model: evo(model, {
+          model: modifyFields(model, {
             resolvedTheme: () => resolvedTheme,
             preferredTheme: () => value,
           }),
@@ -162,7 +161,7 @@ const foldMenuOutMessage = Match.type<Menu.OutMessage<ThemePreference>>().pipe(
 const foldMenu = Update.foldChild({
   update: ThemeMenu.update,
   read: (model: Model) => Option.some(model.menu),
-  write: (model, next) => evo(model, { menu: () => next }),
+  write: (model, next) => modifyFields(model, { menu: () => next }),
   toParentMessage: (message) => Message.GotMenuMessage({ message }),
   foldOutMessage: foldMenuOutMessage,
 })
@@ -180,7 +179,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       })
 
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           systemTheme: () => theme,
           resolvedTheme: () => resolvedTheme,
         }),
@@ -193,7 +192,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       })
 
       return {
-        model: evo(model, {
+        model: modifyFields(model, {
           preferredTheme: () => preference,
           resolvedTheme: () => resolvedTheme,
         }),
@@ -205,6 +204,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
   })
 
 // SUBSCRIPTIONS
+
+const systemThemeMessage = (isDark: boolean): Message =>
+  Message.ChangedSystemTheme({ theme: isDark ? "Dark" : "Light" })
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   documentTheme: entry(
@@ -218,29 +220,17 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
     },
   ),
   systemTheme: Subscription.persistent(
-    Stream.callback<Message>(
-      Effect.fnUntraced(function* (queue) {
-        const mediaQuery = globalThis.window.matchMedia(THEME_MEDIA_QUERY)
-
-        const publish = (isDark: boolean) => {
-          const theme: Theme = isDark ? "Dark" : "Light"
-          const message = Message.ChangedSystemTheme({ theme })
-          Queue.offerUnsafe(queue, message)
-        }
-
-        const onChange = (event: MediaQueryListEvent) => {
-          publish(event.matches)
-        }
-
-        // Reconcile any changes that occurred after flags were read
-        publish(mediaQuery.matches)
-
-        mediaQuery.addEventListener("change", onChange)
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => mediaQuery.removeEventListener("change", onChange)),
-        )
-
-        return yield* Effect.void
+    Stream.concat(
+      // Reconcile any changes that occurred after flags were read
+      Stream.fromEffect(
+        Effect.sync(() =>
+          systemThemeMessage(globalThis.window.matchMedia(THEME_MEDIA_QUERY).matches),
+        ),
+      ),
+      Subscription.fromEvent({
+        target: () => globalThis.window.matchMedia(THEME_MEDIA_QUERY),
+        type: "change",
+        mapEvent: (event) => systemThemeMessage(event.matches),
       }),
     ),
   ),

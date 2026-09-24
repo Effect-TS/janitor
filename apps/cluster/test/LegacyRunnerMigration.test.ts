@@ -3,7 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { MigratedPostgresLayer } from "./support/Postgres.ts"
+import { MigratedPostgresLayer, runScript } from "./support/Postgres.ts"
 
 layer(MigratedPostgresLayer, { timeout: "2 minutes" })("Legacy runner retirement", (it) => {
   it.effect("upgrades populated runner state and preserves repository operations", () =>
@@ -19,7 +19,7 @@ layer(MigratedPostgresLayer, { timeout: "2 minutes" })("Legacy runner retirement
           yield* sql`CREATE SCHEMA legacy_runner_upgrade`
           yield* sql`SET LOCAL search_path TO legacy_runner_upgrade`
           for (const file of files.filter((file) => file < "0037")) {
-            yield* sql.unsafe(yield* fs.readFileString(`${directory}/${file}`))
+            yield* runScript(sql, yield* fs.readFileString(`${directory}/${file}`))
           }
           yield* sql`INSERT INTO github_installation(access_error,installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES(NULL,'77','1','test','Organization','selected','active','https://github.com/settings/installations/77',1)`
           yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence,automation_ready_at) VALUES('9100','77','test','example',TRUE,TRUE,'accessible',1,CLOCK_TIMESTAMP())`
@@ -32,7 +32,10 @@ layer(MigratedPostgresLayer, { timeout: "2 minutes" })("Legacy runner retirement
             ('Janitor/AgentRunnerHandoffV1','old_session','{"sessionId":"old_session"}'),
             ('unrelated','keep','{}')`
 
-          yield* sql.unsafe(yield* fs.readFileString(`${directory}/0037_retire_legacy_runner.sql`))
+          yield* runScript(
+            sql,
+            yield* fs.readFileString(`${directory}/0037_retire_legacy_runner.sql`),
+          )
           assert.deepStrictEqual(
             yield* sql`SELECT tablename FROM pg_tables WHERE schemaname='legacy_runner_upgrade'
               AND (tablename LIKE 'agent_%' OR tablename LIKE 'slack_%' OR tablename LIKE 'github_feedback%')`,

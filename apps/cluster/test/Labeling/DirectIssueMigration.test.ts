@@ -3,6 +3,7 @@ import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { LABEL_ITEM_TAG } from "../../src/Labeling/DirectLabeling.ts"
+import { runScript } from "../support/Postgres.ts"
 import { installationId, repositoryId, seed, Services } from "./support.ts"
 
 const RECONCILE_ENTITY_TAG = "Janitor/ReconcileEntityV1"
@@ -39,7 +40,7 @@ layer(Services, { timeout: "2 minutes" })("Direct labeling cutover", (it) => {
       yield* sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`SET LOCAL search_path TO legacy_issues, public`
-          yield* sql.unsafe(migration)
+          yield* runScript(sql, migration)
         }),
       )
       assert.deepStrictEqual(
@@ -76,7 +77,7 @@ layer(Services, { timeout: "2 minutes" })("Direct labeling cutover", (it) => {
       yield* sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`SET LOCAL search_path TO legacy_issues, public`
-          yield* sql.unsafe(pullRequestMigration)
+          yield* runScript(sql, pullRequestMigration)
         }),
       )
       assert.deepStrictEqual(

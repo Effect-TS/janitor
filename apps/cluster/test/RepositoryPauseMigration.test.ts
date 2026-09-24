@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { MigratedPostgresLayer } from "./support/Postgres.ts"
+import { MigratedPostgresLayer, runScript } from "./support/Postgres.ts"
 import { describeError } from "../src/SqlErrors.ts"
 
 const migration = readFileSync(
@@ -26,7 +26,7 @@ layer(MigratedPostgresLayer, { timeout: "2 minutes" })("Repository pause migrati
       const migrate = sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`SET LOCAL search_path TO legacy_pause, public`
-          yield* sql.unsafe(migration)
+          yield* runScript(sql, migration)
         }),
       )
       const error = describeError(yield* Effect.flip(migrate))

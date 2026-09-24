@@ -7,7 +7,7 @@ import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
@@ -141,9 +141,11 @@ export const init = (input: {
 
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
-    SelectedEntity: ({ number }) => ({ model: evo(model, { selectedNumber: () => number }) }),
+    SelectedEntity: ({ number }) => ({
+      model: modifyFields(model, { selectedNumber: () => number }),
+    }),
     ClickedRun: () => ({
-      model: evo(model, { run: () => ({ _tag: "Running" as const }) }),
+      model: modifyFields(model, { run: () => ({ _tag: "Running" as const }) }),
       commands: [
         RunTest({
           repositoryId: model.repositoryId,
@@ -153,7 +155,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       ],
     }),
     CompletedRunTest: ({ response }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         run: () =>
           response._tag === "Evaluated"
             ? ({ _tag: "Evaluated", entities: response.entities } as const)
@@ -161,10 +163,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }),
     }),
     FailedRunTest: ({ reason }) => ({
-      model: evo(model, { run: () => ({ _tag: "Failed" as const, reason }) }),
+      model: modifyFields(model, { run: () => ({ _tag: "Failed" as const, reason }) }),
     }),
     ToggledTrace: ({ number }) => ({
-      model: evo(model, {
+      model: modifyFields(model, {
         expanded: (expanded) =>
           expanded.includes(number)
             ? expanded.filter((entry) => entry !== number)

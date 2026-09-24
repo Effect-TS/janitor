@@ -7,7 +7,7 @@ import * as Schema from "effect/Schema"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import { Check, ChevronsUpDown, Plus } from "lucide"
@@ -69,14 +69,14 @@ const foldPopoverOutMessage = Match.type<Popover.OutMessage>().pipe(
     Opened: () => (model: Model) => ({ model }),
     // Leaving the search text behind would show the last query the next time
     // the palette opens, with the full list hidden behind it.
-    Closed: () => (model: Model) => ({ model: evo(model, { search: () => "" }) }),
+    Closed: () => (model: Model) => ({ model: modifyFields(model, { search: () => "" }) }),
   }),
 )
 
 const foldPopover = Update.foldChild({
   update: Popover.update,
   read: (model: Model) => Option.some(model.popover),
-  write: (model, next) => evo(model, { popover: () => next }),
+  write: (model, next) => modifyFields(model, { popover: () => next }),
   toParentMessage: (message) => Message.GotPopoverMessage({ message }),
   foldOutMessage: foldPopoverOutMessage,
 })
@@ -86,13 +86,13 @@ export type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessag
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     GotPopoverMessage: ({ message }) => foldPopover(model, message),
-    ChangedSearch: ({ search }) => ({ model: evo(model, { search: () => search }) }),
+    ChangedSearch: ({ search }) => ({ model: modifyFields(model, { search: () => search }) }),
     ClickedRepository: ({ repositoryId }) => {
       // Close through the popover's own update so it runs its focus and
       // animation commands rather than having the flag flipped underneath it.
       const closed = Popover.close(model.popover)
       return {
-        model: evo(model, { popover: () => closed.model, search: () => "" }),
+        model: modifyFields(model, { popover: () => closed.model, search: () => "" }),
         commands: FoldkitCommand.mapMessages(closed.commands ?? [], (message) =>
           Message.GotPopoverMessage({ message }),
         ),
