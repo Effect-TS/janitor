@@ -18,7 +18,6 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@testcontainers/postgresql": "catalog:",
-    "vite-plus": "catalog:",
-    "workerd": "catalog:"
+    "vite-plus": "catalog:"
   }
 }

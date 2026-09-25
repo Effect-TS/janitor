@@ -6,7 +6,7 @@ Patches are applied by the root `pnpm-workspace.yaml` and pinned by `pnpm-lock.y
 
 Alchemy's command memoization module imports `tinyglobby` at module scope. That reaches `fdir`, whose `createRequire(import.meta.url)` fails during Cloudflare Worker startup because the runtime supplies no module URL. The Alchemy patch loads `tinyglobby` only when deployment file hashing runs, in both TypeScript and shipped JavaScript.
 
-`WorkerStartup.test.ts` bundles the real cluster Worker through Alchemy and loads it in workerd, catching failures that ordinary Node import tests miss. `Memo.test.ts` verifies that deployment hashing still detects included file changes and ignores excluded files. Remove this patch when the pinned Alchemy version defers the import upstream.
+`Memo.test.ts` verifies that deployment hashing still detects included file changes and ignores excluded files. Remove this patch when the pinned Alchemy version defers the import upstream.
 
 ## Effect release candidate
 

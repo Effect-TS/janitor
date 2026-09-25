@@ -51,7 +51,6 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
   vite-plus: ^0.3.0
   yaml: 2.9.0
-  workerd: 1.20260901.1
 
 overrides:
   "@effect/opentelemetry": "catalog:"

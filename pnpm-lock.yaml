@@ -292,9 +292,6 @@ catalogs:
     vite-plus:
       specifier: ^0.3.0
       version: 0.3.0
-    workerd:
-      specifier: 1.20260901.1
-      version: 1.20260901.1
     yaml:
       specifier: 2.9.0
       version: 2.9.0
@@ -394,9 +391,6 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 0.3.0(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(esbuild@0.28.2)(happy-dom@20.13.1)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0)
-      workerd:
-        specifier: 'catalog:'
-        version: 1.20260901.1
 
   apps/web:
     dependencies:
