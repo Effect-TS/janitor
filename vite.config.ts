@@ -76,6 +76,11 @@ export default defineConfig({
         extends: true,
         test: {
           name: "backend",
+          globalSetup: ["apps/cluster/test/support/Postgres.ts"],
+          // Files share each worker's module graph instead of re-importing
+          // Effect and the cluster per file, which dominated run time. Every
+          // file gets its own database, and support fakes reset in `seed`.
+          isolate: false,
           include: [
             "apps/cluster/test/**/*.test.ts",
             "packages/domain/test/**/*.test.ts",

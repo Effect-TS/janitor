@@ -218,10 +218,12 @@ export const seedReady = seed.pipe(
  * stamped with that clock, so a host-clock `new Date()` can land in the same
  * instant or behind it on a busy runner and the event stops being eligible.
  * No lead is added: a later readiness stamp must still make this event stale.
+ * Admission compares in milliseconds, so the read first lets one pass: a stamp
+ * taken just before, such as enablement, would otherwise tie with the receipt.
  */
 export const webhookNow = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
-  const [row] = yield* sql<{ at: Date }>`SELECT clock_timestamp() AS at`
+  const [row] = yield* sql<{ at: Date }>`SELECT clock_timestamp() AS at FROM pg_sleep(0.001)`
   return row!.at
 })
 
