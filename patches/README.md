@@ -2,6 +2,12 @@
 
 Patches are applied by the root `pnpm-workspace.yaml` and pinned by `pnpm-lock.yaml`. Run `vp install` after editing a patch and commit the resulting lockfile. CI uses `vp install --frozen-lockfile`, which rejects a patch/lockfile mismatch.
 
+## Alchemy worker startup
+
+Alchemy's command memoization module imports `tinyglobby` at module scope. That reaches `fdir`, whose `createRequire(import.meta.url)` fails during Cloudflare Worker startup because the runtime supplies no module URL. The Alchemy patch loads `tinyglobby` only when deployment file hashing runs, in both TypeScript and shipped JavaScript.
+
+`WorkerStartup.test.ts` bundles the real cluster Worker through Alchemy and loads it in workerd, catching failures that ordinary Node import tests miss. `Memo.test.ts` verifies that deployment hashing still detects included file changes and ignores excluded files. Remove this patch when the pinned Alchemy version defers the import upstream.
+
 ## Effect release candidate
 
 Janitor tracks the registry release `4.0.0-rc.117` for every Effect package except `@effect/platform-cloudflare`, which is not published yet. That package comes from the pkg.pr.new snapshot of the `eff-698-cloudflare-cluster` branch (Effect PR 7322) at commit `a8e31fe7ef29ce258788bea83e7684cb44f8d045`, which is that branch merged with the `effect@4.0.0-rc.117` tag. To move forward, merge the next release tag into that branch, dispatch the Effect `Snapshot` workflow on it, and update the catalog URL. The root catalog and overrides keep every Effect package on one version.

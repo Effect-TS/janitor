@@ -45,3 +45,43 @@ index b8d91e4d0a6a25802f118724bc8d46e4dd533038..87a98f944ab1b587c564af0df96b2718
            Effect.catchTag("DurableObjectAlreadyHasApplication", () =>
              durableObjects
                ? Effect.gen(function* () {
+--- a/lib/Command/Memo.js
++++ b/lib/Command/Memo.js
+@@ -1,7 +1,6 @@
+ import * as Effect from "effect/Effect";
+ import * as FileSystem from "effect/FileSystem";
+ import * as Path from "effect/Path";
+-import { glob } from "tinyglobby";
+ import { gitignoreRulesToGlobs } from "../Util/gitignore-rules-to-globs.js";
+ import { initialCwd } from "../Util/Node.js";
+ import { sha256, sha256Object } from "../Util/sha256.js";
+@@ -50,6 +49,9 @@
+         };
+     });
+     const listFiles = Effect.fn(function* (options) {
++        // Filesystem globbing is only needed while planning a deployment.
++        // Loading it at module scope runs fdir's createRequire in Workers.
++        const { glob } = yield* Effect.promise(() => import("tinyglobby"));
+         const [files, lockfile] = yield* Effect.all([
+             Effect.promise(() => glob(options.include, {
+                 cwd: options.cwd,
+--- a/src/Command/Memo.ts
++++ b/src/Command/Memo.ts
+@@ -2,7 +2,6 @@
+ import * as FileSystem from "effect/FileSystem";
+ import * as Path from "effect/Path";
+ import type { PlatformError } from "effect/PlatformError";
+-import { glob } from "tinyglobby";
+ import { gitignoreRulesToGlobs } from "../Util/gitignore-rules-to-globs.ts";
+ import { initialCwd } from "../Util/Node.ts";
+ import { sha256, sha256Object } from "../Util/sha256.ts";
+@@ -130,6 +129,9 @@
+   const listFiles = Effect.fn(function* (
+     options: ResolvedMemoOptions,
+   ): Effect.fn.Return<string[], PlatformError> {
++    // Filesystem globbing is only needed while planning a deployment.
++    // Loading it at module scope runs fdir's createRequire in Workers.
++    const { glob } = yield* Effect.promise(() => import("tinyglobby"));
+     const [files, lockfile] = yield* Effect.all(
+       [
+         Effect.promise(() =>
