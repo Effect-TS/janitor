@@ -2,7 +2,7 @@ import { assert, layer } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { MigratedPostgresLayer, runScript } from "./support/Postgres.ts"
 
 layer(MigratedPostgresLayer, { timeout: "2 minutes" })("Legacy runner retirement", (it) => {

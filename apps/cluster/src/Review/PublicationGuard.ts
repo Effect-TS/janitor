@@ -1,7 +1,7 @@
 import { authorizeSavedPublication } from "./SavedPublication.ts"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import { repositoryTarget } from "../Labeling/GitHubIssue.ts"
 import { RepositoryEligibility } from "../RepositoryEligibility.ts"

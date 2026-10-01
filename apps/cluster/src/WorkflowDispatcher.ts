@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Exit from "effect/Exit"
 import type * as Schema from "effect/Schema"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import { WorkflowOutbox, type WorkflowOutboxError } from "./WorkflowOutbox.ts"
 
 /**

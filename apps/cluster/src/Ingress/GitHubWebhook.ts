@@ -14,10 +14,10 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
-import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
-import * as HttpServerError from "effect/unstable/http/HttpServerError"
+import * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpServerRequest from "effect/http/HttpServerRequest"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import * as HttpServerError from "effect/http/HttpServerError"
 import * as PayloadCipher from "../PayloadCipher.ts"
 import * as WebhookVerifier from "./WebhookVerifier.ts"
 import * as GitHubEventQueue from "../GitHub/EventQueue.ts"
@@ -26,7 +26,7 @@ import {
   GitHubWebhookDeliveryId,
   GitHubRepositoryDatabaseIdFromStringOrNumber,
 } from "@janitor/domain/GitHub/Id"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Redacted from "effect/Redacted"
 import * as DateTime from "effect/DateTime"
 
@@ -90,7 +90,7 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
 
     const sha256Hex = Effect.fnUntraced(function* (body: Uint8Array<ArrayBuffer>) {
       const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", body))
-      return GitHubWebhookPayloadSha256.make(Encoding.encodeHex(new Uint8Array(digest)))
+      return GitHubWebhookPayloadSha256.make(Hex.encode(new Uint8Array(digest)))
     })
 
     const readBodyBounded = Effect.fnUntraced(function* (

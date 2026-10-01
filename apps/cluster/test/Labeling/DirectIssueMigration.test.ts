@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { LABEL_ITEM_TAG } from "../../src/Labeling/DirectLabeling.ts"
 import { runScript } from "../support/Postgres.ts"
 import { installationId, repositoryId, seed, Services } from "./support.ts"

@@ -2,10 +2,10 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Base64Url from "effect/encoding/Base64Url"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 /**
  * RS256 key sets published as JWKS, shared by the Access assertion check and
@@ -152,7 +152,7 @@ const Header = Schema.Struct({
 const decodeSegment = <S extends Schema.Top>(schema: S) => {
   const decode = Schema.decodeUnknownEffect(Schema.fromJsonString(schema))
   return (segment: string) =>
-    Effect.fromResult(Encoding.decodeBase64UrlString(segment)).pipe(
+    Effect.fromResult(Base64Url.decodeString(segment)).pipe(
       Effect.flatMap(decode),
       Effect.mapError((cause) => new MalformedToken({ cause })),
     )
@@ -179,7 +179,7 @@ export const parseCompact = (token: string): Effect.Effect<CompactToken, Malform
     const [encodedHeader, encodedClaims, encodedSignature] = parts as [string, string, string]
     const header = yield* decodeHeader(encodedHeader)
     const claims = yield* decodeClaims(encodedClaims)
-    const signature = yield* Effect.fromResult(Encoding.decodeBase64Url(encodedSignature)).pipe(
+    const signature = yield* Effect.fromResult(Base64Url.decode(encodedSignature)).pipe(
       Effect.mapError((cause) => new MalformedToken({ cause })),
     )
     return { header, claims, signingInput: `${encodedHeader}.${encodedClaims}`, signature }

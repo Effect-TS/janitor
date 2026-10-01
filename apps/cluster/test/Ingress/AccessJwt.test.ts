@@ -4,10 +4,10 @@ import * as Deferred from "effect/Deferred"
 import * as Fiber from "effect/Fiber"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Base64Url from "effect/encoding/Base64Url"
 import * as Layer from "effect/Layer"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as AccessJwt from "../../src/Ingress/AccessJwt.ts"
 
 const TEAM_DOMAIN = "team.cloudflareaccess.test"
@@ -48,7 +48,7 @@ const makeSigningKey = (kid: string): Effect.Effect<SigningKey> =>
   })
 
 const base64UrlJson = (value: unknown) =>
-  Encoding.encodeBase64Url(new TextEncoder().encode(JSON.stringify(value)))
+  Base64Url.encode(new TextEncoder().encode(JSON.stringify(value)))
 
 const sign = (
   key: SigningKey,
@@ -60,7 +60,7 @@ const sign = (
     const signature = yield* Effect.promise(() =>
       crypto.subtle.sign("RSASSA-PKCS1-v1_5", key.pair.privateKey, new TextEncoder().encode(input)),
     )
-    return `${input}.${Encoding.encodeBase64Url(new Uint8Array(signature))}`
+    return `${input}.${Base64Url.encode(new Uint8Array(signature))}`
   })
 
 const nowSeconds = Effect.map(DateTime.now, (now) => Math.floor(DateTime.toEpochMillis(now) / 1000))

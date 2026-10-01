@@ -4,7 +4,7 @@ import { assert, describe, it } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
+import * as HttpRouter from "effect/http/HttpRouter"
 import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import {

@@ -1,6 +1,6 @@
 import * as Dockerfile from "alchemy/Docker/Dockerfile"
 import * as Effect from "effect/Effect"
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import { makeSandboxLocal } from "../../AI/SandboxLocal.ts"
 import * as Workspace from "../../Workspace/Workspace.ts"
 /** Node.js plus the command-line tools used by sandbox operations. */

@@ -1,7 +1,7 @@
 import { LiveRoutesLayer } from "./Live.ts"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
+import * as HttpRouter from "effect/http/HttpRouter"
 import * as AccessJwt from "./AccessJwt.ts"
 import { type IngressSecrets, makeGitHubWebHookRoutesLayer } from "./GitHubWebhook.ts"
 import {

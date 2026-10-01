@@ -4,7 +4,7 @@ import type { GitHubEntityKind } from "@janitor/domain/GitHub/ReadModel"
 import type { PullRequest as WebhookPullRequest } from "@janitor/domain/GitHub/WebhookEvent/PullRequest"
 import { type FactSnapshot, snapshotFacts } from "@janitor/domain/Labeling/Policy/Facts"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import type { Collections } from "./GitHubPullRequest.ts"
 
 /**
@@ -105,7 +105,7 @@ export const observedPullRequest = (pullRequest: WebhookPullRequest): ObservedIt
 
 const sha256Hex = (text: string) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).pipe(
-    Effect.map((digest) => Encoding.encodeHex(new Uint8Array(digest))),
+    Effect.map((digest) => Hex.encode(new Uint8Array(digest))),
   )
 
 /** Only what concrete rules read, in a stable order. */

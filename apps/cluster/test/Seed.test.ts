@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Redacted from "effect/Redacted"
 import * as Scope from "effect/Scope"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { afterAll, beforeAll, expect, it } from "vite-plus/test"
 import { migratedDatabase } from "./support/Postgres.ts"
 

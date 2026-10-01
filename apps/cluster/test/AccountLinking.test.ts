@@ -2,14 +2,14 @@ import { assert, layer } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Base64Url from "effect/encoding/Base64Url"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as SqlClient from "effect/sql/SqlClient"
+import * as HttpClient from "effect/http/HttpClient"
+import type * as HttpClientRequest from "effect/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { AccountLinking, AccountLinkingConfig } from "../src/AccountLinking.ts"
 import * as GitHubLink from "../src/Linking/GitHub.ts"
 import * as SlackLink from "../src/Linking/Slack.ts"
@@ -35,7 +35,7 @@ const generateKeyPair = Effect.promise(() =>
 )
 
 const base64UrlJson = (value: unknown) =>
-  Encoding.encodeBase64Url(new TextEncoder().encode(JSON.stringify(value)))
+  Base64Url.encode(new TextEncoder().encode(JSON.stringify(value)))
 
 interface PublicJwk {
   readonly kid: string
@@ -67,7 +67,7 @@ const makePlatforms = Effect.gen(function* () {
       const signature = yield* Effect.promise(() =>
         crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(input)),
       )
-      return `${input}.${Encoding.encodeBase64Url(new Uint8Array(signature))}`
+      return `${input}.${Base64Url.encode(new Uint8Array(signature))}`
     })
   const platforms: Platforms = { jwk, signIdToken, idTokenClaims: {}, seen: [] }
   return platforms

@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer"
 import * as Fiber from "effect/Fiber"
 import * as Deferred from "effect/Deferred"
 import { TestClock } from "effect/testing"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import {
   AiClassifier,

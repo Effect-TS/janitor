@@ -1,6 +1,6 @@
 import * as BrowserKeyValueStore from "@effect/platform-browser/BrowserKeyValueStore"
 import * as Layer from "effect/Layer"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Runtime from "foldkit/runtime"
 import * as Navigation from "./navigation"
 

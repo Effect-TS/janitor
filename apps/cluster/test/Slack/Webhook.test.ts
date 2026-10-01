@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest"
 import * as Clock from "effect/Clock"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Fiber from "effect/Fiber"
 import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "../../src/Slack/Config.ts"
@@ -42,7 +42,7 @@ it.effect("verifies signed events and waits for durable admission before acknowl
       const digest = yield* Effect.promise(() =>
         crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`v0:${timestamp}:${body}`)),
       )
-      return { body, timestamp, signature: `v0=${Encoding.encodeHex(new Uint8Array(digest))}` }
+      return { body, timestamp, signature: `v0=${Hex.encode(new Uint8Array(digest))}` }
     })
     const event = {
       type: "message",

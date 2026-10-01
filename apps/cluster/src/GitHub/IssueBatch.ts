@@ -3,7 +3,7 @@ import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 
 /** A page commits atomically. Labels are replaced only for accepted observations. */
 export const applyIssueBatch = (request: {

@@ -2,8 +2,8 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { serveRpc } from "alchemy/Rpc"
 import * as Effect from "effect/Effect"
-import { HttpServerRequest } from "effect/unstable/http/HttpServerRequest"
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import { HttpServerRequest } from "effect/http/HttpServerRequest"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
 // NodeHttpServer requires Node's server constructor.
 // oxlint-disable-next-line effecttsgo/node-builtin-import
 import { createServer } from "node:http"

@@ -7,8 +7,8 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as TestClock from "effect/testing/TestClock"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
+import * as SqlClient from "effect/sql/SqlClient"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
 import {
   GitHubAccountDatabaseId,

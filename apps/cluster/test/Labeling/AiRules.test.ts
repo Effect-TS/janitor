@@ -1,7 +1,7 @@
 import { GitHubLabelDatabaseId } from "@janitor/domain/GitHub/Id"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"

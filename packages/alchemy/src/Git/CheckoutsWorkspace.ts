@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import { makeWorkspaceClient } from "../Workspace/WorkspaceClient.ts"
 import { Checkout, Checkouts, GitError, failure } from "./Checkouts.ts"
 

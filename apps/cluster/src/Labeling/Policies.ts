@@ -23,11 +23,11 @@ import { validatePrompt } from "@janitor/domain/Labeling/Policy/Prompt"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 import { recordAudit } from "./Audit.ts"
 import { groupIssues } from "./Groups.ts"
@@ -91,7 +91,7 @@ const CountRow = Schema.Struct({ count: Schema.FiniteFromString })
 
 const sha256Hex = (text: string) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).pipe(
-    Effect.map((digest) => Encoding.encodeHex(new Uint8Array(digest))),
+    Effect.map((digest) => Hex.encode(new Uint8Array(digest))),
   )
 
 const newId = Effect.sync(() => crypto.randomUUID())

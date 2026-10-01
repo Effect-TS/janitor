@@ -1,6 +1,6 @@
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { LiveUpdates, liveUpdatesLayer } from "../src/LiveUpdates.ts"
 import { Services, seed, repositoryId } from "./Labeling/support.ts"
 

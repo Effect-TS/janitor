@@ -2,7 +2,7 @@ import * as Config from "effect/Config"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
@@ -57,7 +57,7 @@ const make = Effect.fnUntraced(function* ({ secret }: WebhookVerifierConfig) {
       onSuccess: (signature) => signature.slice("sha256=".length),
       onFailure: (cause) => new InvalidSignatureError({ signature, cause }),
     })
-    const bytes = yield* Effect.fromResult(Encoding.decodeHex(hex)).pipe(
+    const bytes = yield* Effect.fromResult(Hex.decode(hex)).pipe(
       Effect.mapError((cause) => new InvalidSignatureError({ signature, cause })),
     )
     return yield* Effect.tryPromise({

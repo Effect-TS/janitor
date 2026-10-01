@@ -1,7 +1,7 @@
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import { GitHubLabelDatabaseId, GitHubLabelNodeId } from "@janitor/domain/GitHub/Id"
 import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
 import {

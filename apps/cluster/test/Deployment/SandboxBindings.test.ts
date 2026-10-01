@@ -9,7 +9,7 @@ import { evalStack } from "alchemy/Stack"
 import { inMemoryState } from "alchemy/State"
 import * as Effect from "effect/Effect"
 import { AlchemyContext } from "alchemy/AlchemyContext"
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import { ReviewSandboxContainerRuntime } from "@janitor/alchemy/Cloudflare/AI/ReviewSandboxContainerRuntime"
 import { SandboxContainerRuntime } from "@janitor/alchemy/Cloudflare/AI/SandboxContainerRuntime"
 import {

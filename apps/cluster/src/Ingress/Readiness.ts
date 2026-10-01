@@ -1,9 +1,9 @@
 import * as Effect from "effect/Effect"
 import * as Context from "effect/Context"
 import * as Layer from "effect/Layer"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
-import * as Response from "effect/unstable/http/HttpServerResponse"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as HttpRouter from "effect/http/HttpRouter"
+import * as Response from "effect/http/HttpServerResponse"
+import * as SqlClient from "effect/sql/SqlClient"
 
 /** A read-only schema probe; never runs migrations or contacts GitHub. */
 export const readiness = Effect.gen(function* () {

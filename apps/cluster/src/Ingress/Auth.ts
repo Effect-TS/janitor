@@ -2,7 +2,7 @@
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
-import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
+import * as HttpServerRequest from "effect/http/HttpServerRequest"
 
 /**
  * True when the request's bearer token equals the configured secret. The

@@ -5,7 +5,7 @@ import {
 } from "@janitor/domain/Labeling/Policy/AiRule"
 import { Program } from "@janitor/domain/Labeling/Policy/Program"
 import { compile } from "@janitor/domain/Labeling/Policy/Compile"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import {
@@ -23,7 +23,7 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 import { listAudit, recordAudit } from "./Audit.ts"
 import { groupIssues } from "./Groups.ts"
@@ -228,7 +228,7 @@ export class LabelingRules extends Context.Service<
         })
         if (compiled._tag === "Rejected") return yield* invalidAi(compiled.issue.message)
         const encoded = JSON.stringify(program)
-        const hash = Encoding.encodeHex(
+        const hash = Hex.encode(
           new Uint8Array(
             yield* Effect.promise(() =>
               crypto.subtle.digest("SHA-256", new TextEncoder().encode(encoded)),

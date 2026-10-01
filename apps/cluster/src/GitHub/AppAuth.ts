@@ -11,14 +11,15 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Base64 from "effect/encoding/Base64"
+import * as Base64Url from "effect/encoding/Base64Url"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientRequest from "effect/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 export class GitHubAppAuthError extends Data.TaggedError("GitHubAppAuthError")<{
   readonly operation: "importKey" | "signJwt" | "installationToken"
@@ -121,7 +122,7 @@ export const privateKeyDer = (pem: string): Effect.Effect<Uint8Array, GitHubAppA
     }
     const label = match[1]
     const body = (match[2] ?? "").replace(/\s+/g, "")
-    const der = yield* Effect.fromResult(Encoding.decodeBase64(body)).pipe(
+    const der = yield* Effect.fromResult(Base64.decode(body)).pipe(
       Effect.mapError(
         () =>
           new GitHubAppAuthError({ operation: "importKey", message: "Private key is not base64" }),
@@ -141,7 +142,7 @@ export const privateKeyDer = (pem: string): Effect.Effect<Uint8Array, GitHubAppA
   })
 
 const base64UrlJson = (value: unknown): string =>
-  Encoding.encodeBase64Url(new TextEncoder().encode(JSON.stringify(value)))
+  Base64Url.encode(new TextEncoder().encode(JSON.stringify(value)))
 
 export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentials) {
   const http = yield* HttpClient.HttpClient
@@ -185,7 +186,7 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
         new GitHubAppAuthError({ operation: "signJwt", message: "JWT signing failed", cause }),
     })
     return {
-      jwt: Redacted.make(`${signingInput}.${Encoding.encodeBase64Url(new Uint8Array(signature))}`),
+      jwt: Redacted.make(`${signingInput}.${Base64Url.encode(new Uint8Array(signature))}`),
       expiresAt,
     }
   })

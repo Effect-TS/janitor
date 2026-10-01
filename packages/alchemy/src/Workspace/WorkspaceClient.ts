@@ -1,6 +1,6 @@
 import { makeFetchRpcStub } from "alchemy/Rpc"
 import * as Effect from "effect/Effect"
-import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClient from "effect/http/HttpClient"
 import type { WorkspaceHostShape } from "./WorkspaceHost.ts"
 
 /** Resolve the dev URL on each call so a restarted host can change address. */

@@ -8,7 +8,7 @@ import * as Deferred from "effect/Deferred"
 import { TestClock } from "effect/testing"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import {
   AiClassifier,
   EvaluationRetry,
