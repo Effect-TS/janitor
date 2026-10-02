@@ -15,9 +15,6 @@ import { JanitorDatabase } from "@janitor/cluster/Database"
 import ClusterWorker from "@janitor/cluster/Worker"
 import { deployment } from "@janitor/cluster/Deployment"
 
-import { ReviewSandboxContainerRuntime } from "@janitor/alchemy/Cloudflare/AI/ReviewSandboxContainerRuntime"
-import { SandboxContainerRuntime } from "@janitor/alchemy/Cloudflare/AI/SandboxContainerRuntime"
-
 const DockerProviders = Layer.effect(
   Docker.Providers,
   Provider.collection([Docker.Container, Docker.Image]),
@@ -61,9 +58,7 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     const target = yield* deployment
     const database = yield* JanitorDatabase
-    const cluster = yield* ClusterWorker.pipe(
-      Effect.provide([SandboxContainerRuntime, ReviewSandboxContainerRuntime]),
-    )
+    const cluster = yield* ClusterWorker
 
     const website = yield* Cloudflare.Website.Foldkit("Website", {
       rootDir: new URL("./apps/web", import.meta.url).pathname,

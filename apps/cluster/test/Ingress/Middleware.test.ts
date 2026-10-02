@@ -470,7 +470,6 @@ describe("MembershipMiddleware", () => {
     beginLink: () => Effect.die("unused"),
     consumeLinkAttempt: () => Effect.die("unused"),
     link: () => Effect.die("unused"),
-    authorize: () => Effect.die("unused"),
   })
 
   const makeLayer = (verify: AccessVerifier["Service"]["verify"]) =>

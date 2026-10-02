@@ -8,13 +8,12 @@ reconnection. It does not fetch application data on a timer.
 
 | Page or shared view                                  | Refresh trigger                                                                                                             |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Reviews and open run details                         | Repository `review` notifications                                                                                           |
 | Activity                                             | Repository `activity` notifications                                                                                         |
 | Policies and rules, including editors                | Repository `configuration`, `candidates`, and `consent` notifications                                                       |
 | Running rule test                                    | Repository `test` notifications, one initial catch-up read, or manual Retry                                                 |
-| Repository Settings                                  | Repository configuration/review notifications and `connections` notifications for inventory                                 |
+| Repository Settings                                  | Repository `consent` notifications and `connections` notifications for inventory                                            |
 | Connect and GitHub installation return               | Application `connections` notifications                                                                                     |
-| Account, connected accounts, Team                    | Application `account` notifications                                                                                         |
+| Account and connected accounts                       | Application `account` notifications                                                                                         |
 | Repository switcher and unavailable repository views | Repository `repository`/`connections` notifications, or application `connections` when no accessible repository is selected |
 | Sync status in the header                            | Repository `sync`/`repository`/`connections`, or application `connections` notifications                                    |
 | Home                                                 | Redirects into the repository or connection flow                                                                            |
@@ -48,11 +47,11 @@ switches to polling.
 ## Deployment verification
 
 1. Deploy the backend migration and frontend together, then reload the browser.
-2. Open Reviews and inspect Network. After initial reads and the socket's Ready
-   catch-up, an idle page should have no periodic Reviews requests. Ping/pong
+2. Open Activity and inspect Network. After initial reads and the socket's Ready
+   catch-up, an idle page should have no periodic Activity requests. Ping/pong
    WebSocket frames are expected.
-3. Start a dry-run review in another tab. Changed frames with the `review` topic
-   should cause HTTP reads and update the run status and open details.
+3. Edit a rule in another tab. Changed frames with the `configuration` topic
+   should cause HTTP reads and update the rule list.
 4. Open Connect with no connected repositories. Installation/inventory changes
    should update the page through the application socket.
 5. Connect or disconnect a linked account in another tab. The Account page

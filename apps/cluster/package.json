@@ -10,7 +10,6 @@
     "@effect/ai-openai-compat": "catalog:",
     "@effect/platform-cloudflare": "catalog:",
     "@effect/sql-pg": "catalog:",
-    "@janitor/alchemy": "workspace:^",
     "@janitor/domain": "workspace:^",
     "alchemy": "catalog:",
     "effect": "catalog:"

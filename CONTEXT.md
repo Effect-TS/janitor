@@ -1,6 +1,6 @@
 # Janitor
 
-Janitor manages connected GitHub repositories through automatic labeling, agent sessions, and explicitly invoked issue review. Closed issues and closed or merged pull requests are outside its labeling scope.
+Janitor manages connected GitHub repositories through automatic labeling. Closed issues and closed or merged pull requests are outside its labeling scope.
 
 ## Language
 
@@ -92,41 +92,13 @@ A label action requiring the label to be absent after evaluation, including when
 The rule makes no request to add or remove its label. Its labeling group may still remove the label when choosing which label remains.
 _Avoid_: Leave unchanged
 
-### Shared collaboration
-
-**Shared work**:
-An ongoing team effort with Janitor-run agents that teammates can join and steer. It may begin before an issue or pull request exists and later link to those artifacts.
-
-**Agent session**:
-An ongoing conversation with a Janitor-run agent that teammates can join and steer in its home thread. It can begin before repository selection and later use one repository and ref. After creation, ordinary messages from authorized teammates are agent inputs; messages arriving during active work queue for the next turn.
-
-**Default agent model**:
-The team-funded provider and model selected for new agent sessions in a Janitor deployment. It is separate from the provider and model used by AI labeling rules.
-
-**Session model**:
-The provider and model used for a session's turns. New Slack sessions use the deployment's current OpenRouter chat configuration, independently of labeling. Changing that configuration affects subsequent turns.
-
-**Agent input**:
-An authorized teammate instruction directed to an agent session. A delivery retry is the same input; two separately sent instructions remain distinct even when their text matches.
-
-Once accepted, an input remains part of the shared session even if its author disconnects their account or loses team eligibility; its original authorship is preserved.
-
-**Agent turn**:
-An interval of agent work within an ongoing session that may include several model responses and tool operations. Finishing a turn leaves the session available for later inputs. New Slack sessions report interrupted turns without replaying them, then continue with later inputs.
-
-**Home thread**:
-The single private-channel thread where teammates participate in an agent session. The MVP uses Slack; Discord is planned for a later release.
+### Team
 
 **Authorized team member**:
-Anyone Cloudflare Access lets sign in to Janitor. Every authorized team member has every permission; Janitor has no roles. Their linked accounts may direct Janitor until disconnected, independently of later Cloudflare Access session expiry or eligibility. Starting a session does not grant exclusive control.
+Anyone Cloudflare Access lets sign in to Janitor. Every authorized team member has every permission; Janitor has no roles.
 
-**Connected chat account**:
-A Slack or Discord account associated with an authorized team member after sign-in to Janitor.
-
-In the MVP, a teammate connects one Slack account per workspace, and each Slack account belongs to one teammate at a time.
-
-**Slack session sandbox**:
-A lazily started Node container owned by a Slack session's Durable Object. It holds one repository checkout and runs filesystem, Git and shell tools. Its files are ephemeral; conversation history and queued inputs survive container replacement, but unpublished edits may not.
+**Connected account**:
+A GitHub account an authorized team member has proven they own. Each GitHub account belongs to one teammate at a time.
 
 ### Repository connections and synchronization
 
@@ -158,7 +130,7 @@ A connected repository whose automations and synchronization pipeline are stoppe
 The re-enabling of a paused repository, subject to valid GitHub access and workflow enablement. Synchronization readiness does not determine whether automation may resume.
 
 **Repository disconnection**:
-Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Slack sessions refuse subsequent tools against a disconnected repository but retain their conversation and workspace until separately removed. Work and labels already published on GitHub remain unchanged.
+Removal of a repository from Janitor's management, deleting its policies, labeling rules, stored facts, and event history. Work and labels already published on GitHub remain unchanged.
 
 **Repository block reason**:
 A concrete reason repository work is refused, such as disconnection, unavailable GitHub access, or pause. Synchronization progress or failure is not a repository block reason.
@@ -182,48 +154,4 @@ Eligibility to run repository automation, subject to connection, pause, valid Gi
 Evaluation of labeling rules for the open issue or pull request concerned by a new incoming webhook event, rather than every open item in the repository. Evaluations and each label write read the current facts from GitHub when they run, including the pull request collections the rules need; synchronization never admits, qualifies or blocks them. Publishing a policy or changing a labeling rule affects future evaluations without triggering an immediate labeling run.
 
 **Webhook updates**:
-Changes to Janitor's cached GitHub information from incoming webhook events. A cache update does not itself authorize issue review.
-
-### Issue review
-
-**Issue review**:
-An explicitly invoked investigation that classifies an issue, searches the same repository for related issues and pull requests, and checks evidence against a recorded default-branch commit. It does not apply labels or fix bugs.
-
-**Authorized invocation**:
-A free-form request containing the `/janitor` command from a human with effective write or admin permission on that repository. Ordinary issue activity and reporter replies without a direct invocation do not authorize work.
-
-**Review run**:
-One investigation requested by an authorized invocation, using that invocation's instructions and treating previous discussion and findings as evidence. Only one run is active per issue; later invocations wait in order.
-
-**Review action**:
-One durable step of a review run with a stable identity and a persisted result: first the preparation (authority refresh, recorded default-branch commit, issue evidence, sandbox provisioning), then one action per model invocation. The run's agent schedules each action, applies its completion once, and decides whether the run continues, concludes or stops.
-
-**Review workspace**:
-The isolated, ephemeral sandbox checkout of a run's recorded default-branch commit, fetched by Git inside the sandbox without any credential. The agent inspects it through typed read-only tools; losing it interrupts the run.
-
-**Review findings**:
-The agent-authored result of a concluded run: a classification (bug, enhancement, question or unclear), findings and uncertainty in the agent's words, and cited evidence. Trusted code marks each citation verified only when the run observed that item or file, and never rewrites the prose.
-
-**Review limitation**:
-What ended a run without a conclusion: the deadline, a lost workspace, a provider failure or a model that stopped investigating. The run keeps the evidence it observed.
-
-**Review cancellation**:
-Stopping an active or queued review run without undoing completed publications. A cancelled run cannot resume; further work requires a new invocation.
-
-**Reproduction PR**:
-A linked draft pull request containing a minimal test that executes and fails for the reported bug. It contains no bug fix and Janitor never automatically marks it ready for review.
-
-**Confirmed fixed**:
-A review finding supported by a relevant test that fails on an affected revision and passes on the recorded default-branch commit.
-
-**Appears fixed**:
-A review finding supported by code or pull-request evidence without an executable comparison confirming the fix. It states what remains unverified.
-
-**Review summary**:
-The single Janitor comment on an issue that summarizes findings and is updated on subsequent authorized runs.
-
-**Review dry-run**:
-An investigation whose findings and proposed test changes appear in the frontend without automatic GitHub publication. A separately authorized Publish results action may publish one saved result while dry-run remains enabled.
-
-**Review publisher**:
-A frontend user with current effective repository write or admin permission who explicitly authorizes publication of saved review results. The publisher may differ from the original invoker.
+Changes to Janitor's cached GitHub information from incoming webhook events.

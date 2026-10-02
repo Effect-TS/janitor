@@ -6,10 +6,10 @@ export const TeammateId = Schema.NonEmptyString.pipe(Schema.brand("TeammateId"))
 export type TeammateId = typeof TeammateId.Type
 
 /** The platforms a teammate can prove an account on. */
-export const LinkPlatform = Schema.Literals(["slack", "github"])
+export const LinkPlatform = Schema.Literals(["github"])
 export type LinkPlatform = typeof LinkPlatform.Type
 
-/** GitHub has one namespace of numeric user IDs; Slack accounts are per workspace. */
+/** GitHub has one namespace of numeric user IDs, recorded as a single workspace. */
 export const GITHUB_WORKSPACE_ID = "github.com"
 
 export const LinkStatus = Schema.Literals(["active", "disconnected", "replaced"])
@@ -51,7 +51,6 @@ export type TeammateSummary = typeof TeammateSummary.Type
 
 /** Which platform links the deployment can start; unconfigured ones show as unavailable. */
 export const LinkingAvailability = Schema.Struct({
-  slack: Schema.Boolean,
   github: Schema.Boolean,
 })
 export type LinkingAvailability = typeof LinkingAvailability.Type

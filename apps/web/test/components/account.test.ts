@@ -14,11 +14,11 @@ const me: TeammateSummary = {
   email: "me@example.com",
   createdAt: at,
 }
-const slackLink = {
-  linkId: LinkId.make("l-slack"),
-  platform: "slack" as const,
-  workspaceId: "T1",
-  accountId: "U1",
+const githubLink = {
+  linkId: LinkId.make("l-github"),
+  platform: "github" as const,
+  workspaceId: "github.com",
+  accountId: "42",
   displayName: "Me",
   status: "active" as const,
   linkedAt: at,
@@ -26,13 +26,18 @@ const slackLink = {
 }
 const linkedView: AccountView = {
   teammate: me,
-  links: [slackLink],
-  linking: { slack: true, github: false },
+  links: [githubLink],
+  linking: { github: true },
 }
 const unlinkedView: AccountView = {
   teammate: me,
   links: [],
-  linking: { slack: true, github: true },
+  linking: { github: true },
+}
+const unavailableView: AccountView = {
+  teammate: me,
+  links: [],
+  linking: { github: false },
 }
 
 const scene = (
@@ -49,27 +54,34 @@ const scene = (
   )
 
 describe("Account page", () => {
-  it("shows each connected account with one status line and one action", () => {
+  it("shows the connected GitHub account with one status line and its actions", () => {
     scene(
       linkedView,
       "accounts",
       Scene.expect(Scene.text("Connected as Me")).toExist(),
       Scene.expect(Scene.role("button", { name: "Disconnect" })).toExist(),
       Scene.expect(Scene.role("button", { name: "Replace" })).toExist(),
-      Scene.expect(Scene.text("Not available in this deployment")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toBeAbsent(),
       Scene.expect(Scene.text("Team")).toBeAbsent(),
     )
   })
 
-  it("offers Connect for platforms that are configured but not linked", () => {
+  it("offers Connect when GitHub linking is configured but not linked", () => {
     scene(
       unlinkedView,
       "accounts",
       Scene.expect(Scene.text("Not connected")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Connect Slack" })).toExist(),
-      Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toBeEnabled(),
       Scene.expect(Scene.role("button", { name: "Disconnect" })).toBeAbsent(),
+    )
+  })
+
+  it("disables Connect when the deployment cannot link GitHub", () => {
+    scene(
+      unavailableView,
+      "accounts",
+      Scene.expect(Scene.text("Not available in this deployment")).toExist(),
+      Scene.expect(Scene.role("button", { name: "Connect GitHub" })).toBeDisabled(),
     )
   })
 
@@ -107,7 +119,7 @@ describe("Account linking flow", () => {
   it("opens the platform once the API returns its URL and ignores stale replies", () => {
     const started = Account.update(
       Account.init(),
-      Account.Message.ClickedConnect({ platform: "slack" }),
+      Account.Message.ClickedConnect({ platform: "github" }),
     )
     expect(started.commands?.[0]?.name).toBe("StartAccountLink")
     expect(
@@ -117,12 +129,12 @@ describe("Account linking flow", () => {
     const opened = Account.update(
       started.model,
       Account.Message.GotPlatformUrl({
-        url: "https://slack.com/openid/connect/authorize?x",
+        url: "https://github.com/login/oauth/authorize?x",
         operationId: 1,
       }),
     )
     expect(opened.outMessage).toEqual(
-      Account.OutMessage.OpenPlatform({ url: "https://slack.com/openid/connect/authorize?x" }),
+      Account.OutMessage.OpenPlatform({ url: "https://github.com/login/oauth/authorize?x" }),
     )
     expect(Option.isNone(opened.model.pending)).toBe(true)
     const stale = Account.update(
@@ -143,14 +155,14 @@ describe("Account linking flow", () => {
       returning.model,
       Account.Message.Returned({
         operationId: 1,
-        linked: { ...slackLink, platform: "github", workspaceId: "github.com", accountId: "42" },
+        linked: githubLink,
       }),
     )
     expect(done.outMessage).toEqual(Account.OutMessage.FinishedReturn())
     expect(done.model.notice).toBe("GitHub account connected.")
     expect(done.commands?.[0]?.name).toBe("LoadAccount")
     const failed = Account.update(
-      Account.returned(Account.init(), { platform: "slack", code: "abc", state: "used" }).model,
+      Account.returned(Account.init(), { platform: "github", code: "abc", state: "used" }).model,
       Account.Message.Failed({ operationId: 1, reason: "This connection attempt expired." }),
     )
     expect(failed.outMessage).toEqual(Account.OutMessage.FinishedReturn())

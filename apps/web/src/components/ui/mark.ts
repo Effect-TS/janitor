@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils"
 const markClass =
   "inline-flex shrink-0 items-center justify-center rounded-xs border border-border bg-surface-muted font-mono font-medium text-foreground"
 
+const platformLetters: Record<LinkPlatform, string> = { github: "GH" }
+
 export const platformMark = <M>(
   h: HtmlBuilder<M>,
   platform: LinkPlatform,
@@ -13,7 +15,7 @@ export const platformMark = <M>(
 ): Html =>
   h.span(
     [h.Class(cn(markClass, "size-9 text-mono-sm", className)), h.AriaHidden(true)],
-    [platform === "github" ? "GH" : "SL"],
+    [platformLetters[platform]],
   )
 
 /** Two-letter initials for a teammate, from their email or subject. */

@@ -55,20 +55,6 @@ export interface LinkAttempt {
   readonly nonce: string
 }
 
-/**
- * The outcome of asking whether a platform account may direct Janitor.
- * `identityRevision` records which authorization state the caller saw.
- */
-export type Authorization =
-  | {
-      readonly _tag: "Authorized"
-      readonly teammateId: TeammateId
-      readonly linkId: string
-      readonly displayName: string
-      readonly identityRevision: string
-    }
-  | { readonly _tag: "Denied"; readonly reason: "unknown-account" | "disconnected" }
-
 const TeammateRow = Schema.Struct({
   teammate_id: Schema.String,
   issuer: Schema.String,
@@ -81,7 +67,7 @@ type TeammateRow = typeof TeammateRow.Type
 const LinkRow = Schema.Struct({
   link_id: Schema.String,
   teammate_id: Schema.String,
-  platform: Schema.Literals(["slack", "github"]),
+  platform: Schema.Literals(["github"]),
   workspace_id: Schema.String,
   account_id: Schema.String,
   display_name: Schema.String,
@@ -175,13 +161,6 @@ export class Teammates extends Context.Service<
       teammateId: TeammateId,
       proof: LinkProof,
     ) => Effect.Effect<LinkedAccount, TeammateError>
-    /**
-     * Decides whether a platform account may direct Janitor. Run it inside
-     * the transaction that accepts the input: it takes a share lock on the
-     * owning teammate and link rows, so a concurrent disconnect waits for the
-     * acceptance to commit, and an input evaluated after it is denied.
-     */
-    readonly authorize: (account: PlatformAccount) => Effect.Effect<Authorization, TeammateError>
   }
 >()("@janitor/cluster/Teammates", {
   make: Effect.gen(function* () {
@@ -380,35 +359,6 @@ export class Teammates extends Context.Service<
         )
         .pipe(wrap)
 
-    const authorize = (account: PlatformAccount) =>
-      sql<{
-        link_id: string
-        teammate_id: string
-        link_status: string
-        display_name: string
-        identity_revision: string
-      }>`SELECT l.link_id::text AS link_id, l.teammate_id::text AS teammate_id, l.status AS link_status,
-          l.display_name, t.identity_revision::text AS identity_revision
-        FROM teammate_link l JOIN teammate t USING (teammate_id)
-        WHERE l.platform = ${account.platform} AND l.workspace_id = ${account.workspaceId}
-          AND l.account_id = ${account.accountId}
-        ORDER BY (l.status = 'active') DESC, l.linked_at DESC
-        LIMIT 1 FOR SHARE OF l, t`.pipe(
-        Effect.map((rows): Authorization => {
-          const row = rows[0]
-          if (row === undefined) return { _tag: "Denied", reason: "unknown-account" }
-          if (row.link_status !== "active") return { _tag: "Denied", reason: "disconnected" }
-          return {
-            _tag: "Authorized",
-            teammateId: TeammateId.make(row.teammate_id),
-            linkId: row.link_id,
-            displayName: row.display_name,
-            identityRevision: row.identity_revision,
-          }
-        }),
-        wrap,
-      )
-
     return {
       admit,
       account,
@@ -416,7 +366,6 @@ export class Teammates extends Context.Service<
       beginLink,
       consumeLinkAttempt,
       link,
-      authorize,
     }
   }),
 }) {

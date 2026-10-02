@@ -79,11 +79,7 @@ export default defineConfig({
           // Effect and the cluster per file, which dominated run time. Every
           // file gets its own database, and support fakes reset in `seed`.
           isolate: false,
-          include: [
-            "apps/cluster/test/**/*.test.ts",
-            "packages/domain/test/**/*.test.ts",
-            "packages/alchemy/test/**/*.test.ts",
-          ],
+          include: ["apps/cluster/test/**/*.test.ts", "packages/domain/test/**/*.test.ts"],
         },
       },
       "./apps/web/vite.config.ts",

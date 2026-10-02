@@ -510,3 +510,13 @@ owner may have lost Access; they can relink after signing in. `disabled` leaves
 the link status check, and the ownership indexes now cover `active` links only.
 `INITIAL_ADMIN_SUBJECT` is no longer read. Teammate rows, links, link attempts
 and the audit are otherwise unchanged.
+
+## Issue review and Slack removed
+
+`0054_remove_issue_review_and_slack.sql` removes issue review and the Slack
+integration. It drops every `issue_review_*` table, the review fences and
+retention functions, and the review triggers on `github_repository`, and
+rewrites `delete_repository_data` without them. Queued `Janitor/AdmitReviewV1`
+and `Janitor/ReviewActionV1` outbox rows and pending `review` live
+notifications are deleted. Slack account links and link attempts are deleted,
+and both link tables now accept only `github`.

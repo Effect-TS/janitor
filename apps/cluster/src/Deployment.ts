@@ -4,7 +4,6 @@ import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as Redacted from "effect/Redacted"
 import { SourceError } from "effect/ConfigProvider"
 
 // Alchemy provides the stage while planning and binds ALCHEMY_STAGE into
@@ -28,18 +27,3 @@ export const deployment = Effect.gen(function* () {
 
 export const requiredText = (name: string) =>
   Config.schema(Schema.String.check(Schema.isPattern(/^(?!CHANGE_ME$)\S+$/)), name)
-
-export const requiredSecret = (name: string) =>
-  Config.Redacted(name).pipe(
-    Config.mapEffect((secret) =>
-      /^(?!CHANGE_ME$)\S+$/.test(Redacted.value(secret))
-        ? Effect.succeed(secret)
-        : Effect.fail(
-            new Config.ConfigError(
-              new SourceError({
-                message: `${name} requires a nonempty secret, not the example placeholder`,
-              }),
-            ),
-          ),
-    ),
-  )

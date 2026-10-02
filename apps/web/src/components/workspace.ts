@@ -1,8 +1,6 @@
 import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Live from "./live"
 import * as Activity from "@/components/activity"
-import * as Reviews from "@/components/reviews"
-import { ReviewSettings } from "@janitor/domain/Review/Run"
 import * as Menu from "@foldkit/ui/menu"
 import * as Effect from "effect/Effect"
 import * as Clock from "effect/Clock"
@@ -66,7 +64,6 @@ export type {
   ReconciliationRecord,
   RepositoryOverview,
 } from "@/components/labeling-wire"
-export type { ReviewSettings } from "@janitor/domain/Review/Run"
 
 // MODEL
 
@@ -87,21 +84,14 @@ export const Panel = Schema.Union([
 ])
 export type Panel = typeof Panel.Type
 
-export const Section = Schema.Literals([
-  "Overview",
-  "Policies",
-  "Rules",
-  "Activity",
-  "Reviews",
-  "Settings",
-])
+export const Section = Schema.Literals(["Overview", "Policies", "Rules", "Activity", "Settings"])
 export type Section = typeof Section.Type
 
 const Mutation = Schema.Struct({
   operationId: Schema.Int,
   repositoryId: Schema.String,
   subjectId: Schema.String,
-  kind: Schema.Literals(["RuleToggle", "PolicyDelete", "RuleDelete", "Consent", "Review"]),
+  kind: Schema.Literals(["RuleToggle", "PolicyDelete", "RuleDelete", "Consent"]),
   previousEnabled: Schema.Boolean,
   enabled: Schema.Boolean,
 })
@@ -110,19 +100,14 @@ const ResponseContext = { repositoryId: Schema.String, operationId: Schema.Int }
 
 export const Model = Schema.Struct({
   activity: Activity.Model,
-  reviews: Reviews.Model,
   liveTopics: Schema.Array(Live.Topic),
   nextOperationId: Schema.Int,
   pendingMutations: Schema.Array(Mutation),
   nextRequestId: Schema.Int,
   maybeDetailRequest: Schema.Option(Schema.Int),
   maybeConsentRequest: Schema.Option(Schema.Int),
-  maybeReviewRequest: Schema.Option(Schema.Int),
   maybeRepositoriesRequest: Schema.Option(Schema.Int),
   consentError: Schema.Option(Schema.String),
-  /** The repository's issue review settings, loaded with the consent card. */
-  maybeReview: Schema.Option(ReviewSettings),
-  reviewError: Schema.Option(Schema.String),
   policySearch: Schema.String,
   ruleSearch: Schema.String,
   /** The rule whose graph and details the rules page shows. */
@@ -145,13 +130,6 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   GotActivityMessage: { message: Activity.Message },
-  GotReviewsMessage: { message: Reviews.Message },
-  GotReview: { repositoryId: Schema.String, settings: ReviewSettings, requestId: Schema.Int },
-  FailedReview: { repositoryId: Schema.String, reason: Schema.String, requestId: Schema.Int },
-  ClickedRetryReview: {},
-  ChangedReview: { enabled: Schema.Boolean, dryRun: Schema.Boolean },
-  CompletedSetReview: { ...ResponseContext, settings: ReviewSettings },
-  FailedSetReview: { ...ResponseContext, reason: Schema.String },
   UpdatedPolicySearch: { value: Schema.String },
   GotRepositories: { repositories: Schema.Array(RepositoryOverview), requestId: Schema.Int },
   FailedRepositories: { reason: Schema.String, requestId: Schema.Int },
@@ -281,45 +259,6 @@ export const FetchConsent = FoldkitCommand.define("FetchConsent", {
       Effect.map((consent) => Message.GotConsent({ repositoryId, consent, requestId })),
       Effect.catch((error) =>
         Effect.succeed(Message.FailedConsent({ repositoryId, requestId, reason: describe(error) })),
-      ),
-    ),
-})
-
-const reviewEndpoint = (repositoryId: string) =>
-  `${REPOSITORIES_ENDPOINT}/${encodeURIComponent(repositoryId)}/issue-review`
-
-export const FetchReview = FoldkitCommand.define("FetchReviewSettings", {
-  args: { repositoryId: Schema.String, requestId: Schema.Int },
-  messages: [Message.GotReview, Message.FailedReview],
-  execute: ({ repositoryId, requestId }) =>
-    getJson(reviewEndpoint(repositoryId), ReviewSettings).pipe(
-      Effect.map((settings) => Message.GotReview({ repositoryId, settings, requestId })),
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedReview({ repositoryId, requestId, reason: describe(error) })),
-      ),
-    ),
-})
-
-export const SetReview = FoldkitCommand.define("SetReviewSettings", {
-  args: { ...ResponseContext, enabled: Schema.Boolean, dryRun: Schema.Boolean },
-  messages: [Message.CompletedSetReview, Message.FailedSetReview],
-  execute: ({ repositoryId, enabled, dryRun, operationId }) =>
-    HttpClientRequest.put(reviewEndpoint(repositoryId)).pipe(
-      HttpClientRequest.bodyJson({ enabled, dryRun }),
-      Effect.flatMap(HttpClient.execute),
-      Effect.flatMap((response) =>
-        response.status === 409 || response.status === 403
-          ? HttpIncomingMessage.schemaBodyJson(MessageBody)(response).pipe(
-              Effect.flatMap((body) => Effect.fail(body.message)),
-            )
-          : HttpClientResponse.filterStatusOk(response),
-      ),
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(ReviewSettings)),
-      Effect.map((settings) => Message.CompletedSetReview({ repositoryId, settings, operationId })),
-      Effect.catch((error) =>
-        Effect.succeed(
-          Message.FailedSetReview({ repositoryId, operationId, reason: describe(error) }),
-        ),
       ),
     ),
 })
@@ -457,18 +396,14 @@ export const init = (): UpdateReturn => ({
   model: Model.make(
     {
       activity: Activity.init(),
-      reviews: Reviews.init(),
       liveTopics: [],
       nextOperationId: 1,
       pendingMutations: [],
       nextRequestId: 1,
       maybeDetailRequest: Option.none(),
       maybeConsentRequest: Option.none(),
-      maybeReviewRequest: Option.none(),
       maybeRepositoriesRequest: Option.some(0),
       consentError: Option.none(),
-      maybeReview: Option.none(),
-      reviewError: Option.none(),
       policySearch: "",
       ruleSearch: "",
       selectedRuleId: null,
@@ -529,48 +464,19 @@ const refresh = (model: Model, force = true): Step => {
   const repositoryId = model.dataRepositoryId.value
   const detail = force || Option.isNone(model.maybeDetailRequest)
   const consent = force || Option.isNone(model.maybeConsentRequest)
-  const review = force || Option.isNone(model.maybeReviewRequest)
   const requestId = model.nextRequestId
   return {
     model: modifyFields(model, {
-      nextRequestId: () => requestId + 3,
+      nextRequestId: () => requestId + 2,
       maybeDetailRequest: (current) => (detail ? Option.some(requestId) : current),
       maybeConsentRequest: (current) => (consent ? Option.some(requestId + 1) : current),
-      maybeReviewRequest: (current) => (review ? Option.some(requestId + 2) : current),
     }),
     commands: [
       ...(detail ? [FetchDetail({ repositoryId, requestId })] : []),
       ...(consent ? [FetchConsent({ repositoryId, requestId: requestId + 1 })] : []),
-      ...(review ? [FetchReview({ repositoryId, requestId: requestId + 2 })] : []),
     ],
   }
 }
-
-/** Reloads only the issue review settings, when none are in flight. */
-const refreshReview = (model: Model): Step => {
-  if (Option.isNone(model.dataRepositoryId) || Option.isSome(model.maybeReviewRequest))
-    return { model }
-  const requestId = model.nextRequestId
-  return {
-    model: modifyFields(model, {
-      nextRequestId: () => requestId + 1,
-      maybeReviewRequest: () => Option.some(requestId),
-    }),
-    commands: [FetchReview({ repositoryId: model.dataRepositoryId.value, requestId })],
-  }
-}
-
-const foldReviews = Update.foldChild({
-  update: Reviews.update,
-  read: (model: Model) => Option.some(model.reviews),
-  write: (model, reviews) => modifyFields(model, { reviews: () => reviews }),
-  toParentMessage: (message) => Message.GotReviewsMessage({ message }),
-  toParentOutMessage: (outMessage) =>
-    Reviews.OutMessage.match<OutMessage>(outMessage, {
-      Notified: ({ title, description }) => OutMessage.Notified({ title, description }),
-      Failed: ({ title, reason }) => OutMessage.Failed({ title, reason }),
-    }),
-})
 
 export const refreshRepositories = (model: Model): Step => ({
   model: modifyFields(model, {
@@ -886,95 +792,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ),
       }
     },
-    GotReviewsMessage: ({ message }) => foldReviews(model, message),
-    GotReview: ({ repositoryId, settings, requestId }) =>
-      Option.contains(model.dataRepositoryId, repositoryId) &&
-      Option.contains(model.maybeReviewRequest, requestId)
-        ? {
-            model: modifyFields(model, {
-              maybeReview: () => Option.some(settings),
-              reviewError: () => Option.none(),
-              maybeReviewRequest: () => Option.none(),
-            }),
-          }
-        : { model },
-    FailedReview: ({ repositoryId, reason, requestId }) =>
-      Option.contains(model.dataRepositoryId, repositoryId) &&
-      Option.contains(model.maybeReviewRequest, requestId)
-        ? {
-            model: modifyFields(model, {
-              reviewError: () => Option.some(reason),
-              maybeReviewRequest: () => Option.none(),
-            }),
-          }
-        : { model },
-    ClickedRetryReview: () => refreshReview(model),
-    ChangedReview: ({ enabled, dryRun }) => {
-      if (Option.isNone(model.dataRepositoryId) || Option.isNone(model.maybeReview))
-        return { model }
-      const repositoryId = model.dataRepositoryId.value
-      if (hasMutation(model, repositoryId, repositoryId, ["Review"])) return { model }
-      return {
-        model: startMutation(model, {
-          repositoryId,
-          subjectId: repositoryId,
-          kind: "Review",
-          previousEnabled: model.maybeReview.value.enabled,
-          enabled,
-        }),
-        commands: [
-          SetReview({ repositoryId, enabled, dryRun, operationId: model.nextOperationId }),
-        ],
-      }
-    },
-    CompletedSetReview: ({ repositoryId, settings, operationId }) => {
-      if (
-        !model.pendingMutations.some(
-          (mutation) =>
-            mutation.operationId === operationId &&
-            mutation.repositoryId === repositoryId &&
-            mutation.kind === "Review",
-        )
-      )
-        return { model }
-      const next = modifyFields(finishMutation(model, operationId), {
-        maybeReview: (current) =>
-          Option.contains(model.dataRepositoryId, repositoryId) ? Option.some(settings) : current,
-      })
-      return {
-        model: next,
-        outMessage: OutMessage.Notified({
-          title: settings.enabled
-            ? settings.dryRun
-              ? "Issue review enabled in dry-run"
-              : "Issue review enabled"
-            : "Issue review disabled",
-          description: settings.enabled
-            ? settings.dryRun
-              ? "Authorized /janitor commands start runs whose findings stay in Janitor."
-              : "Authorized /janitor commands start runs that may publish to GitHub."
-            : "Active and queued runs were cancelled. New mentions are ignored.",
-        }),
-      }
-    },
-    FailedSetReview: ({ repositoryId, operationId, reason }) => {
-      if (
-        !model.pendingMutations.some(
-          (mutation) =>
-            mutation.operationId === operationId &&
-            mutation.repositoryId === repositoryId &&
-            mutation.kind === "Review",
-        )
-      )
-        return { model }
-      return {
-        ...refreshReview(finishMutation(model, operationId)),
-        outMessage: OutMessage.Failed({
-          title: "Issue review change could not be confirmed",
-          reason,
-        }),
-      }
-    },
     Selected: ({ repositoryId }) =>
       Option.contains(model.dataRepositoryId, repositoryId)
         ? { model }
@@ -987,8 +804,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
               detailError: () => Option.none(),
               maybeConsent: () => Option.none(),
               consentError: () => Option.none(),
-              maybeReview: () => Option.none(),
-              reviewError: () => Option.none(),
             }),
           ),
     LiveChanged: ({ topics, all }) => ({
@@ -1006,7 +821,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                   "consent",
                   "test",
                   "repository",
-                  "review",
                 ] as const)
               : topics),
           ]),
@@ -1033,10 +847,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         }
       } else if (topics.some((topic) => ["configuration", "candidates", "consent"].includes(topic)))
         append(refresh(next.model, false))
-      if (topics.includes("review")) {
-        if (next.model.reviews.active) append(foldReviews(next.model, Reviews.Message.Polled()))
-        else append(refreshReview(next.model))
-      }
       if (topics.includes("test") && next.model.panel._tag === "RuleEditor")
         append(foldRuleEditor(next.model, RuleEditor.Message.RefreshTest()))
       return next
@@ -1440,9 +1250,7 @@ const liveRefresh = Subscription.make<Model, Message>()((entry) => ({
           Option.isSome(model.maybeRepositoriesRequest) ||
           Option.isSome(model.maybeDetailRequest) ||
           Option.isSome(model.maybeConsentRequest) ||
-          Option.isSome(model.maybeReviewRequest) ||
-          model.activity.loading ||
-          model.reviews.loading,
+          model.activity.loading,
       }),
       dependenciesToStream: ({ topics, busy }) =>
         topics.length && !busy ? Stream.succeed(Message.FlushLive()) : Stream.empty,
@@ -2176,117 +1984,6 @@ const rulesSection = (h: HtmlBuilder<Message>, model: Model, view: Configuration
 }
 
 /** The AI classification card alone; the shell provides the page around it. */
-/** The issue review card: opt-in and dry-run for this repository. */
-const reviewSection = (h: HtmlBuilder<Message>, model: Model): Html => {
-  const review = Option.getOrUndefined(model.maybeReview)
-  const busy =
-    review !== undefined && hasMutation(model, review.repositoryId, review.repositoryId, ["Review"])
-  return panel(h, {
-    flush: true,
-    attributes: [
-      h.DataAttribute(
-        "review",
-        review === undefined ? "unknown" : review.enabled ? "enabled" : "disabled",
-      ),
-      h.AriaLabel("Issue review"),
-    ],
-    children: [
-      panelHeader(h, {
-        title: "Issue review",
-        ...(review === undefined || review.available ? {} : { meta: "unavailable" }),
-        actions:
-          review === undefined
-            ? []
-            : [
-                Button.view(h, {
-                  variant: review.enabled ? "destructive" : "secondary",
-                  size: "sm",
-                  onClick: Message.ChangedReview({
-                    enabled: !review.enabled,
-                    dryRun: review.dryRun,
-                  }),
-                  isDisabled: busy || (!review.enabled && !review.available),
-                  label: busy
-                    ? review.enabled
-                      ? "Disabling…"
-                      : "Enabling…"
-                    : review.enabled
-                      ? "Disable"
-                      : "Enable",
-                  attributes: [h.DataAttribute("action", "toggle-review")],
-                }),
-              ],
-      }),
-      h.div(
-        [h.Class("flex flex-col gap-2 px-4 py-3")],
-        [
-          Option.isSome(model.reviewError)
-            ? h.div(
-                [
-                  h.Role("alert"),
-                  h.Class("flex flex-wrap items-center gap-2 text-body-sm text-destructive"),
-                ],
-                [
-                  model.reviewError.value,
-                  Button.view(h, {
-                    label: "Retry issue review",
-                    variant: "secondary",
-                    size: "sm",
-                    onClick: Message.ClickedRetryReview(),
-                    isDisabled: Option.isSome(model.maybeReviewRequest),
-                  }),
-                ],
-              )
-            : h.empty,
-          review === undefined
-            ? Option.isSome(model.reviewError)
-              ? h.empty
-              : h.p([h.Class("text-body-md text-ink-muted")], ["Loading"])
-            : h.div(
-                [h.Class("flex flex-col gap-3")],
-                [
-                  h.div(
-                    [h.Class("flex items-center gap-2")],
-                    [
-                      chip(h, {
-                        variant: review.enabled ? "success" : "neutral",
-                        children: [review.enabled ? "Enabled" : "Disabled"],
-                      }),
-                      ...(review.enabled && review.dryRun
-                        ? [chip(h, { children: ["dry-run"] })]
-                        : []),
-                    ],
-                  ),
-                  h.p(
-                    [h.Class("text-body-md text-ink-muted")],
-                    [
-                      review.enabled
-                        ? "A comment on an open issue containing /janitor, from someone with write or admin permission, starts a review run. One run is active per issue; later invocations wait behind it."
-                        : "The /janitor command is ignored on this repository's issues. Enabling admits comments posted from now on; earlier ones never start work.",
-                    ],
-                  ),
-                  SwitchControl.view(h, {
-                    id: "review-dry-run",
-                    label: "Dry-run: keep findings in Janitor and never write to GitHub",
-                    isChecked: review.dryRun,
-                    isDisabled: busy,
-                    onToggle: (dryRun) =>
-                      Message.ChangedReview({ enabled: review.enabled, dryRun }),
-                  }),
-                  !review.available
-                    ? h.p(
-                        [h.Class("text-body-md text-ink-muted")],
-                        ["Issue review is not available in this deployment yet."],
-                      )
-                    : h.empty,
-                ],
-              ),
-        ],
-      ),
-    ],
-  })
-}
-
 const consentSection = (h: HtmlBuilder<Message>, model: Model): Html => {
   const consent = Option.getOrUndefined(model.maybeConsent)
   const busy =
@@ -2794,12 +2491,7 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
           ],
         )
       // The shell wraps Settings in its own page layout, so these are the cards alone.
-      return section === "Settings"
-        ? h.div(
-            [h.Class("flex flex-col gap-4")],
-            [reviewSection(h, model), consentSection(h, model)],
-          )
-        : h.empty
+      return section === "Settings" ? consentSection(h, model) : h.empty
     },
   })
 
@@ -2825,15 +2517,7 @@ export const view = Submodel.defineView<Model, Message, { section: Section }>(
                 },
                 toParentMessage: (message) => Message.GotActivityMessage({ message }),
               })
-            : section === "Reviews"
-              ? h.submodel({
-                  slotId: "reviews",
-                  model: model.reviews,
-                  view: Reviews.view,
-                  viewInputs: {},
-                  toParentMessage: (message) => Message.GotReviewsMessage({ message }),
-                })
-              : detailPanel(h, model, section),
+            : detailPanel(h, model, section),
       ],
     ),
 )
@@ -2882,7 +2566,6 @@ export const openRoute = (
       model: {
         ...closed(model),
         activity: { ...model.activity, active: false },
-        reviews: { ...model.reviews, active: false },
       },
     }
   const selected = update(model, Message.Selected({ repositoryId: route.repositoryId }))
@@ -2898,21 +2581,8 @@ export const openRoute = (
       }),
     }),
   )
-  const reviews = update(
-    activity.model,
-    Message.GotReviewsMessage({
-      message: Reviews.Message.Activated({
-        repositoryId: route.repositoryId,
-        active: route._tag === "Reviews",
-      }),
-    }),
-  )
-  next = reviews.model
-  const routeCommands = [
-    ...(selected.commands ?? []),
-    ...(activity.commands ?? []),
-    ...(reviews.commands ?? []),
-  ]
+  next = activity.model
+  const routeCommands = [...(selected.commands ?? []), ...(activity.commands ?? [])]
   if (Option.isNone(next.detail)) return { model: next, commands: routeCommands }
   let result: UpdateReturn = { model: next }
   if (next.panel._tag === "Closed") {

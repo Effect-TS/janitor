@@ -100,14 +100,6 @@ const consent: Workspace.AiConsent = {
   updatedAt: at,
 }
 
-const reviewSettings: Workspace.ReviewSettings = {
-  repositoryId: "701",
-  enabled: false,
-  dryRun: true,
-  available: true,
-  updatedAt: null,
-}
-
 const opened = (): Workspace.Model => ({
   ...Workspace.init().model,
   dataRepositoryId: Option.some("701"),
@@ -245,18 +237,9 @@ describe("Repositories", () => {
         Workspace.FetchConsent({ requestId: 2, repositoryId: "701" }),
         Workspace.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
       ),
-      Story.Command.resolve(
-        Workspace.FetchReview({ requestId: 3, repositoryId: "701" }),
-        Workspace.Message.GotReview({
-          requestId: 3,
-          repositoryId: "701",
-          settings: reviewSettings,
-        }),
-      ),
       Story.model((next) => {
         expect(next.detail).toEqual(Option.some(detail))
         expect(next.maybeConsent).toEqual(Option.some(consent))
-        expect(next.maybeReview).toEqual(Option.some(reviewSettings))
         const repositories = Option.getOrThrow(next.repositories)
         expect(repositories[0]?.ruleCount).toBe(configuration.rules.length)
         expect(repositories[0]?.policyCount).toBe(configuration.policies.length)
@@ -283,18 +266,9 @@ describe("Repositories", () => {
         Workspace.FetchConsent({ requestId: 2, repositoryId: "702" }),
         Workspace.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
       ),
-      Story.Command.resolve(
-        Workspace.FetchReview({ requestId: 3, repositoryId: "702" }),
-        Workspace.Message.GotReview({
-          requestId: 3,
-          repositoryId: "701",
-          settings: reviewSettings,
-        }),
-      ),
       Story.model((next) => {
         expect(next.detail).toEqual(Option.none())
         expect(next.maybeConsent).toEqual(Option.none())
-        expect(next.maybeReview).toEqual(Option.none())
       }),
     )
   })
@@ -352,72 +326,6 @@ describe("Repositories", () => {
         Workspace.FetchConsent({ requestId: 2, repositoryId: "701" }),
         Workspace.Message.GotConsent({ requestId: 2, repositoryId: "701", consent }),
       ),
-      Story.Command.resolve(
-        Workspace.FetchReview({ requestId: 3, repositoryId: "701" }),
-        Workspace.Message.GotReview({
-          requestId: 3,
-          repositoryId: "701",
-          settings: reviewSettings,
-        }),
-      ),
-    )
-  })
-
-  it("toggles issue review and dry-run through one write and reports the outcome", () => {
-    const loaded = { ...opened(), maybeReview: Option.some(reviewSettings) }
-    Story.story(
-      Workspace.update,
-      Story.given(loaded),
-      Story.message(Workspace.Message.ChangedReview({ enabled: true, dryRun: true })),
-      Story.model((next) => {
-        // A second change while the first is in flight is ignored.
-        expect(
-          Workspace.update(next, Workspace.Message.ChangedReview({ enabled: false, dryRun: false }))
-            .commands,
-        ).toBe(undefined)
-      }),
-      Story.Command.resolve(
-        Workspace.SetReview({ repositoryId: "701", operationId: 1, enabled: true, dryRun: true }),
-        Workspace.Message.CompletedSetReview({
-          repositoryId: "701",
-          operationId: 1,
-          settings: { ...reviewSettings, enabled: true },
-        }),
-      ),
-      Story.expectOutMessage(
-        Workspace.OutMessage.Notified({
-          title: "Issue review enabled in dry-run",
-          description: "Authorized /janitor commands start runs whose findings stay in Janitor.",
-        }),
-      ),
-      Story.model((next) => {
-        expect(next.maybeReview).toEqual(Option.some({ ...reviewSettings, enabled: true }))
-        expect(next.pendingMutations).toEqual([])
-      }),
-      Story.message(Workspace.Message.ChangedReview({ enabled: true, dryRun: false })),
-      Story.Command.resolve(
-        Workspace.SetReview({ repositoryId: "701", operationId: 2, enabled: true, dryRun: false }),
-        Workspace.Message.FailedSetReview({
-          repositoryId: "701",
-          operationId: 2,
-          reason: "Issue review is not available in this deployment yet.",
-        }),
-      ),
-      Story.expectOutMessage(
-        Workspace.OutMessage.Failed({
-          title: "Issue review change could not be confirmed",
-          reason: "Issue review is not available in this deployment yet.",
-        }),
-      ),
-      Story.Command.resolve(
-        Workspace.FetchReview({ requestId: 1, repositoryId: "701" }),
-        Workspace.Message.GotReview({
-          requestId: 1,
-          repositoryId: "701",
-          settings: reviewSettings,
-        }),
-      ),
-      Story.model((next) => expect(next.maybeReview).toEqual(Option.some(reviewSettings))),
     )
   })
 

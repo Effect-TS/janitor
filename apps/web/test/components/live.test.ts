@@ -85,13 +85,13 @@ it("keeps an idle WebSocket live without polling and ignores duplicate change fr
     expect(messages).toEqual([
       Live.Message.Received({ channel: "701", connected: true, topics: [] }),
     ])
-    sockets[0].frame({ _tag: "Changed", revision: "10", topics: ["review"] })
-    sockets[0].frame({ _tag: "Changed", revision: "10", topics: ["review"] })
-    sockets[0].frame({ _tag: "Changed", revision: "9", topics: ["review", "activity"] })
+    sockets[0].frame({ _tag: "Changed", revision: "10", topics: ["consent"] })
+    sockets[0].frame({ _tag: "Changed", revision: "10", topics: ["consent"] })
+    sockets[0].frame({ _tag: "Changed", revision: "9", topics: ["consent", "activity"] })
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(10)
     expect(messages.slice(1)).toEqual([
-      Live.Message.Received({ channel: "701", connected: false, topics: ["review"] }),
+      Live.Message.Received({ channel: "701", connected: false, topics: ["consent"] }),
       Live.Message.Received({ channel: "701", connected: false, topics: ["activity"] }),
     ])
   } finally {

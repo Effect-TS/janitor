@@ -27,8 +27,8 @@ import { readFailure, reasonOf, request } from "@/lib/api"
 import * as Routes from "@/routes"
 
 /**
- * The account page: who the signed-in teammate is and which Slack and GitHub
- * accounts they have proven. Cloudflare Access decides who may use Janitor;
+ * The account page: who the signed-in teammate is and which GitHub account
+ * they have proven. Cloudflare Access decides who may use Janitor;
  * every change goes to the API and the page reloads its view afterwards.
  */
 
@@ -260,7 +260,7 @@ export const update = (model: Model, message: Message): Step =>
       !matchesOperation(model, operationId)
         ? { model }
         : {
-            ...settle(model, `${platformName(linked.platform)} account connected.`),
+            ...settle(model, `${platformNames[linked.platform]} account connected.`),
             outMessage: OutMessage.FinishedReturn(),
           },
     Failed: ({ reason, operationId }) => {
@@ -275,7 +275,7 @@ export const update = (model: Model, message: Message): Step =>
 
 // VIEW
 
-const platformName = (platform: LinkPlatform): string => (platform === "slack" ? "Slack" : "GitHub")
+const platformNames: Record<LinkPlatform, string> = { github: "GitHub" }
 
 const displayName = (teammate: TeammateSummary): string => teammate.email ?? teammate.subject
 
@@ -386,7 +386,7 @@ const platformRow = (
   const link = activeLink(view.links, platform)
   const past = pastLink(view.links, platform)
   const available = view.linking[platform]
-  const name = platformName(platform)
+  const name = platformNames[platform]
   const status =
     link !== undefined
       ? h.span([], ["Connected as ", mono(h, link.displayName)])
@@ -442,17 +442,11 @@ const platformRow = (
 }
 
 const accountsPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Html =>
-  pane(h, "accounts", "Accounts that can give Janitor instructions on your behalf.", [
+  pane(h, "accounts", "Accounts you have proven you own.", [
     panel(h, {
       flush: true,
-      children: [platformRow(h, model, view, "github"), platformRow(h, model, view, "slack")],
+      children: [platformRow(h, model, view, "github")],
     }),
-    h.p(
-      [h.Class("text-body-sm text-ink-muted")],
-      [
-        "Disconnecting stops new instructions from that account. Work it already contributed is kept.",
-      ],
-    ),
   ])
 
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>

@@ -1,12 +1,3 @@
-import { IssueReviewDraftPublication } from "./Review/DraftPublication.ts"
-import { ReviewPullRequests } from "./Review/PullRequests.ts"
-import { IssueReviewPublication } from "./Review/Publication.ts"
-import { ReviewComments } from "./Review/Comments.ts"
-import { SlackSession, SessionObjectLive } from "./Slack/SessionObject.ts"
-import { makeSessionRuntime, SessionRuntime } from "./Slack/SessionRuntime.ts"
-import { layerRepositories } from "./Slack/Repositories.ts"
-import { SessionAdmission, SessionIngressLive } from "./Slack/SessionIngress.ts"
-import { SlackSessionRoutes } from "./Ingress/SlackSession.ts"
 import * as ConfigProvider from "effect/ConfigProvider"
 import { RepositoryEligibility } from "./RepositoryEligibility.ts"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
@@ -26,29 +17,6 @@ import {
 import { LabelingSyncIntegrationLayer } from "./Labeling/SyncIntegration.ts"
 import { LabelingAutomationIntegrationLayer } from "./Labeling/AutomationIntegration.ts"
 import { LabelItemLayer, LabelItemRegistration } from "./Labeling/DirectLabeling.ts"
-import {
-  AdmitReviewLayer,
-  AdmitReviewRegistration,
-  IssueReviewAdmission,
-} from "./Review/Admission.ts"
-import { ReviewAgent, ReviewAgentClient, ReviewAgentLayer } from "./Review/Agent.ts"
-import { ReviewActionDispatch } from "./Review/Actions.ts"
-import { ReviewActionLayer, ReviewActionRegistration } from "./Review/Investigation.ts"
-import {
-  layerWorkspaceObjects,
-  ReviewWorkspaceObject,
-  ReviewWorkspaceObjectLive,
-} from "./Review/WorkspaceObject.ts"
-import { agentModel } from "./AgentModel.ts"
-import { IssueReviewControl } from "./Review/Control.ts"
-import {
-  IssueReviewAvailable,
-  issueReviewDeploymentEnv,
-  issueReviewEnabled,
-} from "./Review/Gate.ts"
-import { IssueReviewScheduler } from "./Review/Scheduler.ts"
-import { IssueReviewSettings } from "./Review/Settings.ts"
-import { IssueReviewStore } from "./Review/Store.ts"
 import * as AlchemyCloudflareCluster from "@effect/platform-cloudflare/AlchemyCloudflareCluster"
 import { ALCHEMY_DEV } from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
@@ -124,9 +92,6 @@ import { WorkflowOutbox, OutboxWake } from "./WorkflowOutbox.ts"
 import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutboxCron.ts"
 import * as AccountLinking from "./AccountLinking.ts"
 import { Teammates } from "./Teammates.ts"
-import * as Redacted from "effect/Redacted"
-import { SlackConfig } from "./Slack/Config.ts"
-import { SlackTransport } from "./Slack/Transport.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
 const ZONE = "effectful.co"
@@ -136,35 +101,6 @@ const ZONE = "effectful.co"
  */
 const LOCAL_DEV_AUDIENCE = "local-dev"
 const LOCAL_DEV_EMAIL = "dev@janitor.local"
-
-/**
- * The Slack integration (agent sessions and Sign in with Slack) is switched
- * off for now. While off, none of its settings are read, so a deploy needs no
- * Slack credentials and no agent model key, and the Worker binds none of them.
- * Set this to true to turn it back on; the integration still needs all five
- * bot settings and AGENT_RUNNER_MODEL_API_KEY.
- */
-const SLACK_ENABLED = false
-
-/** All five bot settings, or none when any is missing. */
-const slackSettings = Effect.gen(function* () {
-  const workspaceId = yield* Config.String("SLACK_WORKSPACE_ID").pipe(Config.withDefault(""))
-  const appId = yield* Config.String("SLACK_APP_ID").pipe(Config.withDefault(""))
-  const botUserId = yield* Config.String("SLACK_BOT_USER_ID").pipe(Config.withDefault(""))
-  const token = yield* Config.Redacted("SLACK_BOT_TOKEN").pipe(
-    Config.withDefault(Redacted.make("")),
-  )
-  const signingSecret = yield* Config.Redacted("SLACK_SIGNING_SECRET").pipe(
-    Config.withDefault(Redacted.make("")),
-  )
-  return workspaceId !== "" &&
-    appId !== "" &&
-    botUserId !== "" &&
-    Redacted.value(token) !== "" &&
-    Redacted.value(signingSecret) !== ""
-    ? Option.some<SlackConfig["Service"]>({ workspaceId, appId, botUserId, token, signingSecret })
-    : Option.none<SlackConfig["Service"]>()
-})
 
 export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
   "ClusterWorker",
@@ -202,7 +138,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       // Read at init from the environment: the plan-phase Config interceptor
       // only binds values it can resolve from the deploy environment.
       env: {
-        ...(yield* issueReviewDeploymentEnv),
         ACCESS_AUD: access?.aud ?? "",
         LOCAL_DEV_AUDIENCE: localDev?.audience ?? "",
         // Platform callbacks return to the browser at this origin.
@@ -278,18 +213,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         privateKey: "GITHUB_APP_PRIVATE_KEY",
       }),
     ).pipe(Effect.provide(localCredentials))
-    // Production requires an explicit deployment opt-in. Local development
-    // exposes the controls, but live GitHub access remains disabled below.
-    const reviewAvailable = dev || (yield* issueReviewEnabled)
-    // Account linking is optional per platform; the account page says which
-    // platforms this deployment can connect. Slack linking only serves the
-    // Slack integration, so it is off whenever that is.
-    const linking: AccountLinking.LinkingSecrets = {
-      slack: SLACK_ENABLED ? yield* AccountLinking.slackLinkingSecrets : Option.none(),
-      github: yield* AccountLinking.githubLinkingSecrets,
-    }
-    const slack = SLACK_ENABLED ? yield* slackSettings : Option.none<SlackConfig["Service"]>()
-    const slackConfigured = Option.isSome(slack)
+    // Account linking is optional; the account page says whether this
+    // deployment can connect GitHub accounts.
+    const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)
 
     const GitHubAuthLayer = dev
       ? Layer.succeed(GitHubAppAuth.GitHubAppAuth, {
@@ -316,10 +242,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     yield* RepositoryLive
-    const reviewWorkspaces = yield* ReviewWorkspaceObject.pipe(
-      Effect.provide(ReviewWorkspaceObjectLive),
-    )
-    const model = yield* agentModel
     const liveEnvironment = yield* Cloudflare.Workers.WorkerEnvironment
     // Empty everywhere except under `alchemy dev`; see the bind phase.
     const localDevAudience =
@@ -330,34 +252,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const publicOrigin =
       typeof liveEnvironment.PUBLIC_ORIGIN === "string" ? liveEnvironment.PUBLIC_ORIGIN : ""
     let notifyOutbox: Effect.Effect<void> = Effect.void
-    const SlackLayers = slackConfigured
-      ? yield* Effect.gen(function* () {
-          const slackConfig = Layer.succeed(SlackConfig, Option.getOrThrow(slack))
-          const transport = SlackTransport.layer.pipe(Layer.provide(slackConfig))
-          if (Option.isNone(model))
-            // Slack needs the agent model; the missing key is a configuration error.
-            yield* Config.Redacted("AGENT_RUNNER_MODEL_API_KEY")
-          const modelLayer = Option.getOrThrow(model)({ maxCompletionTokens: 2048 })
-          const repositories = layerRepositories.pipe(
-            Layer.provide(RepositoryEligibility.layer.pipe(Layer.provide(DatabaseLayer))),
-            Layer.provide([GitHubAuthLayer, FetchHttpClient.layer]),
-          )
-          const runtime = Layer.effect(SessionRuntime, makeSessionRuntime).pipe(
-            Layer.provide([repositories, modelLayer, transport]),
-          )
-          const sessions = yield* SlackSession.pipe(
-            Effect.provide(SessionObjectLive.pipe(Layer.provide(runtime))),
-          )
-          return SessionIngressLive.pipe(
-            Layer.provide([slackConfig, transport]),
-            Layer.provide(
-              Layer.succeed(SessionAdmission, {
-                receive: (name, input) => sessions.getByName(name).receive(input),
-              }),
-            ),
-          )
-        })
-      : Layer.empty
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
       ProjectGitHubWebhookLayer,
@@ -366,43 +260,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       RefreshEntityLayer,
       LabelItemLayer,
       RuleTestJobLayer,
-      AdmitReviewLayer,
-      ReviewAgentLayer,
-      ReviewActionLayer.pipe(
-        Layer.provide(
-          Option.match(model, {
-            onNone: () => Layer.empty,
-            onSome: (make) => make({ maxCompletionTokens: 4096 }),
-          }),
-        ),
-      ),
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
-      SlackLayers,
     ).pipe(
       Layer.provideMerge(
         Layer.mergeAll(LabelingSyncIntegrationLayer, LabelingAutomationIntegrationLayer),
-      ),
-      Layer.provideMerge(
-        Layer.mergeAll(
-          IssueReviewAdmission.layer,
-          IssueReviewSettings.layer,
-          IssueReviewControl.layer,
-        ),
-      ),
-      Layer.provideMerge(
-        Layer.mergeAll(IssueReviewPublication.layer, IssueReviewDraftPublication.layer).pipe(
-          Layer.provide(Layer.mergeAll(ReviewComments.layer, ReviewPullRequests.layer)),
-        ),
-      ),
-      Layer.provideMerge(IssueReviewScheduler.layer),
-      Layer.provideMerge(
-        Layer.mergeAll(
-          IssueReviewStore.layer,
-          ReviewAgentClient.layer,
-          ReviewActionDispatch.layer,
-          layerWorkspaceObjects(reviewWorkspaces),
-        ),
       ),
       Layer.provideMerge(
         Layer.mergeAll(
@@ -433,8 +295,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           RefreshEntityRegistration,
           LabelItemRegistration,
           RuleTestJobRegistration,
-          AdmitReviewRegistration,
-          ReviewActionRegistration,
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
@@ -458,7 +318,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Layer.provide(DatabaseLayer),
       Layer.provide(Layer.succeed(AiInputBudget, inputBudget)),
       Layer.provide(Layer.succeed(AiCacheTtl, cacheTtl)),
-      Layer.provide(Layer.succeed(IssueReviewAvailable, reviewAvailable)),
       Layer.provide(
         Layer.succeed(
           OutboxWake,
@@ -468,7 +327,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
-      entities: [ReviewAgent],
+      entities: [],
       layer: ClusterLayer,
     })
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)
@@ -519,13 +378,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // fails closed rather than open.
     const accessAudience = typeof env.ACCESS_AUD === "string" ? env.ACCESS_AUD : ""
     const apiRoutes = yield* HttpRouter.toHttpEffect(
-      Layer.mergeAll(
-        makeRoutesLayer(
-          secrets,
-          { teamDomain: Access.TEAM_DOMAIN, audience: accessAudience },
-          { localDevAudience },
-        ),
-        slackConfigured ? SlackSessionRoutes : Layer.empty,
+      makeRoutesLayer(
+        secrets,
+        { teamDomain: Access.TEAM_DOMAIN, audience: accessAudience },
+        { localDevAudience },
       ).pipe(Layer.provide([Etag.layer, HttpPlatformStubLayer, Path.layer, FetchHttpClient.layer])),
     )
     // Route errors that know their response (400 for a malformed request,

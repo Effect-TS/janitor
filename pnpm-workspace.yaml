@@ -96,6 +96,4 @@ minimumReleaseAgeExclude:
   - foldkit
 
 patchedDependencies:
-  "@alchemy.run/cloudflare-runtime@2.0.0-beta.80": patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.80.patch
-  "@effect/ai-openai-compat@4.0.0": patches/@effect__ai-openai-compat@4.0.0.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
