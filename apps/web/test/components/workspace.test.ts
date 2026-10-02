@@ -94,8 +94,8 @@ const detail: Workspace.RepositoryDetail = {
 const consent: Workspace.AiConsent = {
   repositoryId: "701",
   state: "disabled",
-  provider: "openai",
-  model: "gpt-5.6-luna",
+  provider: "openrouter",
+  model: "typesafe/jev-1.13",
   activeLeases: 0,
   updatedAt: at,
 }
@@ -880,7 +880,7 @@ describe("settings", () => {
       },
       Scene.given(loaded),
       Scene.expect(Scene.text("AI classification")).toExist(),
-      Scene.expect(Scene.text("openai · gpt-5.6-luna")).toExist(),
+      Scene.expect(Scene.text("openrouter · typesafe/jev-1.13")).toExist(),
       Scene.expect(Scene.text("Disabled")).toExist(),
       Scene.expect(Scene.role("button", { name: "Enable" })).toExist(),
     )

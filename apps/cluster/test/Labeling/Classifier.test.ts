@@ -24,7 +24,10 @@ import { LabelingTest } from "../../src/Labeling/Test.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
+  answer,
   bug,
+  insufficient,
+  queryText,
   feature,
   LabelingLayer,
   github,
@@ -40,7 +43,7 @@ let calls = 0
 let temporaryFailures = 0
 const ProviderStub = Layer.succeed(ClassifierProvider, {
   identity: { provider: "stub", model: "stub-1" },
-  ask: (prompt) =>
+  decide: (queries) =>
     Effect.suspend(() => {
       calls++
       if (temporaryFailures-- > 0)
@@ -54,11 +57,13 @@ const ProviderStub = Layer.succeed(ClassifierProvider, {
         )
       return failing
         ? Effect.fail(new ClassifierProviderError({ message: "down", cause: null }))
-        : Effect.succeed({
-            matches: prompt.includes("inconclusive") ? null : prompt.includes("Change 5"),
-            confidence: prompt.includes("Change 5") ? 0.95 : 0.6,
-            reason: prompt.includes("Change 5") ? "looks like it" : "unsure",
-          })
+        : Effect.succeed(
+            queries.map((query) => {
+              const text = queryText(query)
+              if (text.includes("inconclusive")) return insufficient
+              return text.includes("Change 5") ? answer(true) : answer(false, 0.6)
+            }),
+          )
     }),
 })
 
@@ -458,7 +463,7 @@ layer(Services, { timeout: "2 minutes" })("Classifier against Postgres", (it) =>
         )
         assert.strictEqual(unavailable.outcome, "failed")
         assert.strictEqual(unavailable.reasonCode, "provider-unavailable")
-        assert.include(unavailable.reason, "OPENAI_API_KEY")
+        assert.include(unavailable.reason, "OPENROUTER_API_KEY")
       }),
   )
   it.effect("retains input reports on cache hits and failures, and hashes omitted evidence", () =>

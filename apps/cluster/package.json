@@ -7,7 +7,7 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@effect/ai-openai-compat": "catalog:",
+    "@effect/ai-openrouter": "catalog:",
     "@effect/platform-cloudflare": "catalog:",
     "@effect/sql-pg": "catalog:",
     "@janitor/domain": "workspace:^",

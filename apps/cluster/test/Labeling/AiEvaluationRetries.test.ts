@@ -28,6 +28,7 @@ import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
   admit,
+  answer,
   DirectLabelingLayer,
   feature,
   github,
@@ -52,7 +53,8 @@ const services = Layer.mergeAll(
   Layer.provideMerge(
     Layer.succeed(ClassifierProvider, {
       identity: { provider: "test", model: "test" },
-      ask: () => Effect.suspend(() => ask),
+      decide: (queries) =>
+        Effect.suspend(() => ask).pipe(Effect.map((answer) => queries.map(() => answer))),
     }),
   ),
   Layer.provideMerge(github.layer),
@@ -97,12 +99,12 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
     Effect.gen(function* () {
       const { identity } = yield* prepare
       const started = yield* Deferred.make<void>()
-      const answer = yield* Deferred.make<ClassifierAnswer>()
-      ask = Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(answer)))
+      const reply = yield* Deferred.make<ClassifierAnswer>()
+      ask = Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(reply)))
       const fiber = yield* LabelItem.execute(identity).pipe(Effect.forkChild)
       yield* Deferred.await(started)
       yield* admit(5)
-      yield* Deferred.succeed(answer, { matches: true, confidence: 1, reason: "Matches old facts" })
+      yield* Deferred.succeed(reply, answer(true, 1))
       yield* Fiber.join(fiber)
       assert.deepStrictEqual(github.writes, [])
       const entry = (yield* page()).entries.find(
@@ -245,9 +247,7 @@ layer(services, { timeout: "2 minutes" })("AI evaluation retries", (it) => {
                 retryable: true,
               }),
             )
-          : Deferred.succeed(replacementAsked, undefined).pipe(
-              Effect.as({ matches: true, confidence: 1, reason: "Current classification" }),
-            ),
+          : Deferred.succeed(replacementAsked, undefined).pipe(Effect.as(answer(true, 1))),
       )
       const old = yield* LabelItem.execute(identity).pipe(Effect.forkChild)
       while (!(yield* page()).entries[0]?.detail?.includes("Retrying")) yield* Effect.yieldNow

@@ -46,6 +46,7 @@ import {
   testEndpoint,
   labelName,
   describeOutcome,
+  type Evaluation,
 } from "@/components/labeling-wire"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
@@ -1077,6 +1078,17 @@ const submissionView = (h: HtmlBuilder<Message>, submission: Submission): Html =
   }
 }
 
+const percent = (probability: number) => `${Math.round(probability * 100)}%`
+
+/**
+ * The evaluation's reason without the probability summary that ends a
+ * decision's reason; the probabilities line shows those numbers.
+ */
+const evaluationNote = (evaluation: Evaluation): string =>
+  evaluation.probabilities === undefined
+    ? evaluation.reason
+    : evaluation.reason.replace(/:? ?matches \d\.\d\d · evidence sufficient \d\.\d\d$/, "").trim()
+
 /** A single-rule preview uses a real published policy evaluation, never changes labels. */
 export const previewAction = (
   model: Model,
@@ -1208,17 +1220,24 @@ const testResultView = (h: HtmlBuilder<Message>, model: Model): Html => {
             Message.ClickedInspectInput(),
             !!result.testId,
           ),
-      entity.evaluation?.reason
-        ? h.p([h.Class("text-ink-muted")], [entity.evaluation.reason])
+      entity.evaluation && evaluationNote(entity.evaluation)
+        ? h.p([h.Class("text-ink-muted")], [evaluationNote(entity.evaluation)])
         : h.empty,
-      entity.evaluation?.confidence !== undefined
+      entity.evaluation?.probabilities !== undefined
         ? h.p(
             [h.Class("font-mono text-mono-sm text-ink-muted")],
             [
-              `confidence ${Math.round(entity.evaluation.confidence * 100)}%${entity.evaluation.cached ? " · cached" : ""}`,
+              `match ${percent(entity.evaluation.probabilities.matches)} · evidence sufficient ${percent(entity.evaluation.probabilities.sufficient)}${entity.evaluation.cached ? " · cached" : ""}`,
             ],
           )
-        : h.empty,
+        : entity.evaluation?.confidence !== undefined
+          ? h.p(
+              [h.Class("font-mono text-mono-sm text-ink-muted")],
+              [
+                `confidence ${percent(entity.evaluation.confidence)}${entity.evaluation.cached ? " · cached" : ""}`,
+              ],
+            )
+          : h.empty,
       (entity.evaluation?.trace ?? []).length === 0
         ? h.empty
         : h.ul(

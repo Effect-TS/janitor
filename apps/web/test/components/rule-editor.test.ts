@@ -408,7 +408,6 @@ describe("rule flow testing", () => {
       RuleEditor.Message.LoadedInput({
         generation: started.testGeneration,
         details: {
-          system: "system",
           text: "prepared input",
           facts: [{ name: "body", json: JSON.stringify("startMIDDLEend") }],
         },
@@ -513,7 +512,7 @@ describe("rule flow testing", () => {
         edited,
         RuleEditor.Message.LoadedInput({
           generation: started.testGeneration,
-          details: { system: "", text: "old", facts: [] },
+          details: { text: "old", facts: [] },
         }),
       ).model,
     ).toBe(edited)

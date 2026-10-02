@@ -16,6 +16,12 @@ export const InputInspection = Schema.Union([
 export type InputInspection = typeof InputInspection.Type
 const size = (bytes: number) => `${(bytes / 1000).toFixed(1)} KB`
 
+/** The sent request, indented for reading; text that is not JSON is shown as is. */
+const sentInput = (text: string): string =>
+  Schema.decodeOption(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+    Option.match({ onNone: () => text, onSome: (value) => JSON.stringify(value, null, 2) }),
+  )
+
 const summaryClass =
   "flex cursor-pointer list-none items-center gap-1.5 text-body-sm font-medium text-foreground marker:hidden [&::-webkit-details-marker]:hidden"
 
@@ -157,10 +163,7 @@ export const aiInputView = <M>(
               [h.Class("mt-3 flex flex-col gap-2")],
               [
                 h.div([h.Class("flex")], [Feed.agentBadge(h, "sent to the model")]),
-                disclosure(
-                  "View sent input",
-                  code(inspection.details.system + "\n\n" + inspection.details.text),
-                ),
+                disclosure("View sent input", code(sentInput(inspection.details.text))),
                 ...report.facts
                   .filter((fact) => fact.omission)
                   .map((fact) => {

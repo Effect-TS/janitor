@@ -308,7 +308,7 @@ overrides:
   '@effect/sql-pg': https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@7c5525a6c2084247c262fef7c2045c94c10f0e67
   '@effect/sql-d1': https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@7c5525a6c2084247c262fef7c2045c94c10f0e67
   '@effect/sql-sqlite-do': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@7c5525a6c2084247c262fef7c2045c94c10f0e67
-  '@effect/ai-openai-compat': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67
+  '@effect/ai-openrouter': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@7c5525a6c2084247c262fef7c2045c94c10f0e67
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
 
 patchedDependencies:
@@ -360,9 +360,9 @@ importers:
 
   apps/cluster:
     dependencies:
-      '@effect/ai-openai-compat':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67(effect@https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67)
+      '@effect/ai-openrouter':
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@7c5525a6c2084247c262fef7c2045c94c10f0e67
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@7c5525a6c2084247c262fef7c2045c94c10f0e67(effect@https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67)
       '@effect/platform-cloudflare':
         specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@7c5525a6c2084247c262fef7c2045c94c10f0e67
         version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@7c5525a6c2084247c262fef7c2045c94c10f0e67(592d3b28797164247324ab31673c0f08)
@@ -724,8 +724,8 @@ packages:
     peerDependencies:
       effect: ^4.0.0
 
-  '@effect/ai-openai-compat@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67':
-    resolution: {integrity: sha512-06Osc1qrcRk79CxTZrJeJLfwSKK39LKCTdE6dEG7LeHSHxdcQAviU9bclucJCLL5LXFcqn58hDki4l8x/qbNZQ==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67}
+  '@effect/ai-openrouter@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@7c5525a6c2084247c262fef7c2045c94c10f0e67':
+    resolution: {integrity: sha512-IE5UV87EtARcF0xlugN4wQ9BRDIvkZ7vVogeDROh9QeUdsdu1q4Rk3OyvHuh6CF8UmjQh1mMKtf9VRJDiUleqw==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@7c5525a6c2084247c262fef7c2045c94c10f0e67}
     version: 4.0.0
     peerDependencies:
       effect: ^4.0.0
@@ -4147,7 +4147,7 @@ snapshots:
       '@distilled.cloud/core': 1.0.0-rc.13(effect@https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67)
       effect: https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67
 
-  '@effect/ai-openai-compat@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67(effect@https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67)':
+  '@effect/ai-openrouter@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@7c5525a6c2084247c262fef7c2045c94c10f0e67(effect@https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67)':
     dependencies:
       effect: https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67
 

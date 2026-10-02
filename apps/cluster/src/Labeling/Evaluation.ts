@@ -8,7 +8,7 @@ import type { FactSnapshot } from "@janitor/domain/Labeling/Policy/Facts"
 import { plan, type RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import type { Evaluation } from "@janitor/domain/Labeling/Policy/Program"
 import * as Effect from "effect/Effect"
-import { classifyAi } from "./Classifier.ts"
+import { classifyAiMany } from "./Classifier.ts"
 
 export interface RuleEvaluation {
   readonly ruleId: RuleId
@@ -28,16 +28,15 @@ export const evaluateLabeling = Effect.fn("Labeling.evaluateLabeling")(function*
   const versions = new Map(configuration.versions.map((version) => [version.versionId, version]))
   const byPolicy = new Map(configuration.versions.map((version) => [version.policyId, version]))
   const resolve: Resolver = (policyId) => byPolicy.get(policyId)
-  const outcomes = new Map<RuleId, Evaluation["outcome"]>()
-  const evaluations: Array<RuleEvaluation> = []
-  for (const rule of configuration.rules) {
-    if (!rule.enabled) continue
+  const enabled = configuration.rules.filter((rule) => rule.enabled)
+  // An item's AI rules share their provider requests, so they are classified together.
+  const classified = enabled.flatMap((rule) => {
     const version = versions.get(rule.policyVersionId)
-    const evaluation: Evaluation =
-      version === undefined
-        ? { outcome: "unknown", reason: "policy version is missing", trace: [] }
-        : version.program.evaluator._tag === "Classifier"
-          ? yield* classifyAi({
+    return version?.program.evaluator._tag === "Classifier"
+      ? [
+          {
+            rule,
+            input: {
               inspectInput: input.inspectInput ?? false,
               repositoryId: configuration.repositoryId,
               number,
@@ -47,11 +46,25 @@ export const evaluateLabeling = Effect.fn("Labeling.evaluateLabeling")(function*
               evaluator: version.program.evaluator,
               snapshot: facts,
               resolve,
-            })
-          : evaluate({ program: version.program, snapshot: facts, resolve })
-    outcomes.set(rule.id, evaluation.outcome)
-    evaluations.push({ ruleId: rule.id, policyVersionId: rule.policyVersionId, evaluation })
-  }
+            },
+          },
+        ]
+      : []
+  })
+  const answers = yield* classifyAiMany(classified.map(({ input }) => input))
+  const classifications = new Map(classified.map(({ rule }, i) => [rule.id, answers[i]!]))
+  const evaluations = enabled.map((rule): RuleEvaluation => {
+    const version = versions.get(rule.policyVersionId)
+    const evaluation: Evaluation =
+      version === undefined
+        ? { outcome: "unknown", reason: "policy version is missing", trace: [] }
+        : (classifications.get(rule.id) ??
+          evaluate({ program: version.program, snapshot: facts, resolve }))
+    return { ruleId: rule.id, policyVersionId: rule.policyVersionId, evaluation }
+  })
+  const outcomes = new Map<RuleId, Evaluation["outcome"]>(
+    evaluations.map(({ ruleId, evaluation }) => [ruleId, evaluation.outcome]),
+  )
   return {
     evaluations,
     plan: plan({ rules: configuration.rules, outcomes, currentLabels }),

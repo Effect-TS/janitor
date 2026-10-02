@@ -243,8 +243,8 @@ export const AiInputReport = Schema.Struct({
   facts: Schema.Array(InputFactReport),
 })
 export type AiInputReport = typeof AiInputReport.Type
+/** `text` is the single-rule decision request as sent: the state and both questions. */
 export const AiInputDetails = Schema.Struct({
-  system: Schema.String,
   text: Schema.String,
   facts: Schema.Array(Schema.Struct({ name: Schema.String, json: Schema.String })),
 })
@@ -262,8 +262,15 @@ export const AiReasonCode = Schema.Literals([
 ])
 export type AiReasonCode = typeof AiReasonCode.Type
 
+/** The decision model's probabilities that a rule matches and that its evidence suffices. */
+export const ClassifierProbabilities = Schema.Struct({
+  matches: Schema.Finite,
+  sufficient: Schema.Finite,
+})
+
 export const Evaluation = Schema.Struct({
   inputReport: Schema.optionalKey(AiInputReport),
+  probabilities: Schema.optionalKey(ClassifierProbabilities),
   reasonCode: Schema.optionalKey(AiReasonCode),
   confidence: Schema.optionalKey(Schema.Number),
   cached: Schema.optionalKey(Schema.Boolean),

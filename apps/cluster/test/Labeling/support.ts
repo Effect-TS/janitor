@@ -38,6 +38,7 @@ import type { ObservedItem } from "../../src/Labeling/Facts.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
+import type { ClassifierAnswer, ClassifierQuery } from "../../src/Labeling/Classifier.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import { WorkflowOutbox } from "../../src/WorkflowOutbox.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
@@ -308,3 +309,22 @@ export const AutomaticLabelingServices = DirectLabelingLayer.pipe(
   Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provideMerge(MigratedPostgresLayer),
 )
+
+/** A rule's question as one searchable string: its prompt and its evidence. */
+export const queryText = (query: ClassifierQuery) =>
+  query.instructions + "\n" + JSON.stringify(query.state)
+
+/** A confident answer that the rule matches, or does not, with sufficient evidence. */
+export const answer = (matches: boolean, confidence = 0.95): ClassifierAnswer => ({
+  matches: matches ? confidence : 1 - confidence,
+  sufficient: 0.95,
+})
+
+/** An answer whose evidence cannot settle the question. */
+export const insufficient: ClassifierAnswer = { matches: 0.5, sufficient: 0.1 }
+
+/** A provider `decide` that gives every rule in a request the same answer. */
+export const answerEach =
+  <E>(ask: () => Effect.Effect<ClassifierAnswer, E>) =>
+  (queries: ReadonlyArray<ClassifierQuery>) =>
+    Effect.map(ask(), (answer) => queries.map(() => answer))

@@ -8,14 +8,17 @@ import {
 } from "@janitor/domain/Labeling/Policy/Configuration"
 import { evaluateApplicability, type Resolver } from "@janitor/domain/Labeling/Policy/Evaluate"
 import type { FactSnapshot } from "@janitor/domain/Labeling/Policy/Facts"
-import type {
-  ClassifierEvaluator,
-  Evaluation,
-  Program,
+import {
+  ClassifierProbabilities,
+  type ClassifierEvaluator,
+  type Evaluation,
+  type Program,
 } from "@janitor/domain/Labeling/Policy/Program"
 import {
+  classifierRequest,
+  inputBytes,
   prepareClassifierInput,
-  SYSTEM_INSTRUCTIONS,
+  type ClassifierState,
   DEFAULT_INPUT_BYTES,
   AiInputReport,
   AiReasonCode,
@@ -34,25 +37,28 @@ import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import * as LanguageModel from "effect/ai/LanguageModel"
+import * as Decision from "effect/ai/Decision"
+import * as DecisionModel from "effect/ai/DecisionModel"
 import * as AiError from "effect/ai/AiError"
 import * as SqlClient from "effect/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 
 /**
  * Classifier evaluation (plan: "Classifier evaluator"). The provider is
- * one small interface so tests stub it; consent, leases, caching, and the
- * prompt contract live here and never in the provider.
+ * one small interface so tests stub it; consent, leases, caching, batching
+ * and the question contract live here and never in the provider.
  */
 
 // PROVIDER
 
-export const ClassifierAnswer = Schema.Struct({
-  matches: Schema.NullOr(Schema.Boolean),
-  confidence: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
-  reason: Schema.String.check(Schema.isMaxLength(1_000)),
-})
-export type ClassifierAnswer = typeof ClassifierAnswer.Type
+/** One rule's prepared question: its prompt and its slice of the decision state. */
+export interface ClassifierQuery {
+  readonly instructions: string
+  readonly state: ClassifierState
+}
+
+/** The probabilities that a rule matches and that its evidence suffices to decide. */
+export type ClassifierAnswer = ClassifierProbabilities
 
 export class ClassifierProviderError extends Data.TaggedError("ClassifierProviderError")<{
   readonly message: string
@@ -65,6 +71,8 @@ export interface ProviderIdentity {
   readonly provider: string
   readonly model: string
 }
+
+const PROVIDER_TIMEOUT = Duration.seconds(15)
 
 const providerRetry = (cause: unknown, now: number) => {
   if (Cause.isTimeoutError(cause)) return { retryable: true }
@@ -88,85 +96,95 @@ const providerRetry = (cause: unknown, now: number) => {
   return { retryable: reason.isRetryable, retryAfterMs }
 }
 
-// Provider payloads may echo prompts or credentials. Return guidance, never raw bodies.
+// Provider payloads may echo evidence or credentials. Return guidance, never raw bodies.
 const providerErrorMessage = (cause: unknown): string => {
-  if (Cause.isTimeoutError(cause)) return "The AI provider timed out after 60 seconds. Try again."
+  if (Cause.isTimeoutError(cause)) return "The AI provider timed out after 15 seconds. Try again."
   if (AiError.isAiError(cause)) {
+    // OpenRouter answers 402 when the account or key has no credit left.
+    if ("http" in cause.reason && cause.reason.http?.response?.status === 402)
+      return "The OpenRouter credit or key limit is exhausted. Check the account's billing and key limits."
     switch (cause.reason._tag) {
       case "AuthenticationError":
-        return "The AI provider rejected authentication. Check the server's API key (OPENAI_API_KEY) and provider permissions."
+        return "OpenRouter rejected authentication. Check the server's OPENROUTER_API_KEY and its permissions."
       case "InvalidRequestError":
-      case "UnsupportedSchemaError":
-        return "The AI provider rejected the request. Check OPENAI_API_URL and LABELING_AI_MODEL and confirm the model supports structured responses."
+      case "InvalidUserInputError":
+        return "OpenRouter rejected the decision request. Check LABELING_AI_MODEL names a decision model such as typesafe/jev-1.13."
       case "QuotaExhaustedError":
-        return "The AI provider quota is exhausted. Check the provider's billing and usage limits."
+        return "The OpenRouter credit or key limit is exhausted. Check the account's billing and key limits."
       case "RateLimitError":
-        return "The AI provider rate limit was reached. Wait and try again."
+        return "The OpenRouter rate limit was reached. Wait and try again."
       case "InvalidOutputError":
-      case "StructuredOutputError":
-        return "The AI provider returned an invalid classification. Try again or configure a model that supports structured responses."
+        return "The decision model returned an invalid answer. Try again."
       case "ContentPolicyError":
-        return "The AI provider rejected the content. Review the rule prompt and referenced facts."
+        return "OpenRouter rejected the content. Review the rule prompt and referenced facts."
       case "NetworkError":
-        return "Could not reach the AI provider. Check OPENAI_API_URL and connectivity, then try again."
+        return "Could not reach OpenRouter. Check connectivity, then try again."
     }
   }
-  return "The AI provider could not complete the request. Try again; if it persists, check the provider's status and server configuration."
+  return "The AI provider could not complete the request. Try again; if it persists, check OpenRouter's status and the server configuration."
 }
 
 export class ClassifierProvider extends Context.Service<
   ClassifierProvider,
   {
     readonly identity: ProviderIdentity
-    readonly ask: (prompt: string) => Effect.Effect<ClassifierAnswer, ClassifierProviderError>
+    /** Answers every query in one request, in query order. */
+    readonly decide: (
+      queries: ReadonlyArray<ClassifierQuery>,
+    ) => Effect.Effect<ReadonlyArray<ClassifierAnswer>, ClassifierProviderError>
   }
 >()("@janitor/cluster/Labeling/Classifier/ClassifierProvider") {
-  /** The language model answers a bounded question; evidence is untrusted text. */
-  static readonly fromLanguageModel = (identity: ProviderIdentity) =>
+  /** Each rule asks two probability questions about its own slice of the state. */
+  static readonly fromDecisionModel = (identity: ProviderIdentity) =>
     Layer.effect(
       this,
       Effect.gen(function* () {
-        const model = yield* LanguageModel.LanguageModel
+        const model = yield* DecisionModel.DecisionModel
         return {
           identity,
-          ask: (prompt) =>
-            model
-              .generateObject({
-                objectName: "classification",
-                schema: ClassifierAnswer,
-                prompt: [
-                  {
-                    role: "system",
-                    content: SYSTEM_INSTRUCTIONS,
-                  },
-                  { role: "user", content: [{ type: "text", text: prompt }] },
-                ],
-              })
-              .pipe(
-                Effect.timeout(Duration.seconds(60)),
-                Effect.tap((response) =>
-                  Effect.logInfo("AI classifier usage").pipe(
-                    Effect.annotateLogs({
-                      provider: identity.provider,
-                      model: identity.model,
-                      inputTokens: response.usage.inputTokens.total,
-                      outputTokens: response.usage.outputTokens.total,
+          decide: (queries) => {
+            if (queries.length === 0) return Effect.succeed([])
+            const request = classifierRequest(queries)
+            const definition = Decision.make({
+              input: Schema.Json,
+              decisions: Object.fromEntries(
+                Object.entries(request.questions).map(([key, question]) => [
+                  key,
+                  Decision.probability(question),
+                ]),
+              ),
+            })
+            return model.decide(definition, { input: request.state }).pipe(
+              Effect.timeout(PROVIDER_TIMEOUT),
+              Effect.tap((response) =>
+                Effect.logInfo("AI classifier usage").pipe(
+                  Effect.annotateLogs({
+                    provider: identity.provider,
+                    model: identity.model,
+                    rules: queries.length,
+                    inputTokens: response.usage.inputTokens,
+                  }),
+                ),
+              ),
+              Effect.map((response) =>
+                queries.map((_, i): ClassifierAnswer => ({
+                  matches: response.answers[`r${i}_matches`]!.probability,
+                  sufficient: response.answers[`r${i}_sufficient`]!.probability,
+                })),
+              ),
+              Effect.catch((cause) =>
+                Effect.flatMap(Clock.currentTimeMillis, (now) =>
+                  Effect.fail(
+                    new ClassifierProviderError({
+                      message: providerErrorMessage(cause),
+                      cause,
+                      ...providerRetry(cause, now),
                     }),
                   ),
                 ),
-                Effect.map((response) => response.value),
-                Effect.catch((cause) =>
-                  Effect.flatMap(Clock.currentTimeMillis, (now) =>
-                    Effect.fail(
-                      new ClassifierProviderError({
-                        message: providerErrorMessage(cause),
-                        cause,
-                        ...providerRetry(cause, now),
-                      }),
-                    ),
-                  ),
-                ),
               ),
+            )
+          },
         }
       }),
     )
@@ -174,7 +192,7 @@ export class ClassifierProvider extends Context.Service<
   /** What runs when no API key is configured: classification fails without sending data. */
   static readonly unavailable = Layer.succeed(this, {
     identity: { provider: "none", model: "none" },
-    ask: () =>
+    decide: () =>
       Effect.fail(
         new ClassifierProviderError({
           message: "No classifier provider is configured",
@@ -184,18 +202,16 @@ export class ClassifierProvider extends Context.Service<
   })
 }
 
-export const DEFAULT_MODEL = "gpt-5.6-luna"
+export const DEFAULT_MODEL = "typesafe/jev-1.13"
 
 export interface ProviderConfig {
   readonly apiKey: Option.Option<Redacted.Redacted<string>>
-  readonly apiUrl: Option.Option<string>
   readonly model: string
 }
 
-/** Reads the provider key and model from the environment; absent key means unavailable. */
+/** Reads the OpenRouter key and decision model; an absent key means unavailable. */
 export const providerConfig: Config.Wrap<ProviderConfig> = {
-  apiKey: Config.option(Config.Redacted("OPENAI_API_KEY")),
-  apiUrl: Config.option(Config.String("OPENAI_API_URL")),
+  apiKey: Config.option(Config.Redacted("OPENROUTER_API_KEY")),
   model: Config.String("LABELING_AI_MODEL").pipe(Config.withDefault(DEFAULT_MODEL)),
 }
 
@@ -384,6 +400,7 @@ export interface ClassifyInput {
 const DecisionRow = Schema.Struct({
   input_report: Schema.NullOr(AiInputReport),
   reason_code: Schema.NullOr(AiReasonCode),
+  probabilities: Schema.NullOr(ClassifierProbabilities),
   outcome: Schema.Literals(["match", "no-match", "unknown"]),
   confidence: Schema.Finite,
   reason: Schema.String,
@@ -394,20 +411,92 @@ const sha256Hex = (text: string) =>
     Effect.map((digest) => Hex.encode(new Uint8Array(digest))),
   )
 
+/** Below this probability that its evidence suffices, a rule's result is unknown. */
+export const SUFFICIENT_EVIDENCE = 0.5
+
 /**
- * Evaluates a classifier policy for one snapshot: applicability purely,
- * then consent, a lease, the decision cache, and finally the provider.
- * Missing evidence remains unknown; a completed answer below the confidence
- * threshold is a non-match. Operational failures preserve labels.
+ * Bytes of state and questions sent in one decision request. Jev accepts
+ * 32k tokens of state plus the longest question; JSON evidence averages
+ * three or more bytes per token, so this leaves room for tokenizer variance.
  */
+export const MAX_REQUEST_BYTES = 80_000
+
+/** Maps one rule's probabilities to its outcome and the reason recorded for it. */
+export const decisionOutcome = (answer: ClassifierAnswer, minimumConfidence: number) => {
+  const summary = `matches ${answer.matches.toFixed(2)} · evidence sufficient ${answer.sufficient.toFixed(2)}`
+  if (answer.sufficient < SUFFICIENT_EVIDENCE)
+    return {
+      outcome: "unknown" as const,
+      reasonCode: "insufficient-evidence" as const,
+      reason: `Insufficient evidence: ${summary}`,
+    }
+  if (answer.matches >= minimumConfidence)
+    return { outcome: "match" as const, reasonCode: undefined, reason: summary }
+  if (answer.matches >= 0.5)
+    return {
+      outcome: "no-match" as const,
+      reasonCode: "low-confidence" as const,
+      reason: `confidence ${answer.matches.toFixed(2)} below ${minimumConfidence}: ${summary}`,
+    }
+  return { outcome: "no-match" as const, reasonCode: undefined, reason: summary }
+}
+
+/** Packs prepared rules, in order, into requests that stay under the byte limit. */
+export const packRequests = <A>(
+  items: ReadonlyArray<A>,
+  size: (item: A) => number,
+  limit = MAX_REQUEST_BYTES,
+): ReadonlyArray<ReadonlyArray<A>> => {
+  const requests: Array<Array<A>> = []
+  let current: Array<A> = []
+  let used = 0
+  for (const item of items) {
+    const bytes = size(item)
+    if (current.length > 0 && used + bytes > limit) {
+      requests.push(current)
+      current = []
+      used = 0
+    }
+    current.push(item)
+    used += bytes
+  }
+  if (current.length > 0) requests.push(current)
+  return requests
+}
+
 export const AiInputBudget = Context.Reference<number>("@janitor/AiInputBudget", {
   defaultValue: () => DEFAULT_INPUT_BYTES,
 })
 
+type Prepared = Extract<ReturnType<typeof prepareClassifierInput>, { readonly _tag: "Prepared" }>
+
+/** A rule that needs an answer: everything its request, cache and record need. */
+interface Pending {
+  readonly index: number
+  readonly input: ClassifyInput
+  readonly trace: Evaluation["trace"]
+  readonly rendered: Prepared
+  readonly diagnostics: Pick<Evaluation, "inputReport" | "inputDetails">
+  readonly evidenceHash: string
+  readonly requestHash: string
+}
+
+/**
+ * Evaluates classifier policies for one repository's snapshots. Each rule
+ * passes applicability, consent and the decision cache on its own; the
+ * rules that still need an answer share as few provider requests as the
+ * size limit allows, each under one lease. Missing or insufficient evidence
+ * is unknown; a likelihood below the minimum confidence is a non-match.
+ * Operational failures preserve labels.
+ */
 export class AiClassifier extends Context.Service<
   AiClassifier,
   {
     readonly classify: (input: ClassifyInput) => Effect.Effect<Evaluation, ClassifierError>
+    /** Results are in input order. */
+    readonly classifyMany: (
+      inputs: ReadonlyArray<ClassifyInput>,
+    ) => Effect.Effect<ReadonlyArray<Evaluation>, ClassifierError>
   }
 >()("@janitor/cluster/Labeling/Classifier/AiClassifier", {
   make: Effect.gen(function* () {
@@ -435,6 +524,30 @@ export class AiClassifier extends Context.Service<
       reason,
       trace,
     })
+    const failed = (pending: Pending, reason: string, reasonCode: AiReasonCode): Evaluation => ({
+      outcome: "failed",
+      reason,
+      reasonCode,
+      trace: pending.trace,
+      ...pending.diagnostics,
+    })
+    const stopped = (pending: Pending) =>
+      failed(
+        pending,
+        "Evaluation stopped because newer work superseded it or repository access changed.",
+        "provider-failed",
+      )
+    const fromDecision = (pending: Pending, decision: typeof DecisionRow.Type): Evaluation => ({
+      outcome: decision.outcome,
+      confidence: decision.confidence,
+      reason: decision.reason,
+      trace: pending.trace,
+      cached: true,
+      ...pending.diagnostics,
+      inputReport: decision.input_report ?? pending.rendered.report,
+      ...(decision.reason_code ? { reasonCode: decision.reason_code } : {}),
+      ...(decision.probabilities ? { probabilities: decision.probabilities } : {}),
+    })
 
     const acquireLease = (repositoryId: GitHubRepositoryDatabaseId) =>
       Effect.gen(function* () {
@@ -459,111 +572,136 @@ export class AiClassifier extends Context.Service<
         Effect.ignore,
       )
 
-    const classify = Effect.fn("AiClassifier.classify")(function* (input: ClassifyInput) {
+    const classifyRepository = Effect.fnUntraced(function* (
+      repositoryId: GitHubRepositoryDatabaseId,
+      inputs: ReadonlyArray<ClassifyInput>,
+    ) {
       const retry = yield* EvaluationRetry
-      // Applicability and target are decided purely; only the question needs a provider.
-      const scoped = evaluateApplicability({
-        program: input.program,
-        snapshot: input.snapshot,
-        resolve: input.resolve,
-      })
-      if (scoped.outcome !== "match") return scoped
-      const trace = scoped.trace
+      const results: Array<Evaluation | undefined> = inputs.map(() => undefined)
+      const consentNow = yield* Effect.cached(consent.get(repositoryId).pipe(wrap("consent")))
 
-      const missing = input.evaluator.evidence.filter(
-        (fact) => input.snapshot.facts[fact] === undefined,
-      )
-      if (missing.length)
-        return unknown(
-          "Evidence unavailable or incomplete: " + missing.join(", "),
-          trace,
-          "missing-evidence",
-        )
-      const state = yield* consent.get(input.repositoryId).pipe(wrap("consent"))
-      if (state.state !== "enabled")
-        return unknown(
-          `AI access is ${state.state}. Enable it in repository settings.`,
-          trace,
-          "access-disabled",
-        )
-      if (provider.identity.provider === "none")
-        return {
-          outcome: "failed",
-          reason: "No AI provider is configured. Set OPENAI_API_KEY on the server.",
-          reasonCode: "provider-unavailable",
-          trace,
-        } satisfies Evaluation
-      if (state.provider !== provider.identity.provider || state.model !== provider.identity.model)
-        return unknown(
-          "AI provider changed. Enable AI access again in repository settings.",
-          trace,
-          "access-disabled",
-        )
-      const rendered = prepareClassifierInput(
-        input.evaluator.prompt,
-        input.evaluator.evidence,
-        input.snapshot,
-        inputBudget,
-      )
-      if (rendered._tag === "Rejected")
-        return {
-          ...unknown(rendered.reason, trace, "input-too-large"),
-          inputReport: rendered.report,
-        }
-      const diagnostics = {
-        inputReport: rendered.report,
-        ...(input.inspectInput ? { inputDetails: rendered.details } : {}),
-      }
-      const failed = (reason: string, reasonCode: AiReasonCode): Evaluation => ({
-        outcome: "failed",
-        reason,
-        reasonCode,
-        trace,
-        ...diagnostics,
-      })
-      const fromDecision = (decision: typeof DecisionRow.Type): Evaluation => ({
-        outcome: decision.outcome,
-        confidence: decision.confidence,
-        reason: decision.reason,
-        trace,
-        cached: true,
-        ...diagnostics,
-        inputReport: decision.input_report ?? rendered.report,
-        ...(decision.reason_code ? { reasonCode: decision.reason_code } : {}),
-      })
-      const evidenceHash = yield* sha256Hex(
-        JSON.stringify({
-          evidence: rendered.details.facts,
-          budget: inputBudget,
-          prompt: rendered.text,
+      // Each rule settles on its own until it needs an answer from the provider.
+      const pending: Array<Pending> = []
+      for (const [index, input] of inputs.entries()) {
+        // Applicability and target are decided purely; only the question needs a provider.
+        const scoped = evaluateApplicability({
           program: input.program,
-          rule: input.rule ?? null,
-          minimumConfidence: input.evaluator.minimumConfidence,
-          provider: provider.identity,
-          renderingVersion: rendered.report.version,
-          decisionVersion: 3,
-        }),
-      )
-
-      const stopped = () =>
-        failed(
-          "Evaluation stopped because newer work superseded it or repository access changed.",
-          "provider-failed",
+          snapshot: input.snapshot,
+          resolve: input.resolve,
+        })
+        if (scoped.outcome !== "match") {
+          results[index] = scoped
+          continue
+        }
+        const trace = scoped.trace
+        const missing = input.evaluator.evidence.filter(
+          (fact) => input.snapshot.facts[fact] === undefined,
         )
+        if (missing.length) {
+          results[index] = unknown(
+            "Evidence unavailable or incomplete: " + missing.join(", "),
+            trace,
+            "missing-evidence",
+          )
+          continue
+        }
+        const state = yield* consentNow
+        if (state.state !== "enabled") {
+          results[index] = unknown(
+            `AI access is ${state.state}. Enable it in repository settings.`,
+            trace,
+            "access-disabled",
+          )
+          continue
+        }
+        if (provider.identity.provider === "none") {
+          results[index] = {
+            outcome: "failed",
+            reason: "No AI provider is configured. Set OPENROUTER_API_KEY on the server.",
+            reasonCode: "provider-unavailable",
+            trace,
+          }
+          continue
+        }
+        if (
+          state.provider !== provider.identity.provider ||
+          state.model !== provider.identity.model
+        ) {
+          results[index] = unknown(
+            "AI provider changed. Enable AI access again in repository settings.",
+            trace,
+            "access-disabled",
+          )
+          continue
+        }
+        const rendered = prepareClassifierInput(
+          input.evaluator.prompt,
+          input.evaluator.evidence,
+          input.snapshot,
+          inputBudget,
+        )
+        if (rendered._tag === "Rejected") {
+          results[index] = {
+            ...unknown(rendered.reason, trace, "input-too-large"),
+            inputReport: rendered.report,
+          }
+          continue
+        }
+        const evidenceHash = yield* sha256Hex(
+          JSON.stringify({
+            evidence: rendered.details.facts,
+            budget: inputBudget,
+            prompt: rendered.text,
+            program: input.program,
+            rule: input.rule ?? null,
+            minimumConfidence: input.evaluator.minimumConfidence,
+            provider: provider.identity,
+            renderingVersion: rendered.report.version,
+            decisionVersion: 4,
+          }),
+        )
+        const requestHash = yield* sha256Hex(
+          JSON.stringify([
+            repositoryId,
+            input.policyVersionId,
+            input.number,
+            evidenceHash,
+            retry.claimKey ?? null,
+          ]),
+        )
+        pending.push({
+          index,
+          input,
+          trace,
+          rendered,
+          diagnostics: {
+            inputReport: rendered.report,
+            ...(input.inspectInput ? { inputDetails: rendered.details } : {}),
+          },
+          evidenceHash,
+          requestHash,
+        })
+      }
+      if (pending.length === 0) return results as ReadonlyArray<Evaluation>
+      const stopAll = (rules: ReadonlyArray<Pending>) => {
+        for (const rule of rules) results[rule.index] = stopped(rule)
+        return results as ReadonlyArray<Evaluation>
+      }
+
       const [connection] = yield* sql<{
         generation_floor: string
-      }>`SELECT generation_floor::text FROM github_repository WHERE repository_id=${input.repositoryId} AND connected`.pipe(
+      }>`SELECT generation_floor::text FROM github_repository WHERE repository_id=${repositoryId} AND connected`.pipe(
         wrap("connection"),
       )
-      if (!connection) return stopped()
+      if (!connection) return stopAll(pending)
       const eligible = Effect.gen(function* () {
         const rows =
-          yield* sql`SELECT 1 FROM github_repository WHERE repository_id=${input.repositoryId} AND connected AND generation_floor=${connection.generation_floor}`.pipe(
+          yield* sql`SELECT 1 FROM github_repository WHERE repository_id=${repositoryId} AND connected AND generation_floor=${connection.generation_floor}`.pipe(
             wrap("connection"),
           )
         if (!rows.length) return false
         if (!(yield* retry.isCurrent)) return false
-        const currentConsent = yield* consent.get(input.repositoryId).pipe(wrap("consent"))
+        const currentConsent = yield* consent.get(repositoryId).pipe(wrap("consent"))
         return (
           currentConsent.state === "enabled" &&
           currentConsent.provider === provider.identity.provider &&
@@ -576,7 +714,7 @@ export class AiClassifier extends Context.Service<
         sql
           .withTransaction(
             Effect.gen(function* () {
-              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${input.repositoryId} FOR NO KEY UPDATE`.pipe(
+              yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} FOR NO KEY UPDATE`.pipe(
                 wrap("connection"),
               )
               if (!(yield* eligible)) return Option.none<A>()
@@ -584,61 +722,54 @@ export class AiClassifier extends Context.Service<
             }),
           )
           .pipe(wrap("connection"))
-      if (!(yield* eligible)) return stopped()
+      if (!(yield* eligible)) return stopAll(pending)
 
-      const requestHash = yield* sha256Hex(
-        JSON.stringify([
-          input.repositoryId,
-          input.policyVersionId,
-          input.number,
-          evidenceHash,
-          retry.claimKey ?? null,
-        ]),
-      )
-      const readDecision = Effect.gen(function* () {
-        const now = yield* Clock.currentTimeMillis
-        return yield* sql`
-          SELECT outcome, confidence, reason, input_report, reason_code FROM labeling_ai_decision
-          WHERE repository_id = ${input.repositoryId} AND policy_version_id = ${input.policyVersionId}
-            AND number = ${input.number} AND evidence_hash = ${evidenceHash}
-            AND created_at > ${new Date(now - cacheTtl * 1000)}
-        `.pipe(Effect.flatMap(decodeDecisions), wrap("cache"))
-      })
-      const owner = crypto.randomUUID()
-      const claim =
-        yield* whileCurrent(sql`INSERT INTO labeling_ai_claim(request_hash,owner,repository_id,expires_at)
-        VALUES (${requestHash},${owner},${input.repositoryId},CLOCK_TIMESTAMP()+INTERVAL '75 seconds')
-        ON CONFLICT(request_hash) DO UPDATE SET owner=EXCLUDED.owner,expires_at=EXCLUDED.expires_at
-        WHERE labeling_ai_claim.expires_at < CLOCK_TIMESTAMP() RETURNING owner`).pipe(wrap("claim"))
-      if (Option.isNone(claim)) return stopped()
-      if (!claim.value.length) {
-        // Join a concurrent request by waiting for its decision, without a second paid call.
+      const readDecision = (rule: Pending) =>
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis
+          return yield* sql`
+            SELECT outcome, confidence, reason, input_report, reason_code, probabilities FROM labeling_ai_decision
+            WHERE repository_id = ${repositoryId} AND policy_version_id = ${rule.input.policyVersionId}
+              AND number = ${rule.input.number} AND evidence_hash = ${rule.evidenceHash}
+              AND created_at > ${new Date(now - cacheTtl * 1000)}
+          `.pipe(Effect.flatMap(decodeDecisions), wrap("cache"))
+        })
+
+      // Join a concurrent request by waiting for its decision, without a second paid call.
+      const join = Effect.fnUntraced(function* (rule: Pending) {
         for (let attempt = 0; attempt < 30; attempt++) {
           yield* Effect.sleep(Duration.seconds(2))
-          if (!(yield* eligible)) return stopped()
-          const decisions = yield* readDecision
-          const decision = decisions[0]
+          if (!(yield* eligible)) return stopped(rule)
+          const decision = (yield* readDecision(rule))[0]
           if (decision) {
-            if (!(yield* eligible)) return stopped()
-            return fromDecision(decision)
+            if (!(yield* eligible)) return stopped(rule)
+            return fromDecision(rule, decision)
           }
         }
         return failed(
+          rule,
           "The concurrent evaluation did not finish; retry shortly.",
           "concurrent-timeout",
         )
-      }
-      return yield* Effect.gen(function* () {
-        const cached = yield* readDecision
-        if (!(yield* eligible)) return stopped()
-        const hit = cached[0]
-        if (hit !== undefined) return fromDecision(hit)
+      })
 
+      const owner = crypto.randomUUID()
+      const extendClaims = (milliseconds: number) =>
+        sql`UPDATE labeling_ai_claim SET expires_at=CLOCK_TIMESTAMP()+${milliseconds} * INTERVAL '1 millisecond' WHERE owner=${owner}`.pipe(
+          wrap("claim"),
+        )
+
+      // One request for a batch of rules: one lease, shared retries, one record per rule.
+      const decideRequest = Effect.fnUntraced(function* (rules: ReadonlyArray<Pending>) {
+        const failAll = (reason: string, reasonCode: AiReasonCode) => {
+          for (const rule of rules) results[rule.index] = failed(rule, reason, reasonCode)
+        }
+        yield* extendClaims(75000)
         const started = yield* Clock.currentTimeMillis
         let attempts = 0
         let previousDelay = 1000
         const ask = Effect.gen(function* () {
-          const lease = yield* whileCurrent(acquireLease(input.repositoryId)).pipe(
+          const lease = yield* whileCurrent(acquireLease(repositoryId)).pipe(
             Effect.map(Option.flatten),
             wrap("lease"),
           )
@@ -652,17 +783,24 @@ export class AiClassifier extends Context.Service<
             )
           attempts++
           return yield* provider
-            .ask(rendered.text)
+            .decide(
+              rules.map((rule) => ({
+                instructions: rule.input.evaluator.prompt,
+                state: rule.rendered.state,
+              })),
+            )
             .pipe(Effect.result, Effect.ensuring(releaseLease(lease.value)))
         })
-        if (!(yield* eligible)) return stopped()
-        let answer: Result.Result<ClassifierAnswer, ClassifierProviderError | ClassifierError> =
-          yield* ask
+        if (!(yield* eligible)) return void stopAll(rules)
+        let answer: Result.Result<
+          ReadonlyArray<ClassifierAnswer>,
+          ClassifierProviderError | ClassifierError
+        > = yield* ask
         while (Result.isFailure(answer)) {
           const error = answer.failure
-          if (error._tag === "ClassifierError") return failed(error.message, "budget-exhausted")
+          if (error._tag === "ClassifierError") return failAll(error.message, "budget-exhausted")
           if (!error.retryable)
-            return failed(
+            return failAll(
               error.message + " Try the evaluation again after resolving the error.",
               "provider-failed",
             )
@@ -672,18 +810,16 @@ export class AiClassifier extends Context.Service<
             !Number.isFinite(delay) ||
             (yield* Clock.currentTimeMillis) - started + delay + 60000 > 240000
           )
-            return failed(
+            return failAll(
               error.message +
                 " Automatic retries exhausted after " +
                 attempts +
                 " attempts. Waiting for a new webhook event; tests can be run again.",
               "provider-failed",
             )
-          if (!(yield* eligible)) return stopped()
-          // Keep the claim valid while sleeping, without holding a consent lease or budget slot.
-          yield* sql`UPDATE labeling_ai_claim SET expires_at=CLOCK_TIMESTAMP()+${delay + 75000} * INTERVAL '1 millisecond' WHERE request_hash=${requestHash} AND owner=${owner}`.pipe(
-            wrap("claim"),
-          )
+          if (!(yield* eligible)) return void stopAll(rules)
+          // Keep the claims valid while sleeping, without holding a consent lease or budget slot.
+          yield* extendClaims(delay + 75000)
           yield* retry.report(
             "AI request failed temporarily. Retrying attempt " +
               (attempts + 1) +
@@ -693,100 +829,161 @@ export class AiClassifier extends Context.Service<
           )
           previousDelay = delay
           yield* Effect.sleep(Duration.millis(delay))
-          if (!(yield* eligible)) return stopped()
+          if (!(yield* eligible)) return void stopAll(rules)
           answer = yield* ask
         }
-        if (!(yield* eligible)) return stopped()
+        if (!(yield* eligible)) return void stopAll(rules)
+        const answers = answer.success
+        if (answers.length !== rules.length)
+          return failAll(
+            "The decision model returned an invalid answer. Try again.",
+            "provider-failed",
+          )
         const latency = (yield* Clock.currentTimeMillis) - started
-
-        const outcome: Evaluation["outcome"] =
-          answer.success.matches === null
-            ? "unknown"
-            : answer.success.matches &&
-                answer.success.confidence >= input.evaluator.minimumConfidence
-              ? "match"
-              : "no-match"
-        const reason =
-          (attempts > 1 ? "Recovered after " + attempts + " attempts. " : "") +
-          (answer.success.matches === null
-            ? `Insufficient evidence: ${answer.success.reason}`
-            : answer.success.confidence < input.evaluator.minimumConfidence
-              ? `confidence ${answer.success.confidence.toFixed(2)} below ${input.evaluator.minimumConfidence}: ${answer.success.reason}`
-              : answer.success.reason)
-        const reasonCode =
-          answer.success.matches === null
-            ? ("insufficient-evidence" as const)
-            : answer.success.confidence < input.evaluator.minimumConfidence
-              ? ("low-confidence" as const)
-              : undefined
         const completedAt = new Date(yield* Clock.currentTimeMillis)
-        yield* whileCurrent(sql`
-        INSERT INTO labeling_ai_decision
-          (repository_id, policy_version_id, number, evidence_hash, provider, model, outcome, confidence, reason, latency_ms, input_report, reason_code, created_at)
-        VALUES (${input.repositoryId}, ${input.policyVersionId}, ${input.number}, ${evidenceHash},
-                ${provider.identity.provider}, ${provider.identity.model}, ${outcome},
-                ${answer.success.confidence}, ${reason.slice(0, 1_000)}, ${Math.round(latency)}, ${JSON.stringify(rendered.report)}::jsonb, ${reasonCode ?? null}, ${completedAt})
-        ON CONFLICT (repository_id, policy_version_id, number, evidence_hash) DO UPDATE SET
-          outcome = EXCLUDED.outcome, confidence = EXCLUDED.confidence, reason = EXCLUDED.reason,
-          latency_ms = EXCLUDED.latency_ms, input_report = EXCLUDED.input_report,
-          reason_code = EXCLUDED.reason_code, created_at = EXCLUDED.created_at
-        WHERE labeling_ai_decision.created_at <= EXCLUDED.created_at
-      `).pipe(wrap("record"))
-        return {
-          outcome,
-          reason,
-          trace,
-          confidence: answer.success.confidence,
-          cached: false,
-          ...diagnostics,
-          ...(reasonCode ? { reasonCode } : {}),
+        for (const [i, rule] of rules.entries()) {
+          const probabilities = answers[i]!
+          const decision = decisionOutcome(probabilities, rule.input.evaluator.minimumConfidence)
+          const reason =
+            (attempts > 1 ? "Recovered after " + attempts + " attempts. " : "") + decision.reason
+          yield* whileCurrent(sql`
+          INSERT INTO labeling_ai_decision
+            (repository_id, policy_version_id, number, evidence_hash, provider, model, outcome, confidence, reason, latency_ms, input_report, reason_code, probabilities, created_at)
+          VALUES (${repositoryId}, ${rule.input.policyVersionId}, ${rule.input.number}, ${rule.evidenceHash},
+                  ${provider.identity.provider}, ${provider.identity.model}, ${decision.outcome},
+                  ${probabilities.matches}, ${reason.slice(0, 1_000)}, ${Math.round(latency)}, ${JSON.stringify(rule.rendered.report)}::jsonb, ${decision.reasonCode ?? null}, ${JSON.stringify(probabilities)}::jsonb, ${completedAt})
+          ON CONFLICT (repository_id, policy_version_id, number, evidence_hash) DO UPDATE SET
+            outcome = EXCLUDED.outcome, confidence = EXCLUDED.confidence, reason = EXCLUDED.reason,
+            latency_ms = EXCLUDED.latency_ms, input_report = EXCLUDED.input_report,
+            reason_code = EXCLUDED.reason_code, probabilities = EXCLUDED.probabilities,
+            created_at = EXCLUDED.created_at
+          WHERE labeling_ai_decision.created_at <= EXCLUDED.created_at
+        `).pipe(wrap("record"))
+          results[rule.index] = {
+            outcome: decision.outcome,
+            reason,
+            trace: rule.trace,
+            confidence: probabilities.matches,
+            probabilities,
+            cached: false,
+            ...rule.diagnostics,
+            ...(decision.reasonCode ? { reasonCode: decision.reasonCode } : {}),
+          }
         }
+      })
+
+      return yield* Effect.gen(function* () {
+        const owned: Array<Pending> = []
+        const waiting: Array<Pending> = []
+        for (const rule of pending) {
+          const claim =
+            yield* whileCurrent(sql`INSERT INTO labeling_ai_claim(request_hash,owner,repository_id,expires_at)
+            VALUES (${rule.requestHash},${owner},${repositoryId},CLOCK_TIMESTAMP()+INTERVAL '75 seconds')
+            ON CONFLICT(request_hash) DO UPDATE SET owner=EXCLUDED.owner,expires_at=EXCLUDED.expires_at
+            WHERE labeling_ai_claim.expires_at < CLOCK_TIMESTAMP() RETURNING owner`).pipe(
+              wrap("claim"),
+            )
+          if (Option.isNone(claim)) results[rule.index] = stopped(rule)
+          else if (claim.value.length) owned.push(rule)
+          else waiting.push(rule)
+        }
+        const misses: Array<Pending> = []
+        for (const rule of owned) {
+          const hit = (yield* readDecision(rule))[0]
+          if (!(yield* eligible)) results[rule.index] = stopped(rule)
+          else if (hit !== undefined) results[rule.index] = fromDecision(rule, hit)
+          else misses.push(rule)
+        }
+        for (const request of packRequests(misses, (rule) => inputBytes(rule.rendered.text)))
+          yield* decideRequest(request)
+        yield* Effect.forEach(
+          waiting,
+          (rule) => Effect.map(join(rule), (evaluation) => (results[rule.index] = evaluation)),
+          { concurrency: "unbounded", discard: true },
+        )
+        return results as ReadonlyArray<Evaluation>
       }).pipe(
         Effect.ensuring(
-          sql`DELETE FROM labeling_ai_claim WHERE request_hash=${requestHash} AND owner=${owner}`.pipe(
-            Effect.ignore,
-          ),
+          sql`DELETE FROM labeling_ai_claim WHERE owner=${owner}`.pipe(Effect.ignore),
         ),
       )
     })
 
-    return { classify }
+    const classifyMany = Effect.fn("AiClassifier.classifyMany")(function* (
+      inputs: ReadonlyArray<ClassifyInput>,
+    ) {
+      const results: Array<Evaluation> = []
+      const byRepository = new Map<GitHubRepositoryDatabaseId, Array<number>>()
+      for (const [index, input] of inputs.entries())
+        byRepository.set(input.repositoryId, [
+          ...(byRepository.get(input.repositoryId) ?? []),
+          index,
+        ])
+      for (const [repositoryId, indexes] of byRepository) {
+        const evaluations = yield* classifyRepository(
+          repositoryId,
+          indexes.map((index) => inputs[index]!),
+        )
+        for (const [i, index] of indexes.entries()) results[index] = evaluations[i]!
+      }
+      return results as ReadonlyArray<Evaluation>
+    })
+
+    const classify = (input: ClassifyInput) =>
+      Effect.map(classifyMany([input]), (evaluations) => evaluations[0]!)
+
+    return { classify, classifyMany }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
-/** Present when the worker configured a provider; tests provide their own. */
-export const classifyAi = (input: ClassifyInput) => {
-  const gate = evaluateApplicability({
-    program: input.program,
-    snapshot: input.snapshot,
-    resolve: input.resolve,
+/**
+ * Evaluates classifier policies through the configured classifier, in input
+ * order. Rules outside their applicability never reach it; tests may omit it.
+ */
+export const classifyAiMany = (inputs: ReadonlyArray<ClassifyInput>) =>
+  Effect.gen(function* () {
+    const results: Array<Evaluation> = []
+    const applicable: Array<number> = []
+    for (const [index, input] of inputs.entries()) {
+      const gate = evaluateApplicability({
+        program: input.program,
+        snapshot: input.snapshot,
+        resolve: input.resolve,
+      })
+      if (gate.outcome === "match") applicable.push(index)
+      results[index] = gate
+    }
+    if (applicable.length === 0) return results as ReadonlyArray<Evaluation>
+    const classifier = yield* Effect.serviceOption(AiClassifier)
+    const failedAll = (reason: string, reasonCode: AiReasonCode) => {
+      for (const index of applicable)
+        results[index] = { outcome: "failed", reason, reasonCode, trace: results[index]!.trace }
+    }
+    if (Option.isNone(classifier)) {
+      failedAll(
+        "The AI classifier service is unavailable. Check the server's AI configuration.",
+        "provider-unavailable",
+      )
+      return results as ReadonlyArray<Evaluation>
+    }
+    const evaluations = yield* classifier.value
+      .classifyMany(applicable.map((index) => inputs[index]!))
+      .pipe(
+        Effect.catch((error) =>
+          Effect.as(Effect.logError("Classifier evaluation failed", error), undefined),
+        ),
+      )
+    if (evaluations === undefined)
+      failedAll(
+        "The AI evaluation could not complete. Try again; if it persists, check server logs and database connectivity.",
+        "provider-failed",
+      )
+    else for (const [i, index] of applicable.entries()) results[index] = evaluations[i]!
+    return results as ReadonlyArray<Evaluation>
   })
-  if (gate.outcome !== "match") return Effect.succeed(gate)
-  return Effect.serviceOption(AiClassifier).pipe(
-    Effect.flatMap((classifier) =>
-      Option.isNone(classifier)
-        ? Effect.succeed<Evaluation>({
-            outcome: "failed",
-            reason:
-              "The AI classifier service is unavailable. Check the server's AI configuration.",
-            reasonCode: "provider-unavailable",
-            trace: gate.trace,
-          })
-        : classifier.value.classify(input).pipe(
-            Effect.catch((error) =>
-              Effect.logError("Classifier evaluation failed", error).pipe(
-                Effect.as<Evaluation>({
-                  outcome: "failed",
-                  reason:
-                    "The AI evaluation could not complete. Try again; if it persists, check server logs and database connectivity.",
-                  reasonCode: "provider-failed",
-                  trace: gate.trace,
-                }),
-              ),
-            ),
-          ),
-    ),
-  )
-}
+
+/** Present when the worker configured a provider; tests provide their own. */
+export const classifyAi = (input: ClassifyInput) =>
+  Effect.map(classifyAiMany([input]), (evaluations) => evaluations[0]!)

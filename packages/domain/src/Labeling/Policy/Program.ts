@@ -39,9 +39,10 @@ export const ClassifierPrompt = Schema.String.check(
 export const Confidence = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 }))
 
 /**
- * A classifier asks a language model a yes-or-no question over the named
- * evidence facts. Its answer below the minimum confidence, or any failure,
- * is `unknown`, never `no-match`, so a classifier can only ever add.
+ * A classifier asks a decision model how likely the named evidence facts
+ * satisfy the prompt, and whether they are enough to decide. Insufficient
+ * evidence is `unknown`; a likelihood below the minimum confidence is
+ * `no-match`; any failure is `failed`.
  */
 export const ClassifierEvaluator = Schema.TaggedStruct("Classifier", {
   prompt: ClassifierPrompt,
@@ -227,8 +228,16 @@ export type NodeTrace = typeof NodeTrace.Type
 
 export const MAX_TRACE = 64
 
+/** A decision model's probabilities that a rule matches and that its evidence suffices. */
+export const ClassifierProbabilities = Schema.Struct({
+  matches: Confidence,
+  sufficient: Confidence,
+})
+export type ClassifierProbabilities = typeof ClassifierProbabilities.Type
+
 export const Evaluation = Schema.Struct({
   inputReport: Schema.optionalKey(AiInputReport),
+  probabilities: Schema.optionalKey(ClassifierProbabilities),
   inputDetails: Schema.optionalKey(AiInputDetails),
   reasonCode: Schema.optionalKey(AiReasonCode),
   confidence: Schema.optionalKey(Schema.Number),

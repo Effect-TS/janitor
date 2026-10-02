@@ -45,16 +45,20 @@ A labeling rule that uses an AI prompt to evaluate an issue or pull request, sub
 Instructions describing what an AI labeling rule should determine about an issue or pull request. Only facts explicitly referenced in the prompt are supplied for classification.
 
 **AI provider and model**:
-The AI service and model shared by all AI labeling rules in a Janitor deployment. They are deployment-wide choices rather than per-rule settings.
+The AI service and model shared by all AI labeling rules in a Janitor deployment: TypeSafe's Jev decision model through OpenRouter. They are deployment-wide choices rather than per-rule settings. The model answers with probabilities, not explanations.
+_Avoid_: LLM, chat model
 
 **Minimum confidence**:
-The confidence threshold an AI classification must meet for Janitor to accept a match. Below that threshold, the result is a non-match.
+The probability of a match an AI classification must reach for Janitor to accept it. Below that threshold, the result is a non-match.
+
+**Sufficient evidence**:
+Whether an AI labeling rule's referenced facts are enough to decide its prompt, answered by the model as a probability. Below one half, the result is unknown rather than a match or non-match.
 
 **Cached AI result**:
 A previous successful AI classification reusable for a deployment-wide lifetime, defaulting to 24 hours, while the AI rule's parameters, referenced facts, and AI model remain unchanged. Expiration or any parameter change, including minimum confidence, label actions, or priority, requires a fresh AI request on the next evaluation rather than triggering one immediately.
 
 **Unknown result**:
-An evaluation result indicating that Janitor cannot determine whether an issue or pull request matches because required facts are missing. Missing facts produce an unknown result rather than a non-match, preserving the existing label.
+An evaluation result indicating that Janitor cannot determine whether an issue or pull request matches because required facts are missing or the evidence is not sufficient. Either produces an unknown result rather than a non-match, preserving the existing label.
 _Avoid_: Unknown outcome
 
 **Failed evaluation**:
