@@ -36,31 +36,33 @@ export interface LinkingSecrets {
   readonly slack: Option.Option<{
     readonly clientId: string
     readonly clientSecret: Redacted.Redacted<string>
-    /** Comma-separated Slack team IDs whose members may link. */
-    readonly workspaceIds: string
+    /** The Slack team ID (`T…`) whose members may link. */
+    readonly workspaceId: string
   }>
   readonly github: Option.Option<{
     readonly clientId: string
     readonly clientSecret: Redacted.Redacted<string>
   }>
-  readonly initialAdminSubject: Option.Option<string>
 }
 
+export const slackLinkingSecrets: Config.Config<LinkingSecrets["slack"]> = Config.option(
+  Config.unwrap({
+    clientId: Config.String("SLACK_CLIENT_ID"),
+    clientSecret: Config.Redacted("SLACK_CLIENT_SECRET"),
+    workspaceId: Config.String("SLACK_WORKSPACE_ID"),
+  }),
+)
+
+export const githubLinkingSecrets: Config.Config<LinkingSecrets["github"]> = Config.option(
+  Config.unwrap({
+    clientId: Config.String("GITHUB_OAUTH_CLIENT_ID"),
+    clientSecret: Config.Redacted("GITHUB_OAUTH_CLIENT_SECRET"),
+  }),
+)
+
 export const linkingSecrets: Config.Wrap<LinkingSecrets> = {
-  slack: Config.option(
-    Config.unwrap({
-      clientId: Config.String("JANITOR_SLACK_CLIENT_ID"),
-      clientSecret: Config.Redacted("JANITOR_SLACK_CLIENT_SECRET"),
-      workspaceIds: Config.String("JANITOR_SLACK_WORKSPACE_IDS"),
-    }),
-  ),
-  github: Config.option(
-    Config.unwrap({
-      clientId: Config.String("JANITOR_GITHUB_OAUTH_CLIENT_ID"),
-      clientSecret: Config.Redacted("JANITOR_GITHUB_OAUTH_CLIENT_SECRET"),
-    }),
-  ),
-  initialAdminSubject: Config.option(Config.String("JANITOR_INITIAL_ADMIN_SUBJECT")),
+  slack: slackLinkingSecrets,
+  github: githubLinkingSecrets,
 }
 
 /** The browser routes the platforms send people back to. */
@@ -77,10 +79,7 @@ export const configLayer = (
       clientId: slack.clientId,
       clientSecret: slack.clientSecret,
       redirectUri: `${publicOrigin}${SLACK_RETURN_PATH}`,
-      workspaceIds: slack.workspaceIds
-        .split(",")
-        .map((id) => id.trim())
-        .filter((id) => id.length > 0),
+      workspaceId: slack.workspaceId,
     })),
     github: Option.map(secrets.github, (github) => ({
       clientId: github.clientId,

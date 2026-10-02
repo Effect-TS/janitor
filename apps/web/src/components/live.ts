@@ -136,7 +136,7 @@ const connection = (channel: string, endpoint: string) =>
             }),
           ).pipe(Effect.result)
           // 4003 is the server's refusal to continue: the repository was
-          // disconnected, or this teammate's membership was removed.
+          // disconnected.
           if (
             result._tag === "Failure" &&
             result.failure._tag === "SocketError" &&

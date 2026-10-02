@@ -15,7 +15,6 @@ import {
   GitHubWebhookDeliveryId,
 } from "@janitor/domain/GitHub/Id"
 import {
-  GitHubWebhookEncryptionKeyId,
   GitHubWebhookName,
   GitHubWebhookPayloadSha256,
   type GitHubWebhookEnvelopeV1,
@@ -31,7 +30,6 @@ import { ContentPurge } from "../src/ContentPurge.ts"
 import { AutomationIntegration } from "../src/AutomationIntegration.ts"
 import { GitHubEventQueue } from "../src/GitHub/EventQueue.ts"
 import { GitHubPayloadStore, payloadKey } from "../src/GitHub/PayloadStore.ts"
-import { PayloadCipher, make as makeCipher } from "../src/PayloadCipher.ts"
 import { WebhookVerifier } from "../src/Ingress/WebhookVerifier.ts"
 import { GitHubWebhookRoutesLayerNoDeps } from "../src/Ingress/GitHubWebhook.ts"
 import { SyncStatus } from "../src/SyncStatus.ts"
@@ -53,12 +51,6 @@ const Services = Layer.mergeAll(
   Layer.provideMerge(GitHubReadModel.layer),
   Layer.provideMerge(WorkflowOutbox.layer),
   Layer.provideMerge(MigratedPostgresLayer),
-  Layer.provideMerge(
-    Layer.effect(
-      PayloadCipher,
-      makeCipher({ key: new Uint8Array(32), keyId: GitHubWebhookEncryptionKeyId.make("test") }),
-    ),
-  ),
   Layer.provide(
     Layer.succeed(GitHubTransport, {
       request: (request) =>
@@ -108,7 +100,6 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
         yield* initialize
         const connections = yield* RepositoryConnections
         const eligibility = yield* RepositoryEligibility
-        const cipher = yield* PayloadCipher
         const ingressJournal = yield* GitHubWebhookJournal
         const envelopes: Array<GitHubWebhookEnvelopeV1> = []
         let stored = 0
@@ -121,7 +112,6 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
                   Layer.succeed(WebhookVerifier, {
                     verify: () => Effect.suspend(() => verification),
                   }),
-                  Layer.succeed(PayloadCipher, cipher),
                   Layer.succeed(GitHubEventQueue, {
                     enqueue: (envelope) => Effect.sync(() => void envelopes.push(envelope)),
                   }),
@@ -282,7 +272,6 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
     Effect.gen(function* () {
       yield* initialize
       const journal = yield* GitHubWebhookJournal
-      const cipher = yield* PayloadCipher
       const connections = yield* RepositoryConnections
       const readModel = yield* GitHubReadModel
       const deliveryId = GitHubWebhookDeliveryId.make("before-pause")
@@ -310,14 +299,12 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
           },
         }),
       )
-      const encrypted = yield* cipher.encrypt(deliveryId, payload)
       yield* journal.record({
         deliveryId,
         eventName: GitHubWebhookName.make("pull_request"),
         receivedAt: DateTime.makeUnsafe(0),
         payloadSha256: GitHubWebhookPayloadSha256.make("a".repeat(64)),
-        encryption: encrypted.encryption,
-        payload: encrypted.ciphertext,
+        payload,
       })
       yield* connections.change(repositoryId, "pause", actor)
       yield* connections.change(repositoryId, "resume", actor)

@@ -47,7 +47,7 @@ export default defineConfig({
         cache: false,
       },
       dev: {
-        command: "vp exec alchemy dev --env-file deployment/local.env",
+        command: "vp exec alchemy dev",
         cache: false,
       },
 
@@ -59,13 +59,11 @@ export default defineConfig({
       },
 
       "plan:prod": {
-        command:
-          "vp exec alchemy deploy alchemy.run.ts --stage production --env-file .env.production --dry-run",
+        command: "vp exec alchemy deploy alchemy.run.ts --stage production --dry-run",
         cache: false,
       },
       "deploy:prod": {
-        command:
-          "vp exec alchemy deploy alchemy.run.ts --stage production --env-file .env.production",
+        command: "vp exec alchemy deploy alchemy.run.ts --stage production",
         cache: false,
       },
     },

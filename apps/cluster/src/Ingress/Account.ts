@@ -3,8 +3,6 @@ import {
   LinkedAccount,
   LinkPlatform,
   LinkReturnRequest,
-  SetRoleRequest,
-  TeammateId,
 } from "@janitor/domain/Team/Account"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -31,10 +29,7 @@ import { SameOriginMiddleware } from "./Sync.ts"
 const respondMessage = Response.schemaJson(Schema.Struct({ message: Schema.String }))
 
 const STATUS_BY_REASON: Record<TeammateErrorReason, number> = {
-  forbidden: 403,
-  removed: 403,
   "not-found": 404,
-  "last-admin": 409,
   conflict: 409,
   expired: 410,
   rejected: 422,
@@ -53,7 +48,6 @@ const handled = <E, R>(effect: Effect.Effect<Response.HttpServerResponse, E | Te
 
 const PlatformPath = Schema.Struct({ platform: LinkPlatform })
 const LinkPath = Schema.Struct({ linkId: Schema.String })
-const TeammatePath = Schema.Struct({ teammateId: TeammateId })
 
 const reads = HttpRouter.add(
   "GET",
@@ -95,37 +89,6 @@ const writes = HttpRouter.addAll([
       const { linkId } = yield* HttpRouter.schemaPathParams(LinkPath)
       const teammate = yield* CurrentTeammate
       yield* (yield* Teammates).disconnect(teammate.teammateId, linkId)
-      return Response.empty({ status: 204 })
-    }).pipe(handled),
-  ),
-  HttpRouter.route(
-    "PUT",
-    "/team/:teammateId/role",
-    Effect.gen(function* () {
-      const { teammateId } = yield* HttpRouter.schemaPathParams(TeammatePath)
-      const { role } = yield* Request.schemaBodyJson(SetRoleRequest)
-      const actor = yield* CurrentTeammate
-      yield* (yield* Teammates).setRole(actor.teammateId, teammateId, role)
-      return Response.empty({ status: 204 })
-    }).pipe(handled),
-  ),
-  HttpRouter.route(
-    "DELETE",
-    "/team/:teammateId",
-    Effect.gen(function* () {
-      const { teammateId } = yield* HttpRouter.schemaPathParams(TeammatePath)
-      const actor = yield* CurrentTeammate
-      yield* (yield* Teammates).remove(actor.teammateId, teammateId)
-      return Response.empty({ status: 204 })
-    }).pipe(handled),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/team/:teammateId/restore",
-    Effect.gen(function* () {
-      const { teammateId } = yield* HttpRouter.schemaPathParams(TeammatePath)
-      const actor = yield* CurrentTeammate
-      yield* (yield* Teammates).restore(actor.teammateId, teammateId)
       return Response.empty({ status: 204 })
     }).pipe(handled),
   ),

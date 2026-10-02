@@ -9,12 +9,8 @@ import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
 import { SyncGeneration } from "@janitor/domain/GitHub/Sync"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
-import {
-  GitHubWebhookEncryptionKeyId,
-  GitHubWebhookName,
-} from "@janitor/domain/GitHub/WebhookEnvelope"
+import { GitHubWebhookName } from "@janitor/domain/GitHub/WebhookEnvelope"
 import type { GitHubWebhookProjectionStatus } from "@janitor/domain/GitHub/WebhookJournal"
-import * as PayloadCipher from "../../src/PayloadCipher.ts"
 import { ProjectGitHubWebhook, ProjectGitHubWebhookLayer } from "../../src/GitHub/ProjectWebhook.ts"
 import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
 import { ContentPurge } from "../../src/ContentPurge.ts"
@@ -25,37 +21,26 @@ import {
   type GitHubWebhookJournaledDelivery,
 } from "../../src/GitHub/WebhookJournal.ts"
 
-const keyId = GitHubWebhookEncryptionKeyId.make("key-1")
-const key = new Uint8Array(32).map((_, index) => index)
-const otherKey = new Uint8Array(32).map((_, index) => 255 - index)
-
 interface Marked {
   readonly deliveryId: string
   readonly status: GitHubWebhookProjectionStatus
   readonly error: Option.Option<string>
 }
 
-/** Encrypts `payload` under `withKey` and journals it as a pending delivery. */
+/** Journals `payload` as a delivery, pending by default. */
 const journaled = (
   deliveryId: GitHubWebhookDeliveryId,
   eventName: string,
   payload: unknown,
-  withKey: Uint8Array = key,
   projectionStatus: GitHubWebhookProjectionStatus = "pending",
 ) =>
   Effect.gen(function* () {
-    const cipher = yield* PayloadCipher.make({ key: withKey, keyId })
     const json = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(payload)
-    const { encryption, ciphertext } = yield* cipher.encrypt(
-      deliveryId,
-      new TextEncoder().encode(json),
-    )
     const delivery: GitHubWebhookJournaledDelivery = {
       deliveryId,
       sequence: GitHubWebhookJournalSequence.make("7"),
       eventName: GitHubWebhookName.make(eventName),
-      encryption,
-      payload: ciphertext,
+      payload: new TextEncoder().encode(json),
       projectionStatus,
     }
     return delivery
@@ -84,9 +69,6 @@ const runWorkflow = (
             markProjection: (id, status, error) =>
               Effect.sync(() => void marked.push({ deliveryId: id, status, error })),
           }),
-        ),
-        Layer.provide(
-          Layer.effect(PayloadCipher.PayloadCipher, PayloadCipher.make({ key, keyId })),
         ),
         Layer.provide(
           Layer.succeed(GitHubReadModel, {
@@ -139,7 +121,7 @@ const runWorkflow = (
   )
 
 describe("ProjectGitHubWebhook", () => {
-  it.effect("decrypts, decodes, and marks a supported delivery projected", () =>
+  it.effect("decodes and marks a supported delivery projected", () =>
     Effect.gen(function* () {
       const deliveryId = GitHubWebhookDeliveryId.make("delivery-ping")
       const marked: Array<Marked> = []
@@ -169,32 +151,11 @@ describe("ProjectGitHubWebhook", () => {
     }),
   )
 
-  it.effect("marks a delivery failed when it cannot be decrypted", () =>
-    Effect.gen(function* () {
-      const deliveryId = GitHubWebhookDeliveryId.make("delivery-badkey")
-      const marked: Array<Marked> = []
-      const delivery = yield* journaled(deliveryId, "ping", { hook_id: 1, zen: "z" }, otherKey)
-
-      const result = yield* runWorkflow(deliveryId, Option.some(delivery), marked)
-
-      assert.deepStrictEqual(result, { deliveryId, status: "failed" })
-      assert.deepStrictEqual(marked, [
-        { deliveryId, status: "failed", error: Option.some("Payload decryption failed") },
-      ])
-    }),
-  )
-
   it.effect("returns the recorded status for an already projected delivery", () =>
     Effect.gen(function* () {
       const deliveryId = GitHubWebhookDeliveryId.make("delivery-done")
       const marked: Array<Marked> = []
-      const delivery = yield* journaled(
-        deliveryId,
-        "ping",
-        { hook_id: 1, zen: "z" },
-        key,
-        "projected",
-      )
+      const delivery = yield* journaled(deliveryId, "ping", { hook_id: 1, zen: "z" }, "projected")
 
       const result = yield* runWorkflow(deliveryId, Option.some(delivery), marked)
 

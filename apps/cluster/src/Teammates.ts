@@ -5,34 +5,28 @@ import {
   type LinkPlatform,
   type LinkingAvailability,
   type PlatformAccount,
-  type RosterEntry,
   TeammateId,
-  type TeammateRole,
   type TeammateSummary,
 } from "@janitor/domain/Team/Account"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as SqlError from "effect/sql/SqlError"
 import { describeError } from "./SqlErrors.ts"
 
 /**
- * Team membership behind Access sign-in (spec: "Identity and repository
- * selection"). A teammate is the stable identity that platform links,
- * accepted inputs and audit rows point at; Access only proves who is at the
- * browser right now.
+ * The identity behind Access sign-in. Access decides who may use Janitor;
+ * everyone it admits is a teammate with every permission. A teammate is the
+ * stable identity that platform links, accepted inputs and audit rows point
+ * at; Access only proves who is at the browser right now.
  */
 
 export const TeammateErrorReason = Schema.Literals([
-  "forbidden",
   "not-found",
-  "last-admin",
   "conflict",
   "expired",
-  "removed",
   "rejected",
   "unavailable",
 ])
@@ -46,26 +40,11 @@ export class TeammateError extends Schema.TaggedError<TeammateError>()("Teammate
 export const isTeammateError = (error: unknown): error is TeammateError =>
   error instanceof TeammateError
 
-/** The one identity that starts as admin. Everyone else is admitted as a member. */
-export interface InitialAdmin {
-  readonly issuer: string
-  readonly subject: string
-}
-
-export class TeammatesConfig extends Context.Service<
-  TeammatesConfig,
-  { readonly initialAdmin: Option.Option<InitialAdmin> }
->()("@janitor/cluster/Teammates/TeammatesConfig") {}
-
 export interface SignInIdentity {
   readonly issuer: string
   readonly subject: string
   readonly email: string | undefined
 }
-
-export type Admission =
-  | { readonly _tag: "Admitted"; readonly teammate: TeammateSummary }
-  | { readonly _tag: "Removed"; readonly teammate: TeammateSummary }
 
 export interface LinkProof extends PlatformAccount {
   readonly displayName: string
@@ -85,21 +64,17 @@ export type Authorization =
       readonly _tag: "Authorized"
       readonly teammateId: TeammateId
       readonly linkId: string
-      readonly role: TeammateRole
       readonly displayName: string
       readonly identityRevision: string
     }
-  | { readonly _tag: "Denied"; readonly reason: "unknown-account" | "disconnected" | "removed" }
+  | { readonly _tag: "Denied"; readonly reason: "unknown-account" | "disconnected" }
 
 const TeammateRow = Schema.Struct({
   teammate_id: Schema.String,
   issuer: Schema.String,
   subject: Schema.String,
   email: Schema.NullOr(Schema.String),
-  role: Schema.Literals(["admin", "member"]),
-  status: Schema.Literals(["active", "removed"]),
   created_at: Schema.DateTimeUtcFromDate,
-  removed_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
 })
 type TeammateRow = typeof TeammateRow.Type
 
@@ -110,7 +85,7 @@ const LinkRow = Schema.Struct({
   workspace_id: Schema.String,
   account_id: Schema.String,
   display_name: Schema.String,
-  status: Schema.Literals(["active", "disconnected", "disabled", "replaced"]),
+  status: Schema.Literals(["active", "disconnected", "replaced"]),
   linked_at: Schema.DateTimeUtcFromDate,
   ended_at: Schema.NullOr(Schema.DateTimeUtcFromDate),
 })
@@ -124,10 +99,7 @@ const summary = (row: TeammateRow): TeammateSummary => ({
   issuer: row.issuer,
   subject: row.subject,
   email: row.email,
-  role: row.role,
-  status: row.status,
   createdAt: row.created_at,
-  removedAt: row.removed_at,
 })
 
 const linkedAccount = (row: LinkRow): LinkedAccount => ({
@@ -141,8 +113,7 @@ const linkedAccount = (row: LinkRow): LinkedAccount => ({
   endedAt: row.ended_at,
 })
 
-const TEAMMATE_COLUMNS =
-  "teammate_id::text AS teammate_id, issuer, subject, email, role, status, created_at, removed_at"
+const TEAMMATE_COLUMNS = "teammate_id::text AS teammate_id, issuer, subject, email, created_at"
 const LINK_COLUMNS =
   "link_id::text AS link_id, teammate_id::text AS teammate_id, platform, workspace_id, account_id, display_name, status, linked_at, ended_at"
 
@@ -158,11 +129,6 @@ const isUniqueViolation = (error: unknown): boolean => {
     cause.code === UNIQUE_VIOLATION
   )
 }
-
-const removedError = new TeammateError({
-  reason: "removed",
-  message: "Your Janitor membership was removed.",
-})
 
 /** Anything the database refuses becomes `unavailable`, except an ownership race. */
 const wrap = <A, R>(
@@ -185,19 +151,11 @@ export class Teammates extends Context.Service<
   Teammates,
   {
     /** Resolves or creates the teammate for a verified Access identity. */
-    readonly admit: (identity: SignInIdentity) => Effect.Effect<Admission, TeammateError>
+    readonly admit: (identity: SignInIdentity) => Effect.Effect<TeammateSummary, TeammateError>
     readonly account: (
       teammateId: TeammateId,
       linking: LinkingAvailability,
     ) => Effect.Effect<AccountView, TeammateError>
-    readonly roster: Effect.Effect<ReadonlyArray<RosterEntry>, TeammateError>
-    readonly setRole: (
-      actor: TeammateId,
-      target: TeammateId,
-      role: TeammateRole,
-    ) => Effect.Effect<void, TeammateError>
-    readonly remove: (actor: TeammateId, target: TeammateId) => Effect.Effect<void, TeammateError>
-    readonly restore: (actor: TeammateId, target: TeammateId) => Effect.Effect<void, TeammateError>
     readonly disconnect: (
       teammateId: TeammateId,
       linkId: string,
@@ -220,15 +178,14 @@ export class Teammates extends Context.Service<
     /**
      * Decides whether a platform account may direct Janitor. Run it inside
      * the transaction that accepts the input: it takes a share lock on the
-     * owning teammate and link rows, so a concurrent removal waits for the
-     * acceptance to commit, and an input evaluated after removal is denied.
+     * owning teammate and link rows, so a concurrent disconnect waits for the
+     * acceptance to commit, and an input evaluated after it is denied.
      */
     readonly authorize: (account: PlatformAccount) => Effect.Effect<Authorization, TeammateError>
   }
 >()("@janitor/cluster/Teammates", {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
-    const config = yield* TeammatesConfig
 
     const loadTeammate = (teammateId: string) =>
       sql
@@ -240,7 +197,7 @@ export class Teammates extends Context.Service<
           Effect.map((rows) => rows[0]),
         )
 
-    /** Locks the target row; every role, status and link change goes through here. */
+    /** Locks the target row; every link change goes through here. */
     const lockTeammate = (teammateId: string) =>
       sql
         .unsafe(
@@ -274,44 +231,6 @@ export class Teammates extends Context.Service<
       sql`UPDATE teammate SET identity_revision = identity_revision + 1, updated_at = now()
           WHERE teammate_id::text = ${teammateId}`
 
-    // Role and status changes serialize on one advisory lock so the count of
-    // active admins cannot change between the check and the write.
-    const withRoles = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      sql.withTransaction(
-        sql`SELECT pg_advisory_xact_lock(hashtext('teammate-roles'))`.pipe(Effect.andThen(effect)),
-      )
-
-    const requireAdmin = (actor: string) =>
-      Effect.gen(function* () {
-        const row = yield* loadTeammate(actor)
-        if (row === undefined || row.status !== "active" || row.role !== "admin") {
-          return yield* new TeammateError({
-            reason: "forbidden",
-            message: "Only an active admin can manage teammates.",
-          })
-        }
-        return row
-      })
-
-    const otherActiveAdmins = (teammateId: string) =>
-      sql<{ count: number }>`SELECT count(*)::int AS count FROM teammate
-        WHERE role = 'admin' AND status = 'active' AND teammate_id::text <> ${teammateId}`.pipe(
-        Effect.map((rows) => rows[0]?.count ?? 0),
-      )
-
-    // The configured admin may have been admitted as a member before the
-    // configuration named them; make them admin as long as nobody else is.
-    const ensureInitialAdmin = (teammate: TeammateRow) =>
-      withRoles(
-        Effect.gen(function* () {
-          if ((yield* otherActiveAdmins(teammate.teammate_id)) > 0) return teammate
-          yield* sql`UPDATE teammate SET role = 'admin' WHERE teammate_id::text = ${teammate.teammate_id}`
-          yield* advanceIdentityRevision(teammate.teammate_id)
-          yield* audit(null, teammate.teammate_id, "initial-admin")
-          return (yield* loadTeammate(teammate.teammate_id)) ?? teammate
-        }),
-      )
-
     const findTeammate = (identity: SignInIdentity) =>
       sql
         .unsafe(`SELECT ${TEAMMATE_COLUMNS} FROM teammate WHERE issuer = $1 AND subject = $2`, [
@@ -325,66 +244,22 @@ export class Teammates extends Context.Service<
 
     const admit = (identity: SignInIdentity) =>
       Effect.gen(function* () {
-        const isInitialAdmin = Option.exists(
-          config.initialAdmin,
-          (admin) => admin.issuer === identity.issuer && admin.subject === identity.subject,
-        )
         // Every browser request admits, so the common case is one read.
         const known = yield* findTeammate(identity)
-        const current =
-          known !== undefined &&
-          (identity.email === undefined || identity.email === known.email) &&
-          !(isInitialAdmin && known.status === "active" && known.role !== "admin")
-            ? known
-            : undefined
-        if (current !== undefined) {
-          return current.status === "removed"
-            ? ({ _tag: "Removed", teammate: summary(current) } as const)
-            : ({ _tag: "Admitted", teammate: summary(current) } as const)
-        }
+        if (known !== undefined && (identity.email === undefined || identity.email === known.email))
+          return summary(known)
         const rows = yield* sql
           .unsafe(
-            `INSERT INTO teammate (issuer, subject, email, role)
-             VALUES ($1, $2, $3, $4)
+            `INSERT INTO teammate (issuer, subject, email)
+             VALUES ($1, $2, $3)
              ON CONFLICT (issuer, subject) DO UPDATE
                SET email = COALESCE(EXCLUDED.email, teammate.email), updated_at = now()
              RETURNING ${TEAMMATE_COLUMNS}`,
-            [
-              identity.issuer,
-              identity.subject,
-              identity.email ?? null,
-              isInitialAdmin ? "admin" : "member",
-            ],
+            [identity.issuer, identity.subject, identity.email ?? null],
           )
           .pipe(Effect.flatMap(decodeTeammates))
-        const admitted = rows[0]!
-        const teammate =
-          isInitialAdmin && admitted.status === "active" && admitted.role !== "admin"
-            ? yield* ensureInitialAdmin(admitted)
-            : admitted
-        return teammate.status === "removed"
-          ? ({ _tag: "Removed", teammate: summary(teammate) } as const)
-          : ({ _tag: "Admitted", teammate: summary(teammate) } as const)
+        return summary(rows[0]!)
       }).pipe(wrap)
-
-    const roster = sql
-      .unsafe(`SELECT ${TEAMMATE_COLUMNS} FROM teammate ORDER BY created_at, teammate_id`)
-      .pipe(
-        Effect.flatMap(decodeTeammates),
-        Effect.flatMap((rows) =>
-          Effect.map(
-            linksOf(rows.map((row) => row.teammate_id)),
-            (links): ReadonlyArray<RosterEntry> =>
-              rows.map((row) => ({
-                ...summary(row),
-                links: links
-                  .filter((link) => link.teammate_id === row.teammate_id)
-                  .map(linkedAccount),
-              })),
-          ),
-        ),
-        wrap,
-      )
 
     const account = (teammateId: TeammateId, linking: LinkingAvailability) =>
       Effect.gen(function* () {
@@ -393,77 +268,9 @@ export class Teammates extends Context.Service<
           return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
         }
         const links = (yield* linksOf([teammateId])).map(linkedAccount)
-        const team = row.role === "admin" && row.status === "active" ? yield* roster : null
-        const view: AccountView = { teammate: summary(row), links, linking, team }
+        const view: AccountView = { teammate: summary(row), links, linking }
         return view
       }).pipe(wrap)
-
-    const setRole = (actor: TeammateId, target: TeammateId, role: TeammateRole) =>
-      withRoles(
-        Effect.gen(function* () {
-          yield* requireAdmin(actor)
-          const current = yield* lockTeammate(target)
-          if (current === undefined || current.status !== "active") {
-            return yield* new TeammateError({
-              reason: "not-found",
-              message: "That teammate is not active.",
-            })
-          }
-          if (current.role === role) return
-          if (role === "member" && (yield* otherActiveAdmins(target)) === 0) {
-            return yield* new TeammateError({
-              reason: "last-admin",
-              message: "The last active admin cannot be demoted.",
-            })
-          }
-          yield* sql`UPDATE teammate SET role = ${role} WHERE teammate_id::text = ${target}`
-          yield* advanceIdentityRevision(target)
-          yield* audit(actor, target, "set-role", { role })
-        }),
-      ).pipe(wrap)
-
-    const remove = (actor: TeammateId, target: TeammateId) =>
-      withRoles(
-        Effect.gen(function* () {
-          yield* requireAdmin(actor)
-          const current = yield* lockTeammate(target)
-          if (current === undefined) {
-            return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
-          }
-          if (current.status === "removed") return
-          if (current.role === "admin" && (yield* otherActiveAdmins(target)) === 0) {
-            return yield* new TeammateError({
-              reason: "last-admin",
-              message: "The last active admin cannot be removed.",
-            })
-          }
-          yield* sql`UPDATE teammate SET status = 'removed', removed_at = now()
-            WHERE teammate_id::text = ${target}`
-          yield* sql`UPDATE teammate_link SET status = 'disabled', ended_at = now()
-            WHERE teammate_id::text = ${target} AND status = 'active'`
-          yield* advanceIdentityRevision(target)
-          yield* audit(actor, target, "remove")
-        }),
-      ).pipe(wrap)
-
-    const restore = (actor: TeammateId, target: TeammateId) =>
-      withRoles(
-        Effect.gen(function* () {
-          yield* requireAdmin(actor)
-          const current = yield* lockTeammate(target)
-          if (current === undefined) {
-            return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
-          }
-          if (current.status === "active") return
-          yield* sql`UPDATE teammate SET status = 'active', removed_at = NULL
-            WHERE teammate_id::text = ${target}`
-          // Links disabled by removal carry proof that is still valid.
-          yield* sql`UPDATE teammate_link SET status = 'active', ended_at = NULL
-            WHERE teammate_id::text = ${target} AND status = 'disabled'`
-          yield* advanceIdentityRevision(target)
-          yield* audit(actor, target, "restore")
-        }),
-      ).pipe(wrap)
 
     const disconnect = (teammateId: TeammateId, linkId: string) =>
       sql
@@ -489,8 +296,8 @@ export class Teammates extends Context.Service<
     const beginLink = (teammateId: TeammateId, platform: LinkPlatform) =>
       Effect.gen(function* () {
         const row = yield* loadTeammate(teammateId)
-        if (row === undefined || row.status !== "active") {
-          return yield* removedError
+        if (row === undefined) {
+          return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
         }
         const [attempt] = yield* sql<{ state: string; nonce: string }>`
           INSERT INTO teammate_link_attempt (teammate_id, platform)
@@ -521,14 +328,14 @@ export class Teammates extends Context.Service<
         .withTransaction(
           Effect.gen(function* () {
             const teammate = yield* lockTeammate(teammateId)
-            if (teammate === undefined || teammate.status !== "active") {
-              return yield* removedError
+            if (teammate === undefined) {
+              return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
             }
             const owners = yield* sql
               .unsafe(
                 `SELECT ${LINK_COLUMNS} FROM teammate_link
                  WHERE platform = $1 AND workspace_id = $2 AND account_id = $3
-                   AND status IN ('active', 'disabled') FOR UPDATE`,
+                   AND status = 'active' FOR UPDATE`,
                 [proof.platform, proof.workspaceId, proof.accountId],
               )
               .pipe(Effect.flatMap(decodeLinks))
@@ -554,7 +361,7 @@ export class Teammates extends Context.Service<
             }
             yield* sql`UPDATE teammate_link SET status = 'replaced', ended_at = now()
               WHERE teammate_id::text = ${teammateId} AND platform = ${proof.platform}
-                AND workspace_id = ${proof.workspaceId} AND status IN ('active', 'disabled')`
+                AND workspace_id = ${proof.workspaceId} AND status = 'active'`
             const inserted = yield* sql
               .unsafe(
                 `INSERT INTO teammate_link (teammate_id, platform, workspace_id, account_id, display_name)
@@ -579,28 +386,22 @@ export class Teammates extends Context.Service<
         teammate_id: string
         link_status: string
         display_name: string
-        teammate_status: string
-        role: TeammateRole
         identity_revision: string
       }>`SELECT l.link_id::text AS link_id, l.teammate_id::text AS teammate_id, l.status AS link_status,
-          l.display_name, t.status AS teammate_status, t.role, t.identity_revision::text AS identity_revision
+          l.display_name, t.identity_revision::text AS identity_revision
         FROM teammate_link l JOIN teammate t USING (teammate_id)
         WHERE l.platform = ${account.platform} AND l.workspace_id = ${account.workspaceId}
           AND l.account_id = ${account.accountId}
-        ORDER BY (l.status IN ('active', 'disabled')) DESC, l.linked_at DESC
+        ORDER BY (l.status = 'active') DESC, l.linked_at DESC
         LIMIT 1 FOR SHARE OF l, t`.pipe(
         Effect.map((rows): Authorization => {
           const row = rows[0]
           if (row === undefined) return { _tag: "Denied", reason: "unknown-account" }
-          if (row.teammate_status !== "active" || row.link_status === "disabled") {
-            return { _tag: "Denied", reason: "removed" }
-          }
           if (row.link_status !== "active") return { _tag: "Denied", reason: "disconnected" }
           return {
             _tag: "Authorized",
             teammateId: TeammateId.make(row.teammate_id),
             linkId: row.link_id,
-            role: row.role,
             displayName: row.display_name,
             identityRevision: row.identity_revision,
           }
@@ -611,10 +412,6 @@ export class Teammates extends Context.Service<
     return {
       admit,
       account,
-      roster,
-      setRole,
-      remove,
-      restore,
       disconnect,
       beginLink,
       consumeLinkAttempt,

@@ -23,7 +23,6 @@ describe("SPA routes", () => {
     ["/repositories/701/settings", "Settings"],
     ["/account", "Account"],
     ["/account/you", "Account"],
-    ["/account/team", "Account"],
     ["/account/slack/return?code=abc&state=xyz", "AccountReturn"],
   ])("round-trips %s without confusing reserved paths with IDs", (path, tag) => {
     const route = parse(path)
@@ -47,7 +46,7 @@ describe("SPA routes", () => {
     expect(parse("/account")).toMatchObject({ _tag: "Account", section: "accounts" })
     expect(parse("/account/accounts")).toMatchObject({ _tag: "Account", section: "accounts" })
     expect(Routes.accountSection("accounts")).toBe("/account")
-    expect(Routes.accountSection("team")).toBe("/account/team")
+    expect(Routes.accountSection("you")).toBe("/account/you")
     expect(Routes.accountSectionOf(parse("/account/you"))).toBe("you")
   })
 

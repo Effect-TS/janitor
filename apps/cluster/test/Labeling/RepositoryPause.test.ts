@@ -1,4 +1,3 @@
-import { TestPayloadCipher } from "../support/PayloadCipher.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
@@ -24,7 +23,6 @@ import {
 } from "./support.ts"
 
 const Services = Layer.mergeAll(DirectLabelingLayer, RepositoryConnections.layer).pipe(
-  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(LabelingLayer),
   Layer.provideMerge(github.layer),
   Layer.provideMerge(WorkflowEngine.layerMemory),

@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 
-/** Signed, encrypted webhook envelopes awaiting the journal consumer. */
+/** Signed webhook envelopes awaiting the journal consumer. */
 export const GitHubEventsQueue = Cloudflare.Queues.Queue("GitHubEventsQueue")
 
 /** Envelopes the consumer could not journal, with content-safe diagnostics. */

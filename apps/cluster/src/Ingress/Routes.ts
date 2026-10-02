@@ -24,8 +24,8 @@ const ApiRouterLayer = Layer.effect(
 
 /**
  * The webhook route stays outside Access and relies on the GitHub signature,
- * Every human route sits behind the Access assertion check and requires an
- * active Janitor membership. The readiness probe needs Access only: a probe
+ * Every human route sits behind the Access assertion check, which alone
+ * decides who may use Janitor. The readiness probe needs Access only: a probe
  * is not a person, and must not be admitted as a teammate.
  */
 export const makeRoutesLayer = (

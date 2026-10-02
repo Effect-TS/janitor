@@ -1,4 +1,3 @@
-import { PayloadCipher } from "../../src/PayloadCipher.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as RuntimeContext from "alchemy/RuntimeContext"
 import * as Effect from "effect/Effect"
@@ -39,7 +38,6 @@ const inlineBody = {
   eventName: "pull_request",
   receivedAt: "2026-09-02T12:00:00.000Z",
   payloadSha256: "a".repeat(64),
-  encryption: { algorithm: "AES-256-GCM", keyId: "key-1", iv: "AQIDBAUGBwgJCgsM" },
   body: { _tag: "Inline", payload: "AA0K//57fQ==" },
 }
 
@@ -101,10 +99,6 @@ const run = (recorder: Recorder, body: unknown, stubs: Stubs = {}) =>
   handleMessage(message(recorder, body)).pipe(
     Effect.provide(
       Layer.mergeAll(
-        Layer.succeed(PayloadCipher, {
-          encrypt: () => Effect.die("unused"),
-          decrypt: () => Effect.succeed(new TextEncoder().encode("{}")),
-        }),
         Layer.succeed(GitHubWebhookJournal, {
           record:
             stubs.record ??
@@ -171,7 +165,6 @@ describe("GitHubWebhookConsumer.handleMessage", () => {
       if (entry === undefined) return
       assert.strictEqual(entry.deliveryId, "delivery-1")
       assert.strictEqual(entry.eventName, "pull_request")
-      assert.strictEqual(entry.encryption.keyId, "key-1")
       assert.deepStrictEqual(entry.payload, Uint8Array.from([0, 13, 10, 0xff, 0xfe, 123, 125]))
       assert.deepStrictEqual(recorder.deleted, [])
     }),
@@ -246,7 +239,7 @@ describe("GitHubWebhookConsumer.handleMessage", () => {
   it.effect("dead-letters and acknowledges a malformed envelope", () =>
     Effect.gen(function* () {
       const recorder = makeRecorder()
-      const body = { ...inlineBody, encryption: undefined }
+      const body = { ...inlineBody, payloadSha256: undefined }
 
       const outcome = yield* run(recorder, body)
 

@@ -20,12 +20,10 @@ export const agentModel: Effect.Effect<
   >,
   Config.ConfigError
 > = Effect.gen(function* () {
-  const key = yield* Config.Redacted("JANITOR_AGENT_RUNNER_MODEL_API_KEY").pipe(
+  const key = yield* Config.Redacted("AGENT_RUNNER_MODEL_API_KEY").pipe(
     Config.withDefault(Redacted.make("")),
   )
-  const model = yield* Config.String("JANITOR_CHAT_MODEL").pipe(
-    Config.withDefault("z-ai/glm-5.3-flash"),
-  )
+  const model = yield* Config.String("CHAT_MODEL").pipe(Config.withDefault("z-ai/glm-5.3-flash"))
   if (Redacted.value(key) === "") return Option.none()
   return Option.some(({ maxCompletionTokens }: { readonly maxCompletionTokens: number }) =>
     OpenAiLanguageModel.layer({

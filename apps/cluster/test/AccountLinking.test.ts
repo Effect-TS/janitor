@@ -13,7 +13,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { AccountLinking, AccountLinkingConfig } from "../src/AccountLinking.ts"
 import * as GitHubLink from "../src/Linking/GitHub.ts"
 import * as SlackLink from "../src/Linking/Slack.ts"
-import { Teammates, TeammatesConfig } from "../src/Teammates.ts"
+import { Teammates } from "../src/Teammates.ts"
 import { MigratedPostgresLayer } from "./support/Postgres.ts"
 
 const ISSUER = "https://team.cloudflareaccess.test"
@@ -127,7 +127,7 @@ const config = (platforms: Platforms) =>
       clientId: SLACK_CLIENT_ID,
       clientSecret: Redacted.make("slack-secret"),
       redirectUri: `${ORIGIN}/account/slack/return`,
-      workspaceIds: ["T1"],
+      workspaceId: "T1",
     }),
     github: Option.some({
       clientId: GITHUB_CLIENT_ID,
@@ -142,11 +142,6 @@ const Services = AccountLinking.layer.pipe(
   Layer.provide(Layer.unwrap(Effect.map(TestPlatforms, config))),
   Layer.provideMerge(Layer.effect(TestPlatforms, makePlatforms)),
   Layer.provideMerge(Teammates.layer),
-  Layer.provide(
-    Layer.succeed(TeammatesConfig, {
-      initialAdmin: Option.some({ issuer: ISSUER, subject: "founder" }),
-    }),
-  ),
   Layer.provideMerge(MigratedPostgresLayer),
 )
 
@@ -170,11 +165,7 @@ const slackClaims = (nonce: string, overrides: Record<string, unknown> = {}) =>
   }))
 
 const admitted = (identity: { issuer: string; subject: string; email: string | undefined }) =>
-  Effect.gen(function* () {
-    const admission = yield* (yield* Teammates).admit(identity)
-    assert.strictEqual(admission._tag, "Admitted")
-    return admission.teammate
-  })
+  Effect.flatMap(Teammates, (teammates) => teammates.admit(identity))
 
 layer(Services, { timeout: "2 minutes" })("Account linking", (it) => {
   it.effect("proves a Slack account through OIDC with bound single-use state and nonce", () =>
@@ -312,15 +303,9 @@ layer(Services, { timeout: "2 minutes" })("Account linking", (it) => {
     }),
   )
 
-  it.effect("cannot start a link for a removed teammate or an unconfigured platform", () =>
+  it.effect("cannot start a link for an unconfigured platform", () =>
     Effect.gen(function* () {
-      const linking = yield* AccountLinking
-      const teammates = yield* Teammates
       const admin = yield* admitted(founder)
-      const member = yield* admitted(second)
-      yield* teammates.remove(admin.teammateId, member.teammateId)
-      const removed = yield* Effect.flip(linking.start(member.teammateId, "slack"))
-      assert.strictEqual(removed.reason, "removed")
       const platforms = yield* TestPlatforms
       const unconfigured = yield* AccountLinking.make.pipe(
         Effect.provide(

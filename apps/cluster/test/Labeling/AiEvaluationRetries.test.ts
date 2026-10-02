@@ -1,4 +1,3 @@
-import { TestPayloadCipher } from "../support/PayloadCipher.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -48,7 +47,6 @@ const services = Layer.mergeAll(
   RepositoryConnections.layer,
 ).pipe(
   Layer.provideMerge(LabelingLayer),
-  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(AiClassifier.layer),
   Layer.provideMerge(AiConsentService.layer),
   Layer.provideMerge(

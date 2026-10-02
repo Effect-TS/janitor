@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
+import { Stage } from "alchemy/Stage"
 import { deployment, requiredSecret, requiredText } from "../src/Deployment.ts"
 import { aiCacheTtlConfig } from "../src/Labeling/Classifier.ts"
 import { issueReviewEnabled } from "../src/Review/Gate.ts"
@@ -40,8 +41,8 @@ describe("deployment configuration", () => {
       for (const value of ["", "CHANGE_ME", "with spaces"]) {
         assert.strictEqual(
           (yield* Effect.flip(
-            requiredSecret("JANITOR_AGENT_RUNNER_MODEL_API_KEY").pipe(
-              Effect.provide(config({ JANITOR_AGENT_RUNNER_MODEL_API_KEY: value })),
+            requiredSecret("AGENT_RUNNER_MODEL_API_KEY").pipe(
+              Effect.provide(config({ AGENT_RUNNER_MODEL_API_KEY: value })),
             ),
           ))._tag,
           "ConfigError",
@@ -67,8 +68,8 @@ describe("deployment configuration", () => {
         )
       }
       const secretError = yield* Effect.flip(
-        requiredSecret("JANITOR_AGENT_RUNNER_MODEL_API_KEY").pipe(
-          Effect.provide(config({ JANITOR_AGENT_RUNNER_MODEL_API_KEY: "private-key with-space" })),
+        requiredSecret("AGENT_RUNNER_MODEL_API_KEY").pipe(
+          Effect.provide(config({ AGENT_RUNNER_MODEL_API_KEY: "private-key with-space" })),
         ),
       )
       assert.notInclude(String(secretError), "private-key")
@@ -94,31 +95,35 @@ describe("deployment configuration", () => {
       )
     }),
   )
-  it.effect("allows only production remotely and preserves local development", () =>
+  it.effect("allows only the production stage remotely and preserves local development", () =>
     Effect.gen(function* () {
+      const remote = config({ ALCHEMY_DEV: "false" })
+      // Planning reads Alchemy's Stage service.
       assert.deepStrictEqual(
-        yield* deployment.pipe(
-          Effect.provide(config({ ALCHEMY_DEV: "false", JANITOR_STAGE: "production" })),
-        ),
+        yield* deployment.pipe(Effect.provideService(Stage, "production"), Effect.provide(remote)),
         { stage: "production", domain: "janitor.effectful.co", retain: true },
       )
       assert.strictEqual(
         (yield* Effect.flip(
-          deployment.pipe(
-            Effect.provide(config({ ALCHEMY_DEV: "false", JANITOR_STAGE: "staging" })),
-          ),
+          deployment.pipe(Effect.provideService(Stage, "staging"), Effect.provide(remote)),
         ))._tag,
         "ConfigError",
       )
+      // A deployed Worker reads the ALCHEMY_STAGE binding instead.
       assert.strictEqual(
-        (yield* deployment.pipe(Effect.provide(config({ ALCHEMY_DEV: "true" })))).stage,
+        (yield* deployment.pipe(Effect.provide(config({ ALCHEMY_STAGE: "production" })))).stage,
+        "production",
+      )
+      assert.strictEqual(
+        (yield* Effect.flip(deployment.pipe(Effect.provide(config({})))))._tag,
+        "ConfigError",
+      )
+      assert.strictEqual(
+        (yield* deployment.pipe(
+          Effect.provideService(Stage, "dev_someone"),
+          Effect.provide(config({ ALCHEMY_DEV: "true" })),
+        )).stage,
         "local",
-      )
-      assert.strictEqual(
-        (yield* Effect.flip(
-          deployment.pipe(Effect.provide(config({ JANITOR_STAGE: "cluster-spike" }))),
-        ))._tag,
-        "ConfigError",
       )
     }),
   )

@@ -118,16 +118,7 @@ An interval of agent work within an ongoing session that may include several mod
 The single private-channel thread where teammates participate in an agent session. The MVP uses Slack; Discord is planned for a later release.
 
 **Authorized team member**:
-A teammate admitted through Janitor's team sign-in whose linked accounts may direct Janitor until disconnected or explicitly disabled in Janitor, independently of subsequent Cloudflare Access session expiry or eligibility. Authorized team members have equivalent control of sessions they can participate in; starting a session does not grant exclusive control.
-
-**Teammate removal**:
-An admin explicitly disabling a teammate's linked accounts in Janitor, preventing further instructions while preserving accepted work and historical attribution. Removing Cloudflare Access alone does not perform teammate removal in Janitor.
-
-**Admin**:
-An authorized team member permitted to change roles and remove or restore teammates in Janitor. Admins and members have equal control when collaborating with agents; the last active admin cannot be removed or demoted.
-
-**Member**:
-An authorized team member who may collaborate with agents but cannot change roles or remove or restore teammates. Newly admitted teammates are members unless explicitly assigned an admin role.
+Anyone Cloudflare Access lets sign in to Janitor. Every authorized team member has every permission; Janitor has no roles. Their linked accounts may direct Janitor until disconnected, independently of later Cloudflare Access session expiry or eligibility. Starting a session does not grant exclusive control.
 
 **Connected chat account**:
 A Slack or Discord account associated with an authorized team member after sign-in to Janitor.

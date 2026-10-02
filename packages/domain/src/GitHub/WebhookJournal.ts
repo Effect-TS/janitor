@@ -38,7 +38,7 @@ export const GitHubWebhookJournalSequenceFromStringOrNumber = Schema.Union([
  * `unsupported` records a signature-valid delivery whose payload does not
  * decode against the domain schemas, such as an action the schema does not
  * model. It stays journaled for repair. `failed` records an infrastructure
- * or decryption failure.
+ * failure.
  */
 export const GitHubWebhookProjectionStatus = Schema.Literals([
   "pending",
@@ -50,7 +50,7 @@ export type GitHubWebhookProjectionStatus = typeof GitHubWebhookProjectionStatus
 
 /**
  * Written to the dead-letter queue when a queue message cannot be journaled.
- * `body` is the original message body, which only ever holds ciphertext.
+ * `body` is the original message body.
  */
 export const GitHubWebhookDeadLetterV1 = Schema.Struct({
   schemaVersion: Schema.Literal(1),

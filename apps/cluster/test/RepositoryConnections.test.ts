@@ -1,4 +1,3 @@
-import { TestPayloadCipher } from "./support/PayloadCipher.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Deferred from "effect/Deferred"
 import * as DateTime from "effect/DateTime"
@@ -15,7 +14,6 @@ import { GitHubTransport } from "../src/GitHub/Transport.ts"
 import { SyncTargets } from "../src/SyncTargets.ts"
 import { WorkflowOutbox } from "../src/WorkflowOutbox.ts"
 import { MigratedPostgresLayer } from "./support/Postgres.ts"
-import { PayloadCipher } from "../src/PayloadCipher.ts"
 import { GitHubWebhookJournal } from "../src/GitHub/WebhookJournal.ts"
 import {
   handleMessage,
@@ -34,7 +32,6 @@ const Services = RepositoryConnections.layer.pipe(
   Layer.provideMerge(WorkflowDispatcher.layer([])),
   Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provideMerge(GitHubWebhookJournal.layer),
-  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(SyncTargets.layer),
   Layer.provideMerge(GitHubReadModel.layer),
   Layer.provideMerge(WorkflowOutbox.layer),
@@ -221,7 +218,6 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       const connections = yield* RepositoryConnections
       const targets = yield* SyncTargets
       const journal = yield* GitHubWebhookJournal
-      const cipher = yield* PayloadCipher
       yield* connections.change("9001", "connect", actor)
       const repositoryId = GitHubRepositoryDatabaseId.make("9001")
       const scope = { _tag: "Entity", repositoryId, number: 1 } as const
@@ -252,21 +248,16 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       yield* sql`INSERT INTO github_check_run(repository_id,number,name,state) VALUES('9001',1,'test','success')`
       yield* sql`INSERT INTO github_pull_request_review(repository_id,number,reviewer,state) VALUES('9001',1,'test','approved')`
       yield* sql`INSERT INTO github_label(repository_id,label_id,name,availability,projected_sequence) VALUES('9001','label','old label','available',1)`
-      yield* sql`INSERT INTO github_http_cache(scope_key,request_key,repository_id,etag,encryption_key_id,encryption_iv,body) VALUES('installation:77','old','9001','etag','test',''::bytea,'data'::bytea)`
+      yield* sql`INSERT INTO github_http_cache(scope_key,request_key,repository_id,etag,body) VALUES('installation:77','old','9001','etag','data'::bytea)`
       yield* sql`INSERT INTO content_purge(subject_kind,subject_id,reason,due_at) VALUES('repository','9001','old',now())`
       const receivedAt = DateTime.nowUnsafe()
       const deliveryId = GitHubWebhookDeliveryId.make("legacy-disconnect")
-      const encrypted = yield* cipher.encrypt(
-        deliveryId,
-        new TextEncoder().encode('{"repository":{"id":9001},"issue":{"body":"secret"}}'),
-      )
       const entry = {
         deliveryId,
         eventName: GitHubWebhookName.make("issues"),
         receivedAt,
         payloadSha256: GitHubWebhookPayloadSha256.make("a".repeat(64)),
-        encryption: encrypted.encryption,
-        payload: encrypted.ciphertext,
+        payload: new TextEncoder().encode('{"repository":{"id":9001},"issue":{"body":"secret"}}'),
       }
       // Exercise legacy attribution as well as already-accepted outbox cleanup.
       yield* journal.record(entry)
@@ -315,7 +306,6 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
         eventName: entry.eventName,
         receivedAt,
         payloadSha256: entry.payloadSha256,
-        encryption: entry.encryption,
         body: { _tag: "R2", key: GitHubWebhookR2ObjectKey.make("legacy-overflow") },
       })
       yield* handleMessage({

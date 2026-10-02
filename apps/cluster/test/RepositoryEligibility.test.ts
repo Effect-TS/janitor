@@ -10,7 +10,6 @@ import { RepositoryEligibility, changedReason } from "../src/RepositoryEligibili
 import { SyncTargets } from "../src/SyncTargets.ts"
 import { ContentPurge } from "../src/ContentPurge.ts"
 import { GitHubTransport } from "../src/GitHub/Transport.ts"
-import { TestPayloadCipher } from "./support/PayloadCipher.ts"
 import { Services, actor, repositoryId } from "./Labeling/support.ts"
 
 const permissions = { metadata: "read", issues: "write", pull_requests: "read", checks: "read" }
@@ -31,7 +30,6 @@ const services = Layer.mergeAll(
   RepositoryEligibility.layer,
   ContentPurge.layer,
 ).pipe(
-  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(Services),
   Layer.provide(
     Layer.succeed(GitHubTransport, {

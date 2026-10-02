@@ -1,12 +1,14 @@
 # Private Slack conversations
 
+**Currently disabled.** `SLACK_ENABLED` in `apps/cluster/src/Worker.ts` is `false`, so Janitor reads none of the settings below, serves no Slack webhook, and hides Slack on the Account page. Set it to `true` and redeploy to turn the integration back on.
+
 Start with [app-manifest.json](app-manifest.json), replacing `YOUR_JANITOR_HOST` with the deployment hostname. Merge these bot settings into the app used for account linking. User OpenID Connect grants remain separate from bot grants. Reinstall the app after changing scopes and invite its bot to each private channel that will host conversations.
 
 ## Configuration
 
-Set `JANITOR_SLACK_WORKSPACE_ID`, `JANITOR_SLACK_APP_ID`, `JANITOR_SLACK_BOT_USER_ID`, `JANITOR_SLACK_BOT_TOKEN` and `JANITOR_SLACK_SIGNING_SECRET`. The workspace must also appear in the account-linking `JANITOR_SLACK_WORKSPACE_IDS` allowlist.
+Set `SLACK_WORKSPACE_ID`, `SLACK_APP_ID`, `SLACK_BOT_USER_ID`, `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`. `SLACK_WORKSPACE_ID` is also the only workspace whose members can connect their Slack accounts.
 
-Set `JANITOR_AGENT_RUNNER_MODEL_API_KEY` to an OpenRouter credential. `JANITOR_CHAT_MODEL` defaults to `z-ai/glm-5.3-flash`, independently of the labeling model.
+Set `AGENT_RUNNER_MODEL_API_KEY` to an OpenRouter credential. `CHAT_MODEL` defaults to `z-ai/glm-5.3-flash`, independently of the labeling model.
 
 Event Subscriptions points to `/api/v1/webhooks/slack` and subscribes to `app_mention` and `message.groups`. The handler verifies the raw request signature and timestamp. It authorizes linked teammates, checks private-channel membership, and acknowledges after the session object persists the input. The route has a 2.5-second deadline and returns a retryable failure if admission cannot finish in time.
 

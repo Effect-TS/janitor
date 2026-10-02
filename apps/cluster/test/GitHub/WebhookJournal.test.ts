@@ -5,7 +5,6 @@ import * as Layer from "effect/Layer"
 import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
 import {
-  GitHubWebhookEncryptionKeyId,
   GitHubWebhookName,
   GitHubWebhookPayloadSha256,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
@@ -27,11 +26,6 @@ const entry = (deliveryId: string): GitHubWebhookJournalEntry => ({
   eventName: GitHubWebhookName.make("pull_request"),
   receivedAt: DateTime.makeUnsafe("2026-09-02T12:00:00.000Z"),
   payloadSha256: GitHubWebhookPayloadSha256.make("a".repeat(64)),
-  encryption: {
-    algorithm: "AES-256-GCM",
-    keyId: GitHubWebhookEncryptionKeyId.make("key-1"),
-    iv: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
-  },
   payload: Uint8Array.from([0, 13, 10, 0xff, 0xfe, 123, 125]),
 })
 
@@ -70,10 +64,9 @@ layer(JournalLayer, { timeout: "2 minutes" })("GitHubWebhookJournal against Post
       const sql = yield* SqlClient.SqlClient
       yield* pruneWebhookPayloads
       yield* sql`INSERT INTO github_webhook_delivery
-        (delivery_id, event_name, received_at, payload_sha256, encryption_algorithm,
-         encryption_key_id, encryption_iv, payload, projection_status)
+        (delivery_id, event_name, received_at, payload_sha256, payload, projection_status)
         SELECT 'prune-batch-' || n, 'ping', CLOCK_TIMESTAMP(), repeat('a', 64),
-          'AES-256-GCM', 'key-1', ''::bytea, 'payload'::bytea, 'projected'
+          'payload'::bytea, 'projected'
         FROM generate_series(1, 1001) AS n`
       assert.strictEqual(yield* pruneWebhookPayloads, 1000)
       assert.strictEqual(yield* pruneWebhookPayloads, 1)
@@ -96,10 +89,8 @@ layer(JournalLayer, { timeout: "2 minutes" })("GitHubWebhookJournal against Post
       const rows = yield* sql<{
         projection_status: string
         payload: Uint8Array
-        encryption_iv: Uint8Array
-        encryption_key_id: string
       }>`
-        SELECT projection_status, payload, encryption_iv, encryption_key_id
+        SELECT projection_status, payload
         FROM github_webhook_delivery WHERE delivery_id = ${"pg-delivery-1"}
       `
       const row = rows[0]
@@ -116,14 +107,9 @@ layer(JournalLayer, { timeout: "2 minutes" })("GitHubWebhookJournal against Post
           payload: { deliveryId: "pg-delivery-1" },
         },
       ])
-      assert.strictEqual(row.encryption_key_id, "key-1")
       assert.deepStrictEqual(
         Uint8Array.from(row.payload),
         Uint8Array.from([0, 13, 10, 0xff, 0xfe, 123, 125]),
-      )
-      assert.deepStrictEqual(
-        Uint8Array.from(row.encryption_iv),
-        Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
       )
     }),
   )

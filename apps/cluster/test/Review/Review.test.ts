@@ -233,7 +233,7 @@ const linkedTeammate = (subject: string, account: { id: number; login: string })
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     const [row] = yield* sql<{ teammate_id: string }>`
-      INSERT INTO teammate (issuer, subject, role) VALUES ('https://team.test', ${subject}, 'member')
+      INSERT INTO teammate (issuer, subject) VALUES ('https://team.test', ${subject})
       ON CONFLICT (issuer, subject) DO UPDATE SET updated_at = now() RETURNING teammate_id::text`
     yield* sql`INSERT INTO teammate_link (teammate_id, platform, workspace_id, account_id, display_name)
       VALUES (${row!.teammate_id}::uuid, 'github', 'github.com', ${String(account.id)}, ${account.login})

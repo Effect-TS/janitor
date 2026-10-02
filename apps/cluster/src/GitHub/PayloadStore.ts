@@ -50,7 +50,7 @@ export class GitHubPayloadStore extends Context.Service<
 export const payloadKey = (deliveryId: GitHubWebhookDeliveryId): GitHubWebhookR2ObjectKey =>
   GitHubWebhookR2ObjectKey.make(`${PAYLOAD_KEY_PREFIX}${deliveryId}`)
 
-/** Encrypted overflow payloads referenced by queue envelopes. */
+/** Overflow payloads referenced by queue envelopes. */
 export const GitHubWebhookPayloadsBucket = Effect.gen(function* () {
   const target = yield* deployment
   return yield* Cloudflare.R2.Bucket("GitHubWebhookPayloads", {

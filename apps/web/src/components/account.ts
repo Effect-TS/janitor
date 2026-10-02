@@ -2,8 +2,6 @@ import {
   AccountView,
   LinkedAccount,
   LinkPlatform,
-  type RosterEntry,
-  TeammateRole,
   type TeammateSummary,
 } from "@janitor/domain/Team/Account"
 import * as DateTime from "effect/DateTime"
@@ -21,31 +19,21 @@ import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
-import { chip } from "@/components/ui/chip"
-import { avatar, platformMark } from "@/components/ui/mark"
-import { emptyPanel, panel } from "@/components/ui/panel"
+import { platformMark } from "@/components/ui/mark"
+import { panel } from "@/components/ui/panel"
 import { rack } from "@/components/ui/rack"
 import { sign } from "@/components/ui/sign"
 import { readFailure, reasonOf, request } from "@/lib/api"
-import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
 
 /**
- * The account page: who the signed-in teammate is, which Slack and GitHub
- * accounts they have proven, and, for admins, the team roster with role,
- * removal and restoration controls. Every change goes to the API and the
- * page reloads its view afterwards; nothing here decides authorization.
+ * The account page: who the signed-in teammate is and which Slack and GitHub
+ * accounts they have proven. Cloudflare Access decides who may use Janitor;
+ * every change goes to the API and the page reloads its view afterwards.
  */
 
-/** What the page is waiting on; the subject is the platform, link or teammate. */
-const PendingAction = Schema.Literals([
-  "connect",
-  "return",
-  "disconnect",
-  "role",
-  "remove",
-  "restore",
-])
+/** What the page is waiting on; the subject is the platform or link. */
+const PendingAction = Schema.Literals(["connect", "return", "disconnect"])
 type PendingAction = typeof PendingAction.Type
 
 export const Model = Schema.Struct({
@@ -60,8 +48,6 @@ export const Model = Schema.Struct({
   liveRefresh: Schema.Boolean,
   nextRequestId: Schema.Int,
   maybeLoadRequest: Schema.Option(Schema.Int),
-  /** Whether the Team section lists removed teammates. View-local, not persisted. */
-  showRemoved: Schema.Boolean,
 })
 export type Model = typeof Model.Type
 
@@ -75,7 +61,6 @@ export const init = (): Model => ({
   liveRefresh: false,
   nextRequestId: 1,
   maybeLoadRequest: Option.none(),
-  showRemoved: false,
 })
 
 export const Message = defineMessageUnion({
@@ -86,13 +71,9 @@ export const Message = defineMessageUnion({
   ClickedConnect: { platform: LinkPlatform },
   GotPlatformUrl: { url: Schema.String, operationId: Schema.Int },
   ClickedDisconnect: { linkId: Schema.String },
-  ClickedSetRole: { teammateId: Schema.String, role: TeammateRole },
-  ClickedRemove: { teammateId: Schema.String },
-  ClickedRestore: { teammateId: Schema.String },
   Changed: { operationId: Schema.Int, notice: Schema.String },
   Returned: { operationId: Schema.Int, linked: LinkedAccount },
   Failed: { reason: Schema.String, operationId: Schema.Int },
-  ToggledRemoved: {},
 })
 export type Message = typeof Message.Type
 
@@ -170,46 +151,6 @@ const Disconnect = Command.define("DisconnectAccountLink", {
   execute: ({ linkId, operationId }) =>
     request("DELETE", `${base}/links/${encodeURIComponent(linkId)}`, {}).pipe(
       Effect.as(Message.Changed({ operationId, notice: "Account disconnected." })),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
-    ),
-})
-
-const SetRole = Command.define("SetTeammateRole", {
-  args: { teammateId: Schema.String, role: TeammateRole, operationId: Schema.Int },
-  messages: [Message.Changed, Message.Failed],
-  execute: ({ teammateId, role, operationId }) =>
-    request("PUT", `/api/v1/team/${encodeURIComponent(teammateId)}/role`, { role }).pipe(
-      Effect.as(
-        Message.Changed({
-          operationId,
-          notice: role === "admin" ? "Teammate is now an admin." : "Teammate is now a member.",
-        }),
-      ),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
-    ),
-})
-
-const Remove = Command.define("RemoveTeammate", {
-  args: { teammateId: Schema.String, operationId: Schema.Int },
-  messages: [Message.Changed, Message.Failed],
-  execute: ({ teammateId, operationId }) =>
-    request("DELETE", `/api/v1/team/${encodeURIComponent(teammateId)}`, {}).pipe(
-      Effect.as(
-        Message.Changed({
-          operationId,
-          notice: "Teammate removed. Their accepted work and attribution are kept.",
-        }),
-      ),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
-    ),
-})
-
-const Restore = Command.define("RestoreTeammate", {
-  args: { teammateId: Schema.String, operationId: Schema.Int },
-  messages: [Message.Changed, Message.Failed],
-  execute: ({ teammateId, operationId }) =>
-    request("POST", `/api/v1/team/${encodeURIComponent(teammateId)}/restore`, {}).pipe(
-      Effect.as(Message.Changed({ operationId, notice: "Teammate restored." })),
       Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
@@ -313,27 +254,6 @@ export const update = (model: Model, message: Message): Step =>
             model: begin(model, "disconnect", linkId),
             commands: [Disconnect({ linkId, operationId: model.nextOperationId })],
           },
-    ClickedSetRole: ({ teammateId, role }) =>
-      isBusy(model)
-        ? { model }
-        : {
-            model: begin(model, "role", teammateId),
-            commands: [SetRole({ teammateId, role, operationId: model.nextOperationId })],
-          },
-    ClickedRemove: ({ teammateId }) =>
-      isBusy(model)
-        ? { model }
-        : {
-            model: begin(model, "remove", teammateId),
-            commands: [Remove({ teammateId, operationId: model.nextOperationId })],
-          },
-    ClickedRestore: ({ teammateId }) =>
-      isBusy(model)
-        ? { model }
-        : {
-            model: begin(model, "restore", teammateId),
-            commands: [Restore({ teammateId, operationId: model.nextOperationId })],
-          },
     Changed: ({ operationId, notice }) =>
       !matchesOperation(model, operationId) ? { model } : settle(model, notice),
     Returned: ({ operationId, linked }) =>
@@ -343,7 +263,6 @@ export const update = (model: Model, message: Message): Step =>
             ...settle(model, `${platformName(linked.platform)} account connected.`),
             outMessage: OutMessage.FinishedReturn(),
           },
-    ToggledRemoved: () => ({ model: modifyFields(model, { showRemoved: (shown) => !shown }) }),
     Failed: ({ reason, operationId }) => {
       if (!matchesOperation(model, operationId)) return { model }
       const wasReturn = Option.exists(model.pending, (pending) => pending.action === "return")
@@ -384,19 +303,13 @@ export type ViewInputs = {
 const sectionTitle: Record<Routes.AccountSection, string> = {
   you: "You",
   accounts: "Connected accounts",
-  team: "Team",
 }
 
-/** The section nav. Team is listed only for admins, who receive a roster. */
-const sectionNav = (
-  h: HtmlBuilder<Message>,
-  current: Routes.AccountSection,
-  hasTeam: boolean,
-): Html =>
+const sectionNav = (h: HtmlBuilder<Message>, current: Routes.AccountSection): Html =>
   rack(h, {
     label: "Account settings",
     className: "shrink-0 md:w-sidebar",
-    items: (["you", "accounts", ...(hasTeam ? ["team" as const] : [])] as const).map((section) => ({
+    items: (["you", "accounts"] as const).map((section) => ({
       href: Routes.accountSection(section),
       label: sectionTitle[section],
       isCurrent: section === current,
@@ -427,9 +340,6 @@ const pane = (
 const mono = (h: HtmlBuilder<Message>, text: string): Html =>
   h.span([h.Class("font-mono text-mono-sm")], [text])
 
-const roleChip = (h: HtmlBuilder<Message>, role: typeof TeammateRole.Type): Html =>
-  chip(h, { children: [role === "admin" ? "admin" : "member"] })
-
 /** An error panel: what happened, in destructive on the title only. */
 const alert = (h: HtmlBuilder<Message>, text: string): Html =>
   panel(h, {
@@ -458,7 +368,6 @@ const youPane = (h: HtmlBuilder<Message>, view: AccountView): Html =>
           [],
           [
             youRow(h, "Email", displayName(view.teammate)),
-            youRow(h, "Role", roleChip(h, view.teammate.role)),
             youRow(h, "Teammate since", mono(h, formatDay(view.teammate.createdAt))),
           ],
         ),
@@ -546,145 +455,11 @@ const accountsPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView):
     ),
   ])
 
-// TEAM
-
-const rosterRow = (
-  h: HtmlBuilder<Message>,
-  model: Model,
-  self: TeammateSummary,
-  entry: RosterEntry,
-): Html => {
-  const isSelf = entry.teammateId === self.teammateId
-  const removed = entry.status === "removed"
-  const actions = removed
-    ? [
-        chip(h, { variant: "danger", children: ["removed"] }),
-        Button.view(h, {
-          label: busyWith(model, "restore", entry.teammateId) ? "Restoring…" : "Restore",
-          onClick: Message.ClickedRestore({ teammateId: entry.teammateId }),
-          variant: "secondary",
-          size: "sm",
-          isDisabled: isBusy(model),
-        }),
-      ]
-    : [
-        roleChip(h, entry.role),
-        ...(isSelf
-          ? []
-          : [
-              Button.view(h, {
-                label: busyWith(model, "role", entry.teammateId)
-                  ? "Updating…"
-                  : entry.role === "admin"
-                    ? "Make member"
-                    : "Make admin",
-                onClick: Message.ClickedSetRole({
-                  teammateId: entry.teammateId,
-                  role: entry.role === "admin" ? "member" : "admin",
-                }),
-                variant: "secondary",
-                size: "sm",
-                isDisabled: isBusy(model),
-              }),
-              Button.view(h, {
-                label: busyWith(model, "remove", entry.teammateId) ? "Removing…" : "Remove",
-                onClick: Message.ClickedRemove({ teammateId: entry.teammateId }),
-                variant: "destructive",
-                size: "sm",
-                isDisabled: isBusy(model),
-              }),
-            ]),
-      ]
-  return h.div(
-    [
-      h.Class(
-        cn(
-          "flex items-center gap-3 border-b border-border-subtle px-4 py-1.5 last:border-b-0",
-          removed && "text-ink-muted",
-        ),
-      ),
-      h.DataAttribute("slot", "row"),
-    ],
-    [
-      avatar(h, displayName(entry)),
-      h.div(
-        [h.Class("min-w-0 flex-1")],
-        [
-          h.p(
-            [h.Class("truncate text-body-md")],
-            [
-              displayName(entry),
-              isSelf ? h.span([h.Class("ml-1 text-ink-muted")], ["(you)"]) : h.empty,
-            ],
-          ),
-          entry.email === null && !removed
-            ? h.p([h.Class("text-body-sm text-ink-muted")], ["No email on record"])
-            : h.empty,
-          removed && entry.removedAt !== null
-            ? h.p([h.Class("text-body-sm")], ["Removed ", mono(h, formatDay(entry.removedAt))])
-            : h.empty,
-        ],
-      ),
-      h.div([h.Class("flex shrink-0 items-center gap-2")], actions),
-    ],
-  )
-}
-
-const teamPane = (h: HtmlBuilder<Message>, model: Model, view: AccountView): Html => {
-  if (view.team === null)
-    return pane(h, "team", "Only admins can manage the team.", [
-      emptyPanel(h, {
-        children: ["Ask an admin if you need a role change or to remove someone."],
-      }),
-    ])
-  const active = view.team.filter((entry) => entry.status !== "removed")
-  const removed = view.team.filter((entry) => entry.status === "removed")
-  return pane(h, "team", "Everyone who has signed in. New teammates start as members.", [
-    panel(h, {
-      flush: true,
-      children: [
-        h.div(
-          [],
-          [
-            ...active.map((entry) => rosterRow(h, model, view.teammate, entry)),
-            ...(model.showRemoved
-              ? removed.map((entry) => rosterRow(h, model, view.teammate, entry))
-              : []),
-          ],
-        ),
-        h.div(
-          [
-            h.Class(
-              "flex min-h-8 items-center justify-between gap-3 border-t border-border bg-surface-muted px-4 py-1 text-body-sm text-ink-muted",
-            ),
-          ],
-          [
-            h.span([], [mono(h, String(active.length)), " active"]),
-            removed.length === 0
-              ? h.empty
-              : Button.view(h, {
-                  label: model.showRemoved ? "Hide removed" : `Show ${removed.length} removed`,
-                  onClick: Message.ToggledRemoved(),
-                  variant: "link",
-                  size: "sm",
-                  attributes: [h.AriaExpanded(model.showRemoved)],
-                }),
-          ],
-        ),
-      ],
-    }),
-  ])
-}
-
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>
   h.div(
     [h.Class("flex flex-col gap-4 p-4 md:flex-row md:gap-8 lg:p-5"), h.OnMount(Open({}))],
     [
-      sectionNav(
-        h,
-        inputs.section,
-        Option.exists(model.view, (view) => view.team !== null),
-      ),
+      sectionNav(h, inputs.section),
       h.div(
         [h.Class("flex min-w-0 max-w-2xl flex-1 flex-col gap-3")],
         [
@@ -711,8 +486,6 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
                   return youPane(h, view)
                 case "accounts":
                   return accountsPane(h, model, view)
-                case "team":
-                  return teamPane(h, model, view)
               }
             },
           }),

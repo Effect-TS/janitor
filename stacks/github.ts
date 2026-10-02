@@ -75,5 +75,13 @@ export default Alchemy.Stack(
       name: "CLOUDFLARE_ACCOUNT_ID",
       value: accountId,
     })
+
+    // The deploy job logs in to Infisical as this machine identity through GitHub OIDC.
+    yield* GitHub.Variable("InfisicalIdentity", {
+      ...repository,
+      environment,
+      name: "INFISICAL_IDENTITY_ID",
+      value: yield* Config.schema(Schema.String.check(Schema.isUUID()), "INFISICAL_IDENTITY_ID"),
+    })
   }),
 )

@@ -6,7 +6,7 @@ import type * as Url from "foldkit/url"
 
 const repository = { repositoryId: Schema.String }
 /** The account page's sections; "accounts" is the default and prints as bare /account. */
-export const AccountSection = Schema.Literals(["you", "accounts", "team"])
+export const AccountSection = Schema.Literals(["you", "accounts"])
 export type AccountSection = typeof AccountSection.Type
 const policyQuery = {
   q: Schema.optionalKey(Schema.String),
@@ -118,7 +118,7 @@ export const settings = pipe(
 /** Every primitive in every state, in both themes. A deliverable, not a page users visit. */
 export const designSystem = pipe(Route.literal("design-system"), Route.mapTo(AppRoute.DesignSystem))
 const isAccountSection = (segment: string): segment is AccountSection =>
-  segment === "you" || segment === "accounts" || segment === "team"
+  segment === "you" || segment === "accounts"
 // An optional section segment. Bare /account is the connected-accounts section.
 const accountSectionSegment: Route.Biparser<{ section: AccountSection }> = {
   parse: (segments) => {
