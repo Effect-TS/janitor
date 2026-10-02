@@ -27,23 +27,29 @@ catalog:
   "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@7c5525a6c2084247c262fef7c2045c94c10f0e67
   "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@7c5525a6c2084247c262fef7c2045c94c10f0e67
   "@effect/sql-pg": https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@7c5525a6c2084247c262fef7c2045c94c10f0e67
+  "@effect/sql-d1": https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@7c5525a6c2084247c262fef7c2045c94c10f0e67
+  "@effect/sql-sqlite-do": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@7c5525a6c2084247c262fef7c2045c94c10f0e67
   "@effect/tsgo": ^0.38.0
   "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@7c5525a6c2084247c262fef7c2045c94c10f0e67
-  "@foldkit/devtools": ^0.163.0
-  "@foldkit/devtools-mcp": ^0.22.0
+  "@foldkit/devtools": ^0.165.0
+  "@foldkit/devtools-mcp": ^0.24.0
   "@foldkit/oxlint-plugin": ^0.15.0
-  "@foldkit/ui": ^0.163.0
-  "@foldkit/vite-plugin": ^0.24.0
+  "@foldkit/ui": ^0.165.0
+  "@foldkit/vite-plugin": ^0.26.0
   "@fontsource-variable/inter": ^5.3.0
   "@fontsource-variable/jetbrains-mono": ^5.3.0
   "@tailwindcss/vite": ^4.3.3
   "@testcontainers/postgresql": 12.1.0
   "@types/node": ^24.13.3
-  alchemy: 2.0.0-beta.79
+  # Alchemy main preview at 1d13bdd, built on Effect 4.0.0. Previews expire
+  # one week after publication; move to the published beta.80 release before
+  # then. See patches/README.md.
+  alchemy: https://pkg.alchemy.run/alchemy/-/c4f895e640968d1f40e60a239f60f5f5b938668ade43890b6a38089953ccab4d.tgz
+  "@distilled.cloud/cloudflare": https://pkg.alchemy.run/@distilled.cloud/cloudflare/-/3dde0b1b3a134427943e5868f0e15e1a5dd84f442e4b93c1130a77c02e6ede16.tgz
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@7c5525a6c2084247c262fef7c2045c94c10f0e67
   happy-dom: ^20.0.0
-  foldkit: ^0.163.0
+  foldkit: ^0.165.0
   lucide: ^1.33.0
   tailwind-merge: ^3.6.0
   tailwindcss: ^4.3.3
@@ -62,6 +68,8 @@ overrides:
   "@effect/platform-node-shared": "catalog:"
   "@effect/platform-browser": "catalog:"
   "@effect/sql-pg": "catalog:"
+  "@effect/sql-d1": "catalog:"
+  "@effect/sql-sqlite-do": "catalog:"
   "@effect/ai-openai-compat": "catalog:"
   vite: "catalog:"
 

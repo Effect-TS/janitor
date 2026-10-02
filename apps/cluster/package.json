@@ -16,6 +16,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@testcontainers/postgresql": "catalog:",
     "vite-plus": "catalog:"
