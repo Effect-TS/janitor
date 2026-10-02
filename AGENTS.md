@@ -28,6 +28,10 @@ release. Add a tool name to select part of the graph. For example, run
 
 <!--VITE PLUS END-->
 
+## Onboarding
+
+When a developer asks to be onboarded or to set up their machine, follow `docs/onboarding/README.md`. When local development misbehaves, check `docs/onboarding/troubleshooting.md` first.
+
 ## Agent skills
 
 ### Issue tracker

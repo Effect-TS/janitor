@@ -4,6 +4,8 @@ Janitor automates GitHub labeling.
 
 ## Development
 
+New here? Start with `docs/onboarding/README.md`. It's written so your coding agent can walk you through setup.
+
 Effect dependencies use commit-pinned CI snapshots configured in `pnpm-workspace.yaml`. One root install covers every application.
 
 ```sh
