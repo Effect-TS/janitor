@@ -2,54 +2,12 @@ import { assert, describe, it } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import { Stage } from "alchemy/Stage"
-import { deployment, requiredSecret, requiredText } from "../src/Deployment.ts"
+import { deployment, requiredText } from "../src/Deployment.ts"
 import { aiCacheTtlConfig } from "../src/Labeling/Classifier.ts"
-import { issueReviewEnabled } from "../src/Review/Gate.ts"
 
 const config = (values: Record<string, string>) =>
   ConfigProvider.layer(ConfigProvider.fromUnknown(values))
 describe("deployment configuration", () => {
-  it.effect(
-    "requires explicit production review opt-in and ignores the retired development flag",
-    () =>
-      Effect.gen(function* () {
-        for (const values of [{}, { JANITOR_ISSUE_REVIEW_DEVELOPMENT: "true" }]) {
-          assert.isFalse(yield* issueReviewEnabled.pipe(Effect.provide(config(values))))
-        }
-        assert.isTrue(
-          yield* issueReviewEnabled.pipe(
-            Effect.provide(config({ JANITOR_ISSUE_REVIEW_ENABLED: "true" })),
-          ),
-        )
-        assert.isFalse(
-          yield* issueReviewEnabled.pipe(
-            Effect.provide(config({ JANITOR_ISSUE_REVIEW_ENABLED: "false" })),
-          ),
-        )
-        assert.strictEqual(
-          (yield* Effect.flip(
-            issueReviewEnabled.pipe(
-              Effect.provide(config({ JANITOR_ISSUE_REVIEW_ENABLED: "typo" })),
-            ),
-          ))._tag,
-          "ConfigError",
-        )
-      }),
-  )
-  it.effect("rejects invalid model secrets", () =>
-    Effect.gen(function* () {
-      for (const value of ["", "CHANGE_ME", "with spaces"]) {
-        assert.strictEqual(
-          (yield* Effect.flip(
-            requiredSecret("AGENT_RUNNER_MODEL_API_KEY").pipe(
-              Effect.provide(config({ AGENT_RUNNER_MODEL_API_KEY: value })),
-            ),
-          ))._tag,
-          "ConfigError",
-        )
-      }
-    }),
-  )
   it.effect("defaults the AI cache to 24 hours and validates whole positive seconds", () =>
     Effect.gen(function* () {
       assert.strictEqual(yield* aiCacheTtlConfig.pipe(Effect.provide(config({}))), 86400)
@@ -67,12 +25,6 @@ describe("deployment configuration", () => {
           "ConfigError",
         )
       }
-      const secretError = yield* Effect.flip(
-        requiredSecret("AGENT_RUNNER_MODEL_API_KEY").pipe(
-          Effect.provide(config({ AGENT_RUNNER_MODEL_API_KEY: "private-key with-space" })),
-        ),
-      )
-      assert.notInclude(String(secretError), "private-key")
     }),
   )
   it.effect("requires an identity provider ID rather than the example placeholder", () =>

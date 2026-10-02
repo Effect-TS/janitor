@@ -14,7 +14,6 @@ import type * as Redacted from "effect/Redacted"
 import type * as HttpClient from "effect/http/HttpClient"
 import * as GitHubLink from "./Linking/GitHub.ts"
 import type { LinkProofFailed, ProvenAccount } from "./Linking/Proof.ts"
-import * as SlackLink from "./Linking/Slack.ts"
 import { TeammateError, Teammates } from "./Teammates.ts"
 
 /**
@@ -26,47 +25,28 @@ import { TeammateError, Teammates } from "./Teammates.ts"
 export class AccountLinkingConfig extends Context.Service<
   AccountLinkingConfig,
   {
-    readonly slack: Option.Option<SlackLink.SlackLinkConfig>
     readonly github: Option.Option<GitHubLink.GitHubLinkConfig>
   }
 >()("@janitor/cluster/AccountLinking/AccountLinkingConfig") {}
 
 /** Platform app credentials. Each platform is optional; a partial set is treated as absent. */
 export interface LinkingSecrets {
-  readonly slack: Option.Option<{
-    readonly clientId: string
-    readonly clientSecret: Redacted.Redacted<string>
-    /** The Slack team ID (`T…`) whose members may link. */
-    readonly workspaceId: string
-  }>
   readonly github: Option.Option<{
     readonly clientId: string
     readonly clientSecret: Redacted.Redacted<string>
   }>
 }
 
-export const slackLinkingSecrets: Config.Config<LinkingSecrets["slack"]> = Config.option(
-  Config.unwrap({
-    clientId: Config.String("SLACK_CLIENT_ID"),
-    clientSecret: Config.Redacted("SLACK_CLIENT_SECRET"),
-    workspaceId: Config.String("SLACK_WORKSPACE_ID"),
-  }),
-)
-
-export const githubLinkingSecrets: Config.Config<LinkingSecrets["github"]> = Config.option(
-  Config.unwrap({
-    clientId: Config.String("GITHUB_OAUTH_CLIENT_ID"),
-    clientSecret: Config.Redacted("GITHUB_OAUTH_CLIENT_SECRET"),
-  }),
-)
-
 export const linkingSecrets: Config.Wrap<LinkingSecrets> = {
-  slack: slackLinkingSecrets,
-  github: githubLinkingSecrets,
+  github: Config.option(
+    Config.unwrap({
+      clientId: Config.String("GITHUB_OAUTH_CLIENT_ID"),
+      clientSecret: Config.Redacted("GITHUB_OAUTH_CLIENT_SECRET"),
+    }),
+  ),
 }
 
-/** The browser routes the platforms send people back to. */
-export const SLACK_RETURN_PATH = "/account/slack/return"
+/** The browser route GitHub sends people back to. */
 export const GITHUB_RETURN_PATH = "/account/github/return"
 
 /** Builds the linking configuration for the deployment's public origin. */
@@ -75,12 +55,6 @@ export const configLayer = (
   publicOrigin: string,
 ): Layer.Layer<AccountLinkingConfig> =>
   Layer.succeed(AccountLinkingConfig, {
-    slack: Option.map(secrets.slack, (slack) => ({
-      clientId: slack.clientId,
-      clientSecret: slack.clientSecret,
-      redirectUri: `${publicOrigin}${SLACK_RETURN_PATH}`,
-      workspaceId: slack.workspaceId,
-    })),
     github: Option.map(secrets.github, (github) => ({
       clientId: github.clientId,
       clientSecret: github.clientSecret,
@@ -108,10 +82,6 @@ export class AccountLinking extends Context.Service<
     const config = yield* AccountLinkingConfig
     const teammates = yield* Teammates
 
-    const maybeSlack: Option.Option<Provider> = yield* Option.match(config.slack, {
-      onNone: () => Effect.succeed(Option.none<Provider>()),
-      onSome: (slack) => Effect.map(SlackLink.make(slack), Option.some),
-    })
     const maybeGithub: Option.Option<Provider> = yield* Option.match(config.github, {
       onNone: () => Effect.succeed(Option.none<Provider>()),
       onSome: (github) =>
@@ -123,13 +93,10 @@ export class AccountLinking extends Context.Service<
         ),
     })
 
-    const availability: LinkingAvailability = {
-      slack: Option.isSome(maybeSlack),
-      github: Option.isSome(maybeGithub),
-    }
+    const availability: LinkingAvailability = { github: Option.isSome(maybeGithub) }
 
     const providerFor = (platform: LinkPlatform) =>
-      Option.match(platform === "slack" ? maybeSlack : maybeGithub, {
+      Option.match(maybeGithub, {
         onNone: () => Effect.fail(unavailable(platform)),
         onSome: Effect.succeed,
       })
@@ -167,10 +134,10 @@ export class AccountLinking extends Context.Service<
   > = Layer.effect(this, this.make)
 }
 
-const unavailable = (platform: LinkPlatform) =>
+const unavailable = (_platform: LinkPlatform) =>
   new TeammateError({
     reason: "unavailable",
-    message: `${platform === "slack" ? "Slack" : "GitHub"} account linking is not configured for this deployment.`,
+    message: "GitHub account linking is not configured for this deployment.",
   })
 
 const proofFailed = (error: LinkProofFailed) =>

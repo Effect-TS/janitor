@@ -431,7 +431,6 @@ const badges = <M>(h: HtmlBuilder<M>): Html =>
           Feed.agentBadge(h),
           h.span([h.Class("oc-agent-badge")], ["written by The Janitor"]),
           platformMark(h, "github"),
-          platformMark(h, "slack"),
           avatar(h, "maxwell.brown"),
         ]),
       ],

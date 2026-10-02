@@ -52,13 +52,3 @@ the neutral choice that shipped and what would settle it.
 
 9. **Mascot in the top bar.** The product owner keeps it. Recorded in the
    DESIGN.md project notes as the one exception to the no-mascot rule.
-
-10. **Session title text.** Session titles are the first Slack message,
-    truncated by the server. They are human-written prose, so they stay in
-    Inter, but the session itself is agent work and carries the agent marker.
-    DESIGN.md does not say how to treat human text inside an agent-owned row.
-
-11. **Slack and GitHub messages.** DESIGN.md governs the web interface only.
-    Comments, pull request bodies and Slack messages The Janitor posts carry
-    no visible attribution beyond the platform's bot identity. Adding a
-    signature line is a product decision, not a restyle.

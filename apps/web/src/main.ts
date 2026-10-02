@@ -23,7 +23,7 @@ import * as Page from "@/components/ui/page"
 import { labelName, type RepositoryOverview } from "@/components/labeling-wire"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
-import { House, FileCode2, Tags, Activity, ScanSearch, Settings, UserRound } from "lucide"
+import { House, FileCode2, Tags, Activity, Settings, UserRound } from "lucide"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
@@ -159,7 +159,7 @@ const isAccountRoute = (
 const enterAccount = (model: Model, route: Routes.AppRoute): Step => {
   const entered =
     route._tag === "AccountReturn" &&
-    (route.platform === "slack" || route.platform === "github") &&
+    route.platform === "github" &&
     route.code !== undefined &&
     route.state !== undefined
       ? Account.returned(model.account, {
@@ -1078,7 +1078,6 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html => {
                           Policies: FileCode2,
                           Rules: Tags,
                           Activity,
-                          Reviews: ScanSearch,
                           Settings,
                         }[section],
                         "size-4 shrink-0 text-ink-subtle",
@@ -1475,12 +1474,12 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
         title: "Settings",
         lede:
           repository === undefined
-            ? "Connection, automation, issue review and AI classification."
+            ? "Connection, automation and AI classification."
             : h.span(
                 [],
                 [
                   h.span([h.Class("font-mono")], [`${repository.owner}/${repository.repo}`]),
-                  " · connection, automation, issue review and AI classification.",
+                  " · connection, automation and AI classification.",
                 ],
               ),
       }),

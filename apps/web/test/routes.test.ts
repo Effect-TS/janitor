@@ -19,11 +19,10 @@ describe("SPA routes", () => {
     ["/repositories/701/rules/new", "NewRule"],
     ["/repositories/701/rules/r1", "Rule"],
     ["/repositories/701/activity", "Activity"],
-    ["/repositories/701/reviews", "Reviews"],
     ["/repositories/701/settings", "Settings"],
     ["/account", "Account"],
     ["/account/you", "Account"],
-    ["/account/slack/return?code=abc&state=xyz", "AccountReturn"],
+    ["/account/github/return?code=abc&state=xyz", "AccountReturn"],
   ])("round-trips %s without confusing reserved paths with IDs", (path, tag) => {
     const route = parse(path)
     expect(route._tag).toBe(tag)
@@ -57,9 +56,9 @@ describe("SPA routes", () => {
       code: "abc",
       state: "xyz",
     })
-    expect(parse("/account/slack/return?error=access_denied")).toMatchObject({
+    expect(parse("/account/github/return?error=access_denied")).toMatchObject({
       _tag: "AccountReturn",
-      platform: "slack",
+      platform: "github",
       error: "access_denied",
     })
   })
@@ -67,7 +66,7 @@ describe("SPA routes", () => {
   it.each([
     "/unknown",
     "/repositories",
-    "/account/slack",
+    "/account/github",
     "/sessions/ses-1/extra",
     "/sessions",
     "/sessions/ses%201",

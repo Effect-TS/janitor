@@ -8,9 +8,9 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 /**
- * RS256 key sets published as JWKS, shared by the Access assertion check and
- * the Slack ID token check. Keys are cached and refreshed once on an unknown
- * `kid`, with a cooldown so arbitrary tokens cannot force a fetch per request.
+ * RS256 key sets published as JWKS, used by the Access assertion check. Keys
+ * are cached and refreshed once on an unknown `kid`, with a cooldown so
+ * arbitrary tokens cannot force a fetch per request.
  */
 
 /** The key set could not be fetched or imported. */

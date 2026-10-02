@@ -15,7 +15,6 @@ export const Topic = Schema.Literals([
   "consent",
   "test",
   "repository",
-  "review",
   "connections",
   "account",
 ])

@@ -1,5 +1,4 @@
 import { assert, layer } from "@effect/vitest"
-import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -28,7 +27,7 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       const again = yield* admitted({ ...second, email: "second@example.com" })
       assert.strictEqual(again.teammateId, later.teammateId)
       assert.strictEqual(again.email, "second@example.com")
-      const account = yield* teammates.account(later.teammateId, { slack: true, github: true })
+      const account = yield* teammates.account(later.teammateId, { github: true })
       assert.strictEqual(account.teammate.teammateId, later.teammateId)
       assert.deepStrictEqual(account.links, [])
     }),
@@ -43,91 +42,52 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       yield* sql`DELETE FROM teammate`
       const owner = yield* admitted(founder)
       const other = yield* admitted(second)
+      const github = { platform: "github", workspaceId: "github.com" } as const
       const first = yield* teammates.link(owner.teammateId, {
-        platform: "slack",
-        workspaceId: "T1",
-        accountId: "U1",
+        ...github,
+        accountId: "100",
         displayName: "founder",
       })
       // Proving the same account again is idempotent.
       const again = yield* teammates.link(owner.teammateId, {
-        platform: "slack",
-        workspaceId: "T1",
-        accountId: "U1",
+        ...github,
+        accountId: "100",
         displayName: "founder-renamed",
       })
       assert.strictEqual(again.linkId, first.linkId)
       assert.strictEqual(again.displayName, "founder-renamed")
       // Another teammate cannot take an account that is already owned.
       const conflict = yield* Effect.flip(
-        teammates.link(other.teammateId, {
-          platform: "slack",
-          workspaceId: "T1",
-          accountId: "U1",
-          displayName: "impostor",
-        }),
+        teammates.link(other.teammateId, { ...github, accountId: "100", displayName: "impostor" }),
       )
       assert.strictEqual(conflict.reason, "conflict")
-      // A different account in the same workspace replaces the earlier link.
-      const replacement = yield* teammates.link(owner.teammateId, {
-        platform: "slack",
-        workspaceId: "T1",
-        accountId: "U1b",
-        displayName: "founder",
-      })
-      assert.notStrictEqual(replacement.linkId, first.linkId)
-      const links = (yield* teammates.account(owner.teammateId, { slack: true, github: true }))
-        .links
-      assert.deepStrictEqual(
-        links.map((link) => [link.accountId, link.status]),
-        [
-          ["U1b", "active"],
-          ["U1", "replaced"],
-        ],
-      )
-      // The replaced account is free, and so is a self-disconnected one.
-      const freed = yield* teammates.link(other.teammateId, {
-        platform: "slack",
-        workspaceId: "T1",
-        accountId: "U1",
-        displayName: "second",
-      })
-      yield* teammates.disconnect(owner.teammateId, replacement.linkId)
-      assert.deepStrictEqual(
-        yield* teammates.authorize({ platform: "slack", workspaceId: "T1", accountId: "U1b" }),
-        { _tag: "Denied", reason: "disconnected" },
-      )
-      assert.deepStrictEqual(
-        yield* teammates.authorize({ platform: "slack", workspaceId: "T1", accountId: "U9" }),
-        { _tag: "Denied", reason: "unknown-account" },
-      )
-      // Only the owner can disconnect a link.
-      const foreign = yield* Effect.flip(teammates.disconnect(owner.teammateId, freed.linkId))
-      assert.strictEqual(foreign.reason, "not-found")
       // One GitHub account per teammate; a second one replaces the first.
-      yield* teammates.link(owner.teammateId, {
-        platform: "github",
-        workspaceId: "github.com",
-        accountId: "100",
-        displayName: "founder",
-      })
-      yield* teammates.link(owner.teammateId, {
-        platform: "github",
-        workspaceId: "github.com",
+      const replacement = yield* teammates.link(owner.teammateId, {
+        ...github,
         accountId: "101",
         displayName: "founder2",
       })
-      const github = (yield* teammates.account(owner.teammateId, {
-        slack: true,
-        github: true,
-      })).links.filter((link) => link.platform === "github")
+      assert.notStrictEqual(replacement.linkId, first.linkId)
+      const links = (yield* teammates.account(owner.teammateId, { github: true })).links
       assert.deepStrictEqual(
-        github.map((link) => [link.accountId, link.status]),
+        links.map((link) => [link.accountId, link.status]),
         [
           ["101", "active"],
           ["100", "replaced"],
         ],
       )
+      // The replaced account is free, and so is a self-disconnected one.
+      const freed = yield* teammates.link(other.teammateId, {
+        ...github,
+        accountId: "100",
+        displayName: "second",
+      })
+      yield* teammates.disconnect(owner.teammateId, replacement.linkId)
+      const released = (yield* teammates.account(owner.teammateId, { github: true })).links
+      assert.strictEqual(released[0]?.status, "disconnected")
+      // Only the owner can disconnect a link.
+      const foreign = yield* Effect.flip(teammates.disconnect(owner.teammateId, freed.linkId))
+      assert.strictEqual(foreign.reason, "not-found")
     }),
   )
 
@@ -140,7 +100,7 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       yield* sql`DELETE FROM teammate`
       const owner = yield* admitted(founder)
       const other = yield* admitted(second)
-      const account = { platform: "slack", workspaceId: "T1", accountId: "U-shared" } as const
+      const account = { platform: "github", workspaceId: "github.com", accountId: "300" } as const
       const outcomes = yield* Effect.all(
         [
           Effect.exit(teammates.link(owner.teammateId, { ...account, displayName: "a" })),
@@ -154,66 +114,7 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
     }),
   )
 
-  it.effect("serializes platform authorization against disconnection in one transaction", () =>
-    Effect.gen(function* () {
-      const teammates = yield* Teammates
-      const sql = yield* SqlClient.SqlClient
-      yield* sql`DELETE FROM teammate_audit`
-      yield* sql`DELETE FROM teammate_link`
-      yield* sql`DELETE FROM teammate`
-      const other = yield* admitted(second)
-      const account = { platform: "slack", workspaceId: "T1", accountId: "U2" } as const
-      const link = yield* teammates.link(other.teammateId, { ...account, displayName: "second" })
-      const authorized = yield* Deferred.make<void>()
-      const accepted: Array<string> = []
-      // Acceptance holds the authorization inside its transaction; a
-      // disconnect waits for it and the accepted input keeps its outcome.
-      yield* Effect.all(
-        [
-          sql.withTransaction(
-            Effect.gen(function* () {
-              const decision = yield* teammates.authorize(account)
-              yield* Deferred.succeed(authorized, undefined)
-              yield* sql`SELECT pg_sleep(0.2)`
-              if (decision._tag === "Authorized") accepted.push(decision.teammateId)
-            }),
-          ),
-          Deferred.await(authorized).pipe(
-            Effect.andThen(teammates.disconnect(other.teammateId, link.linkId)),
-          ),
-        ],
-        { concurrency: 2 },
-      )
-      assert.deepStrictEqual(accepted, [other.teammateId])
-      // Once the disconnect commits, the same account is denied.
-      assert.deepStrictEqual(yield* teammates.authorize(account), {
-        _tag: "Denied",
-        reason: "disconnected",
-      })
-    }),
-  )
-
-  it.effect("authorizes a linked account with no browser session at all", () =>
-    Effect.gen(function* () {
-      const teammates = yield* Teammates
-      const sql = yield* SqlClient.SqlClient
-      yield* sql`DELETE FROM teammate_audit`
-      yield* sql`DELETE FROM teammate_link`
-      yield* sql`DELETE FROM teammate`
-      const other = yield* admitted(second)
-      const account = { platform: "github", workspaceId: "github.com", accountId: "7" } as const
-      yield* teammates.link(other.teammateId, { ...account, displayName: "second" })
-      // Nothing about Access reaches this seam: platform authority rests on
-      // the link alone, so an expired or absent browser session changes nothing.
-      const decision = yield* teammates.authorize(account)
-      assert.strictEqual(decision._tag, "Authorized")
-      if (decision._tag === "Authorized") {
-        assert.strictEqual(decision.teammateId, other.teammateId)
-      }
-    }),
-  )
-
-  it.effect("binds a link attempt to its teammate and platform and consumes it once", () =>
+  it.effect("binds a link attempt to its teammate and consumes it once", () =>
     Effect.gen(function* () {
       const teammates = yield* Teammates
       const sql = yield* SqlClient.SqlClient
@@ -222,19 +123,19 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       yield* sql`DELETE FROM teammate`
       const owner = yield* admitted(founder)
       const other = yield* admitted(second)
-      const attempt = yield* teammates.beginLink(owner.teammateId, "slack")
+      const attempt = yield* teammates.beginLink(owner.teammateId, "github")
       const wrongTeammate = yield* Effect.flip(
-        teammates.consumeLinkAttempt(other.teammateId, "slack", attempt.state),
+        teammates.consumeLinkAttempt(other.teammateId, "github", attempt.state),
       )
       assert.strictEqual(wrongTeammate.reason, "expired")
-      const wrongPlatform = yield* Effect.flip(
-        teammates.consumeLinkAttempt(owner.teammateId, "github", attempt.state),
+      const consumed = yield* teammates.consumeLinkAttempt(
+        owner.teammateId,
+        "github",
+        attempt.state,
       )
-      assert.strictEqual(wrongPlatform.reason, "expired")
-      const consumed = yield* teammates.consumeLinkAttempt(owner.teammateId, "slack", attempt.state)
       assert.strictEqual(consumed.nonce, attempt.nonce)
       const replay = yield* Effect.flip(
-        teammates.consumeLinkAttempt(owner.teammateId, "slack", attempt.state),
+        teammates.consumeLinkAttempt(owner.teammateId, "github", attempt.state),
       )
       assert.strictEqual(replay.reason, "expired")
       const stale = yield* teammates.beginLink(owner.teammateId, "github")
