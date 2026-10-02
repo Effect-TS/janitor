@@ -716,11 +716,8 @@ const feed = <M>(h: HtmlBuilder<M>): Html =>
           body: [
             "classified ",
             h.a([h.Href("#"), h.Class("font-mono")], ["#4821"]),
-            " as a bug at 0.91 confidence: ",
-            h.span(
-              [h.Class("text-ink-muted")],
-              ["“The report includes a stack trace and a reproducible failing case.”"],
-            ),
+            " as a bug: ",
+            h.span([h.Class("text-ink-muted")], ["match 91% · evidence sufficient 97%"]),
           ],
         }),
         Feed.item(h, {

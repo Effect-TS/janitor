@@ -32,7 +32,6 @@ layer(TestLayer, { timeout: "2 minutes" })("Rule test jobs", (it) => {
       assert.lengthOf(yield* sql`SELECT * FROM labeling_label_action`, 0)
       // Polls stay compact; inspection returns the saved snapshot only while live.
       const details = {
-        system: "instructions",
         text: "sent input",
         facts: [{ name: "title" as const, json: JSON.stringify("old title") }],
       }

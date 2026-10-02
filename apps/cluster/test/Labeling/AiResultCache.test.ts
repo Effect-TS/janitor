@@ -22,6 +22,8 @@ import { LabelingTest } from "../../src/Labeling/Test.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
   actor,
+  answer,
+  answerEach,
   bug,
   feature,
   LabelingLayer,
@@ -34,12 +36,7 @@ import {
 let requests = 0
 const Provider = Layer.succeed(ClassifierProvider, {
   identity: { provider: "cache-test", model: "one" },
-  ask: () =>
-    Effect.sync(() => ({
-      matches: ++requests % 2 === 1,
-      confidence: 0.95,
-      reason: `Answer ${requests}`,
-    })),
+  decide: answerEach(() => Effect.sync(() => answer(++requests % 2 === 1))),
 })
 const Services = LabelingLayer.pipe(
   Layer.provide(github.layer),
@@ -163,23 +160,21 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
         Effect.provideService(AiCacheTtl, 60),
         Effect.provideService(ClassifierProvider, {
           identity: { provider: "cache-test", model: "one" },
-          ask: () =>
+          // The old answer is certain; the fresh one is 0.75, so each is recognizable.
+          decide: answerEach(() =>
             Effect.gen(function* () {
               sent++
               if (refreshing) {
                 yield* Deferred.succeed(started, undefined)
                 yield* Deferred.await(finish)
               }
-              return {
-                matches: true,
-                confidence: 1,
-                reason: refreshing ? "Fresh answer" : "Old answer",
-              }
+              return answer(true, refreshing ? 0.75 : 1)
             }),
+          ),
         }),
       )
       const request = input("concurrent-expiry")
-      assert.strictEqual((yield* classifier.classify(request)).reason, "Old answer")
+      assert.strictEqual((yield* classifier.classify(request)).confidence, 1)
       yield* TestClock.adjust("59 seconds")
       assert.strictEqual((yield* classifier.classify(request)).cached, true)
       yield* TestClock.adjust("1 second")
@@ -200,12 +195,12 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
       assert.isUndefined(waiter.pollUnsafe())
       yield* Deferred.succeed(finish, undefined)
       const fresh = yield* Fiber.join(owner)
-      assert.strictEqual(fresh.reason, "Fresh answer")
+      assert.strictEqual(fresh.confidence, 0.75)
       assert.strictEqual(fresh.cached, false)
       const joined = yield* Fiber.join(waiter)
-      assert.strictEqual(joined.reason, "Fresh answer")
+      assert.strictEqual(joined.confidence, 0.75)
       assert.strictEqual(joined.cached, true)
-      assert.strictEqual((yield* classifier.classify(request)).reason, "Fresh answer")
+      assert.strictEqual((yield* classifier.classify(request)).confidence, 0.75)
       assert.strictEqual(sent, 2)
     }),
   )
@@ -220,8 +215,9 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
           Effect.gen(function* () {
             const boundary = {
               identity: { provider, model },
-              ask: () =>
-                Effect.succeed({ matches: true, confidence: 0.85, reason: provider + "/" + model }),
+              decide: answerEach(() =>
+                Effect.succeed(answer(true, provider === "other" ? 0.87 : 0.85)),
+              ),
             }
             const consent = yield* AiConsentService.make.pipe(
               Effect.provideService(ClassifierProvider, boundary),
@@ -269,7 +265,7 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
         const nextProvider = yield* withProvider("other", "two")
         const fresh = yield* nextProvider.classify(request)
         assert.strictEqual(fresh.cached, false)
-        assert.strictEqual(fresh.reason, "other/two")
+        assert.strictEqual(fresh.confidence, 0.87)
       }),
   )
 
@@ -281,10 +277,11 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
       const classifier = yield* AiClassifier.make.pipe(
         Effect.provideService(ClassifierProvider, {
           identity: { provider: "cache-test", model: "one" },
-          ask: () =>
+          decide: answerEach(() =>
             failing
               ? Effect.fail(new ClassifierProviderError({ message: "Unavailable", cause: null }))
-              : Effect.succeed({ matches: true, confidence: 1, reason: "Recovered" }),
+              : Effect.succeed(answer(true, 1)),
+          ),
         }),
       )
       const request = input("cache-failure")
@@ -292,7 +289,7 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
       failing = false
       const recovered = yield* classifier.classify(request)
       assert.strictEqual(recovered.cached, false)
-      assert.strictEqual(recovered.reason, "Recovered")
+      assert.strictEqual(recovered.outcome, "match")
       assert.strictEqual((yield* classifier.classify(request)).cached, true)
     }),
   )
@@ -308,16 +305,18 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
       const classifier = yield* AiClassifier.make.pipe(
         Effect.provideService(ClassifierProvider, {
           identity: { provider: "cache-test", model: "one" },
-          ask: () =>
+          // Old parameters match; new parameters do not.
+          decide: answerEach(() =>
             Effect.gen(function* () {
               if (first) {
                 first = false
                 yield* Deferred.succeed(started, undefined)
                 yield* Deferred.await(finish)
-                return { matches: true, confidence: 1, reason: "Old parameters" }
+                return answer(true, 1)
               }
-              return { matches: false, confidence: 1, reason: "New parameters" }
+              return answer(false, 1)
             }),
+          ),
         }),
       )
       const request = {
@@ -345,12 +344,12 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
       const changed = { ...request, rule: { ...request.rule, priority: 1 } }
       const fresh = yield* classifier.classify(changed)
       assert.strictEqual(fresh.cached, false)
-      assert.strictEqual(fresh.reason, "New parameters")
+      assert.strictEqual(fresh.outcome, "no-match")
       yield* Deferred.succeed(finish, undefined)
       assert.strictEqual((yield* Fiber.join(old)).outcome, "failed")
       const reused = yield* classifier.classify(changed)
       assert.strictEqual(reused.cached, true)
-      assert.strictEqual(reused.reason, "New parameters")
+      assert.strictEqual(reused.outcome, "no-match")
     }),
   )
 
@@ -382,12 +381,13 @@ layer(Services, { timeout: "2 minutes" })("AI result cache", (it) => {
       const classifier = yield* AiClassifier.make.pipe(
         Effect.provideService(ClassifierProvider, {
           identity: { provider: "cache-test", model: "one" },
-          ask: () =>
+          decide: answerEach(() =>
             Effect.gen(function* () {
               yield* Deferred.succeed(started, undefined)
               yield* Deferred.await(finish)
-              return { matches: true, confidence: 1, reason: "Old configuration" }
+              return answer(true, 1)
             }),
+          ),
         }),
       )
       const test = yield* LabelingTest

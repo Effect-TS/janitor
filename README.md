@@ -12,7 +12,7 @@ alchemy profile edit --add Infisical   # once per machine
 vp run dev
 ```
 
-`alchemy dev` loads shared development settings, such as the OpenAI key for AI labeling rules, from Infisical (project `janitor`, environment `development`). Ask for a machine identity with read access, then paste its universal-auth client ID and secret into the profile prompt. `deployment/local.env` pins the local Cloudflare emulator identity over Infisical, and variables exported in your shell override both. Every integration in the development environment is optional; a missing one stays disabled.
+`alchemy dev` loads shared development settings, such as the OpenRouter key for AI labeling rules, from Infisical (project `janitor`, environment `development`). Ask for a machine identity with read access, then paste its universal-auth client ID and secret into the profile prompt. `deployment/local.env` pins the local Cloudflare emulator identity over Infisical, and variables exported in your shell override both. Every integration in the development environment is optional; a missing one stays disabled.
 
 Alchemy starts Postgres, the API on port 8787, and the website on 1337. Development needs Docker or Podman.
 

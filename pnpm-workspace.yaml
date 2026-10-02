@@ -22,7 +22,7 @@ catalog:
   "@codemirror/view": 6.43.8
   "@lezer/common": 1.5.2
   "@uiw/codemirror-theme-github": 4.25.11
-  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67
+  "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@7c5525a6c2084247c262fef7c2045c94c10f0e67
   "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@7c5525a6c2084247c262fef7c2045c94c10f0e67
   "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@7c5525a6c2084247c262fef7c2045c94c10f0e67
   "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@7c5525a6c2084247c262fef7c2045c94c10f0e67
@@ -67,7 +67,7 @@ overrides:
   "@effect/sql-pg": "catalog:"
   "@effect/sql-d1": "catalog:"
   "@effect/sql-sqlite-do": "catalog:"
-  "@effect/ai-openai-compat": "catalog:"
+  "@effect/ai-openrouter": "catalog:"
   vite: "catalog:"
 
 peerDependencyRules:

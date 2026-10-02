@@ -20,7 +20,7 @@ import {
   ClassifierProvider,
   ClassifierProviderError,
 } from "../../src/Labeling/Classifier.ts"
-import { actor, seed, Services } from "./support.ts"
+import { actor, answer, seed, Services } from "./support.ts"
 
 const facts = snapshotFacts({
   kind: "pull_request",
@@ -242,28 +242,27 @@ const ai: Program = {
 
 let providerBusy = false
 let answerNumber = 0
+let requests = 0
 const services = AiClassifier.layer.pipe(
   Layer.provideMerge(AiConsentService.layer),
   Layer.provideMerge(
     Layer.succeed(ClassifierProvider, {
       identity: { provider: "test", model: "test" },
-      ask: (prompt) =>
+      // Alternates match and non-match per rule; any failing rule fails its request.
+      decide: (queries) =>
         Effect.gen(function* () {
-          if (providerBusy || prompt.includes("Fail")) {
+          requests++
+          if (providerBusy || queries.some((query) => query.instructions.includes("Fail"))) {
             return yield* new ClassifierProviderError({
               message: "Provider unavailable",
               cause: null,
             })
           }
           providerBusy = true
-          const matches = ++answerNumber % 2 === 1
+          const answers = queries.map(() => answer(++answerNumber % 2 === 1))
           yield* Effect.yieldNow
           providerBusy = false
-          return {
-            matches,
-            confidence: 0.95,
-            reason: matches ? "First answer matches" : "Second answer does not match",
-          }
+          return answers
         }),
     }),
   ),
@@ -272,7 +271,7 @@ const services = AiClassifier.layer.pipe(
 
 layer(services, { timeout: "2 minutes" })("Shared labeling with the real classifier", (it) => {
   it.effect(
-    "evaluates mixed rules sequentially in configuration order and retains configured cache identity",
+    "evaluates mixed rules in configuration order, sends AI rules in one request and retains configured cache identity",
     () =>
       Effect.gen(function* () {
         yield* seed
@@ -282,6 +281,7 @@ layer(services, { timeout: "2 minutes" })("Shared labeling with the real classif
         const configured = configuration([first, deterministic, second], [ai, matching, ai])
         yield* (yield* AiConsentService).set(configured.repositoryId, true, actor)
         answerNumber = 0
+        requests = 0
         const input = {
           configuration: configured,
           number: 5,
@@ -306,7 +306,12 @@ layer(services, { timeout: "2 minutes" })("Shared labeling with the real classif
           { ruleId: deterministic.id, labelId: deterministic.labelId, action: "add" },
           { ruleId: second.id, labelId: second.labelId, action: "add" },
         ])
-        assert.strictEqual(result.evaluations[0]?.evaluation.reason, "First answer matches")
+        assert.strictEqual(requests, 1)
+        assert.strictEqual(
+          result.evaluations[0]?.evaluation.reason,
+          "matches 0.95 · evidence sufficient 0.95",
+        )
+        assert.closeTo(result.evaluations[2]!.evaluation.probabilities!.matches, 0.05, 1e-9)
         assert.isUndefined(result.evaluations[0]?.evaluation.inputDetails)
         const inspectedInput = { ...input, inspectInput: true }
         const cached = yield* evaluateLabeling(inspectedInput)

@@ -4,8 +4,8 @@ import type { FactName, FactSnapshot, FactValue } from "./Facts.ts"
 /**
  * Classifier prompts (plan: "Classifier evaluator"). A prompt names the
  * evidence it wants as `{{fact:title}}`; rendering substitutes the fact's
- * JSON value. Evidence is bounded and untrusted: the system message tells
- * the model never to follow instructions found inside it.
+ * JSON value. Evidence is bounded and untrusted: each decision question
+ * tells the model to treat it as data, never as instructions.
  */
 
 const token = /\{\{fact:([a-zA-Z]+)\}\}/g

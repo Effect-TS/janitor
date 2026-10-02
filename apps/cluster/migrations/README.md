@@ -520,3 +520,14 @@ rewrites `delete_repository_data` without them. Queued `Janitor/AdmitReviewV1`
 and `Janitor/ReviewActionV1` outbox rows and pending `review` live
 notifications are deleted. Slack account links and link attempts are deleted,
 and both link tables now accept only `github`.
+
+## Jev decisions
+
+`0055_jev_decisions.sql` moves AI labeling rules to TypeSafe's Jev decision
+model through OpenRouter. `labeling_ai_decision` gains a nullable
+`probabilities` column holding the probability that a rule matches and that
+its evidence suffices; earlier decisions have none and expire from the cache
+through the new decision version. Every `labeling_ai_consent` row is rewritten
+to `openrouter` / `typesafe/jev-1.13`, so repositories keep their AI access
+without enabling it again. A deployment whose `LABELING_AI_MODEL` names another
+model evaluates AI rules as unknown until consent is enabled for that model.

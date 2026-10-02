@@ -36,7 +36,7 @@ const services = DirectLabelingLayer.pipe(
   Layer.provideMerge(
     Layer.succeed(ClassifierProvider, {
       identity: { provider: "test", model: "test" },
-      ask: () =>
+      decide: () =>
         Effect.fail(
           new ClassifierProviderError({
             message: "Provider unavailable. Try again later.",

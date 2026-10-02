@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import {
+  classifierRequest,
   prepareClassifierInput,
   inputBytes,
   DEFAULT_INPUT_BYTES,
@@ -37,7 +38,8 @@ describe("AI input preparation", () => {
     expect(result._tag).toBe("Prepared")
     if (result._tag !== "Prepared") return
     expect(result.report.facts.map((f) => f.name)).toEqual(["title"])
-    expect(JSON.parse(result.text).evidence).toEqual({ title: "A short title" })
+    expect(result.state.evidence).toEqual({ title: "A short title" })
+    expect(JSON.parse(result.text).state.r0).toEqual(result.state)
   })
   it("bounds Unicode input, preserves instructions and exposes exact omitted text", () => {
     const body = "First paragraph.\n" + "🔥中文 evidence\n".repeat(3000) + "Last paragraph."
@@ -50,12 +52,15 @@ describe("AI input preparation", () => {
     expect(result.report.facts[0]?.omission).toBeNull()
     const fact = result.report.facts.find((f) => f.name === "body")!
     const sent = JSON.parse(result.text)
-    expect(sent.instructions).toBe(instructions)
-    expect(sent.evidence.body).toContain("First paragraph.")
-    expect(sent.evidence.body).toContain("Last paragraph.")
+    expect(sent.questions.r0_matches.instructions).toContain(
+      "Classify state.r0.evidence.title using state.r0.evidence.body.",
+    )
+    expect(sent.state.r0.omissions).toEqual([{ fact: "body", ...fact.omission }])
+    expect(result.state.evidence.body).toContain("First paragraph.")
+    expect(result.state.evidence.body).toContain("Last paragraph.")
     expect(JSON.parse(result.details.facts.find((f) => f.name === "body")!.json)).toBe(body)
     expect(fact.omission!.end).toBeGreaterThan(fact.omission!.start)
-    expect(sent.evidence.body).not.toContain("\ufffd")
+    expect(result.state.evidence.body).not.toContain("\ufffd")
     expect(prepareClassifierInput(instructions, ["title", "body"], snapshot(body), 4000)).toEqual(
       result,
     )
@@ -87,8 +92,29 @@ describe("AI input preparation", () => {
     expect(result._tag).toBe("Prepared")
     if (result._tag !== "Prepared") return
     expect(result.report.facts[1]?.omission?.unit).toBe("items")
-    expect(Array.isArray(JSON.parse(result.text).evidence.changedFiles)).toBe(true)
+    expect(Array.isArray(result.state.evidence.changedFiles)).toBe(true)
     expect(inputBytes(result.text)).toBeLessThanOrEqual(4000)
+  })
+  it("asks whether each rule matches and whether its evidence suffices, scoped to its slice", () => {
+    const request = classifierRequest([
+      {
+        instructions: "Is {{fact:title}} a bug?",
+        state: { evidence: { title: "A" }, omissions: [] },
+      },
+      { instructions: "Is {{fact:body}} long?", state: { evidence: { body: "B" }, omissions: [] } },
+    ])
+    expect(Object.keys(request.state)).toEqual(["r0", "r1"])
+    expect(Object.keys(request.questions)).toEqual([
+      "r0_matches",
+      "r0_sufficient",
+      "r1_matches",
+      "r1_sufficient",
+    ])
+    expect(request.questions.r1_matches!.instructions).toContain("Is state.r1.evidence.body long?")
+    expect(request.questions.r1_matches!.instructions).toContain("Use only state.r1.")
+    expect(request.questions.r0_sufficient!.instructions).toContain(
+      "Is the evidence enough to decide the following? Is state.r0.evidence.title a bug?",
+    )
   })
   it("rejects oversized instructions or uninspectable sources before provider work", () => {
     expect(prepareClassifierInput("x".repeat(5000), [], snapshot(""), 4000)._tag).toBe("Rejected")

@@ -51,6 +51,15 @@ it.effect("stops rejected and unresolved gates before classifier lookup or calls
               calls++
               return { outcome: "match" as const, reason: "unexpected", trace: [] }
             }),
+          classifyMany: (inputs) =>
+            Effect.sync(() => {
+              calls++
+              return inputs.map(() => ({
+                outcome: "match" as const,
+                reason: "unexpected",
+                trace: [],
+              }))
+            }),
         }),
       )
       assert.strictEqual(providedService.outcome, expected)

@@ -13,6 +13,8 @@ import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import {
+  answer,
+  queryText,
   actor,
   bug,
   DirectLabelingLayer,
@@ -32,16 +34,12 @@ const services = DirectLabelingLayer.pipe(
   Layer.provideMerge(
     Layer.succeed(ClassifierProvider, {
       identity: { provider: "test", model: "test" },
-      ask: (prompt) =>
-        prompt.includes("fail")
+      decide: (queries) =>
+        queries.some((query) => queryText(query).includes("fail"))
           ? Effect.fail(
               new ClassifierProviderError({ message: "Provider unavailable", cause: null }),
             )
-          : Effect.succeed({
-              matches: prompt.includes("Change 5"),
-              confidence: 0.95,
-              reason: "Accepted answer",
-            }),
+          : Effect.succeed(queries.map((query) => answer(queryText(query).includes("Change 5")))),
     }),
   ),
   Layer.provideMerge(github.layer),

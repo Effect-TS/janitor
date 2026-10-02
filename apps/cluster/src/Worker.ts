@@ -36,8 +36,8 @@ import { ingressSecrets } from "./Ingress/GitHubWebhook.ts"
 import * as Access from "./Ingress/Access.ts"
 import { makeRoutesLayer } from "./Ingress/Routes.ts"
 import * as Config from "effect/Config"
-import * as OpenAiClient from "@effect/ai-openai-compat/OpenAiClient"
-import * as OpenAiLanguageModel from "@effect/ai-openai-compat/OpenAiLanguageModel"
+import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
+import * as OpenRouterDecisionModel from "@effect/ai-openrouter/OpenRouterDecisionModel"
 import * as Cause from "effect/Cause"
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
@@ -194,16 +194,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const ProviderLayer = Option.match(ai.apiKey, {
       onNone: () => ClassifierProvider.unavailable,
       onSome: (apiKey) =>
-        ClassifierProvider.fromLanguageModel({ provider: "openai", model: ai.model }).pipe(
-          Layer.provide(
-            OpenAiLanguageModel.layer({ model: ai.model, config: { max_completion_tokens: 1000 } }),
-          ),
-          Layer.provide(
-            OpenAiClient.layer({
-              apiKey,
-              ...(Option.isSome(ai.apiUrl) ? { apiUrl: ai.apiUrl.value } : {}),
-            }),
-          ),
+        ClassifierProvider.fromDecisionModel({ provider: "openrouter", model: ai.model }).pipe(
+          Layer.provide(OpenRouterDecisionModel.layer({ model: ai.model })),
+          Layer.provide(OpenRouterClient.layer({ apiKey })),
           Layer.provide(FetchHttpClient.layer),
         ),
     })

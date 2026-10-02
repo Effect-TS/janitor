@@ -149,8 +149,8 @@ const consentService: AiConsentService["Service"] = {
     Effect.succeed({
       repositoryId,
       state: "disabled",
-      provider: "openai",
-      model: "gpt-5.6-luna",
+      provider: "openrouter",
+      model: "typesafe/jev-1.13",
       activeLeases: 0,
       updatedAt: at,
     }),
@@ -158,8 +158,8 @@ const consentService: AiConsentService["Service"] = {
     Effect.succeed({
       repositoryId,
       state: enabled ? "enabled" : "disabled",
-      provider: "openai",
-      model: "gpt-5.6-luna",
+      provider: "openrouter",
+      model: "typesafe/jev-1.13",
       activeLeases: 0,
       updatedAt: at,
     }),

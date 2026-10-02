@@ -994,9 +994,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
               ? String(consent.activeLeases) + " calls still in flight; no new ones start."
               : consent.state === "enabled"
                 ? "Classifier policies may send their named evidence to " +
-                  consent.provider +
-                  " " +
                   consent.model +
+                  " through " +
+                  consent.provider +
                   "."
                 : "Classifier policies evaluate as unknown and never remove labels.",
         }),
@@ -2070,10 +2070,10 @@ const consentSection = (h: HtmlBuilder<Message>, model: Model): Html => {
                     [h.Class("text-body-md text-ink-muted")],
                     [
                       consent.state === "enabled"
-                        ? `Enabled for ${consent.provider} ${consent.model}. Classifier policies send only the evidence facts they name, with no credentials or repository access, and their answers use each rule's configured match and non-match actions.`
+                        ? `Enabled for ${consent.model} through ${consent.provider}. Classifier policies send only the evidence facts they name, with no credentials or repository access, and their answers use each rule's configured match and non-match actions.`
                         : consent.state === "draining"
                           ? `Revoked. ${consent.activeLeases} call${consent.activeLeases === 1 ? "" : "s"} already in flight cannot be recalled; no new ones start, and this becomes disabled when they finish.`
-                          : `Disabled. Classifier policies evaluate as unknown, which preserves labels. Enabling sends the evidence facts a classifier names to ${consent.provider === "none" ? "the configured provider" : `${consent.provider} ${consent.model}`}.`,
+                          : `Disabled. Classifier policies evaluate as unknown, which preserves labels. Enabling sends the evidence facts a classifier names to ${consent.provider === "none" ? "the configured provider" : `${consent.model} through ${consent.provider}`}.`,
                     ],
                   ),
                   consent.provider === "none" && consent.state !== "enabled"
