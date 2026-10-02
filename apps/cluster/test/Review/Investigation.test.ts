@@ -336,8 +336,8 @@ const prepareSummary = (findings?: string) =>
 
 const linkPublisher = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
-  const [member] = yield* sql<{ id: string }>`INSERT INTO teammate (issuer, subject, role)
-    VALUES ('https://publish.test', gen_random_uuid()::text, 'member') RETURNING teammate_id::text AS id`
+  const [member] = yield* sql<{ id: string }>`INSERT INTO teammate (issuer, subject)
+    VALUES ('https://publish.test', gen_random_uuid()::text) RETURNING teammate_id::text AS id`
   yield* sql`UPDATE teammate_link SET status = 'disconnected' WHERE platform = 'github' AND account_id = '21'`
   yield* sql`INSERT INTO teammate_link (teammate_id, platform, workspace_id, account_id, display_name)
     VALUES (${member!.id}::uuid, 'github', 'github.com', '21', 'stranger')`
@@ -907,7 +907,6 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
   for (const changed of [
     "revoked",
     "unlinked",
-    "removed",
     "expired",
     "newer",
     "edited",
@@ -938,8 +937,6 @@ layer(Services, { timeout: "2 minutes" })("Issue review investigation", (it) => 
             github.permissions.set("stranger", { id: 21, permission: "read" })
           if (changed === "unlinked")
             yield* sql`UPDATE teammate_link SET status = 'disconnected' WHERE teammate_id::text = ${publisher}`
-          if (changed === "removed")
-            yield* sql`UPDATE teammate SET status = 'removed' WHERE teammate_id::text = ${publisher}`
           if (changed === "expired")
             yield* sql`UPDATE issue_review_run SET accepted_at = CLOCK_TIMESTAMP() - INTERVAL '14 days' WHERE run_id::text = ${id}`
           if (changed === "newer") {

@@ -1,4 +1,3 @@
-import { TestPayloadCipher } from "./support/PayloadCipher.ts"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -10,7 +9,6 @@ import { SyncTargets } from "../src/SyncTargets.ts"
 import { Services, actor, repositoryId, seed, verifyTrack } from "./Labeling/support.ts"
 
 const services = RepositoryConnections.layer.pipe(
-  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(Services),
   Layer.provide(
     Layer.succeed(GitHubTransport, {

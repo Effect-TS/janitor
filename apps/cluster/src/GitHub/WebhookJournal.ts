@@ -1,6 +1,5 @@
 import type { GitHubInstallationId, GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
 import {
-  GitHubWebhookEncryptionV1,
   GitHubWebhookName,
   type GitHubWebhookPayloadSha256,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
@@ -34,8 +33,7 @@ export interface GitHubWebhookJournalEntry {
   readonly eventName: GitHubWebhookName
   readonly receivedAt: DateTime.Utc
   readonly payloadSha256: GitHubWebhookPayloadSha256
-  readonly encryption: GitHubWebhookEncryptionV1
-  /** Ciphertext. The journal never holds plaintext. */
+  /** The raw webhook body. */
   readonly payload: Uint8Array
 }
 
@@ -52,11 +50,6 @@ export const GitHubWebhookJournaledDelivery = Schema.Struct({
   deliveryId: Schema.String,
   sequence: GitHubWebhookJournalSequence,
   eventName: GitHubWebhookName,
-  encryption: Schema.Struct({
-    algorithm: GitHubWebhookEncryptionV1.fields.algorithm,
-    keyId: GitHubWebhookEncryptionV1.fields.keyId,
-    iv: Uint8ArrayFromBytea,
-  }),
   payload: Uint8ArrayFromBytea,
   projectionStatus: GitHubWebhookProjectionStatus,
 })
@@ -100,9 +93,6 @@ export class GitHubWebhookJournal extends Context.Service<
         event_name: entry.eventName,
         received_at: DateTime.toDateUtc(entry.receivedAt),
         payload_sha256: entry.payloadSha256,
-        encryption_algorithm: entry.encryption.algorithm,
-        encryption_key_id: entry.encryption.keyId,
-        encryption_iv: entry.encryption.iv,
         payload: entry.payload,
       }
 
@@ -175,10 +165,7 @@ export class GitHubWebhookJournal extends Context.Service<
       delivery_id: Schema.String,
       sequence: GitHubWebhookJournalSequenceFromStringOrNumber,
       event_name: GitHubWebhookName,
-      encryption_algorithm: GitHubWebhookEncryptionV1.fields.algorithm,
-      encryption_key_id: GitHubWebhookEncryptionV1.fields.keyId,
       received_at: Schema.DateTimeUtcFromDate,
-      encryption_iv: Uint8ArrayFromBytea,
       payload: Uint8ArrayFromBytea,
       projection_status: GitHubWebhookProjectionStatus,
     })
@@ -188,8 +175,7 @@ export class GitHubWebhookJournal extends Context.Service<
       deliveryId: GitHubWebhookDeliveryId,
     ) {
       const rows = yield* sql`
-        SELECT delivery_id, sequence, event_name, encryption_algorithm, encryption_key_id,
-               received_at, encryption_iv, payload, projection_status
+        SELECT delivery_id, sequence, event_name, received_at, payload, projection_status
         FROM github_webhook_delivery
         WHERE delivery_id = ${deliveryId}
       `.pipe(
@@ -213,11 +199,6 @@ export class GitHubWebhookJournal extends Context.Service<
         deliveryId: row.delivery_id,
         sequence: row.sequence,
         eventName: row.event_name,
-        encryption: {
-          algorithm: row.encryption_algorithm,
-          keyId: row.encryption_key_id,
-          iv: row.encryption_iv,
-        },
         payload: row.payload,
         projectionStatus: row.projection_status,
       })

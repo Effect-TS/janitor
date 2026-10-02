@@ -12,7 +12,6 @@ import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { SyncStatus } from "../../src/SyncStatus.ts"
 import { SyncTargets } from "../../src/SyncTargets.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
-import { TestPayloadCipher } from "../support/PayloadCipher.ts"
 import {
   actor,
   admit,
@@ -35,7 +34,6 @@ const Services = Layer.mergeAll(
   RepositoryConnections.layer,
   SyncStatus.layer,
 ).pipe(
-  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(LabelingLayer),
   Layer.provideMerge(github.layer),
   Layer.provideMerge(WorkflowEngine.layerMemory),

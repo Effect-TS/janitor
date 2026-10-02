@@ -29,8 +29,8 @@ export interface SlackLinkConfig {
   readonly clientSecret: Redacted.Redacted<string>
   /** Must match a redirect URL registered on the Slack app. */
   readonly redirectUri: string
-  /** Workspaces whose members may link; others are rejected after proof. */
-  readonly workspaceIds: ReadonlyArray<string>
+  /** The workspace whose members may link; others are rejected after proof. */
+  readonly workspaceId: string
   readonly keyCacheTtl?: Duration.Duration
   readonly refreshCooldown?: Duration.Duration
 }
@@ -81,8 +81,7 @@ export const make = Effect.fnUntraced(function* (config: SlackLinkConfig) {
     url.searchParams.set("redirect_uri", config.redirectUri)
     url.searchParams.set("state", state)
     url.searchParams.set("nonce", nonce)
-    // One configured workspace can be preselected; more than one leaves the choice to Slack.
-    if (config.workspaceIds.length === 1) url.searchParams.set("team", config.workspaceIds[0]!)
+    url.searchParams.set("team", config.workspaceId)
     return url.toString()
   }
 
@@ -139,7 +138,7 @@ export const make = Effect.fnUntraced(function* (config: SlackLinkConfig) {
         )()
       }
       const workspaceId = claims["https://slack.com/team_id"]
-      if (!config.workspaceIds.includes(workspaceId)) {
+      if (workspaceId !== config.workspaceId) {
         return yield* failed(
           "wrong-workspace",
           "That Slack workspace is not connected to this Janitor.",

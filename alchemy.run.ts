@@ -4,15 +4,16 @@ import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Command from "alchemy/Command"
 import * as Docker from "alchemy/Docker"
+import * as Infisical from "alchemy/Infisical"
 import * as Neon from "alchemy/Neon"
 import * as Provider from "alchemy/Provider"
+import * as Secrets from "alchemy/Secrets"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
 import { JanitorDatabase } from "@janitor/cluster/Database"
 import ClusterWorker from "@janitor/cluster/Worker"
 import { deployment } from "@janitor/cluster/Deployment"
-import { Stage } from "alchemy/Stage"
 
 import { ReviewSandboxContainerRuntime } from "@janitor/alchemy/Cloudflare/AI/ReviewSandboxContainerRuntime"
 import { SandboxContainerRuntime } from "@janitor/alchemy/Cloudflare/AI/SandboxContainerRuntime"
@@ -42,12 +43,23 @@ export default Alchemy.Stack(
         Effect.map((dev) => (dev ? localState() : Cloudflare.state())),
       ),
     ),
+    // Production configuration lives in Infisical and overrides the shell, which
+    // supplies only Cloudflare credentials and Infisical's own login. Development
+    // reads the shared optional integrations from Infisical, pins the emulator
+    // identity from local.env over them, and lets the shell override both.
+    secrets: ({ stage }) =>
+      stage === "production"
+        ? [
+            Secrets.ProcessEnv(),
+            Infisical.Secrets({ project: "janitor", environment: "production" }),
+          ]
+        : [
+            Infisical.Secrets({ project: "janitor", environment: "development" }),
+            Secrets.DotEnv({ path: "deployment/local.env" }),
+          ],
   },
   Effect.gen(function* () {
     const target = yield* deployment
-    const stage = yield* Stage
-    if (target.stage !== "local" && stage !== target.stage)
-      return yield* Effect.die(new Error("JANITOR_STAGE must match the Alchemy --stage argument"))
     const database = yield* JanitorDatabase
     const cluster = yield* ClusterWorker.pipe(
       Effect.provide([SandboxContainerRuntime, ReviewSandboxContainerRuntime]),

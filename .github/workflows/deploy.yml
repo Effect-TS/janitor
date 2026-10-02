@@ -34,6 +34,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
+    permissions:
+      contents: read
+      # Logs in to Infisical as INFISICAL_IDENTITY_ID with GitHub's OIDC token.
+      id-token: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -50,43 +54,8 @@ jobs:
       - name: Plan or deploy production
         env:
           ALCHEMY_MODE: ${{ inputs.action == 'plan' && '--dry-run' || '--yes' }}
-          JANITOR_STAGE: production
-          JANITOR_ISSUE_REVIEW_ENABLED: ${{ vars.JANITOR_ISSUE_REVIEW_ENABLED || 'false' }}
+          # Everything else comes from Infisical (project janitor, environment production).
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          CLOUDFLARE_ACCESS_GITHUB_IDP_ID: ${{ vars.CLOUDFLARE_ACCESS_GITHUB_IDP_ID }}
-          NEON_HISTORY_RETENTION_SECONDS: ${{ vars.NEON_HISTORY_RETENTION_SECONDS || '604800' }}
-          JANITOR_GITHUB_APP_ID: ${{ vars.JANITOR_GITHUB_APP_ID }}
-          JANITOR_GITHUB_APP_PRIVATE_KEY: ${{ secrets.JANITOR_GITHUB_APP_PRIVATE_KEY }}
-          JANITOR_GITHUB_WEBHOOK_SECRET: ${{ secrets.JANITOR_GITHUB_WEBHOOK_SECRET }}
-          JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: ${{ secrets.JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY }}
-          JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID: ${{ vars.JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_URL: ${{ vars.OPENAI_API_URL }}
-          LABELING_AI_MODEL: ${{ vars.LABELING_AI_MODEL }}
-          LABELING_AI_INPUT_BYTES: ${{ vars.LABELING_AI_INPUT_BYTES }}
-          JANITOR_INITIAL_ADMIN_SUBJECT: ${{ vars.JANITOR_INITIAL_ADMIN_SUBJECT }}
-          JANITOR_SLACK_CLIENT_ID: ${{ vars.JANITOR_SLACK_CLIENT_ID }}
-          JANITOR_SLACK_CLIENT_SECRET: ${{ secrets.JANITOR_SLACK_CLIENT_SECRET }}
-          JANITOR_SLACK_WORKSPACE_IDS: ${{ vars.JANITOR_SLACK_WORKSPACE_IDS }}
-          JANITOR_GITHUB_OAUTH_CLIENT_ID: ${{ vars.JANITOR_GITHUB_OAUTH_CLIENT_ID }}
-          JANITOR_GITHUB_OAUTH_CLIENT_SECRET: ${{ secrets.JANITOR_GITHUB_OAUTH_CLIENT_SECRET }}
-          JANITOR_AGENT_RUNNER_MODEL_API_KEY: ${{ secrets.JANITOR_AGENT_RUNNER_MODEL_API_KEY }}
-          JANITOR_CHAT_MODEL: ${{ vars.JANITOR_CHAT_MODEL }}
-          JANITOR_SLACK_WORKSPACE_ID: ${{ vars.JANITOR_SLACK_WORKSPACE_ID }}
-          JANITOR_SLACK_APP_ID: ${{ vars.JANITOR_SLACK_APP_ID }}
-          JANITOR_SLACK_BOT_USER_ID: ${{ vars.JANITOR_SLACK_BOT_USER_ID }}
-          JANITOR_SLACK_BOT_TOKEN: ${{ secrets.JANITOR_SLACK_BOT_TOKEN }}
-          JANITOR_SLACK_SIGNING_SECRET: ${{ secrets.JANITOR_SLACK_SIGNING_SECRET }}
-        run: |
-          # Empty optional GitHub settings should use the application's defaults.
-          for setting in OPENAI_API_KEY OPENAI_API_URL LABELING_AI_MODEL LABELING_AI_INPUT_BYTES \
-            JANITOR_INITIAL_ADMIN_SUBJECT JANITOR_SLACK_CLIENT_ID JANITOR_SLACK_CLIENT_SECRET \
-            JANITOR_SLACK_WORKSPACE_IDS JANITOR_GITHUB_OAUTH_CLIENT_ID JANITOR_GITHUB_OAUTH_CLIENT_SECRET \
-            JANITOR_AGENT_RUNNER_MODEL_CONFIGURATIONS JANITOR_CHAT_MODEL \
-            JANITOR_SLACK_WORKSPACE_ID JANITOR_SLACK_APP_ID JANITOR_SLACK_BOT_USER_ID \
-            JANITOR_SLACK_BOT_TOKEN JANITOR_SLACK_SIGNING_SECRET; do
-            if [[ -z "${!setting}" ]]; then unset "$setting"; fi
-          done
-          vp exec alchemy deploy alchemy.run.ts --stage production "$ALCHEMY_MODE"
+          INFISICAL_IDENTITY_ID: ${{ vars.INFISICAL_IDENTITY_ID }}
+        run: vp exec alchemy deploy alchemy.run.ts --stage production "$ALCHEMY_MODE"

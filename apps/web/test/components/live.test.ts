@@ -103,7 +103,7 @@ it("keeps an idle WebSocket live without polling and ignores duplicate change fr
 
 it.each([
   ["/repositories/connect", "connections", "LoadConnectionInventory"],
-  ["/account/team", "account", "LoadAccount"],
+  ["/account/you", "account", "LoadAccount"],
 ] as const)("refreshes %s through the application channel", (path, topic, command) => {
   const initial = Main.init(
     { theme: { preferredTheme: "System", systemTheme: "Light" } },

@@ -40,7 +40,7 @@ const subjectId = (subject: PurgeSubject) =>
 
 /**
  * Deletes private content after uninstall or confirmed access loss while
- * keeping identifiers, digests, and audit rows. Raw payload ciphertext,
+ * keeping identifiers, digests, and audit rows. Raw webhook payloads,
  * entity titles and bodies, and label names are the content; everything else
  * stays so a same-ID reinstall repairs cleanly.
  */

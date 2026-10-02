@@ -1,4 +1,4 @@
-import type { AccountView, RosterEntry, TeammateSummary } from "@janitor/domain/Team/Account"
+import type { AccountView, TeammateSummary } from "@janitor/domain/Team/Account"
 import { TeammateId, LinkId } from "@janitor/domain/Team/Account"
 import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
@@ -12,10 +12,7 @@ const me: TeammateSummary = {
   issuer: "https://team.cloudflareaccess.test",
   subject: "me",
   email: "me@example.com",
-  role: "member",
-  status: "active",
   createdAt: at,
-  removedAt: null,
 }
 const slackLink = {
   linkId: LinkId.make("l-slack"),
@@ -27,32 +24,15 @@ const slackLink = {
   linkedAt: at,
   endedAt: null,
 }
-const other: RosterEntry = {
-  ...me,
-  teammateId: TeammateId.make("t-other"),
-  subject: "other",
-  email: null,
-  links: [slackLink],
-}
-const gone: RosterEntry = {
-  ...other,
-  teammateId: TeammateId.make("t-gone"),
-  subject: "gone",
-  status: "removed",
-  removedAt: at,
-  links: [{ ...slackLink, status: "disabled" }],
-}
-const memberView: AccountView = {
+const linkedView: AccountView = {
   teammate: me,
   links: [slackLink],
   linking: { slack: true, github: false },
-  team: null,
 }
-const adminView: AccountView = {
-  teammate: { ...me, role: "admin" },
+const unlinkedView: AccountView = {
+  teammate: me,
   links: [],
   linking: { slack: true, github: true },
-  team: [{ ...me, role: "admin", links: [] }, other, gone],
 }
 
 const scene = (
@@ -71,7 +51,7 @@ const scene = (
 describe("Account page", () => {
   it("shows each connected account with one status line and one action", () => {
     scene(
-      memberView,
+      linkedView,
       "accounts",
       Scene.expect(Scene.text("Connected as Me")).toExist(),
       Scene.expect(Scene.role("button", { name: "Disconnect" })).toExist(),
@@ -84,7 +64,7 @@ describe("Account page", () => {
 
   it("offers Connect for platforms that are configured but not linked", () => {
     scene(
-      adminView,
+      unlinkedView,
       "accounts",
       Scene.expect(Scene.text("Not connected")).toExist(),
       Scene.expect(Scene.role("button", { name: "Connect Slack" })).toExist(),
@@ -95,52 +75,14 @@ describe("Account page", () => {
 
   it("shows who you are on the You section", () => {
     scene(
-      memberView,
+      linkedView,
       "you",
       Scene.expect(Scene.text("me@example.com")).toExist(),
-      Scene.expect(Scene.text("member")).toExist(),
       Scene.expect(Scene.role("button", { name: "Disconnect" })).toBeAbsent(),
     )
   })
 
-  it("lets admins change roles and remove teammates, but never themselves", () => {
-    scene(
-      adminView,
-      "team",
-      Scene.expect(Scene.text("me@example.com")).toExist(),
-      Scene.expect(Scene.text("(you)")).toExist(),
-      Scene.expect(Scene.text("No email on record")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Make admin" })).toExist(),
-      Scene.expect(Scene.role("button", { name: "Remove" })).toExist(),
-      Scene.expect(Scene.role("button", { name: "Make member" })).toBeAbsent(),
-      Scene.expect(Scene.text("2 active")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Restore" })).toBeAbsent(),
-    )
-  })
-
-  it("keeps removed teammates behind a toggle and lets admins restore them", () => {
-    scene(
-      adminView,
-      "team",
-      Scene.expect(Scene.role("button", { name: "Show 1 removed" })).toExist(),
-      Scene.click(Scene.role("button", { name: "Show 1 removed" })),
-      Scene.expect(Scene.role("button", { name: "Restore" })).toExist(),
-      Scene.expect(Scene.role("button", { name: "Hide removed" })).toExist(),
-      Scene.click(Scene.role("button", { name: "Hide removed" })),
-      Scene.expect(Scene.role("button", { name: "Restore" })).toBeAbsent(),
-    )
-  })
-
-  it("tells members the team is managed by admins", () => {
-    scene(
-      memberView,
-      "team",
-      Scene.expect(Scene.text("Only admins can manage the team.")).toExist(),
-      Scene.expect(Scene.role("button", { name: "Remove" })).toBeAbsent(),
-    )
-  })
-
-  it("explains a removed membership instead of an empty page", () => {
+  it("explains a failed load instead of an empty page", () => {
     Scene.scene(
       {
         update: Account.update,
@@ -152,12 +94,10 @@ describe("Account page", () => {
         Account.Load,
         Account.Message.LoadFailed({
           requestId: 1,
-          reason: "Your Janitor membership was removed. Ask an admin to restore it.",
+          reason: "Could not load your account. Retry to continue.",
         }),
       ),
-      Scene.expect(
-        Scene.text("Your Janitor membership was removed. Ask an admin to restore it."),
-      ).toExist(),
+      Scene.expect(Scene.text("Could not load your account. Retry to continue.")).toExist(),
       Scene.expect(Scene.text("Loading your account…")).toBeAbsent(),
     )
   })
@@ -228,13 +168,13 @@ describe("Live invalidation during a read", () => {
       repeated.model,
       failed
         ? Account.Message.LoadFailed({ requestId: 1, reason: "unavailable" })
-        : Account.Message.Loaded({ requestId: 1, view: memberView }),
+        : Account.Message.Loaded({ requestId: 1, view: linkedView }),
     )
     expect(next.commands).toHaveLength(1)
     expect(next.model.liveRefresh).toBe(false)
     const settled = Account.update(
       next.model,
-      Account.Message.Loaded({ requestId: 2, view: memberView }),
+      Account.Message.Loaded({ requestId: 2, view: linkedView }),
     )
     expect(settled.commands ?? []).toHaveLength(0)
     expect(Option.isNone(settled.model.maybeLoadRequest)).toBe(true)

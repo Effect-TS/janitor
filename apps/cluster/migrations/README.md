@@ -4,7 +4,7 @@ The first four migrations are the pre-production baseline for a fresh PostgreSQL
 
 | File                       | Tables                                                                                     |
 | -------------------------- | ------------------------------------------------------------------------------------------ |
-| `0001_delivery.sql`        | Encrypted webhook journal and workflow outbox                                              |
+| `0001_delivery.sql`        | Webhook journal and workflow outbox                                                        |
 | `0002_github_mirror.sql`   | Installations, repositories, labels, entities, pull requests, and their collections        |
 | `0003_synchronization.sql` | API budgets, request leases, response cache, sync targets, repair state, and content purge |
 | `0004_labeling.sql`        | Policies, configurations, rules, reconciliation, audit, and AI consent and decisions       |
@@ -174,14 +174,13 @@ may refetch GitHub pages; they recheck their generation before publishing facts.
 The migration does not disconnect existing repositories or delete their
 configuration. Transient AI claims are reset.
 
-New repository webhook requests journal ciphertext directly within the repository
+New repository webhook requests journal payloads directly within the repository
 lock. Their outbox payloads contain delivery IDs only; queue and R2 storage remain
-for installation discovery. The legacy queue consumer attributes decrypted
+for installation discovery. The legacy queue consumer attributes
 repository payloads before journaling and discards deliveries older than the
 repository's admission cutoff, including after reconnection. Disconnection
-decrypts unattributed legacy journal entries to identify the repository before
-deletion. If a required encryption key is unavailable, disconnection fails and
-rolls back instead of leaving unidentifiable ciphertext behind.
+reads unattributed legacy journal entries to identify the repository before
+deletion.
 
 GitHub label writes share the repository lock with disconnection. AI cache writes
 recheck the connection generation under that lock. Reconnection never restores
@@ -203,7 +202,7 @@ target's row lock, so the last-admin check and the write are one step. Input
 acceptance must call `Teammates.authorize` inside its own transaction: it takes
 a share lock on the link and teammate rows, so removal waits for the acceptance
 to commit and a later evaluation sees the removal. The migration creates no
-rows; the first admin is admitted from `JANITOR_INITIAL_ADMIN_SUBJECT` on sign-in.
+rows; the first admin is admitted from `INITIAL_ADMIN_SUBJECT` on sign-in.
 
 ## Agent sessions
 
@@ -489,3 +488,25 @@ classification, the default branch and commit the evidence was read from, the
 agent-authored findings and uncertainty, the validated evidence list and the
 limitation that ended a run without a completed result. Action rows are removed
 with their run. No data changes.
+
+## Plaintext GitHub payloads
+
+`0052_plaintext_github_payloads.sql` retires application encryption of webhook
+journal payloads and cached GitHub API pages. The read model already stores the
+same content unencrypted, so the AES key added no protection and was a secret
+that could never be rotated. The migration drops the encryption columns from
+`github_webhook_delivery` and `github_http_cache`. Existing ciphertext is
+unreadable without the retired key: every cached page is deleted and refetched
+on demand, pending deliveries are marked `failed`, and every unpurged journal
+payload is purged as retention would, keeping the audit row.
+
+## Access is authorization
+
+`0053_access_is_authorization.sql` removes teammate roles and removal.
+Cloudflare Access alone decides who may use Janitor, and everyone it admits has
+every permission, so `teammate` drops `role`, `status` and `removed_at`. Links
+that removal had disabled become `disconnected` rather than active, since their
+owner may have lost Access; they can relink after signing in. `disabled` leaves
+the link status check, and the ownership indexes now cover `active` links only.
+`INITIAL_ADMIN_SUBJECT` is no longer read. Teammate rows, links, link attempts
+and the audit are otherwise unchanged.

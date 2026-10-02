@@ -55,7 +55,7 @@ switches to polling.
    should cause HTTP reads and update the run status and open details.
 4. Open Connect with no connected repositories. Installation/inventory changes
    should update the page through the application socket.
-5. Change a teammate role or linked account in another tab. The Account/Team page
+5. Connect or disconnect a linked account in another tab. The Account page
    should refresh on an `account` notification.
 6. Interrupt and restore the connection. Expect reconnect attempts and a catch-up
    read when Ready arrives, without timed application-data reads while offline.

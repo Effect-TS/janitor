@@ -18,7 +18,6 @@ import * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import * as HttpServerError from "effect/http/HttpServerError"
-import * as PayloadCipher from "../PayloadCipher.ts"
 import * as WebhookVerifier from "./WebhookVerifier.ts"
 import * as GitHubEventQueue from "../GitHub/EventQueue.ts"
 import * as GitHubPayloadStore from "../GitHub/PayloadStore.ts"
@@ -67,22 +66,16 @@ export class BodyTooLargeError extends Data.TaggedError("BodyTooLargeError")<{
  */
 export interface IngressSecrets {
   readonly webhookSecret: Redacted.Redacted<string>
-  readonly cipher: PayloadCipher.PayloadCipherConfig
 }
 
 export const ingressSecrets: Config.Wrap<IngressSecrets> = {
-  webhookSecret: Config.Redacted("JANITOR_GITHUB_WEBHOOK_SECRET"),
-  cipher: PayloadCipher.config({
-    key: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY",
-    keyId: "JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID",
-  }),
+  webhookSecret: Config.Redacted("GITHUB_WEBHOOK_SECRET"),
 }
 
 export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
   Effect.gen(function* () {
     const queue = yield* GitHubEventQueue.GitHubEventQueue
     const store = yield* GitHubPayloadStore.GitHubPayloadStore
-    const cipher = yield* PayloadCipher.PayloadCipher
     const verifier = yield* WebhookVerifier.WebhookVerifier
 
     const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
@@ -202,23 +195,6 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
         const accept = Effect.gen(function* () {
           const payloadSha256 = yield* sha256Hex(body)
 
-          const encrypted = yield* cipher.encrypt(deliveryId, body).pipe(
-            Effect.catchCause(
-              Effect.fnUntraced(function* (cause) {
-                yield* Effect.logError("Failed to encrypt GitHub webhook payload", cause).pipe(
-                  Effect.annotateLogs({ id: deliveryId, event: eventName }),
-                )
-                return undefined
-              }),
-            ),
-          )
-
-          if (encrypted === undefined) {
-            return serviceUnavailableResponse
-          }
-
-          const { ciphertext, encryption } = encrypted
-
           // Repository payloads live in the database transaction protected by
           // disconnect. The outbox schedules projection without queue/R2 copies.
           if (
@@ -234,18 +210,15 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
                 eventName,
                 receivedAt,
                 payloadSha256,
-                encryption,
-                payload: ciphertext,
+                payload: body,
               })
               .pipe(Effect.as(acceptedResponse))
           }
 
           const envelopeBody: GitHubWebhookBodyV1 | undefined =
-            ciphertext.byteLength <= MAX_INLINE_WEBHOOK_BODY_BYTES
-              ? GitHubWebhookBodyV1.cases.Inline.make({ payload: ciphertext })
-              : yield* Effect.flatMap(sha256Hex(ciphertext), (sha256) =>
-                  store.put({ deliveryId, body: ciphertext, sha256 }),
-                ).pipe(
+            body.byteLength <= MAX_INLINE_WEBHOOK_BODY_BYTES
+              ? GitHubWebhookBodyV1.cases.Inline.make({ payload: body })
+              : yield* store.put({ deliveryId, body, sha256: payloadSha256 }).pipe(
                   Effect.map((key) => GitHubWebhookBodyV1.cases.R2.make({ key })),
                   Effect.catchCause(
                     Effect.fnUntraced(function* (cause) {
@@ -267,7 +240,6 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
             eventName,
             receivedAt,
             payloadSha256,
-            encryption,
             body: envelopeBody,
           }
 
@@ -326,7 +298,6 @@ export const makeGitHubWebHookRoutesLayer = (secrets: IngressSecrets) =>
     Layer.provide([
       GitHubEventQueue.layer,
       GitHubPayloadStore.layer,
-      PayloadCipher.layerFrom(secrets.cipher),
       WebhookVerifier.layerFrom({ secret: secrets.webhookSecret }),
     ]),
   )

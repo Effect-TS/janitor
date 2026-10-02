@@ -11,7 +11,6 @@ import {
   GitHubWebhookPayloadSha256,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
 import { GitHubWebhookJournal } from "../src/GitHub/WebhookJournal.ts"
-import { PayloadCipher } from "../src/PayloadCipher.ts"
 import { ContentPurge } from "../src/ContentPurge.ts"
 import { AutomationIntegration } from "../src/AutomationIntegration.ts"
 import { applyEvent } from "../src/GitHub/ProjectWebhook.ts"
@@ -21,7 +20,6 @@ import { SyncPlanner } from "../src/SyncPlanner.ts"
 import { RepositoryEligibility } from "../src/RepositoryEligibility.ts"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
 import { GitHubTransport } from "../src/GitHub/Transport.ts"
-import { TestPayloadCipher } from "./support/PayloadCipher.ts"
 import { Services, actor, baseMain, repositoryId } from "./Labeling/support.ts"
 
 const permissions = { metadata: "read", issues: "write", pull_requests: "read", checks: "read" }
@@ -48,7 +46,6 @@ const services = Layer.mergeAll(
   ContentPurge.layer,
   AutomationIntegration.noop,
 ).pipe(
-  Layer.provideMerge(TestPayloadCipher),
   Layer.provideMerge(Services),
   Layer.provide(
     Layer.succeed(GitHubTransport, {
@@ -243,18 +240,13 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
               },
             }
             const event = yield* Schema.decodeUnknownEffect(GitHubWebhookEvent)(raw)
-            const encrypted = yield* (yield* PayloadCipher).encrypt(
-              deliveryId,
-              new TextEncoder().encode(JSON.stringify(raw.payload)),
-            )
             const entry = yield* (yield* GitHubWebhookJournal).record({
               deliveryId,
               repositoryId,
               eventName: GitHubWebhookName.make("repository"),
               receivedAt: DateTime.nowUnsafe(),
               payloadSha256: GitHubWebhookPayloadSha256.make("a".repeat(64)),
-              encryption: encrypted.encryption,
-              payload: encrypted.ciphertext,
+              payload: new TextEncoder().encode(JSON.stringify(raw.payload)),
             })
             yield* applyEvent(event, entry.sequence)
           })

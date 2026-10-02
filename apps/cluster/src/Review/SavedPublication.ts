@@ -15,8 +15,7 @@ export const linkedPublisher = (teammateId: TeammateId) =>
     const sql = yield* SqlClient.SqlClient
     const [link] = yield* sql<{ account_id: string; display_name: string }>`
     SELECT l.account_id, l.display_name FROM teammate_link l
-    JOIN teammate t ON t.teammate_id = l.teammate_id
-    WHERE t.teammate_id::text = ${teammateId} AND t.status = 'active'
+    WHERE l.teammate_id::text = ${teammateId}
       AND l.platform = 'github' AND l.workspace_id = ${GITHUB_WORKSPACE_ID}
       AND l.status = 'active'`
     if (link === undefined)

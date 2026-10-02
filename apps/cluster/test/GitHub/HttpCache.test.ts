@@ -2,23 +2,11 @@ import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import * as PayloadCipher from "../../src/PayloadCipher.ts"
 import { GitHubHttpCache } from "../../src/GitHub/HttpCache.ts"
-import { GitHubEncryptionKeyIdFixture } from "../support/Fixtures.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 
-const key = new Uint8Array(32).map((_, index) => index)
-const CacheLayer = GitHubHttpCache.layer.pipe(
-  Layer.provide(
-    Layer.effect(
-      PayloadCipher.PayloadCipher,
-      PayloadCipher.make({ key, keyId: GitHubEncryptionKeyIdFixture }),
-    ),
-  ),
-  Layer.provideMerge(MigratedPostgresLayer),
-)
+const CacheLayer = GitHubHttpCache.layer.pipe(Layer.provideMerge(MigratedPostgresLayer))
 
 const cacheKey = {
   scopeKey: "installation:1",
@@ -27,10 +15,9 @@ const cacheKey = {
 }
 
 layer(CacheLayer, { timeout: "2 minutes" })("GitHubHttpCache against Postgres", (it) => {
-  it.effect("stores an encrypted page and returns it with its etag and next link", () =>
+  it.effect("stores a page and returns it with its etag and next link", () =>
     Effect.gen(function* () {
       const cache = yield* GitHubHttpCache
-      const sql = yield* SqlClient.SqlClient
 
       yield* cache.put({
         ...cacheKey,
@@ -49,9 +36,6 @@ layer(CacheLayer, { timeout: "2 minutes" })("GitHubHttpCache against Postgres", 
           next: Option.some("https://api.github.com/repos/a/b/labels?per_page=100&page=2"),
         }),
       )
-
-      const raw = yield* sql<{ body: Uint8Array }>`SELECT body FROM github_http_cache`
-      assert.notInclude(new TextDecoder().decode(raw[0]?.body ?? new Uint8Array()), "secret")
 
       yield* cache.put({
         ...cacheKey,

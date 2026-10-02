@@ -17,9 +17,6 @@ import {
   GitHubInstallationRepositoriesResponse,
 } from "@janitor/domain/GitHub/Installation"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
-import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
-import { GitHubWebhookEncryptionKeyId } from "@janitor/domain/GitHub/WebhookEnvelope"
-import { PayloadCipher } from "./PayloadCipher.ts"
 import { repositoryOfPayload } from "./GitHub/RepositoryPayload.ts"
 
 export class ConnectionError extends Schema.TaggedError<ConnectionError>()("ConnectionError", {
@@ -50,7 +47,6 @@ export class RepositoryConnections extends Context.Service<
     const targets = yield* SyncTargets
     const transport = yield* GitHubTransport
     const readModel = yield* GitHubReadModel
-    const cipher = yield* PayloadCipher
     const inventory = sql`
     SELECT r.repository_id AS "repositoryId", r.installation_id AS "installationId", r.owner, r.repo,
       r.is_private AS "isPrivate", r.connected, r.enabled, (r.disconnected_at IS NOT NULL) AS reconnect,
@@ -250,38 +246,14 @@ export class RepositoryConnections extends Context.Service<
       observed_at=now() WHERE repository_id=${id}`
             if (action === "disconnect" || (action === "connect" && row.disconnected_at !== null)) {
               // Older journals lacked repository attribution. Identify them
-              // before deleting so retained ciphertext cannot survive disconnect.
-              const legacy = yield* sql<{
-                delivery_id: string
-                encryption_key_id: string
-                encryption_iv: Uint8Array
-                payload: Uint8Array
-              }>`
-                SELECT delivery_id, encryption_key_id, encryption_iv, payload FROM github_webhook_delivery
+              // before deleting so retained payloads cannot survive disconnect.
+              const legacy = yield* sql<{ delivery_id: string; payload: Uint8Array }>`
+                SELECT delivery_id, payload FROM github_webhook_delivery
                 WHERE repository_id IS NULL AND event_name NOT IN ('installation','installation_repositories','ping') AND purged_at IS NULL`
               for (const delivery of legacy) {
-                const plaintext = yield* cipher
-                  .decrypt(
-                    GitHubWebhookDeliveryId.make(delivery.delivery_id),
-                    {
-                      algorithm: "AES-256-GCM",
-                      keyId: GitHubWebhookEncryptionKeyId.make(delivery.encryption_key_id),
-                      iv: delivery.encryption_iv,
-                    },
-                    delivery.payload,
-                  )
-                  .pipe(
-                    Effect.mapError(
-                      () =>
-                        new ConnectionError({
-                          message:
-                            "Could not identify a retained webhook payload. Restore its encryption key and retry disconnection.",
-                        }),
-                    ),
-                  )
                 if (
                   Option.contains(
-                    repositoryOfPayload(plaintext),
+                    repositoryOfPayload(delivery.payload),
                     GitHubRepositoryDatabaseId.make(id),
                   )
                 )

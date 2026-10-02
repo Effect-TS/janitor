@@ -7,7 +7,6 @@ import {
   GitHubWebhookProjectionStatus,
   type GitHubWebhookJournalSequence,
 } from "@janitor/domain/GitHub/WebhookJournal"
-import { PayloadCipher } from "../PayloadCipher.ts"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
@@ -232,15 +231,14 @@ export const applyEvent = (
   })
 
 /**
- * Decrypts and decodes one journaled delivery, then records the outcome.
- * Journal and cipher failures are typed workflow errors. Undecodable payloads
+ * Decodes one journaled delivery, then records the outcome.
+ * Journal failures are typed workflow errors. Undecodable payloads
  * are recorded as `unsupported`, not failed, so repair can revisit them.
  */
 export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")(function* (
   deliveryId: GitHubWebhookDeliveryId,
 ) {
   const journal = yield* GitHubWebhookJournal
-  const cipher = yield* PayloadCipher
   const readModel = yield* GitHubReadModel
 
   const fail = (message: string) => new ProjectGitHubWebhookError({ deliveryId, message })
@@ -266,18 +264,7 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
       }),
     )
 
-  const plaintext = yield* cipher
-    .decrypt(deliveryId, row.encryption, row.payload)
-    .pipe(Effect.result)
-  if (Result.isFailure(plaintext)) {
-    yield* journal
-      .markProjection(deliveryId, "failed", Option.some("Payload decryption failed"))
-      .pipe(Effect.mapError((error) => fail(error.message)))
-    yield* record("failed", "Payload decryption failed")
-    return "failed" as const
-  }
-
-  const decoded = yield* parseJson(new TextDecoder().decode(plaintext.success)).pipe(
+  const decoded = yield* parseJson(new TextDecoder().decode(row.payload)).pipe(
     Effect.flatMap((payload) => decodeEvent({ id: deliveryId, name: row.eventName, payload })),
     Effect.result,
   )

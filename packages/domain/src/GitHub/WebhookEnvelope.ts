@@ -28,30 +28,12 @@ export const GitHubWebhookBodyV1 = Schema.TaggedUnion({
 }).annotate({ identifier: "GitHubWebhookBodyV1" })
 export type GitHubWebhookBodyV1 = typeof GitHubWebhookBodyV1.Type
 
-export const GitHubWebhookEncryptionKeyId = Schema.NonEmptyString.pipe(
-  Schema.brand("GitHubWebhookEncryptionKeyId"),
-).annotate({ identifier: "GitHubWebhookEncryptionKeyId" })
-export type GitHubWebhookEncryptionKeyId = typeof GitHubWebhookEncryptionKeyId.Type
-
-/**
- * Describes how the body bytes were encrypted. The inline payload and the R2
- * object both hold ciphertext; `payloadSha256` on the envelope is the digest
- * of the plaintext.
- */
-export const GitHubWebhookEncryptionV1 = Schema.Struct({
-  algorithm: Schema.Literal("AES-256-GCM"),
-  keyId: GitHubWebhookEncryptionKeyId,
-  iv: Schema.Uint8ArrayFromBase64,
-}).annotate({ identifier: "GitHubWebhookEncryptionV1" })
-export type GitHubWebhookEncryptionV1 = typeof GitHubWebhookEncryptionV1.Type
-
 export const GitHubWebhookEnvelopeV1 = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   deliveryId: GitHubWebhookDeliveryId,
   eventName: GitHubWebhookName,
   receivedAt: Schema.DateTimeUtcFromString,
   payloadSha256: GitHubWebhookPayloadSha256,
-  encryption: GitHubWebhookEncryptionV1,
   body: GitHubWebhookBodyV1,
 }).annotate({ identifier: "GitHubWebhookEnvelopeV1" })
 export type GitHubWebhookEnvelopeV1 = typeof GitHubWebhookEnvelopeV1.Type

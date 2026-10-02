@@ -70,7 +70,6 @@ import { makeRoutesLayer } from "./Ingress/Routes.ts"
 import * as Config from "effect/Config"
 import * as OpenAiClient from "@effect/ai-openai-compat/OpenAiClient"
 import * as OpenAiLanguageModel from "@effect/ai-openai-compat/OpenAiLanguageModel"
-import * as PayloadCipher from "./PayloadCipher.ts"
 import * as Cause from "effect/Cause"
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
@@ -124,8 +123,7 @@ import { WorkflowDispatcher } from "./WorkflowDispatcher.ts"
 import { WorkflowOutbox, OutboxWake } from "./WorkflowOutbox.ts"
 import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutboxCron.ts"
 import * as AccountLinking from "./AccountLinking.ts"
-import { Teammates, TeammatesConfig } from "./Teammates.ts"
-import { LOCAL_DEV_ISSUER } from "./Ingress/Middleware.ts"
+import { Teammates } from "./Teammates.ts"
 import * as Redacted from "effect/Redacted"
 import { SlackConfig } from "./Slack/Config.ts"
 import { SlackTransport } from "./Slack/Transport.ts"
@@ -138,6 +136,35 @@ const ZONE = "effectful.co"
  */
 const LOCAL_DEV_AUDIENCE = "local-dev"
 const LOCAL_DEV_EMAIL = "dev@janitor.local"
+
+/**
+ * The Slack integration (agent sessions and Sign in with Slack) is switched
+ * off for now. While off, none of its settings are read, so a deploy needs no
+ * Slack credentials and no agent model key, and the Worker binds none of them.
+ * Set this to true to turn it back on; the integration still needs all five
+ * bot settings and AGENT_RUNNER_MODEL_API_KEY.
+ */
+const SLACK_ENABLED = false
+
+/** All five bot settings, or none when any is missing. */
+const slackSettings = Effect.gen(function* () {
+  const workspaceId = yield* Config.String("SLACK_WORKSPACE_ID").pipe(Config.withDefault(""))
+  const appId = yield* Config.String("SLACK_APP_ID").pipe(Config.withDefault(""))
+  const botUserId = yield* Config.String("SLACK_BOT_USER_ID").pipe(Config.withDefault(""))
+  const token = yield* Config.Redacted("SLACK_BOT_TOKEN").pipe(
+    Config.withDefault(Redacted.make("")),
+  )
+  const signingSecret = yield* Config.Redacted("SLACK_SIGNING_SECRET").pipe(
+    Config.withDefault(Redacted.make("")),
+  )
+  return workspaceId !== "" &&
+    appId !== "" &&
+    botUserId !== "" &&
+    Redacted.value(token) !== "" &&
+    Redacted.value(signingSecret) !== ""
+    ? Option.some<SlackConfig["Service"]>({ workspaceId, appId, botUserId, token, signingSecret })
+    : Option.none<SlackConfig["Service"]>()
+})
 
 export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
   "ClusterWorker",
@@ -214,11 +241,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const localCredentials = dev
       ? ConfigProvider.layer(
           ConfigProvider.fromUnknown({
-            JANITOR_GITHUB_WEBHOOK_SECRET: "janitor-local-webhook",
-            JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-            JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "local-v1",
-            JANITOR_GITHUB_APP_ID: "local-disabled",
-            JANITOR_GITHUB_APP_PRIVATE_KEY: "local-disabled",
+            GITHUB_WEBHOOK_SECRET: "janitor-local-webhook",
+            GITHUB_APP_ID: "local-disabled",
+            GITHUB_APP_PRIVATE_KEY: "local-disabled",
           }),
         )
       : Layer.empty
@@ -249,34 +274,22 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     })
     const appCredentials = yield* Config.unwrap(
       GitHubAppAuth.config({
-        appId: "JANITOR_GITHUB_APP_ID",
-        privateKey: "JANITOR_GITHUB_APP_PRIVATE_KEY",
+        appId: "GITHUB_APP_ID",
+        privateKey: "GITHUB_APP_PRIVATE_KEY",
       }),
     ).pipe(Effect.provide(localCredentials))
-    const GitHubPayloadCipherLayer = PayloadCipher.layerFrom(secrets.cipher)
     // Production requires an explicit deployment opt-in. Local development
     // exposes the controls, but live GitHub access remains disabled below.
     const reviewAvailable = dev || (yield* issueReviewEnabled)
     // Account linking is optional per platform; the account page says which
-    // platforms this deployment can connect.
-    const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)
-    const slackWorkspace = yield* Config.String("JANITOR_SLACK_WORKSPACE_ID").pipe(
-      Config.withDefault(""),
-    )
-    const slackApp = yield* Config.String("JANITOR_SLACK_APP_ID").pipe(Config.withDefault(""))
-    const slackBot = yield* Config.String("JANITOR_SLACK_BOT_USER_ID").pipe(Config.withDefault(""))
-    const slackToken = yield* Config.Redacted("JANITOR_SLACK_BOT_TOKEN").pipe(
-      Config.withDefault(Redacted.make("")),
-    )
-    const slackSecret = yield* Config.Redacted("JANITOR_SLACK_SIGNING_SECRET").pipe(
-      Config.withDefault(Redacted.make("")),
-    )
-    const slackConfigured =
-      slackWorkspace !== "" &&
-      slackApp !== "" &&
-      slackBot !== "" &&
-      Redacted.value(slackToken) !== "" &&
-      Redacted.value(slackSecret) !== ""
+    // platforms this deployment can connect. Slack linking only serves the
+    // Slack integration, so it is off whenever that is.
+    const linking: AccountLinking.LinkingSecrets = {
+      slack: SLACK_ENABLED ? yield* AccountLinking.slackLinkingSecrets : Option.none(),
+      github: yield* AccountLinking.githubLinkingSecrets,
+    }
+    const slack = SLACK_ENABLED ? yield* slackSettings : Option.none<SlackConfig["Service"]>()
+    const slackConfigured = Option.isSome(slack)
 
     const GitHubAuthLayer = dev
       ? Layer.succeed(GitHubAppAuth.GitHubAppAuth, {
@@ -316,36 +329,14 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         : undefined
     const publicOrigin =
       typeof liveEnvironment.PUBLIC_ORIGIN === "string" ? liveEnvironment.PUBLIC_ORIGIN : ""
-    // The simulated local identity is the initial admin under `alchemy dev`;
-    // a deploy names its first admin by Access subject.
-    const TeammatesConfigLayer = Layer.succeed(TeammatesConfig, {
-      initialAdmin:
-        localDevAudience === undefined
-          ? Option.map(linking.initialAdminSubject, (subject) => ({
-              issuer: `https://${Access.TEAM_DOMAIN}`,
-              subject,
-            }))
-          : Option.some({ issuer: LOCAL_DEV_ISSUER, subject: LOCAL_DEV_EMAIL }),
-    })
-    if (!dev && Option.isNone(linking.initialAdminSubject)) {
-      yield* Effect.logError(
-        "JANITOR_INITIAL_ADMIN_SUBJECT is not set: every teammate is admitted as a member and nobody can manage the team",
-      )
-    }
     let notifyOutbox: Effect.Effect<void> = Effect.void
     const SlackLayers = slackConfigured
       ? yield* Effect.gen(function* () {
-          const slackConfig = Layer.succeed(SlackConfig, {
-            workspaceId: slackWorkspace,
-            appId: slackApp,
-            botUserId: slackBot,
-            token: slackToken,
-            signingSecret: slackSecret,
-          })
+          const slackConfig = Layer.succeed(SlackConfig, Option.getOrThrow(slack))
           const transport = SlackTransport.layer.pipe(Layer.provide(slackConfig))
           if (Option.isNone(model))
             // Slack needs the agent model; the missing key is a configuration error.
-            yield* Config.Redacted("JANITOR_AGENT_RUNNER_MODEL_API_KEY")
+            yield* Config.Redacted("AGENT_RUNNER_MODEL_API_KEY")
           const modelLayer = Option.getOrThrow(model)({ maxCompletionTokens: 2048 })
           const repositories = layerRepositories.pipe(
             Layer.provide(RepositoryEligibility.layer.pipe(Layer.provide(DatabaseLayer))),
@@ -447,7 +438,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
-      Layer.provideMerge(Teammates.layer.pipe(Layer.provide(TeammatesConfigLayer))),
+      Layer.provideMerge(Teammates.layer),
       Layer.provideMerge(
         Layer.mergeAll(
           RepositoryEligibility.layer,
@@ -457,10 +448,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           GitHubReadModel.layer,
           SyncTargets.layer,
           ContentPurge.layer,
-          GitHubHttpCache.layer.pipe(Layer.provide(GitHubPayloadCipherLayer)),
+          GitHubHttpCache.layer,
           GitHubPayloadReader.fromBucket(githubPayloadsBucket),
           GitHubEventsDeadLetter.fromQueue(githubDeadLetterQueue),
-          GitHubPayloadCipherLayer,
           RulesetActivation.layer,
         ),
       ),

@@ -22,7 +22,6 @@ import {
   GitHubWebhookPayloadSha256,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
-import { GitHubEncryptionKeyIdFixture } from "./support/Fixtures.ts"
 import { ContentPurge, CONTENT_PURGE_GRACE } from "../src/ContentPurge.ts"
 import { GitHubReadModel } from "../src/GitHub/ReadModel.ts"
 import { GitHubWebhookJournal } from "../src/GitHub/WebhookJournal.ts"
@@ -90,11 +89,6 @@ layer(PurgeLayer, { timeout: "2 minutes" })("ContentPurge against Postgres", (it
         eventName: GitHubWebhookName.make("pull_request"),
         receivedAt: now,
         payloadSha256: GitHubWebhookPayloadSha256.make("a".repeat(64)),
-        encryption: {
-          algorithm: "AES-256-GCM",
-          keyId: GitHubEncryptionKeyIdFixture,
-          iv: new Uint8Array(12),
-        },
         payload: Uint8Array.from([1, 2, 3]),
       })
       yield* journal.markProjection(

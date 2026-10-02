@@ -104,8 +104,8 @@ layer(Services, { timeout: "2 minutes" })("Live notification outbox", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
       yield* sql`DELETE FROM live_notification`
-      yield* sql`INSERT INTO teammate (issuer, subject, email, role)
-        VALUES ('live-test', 'live-user', 'live@example.com', 'member')`
+      yield* sql`INSERT INTO teammate (issuer, subject, email)
+        VALUES ('live-test', 'live-user', 'live@example.com')`
       assert.lengthOf(
         yield* sql`SELECT * FROM live_notification WHERE repository_id='application' AND topic='account'`,
         1,
@@ -113,7 +113,7 @@ layer(Services, { timeout: "2 minutes" })("Live notification outbox", (it) => {
       yield* sql`DELETE FROM live_notification`
       yield* sql`UPDATE teammate SET updated_at=CLOCK_TIMESTAMP() WHERE issuer='live-test'`
       assert.lengthOf(yield* sql`SELECT * FROM live_notification`, 0)
-      yield* sql`UPDATE teammate SET role='admin' WHERE issuer='live-test'`
+      yield* sql`UPDATE teammate SET email='renamed@example.com' WHERE issuer='live-test'`
       assert.lengthOf(
         yield* sql`SELECT * FROM live_notification WHERE repository_id='application' AND topic='account'`,
         1,

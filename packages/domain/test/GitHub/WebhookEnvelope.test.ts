@@ -5,7 +5,6 @@ import * as Exit from "effect/Exit"
 import * as Schema from "effect/Schema"
 import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
 import {
-  GitHubWebhookEncryptionKeyId,
   GitHubWebhookEnvelopeV1,
   GitHubWebhookName,
   GitHubWebhookPayloadSha256,
@@ -14,12 +13,6 @@ import {
 
 const receivedAt = "2026-09-01T12:34:56.000Z"
 const payloadSha256 = "a".repeat(64)
-const iv = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-const encryption = {
-  algorithm: "AES-256-GCM" as const,
-  keyId: "key-1",
-  iv: "AQIDBAUGBwgJCgsM",
-}
 
 describe("GitHubWebhookEnvelopeV1", () => {
   it.effect("round-trips exact inline payload bytes", () =>
@@ -31,7 +24,6 @@ describe("GitHubWebhookEnvelopeV1", () => {
         eventName: "future_custom_event",
         receivedAt,
         payloadSha256,
-        encryption,
         body: {
           _tag: "Inline" as const,
           payload: "AA0K//57fQ==",
@@ -46,11 +38,6 @@ describe("GitHubWebhookEnvelopeV1", () => {
         eventName: GitHubWebhookName.make("future_custom_event"),
         receivedAt: DateTime.makeUnsafe(receivedAt),
         payloadSha256: GitHubWebhookPayloadSha256.make(payloadSha256),
-        encryption: {
-          algorithm: "AES-256-GCM",
-          keyId: GitHubWebhookEncryptionKeyId.make("key-1"),
-          iv,
-        },
         body: { _tag: "Inline", payload },
       })
       assert.deepStrictEqual(yield* Schema.encodeEffect(GitHubWebhookEnvelopeV1)(decoded), encoded)
@@ -65,7 +52,6 @@ describe("GitHubWebhookEnvelopeV1", () => {
         eventName: "pull_request",
         receivedAt,
         payloadSha256,
-        encryption,
         body: {
           _tag: "R2" as const,
           key: "github-webhooks/delivery-r2",
@@ -90,15 +76,11 @@ describe("GitHubWebhookEnvelopeV1", () => {
         eventName: "pull_request",
         receivedAt,
         payloadSha256,
-        encryption,
         body: { _tag: "R2", key: "github-webhooks/delivery-r2" },
       }
       const malformed = [
         { ...valid, schemaVersion: 2 },
-        { ...valid, encryption: undefined },
-        { ...valid, encryption: { ...encryption, algorithm: "AES-128-GCM" } },
-        { ...valid, encryption: { ...encryption, keyId: "" } },
-        { ...valid, encryption: { ...encryption, iv: "not base64" } },
+        { ...valid, payloadSha256: undefined },
         { ...valid, deliveryId: "" },
         { ...valid, eventName: "" },
         { ...valid, receivedAt: "not-a-date" },
@@ -127,7 +109,6 @@ describe("GitHubWebhookEnvelopeV1", () => {
         eventName: "pull_request",
         receivedAt,
         payloadSha256,
-        encryption,
         body: {
           _tag: "Inline",
           payload: "e30=",
