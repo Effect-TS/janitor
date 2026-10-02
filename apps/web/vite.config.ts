@@ -14,6 +14,10 @@ export default defineConfig({
   },
   optimizeDeps: {
     entries: ["src/entry.ts"],
+    // The Foldkit plugin excludes foldkit from prebundling, and foldkit imports
+    // the `effect` barrel. Unless the barrel is prebundled too, foldkit loads a
+    // second copy of Effect and its message constructors reject our schemas.
+    include: ["effect"],
   },
   server: {
     // Deployed, the API is a second Worker on this same hostname, reached

@@ -10,6 +10,7 @@ import * as Provider from "alchemy/Provider"
 import * as Secrets from "alchemy/Secrets"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 
 import { JanitorDatabase } from "@janitor/cluster/Database"
 import ClusterWorker from "@janitor/cluster/Worker"
@@ -59,6 +60,19 @@ export default Alchemy.Stack(
     const target = yield* deployment
     const database = yield* JanitorDatabase
     const cluster = yield* ClusterWorker
+
+    // Connects the development GitHub App's webhook tunnel (stacks/development.ts)
+    // when Infisical supplies its token. Only one connector should run at a
+    // time: Cloudflare splits deliveries between concurrent ones.
+    if (target.stage === "local") {
+      const tunnelToken = yield* Config.option(Config.Redacted("CLOUDFLARE_TUNNEL_TOKEN"))
+      if (Option.isSome(tunnelToken)) {
+        yield* Command.Dev("WebhookTunnel", {
+          command: "cloudflared tunnel --no-autoupdate run",
+          env: { TUNNEL_TOKEN: tunnelToken.value },
+        })
+      }
+    }
 
     const website = yield* Cloudflare.Website.Foldkit("Website", {
       rootDir: new URL("./apps/web", import.meta.url).pathname,

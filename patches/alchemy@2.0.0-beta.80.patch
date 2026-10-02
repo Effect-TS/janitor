@@ -1,5 +1,5 @@
 diff --git a/lib/Command/Memo.js b/lib/Command/Memo.js
-index c19d769..3a516af 100644
+index c19d7692162404bd4d11d61c83f2599b48cad311..3a516afb7955c458e09047600a0a54111e4f810e 100644
 --- a/lib/Command/Memo.js
 +++ b/lib/Command/Memo.js
 @@ -3,7 +3,6 @@ import * as FileSystem from "effect/FileSystem";
@@ -20,8 +20,21 @@ index c19d769..3a516af 100644
          // Explicitly hashing a generated artifact still hashes its contents.
          const excludeRuntime = !isPathWithin(dotAlchemy, options.cwd, runtimeBase);
          const [files, lockfile] = yield* Effect.all([
+diff --git a/lib/Docker/Docker.js b/lib/Docker/Docker.js
+index a752601b86022db1ea8bf3a33a80e783c3a1b1a7..1224507a0fa0f2d92a6138e2f392778ba8f0396e 100644
+--- a/lib/Docker/Docker.js
++++ b/lib/Docker/Docker.js
+@@ -52,7 +52,7 @@ export const DockerLive = Layer.effect(Docker, Effect.gen(function* () {
+         if (result.exitCode === 0)
+             return Effect.void;
+         const stderr = result.stderr.replace(/^Error response from daemon: /, "");
+-        if (stderr.match(/no such/i) || stderr.match(/not found/i)) {
++        if (stderr.match(/no such/i) || stderr.match(/not found/i) || stderr.match(/not known/i)) {
+             return systemError({
+                 _tag: "NotFound",
+                 args,
 diff --git a/src/Command/Memo.ts b/src/Command/Memo.ts
-index 7a405c8..543d8e5 100644
+index 7a405c8df86c9bbb391ca46ab0386c32f83f6e58..543d8e5b5fcdd320674f22026b04250a5c471988 100644
 --- a/src/Command/Memo.ts
 +++ b/src/Command/Memo.ts
 @@ -4,7 +4,6 @@ import * as Path from "effect/Path";
@@ -44,3 +57,16 @@ index 7a405c8..543d8e5 100644
      // Explicitly hashing a generated artifact still hashes its contents.
      const excludeRuntime = !isPathWithin(dotAlchemy, options.cwd, runtimeBase);
      const [files, lockfile] = yield* Effect.all(
+diff --git a/src/Docker/Docker.ts b/src/Docker/Docker.ts
+index b2f4499e86f267d4b8da9da2a25b17e34be69ee9..b9ec01df44ce2a829950bec817535bd3e5f01477 100644
+--- a/src/Docker/Docker.ts
++++ b/src/Docker/Docker.ts
+@@ -569,7 +569,7 @@ export const DockerLive = Layer.effect(
+             /^Error response from daemon: /,
+             "",
+           );
+-          if (stderr.match(/no such/i) || stderr.match(/not found/i)) {
++          if (stderr.match(/no such/i) || stderr.match(/not found/i) || stderr.match(/not known/i)) {
+             return systemError({
+               _tag: "NotFound",
+               args,

@@ -173,13 +173,19 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // Every secret is read here, during init, so Alchemy binds it at deploy
     // time. The cluster layer is built lazily and cannot register bindings.
     const dev = yield* ALCHEMY_DEV
-    const localCredentials = dev
+    const appConfig = Config.unwrap(
+      GitHubAppAuth.config({
+        appId: "GITHUB_APP_ID",
+        privateKey: "GITHUB_APP_PRIVATE_KEY",
+      }),
+    )
+    // Development uses the development GitHub App when Infisical supplies its
+    // credentials. Without them live GitHub access stays disabled and a
+    // placeholder secret stands in for the webhook signature.
+    const appCredentials = dev ? yield* Config.option(appConfig) : Option.some(yield* appConfig)
+    const localCredentials = Option.isNone(appCredentials)
       ? ConfigProvider.layer(
-          ConfigProvider.fromUnknown({
-            GITHUB_WEBHOOK_SECRET: "janitor-local-webhook",
-            GITHUB_APP_ID: "local-disabled",
-            GITHUB_APP_PRIVATE_KEY: "local-disabled",
-          }),
+          ConfigProvider.fromUnknown({ GITHUB_WEBHOOK_SECRET: "janitor-local-webhook" }),
         )
       : Layer.empty
     const secrets = yield* Config.unwrap(ingressSecrets).pipe(Effect.provide(localCredentials))
@@ -200,34 +206,30 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           Layer.provide(FetchHttpClient.layer),
         ),
     })
-    const appCredentials = yield* Config.unwrap(
-      GitHubAppAuth.config({
-        appId: "GITHUB_APP_ID",
-        privateKey: "GITHUB_APP_PRIVATE_KEY",
-      }),
-    ).pipe(Effect.provide(localCredentials))
     // Account linking is optional; the account page says whether this
     // deployment can connect GitHub accounts.
     const linking = yield* Config.unwrap(AccountLinking.linkingSecrets)
 
-    const GitHubAuthLayer = dev
-      ? Layer.succeed(GitHubAppAuth.GitHubAppAuth, {
+    const GitHubAuthLayer = Option.match(appCredentials, {
+      onSome: GitHubAppAuth.layerFrom,
+      onNone: () =>
+        Layer.succeed(GitHubAppAuth.GitHubAppAuth, {
           appJwt: Effect.fail(
             new GitHubAppAuth.GitHubAppAuthError({
               operation: "signJwt",
-              message: "Live GitHub access is disabled in local development",
+              message: "Live GitHub access is disabled without development App credentials",
             }),
           ),
           installationToken: () =>
             Effect.fail(
               new GitHubAppAuth.GitHubAppAuthError({
                 operation: "installationToken",
-                message: "Live GitHub access is disabled in local development",
+                message: "Live GitHub access is disabled without development App credentials",
               }),
             ),
           invalidateInstallationToken: () => Effect.void,
-        })
-      : GitHubAppAuth.layerFrom(appCredentials)
+        }),
+    })
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
       Layer.provideMerge(GitHubAuthLayer),
       Layer.provideMerge(GitHubBudget.layer),
