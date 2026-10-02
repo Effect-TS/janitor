@@ -12,8 +12,8 @@ import { evalStack } from "alchemy/Stack"
 import { inMemoryState } from "alchemy/State"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 const image = `registry.cloudflare.com/test/review@sha256:${"a".repeat(64)}`
 const stack = Alchemy.Stack(

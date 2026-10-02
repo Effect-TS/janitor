@@ -3,7 +3,7 @@ import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import type { PolicyTarget } from "@janitor/domain/Labeling/Policy/Program"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import type * as SqlClient from "effect/unstable/sql/SqlClient"
+import type * as SqlClient from "effect/sql/SqlClient"
 
 /** Call under withRepositoryMutation so checking and writing share the repository lock. */
 export const labelOwnershipConflict = (

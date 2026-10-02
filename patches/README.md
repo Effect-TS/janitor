@@ -8,9 +8,17 @@ Alchemy's command memoization module imports `tinyglobby` at module scope. That 
 
 `Memo.test.ts` verifies that deployment hashing still detects included file changes and ignores excluded files. Remove this patch when the pinned Alchemy version defers the import upstream.
 
-## Effect release candidate
+## Effect snapshot
 
-Janitor tracks the registry release `4.0.0-rc.117` for every Effect package except `@effect/platform-cloudflare`, which is not published yet. That package comes from the pkg.pr.new snapshot of the `eff-698-cloudflare-cluster` branch (Effect PR 7322) at commit `a8e31fe7ef29ce258788bea83e7684cb44f8d045`, which is that branch merged with the `effect@4.0.0-rc.117` tag. To move forward, merge the next release tag into that branch, dispatch the Effect `Snapshot` workflow on it, and update the catalog URL. The root catalog and overrides keep every Effect package on one version.
+`@effect/platform-cloudflare` is not published yet, so every Effect package comes from the pkg.pr.new snapshot of Effect PR 7322 (`eff-698-cloudflare-cluster`) at commit `7c5525a6c2084247c262fef7c2045c94c10f0e67`. That commit is the branch rebased onto Effect `4.0.0`, so the snapshot packages report version `4.0.0`. Sharing one snapshot keeps janitor and clanka on the same Effect build. To move forward, rebase the branch onto the next release, let the Effect `Snapshot` workflow publish the new head, and update every catalog URL. Switch to registry packages once the PR is released. The root catalog and overrides keep every Effect package on one version, including `@effect/sql-d1` and `@effect/sql-sqlite-do`, which Alchemy depends on.
+
+Alchemy lists `@effect/platform-node`, `@effect/sql-pg`, and `@effect/vitest` as optional peers. pnpm resolves a missing optional peer from the registry rather than from the catalog, so every workspace package that depends on `alchemy` also declares all three as `catalog:` dependencies.
+
+## Alchemy preview build
+
+**Temporary. Expires around 2026-10-08.** Published Alchemy `2.0.0-beta.79` and `@distilled.cloud/*` `1.0.0-rc.12` import `effect/unstable/*`, which Effect `4.0.0` no longer exports. Until Alchemy `2.0.0-beta.80` and a matching distilled release ship, `alchemy` and `@distilled.cloud/cloudflare` come from Alchemy's preview registry (`pkg.alchemy.run`). They're pinned to the content-addressed tarballs of the `main` build at commit `1d13bddb8b4adaf51aec2c0018678f51dc2879f1`, published 2026-10-01. The preview `alchemy` manifest pins its own `@alchemy.run/*` and `@distilled.cloud/*` dependencies to tarballs from the same build. Its manifests still report `2.0.0-beta.79` and `1.0.0-rc.12`, so the patch keys below are unchanged.
+
+Previews expire one week after publication. After that, a fresh install can't fetch these tarballs, though existing pnpm stores keep working. Before then, switch the catalog to the published releases, or to a newer preview if they haven't shipped. Upstream tracking is in alchemy-run/alchemy#1882. The preview omits `@distilled.cloud/gcp`, which falls back to registry `1.0.0-rc.12` with the old Effect paths. Only `alchemy/GCP` loads it, and janitor doesn't import that.
 
 ## OpenAI-compatible response metadata
 

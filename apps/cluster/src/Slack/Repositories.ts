@@ -3,9 +3,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as Request from "effect/unstable/http/HttpClientRequest"
-import * as Response from "effect/unstable/http/HttpClientResponse"
+import * as HttpClient from "effect/http/HttpClient"
+import * as Request from "effect/http/HttpClientRequest"
+import * as Response from "effect/http/HttpClientResponse"
 import { GitHubAppAuth } from "../GitHub/AppAuth.ts"
 import {
   type Eligibility,

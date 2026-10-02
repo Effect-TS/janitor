@@ -1,8 +1,8 @@
 diff --git a/lib/Cloudflare/Containers/ContainerProvider.js b/lib/Cloudflare/Containers/ContainerProvider.js
-index ce2f166bae12ef8fb7af28095ff1c128e4a46eb6..d08ef9c6b3c56706a596a882b368eb41eee68080 100644
+index 690f7a4..7b8db7e 100644
 --- a/lib/Cloudflare/Containers/ContainerProvider.js
 +++ b/lib/Cloudflare/Containers/ContainerProvider.js
-@@ -552,7 +552,18 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+@@ -587,7 +587,18 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
              affinities: news.affinities,
              configuration,
              durableObjects,
@@ -23,10 +23,10 @@ index ce2f166bae12ef8fb7af28095ff1c128e4a46eb6..d08ef9c6b3c56706a596a882b368eb41
                  const existing = yield* findApplicationByNamespace(durableObjects.namespaceId);
                  const recovery = resolveDurableObjectApplicationRecovery({
 diff --git a/src/Cloudflare/Containers/ContainerProvider.ts b/src/Cloudflare/Containers/ContainerProvider.ts
-index b8d91e4d0a6a25802f118724bc8d46e4dd533038..87a98f944ab1b587c564af0df96b2718a750d966 100644
+index 41dc9d1..acf37aa 100644
 --- a/src/Cloudflare/Containers/ContainerProvider.ts
 +++ b/src/Cloudflare/Containers/ContainerProvider.ts
-@@ -825,6 +825,18 @@ export const LiveContainerProvider = () =>
+@@ -876,6 +876,18 @@ export const LiveContainerProvider = () =>
            configuration,
            durableObjects,
          }).pipe(
@@ -45,43 +45,49 @@ index b8d91e4d0a6a25802f118724bc8d46e4dd533038..87a98f944ab1b587c564af0df96b2718
            Effect.catchTag("DurableObjectAlreadyHasApplication", () =>
              durableObjects
                ? Effect.gen(function* () {
+diff --git a/lib/Command/Memo.js b/lib/Command/Memo.js
+index c19d769..3a516af 100644
 --- a/lib/Command/Memo.js
 +++ b/lib/Command/Memo.js
-@@ -1,7 +1,6 @@
- import * as Effect from "effect/Effect";
- import * as FileSystem from "effect/FileSystem";
+@@ -3,7 +3,6 @@ import * as FileSystem from "effect/FileSystem";
  import * as Path from "effect/Path";
--import { glob } from "tinyglobby";
+ import { dotAlchemyDirectory } from "../AlchemyContext.js";
+ import { isPathWithin } from "../Util/isPathWithin.js";
+-import { convertPathToPattern, glob } from "tinyglobby";
  import { gitignoreRulesToGlobs } from "../Util/gitignore-rules-to-globs.js";
  import { initialCwd } from "../Util/Node.js";
  import { sha256, sha256Object } from "../Util/sha256.js";
-@@ -50,6 +49,9 @@
+@@ -54,6 +53,9 @@ const Memo = Effect.gen(function* () {
          };
      });
      const listFiles = Effect.fn(function* (options) {
 +        // Filesystem globbing is only needed while planning a deployment.
 +        // Loading it at module scope runs fdir's createRequire in Workers.
-+        const { glob } = yield* Effect.promise(() => import("tinyglobby"));
++        const { convertPathToPattern, glob } = yield* Effect.promise(() => import("tinyglobby"));
+         // Explicitly hashing a generated artifact still hashes its contents.
+         const excludeRuntime = !isPathWithin(dotAlchemy, options.cwd, runtimeBase);
          const [files, lockfile] = yield* Effect.all([
-             Effect.promise(() => glob(options.include, {
-                 cwd: options.cwd,
+diff --git a/src/Command/Memo.ts b/src/Command/Memo.ts
+index 7a405c8..543d8e5 100644
 --- a/src/Command/Memo.ts
 +++ b/src/Command/Memo.ts
-@@ -2,7 +2,6 @@
- import * as FileSystem from "effect/FileSystem";
- import * as Path from "effect/Path";
+@@ -4,7 +4,6 @@ import * as Path from "effect/Path";
+ import { dotAlchemyDirectory } from "../AlchemyContext.ts";
+ import { isPathWithin } from "../Util/isPathWithin.ts";
  import type { PlatformError } from "effect/PlatformError";
--import { glob } from "tinyglobby";
+-import { convertPathToPattern, glob } from "tinyglobby";
  import { gitignoreRulesToGlobs } from "../Util/gitignore-rules-to-globs.ts";
  import { initialCwd } from "../Util/Node.ts";
  import { sha256, sha256Object } from "../Util/sha256.ts";
-@@ -130,6 +129,9 @@
+@@ -134,6 +133,11 @@ const Memo = Effect.gen(function* () {
    const listFiles = Effect.fn(function* (
      options: ResolvedMemoOptions,
    ): Effect.fn.Return<string[], PlatformError> {
 +    // Filesystem globbing is only needed while planning a deployment.
 +    // Loading it at module scope runs fdir's createRequire in Workers.
-+    const { glob } = yield* Effect.promise(() => import("tinyglobby"));
++    const { convertPathToPattern, glob } = yield* Effect.promise(
++      () => import("tinyglobby"),
++    );
+     // Explicitly hashing a generated artifact still hashes its contents.
+     const excludeRuntime = !isPathWithin(dotAlchemy, options.cwd, runtimeBase);
      const [files, lockfile] = yield* Effect.all(
-       [
-         Effect.promise(() =>

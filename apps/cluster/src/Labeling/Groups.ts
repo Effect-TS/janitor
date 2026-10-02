@@ -4,7 +4,7 @@ import type { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import type { PolicyTarget } from "@janitor/domain/Labeling/Policy/Program"
 import type { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import * as Effect from "effect/Effect"
-import type * as SqlClient from "effect/unstable/sql/SqlClient"
+import type * as SqlClient from "effect/sql/SqlClient"
 
 /** Membership uses published targets and includes disabled rules. Call under the repository lock. */
 export const groupIssues = Effect.fn("groupIssues")(function* (

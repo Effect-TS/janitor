@@ -2,8 +2,8 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import type { DurableObjectShape } from "alchemy/Cloudflare/Workers"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest"
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
+import * as HttpServerRequest from "effect/http/HttpServerRequest"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
 
 export const LiveNotice = Schema.Struct({
   revision: Schema.String,

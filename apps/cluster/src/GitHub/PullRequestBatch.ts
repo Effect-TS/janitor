@@ -3,7 +3,7 @@ import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 
 /** PR IDs are not issue IDs. Bootstrap identity without inventing the latter. */
 export const applyPullRequestBatch = (request: {

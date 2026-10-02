@@ -5,8 +5,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import type * as LanguageModel from "effect/unstable/ai/LanguageModel"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import type * as LanguageModel from "effect/ai/LanguageModel"
 
 /**
  * The deployment's agent model: the OpenRouter chat configuration agent

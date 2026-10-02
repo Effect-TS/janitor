@@ -2,7 +2,7 @@ import { assert, layer } from "@effect/vitest"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { WorkflowOutbox, OutboxWake } from "../src/WorkflowOutbox.ts"
 import { MigratedPostgresLayer } from "./support/Postgres.ts"
 

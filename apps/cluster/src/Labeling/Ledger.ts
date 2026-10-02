@@ -3,7 +3,7 @@ import type { ReconciliationIdentity } from "@janitor/domain/Labeling/Reconcilia
 import { Plan, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { recordAudit } from "./Audit.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
 

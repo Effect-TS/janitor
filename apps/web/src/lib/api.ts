@@ -1,8 +1,8 @@
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import * as HttpIncomingMessage from "effect/unstable/http/HttpIncomingMessage"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientRequest from "effect/http/HttpClientRequest"
+import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 
 const FALLBACK_REASON = "The request failed. Please retry."
 

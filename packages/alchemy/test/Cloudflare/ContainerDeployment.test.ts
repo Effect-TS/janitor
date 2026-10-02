@@ -16,8 +16,8 @@ import * as Fiber from "effect/Fiber"
 import * as Result from "effect/Result"
 import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 const image = `registry.cloudflare.com/test/review@sha256:${"a".repeat(64)}`
 const stack = Alchemy.Stack(

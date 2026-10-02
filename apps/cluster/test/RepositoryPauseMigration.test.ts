@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { MigratedPostgresLayer, runScript } from "./support/Postgres.ts"
 import { describeError } from "../src/SqlErrors.ts"
 

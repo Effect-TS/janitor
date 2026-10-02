@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Base64 from "effect/encoding/Base64"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
@@ -118,7 +118,7 @@ describe("PayloadCipher", () => {
           Layer.provide(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: Encoding.encodeBase64(key),
+                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: Base64.encode(key),
                 JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "config-key",
               }),
             ),
@@ -140,7 +140,7 @@ describe("PayloadCipher", () => {
           Layer.provide(
             ConfigProvider.layer(
               ConfigProvider.fromUnknown({
-                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: Encoding.encodeBase64(new Uint8Array(16)),
+                JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY: Base64.encode(new Uint8Array(16)),
                 JANITOR_GITHUB_WEBHOOK_PAYLOAD_KEY_ID: "key",
               }),
             ),

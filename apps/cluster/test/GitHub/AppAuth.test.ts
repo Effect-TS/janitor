@@ -1,17 +1,18 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Base64 from "effect/encoding/Base64"
+import * as Base64Url from "effect/encoding/Base64Url"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import * as AppAuth from "../../src/GitHub/AppAuth.ts"
 
 const pem = (label: string, der: Uint8Array) =>
   `-----BEGIN ${label}-----
-${Encoding.encodeBase64(der).replace(/(.{64})/g, "$1\n")}\n-----END ${label}-----\n`
+${Base64.encode(der).replace(/(.{64})/g, "$1\n")}\n-----END ${label}-----\n`
 
 const generateKeyPair = Effect.promise(() =>
   crypto.subtle.generateKey(
@@ -43,7 +44,7 @@ const pkcs1FromPkcs8 = (pkcs8: Uint8Array): Uint8Array => {
 }
 
 const decodeBase64Url = (value: string) => {
-  const result = Encoding.decodeBase64Url(value)
+  const result = Base64Url.decode(value)
   assert.isTrue(result._tag === "Success")
   return result._tag === "Success" ? result.success : new Uint8Array()
 }

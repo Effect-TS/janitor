@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { describeError } from "./SqlErrors.ts"
 
 /** The execution scope closes after its transactions commit or roll back. */

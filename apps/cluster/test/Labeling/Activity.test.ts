@@ -1,6 +1,6 @@
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { activityPage } from "../../src/Labeling/Activity.ts"
 import { repositoryId, seed, seedPullRequests, Services, bug } from "./support.ts"
 layer(Services, { timeout: "2 minutes" })("Activity pagination", (it) => {

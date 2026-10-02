@@ -1,16 +1,16 @@
 diff --git a/dist/OpenAiClient.js b/dist/OpenAiClient.js
-index 041cc8efd686082b1371d4ba6064c13980aaf2fd..bcbdbfe5ebe954019fa05c6ed0d42f3d89353ace 100644
+index 74b8499..c3eb0ad 100644
 --- a/dist/OpenAiClient.js
 +++ b/dist/OpenAiClient.js
-@@ -14,6 +14,7 @@ import { identity } from "effect/Function";
+@@ -10,6 +10,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
  import * as Layer from "effect/Layer";
  import * as Redacted from "effect/Redacted";
  import * as Schema from "effect/Schema";
 +import * as SchemaTransformation from "effect/SchemaTransformation";
  import * as Stream from "effect/Stream";
- import * as Sse from "effect/unstable/encoding/Sse";
- import * as Headers from "effect/unstable/http/Headers";
-@@ -229,13 +230,17 @@ const ChatCompletionUsage = /*#__PURE__*/Schema.Struct({
+ import * as Errors from "./internal/errors.js";
+ import { OpenAiConfig } from "./OpenAiConfig.js";
+@@ -226,13 +227,17 @@ const ChatCompletionUsage = /*#__PURE__*/Schema.Struct({
    prompt_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any),
    completion_tokens_details: /*#__PURE__*/Schema.optionalKey(Schema.Any)
  });
@@ -29,7 +29,7 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..bcbdbfe5ebe954019fa05c6ed0d42f3d
  });
  const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
    id: Schema.String,
-@@ -243,7 +248,7 @@ const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
+@@ -240,7 +245,7 @@ const ChatCompletionChunk = /*#__PURE__*/Schema.Struct({
    created: Schema.Int,
    choices: /*#__PURE__*/Schema.Array(ChatCompletionChoice),
    usage: /*#__PURE__*/Schema.optionalKey(/*#__PURE__*/Schema.NullOr(ChatCompletionUsage)),
@@ -38,7 +38,7 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..bcbdbfe5ebe954019fa05c6ed0d42f3d
  });
  const parseJson = value => {
    try {
-@@ -252,7 +257,7 @@ const parseJson = value => {
+@@ -249,7 +254,7 @@ const parseJson = value => {
      return undefined;
    }
  };
@@ -47,7 +47,7 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..bcbdbfe5ebe954019fa05c6ed0d42f3d
  const decodeChatCompletionSseData = data => {
    if (data === "[DONE]") {
      return data;
-@@ -261,7 +266,8 @@ const decodeChatCompletionSseData = data => {
+@@ -258,7 +263,8 @@ const decodeChatCompletionSseData = data => {
    if (parsed === undefined) {
      return undefined;
    }
@@ -58,18 +58,18 @@ index 041cc8efd686082b1371d4ba6064c13980aaf2fd..bcbdbfe5ebe954019fa05c6ed0d42f3d
      data: parsed
    };
 diff --git a/src/OpenAiClient.ts b/src/OpenAiClient.ts
-index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..ed950bc71f7200a2756ff1206641ca9158ac8fd0 100644
+index 8551f92..bca8fef 100644
 --- a/src/OpenAiClient.ts
 +++ b/src/OpenAiClient.ts
-@@ -15,6 +15,7 @@ import { identity } from "effect/Function"
+@@ -22,6 +22,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
  import * as Layer from "effect/Layer"
  import * as Redacted from "effect/Redacted"
  import * as Schema from "effect/Schema"
 +import * as SchemaTransformation from "effect/SchemaTransformation"
  import * as Stream from "effect/Stream"
- import type * as AiError from "effect/unstable/ai/AiError"
- import * as Sse from "effect/unstable/encoding/Sse"
-@@ -1144,13 +1145,20 @@ const ChatCompletionUsage = Schema.Struct({
+ import * as Errors from "./internal/errors.ts"
+ import { OpenAiConfig } from "./OpenAiConfig.ts"
+@@ -1181,13 +1182,20 @@ const ChatCompletionUsage = Schema.Struct({
    completion_tokens_details: Schema.optionalKey(Schema.Any)
  })
  
@@ -91,7 +91,7 @@ index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..ed950bc71f7200a2756ff1206641ca91
  })
  
  const ChatCompletionChunk = Schema.Struct({
-@@ -1159,7 +1167,7 @@ const ChatCompletionChunk = Schema.Struct({
+@@ -1196,7 +1204,7 @@ const ChatCompletionChunk = Schema.Struct({
    created: Schema.Int,
    choices: Schema.Array(ChatCompletionChoice),
    usage: Schema.optionalKey(Schema.NullOr(ChatCompletionUsage)),
@@ -100,7 +100,7 @@ index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..ed950bc71f7200a2756ff1206641ca91
  })
  
  /**
-@@ -1231,7 +1239,7 @@ const parseJson = (value: string): unknown => {
+@@ -1276,7 +1284,7 @@ const parseJson = (value: string): unknown => {
    }
  }
  
@@ -109,7 +109,7 @@ index c8ecad004a610e4a7c37c443c9d8b9b8f976b0ea..ed950bc71f7200a2756ff1206641ca91
  
  const decodeChatCompletionSseData = (
    data: string
-@@ -1243,7 +1251,8 @@ const decodeChatCompletionSseData = (
+@@ -1288,7 +1296,8 @@ const decodeChatCompletionSseData = (
    if (parsed === undefined) {
      return undefined
    }

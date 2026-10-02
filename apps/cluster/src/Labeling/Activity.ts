@@ -4,7 +4,7 @@ import { ActivityCursor, ActivityEntry, ActivityPage } from "@janitor/domain/Lab
 import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as SqlClient from "effect/sql/SqlClient"
 import { LabelingConfiguration } from "./Configuration.ts"
 
 export const ACTIVITY_PAGE_SIZE = 50

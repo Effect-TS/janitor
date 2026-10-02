@@ -1,6 +1,6 @@
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Singleton from "effect/unstable/cluster/Singleton"
+import * as Singleton from "effect/cluster/Singleton"
 import { ContentPurge } from "./ContentPurge.ts"
 import { RulesetActivation } from "./Labeling/Activation.ts"
 import { AiConsentService } from "./Labeling/Classifier.ts"

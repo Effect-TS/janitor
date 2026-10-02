@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as TestClock from "effect/testing/TestClock"
 import * as Layer from "effect/Layer"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import { WorkflowDispatcher, type WorkflowRegistration } from "../src/WorkflowDispatcher.ts"
 import {
   WorkflowOutbox,

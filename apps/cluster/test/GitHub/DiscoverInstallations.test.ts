@@ -2,7 +2,7 @@ import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import {
   DiscoverInstallations,

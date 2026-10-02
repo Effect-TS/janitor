@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
-import * as Request from "effect/unstable/http/HttpServerRequest"
-import * as Response from "effect/unstable/http/HttpServerResponse"
+import * as HttpRouter from "effect/http/HttpRouter"
+import * as Request from "effect/http/HttpServerRequest"
+import * as Response from "effect/http/HttpServerResponse"
 import * as Stream from "effect/Stream"
 import { SlackWebhook } from "../Slack/Webhook.ts"
 

@@ -1,4 +1,4 @@
-import * as SqlError from "effect/unstable/sql/SqlError"
+import * as SqlError from "effect/sql/SqlError"
 
 /**
  * `SqlError.message` is a generic label such as "Failed to execute statement".

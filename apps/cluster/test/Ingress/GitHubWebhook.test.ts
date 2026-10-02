@@ -6,9 +6,9 @@ import { assert, describe, it } from "@effect/vitest"
 import * as RuntimeContext from "alchemy/RuntimeContext"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Layer from "effect/Layer"
-import * as HttpRouter from "effect/unstable/http/HttpRouter"
+import * as HttpRouter from "effect/http/HttpRouter"
 import {
   GitHubWebhookEncryptionKeyId,
   type GitHubWebhookEnvelopeV1,
@@ -142,7 +142,7 @@ const paddedJson = (byteLength: number) =>
 const sha256 = (bytes: Uint8Array<ArrayBuffer>) =>
   Effect.map(
     Effect.promise(() => crypto.subtle.digest("SHA-256", bytes)),
-    (digest) => Encoding.encodeHex(new Uint8Array(digest)),
+    (digest) => Hex.encode(new Uint8Array(digest)),
   )
 
 describe("GitHubWebhookRoutes", () => {

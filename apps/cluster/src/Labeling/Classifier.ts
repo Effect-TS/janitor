@@ -28,15 +28,15 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import * as Hex from "effect/encoding/Hex"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import * as LanguageModel from "effect/unstable/ai/LanguageModel"
-import * as AiError from "effect/unstable/ai/AiError"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as LanguageModel from "effect/ai/LanguageModel"
+import * as AiError from "effect/ai/AiError"
+import * as SqlClient from "effect/sql/SqlClient"
 import { describeError } from "../SqlErrors.ts"
 
 /**
@@ -391,7 +391,7 @@ const DecisionRow = Schema.Struct({
 
 const sha256Hex = (text: string) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).pipe(
-    Effect.map((digest) => Encoding.encodeHex(new Uint8Array(digest))),
+    Effect.map((digest) => Hex.encode(new Uint8Array(digest))),
   )
 
 /**

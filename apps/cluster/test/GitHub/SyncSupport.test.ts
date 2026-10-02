@@ -3,9 +3,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine"
-import * as Workflow from "effect/unstable/workflow/Workflow"
-import * as Activity from "effect/unstable/workflow/Activity"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
+import * as Workflow from "effect/workflow/Workflow"
+import * as Activity from "effect/workflow/Activity"
 import { GitHubHttpCache, type CachedPage, type PutRequest } from "../../src/GitHub/HttpCache.ts"
 import {
   PAGE_SIZE,

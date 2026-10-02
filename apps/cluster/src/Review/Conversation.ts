@@ -5,7 +5,7 @@ import {
   type ReviewEvidence,
 } from "@janitor/domain/Review/Findings"
 import * as Schema from "effect/Schema"
-import type * as Prompt from "effect/unstable/ai/Prompt"
+import type * as Prompt from "effect/ai/Prompt"
 
 /**
  * The agent's conversation as persisted action results, and the prompt
