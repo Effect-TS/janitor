@@ -60,7 +60,7 @@ export default {
       const { Writable } = await import("node:stream")
       class Q extends Writable {
         out: string[] = []
-        _write(chunk: any, _e: BufferEncoding, cb: (e?: Error | null) => void) {
+        override _write(chunk: any, _e: BufferEncoding, cb: (e?: Error | null) => void) {
           this.out.push(chunk.toString())
           cb()
         }

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# EFF-1655 spike: the `docker` on this machine is podman's docker shim, which
+# rejects the BuildKit-only flags alchemy's local runtime passes to `build`.
+# Strip them and forward everything else to the real CLI.
+real="/home/tim/.nix-profile/bin/docker"
+if [ "${1:-}" = "build" ]; then
+  args=()
+  for a in "$@"; do
+    case "$a" in
+      --load|--provenance=false) ;;
+      *) args+=("$a") ;;
+    esac
+  done
+  exec "$real" "${args[@]}"
+fi
+exec "$real" "$@"

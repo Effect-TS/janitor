@@ -87,6 +87,10 @@ allowBuilds:
   sharp: false
   ssh2: false
   workerd: true
+  # EFF-1655 spike: clanka pulls tree-sitter; only SemanticSearch needs it.
+  tree-sitter: false
+  tree-sitter-javascript: false
+  tree-sitter-typescript: false
 
 minimumReleaseAgeExclude:
   - "@alchemy.run/*"
