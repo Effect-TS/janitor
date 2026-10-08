@@ -1,4 +1,5 @@
 import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
@@ -30,6 +31,10 @@ export default class SpikeWorker extends Cloudflare.Worker<SpikeWorker>()(
         switch (url.pathname) {
           case "/health":
             return json(yield* agent.health())
+          case "/abort":
+            return json(
+              yield* agent.abort().pipe(Effect.catchCause((cause) => Effect.succeed({ abortCallFailed: Cause.pretty(cause).slice(0, 400) }))),
+            )
           case "/rawrpc":
             return json(yield* agent.rawRpc(url.searchParams.get("mode") ?? "string"))
           case "/caps":

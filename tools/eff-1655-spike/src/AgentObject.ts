@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
@@ -23,6 +24,8 @@ export type Transport = "http" | "ws"
 export interface AgentObjectShape {
   /** Container health via the TCP port: proves the port fetch path. */
   readonly health: () => Effect.Effect<unknown>
+  /** `ctx.abort()`: the closest local stand-in for an eviction. Never returns normally. */
+  readonly abort: () => Effect.Effect<unknown>
   /** A hand-built RPC POST over the raw container port: isolates body/stream handling. */
   readonly rawRpc: (mode: string) => Effect.Effect<unknown>
   /** `capabilities` RPC (unary). */
@@ -59,7 +62,17 @@ export default AgentObject.make(
     const state = yield* Cloudflare.DurableObjectState
 
     return Effect.gen(function* () {
-      const doScope = yield* Effect.scope
+      // NOTE: the Scope alchemy hands to this constructor closes as soon as
+      // the shape is built (observed: "scope closing: success" right after
+      // construction), so fibers forked into it are interrupted immediately.
+      // Long-running turns need a scope the object owns itself.
+      const doScope = yield* Scope.make()
+      // Distinguishes DO *instances*: a reset/eviction constructs a new one.
+      const objectInstance = Math.random().toString(36).slice(2, 10)
+      console.log(`[AgentObject] constructing object instance ${objectInstance} for ${state.id.toString()}`)
+      yield* Effect.addFinalizer((exit) =>
+        Effect.sync(() => console.log(`[AgentObject] construction scope of ${objectInstance} closing: ${Exit.isSuccess(exit) ? "success" : Cause.pretty(exit.cause).slice(0, 200)}`)),
+      )
       const port = yield* container.getTcpPort(3000)
 
       // Make sure the container is up and port 3000 answers before any RPC
@@ -81,8 +94,9 @@ export default AgentObject.make(
         const bodyKind = init?.body === undefined ? "none" : typeof init.body === "string" ? "string" : init.body instanceof Uint8Array ? "bytes" : init.body instanceof ReadableStream ? "stream" : typeof init.body
         console.log(`[rawFetch] ${init?.method ?? "GET"} ${url} body=${bodyKind} headers=${JSON.stringify(init?.headers ?? {})}`)
         const response = (await rawPort.fetch(url, init as any)) as Response
-        const peek = await response.clone().text()
-        console.log(`[rawFetch] -> ${response.status} content-length=${response.headers.get("content-length")} transfer-encoding=${response.headers.get("transfer-encoding")} bodyLength=${peek.length} head=${JSON.stringify(peek.slice(0, 120))}`)
+        // Do not read the body here: an `execute` stream stays open until the
+        // DO answers `subagentOutput`, so buffering it would deadlock.
+        console.log(`[rawFetch] -> ${response.status} content-length=${response.headers.get("content-length")} transfer-encoding=${response.headers.get("transfer-encoding")}`)
         return response
       }
 
@@ -164,6 +178,7 @@ export default AgentObject.make(
           )
           return {
             instanceId,
+            objectInstance,
             transport,
             elapsedMs: Date.now() - started,
             outcome: Exit.isSuccess(outcome) ? outcome.value : { _tag: "failed", cause: Cause.pretty(outcome.cause) },
@@ -184,8 +199,19 @@ export default AgentObject.make(
           Effect.gen(function* () {
             const response = yield* port.fetch(HttpClientRequest.get("http://container/health"))
             const body = yield* response.json
-            return { instanceId, doId: state.id.toString(), container: body }
+            return { instanceId, objectInstance, doId: state.id.toString(), container: body }
           }).pipe(Effect.catchCause((cause) => Effect.succeed({ instanceId, error: Cause.pretty(cause) }))),
+
+        abort: () =>
+          Effect.sync(() => {
+            console.log(`[AgentObject] aborting object instance ${objectInstance}`)
+            try {
+              ;(state.raw as any).abort("spike: simulated eviction")
+            } catch (error) {
+              return { objectInstance, abortThrew: String(error) }
+            }
+            return { objectInstance, abortReturned: true }
+          }),
 
         rawRpc: (mode) =>
           Effect.gen(function* () {
@@ -215,7 +241,7 @@ export default AgentObject.make(
             Effect.gen(function* () {
               const executor = yield* AgentExecutor.AgentExecutor
               const caps = yield* executor.capabilities
-              return { instanceId, transport, toolsDtsBytes: caps.toolsDts.length, agentsMd: caps.agentsMd, skills: caps.skills.length }
+              return { instanceId, transport, toolsDtsBytes: caps.toolsDts.length, agentsMd: Option.getOrNull(caps.agentsMd), skills: caps.skills.length }
             }),
           ).pipe(Effect.catchCause((cause) => Effect.succeed({ instanceId, transport, error: Cause.pretty(cause) }))),
 
@@ -275,9 +301,17 @@ export default AgentObject.make(
             yield* container.destroy().pipe(Effect.catchCause((c) => log(`destroy failed: ${Cause.pretty(c)}`)))
             yield* log("destroy returned")
             const result = yield* Fiber.join(turn).pipe(Effect.timeout("30 seconds"), Effect.exit)
+            yield* log("turn settled")
+            const healthAfter = yield* port.fetch(HttpClientRequest.get("http://container/health")).pipe(
+              Effect.flatMap((r) => r.json),
+              Effect.catchCause((cause) => Effect.succeed({ error: Cause.pretty(cause).slice(0, 300) })),
+            )
+            yield* log("health after settled")
             return {
+              objectInstance,
               timeline,
-              result: Exit.isSuccess(result) ? result.value : { _tag: "failed", cause: Cause.pretty(result.cause) },
+              result: Exit.isSuccess(result) ? result.value : { _tag: "failed", cause: Cause.pretty(result.cause).slice(0, 600) },
+              healthAfter,
             }
           }),
 
@@ -297,12 +331,13 @@ export default AgentObject.make(
               Effect.forkIn(doScope),
             )
             bg.fiber = fiber
-            return { instanceId, started: true }
+            return { instanceId, objectInstance, started: true }
           }),
 
         backgroundStatus: () =>
           Effect.sync(() => ({
             instanceId,
+            objectInstance,
             known: background !== undefined,
             events: background?.events ?? [],
             result: background?.result ?? null,

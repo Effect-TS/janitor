@@ -1,0 +1,8 @@
+{"instanceId":"4pudxxjo","objectInstance":"bg4hfxb0","known":true,"events":["AgentStart","ScriptStart","ScriptDelta \"console.log(\\"background step 1\\"); await sleep(20000); console.log(\\"background step 1 done\\")\"","ScriptEnd"],"result":{"instanceId":"4pudxxjo","objectInstance":"bg4hfxb0","transport":"http","elapsedMs":4134,"outcome":{"_tag":"failed","cause":"~effect/rpc/RpcClientError: HttpError: 
+    at httpClientError (file:///bundle/Worker.js:6:6508)
+    at file:///bundle/Worker.js:6:7801
+    at file:///bundle/Schema-B8HNOVws.js:13:13952
+    at Effect.fn (file:///bundle/Worker.js:59:10046)
+    at Effect.fn (definition) (file:///bundle/Worker.js:59:9447)
+    at Effect.fn (file:///bundle/Schema-B8HNOVws.js:13:10177)
+    at Effect.fn (definition) (file:///bundle/Worker.js:59:6392)"},"events":["AgentStart","ScriptStart","ScriptDelta \"console.log(\\"background step 1\\"); await sleep(20000); console.log(\\"background step 1 done\\")\"","ScriptEnd"]},"ageMs":6278}

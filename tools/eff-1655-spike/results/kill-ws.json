@@ -1,0 +1,6 @@
+{"instanceId":"4pudxxjo","objectInstance":"2fh1m6pu","known":true,"events":["AgentStart","ScriptStart","ScriptDelta \"console.log(\\"background step 1\\"); await sleep(20000); console.log(\\"background step 1 done\\")\"","ScriptEnd"],"result":{"instanceId":"4pudxxjo","objectInstance":"2fh1m6pu","transport":"ws","elapsedMs":4225,"outcome":{"_tag":"failed","cause":"~effect/rpc/RpcClientError: SocketCloseError: 1006: WebSocket disconnected without sending Close frame.
+    at file:///bundle/Worker.js:6:9241
+    at Effect.fn (file:///bundle/Worker.js:59:10046)
+    at Effect.fn (definition) (file:///bundle/Worker.js:59:9447)
+    at Effect.fn (file:///bundle/Schema-B8HNOVws.js:13:10177)
+    at Effect.fn (definition) (file:///bundle/Worker.js:59:6392)"},"events":["AgentStart","ScriptStart","ScriptDelta \"console.log(\\"background step 1\\"); await sleep(20000); console.log(\\"background step 1 done\\")\"","ScriptEnd"]},"ageMs":6353}
