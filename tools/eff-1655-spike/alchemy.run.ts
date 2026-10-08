@@ -1,6 +1,7 @@
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Docker from "alchemy/Docker"
+import * as Infisical from "alchemy/Infisical"
 import * as Provider from "alchemy/Provider"
 import { localState } from "alchemy/State"
 import * as Effect from "effect/Effect"
@@ -21,6 +22,9 @@ export default Alchemy.Stack(
   {
     providers: Layer.mergeAll(Cloudflare.providers(), DockerProviders),
     state: localState(),
+    // Optional: janitor's development secrets (OPENROUTER_API_KEY) for the
+    // real-model turn. Everything else in the spike works without them.
+    secrets: () => [Infisical.Secrets({ project: "janitor", environment: "development" })],
   },
   Effect.gen(function* () {
     const worker = yield* SpikeWorker

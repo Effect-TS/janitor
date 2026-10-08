@@ -3,7 +3,11 @@ import * as Containers from "alchemy/Cloudflare/Containers"
 import type { RuntimeContext } from "alchemy/RuntimeContext"
 import * as Agent from "clanka/Agent"
 import * as AgentExecutor from "clanka/AgentExecutor"
+import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
+import * as OpenRouterLanguageModel from "@effect/ai-openrouter/OpenRouterLanguageModel"
+import * as Model from "effect/ai/Model"
 import * as Cause from "effect/Cause"
+import * as Redacted from "effect/Redacted"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -12,6 +16,9 @@ import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import { HttpClientError, TransportError } from "effect/http/HttpClientError"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as RpcClient from "effect/rpc/RpcClient"
 import * as RpcSerialization from "effect/rpc/RpcSerialization"
@@ -37,6 +44,8 @@ export interface AgentObjectShape {
   readonly executeConcurrent: (transport: Transport, n: number) => Effect.Effect<unknown>
   /** A full clanka loop turn with the scripted model. */
   readonly turn: (transport: Transport, scripts: ReadonlyArray<string>) => Effect.Effect<unknown>
+  /** A full clanka loop turn with a real OpenRouter model. */
+  readonly realTurn: (transport: Transport, model: string, apiKey: string, prompt: string) => Effect.Effect<unknown>
   /**
    * Start a turn whose first script sleeps, then destroy the container while
    * the execute stream is open. Reports what the loop observed.
@@ -86,26 +95,53 @@ export default AgentObject.make(
       // The raw workerd container port (`ctx.container.getTcpPort`). alchemy's
       // wrapper converts an Effect HttpClientRequest into a streamed web
       // Request, and the POST body arrived empty at the container (observed:
-      // "Received empty HTTP response from RPC server"). Effect's own
-      // FetchHttpClient over the raw fetcher carries the body correctly.
+      // "Received empty HTTP response from RPC server"). An HttpClient built
+      // directly on the raw fetcher carries the body correctly.
+      //
+      // NOTE: an earlier version overrode the `FetchHttpClient.Fetch`
+      // reference instead; that reference leaked into the model layer built
+      // in the same fiber, so OpenRouter requests were sent to the container
+      // port. `HttpClient.make` keeps the two clients fully separate.
       const rawPort = state.container!.getTcpPort(3000)
-      const rawFetch: typeof fetch = async (input, init) => {
-        const url = typeof input === "string" ? input.replace(/^https:/, "http:") : (input as any)
-        const bodyKind = init?.body === undefined ? "none" : typeof init.body === "string" ? "string" : init.body instanceof Uint8Array ? "bytes" : init.body instanceof ReadableStream ? "stream" : typeof init.body
-        console.log(`[rawFetch] ${init?.method ?? "GET"} ${url} body=${bodyKind} headers=${JSON.stringify(init?.headers ?? {})}`)
-        const response = (await rawPort.fetch(url, init as any)) as Response
-        // Do not read the body here: an `execute` stream stays open until the
-        // DO answers `subagentOutput`, so buffering it would deadlock.
-        console.log(`[rawFetch] -> ${response.status} content-length=${response.headers.get("content-length")} transfer-encoding=${response.headers.get("transfer-encoding")}`)
-        return response
-      }
+      const portHttpClient = HttpClient.make((request, url, signal, fiber) =>
+        Effect.gen(function* () {
+          const body = request.body
+          const init: RequestInit & { duplex?: string } = {
+            method: request.method,
+            headers: request.headers as Record<string, string>,
+            signal,
+          }
+          switch (body._tag) {
+            case "Empty":
+              break
+            case "Uint8Array":
+            case "Raw":
+              init.body = body.body as BodyInit
+              break
+            case "FormData":
+              init.body = body.formData
+              break
+            case "Stream":
+              init.body = Stream.toReadableStreamWith(body.stream, fiber.context)
+              init.duplex = "half"
+              break
+          }
+          console.log(`[portClient] ${request.method} ${url.toString()} body=${body._tag}`)
+          const response = yield* Effect.tryPromise({
+            try: () => rawPort.fetch(url.toString().replace(/^https:/, "http:"), init as any) as Promise<Response>,
+            catch: (cause) =>
+              new HttpClientError({
+                reason: new TransportError({ request, cause, description: "container port fetch failed" }),
+              }),
+          })
+          console.log(`[portClient] -> ${response.status} content-length=${response.headers.get("content-length")} transfer-encoding=${response.headers.get("transfer-encoding")}`)
+          return HttpClientResponse.fromWeb(request, response)
+        }),
+      )
 
       // --- HTTP streaming transport.
       const HttpProtocol = RpcClient.layerProtocolHttp({ url: "http://container/rpc" }).pipe(
-        Layer.provide([
-          RpcSerialization.layerNdjson,
-          FetchHttpClient.layer.pipe(Layer.provide(Layer.succeed(FetchHttpClient.Fetch, rawFetch))),
-        ]),
+        Layer.provide([RpcSerialization.layerNdjson, Layer.succeed(HttpClient.HttpClient, portHttpClient)]),
       )
 
       // --- WebSocket transport: upgrade through the raw container port, wrap
@@ -147,20 +183,36 @@ export default AgentObject.make(
         use: Effect.Effect<A, E, AgentExecutor.AgentExecutor | Scope.Scope>,
       ) => Effect.scoped(use.pipe(Effect.provide(executorLayer(transport))))
 
-      const subagentScripts = ['await taskComplete("subagent reporting in")']
-      const SubagentModel = (scripts: ReadonlyArray<string>) =>
-        Agent.layerSubagentModel(Layer.unwrap(scriptedModel(scripts)))
+      // Subagents (the `delegate` tool) get the same model as the parent; the
+      // scripted model answers every delegate call with its last script.
+
+      const realModelLayer = (model: string, apiKey: string) =>
+        Layer.mergeAll(
+          OpenRouterLanguageModel.layer({ model }).pipe(
+            Layer.provide(OpenRouterClient.layer({ apiKey: Redacted.make(apiKey) })),
+            Layer.provide(FetchHttpClient.layer),
+          ),
+          Layer.succeed(Model.ProviderName, "openrouter"),
+          Layer.succeed(Model.ModelName, model),
+        )
 
       const runTurn = (
         transport: Transport,
         scripts: ReadonlyArray<string>,
+        onEvent?: (event: string) => Effect.Effect<void>,
+      ) => runTurnWith(transport, Layer.unwrap(scriptedModel(scripts)), "run the spike", onEvent)
+
+      const runTurnWith = (
+        transport: Transport,
+        modelLayer: Layer.Layer<any, never, never>,
+        prompt: string,
         onEvent?: (event: string) => Effect.Effect<void>,
       ) =>
         Effect.gen(function* () {
           const events: Array<string> = []
           const started = Date.now()
           const agent = yield* Agent.make
-          const outcome = yield* agent.send({ prompt: "run the spike" }).pipe(
+          const outcome = yield* agent.send({ prompt }).pipe(
             Effect.flatMap((stream) =>
               stream.pipe(
                 Stream.runForEach((part) => {
@@ -185,8 +237,8 @@ export default AgentObject.make(
             events,
           }
         }).pipe(
-          Effect.provide(Layer.unwrap(scriptedModel(scripts))),
-          Effect.provide(SubagentModel(subagentScripts)),
+          Effect.provide(modelLayer),
+          Effect.provide(Agent.layerSubagentModel(modelLayer)),
           Effect.provide(Agent.ConversationMode.layer(false)),
           (effect) => withExecutor(transport, effect),
         )
@@ -283,6 +335,9 @@ export default AgentObject.make(
           ).pipe(Effect.catchCause((cause) => Effect.succeed({ instanceId, transport, error: Cause.pretty(cause) }))),
 
         turn: (transport, scripts) => runTurn(transport, scripts),
+
+        realTurn: (transport, model, apiKey, prompt) =>
+          runTurnWith(transport, realModelLayer(model, apiKey), prompt),
 
         turnWithContainerCrash: (transport) =>
           Effect.gen(function* () {
@@ -391,6 +446,8 @@ const summarize = (part: any): string => {
       return ` ${JSON.stringify(String(part.summary ?? "").slice(0, 80))}`
     case "ErrorRetry":
       return ` ${JSON.stringify(String(part.error?.message ?? part.error).slice(0, 200))}`
+    case "Usage":
+      return ` ${JSON.stringify({ input: part.inputTokens ?? part.usage?.inputTokens, output: part.outputTokens ?? part.usage?.outputTokens })}`
     default:
       return ""
   }

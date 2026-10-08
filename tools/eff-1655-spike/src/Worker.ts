@@ -1,6 +1,9 @@
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Cause from "effect/Cause"
+import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Redacted from "effect/Redacted"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import AgentObjectLive, { AgentObject, type Transport } from "./AgentObject.ts"
@@ -20,6 +23,8 @@ export default class SpikeWorker extends Cloudflare.Worker<SpikeWorker>()(
   },
   Effect.gen(function* () {
     const agents = yield* AgentObject.pipe(Effect.provide(AgentObjectLive))
+    // Read at init so alchemy binds it; absent without Infisical access.
+    const openRouterKey = yield* Config.option(Config.Redacted("OPENROUTER_API_KEY"))
     return {
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
@@ -50,6 +55,18 @@ export default class SpikeWorker extends Cloudflare.Worker<SpikeWorker>()(
                 'await taskComplete("spike turn complete")',
               ]),
             )
+          case "/realturn": {
+            if (Option.isNone(openRouterKey)) return json({ error: "OPENROUTER_API_KEY not available" })
+            return json(
+              yield* agent.realTurn(
+                transport,
+                url.searchParams.get("model") ?? "openai/gpt-4.1-mini",
+                Redacted.value(openRouterKey.value),
+                url.searchParams.get("prompt") ??
+                  "You are in a scratch workspace. List the files, read AGENTS.md, then write a file named report.txt containing one sentence about what you found. Finally call taskComplete with a one-line summary.",
+              ),
+            )
+          }
           case "/crash":
             return json(yield* agent.turnWithContainerCrash(transport))
           case "/bg/start":
