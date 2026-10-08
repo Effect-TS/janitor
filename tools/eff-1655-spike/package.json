@@ -1,0 +1,20 @@
+{
+  "name": "@janitor/eff-1655-spike",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway diagnostic harness for EFF-1655: clanka agent loop in a Durable Object, executor in the sandbox container.",
+  "dependencies": {
+    "@effect/ai-openai": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@7c5525a6c2084247c262fef7c2045c94c10f0e67",
+    "@effect/ai-openai-compat": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@7c5525a6c2084247c262fef7c2045c94c10f0e67",
+    "@effect/platform-cloudflare": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-sqlite-node": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@7c5525a6c2084247c262fef7c2045c94c10f0e67",
+    "alchemy": "catalog:",
+    "clanka": "0.8.5",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}
