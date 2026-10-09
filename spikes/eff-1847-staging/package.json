@@ -1,0 +1,31 @@
+{
+  "name": "@janitor/eff-1847-staging",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway staging smoke-test harness for EFF-1847: PR review hosting design on a real Cloudflare account. Standalone pnpm workspace so every Effect package is pinned to the #7322 snapshot at aa48e3f.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "executor": "node --experimental-strip-types executor/server.ts"
+  },
+  "dependencies": {
+    "@effect/ai-openai": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@aa48e3f",
+    "@effect/ai-openai-compat": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@aa48e3f",
+    "@effect/ai-openrouter": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@aa48e3f",
+    "@effect/platform-cloudflare": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@aa48e3f",
+    "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@aa48e3f",
+    "@effect/platform-node-shared": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@aa48e3f",
+    "@effect/sql-d1": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@aa48e3f",
+    "@effect/sql-pg": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@aa48e3f",
+    "@effect/sql-sqlite-do": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@aa48e3f",
+    "@effect/sql-sqlite-node": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@aa48e3f",
+    "@effect/vitest": "https://pkg.pr.new/Effect-TS/effect/@effect/vitest@aa48e3f",
+    "alchemy": "2.0.0-beta.80",
+    "clanka": "0.8.5",
+    "effect": "https://pkg.pr.new/Effect-TS/effect/effect@aa48e3f"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260822.1",
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  }
+}

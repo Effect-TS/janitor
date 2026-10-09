@@ -1,0 +1,42 @@
+# Standalone workspace root: janitor's root workspace does not glob `spikes/*`,
+# and this harness needs every Effect package on the #7322 snapshot at
+# `aa48e3f` (EFF-1842 + EFF-1850), newer than janitor's `7c5525a` catalog.
+blockExoticSubdeps: false
+
+overrides:
+  effect: https://pkg.pr.new/Effect-TS/effect/effect@aa48e3f
+  "@effect/ai-openai": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@aa48e3f
+  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@aa48e3f
+  "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@aa48e3f
+  "@effect/platform-cloudflare": https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@aa48e3f
+  "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@aa48e3f
+  "@effect/platform-node-shared": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@aa48e3f
+  "@effect/sql-d1": https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@aa48e3f
+  "@effect/sql-pg": https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@aa48e3f
+  "@effect/sql-sqlite-do": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@aa48e3f
+  "@effect/sql-sqlite-node": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@aa48e3f
+  "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@aa48e3f
+
+allowBuilds:
+  workerd: true
+  esbuild: false
+  tree-sitter: false
+  tree-sitter-javascript: false
+  tree-sitter-typescript: false
+  "@parcel/watcher": false
+  sharp: false
+  protobufjs: false
+  msgpackr-extract: false
+  cpu-features: false
+  ssh2: false
+  better-sqlite3: true
+  sqlite-vec: false
+  "@vscode/ripgrep": false
+
+minimumReleaseAgeExclude:
+  - "@alchemy.run/*"
+  - alchemy
+
+# Same patch as janitor's root (Worker startup: lazy tinyglobby; podman wording).
+patchedDependencies:
+  alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch

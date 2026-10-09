@@ -1,0 +1,4 @@
+node_modules
+.alchemy
+*.log
+results/tail-*.ndjson
