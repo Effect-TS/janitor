@@ -1,0 +1,21 @@
+[
+  {
+    "name": "eff1847staging-eff1847executor-staging-qvuitzru4o3j77ni",
+    "id": "a0310559-f6eb-4cb2-9e43-4d43a75f9fec",
+    "instances": 7,
+    "max_instances": 20,
+    "configuration": {
+      "image": "registry.cloudflare.com/a5324318f7f0ddf25e7a1ba5359d1aa5/eff1847staging-eff1847executor-staging-qvuitzru4o3j77ni@sha256:eb0f96839548ea33f31ef3c99a857c82c3f915f8e8b0a733faf745cba88f4ce4",
+      "instance_type": null,
+      "vcpu": 0.5,
+      "memory_mib": 4096,
+      "disk": {
+        "size_mb": 8000,
+        "size": "8GB"
+      }
+    },
+    "durable_objects": {
+      "namespace_id": "e31726c8fd91463e82a5f32c9ef5ef7f"
+    }
+  }
+]

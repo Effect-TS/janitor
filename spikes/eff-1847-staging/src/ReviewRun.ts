@@ -48,6 +48,8 @@ export const ReviewRun = Entity.make("ReviewRun", [
       model: Schema.String,
       sleepSeconds: Schema.Number,
       transport: Transport,
+      workload: Schema.String,
+      hold: Schema.String,
     },
     success: Schema.Unknown,
     primaryKey: ({ runId }) => `start/${runId}`,
@@ -64,7 +66,7 @@ export const ReviewRun = Entity.make("ReviewRun", [
   }).annotate(ClusterSchema.Persisted, true),
   Rpc.make("Status", { success: Schema.Unknown }),
   Rpc.make("Probe", {
-    payload: { kind: Schema.String, transport: Transport, n: Schema.Number },
+    payload: { kind: Schema.String, transport: Transport, n: Schema.Number, fresh: Schema.Boolean, command: Schema.String },
     success: Schema.Unknown,
   }),
 ])
@@ -77,7 +79,7 @@ export class WorkspaceNamespace extends Context.Service<WorkspaceNamespace, Dura
 /** The alchemy-typed workspace stubs (`provision`, `release`, `status`). */
 export class WorkspaceStubs extends Context.Service<
   WorkspaceStubs,
-  { readonly getByName: (name: string) => { readonly provision: (acquire: number) => Effect.Effect<unknown, any>; readonly release: () => Effect.Effect<unknown, any>; readonly status: () => Effect.Effect<unknown, any> } }
+  { readonly getByName: (name: string) => { readonly provision: (acquire: number, hold: string) => Effect.Effect<unknown, any>; readonly release: () => Effect.Effect<unknown, any>; readonly status: () => Effect.Effect<unknown, any> } }
 >()("eff1847/WorkspaceStubs") {}
 
 export class OpenRouterKey extends Context.Service<OpenRouterKey, Redacted.Redacted<string>>()("eff1847/OpenRouterKey") {}
@@ -86,13 +88,21 @@ export class DeployMarker extends Context.Service<DeployMarker, string>()("eff18
 /** One process-wide id per isolate, one per handler build: tells restarts apart. */
 const isolateId = Math.random().toString(36).slice(2, 10)
 
-const SYSTEM = [
-  "You are a smoke-test agent inside a scratch workspace. The workspace holds a file named AGENTS.md.",
-  "Every time you receive a message, do exactly this in ONE script:",
-  "1. call `bash` with the command `sleep SLEEP; date -u; cat counter.txt 2>/dev/null; echo $((1 + $(cat counter.txt 2>/dev/null || echo 0))) > counter.txt` (replace SLEEP with the number the user gives you),",
-  "2. then call `taskComplete` with a one-line summary containing the date the command printed.",
-  "Never ask questions, never explore, never do anything else.",
-].join("\n")
+const COMMANDS: Record<string, string> = {
+  sleep: "sleep SLEEP; date -u; cat counter.txt 2>/dev/null; echo $((1 + $(cat counter.txt 2>/dev/null || echo 0))) > counter.txt",
+  // A review-shaped turn: a real repository checkout through the egress
+  // allowlist, ripgrep over it, git log, and the container's memory peak.
+  review:
+    "sleep SLEEP; date -u; [ -d repo ] || git clone -q --depth 50 https://github.com/Effect-TS/effect repo; rg -c 'Effect.gen' repo/packages/effect/src | sort -t: -k2 -n | tail -3; git -C repo log --oneline -3 | cat; du -sh repo | cut -f1; free -m | sed -n 2p; cat counter.txt 2>/dev/null; echo $((1 + $(cat counter.txt 2>/dev/null || echo 0))) > counter.txt",
+}
+const system = (workload: string) =>
+  [
+    "You are a smoke-test agent inside a scratch workspace. The workspace holds a file named AGENTS.md.",
+    "Every time you receive a message, do exactly this in ONE script:",
+    `1. call \`bash\` with the command \`${COMMANDS[workload] ?? COMMANDS.sleep}\` (replace SLEEP with the number the user gives you),`,
+    "2. then call `taskComplete` with a one-line summary containing the date the command printed.",
+    "Never ask questions, never explore, never do anything else.",
+  ].join("\n")
 
 export const makeReviewRunLayer = Effect.gen(function* () {
   const namespace = yield* WorkspaceNamespace
@@ -108,7 +118,7 @@ export const makeReviewRunLayer = Effect.gen(function* () {
     const builtAt = Date.now()
     console.log(`[ReviewRun ${runId}] handler build ${buildId} (isolate ${isolateId}, deploy ${deployMarker})`)
 
-    yield* sql`CREATE TABLE IF NOT EXISTS run (id TEXT PRIMARY KEY, status TEXT NOT NULL, model TEXT NOT NULL, sleep_seconds INTEGER NOT NULL, transport TEXT NOT NULL, started_at INTEGER NOT NULL, deadline_at INTEGER NOT NULL, finished_at INTEGER, turns INTEGER NOT NULL DEFAULT 0, acquires INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, result TEXT)`
+    yield* sql`CREATE TABLE IF NOT EXISTS run (id TEXT PRIMARY KEY, status TEXT NOT NULL, model TEXT NOT NULL, sleep_seconds INTEGER NOT NULL, transport TEXT NOT NULL, workload TEXT NOT NULL DEFAULT 'sleep', hold TEXT NOT NULL DEFAULT 'none', started_at INTEGER NOT NULL, deadline_at INTEGER NOT NULL, finished_at INTEGER, turns INTEGER NOT NULL DEFAULT 0, acquires INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, result TEXT)`
     yield* sql`CREATE TABLE IF NOT EXISTS history (seq INTEGER PRIMARY KEY, message TEXT NOT NULL)`
     yield* sql`CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, build TEXT NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL)`
     yield* sql`CREATE TABLE IF NOT EXISTS publish_steps (step INTEGER PRIMARY KEY, started_at INTEGER NOT NULL, finished_at INTEGER NOT NULL, build TEXT NOT NULL)`
@@ -127,6 +137,8 @@ export const makeReviewRunLayer = Effect.gen(function* () {
       readonly model: string
       readonly sleep_seconds: number
       readonly transport: Transport
+      readonly workload: string
+      readonly hold: string
       readonly started_at: number
       readonly deadline_at: number
       readonly finished_at: number | null
@@ -235,6 +247,9 @@ export const makeReviewRunLayer = Effect.gen(function* () {
         return { inserted: encoded.length, replaced }
       }).pipe(Effect.orDie)
 
+    // Set once the resource exists; the loop calls it when it finishes.
+    let closeRun: Effect.Effect<void> = Effect.void
+
     // ---- the loop, forked into the resource's CloseScope.
     let loop: { fiber: Fiber.Fiber<unknown, unknown>; startedAt: number; acquire: number; lastPart?: string; lastPartAt?: number; parts: number } | undefined
 
@@ -264,7 +279,7 @@ export const makeReviewRunLayer = Effect.gen(function* () {
               : `Next. SLEEP is ${run.sleep_seconds}. This is step ${turn}.`
           resumed = false
           const turnStarted = Date.now()
-          const outcome = yield* agent.send({ prompt, system: SYSTEM }).pipe(
+          const outcome = yield* agent.send({ prompt, system: system(run.workload) }).pipe(
             Effect.flatMap((stream) =>
               stream.pipe(
                 Stream.runForEach((part) =>
@@ -305,6 +320,10 @@ export const makeReviewRunLayer = Effect.gen(function* () {
         }
         yield* sql`UPDATE run SET status = 'finished', finished_at = ${Date.now()}, result = ${`finished after ${turns} turns`} WHERE id = ${runId}`.pipe(Effect.orDie)
         yield* event("LoopFinished", { turns })
+        // Release the run's hold (keep-alive and the container) once the
+        // loop is done; forked so closing the scope does not interrupt this
+        // fiber before the event lands.
+        yield* Effect.forkDetach(Effect.suspend(() => closeRun))
       }).pipe(
         Effect.provide(modelLayer(run.model)),
         Effect.provide(Agent.layerSubagentModel(modelLayer(run.model))),
@@ -315,7 +334,7 @@ export const makeReviewRunLayer = Effect.gen(function* () {
           Cause.hasInterruptsOnly(cause)
             ? event("LoopInterrupted", { acquire })
             : Effect.gen(function* () {
-                yield* sql`UPDATE run SET status = 'failed', finished_at = ${Date.now()}, result = ${Cause.pretty(cause).slice(0, 2000)} WHERE id = ${runId}`.pipe(Effect.orDie)
+                yield* sql`UPDATE run SET status = 'failed', finished_at = ${Date.now()}, result = ${Cause.pretty(cause).slice(0, 2000)} WHERE id = ${runId} AND status = 'active'`.pipe(Effect.orDie)
                 yield* event("LoopFailed", Cause.pretty(cause).slice(0, 1500))
               }),
         ),
@@ -331,14 +350,18 @@ export const makeReviewRunLayer = Effect.gen(function* () {
         const acquire = run.acquires + 1
         yield* sql`UPDATE run SET acquires = ${acquire} WHERE id = ${runId}`.pipe(Effect.orDie)
         const started = Date.now()
-        const provisioned = yield* stubs.getByName(runId).provision(acquire).pipe(Effect.orDie)
+        const provisioned = yield* stubs.getByName(runId).provision(acquire, run.hold).pipe(Effect.orDie)
         yield* event("Acquired", { acquire, build: buildId, provisionMs: Date.now() - started, provisioned })
+        // Finalizers run in reverse: registering the release before forking
+        // the loop interrupts the loop first, then destroys the container.
+        yield* Scope.addFinalizer(closeScope, Effect.suspend(() => stubs.getByName(runId).release().pipe(Effect.ignore, Effect.andThen(event("Released", { acquire })))))
         const fiber = yield* runLoop({ ...run, acquires: acquire }, acquire).pipe(Effect.forkIn(closeScope))
         loop = { fiber, startedAt: Date.now(), acquire, parts: 0 }
-        yield* Scope.addFinalizer(closeScope, Effect.suspend(() => stubs.getByName(runId).release().pipe(Effect.ignore, Effect.andThen(event("Released", { acquire })))))
         return { acquire }
       }),
     })
+
+    closeRun = resource.close
 
     // A restart rebuilds the entity; the build sees the active run and
     // re-acquires straight away (design item 10).
@@ -348,15 +371,91 @@ export const makeReviewRunLayer = Effect.gen(function* () {
       yield* Effect.scoped(resource.get)
     }
 
-    const probe = (transport: Transport, kind: string, n: number) =>
+    // Probes run against a fresh container unless a run holds one or the
+    // caller asks to reuse the current one. Provisioning happens before the
+    // executor client is built: a WebSocket opened to the old container dies
+    // with it.
+    const probe = (transport: Transport, kind: string, n: number, fresh: boolean, command: string) =>
       Effect.gen(function* () {
-        // Probes run against a fresh workspace unless a run holds one.
-        if (loop === undefined || loop.fiber.pollUnsafe() !== undefined) {
-          yield* stubs.getByName(runId).provision(0).pipe(Effect.orDie)
-        }
+        const provisioned = fresh && (loop === undefined || loop.fiber.pollUnsafe() !== undefined)
+          ? yield* stubs.getByName(runId).provision(0, "none").pipe(Effect.orDie)
+          : null
+        return yield* probeWith(transport, kind, n, provisioned, command).pipe(Effect.scoped, Effect.provide(executorLayer(transport)))
+      }).pipe(
+        Effect.map((result) => ({ transport, kind, ...result })),
+        Effect.catchCause((cause) => Effect.succeed({ transport, kind, error: Cause.pretty(cause).slice(0, 2000) })),
+      )
+
+    const probeWith = (transport: Transport, kind: string, n: number, provisioned: unknown, command: string) =>
+      Effect.gen(function* () {
         const executor = yield* AgentExecutor.AgentExecutor
         const started = Date.now()
+        const bashScript = (command: string, timeoutMs = 120_000) =>
+          executor
+            .execute({
+              script: `console.log(await bash({ command: ${JSON.stringify(command)}, timeoutMs: ${timeoutMs} }))`,
+              onTaskComplete: () => Effect.void,
+              onSubagent: () => Effect.succeed(""),
+              onImage: () => Effect.void,
+            })
+            .pipe(Stream.mkString)
         switch (kind) {
+          case "bash": {
+            const output = yield* bashScript(command, 300_000)
+            return { provisioned, output, elapsedMs: Date.now() - started }
+          }
+          case "write": {
+            const output = yield* bashScript(`echo "${runId} $(date -u +%FT%TZ)" > /workspace/marker.txt; cat /workspace/marker.txt; ls /workspace`)
+            return { provisioned, output, elapsedMs: Date.now() - started }
+          }
+          case "read": {
+            const output = yield* bashScript(`cat /workspace/marker.txt 2>&1; ls /workspace`)
+            return { provisioned, output, elapsedMs: Date.now() - started }
+          }
+          case "egress": {
+            const checks = [
+              ["npm registry (https)", "curl -sS -o /dev/null -w '%{http_code}' https://registry.npmjs.org/effect"],
+              ["npm view (node TLS)", "npm view effect version"],
+              ["pypi (https)", "curl -sS -o /dev/null -w '%{http_code}' https://pypi.org/simple/requests/"],
+              ["github.com (https)", "curl -sS -o /dev/null -w '%{http_code}' https://github.com/"],
+              ["git ls-remote", "git ls-remote https://github.com/Effect-TS/effect HEAD"],
+              ["git clone --depth 1", "rm -rf /tmp/clone && git clone -q --depth 1 https://github.com/tim-smart/effect-atom /tmp/clone && git -C /tmp/clone log --oneline -1 | cat"],
+              ["raw.githubusercontent.com", "curl -sS -o /dev/null -w '%{http_code}' https://raw.githubusercontent.com/Effect-TS/effect/main/README.md"],
+              ["example.com (https, not allowed)", "curl -sS -w ' %{http_code}' https://example.com/"],
+              ["example.com (http, not allowed)", "curl -sS -w ' %{http_code}' http://example.com/"],
+              ["api.openai.com (https, not allowed)", "curl -sS -w ' %{http_code}' https://api.openai.com/v1/models"],
+              ["1.1.1.1 (https by IP)", "curl -sS -k -w ' %{http_code}' https://1.1.1.1/"],
+              ["github.com:22 (raw TCP)", "timeout 10 bash -c 'exec 3<>/dev/tcp/github.com/22 && head -c 40 <&3' && echo connected"],
+              ["1.1.1.1:53 (raw TCP)", "timeout 10 bash -c 'exec 3<>/dev/tcp/1.1.1.1/53' && echo connected"],
+              ["8.8.8.8:443 (raw TCP)", "timeout 10 bash -c 'exec 3<>/dev/tcp/8.8.8.8/443' && echo connected"],
+              ["DNS example.com", "timeout 10 getent hosts example.com"],
+              ["DNS github.com", "timeout 10 getent hosts github.com"],
+              ["TLS issuer seen for github.com", "echo | timeout 10 openssl s_client -connect github.com:443 -servername github.com 2>/dev/null | grep -m1 -i 'issuer' || curl -sSv https://github.com/ -o /dev/null 2>&1 | grep -m1 -i issuer"],
+            ]
+            const command = [
+              "set +e",
+              "echo \"CA bundle: SSL_CERT_FILE=$SSL_CERT_FILE NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS\"",
+              "ls -la /etc/cloudflare/certs/ 2>&1",
+              ...checks.map(([label, cmd]) => `echo "== ${label}"; ( ${cmd} ) 2>&1 | tail -4; echo "exit=$?"`),
+            ].join("\n")
+            const output = yield* bashScript(command, 300_000)
+            return { provisioned, output, elapsedMs: Date.now() - started }
+          }
+          case "heavy": {
+            const output = yield* bashScript(
+              [
+                "set +e",
+                "echo before nproc=$(nproc); free -m | sed -n 1,2p",
+                "t0=$(date +%s); rm -rf /workspace/repo; git clone -q --depth 50 https://github.com/Effect-TS/effect /workspace/repo; echo clone_s=$(( $(date +%s) - t0 )) size=$(du -sh /workspace/repo | cut -f1)",
+                "t0=$(date +%s); rg -c 'Effect' /workspace/repo | wc -l; echo rg_s=$(( $(date +%s) - t0 ))",
+                "t0=$(date +%s); git -C /workspace/repo log -p -20 | wc -c; echo log_s=$(( $(date +%s) - t0 ))",
+                "echo after; free -m | sed -n 2p; ps -eo rss,comm --sort=-rss | head -4",
+                "df -h /workspace | tail -1",
+              ].join("\n"),
+              400_000,
+            )
+            return { provisioned, output, elapsedMs: Date.now() - started }
+          }
           case "caps": {
             const caps = yield* executor.capabilities
             return { toolsDtsBytes: caps.toolsDts.length, agentsMd: Option.getOrNull(caps.agentsMd), skills: caps.skills.length, elapsedMs: Date.now() - started }
@@ -416,12 +515,7 @@ export const makeReviewRunLayer = Effect.gen(function* () {
           default:
             return { error: `unknown probe ${kind}` }
         }
-      }).pipe(
-        Effect.scoped,
-        Effect.provide(executorLayer(transport)),
-        Effect.map((result) => ({ transport, kind, ...result })),
-        Effect.catchCause((cause) => Effect.succeed({ transport, kind, error: Cause.pretty(cause).slice(0, 2000) })),
-      )
+      }).pipe(Effect.map((result) => ({ provisioned, ...result })))
 
     return ReviewRun.of({
       Start: ({ payload }) =>
@@ -429,7 +523,7 @@ export const makeReviewRunLayer = Effect.gen(function* () {
           const now = Date.now()
           const existing = yield* readRun
           if (existing === undefined) {
-            yield* sql`INSERT INTO run (id, status, model, sleep_seconds, transport, started_at, deadline_at) VALUES (${runId}, 'active', ${payload.model}, ${payload.sleepSeconds}, ${payload.transport}, ${now}, ${now + payload.minutes * 60_000})`.pipe(Effect.orDie)
+            yield* sql`INSERT INTO run (id, status, model, sleep_seconds, transport, workload, hold, started_at, deadline_at) VALUES (${runId}, 'active', ${payload.model}, ${payload.sleepSeconds}, ${payload.transport}, ${payload.workload}, ${payload.hold}, ${now}, ${now + payload.minutes * 60_000})`.pipe(Effect.orDie)
             yield* event("Started", payload)
           }
           const acquired = yield* Effect.scoped(resource.get)
@@ -501,7 +595,7 @@ export const makeReviewRunLayer = Effect.gen(function* () {
           }
         }).pipe(Effect.orDie),
 
-      Probe: ({ payload }) => probe(payload.transport, payload.kind, payload.n),
+      Probe: ({ payload }) => probe(payload.transport, payload.kind, payload.n, payload.fresh, payload.command),
     })
   })
 

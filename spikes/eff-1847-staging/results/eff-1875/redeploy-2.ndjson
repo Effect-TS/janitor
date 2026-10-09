@@ -1,0 +1,108 @@
+{"t":"04:54:25","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":104,"status":"active","turns":7,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:54:17","build":"f4361pj3"}}
+{"t":"04:54:26","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:54:26","run":"run-3","deploy":"20261009T044614Z","build":"yzf0cpwj","buildAgeS":173,"status":"active","turns":45,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"04:54:19","build":"yzf0cpwj"}}
+{"t":"04:54:26","ws":"run-3","obj":"ian6opyv","running":true,"boot":"0ventngf","acquire":"2","lastExit":null}
+{"t":"04:54:27","ws":"c-600","obj":"b0wb51g5","running":true,"boot":"qas2rbwp","alarms":0}
+{"t":"04:54:27","ws":"d-600","obj":"aya7h5dx","running":true,"boot":"oyfx1ddr","alarms":39}
+{"t":"04:54:57","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":136,"status":"active","turns":10,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:54:52","build":"f4361pj3"}}
+{"t":"04:54:57","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:54:57","run":"run-3","deploy":"20261009T044614Z","build":"yzf0cpwj","buildAgeS":204,"status":"active","turns":48,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"04:54:54","build":"yzf0cpwj"}}
+{"t":"04:54:58","ws":"run-3","obj":"ian6opyv","running":true,"boot":"0ventngf","acquire":"2","lastExit":null}
+{"t":"04:54:58","ws":"c-600","obj":"xq3gdy4t","running":true,"boot":"qas2rbwp","alarms":0}
+{"t":"04:54:58","ws":"d-600","obj":"c7qkdxnj","running":true,"boot":"oyfx1ddr","alarms":40}
+{"t":"04:55:28","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":167,"status":"active","turns":13,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:55:27","build":"f4361pj3"}}
+{"t":"04:55:29","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:55:29","run":"run-3","deploy":"20261009T044614Z","build":"yzf0cpwj","buildAgeS":236,"status":"active","turns":50,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"04:55:25","build":"yzf0cpwj"}}
+{"t":"04:55:29","ws":"run-3","obj":"ian6opyv","running":true,"boot":"0ventngf","acquire":"2","lastExit":null}
+{"t":"04:55:30","ws":"c-600","obj":"add58lan","running":false,"boot":null,"alarms":0}
+{"t":"04:55:30","ws":"d-600","obj":"o29tnyw0","running":false,"boot":null,"alarms":41}
+{"t":"04:56:00","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":199,"status":"active","turns":15,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:55:50","build":"f4361pj3"}}
+{"t":"04:56:00","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:56:00","run":"run-3","deploy":"20261009T044614Z","build":"yzf0cpwj","buildAgeS":267,"status":"active","turns":52,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"04:55:49","build":"yzf0cpwj"}}
+{"t":"04:56:00","ws":"run-3","obj":"ian6opyv","running":true,"boot":"0ventngf","acquire":"2","lastExit":null}
+{"t":"04:56:00","ws":"c-600","obj":"fvei37j4","running":false,"boot":null,"alarms":0}
+{"t":"04:56:00","ws":"d-600","obj":"dxuwnmfh","running":false,"boot":null,"alarms":42}
+{"t":"04:56:31","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":229,"status":"active","turns":18,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:56:25","build":"f4361pj3"}}
+{"t":"04:56:31","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:56:31","run":"run-3","deploy":"20261009T044614Z","build":"yzf0cpwj","buildAgeS":297,"status":"active","turns":55,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"04:56:24","build":"yzf0cpwj"}}
+{"t":"04:56:31","ws":"run-3","obj":"ian6opyv","running":true,"boot":"0ventngf","acquire":"2","lastExit":null}
+{"t":"04:56:31","ws":"c-600","obj":"ztgeeikt","running":false,"boot":null,"alarms":0}
+{"t":"04:56:31","ws":"d-600","obj":"0qa2znme","running":false,"boot":null,"alarms":42}
+{"t":"04:57:02","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":260,"status":"active","turns":21,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:57:01","build":"f4361pj3"}}
+{"t":"04:57:02","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:57:02","run":"run-3","deploy":"20261009T044614Z","build":"yzf0cpwj","buildAgeS":329,"status":"finished","turns":58,"acquires":2,"loop":false,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"04:57:02","ws":"run-3","obj":"ian6opyv","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"04:57:02","ws":"c-600","obj":"aeyv529n","running":false,"boot":null,"alarms":0}
+{"t":"04:57:03","ws":"d-600","obj":"yo9urchs","running":false,"boot":null,"alarms":42}
+{"t":"04:57:33","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":291,"status":"active","turns":23,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:57:24","build":"f4361pj3"}}
+{"t":"04:57:33","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:57:33","run":"run-3","deploy":"20261009T045346Z","build":"akiebnvf","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"04:57:33","ws":"run-3","obj":"spxo5437","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"04:57:34","ws":"c-600","obj":"4ui301yl","running":false,"boot":null,"alarms":0}
+{"t":"04:57:34","ws":"d-600","obj":"vccapak6","running":false,"boot":null,"alarms":42}
+{"t":"04:58:05","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":323,"status":"active","turns":26,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:58:01","build":"f4361pj3"}}
+{"t":"04:58:05","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:58:05","run":"run-3","deploy":"20261009T045346Z","build":"u0i0ucy6","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"04:58:05","ws":"run-3","obj":"ljuadvwb","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"04:58:06","ws":"c-600","obj":"wsz6b95j","running":false,"boot":null,"alarms":0}
+{"t":"04:58:06","ws":"d-600","obj":"ntxbaemj","running":false,"boot":null,"alarms":42}
+{"t":"04:58:36","run":"run-5","deploy":"20261009T044614Z","build":"f4361pj3","buildAgeS":355,"status":"active","turns":29,"acquires":1,"loop":true,"last":{"kind":"TurnDone","at":"04:58:36","build":"f4361pj3"}}
+{"t":"04:58:37","ws":"run-5","obj":"g0f4dm9f","running":true,"boot":"k8brsyps","acquire":"1","lastExit":null}
+{"t":"04:58:37","run":"run-3","deploy":"20261009T045346Z","build":"557bcr72","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"04:58:37","ws":"run-3","obj":"tgbpr7r1","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"04:58:37","ws":"c-600","obj":"eqyway0x","running":false,"boot":null,"alarms":0}
+{"t":"04:58:38","ws":"d-600","obj":"tbknmudf","running":false,"boot":null,"alarms":42}
+{"t":"04:59:11","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":2,"status":"active","turns":31,"acquires":2,"loop":true,"last":{"kind":"Acquired","at":"04:59:11","build":"c4g9ntdm"}}
+{"t":"04:59:11","ws":"run-5","obj":"oubfclpp","running":true,"boot":"lobd7kis","acquire":"2","lastExit":null}
+{"t":"04:59:12","run":"run-3","deploy":"20261009T045346Z","build":"jsmpn6cd","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"04:59:12","ws":"run-3","obj":"iqibhb8e","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"04:59:12","ws":"c-600","obj":"ueghj0i2","running":false,"boot":null,"alarms":0}
+{"t":"04:59:13","ws":"d-600","obj":"05cykoyg","running":false,"boot":null,"alarms":42}
+{"t":"04:59:43","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":34,"status":"active","turns":32,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"04:59:35","build":"c4g9ntdm"}}
+{"t":"04:59:43","ws":"run-5","obj":"oubfclpp","running":true,"boot":"lobd7kis","acquire":"2","lastExit":null}
+{"t":"04:59:43","run":"run-3","deploy":"20261009T045346Z","build":"leiwo27i","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"04:59:43","ws":"run-3","obj":"giq43rr8","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"04:59:43","ws":"c-600","obj":"iloqkb5y","running":false,"boot":null,"alarms":0}
+{"t":"04:59:44","ws":"d-600","obj":"8zvnlgts","running":false,"boot":null,"alarms":42}
+{"t":"05:00:14","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":65,"status":"active","turns":35,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"05:00:10","build":"c4g9ntdm"}}
+{"t":"05:00:14","ws":"run-5","obj":"oubfclpp","running":true,"boot":"lobd7kis","acquire":"2","lastExit":null}
+{"t":"05:00:15","run":"run-3","deploy":"20261009T045346Z","build":"vod19jt7","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"05:00:15","ws":"run-3","obj":"cylcflps","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"05:00:15","ws":"c-600","obj":"28net07x","running":false,"boot":null,"alarms":0}
+{"t":"05:00:16","ws":"d-600","obj":"83tukf5a","running":false,"boot":null,"alarms":42}
+{"t":"05:00:46","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":97,"status":"active","turns":38,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"05:00:46","build":"c4g9ntdm"}}
+{"t":"05:00:46","ws":"run-5","obj":"oubfclpp","running":true,"boot":"lobd7kis","acquire":"2","lastExit":null}
+{"t":"05:00:47","run":"run-3","deploy":"20261009T045346Z","build":"72j1iudw","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"05:00:47","ws":"run-3","obj":"qbteu8nr","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"05:00:47","ws":"c-600","obj":"cpyf18hd","running":false,"boot":null,"alarms":0}
+{"t":"05:00:48","ws":"d-600","obj":"gd0f1s4j","running":false,"boot":null,"alarms":42}
+{"t":"05:01:18","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":129,"status":"active","turns":40,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"05:01:09","build":"c4g9ntdm"}}
+{"t":"05:01:18","ws":"run-5","obj":"oubfclpp","running":true,"boot":"lobd7kis","acquire":"2","lastExit":null}
+{"t":"05:01:18","run":"run-3","deploy":"20261009T045346Z","build":"57je8784","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"05:01:18","ws":"run-3","obj":"dgjd47qm","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"05:01:19","ws":"c-600","obj":"r3k6mmtq","running":false,"boot":null,"alarms":0}
+{"t":"05:01:19","ws":"d-600","obj":"k8897wsk","running":false,"boot":null,"alarms":42}
+{"t":"05:01:49","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":160,"status":"active","turns":43,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"05:01:45","build":"c4g9ntdm"}}
+{"t":"05:01:49","ws":"run-5","obj":"oubfclpp","running":true,"boot":"lobd7kis","acquire":"2","lastExit":null}
+{"t":"05:01:50","run":"run-3","deploy":"20261009T045346Z","build":"d5ssurs0","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"05:01:50","ws":"run-3","obj":"p5pbpe40","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"05:01:50","ws":"c-600","obj":"rojo7fky","running":false,"boot":null,"alarms":0}
+{"t":"05:01:51","ws":"d-600","obj":"agw1q3or","running":false,"boot":null,"alarms":42}
+{"t":"05:02:21","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":192,"status":"active","turns":45,"acquires":2,"loop":true,"last":{"kind":"TurnDone","at":"05:02:10","build":"c4g9ntdm"}}
+{"t":"05:02:21","ws":"run-5","obj":"oubfclpp","running":true,"boot":"lobd7kis","acquire":"2","lastExit":null}
+{"t":"05:02:21","run":"run-3","deploy":"20261009T045346Z","build":"tzu6w12b","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"05:02:22","ws":"run-3","obj":"n66r9svg","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"05:02:22","ws":"c-600","obj":"egqmfb13","running":false,"boot":null,"alarms":0}
+{"t":"05:02:22","ws":"d-600","obj":"hjnvk28o","running":false,"boot":null,"alarms":42}
+{"t":"05:02:52","run":"run-5","deploy":"20261009T045346Z","build":"c4g9ntdm","buildAgeS":223,"status":"finished","turns":48,"acquires":2,"loop":false,"last":{"kind":"Released","at":"05:02:45","build":"c4g9ntdm"}}
+{"t":"05:02:52","ws":"run-5","obj":"oubfclpp","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"ok","afterMs":216004,"at":1791522165711,"objectInstance":"oubfclpp"}}
+{"t":"05:02:52","run":"run-3","deploy":"20261009T045346Z","build":"wgmenso9","buildAgeS":0,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"05:02:52","ws":"run-3","obj":"4ucp9sbj","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"05:02:52","ws":"c-600","obj":"9irjcysq","running":false,"boot":null,"alarms":0}
+{"t":"05:02:53","ws":"d-600","obj":"9d968w5f","running":false,"boot":null,"alarms":42}
+{"t":"05:03:23","run":"run-5","deploy":"20261009T045346Z","build":"d2yu9tgd","buildAgeS":4,"status":"finished","turns":48,"acquires":2,"loop":null,"last":{"kind":"Released","at":"05:02:45","build":"c4g9ntdm"}}
+{"t":"05:03:23","ws":"run-5","obj":"g5j7wg4e","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"ok","afterMs":216004,"at":1791522165711,"objectInstance":"oubfclpp"}}
+{"t":"05:03:23","run":"run-3","deploy":"20261009T045346Z","build":"imfji5l4","buildAgeS":4,"status":"finished","turns":58,"acquires":2,"loop":null,"last":{"kind":"Released","at":"04:56:59","build":"yzf0cpwj"}}
+{"t":"05:03:24","ws":"run-3","obj":"6k50aj7r","running":false,"boot":null,"acquire":null,"lastExit":{"acquire":2,"exit":"Error: The RPC call destroy() was called","afterMs":326226,"at":1791521819725,"objectInstance":"ian6opyv"}}
+{"t":"05:03:24","ws":"c-600","obj":"62w1lynd","running":false,"boot":null,"alarms":0}
+{"t":"05:03:24","ws":"d-600","obj":"yay2jhdb","running":false,"boot":null,"alarms":42}

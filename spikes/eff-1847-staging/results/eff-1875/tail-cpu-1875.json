@@ -1,0 +1,128 @@
+[
+  {
+    "what": "ClusterEntity alarm",
+    "n": 118,
+    "cpuMax": 253,
+    "cpuAvg": 44,
+    "wallMax": 30001,
+    "outcomes": {
+      "canceled": 6,
+      "ok": 112
+    },
+    "exceptions": []
+  },
+  {
+    "what": "ClusterEntity rpc invoke",
+    "n": 209,
+    "cpuMax": 152,
+    "cpuAvg": 35,
+    "wallMax": 38911,
+    "outcomes": {
+      "ok": 209
+    },
+    "exceptions": []
+  },
+  {
+    "what": "ClusterEntity rpc hold",
+    "n": 6,
+    "cpuMax": 150,
+    "cpuAvg": 97,
+    "wallMax": 487815,
+    "outcomes": {
+      "ok": 6
+    },
+    "exceptions": []
+  },
+  {
+    "what": "Worker front door",
+    "n": 415,
+    "cpuMax": 65,
+    "cpuAvg": 17,
+    "wallMax": 39333,
+    "outcomes": {
+      "ok": 415
+    },
+    "exceptions": []
+  },
+  {
+    "what": "Eff1847Workspace rpc status",
+    "n": 179,
+    "cpuMax": 56,
+    "cpuAvg": 8,
+    "wallMax": 96773,
+    "outcomes": {
+      "ok": 179
+    },
+    "exceptions": []
+  },
+  {
+    "what": "Worker egress",
+    "n": 36,
+    "cpuMax": 53,
+    "cpuAvg": 6,
+    "wallMax": 247,
+    "outcomes": {
+      "ok": 36
+    },
+    "exceptions": []
+  },
+  {
+    "what": "Eff1847Workspace alarm",
+    "n": 112,
+    "cpuMax": 51,
+    "cpuAvg": 3,
+    "wallMax": 30001,
+    "outcomes": {
+      "ok": 112
+    },
+    "exceptions": []
+  },
+  {
+    "what": "Eff1847Workspace rpc provision",
+    "n": 44,
+    "cpuMax": 47,
+    "cpuAvg": 22,
+    "wallMax": 73662,
+    "outcomes": {
+      "ok": 44
+    },
+    "exceptions": [
+      "Error"
+    ]
+  },
+  {
+    "what": "Eff1847Workspace fetch /rpc/",
+    "n": 249,
+    "cpuMax": 26,
+    "cpuAvg": 2,
+    "wallMax": 116235,
+    "outcomes": {
+      "canceled": 3,
+      "ok": 246
+    },
+    "exceptions": []
+  },
+  {
+    "what": "Eff1847Workspace fetch /ws",
+    "n": 15,
+    "cpuMax": 8,
+    "cpuAvg": 2,
+    "wallMax": 485762,
+    "outcomes": {
+      "ok": 11,
+      "responseStreamDisconnected": 4
+    },
+    "exceptions": []
+  },
+  {
+    "what": "Eff1847Workspace rpc release",
+    "n": 6,
+    "cpuMax": 4,
+    "cpuAvg": 2,
+    "wallMax": 298,
+    "outcomes": {
+      "ok": 6
+    },
+    "exceptions": []
+  }
+]

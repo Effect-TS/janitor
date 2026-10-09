@@ -1,0 +1,1 @@
+{"limits":{"cpu_ms":300000},"compatibility_date":"2026-09-05","compatibility_flags":["nodejs_compat","enable_ctx_exports","new_module_registry"],"observability":true}

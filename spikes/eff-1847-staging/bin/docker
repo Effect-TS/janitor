@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# `docker` on this machine is podman's docker shim talking to the podman
+# service. Two problems for alchemy's image build and push:
+#   - `buildx build` rejects BuildKit-only flags (`--load`, registry
+#     `--cache-from` / `--cache-to`, `--provenance`);
+#   - the service stages layers in /var/tmp, which is nearly full, and does
+#     not see this process's TMPDIR.
+# So `buildx build` and `push` run through local `podman` (same image store)
+# with TMPDIR on /home; everything else goes to the real CLI.
+real="/home/tim/.nix-profile/bin/docker"
+export TMPDIR="$(cd "$(dirname "$0")/.." && pwd)/.alchemy/podman-tmp"
+mkdir -p "$TMPDIR"
+
+if [[ "${1:-}" == "buildx" && "${2:-}" == "build" ]]; then
+  shift 2
+  args=(build)
+  while (($#)); do
+    case "$1" in
+      --load|--provenance=*|--sbom=*) ;;
+      --cache-from|--cache-to) shift ;;
+      --cache-from=*|--cache-to=*) ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  exec podman "${args[@]}"
+fi
+if [[ "${1:-}" == "push" ]]; then
+  shift
+  args=(push)
+  [[ -n "${DOCKER_CONFIG:-}" ]] && args+=(--authfile "$DOCKER_CONFIG/config.json")
+  while (($#)); do
+    case "$1" in
+      --platform) shift ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  exec podman "${args[@]}"
+fi
+exec "$real" "$@"

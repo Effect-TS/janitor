@@ -2,3 +2,4 @@ node_modules
 .alchemy
 *.log
 results/tail-*.ndjson
+results/eff-1875/tail-*.ndjson

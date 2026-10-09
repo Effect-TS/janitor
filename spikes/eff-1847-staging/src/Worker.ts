@@ -4,8 +4,10 @@ import * as Cause from "effect/Cause"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as HttpBody from "effect/http/HttpBody"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import { handleEgress, isEgress } from "./Egress.ts"
 import WorkspaceObjectLive, { WorkspaceObject } from "./WorkspaceObject.ts"
 import { DeployMarker, OpenRouterKey, ReviewRun, WorkspaceNamespace, WorkspaceStubs, makeReviewRunLayer, type Transport } from "./ReviewRun.ts"
 
@@ -16,15 +18,15 @@ export default class StagingWorker extends Cloudflare.Worker<StagingWorker>()(
   "Eff1847Worker",
   Effect.gen(function* () {
     const marker = yield* Config.String("DEPLOY_MARKER").pipe(Config.withDefault("unset"))
-    const executorUrl = yield* Config.String("EXECUTOR_URL")
     return {
       main: import.meta.url,
-      // janitor production values, minus `limits: { cpuMs: 300_000 }`: the
-      // staging account is on the Free plan, which rejects CPU limits.
-      compatibility: { date: "2026-09-05", flags: ["nodejs_compat"] },
+      // janitor production values, plus `enable_ctx_exports` so the
+      // workspace DO can hand the container's egress to this Worker.
+      compatibility: { date: "2026-09-05", flags: ["nodejs_compat", "enable_ctx_exports"] },
+      limits: { cpuMs: 300_000 },
       workersDev: true,
       observability: { enabled: true, headSamplingRate: 1 },
-      env: { DEPLOY_MARKER: marker, EXECUTOR_URL: executorUrl },
+      env: { DEPLOY_MARKER: marker },
     }
   }),
   Effect.gen(function* () {
@@ -47,6 +49,11 @@ export default class StagingWorker extends Cloudflare.Worker<StagingWorker>()(
 
     const handler = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest
+      const source = (request as any).source as Request | undefined
+      if (source && isEgress(source)) {
+        const response = yield* Effect.promise(() => handleEgress(source))
+        return HttpServerResponse.setBody(HttpServerResponse.empty({ status: response.status }), HttpBody.raw(response))
+      }
       const url = new URL(request.url, "http://localhost")
       const runId = url.searchParams.get("run") ?? "default"
       const transport = (url.searchParams.get("transport") ?? "http") as Transport
@@ -67,6 +74,8 @@ export default class StagingWorker extends Cloudflare.Worker<StagingWorker>()(
                 model: url.searchParams.get("model") ?? "openai/gpt-4.1-mini",
                 sleepSeconds: num("sleep", 10),
                 transport,
+                workload: url.searchParams.get("workload") ?? "sleep",
+                hold: url.searchParams.get("hold") ?? "none",
               }),
             ),
           )
@@ -80,16 +89,18 @@ export default class StagingWorker extends Cloudflare.Worker<StagingWorker>()(
           return json({ deploy: marker, sent: true })
         }
         case "/probe":
-          return json(yield* timed(run.Probe({ kind: url.searchParams.get("kind") ?? "caps", transport, n: num("n", 3) })))
+          return json(yield* timed(run.Probe({ kind: url.searchParams.get("kind") ?? "caps", transport, n: num("n", 3), fresh: url.searchParams.get("fresh") !== "0", command: url.searchParams.get("cmd") ?? "true" })))
         case "/workspace":
           return json(yield* timed(workspaces.getByName(runId).status()))
+        case "/workspace/provision":
+          return json(yield* timed(workspaces.getByName(runId).provision(num("acquire", 1), url.searchParams.get("hold") ?? "none")))
         case "/workspace/release":
           return json(yield* timed(workspaces.getByName(runId).release()))
         case "/version":
           return json({ deploy: marker })
         default:
           return HttpServerResponse.text(
-            "routes: /start?minutes=&model=&sleep=&transport= /status /cancel /publish?steps=&stepSeconds= /probe?kind=caps|concurrent|interrupt&n= /workspace /workspace/release /version  (?run=<id>)",
+            "routes: /start?minutes=&model=&sleep=&transport= /status /cancel /publish?steps=&stepSeconds= /probe?kind=caps|concurrent|interrupt|egress|heavy|write|read&n=&fresh=0|1 /workspace /workspace/provision /workspace/release /version  (?run=<id>)",
             { status: 404 },
           )
       }

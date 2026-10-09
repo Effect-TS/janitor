@@ -13,7 +13,7 @@ if (!account || !script || !out) {
   console.error("usage: tail.mjs <account-id> <script-name> <out-file>")
   process.exit(2)
 }
-const profile = `${homedir()}/.alchemy/profiles/${process.env.ALCHEMY_PROFILE ?? "default"}/cloudflare.json`
+const profile = `${homedir()}/.alchemy/profiles/${process.env.ALCHEMY_PROFILE ?? "dev"}/cloudflare.json`
 const token = () => JSON.parse(readFileSync(profile, "utf8")).values.access
 const api = `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}/tails`
 const write = (record) => appendFileSync(out, JSON.stringify({ receivedAt: Date.now(), ...record }) + "\n")
