@@ -1,0 +1,128 @@
+[
+  {
+    "run": "none",
+    "kind": "alarm",
+    "invocations": 53,
+    "cpuMaxMs": 4,
+    "cpuAvgMs": 2,
+    "cpuTotalMs": 108,
+    "wallMaxMs": 30002
+  },
+  {
+    "run": "none",
+    "kind": "invoke",
+    "invocations": 9,
+    "cpuMaxMs": 16,
+    "cpuAvgMs": 10,
+    "cpuTotalMs": 91,
+    "wallMaxMs": 25943
+  },
+  {
+    "run": "pub-1",
+    "kind": "alarm",
+    "invocations": 9,
+    "cpuMaxMs": 5,
+    "cpuAvgMs": 4,
+    "cpuTotalMs": 34,
+    "wallMaxMs": 30007
+  },
+  {
+    "run": "pub-1",
+    "kind": "invoke",
+    "invocations": 2,
+    "cpuMaxMs": 44,
+    "cpuAvgMs": 42,
+    "cpuTotalMs": 83,
+    "wallMaxMs": 30004
+  },
+  {
+    "run": "pub-2",
+    "kind": "alarm",
+    "invocations": 14,
+    "cpuMaxMs": 43,
+    "cpuAvgMs": 7,
+    "cpuTotalMs": 100,
+    "wallMaxMs": 180019
+  },
+  {
+    "run": "pub-2",
+    "kind": "invoke",
+    "invocations": 2,
+    "cpuMaxMs": 47,
+    "cpuAvgMs": 31,
+    "cpuTotalMs": 61,
+    "wallMaxMs": 75904
+  },
+  {
+    "run": "run-1",
+    "kind": "alarm",
+    "invocations": 33,
+    "cpuMaxMs": 152,
+    "cpuAvgMs": 67,
+    "cpuTotalMs": 2203,
+    "wallMaxMs": 30001
+  },
+  {
+    "run": "run-1",
+    "kind": "hold",
+    "invocations": 1,
+    "cpuMaxMs": 232,
+    "cpuAvgMs": 232,
+    "cpuTotalMs": 232,
+    "wallMaxMs": 781111
+  },
+  {
+    "run": "run-1",
+    "kind": "invoke",
+    "invocations": 2,
+    "cpuMaxMs": 39,
+    "cpuAvgMs": 24,
+    "cpuTotalMs": 47,
+    "wallMaxMs": 30075
+  },
+  {
+    "run": "run-2",
+    "kind": "alarm",
+    "invocations": 20,
+    "cpuMaxMs": 166,
+    "cpuAvgMs": 114,
+    "cpuTotalMs": 2282,
+    "wallMaxMs": 30003
+  },
+  {
+    "run": "run-3",
+    "kind": "alarm",
+    "invocations": 27,
+    "cpuMaxMs": 155,
+    "cpuAvgMs": 108,
+    "cpuTotalMs": 2925,
+    "wallMaxMs": 30002
+  },
+  {
+    "run": "run-4",
+    "kind": "hold",
+    "invocations": 1,
+    "cpuMaxMs": 122,
+    "cpuAvgMs": 122,
+    "cpuTotalMs": 122,
+    "wallMaxMs": 7024
+  },
+  {
+    "run": "run-4",
+    "kind": "invoke",
+    "invocations": 3,
+    "cpuMaxMs": 44,
+    "cpuAvgMs": 26,
+    "cpuTotalMs": 77,
+    "wallMaxMs": 624
+  },
+  {
+    "run": "smoke-a",
+    "kind": "invoke",
+    "invocations": 2,
+    "cpuMaxMs": 55,
+    "cpuAvgMs": 43,
+    "cpuTotalMs": 85,
+    "wallMaxMs": 815
+  }
+]

@@ -35,6 +35,8 @@ case "${1:-}" in
     exec pnpm exec alchemy deploy --stage staging --yes --no-input --profile "$PROFILE"
     ;;
   destroy)
+    # The stack module reads EXECUTOR_URL while planning; any value will do.
+    export EXECUTOR_URL="${EXECUTOR_URL:-http://destroyed.invalid}"
     exec pnpm exec alchemy destroy --stage staging --yes --no-input --profile "$PROFILE"
     ;;
   *)

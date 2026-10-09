@@ -1,0 +1,23 @@
+[
+  {
+    "entrypoint": "ClusterEntity",
+    "invocations": 178,
+    "cpuMaxMs": 232,
+    "cpuAvgMs": 47,
+    "wallAvgMs": 31651
+  },
+  {
+    "entrypoint": "Eff1847Workspace",
+    "invocations": 175,
+    "cpuMaxMs": 36,
+    "cpuAvgMs": 5,
+    "wallAvgMs": 55
+  },
+  {
+    "entrypoint": "worker",
+    "invocations": 36,
+    "cpuMaxMs": 74,
+    "cpuAvgMs": 38,
+    "wallAvgMs": 2634
+  }
+]
