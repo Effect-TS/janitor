@@ -24,9 +24,9 @@ export const fencedLines = (markdown: string) => {
   })
 }
 
-/** The text outside fenced code blocks and code spans. */
+/** The text outside fenced code blocks and code spans; a backslash-escaped backtick opens no span. */
 export const outsideCode = (markdown: string) =>
   fencedLines(markdown)
     .map(({ line, fenced }) => (fenced ? "" : line))
     .join("\n")
-    .replace(/(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, "")
+    .replace(/(?<!\\)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, "")

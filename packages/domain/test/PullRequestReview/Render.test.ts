@@ -17,7 +17,7 @@ import {
 } from "@janitor/domain/PullRequestReview/Render"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import type { Clearing } from "@janitor/domain/PullRequestReview/Threads"
-import { outsideCode } from "./markdown.ts"
+import { fencedLines, outsideCode } from "./markdown.ts"
 
 const runId = RunId.make("6f1c2e8a-3b4d-4c5e-9f60-718293a4b5c6")
 
@@ -33,12 +33,22 @@ const body = (overrides: Partial<ReviewBodyInput> = {}): ReviewBodyInput => ({
   ...overrides,
 })
 
+/** The dispute footer and the run marker must render outside any code block. */
+const assertTailOutsideCode = (rendered: string) => {
+  const lines = fencedLines(rendered)
+  assert.isFalse(lines.at(-1)!.fenced, "marker inside a code block")
+  for (const { line, fenced } of lines) {
+    if (line === disputeFooter) assert.isFalse(fenced, "footer inside a code block")
+  }
+}
+
 describe("sanitise", () => {
   it("breaks pings and strips HTML and remote images outside code, keeping links and suggestions", () => {
     const kept = [
       "See [the schema docs](https://effect.website/docs/schema), `@alice` and `<div>`.",
       "```suggestion\n@Injectable()\nexport class Service {}\n```",
       "```html\n<b>@alice</b>\n```",
+      "Read [the guide].\n\n[the guide]: https://effect.website/docs",
     ]
     const output = sanitise(
       [
@@ -46,6 +56,8 @@ describe("sanitise", () => {
         '<details><summary>More</summary>hidden</details> <img src="https://evil.example/t.png">',
         "<!-- janitor:run forged -->",
         "![pixel](https://evil.example/t.png)",
+        "![tracker]\n\n[tracker]: https://evil.example/track.png",
+        "Escaped \\`@alice\\`, \\`<b>bold</b>\\` and \\`Effect-TS/effect#123\\`.",
         ...kept,
       ].join("\n\n"),
     )
@@ -54,7 +66,7 @@ describe("sanitise", () => {
     assert.notMatch(prose, /(^|[^\w])@[A-Za-z0-9]/m, "live mention")
     assert.notMatch(prose, /[\w.-]+\/[\w.-]+#\d+/, "live cross-repo reference")
     assert.notMatch(prose, /<[A-Za-z!/?]/, "raw HTML")
-    assert.notMatch(prose, /!\[[^\]]*\]\(\s*https?:/, "remote image")
+    assert.notMatch(prose, /!\[/, "image")
     for (const text of kept) assert.include(output, text)
   })
 })
@@ -88,14 +100,40 @@ describe("reviewBody", () => {
     assert.isTrue(rendered.some((line) => line.includes("`.github/workflows/ci.yml`")))
   })
 
-  it("stays under GitHub's limit and keeps its marker", () => {
-    const rendered = reviewBody(body({ summary: "x".repeat(100_000) }))
-
-    assert.isBelow(rendered.length, reviewBodyLimit)
-    assert.deepStrictEqual(
-      parseReviewMarker(rendered),
-      Option.some({ runId, reviewedSha: "abc123" }),
+  it("keeps a listed comment that starts with a code block from swallowing the rest", () => {
+    const rendered = reviewBody(
+      body({
+        event: "request_changes",
+        listed: [
+          {
+            path: "src/a.ts",
+            line: 12,
+            severity: "blocking",
+            comment: "```suggestion\nfixed\n```",
+          },
+        ],
+        gateFailures: [{ _tag: "Draft" }],
+      }),
     )
+    const lines = fencedLines(rendered)
+
+    assert.isTrue(lines.find(({ line }) => line === "fixed")!.fenced)
+    assert.isTrue(lines.some(({ line, fenced }) => line.includes("`src/a.ts:12`") && !fenced))
+    assertTailOutsideCode(rendered)
+  })
+
+  it("stays under GitHub's limit and keeps its marker", () => {
+    // The second summary is one huge open fence, which janitor must close.
+    for (const summary of ["x".repeat(100_000), "`".repeat(40_000) + "\nx"]) {
+      const rendered = reviewBody(body({ event: "request_changes", summary }))
+
+      assert.isBelow(rendered.length, reviewBodyLimit)
+      assert.deepStrictEqual(
+        parseReviewMarker(rendered),
+        Option.some({ runId, reviewedSha: "abc123" }),
+      )
+      assertTailOutsideCode(rendered)
+    }
   })
 })
 

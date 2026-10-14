@@ -51,13 +51,23 @@ const splitCodeSpans = (paragraph: string) => {
   const runs = /`+/g
   let start = 0
   for (let run = runs.exec(paragraph); run !== null; run = runs.exec(paragraph)) {
-    const closing = new RegExp(`(?<!\`)${run[0]}(?!\`)`, "g")
+    // Only the first backtick of a run can be escaped. Inside a code span,
+    // backslashes are literal, so they do not escape its closing delimiter.
+    let backslashes = 0
+    for (let index = run.index - 1; index >= 0 && paragraph[index] === "\\"; index--) {
+      backslashes++
+    }
+    const escaped = backslashes % 2
+    const opening = run[0].slice(escaped)
+    if (opening === "") continue
+    const openingIndex = run.index + escaped
+    const closing = new RegExp("(?<!\x60)" + opening + "(?!\x60)", "g")
     closing.lastIndex = run.index + run[0].length
     const close = closing.exec(paragraph)
     if (close === null) continue
-    const end = close.index + run[0].length
-    parts.push({ code: false, text: paragraph.slice(start, run.index) })
-    parts.push({ code: true, text: paragraph.slice(run.index, end) })
+    const end = close.index + opening.length
+    parts.push({ code: false, text: paragraph.slice(start, openingIndex) })
+    parts.push({ code: true, text: paragraph.slice(openingIndex, end) })
     start = end
     runs.lastIndex = end
   }
@@ -73,6 +83,7 @@ const sanitiseText = (text: string) =>
     // Images, inline or by reference, become their alt text.
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/!\[([^\]]*)\]\[[^\]]*\]/g, "$1")
+    .replace(/!\[([^\]]*)\]/g, "$1")
     .replace(/<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>/g, "")
     .replace(/<(?=[A-Za-z!/?])/g, "&lt;")
     // `/` is left alone so `https://host/@user` paths still work.
@@ -193,9 +204,13 @@ const listed = (input: ReviewBodyInput, severity: Severity, heading: string) => 
     ? []
     : [
         heading,
-        ...findings.map(
-          (finding) => `${code(`${finding.path}:${finding.line}`)} — ${sanitise(finding.comment)}`,
-        ),
+        ...findings.map((finding) => {
+          const comment = sanitise(finding.comment)
+          // Prefixing a fence with the location turns it into prose. Keep
+          // multiline Markdown on its own so its block boundaries survive.
+          const separator = comment.includes("\n") ? "\n\n" : " "
+          return `${code(`${finding.path}:${finding.line}`)} —${separator}${comment}`
+        }),
       ]
 }
 
@@ -220,10 +235,19 @@ export const reviewBody = (input: ReviewBodyInput): string => {
     ]
       .filter((section) => section !== undefined)
       .join("\n\n")
-  // Room for the separators, the notice and a fence closed after the cut.
-  const budget = reviewBodyLimit - 1 - tail.length - truncationNotice.length - 64
-  const truncate = (text: string, length: number) =>
-    `${sanitise(cut(text, length))}\n\n${truncationNotice}`
+  // Budget the final sanitised text, including any closing fence added after
+  // the cut. Delimiters can be arbitrarily long; a fixed reserve is not safe.
+  const budget = reviewBodyLimit - 1 - tail.length - 2
+  const truncate = (text: string, length: number) => {
+    const contentBudget = Math.max(0, length - truncationNotice.length - 2)
+    let end = contentBudget
+    let content = sanitise(cut(text, end))
+    while (content.length > contentBudget) {
+      end = Math.max(0, end - (content.length - contentBudget))
+      content = sanitise(cut(text, end))
+    }
+    return `${content}\n\n${truncationNotice}`
+  }
   let body = head(summary)
   if (body.length + 2 + tail.length >= reviewBodyLimit) {
     // Shorten the summary first so the listed findings and gate reasons survive.
@@ -233,6 +257,7 @@ export const reviewBody = (input: ReviewBodyInput): string => {
         ? head(truncate(summary, summary.length - overflow))
         : truncate(head(""), budget)
   }
+  if (body.length > budget) body = truncate(body, budget)
   return `${body}\n\n${tail}`
 }
 
