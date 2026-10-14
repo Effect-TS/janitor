@@ -64,4 +64,48 @@ layer(Services, { timeout: "2 minutes" })("PR review migration", (it) => {
       )
     }).pipe(Effect.provide(NodeServices.layer)),
   )
+
+  it.effect("clears the enable flag on disconnection and keeps the run history", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const store = yield* PullRequestReviewStore
+      const repositoryId = GitHubRepositoryDatabaseId.make("9200")
+      yield* sql`INSERT INTO github_installation(access_error,installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES(NULL,'78','1','test','Organization','selected','active','https://github.com/settings/installations/78',1)`
+      yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,enabled,access,projected_sequence) VALUES(${repositoryId},'78','test','disconnecting',TRUE,TRUE,'accessible',1)`
+      yield* store.setEnabled(repositoryId, true)
+      const runId = RunId.make(crypto.randomUUID())
+      yield* store.start({
+        runId,
+        repositoryId,
+        number: 2,
+        title: "Second change",
+        headSha: "c".repeat(40),
+        baseSha: "d".repeat(40),
+        trigger: { _tag: "Automatic" },
+        startedAt: DateTime.makeUnsafe(Date.UTC(2026, 9, 14)),
+      })
+      yield* store.addFindings(runId, [
+        {
+          path: "src/index.ts",
+          startLine: 1,
+          endLine: 1,
+          severity: "blocking",
+          comment: "Unhandled error.",
+          fingerprint: "fp-1",
+          outcome: "new",
+        },
+      ])
+
+      yield* sql`SELECT delete_repository_data(${repositoryId})`
+
+      assert.isFalse(yield* store.isEnabled(repositoryId))
+      assert.deepStrictEqual(
+        (yield* store.runs(repositoryId, { limit: 10, cursor: Option.none() })).runs.map(
+          (run) => run.runId,
+        ),
+        [runId],
+      )
+      assert.lengthOf(yield* store.findings(runId), 1)
+    }),
+  )
 })
