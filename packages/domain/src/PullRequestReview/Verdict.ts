@@ -48,6 +48,8 @@ export interface ReviewInput {
   readonly sensitive: SensitivePaths
   /** Janitor has an earlier `REQUEST_CHANGES` review on the PR that isn't dismissed. */
   readonly earlierChangesRequested: boolean
+  /** Janitor already has an effective approval at `reviewedSha`; false for a first approval or a new head. */
+  readonly approvedAtHead: boolean
 }
 
 export type GateFailure =
@@ -164,7 +166,8 @@ export interface ReviewDecision {
 /**
  * An unfinished run fails the gates, so it requests changes or comments and
  * never approves. A run with nothing new, no thread state change and no
- * dismissal or approval posts no review (EFF-1649 rule 17).
+ * dismissal or new approval posts no review (EFF-1649 rule 17). An effective
+ * approval at the reviewed head suppresses only unchanged re-runs.
  */
 export const decideReview = (input: ReviewInput): ReviewDecision => {
   const gateFailures = approvalGates(input)
@@ -180,7 +183,9 @@ export const decideReview = (input: ReviewInput): ReviewDecision => {
       ? "request_changes"
       : null
     : gateFailures.length === 0
-      ? "approve"
+      ? changed || !input.approvedAtHead
+        ? "approve"
+        : null
       : nits && changed
         ? "comment"
         : null

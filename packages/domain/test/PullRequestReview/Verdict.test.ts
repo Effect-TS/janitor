@@ -50,6 +50,7 @@ const input = (overrides: Partial<ReviewInput> = {}): ReviewInput => ({
     manifests: ["package.json"],
   },
   earlierChangesRequested: false,
+  approvedAtHead: false,
   ...overrides,
 })
 
@@ -164,6 +165,47 @@ describe("approvalGates", () => {
 })
 
 describe("decideReview", () => {
+  const approvalCases: ReadonlyArray<readonly [string, Partial<ReviewInput>, Verdict | null]> = [
+    ["a quiet re-run at an approved head", { approvedAtHead: true }, null],
+    [
+      "a quiet re-run with an unchanged standing nit at an approved head",
+      { approvedAtHead: true, threads: [threadState("nit", "standing")] },
+      null,
+    ],
+    ["a first approval", { approvedAtHead: false }, "approve"],
+    [
+      "a quiet run at a new head without an approval there",
+      {
+        approvedAtHead: false,
+        reviewedSha: "def456",
+        pullRequest: { state: "open", draft: false, headSha: "def456", baseRef: "main" },
+      },
+      "approve",
+    ],
+    ["a new nit at an approved head", { approvedAtHead: true, findings: [nit] }, "approve"],
+    [
+      "a changed nit thread at an approved head",
+      { approvedAtHead: true, threads: [threadState("nit", "standing", true)] },
+      "approve",
+    ],
+    [
+      "a new blocker at an approved head",
+      { approvedAtHead: true, findings: [blocking] },
+      "request_changes",
+    ],
+  ]
+
+  it.each(approvalCases)("respects approval history for %s", (_, overrides, event) => {
+    const decision = decideReview(input(overrides))
+    assert.deepStrictEqual(
+      { event: decision.event, dismissEarlier: decision.dismissEarlier },
+      {
+        event,
+        dismissEarlier: false,
+      },
+    )
+  })
+
   it("maps findings, gates and changes to a review event and dismissal", () => {
     const draft = {
       pullRequest: { state: "open", draft: true, headSha: "abc123", baseRef: "main" },
