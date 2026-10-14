@@ -5,7 +5,7 @@
  */
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import type { Severity } from "./Finding.ts"
+import type { Judgement, Severity } from "./Finding.ts"
 import { Fingerprint } from "./Fingerprint.ts"
 import { RunId, type SkipReason, type Verdict } from "./Run.ts"
 import type { Actor, ThreadReply, ThreadState } from "./Threads.ts"
@@ -214,6 +214,22 @@ const partialNotice =
 
 const truncationNotice = "_Truncated to fit GitHub's limit on review length._"
 
+/**
+ * Cuts sanitised Markdown to at most `length` characters, notice included.
+ * Closing a fence the cut left open can add as much again as its opener, so
+ * the cut moves back until the closed text fits.
+ */
+const truncate = (markdown: string, length: number) => {
+  const room = Math.max(0, length - truncationNotice.length - 2)
+  let end = room
+  let kept = sanitise(cut(markdown, end))
+  while (kept.length > room) {
+    end -= kept.length - room
+    kept = sanitise(cut(markdown, end))
+  }
+  return `${kept}\n\n${truncationNotice}`
+}
+
 const counts = (input: ReviewBodyInput) => {
   const severities = [...input.inline, ...input.listed].map((finding) => finding.severity)
   const blocking = severities.filter((severity) => severity === "blocking").length
@@ -260,29 +276,16 @@ export const reviewBody = (input: ReviewBodyInput): string => {
     ]
       .filter((section) => section !== undefined)
       .join("\n\n")
-  // Budget the final sanitised text, including any closing fence added after
-  // the cut. Delimiters can be arbitrarily long; a fixed reserve is not safe.
   const budget = reviewBodyLimit - 1 - tail.length - 2
-  const truncate = (text: string, length: number) => {
-    const contentBudget = Math.max(0, length - truncationNotice.length - 2)
-    let end = contentBudget
-    let content = sanitise(cut(text, end))
-    while (content.length > contentBudget) {
-      end = Math.max(0, end - (content.length - contentBudget))
-      content = sanitise(cut(text, end))
-    }
-    return `${content}\n\n${truncationNotice}`
-  }
   let body = head(summary)
-  if (body.length + 2 + tail.length >= reviewBodyLimit) {
+  if (body.length > budget) {
     // Shorten the summary first so the listed findings and gate reasons survive.
-    const overflow = body.length - budget
+    const room = summary.length - (body.length - budget)
     body =
-      summary.length > overflow
-        ? head(truncate(summary, summary.length - overflow))
+      room > truncationNotice.length + 2
+        ? head(truncate(summary, room))
         : truncate(head(""), budget)
   }
-  if (body.length > budget) body = truncate(body, budget)
   return `${body}\n\n${tail}`
 }
 
@@ -333,19 +336,15 @@ export const threadReplyBody = (
     raw === ""
       ? undefined
       : sanitise(raw.length > replyNoteCap ? `${cut(raw, replyNoteCap)}…` : raw)
-  const lead = (() => {
-    switch (reply.judgement) {
-      case "addressed":
-        return `Addressed in ${context.headSha}.`
-      case "withdrawn":
-        return note === undefined ? "Withdrawn." : "Withdrawn:"
-      case "still_applies":
-        return reply.stillAppliesAt === undefined
-          ? "Still applies."
-          : `Still applies at ${reply.stillAppliesAt}`
-    }
-  })()
-  return note === undefined ? lead : `${lead}\n\n${note}`
+  const lead: Record<Judgement, string> = {
+    addressed: `Addressed in ${context.headSha}.`,
+    withdrawn: note === undefined ? "Withdrawn." : "Withdrawn:",
+    still_applies:
+      reply.stillAppliesAt === undefined
+        ? "Still applies."
+        : `Still applies at ${reply.stillAppliesAt}`,
+  }
+  return note === undefined ? lead[reply.judgement] : `${lead[reply.judgement]}\n\n${note}`
 }
 
 /** One of janitor's threads with a link to it, as the check run lists it. */
@@ -355,6 +354,9 @@ export interface ThreadLink {
   readonly outdated: boolean
   readonly resolvedBy?: Actor
 }
+
+/** Why a run ended without a review: checkout, too many lost sandboxes, or an unfinished run. */
+export type RunError = "checkout_failed" | "resume_limit" | "incomplete"
 
 /** What the `janitor/review` check run reports (EFF-1649 rule 18). */
 export type CheckRunReport =
@@ -366,10 +368,7 @@ export type CheckRunReport =
       readonly dismissalFailures: ReadonlyArray<string>
     }
   | { readonly _tag: "Skipped"; readonly reason: SkipReason }
-  | {
-      readonly _tag: "Errored"
-      readonly error: "checkout_failed" | "resume_limit" | "incomplete"
-    }
+  | { readonly _tag: "Errored"; readonly error: RunError }
 
 export interface CheckRunOutput {
   readonly title: string
@@ -385,7 +384,7 @@ const threadGroups: ReadonlyArray<readonly [string, (thread: ThreadLink) => bool
 ]
 
 const linkList = (heading: string, urls: ReadonlyArray<string>) =>
-  `${heading}:\n\n${urls.map((url) => `- ${url}`).join("\n")}`
+  urls.length === 0 ? [] : [`${heading}:\n\n${urls.map((url) => `- ${url}`).join("\n")}`]
 
 const reviewedOutput = (
   report: Extract<CheckRunReport, { readonly _tag: "Reviewed" }>,
@@ -394,20 +393,16 @@ const reviewedOutput = (
     (thread) => thread.state.severity === "blocking" && thread.state.clearing !== "approval",
   )
   const open = withholding.filter((thread) => thread.state.clearing === "standing").length
-  const grouped = new Map<string, Array<string>>()
-  for (const thread of withholding) {
-    const [heading] = threadGroups.find(([, fits]) => fits(thread))!
-    grouped.set(heading, [...(grouped.get(heading) ?? []), thread.url])
-  }
+  const groupOf = (thread: ThreadLink) => threadGroups.findIndex(([, fits]) => fits(thread))
   const reason = notApproved(report.gateFailures)
   const sections = [
-    ...threadGroups.flatMap(([heading]) => {
-      const urls = grouped.get(heading)
-      return urls === undefined ? [] : [linkList(heading, urls)]
-    }),
-    ...(report.dismissalFailures.length === 0
-      ? []
-      : [linkList("Couldn't dismiss janitor's earlier review", report.dismissalFailures)]),
+    ...threadGroups.flatMap(([heading], group) =>
+      linkList(
+        heading,
+        withholding.filter((thread) => groupOf(thread) === group).map((thread) => thread.url),
+      ),
+    ),
+    ...linkList("Couldn't dismiss janitor's earlier review", report.dismissalFailures),
     withholding.length === 0
       ? `No blocking findings.${reason === undefined ? "" : ` ${reason}`}`
       : reason,
@@ -423,41 +418,43 @@ const reviewedOutput = (
   }
 }
 
+const skippedOutput: Record<SkipReason, CheckRunOutput> = {
+  oversized: {
+    title: "Skipped: too large",
+    summary: "This pull request is too large, comment `/janitor` to review anyway.",
+  },
+  run_cap: {
+    title: "Skipped: automatic reviews paused",
+    summary:
+      "This pull request reached its automatic review limit, so automatic reviews paused, comment `/janitor` to re-run.",
+  },
+}
+
+const erroredOutput: Record<RunError, CheckRunOutput> = {
+  checkout_failed: {
+    title: "Checkout failed",
+    summary:
+      "Checkout failed, so janitor couldn't review this head. Comment `/janitor` to try again.",
+  },
+  resume_limit: {
+    title: "Review stopped",
+    summary:
+      "The sandbox was lost too many times and the resume limit was reached, re-run with `/janitor`.",
+  },
+  incomplete: {
+    title: "Incomplete review",
+    summary:
+      "The review ended before it finished. Findings reported so far were posted as a partial review, which never approves. Comment `/janitor` to re-run.",
+  },
+}
+
 export const checkRunOutput = (report: CheckRunReport): CheckRunOutput => {
   switch (report._tag) {
     case "Reviewed":
       return reviewedOutput(report)
     case "Skipped":
-      return report.reason === "oversized"
-        ? {
-            title: "Skipped: too large",
-            summary: "This pull request is too large, comment `/janitor` to review anyway.",
-          }
-        : {
-            title: "Skipped: automatic reviews paused",
-            summary:
-              "This pull request reached its automatic review limit, so automatic reviews paused, comment `/janitor` to re-run.",
-          }
+      return skippedOutput[report.reason]
     case "Errored":
-      switch (report.error) {
-        case "checkout_failed":
-          return {
-            title: "Checkout failed",
-            summary:
-              "Checkout failed, so janitor couldn't review this head. Comment `/janitor` to try again.",
-          }
-        case "resume_limit":
-          return {
-            title: "Review stopped",
-            summary:
-              "The sandbox was lost too many times and the resume limit was reached, re-run with `/janitor`.",
-          }
-        case "incomplete":
-          return {
-            title: "Incomplete review",
-            summary:
-              "The review ended before it finished. Findings reported so far were posted as a partial review, which never approves. Comment `/janitor` to re-run.",
-          }
-      }
+      return erroredOutput[report.error]
   }
 }
