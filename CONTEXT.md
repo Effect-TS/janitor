@@ -159,3 +159,73 @@ Evaluation of labeling rules for the open issue or pull request concerned by a n
 
 **Webhook updates**:
 Changes to Janitor's cached GitHub information from incoming webhook events.
+
+### PR review
+
+**PR review run**:
+One AI review of one pull request at a pinned head SHA. It starts automatically on open, reopen, ready-for-review and every push to a non-draft pull request from a human author in a repository with PR review enabled, or from a write-access `/janitor` re-run. Each run posts at most one GitHub review and records one `pr_review_runs` row.
+_Avoid_: Review job, review session
+
+**PR review enable flag**:
+The per-repository switch that turns PR review on. It is off by default, stored apart from every other repository setting, and enabling it makes reviews live: there is no dry run. PR review also needs the deployment-wide gate, `PR_REVIEW_OPENROUTER_API_KEY`; without it PR review is off for the whole deployment.
+
+**Review verdict**:
+The GitHub review event a run posts: `REQUEST_CHANGES` when any blocking finding stands, otherwise `APPROVE` when every approval gate passes, otherwise `COMMENT` when there are nits. A run with nothing new to say posts no review and only updates the `janitor/review` check run.
+
+**Finding**:
+One problem the agent reports, anchored to a line range on the pull request's side of the diff (GitHub's `RIGHT` side): a path, a start and end line, a severity and a comment. A single line has equal start and end lines.
+
+**Blocking**:
+The finding severity that withholds approval: janitor requests changes and won't approve while a blocking finding stands. Severity is fixed when the finding is reported.
+
+**Nit**:
+The finding severity for something worth a look that never withholds approval.
+
+**Trusted diff**:
+The pull request diff janitor fetches from GitHub for the pinned head SHA, never one read from the sandbox. Finding anchors and new thread anchors are validated against it.
+
+**Finding fingerprint**:
+A hash of a finding's path and a normalised snippet of the anchored code, without the comment text. It is hidden in each inline comment, and janitor matches it at the head to tell whether anchored lines changed and to avoid repeating a finding.
+
+**Thread judgement**:
+The agent's verdict on one of janitor's earlier review threads in a later run: `still_applies` (optionally with a new anchor), `addressed` or `withdrawn`, with an optional note. Janitor replies to threads but never resolves them.
+_Avoid_: Resolved (for a finding outcome)
+
+**Cleared for dismissal**:
+A finding judged `addressed` or `withdrawn`. It stops counting toward `REQUEST_CHANGES`, so janitor dismisses its own earlier `REQUEST_CHANGES` review once no blocking finding stands.
+
+**Cleared for approval**:
+A blocking finding that no longer stops approval: it was judged `addressed` and its fingerprint no longer matches at the head, or a write-access human other than the pull request author replied in its thread or resolved it.
+
+**Approval gate**:
+A hard check in trusted code that must pass before janitor posts `APPROVE`: the head and base are unchanged, the run finished with `taskComplete` and was not steered to wrap up, no blocking finding stands that isn't cleared for approval, the pull request is open and not a draft, the run was not a forced review, and an author without write access did not touch a sensitive path. A failed gate is reported in the check run.
+
+**Sensitive path**:
+A deployment-wide path pattern, such as `.github/**`, `AGENTS.md` or `.agents/**`, or a dependency change in a lockfile or package manifest. Janitor won't approve a pull request from an author without write access that touches one.
+
+**Review standards**:
+What the agent reviews against, in layers that can add to but never override the ones above: janitor's fixed protocol section, the default rubric, the repository's standards read from the base branch (`AGENTS.md`, `.agents/skills`, `.github/janitor/review.md`), and invoker guidance. The run record lists which sources applied.
+
+**Default rubric**:
+Janitor's built-in standard for what is worth blocking (correctness, security, breaking public API, behaviour changes without tests) and what isn't (linter-enforced style, personal taste). It always applies; repository standards win where they conflict with it.
+
+**Invoker guidance**:
+The free-form text after a `/janitor` command. It applies to that one run only, can narrow or emphasise the review, and can never relax the fixed protocol section. Automatic runs have none.
+
+**Forced review**:
+A run started by a write-access `/janitor` on a pull request that is oversized. It may post findings but never approves.
+
+**Oversized pull request**:
+A pull request with more than the configured changed lines or files, not counting lockfiles, generated files and `.changeset/*`. Its automatic runs are skipped with a `skipped` run row; a `/janitor` forces a review.
+
+**Partial review**:
+The review janitor publishes from the findings already reported when a run ends without `taskComplete`, such as at the deadline or after a provider failure. It requests changes or comments, and never approves.
+
+**Per-PR scheduler**:
+The entity that owns one pull request's runs: at most one active run, a cooldown between completed runs, the automatic run cap, cancellation on push, close or draft, and a self-wipe after close.
+
+**Sandbox lost**:
+The run's container or executor transport went away mid-run. It is not a failed run: janitor acquires a fresh sandbox and resumes the run from its history, within the same deadline and resume cap.
+
+**`janitor/review` check run**:
+The check run janitor keeps on each reviewed head SHA. It is the canonical state of a pull request's review: `in_progress` while a run is going, `failure` with blocking findings, `success` otherwise, `cancelled` when superseded, and `neutral` with the reason when a run errored, hit the deadline or was skipped.
