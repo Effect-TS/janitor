@@ -40,7 +40,7 @@ export class GitHubRateLimited extends Data.TaggedError("GitHubRateLimited")<{
 export interface GitHubRequest {
   readonly repositoryPermission?: {
     readonly repositoryId: string
-    readonly issues: "read" | "write"
+    readonly issues?: "read" | "write"
     readonly contents?: "read" | "write"
     readonly pullRequests?: "read" | "write"
   }

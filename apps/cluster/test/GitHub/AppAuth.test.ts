@@ -1,9 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Base64 from "effect/encoding/Base64"
 import * as Base64Url from "effect/encoding/Base64Url"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
@@ -204,6 +206,93 @@ describe("GitHubAppAuth", () => {
         assert.isTrue(requests[0]?.authorization?.startsWith("Bearer ey"))
         assert.strictEqual(requests[0]?.version, "2022-11-28")
         assert.strictEqual(requests[0]?.userAgent, "janitor")
+      }),
+  )
+
+  it.effect(
+    "mints a contents-read token for one repository and revokes it without exposing it",
+    () =>
+      Effect.gen(function* () {
+        const pair = yield* generateKeyPair
+        const der = new Uint8Array(
+          yield* Effect.promise(() => crypto.subtle.exportKey("pkcs8", pair.privateKey)),
+        )
+        const secret = "ghs_sandbox_secret_value"
+        const requests: Array<{
+          method: string
+          url: string
+          authorization?: string
+          body: unknown
+        }> = []
+        let revoked = false
+        const client = HttpClient.make((request) =>
+          Effect.sync(() => {
+            const body = request.body._tag === "Uint8Array" ? request.body.body : undefined
+            requests.push({
+              method: request.method,
+              url: request.url,
+              ...(request.headers["authorization"] === undefined
+                ? {}
+                : { authorization: request.headers["authorization"] }),
+              body: body === undefined ? undefined : JSON.parse(new TextDecoder().decode(body)),
+            })
+            if (request.method === "DELETE") {
+              // A revoked token is no longer a credential.
+              const status = revoked ? 401 : 204
+              revoked = true
+              return HttpClientResponse.fromWeb(
+                request,
+                status === 204
+                  ? new Response(null, { status })
+                  : new Response(JSON.stringify({ message: "Bad credentials" }), { status }),
+              )
+            }
+            return HttpClientResponse.fromWeb(
+              request,
+              new Response(
+                JSON.stringify({
+                  token: secret,
+                  expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                }),
+                { status: 201, headers: { "content-type": "application/json" } },
+              ),
+            )
+          }),
+        )
+        const logs: Array<string> = []
+        const capture = Logger.make((options) => {
+          logs.push(Logger.formatJson.log(options))
+        })
+        const auth = yield* AppAuth.make({
+          appId: "1",
+          privateKey: Redacted.make(pem("PRIVATE KEY", der)),
+        }).pipe(Effect.provide(Layer.succeed(HttpClient.HttpClient, client)))
+
+        const token = yield* auth.installationToken(GitHubInstallationId.make("789"), {
+          repositoryId: "701",
+          contents: "read",
+        })
+        yield* auth.revokeInstallationToken(token)
+        const failure = yield* auth
+          .revokeInstallationToken(token)
+          .pipe(Effect.flip, Effect.provide(Logger.layer([capture])))
+
+        assert.deepStrictEqual(
+          requests.map(({ method, url, body }) => ({ method, url, body })),
+          [
+            {
+              method: "POST",
+              url: "https://api.github.com/app/installations/789/access_tokens",
+              body: { repository_ids: [701], permissions: { contents: "read" } },
+            },
+            { method: "DELETE", url: "https://api.github.com/installation/token", body: undefined },
+            { method: "DELETE", url: "https://api.github.com/installation/token", body: undefined },
+          ],
+        )
+        assert.strictEqual(requests[1]?.authorization, `Bearer ${secret}`)
+        assert.strictEqual(failure._tag, "GitHubAppAuthError")
+        assert.notInclude(Cause.pretty(Cause.fail(failure)), secret)
+        for (const line of logs) assert.notInclude(line, secret)
       }),
   )
 })

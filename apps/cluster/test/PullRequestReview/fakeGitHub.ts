@@ -1,0 +1,372 @@
+import { parseTrustedDiff } from "@janitor/domain/PullRequestReview/Diff"
+import * as Base64 from "effect/encoding/Base64"
+import * as Option from "effect/Option"
+import type { GitHubRequest, GitHubResponse } from "../../src/GitHub/Transport.ts"
+import { FakeGitHub } from "../Labeling/fakeGitHub.ts"
+
+/** The login GraphQL reports for janitor's App, which is also the viewer. */
+export const APP_LOGIN = "effect-janitor"
+
+export interface FakeThreadComment {
+  readonly id: string
+  readonly author: string
+  /** Written by janitor's App, the viewer of every GraphQL call. */
+  readonly byApp: boolean
+  readonly body: string
+  readonly createdAt: string
+  /** The review the comment belongs to. */
+  readonly reviewId?: string
+}
+
+export interface FakeThread {
+  readonly id: string
+  readonly path: string
+  readonly line: number | null
+  readonly startLine: number | null
+  readonly side: string
+  isResolved: boolean
+  isOutdated: boolean
+  resolvedBy: string | null
+  comments: Array<FakeThreadComment>
+}
+
+export interface FakeReview {
+  readonly id: string
+  readonly databaseId: number
+  readonly author: string
+  readonly byApp: boolean
+  state: "PENDING" | "COMMENTED" | "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED"
+  body: string
+  readonly commitOID: string
+}
+
+type FakeFile = string | { readonly size: number }
+
+const MUTATIONS = [
+  "addPullRequestReviewThreadReply",
+  "addPullRequestReviewThread",
+  "addPullRequestReview",
+  "submitPullRequestReview",
+  "deletePullRequestReview",
+  "dismissPullRequestReview",
+] as const
+
+const SUBMITTED = {
+  APPROVE: "APPROVED",
+  REQUEST_CHANGES: "CHANGES_REQUESTED",
+  COMMENT: "COMMENTED",
+} as const
+
+/**
+ * The GitHub a PR review run talks to, for pull request `number`: contents at
+ * any ref, and the review threads and reviews behind GraphQL. Mutations change
+ * that state the way GitHub does: one pending review per viewer, threads and
+ * replies join it through `pullRequestReviewId`, and lines outside the diff are
+ * refused. GraphQL calls send one operation each, with mutation arguments in
+ * `variables.input`.
+ */
+export class FakeReviewGitHub extends FakeGitHub {
+  readonly files = new Map<string, Map<string, FakeFile>>()
+  threads: Array<FakeThread> = []
+  reviews: Array<FakeReview> = []
+  /** Refuse dismissals, as for an App missing from the dismissal allow-list. */
+  dismissalForbidden = false
+  private ids = 0
+
+  constructor(readonly number = 7) {
+    super()
+  }
+
+  /** A file at `ref`; a `{ size }` file is over the contents API's 1 MB cap. */
+  file(ref: string, path: string, content: FakeFile) {
+    const tree = this.files.get(ref) ?? new Map<string, FakeFile>()
+    tree.set(path, content)
+    this.files.set(ref, tree)
+    return this
+  }
+
+  get mutationTimes() {
+    return this.requests.flatMap((request, index) =>
+      request.method !== "GET" &&
+      (request.url !== "/graphql" || /^\s*mutation\b/.test(this.graphql(request).query))
+        ? [this.requestTimes[index]!]
+        : [],
+    )
+  }
+
+  private nextId(prefix: string) {
+    return `${prefix}_${++this.ids}`
+  }
+
+  private graphql(request: GitHubRequest) {
+    return request.body as { query: string; variables?: { input?: Record<string, unknown> } }
+  }
+
+  private data(data: unknown): GitHubResponse {
+    return this.ok({ data })
+  }
+
+  private error(field: string, type: string, message: string): GitHubResponse {
+    return this.ok({ data: { [field]: null }, errors: [{ type, path: [field], message }] })
+  }
+
+  private contents(ref: string | null, path: string): GitHubResponse {
+    const tree = ref === null ? undefined : this.files.get(ref)
+    const found = tree?.get(path)
+    if (typeof found === "string") {
+      const bytes = new TextEncoder().encode(found)
+      return this.ok({
+        type: "file",
+        name: path.split("/").at(-1),
+        path,
+        size: bytes.byteLength,
+        encoding: "base64",
+        content: Base64.encode(bytes).replace(/(.{60})/g, "$1\n"),
+      })
+    }
+    // Between 1 MB and 100 MB the contents API answers without the content.
+    if (found !== undefined)
+      return this.ok({
+        type: "file",
+        name: path.split("/").at(-1),
+        path,
+        size: found.size,
+        encoding: "none",
+        content: "",
+      })
+    const prefix = path === "" ? "" : `${path}/`
+    const entries = new Map<string, "file" | "dir">()
+    for (const candidate of tree?.keys() ?? []) {
+      if (!candidate.startsWith(prefix)) continue
+      const [name, ...rest] = candidate.slice(prefix.length).split("/")
+      entries.set(name!, rest.length === 0 ? "file" : "dir")
+    }
+    if (entries.size === 0) return this.failed(404)
+    return this.ok([...entries].map(([name, type]) => ({ type, name, path: `${prefix}${name}` })))
+  }
+
+  private pending() {
+    return this.reviews.find((review) => review.byApp && review.state === "PENDING")
+  }
+
+  private resolvable(path: string, line: number, startLine: number) {
+    const files = this.pull(this.number)?.files ?? []
+    const file = parseTrustedDiff(
+      files.map((file) => ({
+        filename: file.filename,
+        status: file.status as "modified",
+        ...(file.patch === undefined ? {} : { patch: file.patch }),
+      })),
+    ).files.find((file) => file.path === path)
+    return (
+      file?._tag === "Anchorable" &&
+      file.hunks.some((hunk) => hunk.startLine <= startLine && line <= hunk.endLine)
+    )
+  }
+
+  private query(): GitHubResponse {
+    const page = { hasNextPage: false, endCursor: null }
+    return this.data({
+      repository: {
+        pullRequest: {
+          id: `PR_${this.number}`,
+          number: this.number,
+          reviewThreads: {
+            totalCount: this.threads.length,
+            pageInfo: page,
+            nodes: this.threads.map((thread) => ({
+              id: thread.id,
+              path: thread.path,
+              line: thread.line,
+              startLine: thread.startLine,
+              diffSide: thread.side,
+              isResolved: thread.isResolved,
+              isOutdated: thread.isOutdated,
+              resolvedBy: thread.resolvedBy === null ? null : { login: thread.resolvedBy },
+              comments: {
+                totalCount: thread.comments.length,
+                pageInfo: page,
+                nodes: thread.comments.map((comment) => ({
+                  id: comment.id,
+                  body: comment.body,
+                  createdAt: comment.createdAt,
+                  author: { __typename: comment.byApp ? "Bot" : "User", login: comment.author },
+                  viewerDidAuthor: comment.byApp,
+                  pullRequestReview:
+                    comment.reviewId === undefined ? null : { id: comment.reviewId },
+                })),
+              },
+            })),
+          },
+          reviews: {
+            totalCount: this.reviews.length,
+            pageInfo: page,
+            nodes: this.reviews.map((review) => ({
+              id: review.id,
+              databaseId: review.databaseId,
+              state: review.state,
+              body: review.body,
+              commit: { oid: review.commitOID },
+              author: { __typename: review.byApp ? "Bot" : "User", login: review.author },
+              viewerDidAuthor: review.byApp,
+            })),
+          },
+        },
+      },
+    })
+  }
+
+  private mutation(request: GitHubRequest): GitHubResponse {
+    const { query, variables } = this.graphql(request)
+    const fields = MUTATIONS.filter((field) => new RegExp(`\\b${field}\\s*\\(`).test(query))
+    if (fields.length !== 1) return this.ok({ errors: [{ message: "One mutation per request" }] })
+    const field = fields[0]!
+    const input = variables?.input as Record<string, any> | undefined
+    if (input === undefined) return this.error(field, "INVALID", "Arguments go in variables.input")
+    const pending = this.pending()
+    const joinsPending = pending !== undefined && input.pullRequestReviewId === pending.id
+    switch (field) {
+      case "addPullRequestReview": {
+        if (input.pullRequestId !== `PR_${this.number}`)
+          return this.error(field, "NOT_FOUND", "Could not resolve the pull request")
+        if (pending !== undefined)
+          return this.error(field, "UNPROCESSABLE", "One pending review per pull request")
+        const review: FakeReview = {
+          id: this.nextId("PRR"),
+          databaseId: 900 + this.ids,
+          author: APP_LOGIN,
+          byApp: true,
+          state:
+            input.event === undefined
+              ? "PENDING"
+              : SUBMITTED[input.event as keyof typeof SUBMITTED],
+          body: input.body ?? "",
+          commitOID: input.commitOID ?? this.pull(this.number)?.headSha ?? "a".repeat(40),
+        }
+        this.reviews.push(review)
+        return this.data({
+          [field]: {
+            pullRequestReview: {
+              id: review.id,
+              databaseId: review.databaseId,
+              state: review.state,
+            },
+          },
+        })
+      }
+      case "addPullRequestReviewThread": {
+        if (!joinsPending) return this.error(field, "NOT_FOUND", "No such pending review")
+        const line = input.line as number
+        const startLine = (input.startLine as number | undefined) ?? line
+        if (!this.resolvable(input.path, line, startLine))
+          return this.error(field, "UNPROCESSABLE", "Line must be part of the diff")
+        const thread: FakeThread = {
+          id: this.nextId("PRRT"),
+          path: input.path,
+          line,
+          startLine: input.startLine ?? null,
+          side: input.side ?? "RIGHT",
+          isResolved: false,
+          isOutdated: false,
+          resolvedBy: null,
+          comments: [
+            {
+              id: this.nextId("PRRC"),
+              author: APP_LOGIN,
+              byApp: true,
+              body: input.body,
+              createdAt: "2026-10-14T12:00:00Z",
+              reviewId: pending.id,
+            },
+          ],
+        }
+        this.threads.push(thread)
+        return this.data({ [field]: { thread: { id: thread.id } } })
+      }
+      case "addPullRequestReviewThreadReply": {
+        const thread = this.threads.find((thread) => thread.id === input.pullRequestReviewThreadId)
+        if (!joinsPending || thread === undefined)
+          return this.error(field, "NOT_FOUND", "No such pending review or thread")
+        const comment: FakeThreadComment = {
+          id: this.nextId("PRRC"),
+          author: APP_LOGIN,
+          byApp: true,
+          body: input.body,
+          createdAt: "2026-10-14T12:00:00Z",
+          reviewId: pending.id,
+        }
+        thread.comments.push(comment)
+        return this.data({ [field]: { comment: { id: comment.id } } })
+      }
+      case "submitPullRequestReview": {
+        if (!joinsPending) return this.error(field, "NOT_FOUND", "No such pending review")
+        pending.state = SUBMITTED[input.event as keyof typeof SUBMITTED]
+        pending.body = input.body ?? ""
+        return this.data({
+          [field]: { pullRequestReview: { id: pending.id, state: pending.state } },
+        })
+      }
+      case "deletePullRequestReview": {
+        if (!joinsPending) return this.error(field, "NOT_FOUND", "No such pending review")
+        this.reviews = this.reviews.filter((review) => review !== pending)
+        for (const thread of this.threads)
+          thread.comments = thread.comments.filter((comment) => comment.reviewId !== pending.id)
+        this.threads = this.threads.filter((thread) => thread.comments.length > 0)
+        return this.data({ [field]: { pullRequestReview: { id: pending.id } } })
+      }
+      case "dismissPullRequestReview": {
+        const review = this.reviews.find((review) => review.id === input.pullRequestReviewId)
+        if (review === undefined) return this.error(field, "NOT_FOUND", "No such review")
+        if (this.dismissalForbidden)
+          return this.error(field, "FORBIDDEN", "Resource not accessible by integration")
+        review.state = "DISMISSED"
+        return this.data({ [field]: { pullRequestReview: { id: review.id } } })
+      }
+    }
+  }
+
+  override respond(request: GitHubRequest): GitHubResponse {
+    if (request.method === "POST" && request.url === "/graphql")
+      return /^\s*mutation\b/.test(this.graphql(request).query)
+        ? this.mutation(request)
+        : this.query()
+    const url = new URL(request.url, "https://api.github.com")
+    const rest = url.pathname.startsWith(this.path) ? url.pathname.slice(this.path.length) : null
+    const contents = rest === null ? null : /^\/contents\/?(.*)$/.exec(rest)
+    if (contents && request.method === "GET")
+      return this.contents(url.searchParams.get("ref"), decodeURIComponent(contents[1]!))
+    const dismissal =
+      rest === null
+        ? null
+        : new RegExp(`^/pulls/${this.number}/reviews/(\\d+)/dismissals$`).exec(rest)
+    if (dismissal && request.method === "PUT") {
+      const review = this.reviews.find((review) => review.databaseId === Number(dismissal[1]))
+      if (review === undefined) return this.failed(404)
+      if (this.dismissalForbidden)
+        return {
+          _tag: "Failed",
+          status: 403,
+          body: { message: "Forbidden" },
+          requestId: Option.none(),
+        }
+      review.state = "DISMISSED"
+      return this.ok({ id: review.databaseId, state: review.state })
+    }
+    if (rest === `/pulls/${this.number}/reviews` && request.method === "GET")
+      return this.page(
+        url.pathname,
+        url.searchParams,
+        this.reviews.map((review) => ({
+          id: review.databaseId,
+          node_id: review.id,
+          user: review.byApp
+            ? { login: `${APP_LOGIN}[bot]`, type: "Bot" }
+            : { login: review.author, type: "User" },
+          state: review.state,
+          body: review.body,
+          commit_id: review.commitOID,
+        })),
+      )
+    return super.respond(request)
+  }
+}

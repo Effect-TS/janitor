@@ -22,7 +22,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 export class GitHubAppAuthError extends Data.TaggedError("GitHubAppAuthError")<{
-  readonly operation: "importKey" | "signJwt" | "installationToken"
+  readonly operation: "importKey" | "signJwt" | "installationToken" | "revokeToken"
   readonly message: string
   readonly cause?: unknown
 }> {}
@@ -50,11 +50,15 @@ export class GitHubAppAuth extends Context.Service<
       installationId: GitHubInstallationId,
       restriction?: {
         readonly repositoryId: string
-        readonly issues: "read" | "write"
+        readonly issues?: "read" | "write"
         readonly contents?: "read" | "write"
         readonly pullRequests?: "read" | "write"
       },
     ) => Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError>
+    /** Revokes a token, such as a sandbox's, through `DELETE /installation/token`. */
+    readonly revokeInstallationToken: (
+      token: Redacted.Redacted<string>,
+    ) => Effect.Effect<void, GitHubAppAuthError>
     /** Drops a cached token after GitHub rejected it. */
     readonly invalidateInstallationToken: (
       installationId: GitHubInstallationId,
@@ -213,7 +217,7 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
     installationId: GitHubInstallationId,
     restriction?: {
       readonly repositoryId: string
-      readonly issues: "read" | "write"
+      readonly issues?: "read" | "write"
       readonly contents?: "read" | "write"
       readonly pullRequests?: "read" | "write"
     },
@@ -243,7 +247,7 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
         : yield* HttpClientRequest.bodyJson(request, {
             repository_ids: [Number(restriction.repositoryId)],
             permissions: {
-              issues: restriction.issues,
+              ...(restriction.issues === undefined ? {} : { issues: restriction.issues }),
               ...(restriction.pullRequests === undefined
                 ? {}
                 : { pull_requests: restriction.pullRequests }),
@@ -271,7 +275,40 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
       tokens.delete(installationId)
     })
 
-  return { appJwt, installationToken, invalidateInstallationToken }
+  // The token authenticates its own revocation. Errors carry the status only,
+  // never the request, so the token can't leak through them.
+  const revokeInstallationToken = Effect.fn("GitHubAppAuth.revokeInstallationToken")(function* (
+    token: Redacted.Redacted<string>,
+  ) {
+    const response = yield* http
+      .execute(
+        HttpClientRequest.delete(`${GITHUB_API_BASE_URL}/installation/token`).pipe(
+          HttpClientRequest.bearerToken(Redacted.value(token)),
+          HttpClientRequest.setHeaders({
+            accept: "application/vnd.github+json",
+            "x-github-api-version": GITHUB_API_VERSION,
+            "user-agent": GITHUB_USER_AGENT,
+          }),
+        ),
+      )
+      .pipe(
+        Effect.mapError(
+          () =>
+            new GitHubAppAuthError({
+              operation: "revokeToken",
+              message: "Installation token revocation request failed",
+            }),
+        ),
+      )
+    if (response.status !== 204) {
+      return yield* new GitHubAppAuthError({
+        operation: "revokeToken",
+        message: `Installation token revocation failed with status ${response.status}`,
+      })
+    }
+  })
+
+  return { appJwt, installationToken, revokeInstallationToken, invalidateInstallationToken }
 })
 
 /** Builds the auth service from already resolved credentials. */

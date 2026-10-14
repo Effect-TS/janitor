@@ -1,0 +1,1217 @@
+import type { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
+import type { PullRequestFile } from "@janitor/domain/PullRequestReview/Diff"
+import type { Fingerprint, HeadBlob } from "@janitor/domain/PullRequestReview/Fingerprint"
+import {
+  parseFingerprintMarker,
+  parseReviewMarker,
+  type CheckRunOutput,
+  type ReviewMarker,
+} from "@janitor/domain/PullRequestReview/Render"
+import type { RunId } from "@janitor/domain/PullRequestReview/Run"
+import { countedSize } from "@janitor/domain/PullRequestReview/Size"
+import * as Clock from "effect/Clock"
+import * as Data from "effect/Data"
+import * as DateTime from "effect/DateTime"
+import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
+import * as Base64 from "effect/encoding/Base64"
+import * as Option from "effect/Option"
+import type * as Redacted from "effect/Redacted"
+import * as Schema from "effect/Schema"
+import { GitHubAppAuth, type GitHubAppAuthError } from "../GitHub/AppAuth.ts"
+import { nextLink } from "../GitHub/Link.ts"
+import { GitHubTransport, type GitHubRequest, type GitHubResponse } from "../GitHub/Transport.ts"
+
+/**
+ * The GitHub reads and writes of one PR review run, through the shared
+ * transport. Rate limits are waited out here, mutations are spaced at least a
+ * second apart, and permission lookups are cached for the run.
+ */
+
+export class PullRequestGitHubError extends Data.TaggedError("PullRequestGitHubError")<{
+  readonly operation: string
+  readonly message: string
+  readonly status?: number
+}> {}
+
+/** GitHub answered 403, or a GraphQL `FORBIDDEN` error. */
+export class Forbidden extends Data.TaggedError("PullRequestGitHubForbidden")<{
+  readonly operation: string
+  readonly message: string
+}> {}
+
+/** GitHub answered 404, or a GraphQL `NOT_FOUND` error. */
+export class NotFound extends Data.TaggedError("PullRequestGitHubNotFound")<{
+  readonly operation: string
+  readonly message: string
+}> {}
+
+/** GitHub asked for a wait longer than a run waits inline; retry after `until`. */
+export class RateLimited extends Data.TaggedError("PullRequestGitHubRateLimited")<{
+  readonly operation: string
+  readonly until: DateTime.Utc
+}> {}
+
+export type PullRequestGitHubFailure = PullRequestGitHubError | Forbidden | NotFound | RateLimited
+
+/** GitHub refused a review thread whose line isn't part of the diff. */
+export class UnresolvableLine extends Data.TaggedError("UnresolvableLine")<{
+  readonly path: string
+  readonly line: number
+  readonly message: string
+}> {}
+
+/** Dismissal was forbidden: janitor is not on the branch's dismissal allow-list. */
+export class NotOnDismissalAllowList extends Data.TaggedError("NotOnDismissalAllowList")<{
+  readonly reviewId: string
+}> {}
+
+export interface PullRequestTarget {
+  readonly installationId: GitHubInstallationId
+  readonly owner: string
+  readonly repo: string
+  readonly number: number
+}
+
+export interface PullRequest {
+  readonly nodeId: string
+  readonly state: "open" | "closed"
+  readonly draft: boolean
+  readonly headSha: string
+  readonly baseSha: string
+  readonly baseRef: string
+  /** Absent for a deleted account. `type` is GitHub's account type, such as `User` or `Bot`. */
+  readonly author: Option.Option<{ readonly login: string; readonly type: string }>
+  readonly title: string
+  readonly body: string
+  readonly visibility: "public" | "private" | "internal"
+}
+
+export type ChangedFile = PullRequestFile & {
+  readonly additions: number
+  readonly deletions: number
+}
+
+export interface ChangedFiles {
+  readonly files: ReadonlyArray<ChangedFile>
+  /** GitHub's file listing stops at 3,000 files. */
+  readonly truncated: boolean
+  /**
+   * What the oversized check counts: changed lines and files, leaving out
+   * lockfiles, `linguist-generated` files at the base SHA and `.changeset/*`.
+   */
+  readonly size: { readonly lines: number; readonly files: number }
+}
+
+/** How the last reviewed SHA relates to the head, and what changed between them. */
+export interface Comparison {
+  /** The last reviewed SHA is the head or one of its ancestors. */
+  readonly ancestor: boolean
+  readonly files: ReadonlyArray<ChangedFile>
+  /** The compare API lists at most 300 files. */
+  readonly truncated: boolean
+}
+
+export interface ThreadComment {
+  readonly id: string
+  readonly author: string
+  /** Written by janitor's App rather than a human. */
+  readonly byJanitor: boolean
+  readonly body: string
+  readonly createdAt: DateTime.Utc
+}
+
+/** A review thread janitor's App opened, recognised by the fingerprint marker in its root. */
+export interface JanitorThread {
+  readonly id: string
+  readonly path: string
+  readonly line: number | null
+  readonly startLine: number | null
+  readonly isResolved: boolean
+  readonly isOutdated: boolean
+  /** The login that resolved the thread. */
+  readonly resolvedBy: Option.Option<string>
+  readonly fingerprint: Fingerprint
+  /** The root comment first, then the replies in order. */
+  readonly comments: ReadonlyArray<ThreadComment>
+}
+
+/** A review janitor's App submitted, recognised by its review marker. */
+export interface JanitorReview {
+  readonly id: string
+  readonly databaseId: number
+  readonly state: string
+  readonly marker: ReviewMarker
+}
+
+export type RepositoryPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none"
+
+/** An issue comment, such as a `/janitor` command. */
+export interface IssueComment {
+  readonly id: string
+  readonly body: string
+  readonly author: Option.Option<{ readonly login: string; readonly type: string }>
+  readonly createdAt: DateTime.Utc
+  readonly updatedAt: DateTime.Utc
+}
+
+/** One GitHub review: new threads and replies to earlier threads, submitted together. */
+export interface ReviewSubmission {
+  /** The reviewed head SHA the review is pinned to. */
+  readonly commitId: string
+  readonly event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"
+  readonly body: string
+  /** `RIGHT`-side threads; `startLine` only for a multi-line range. */
+  readonly threads: ReadonlyArray<{
+    readonly path: string
+    readonly line: number
+    readonly startLine?: number
+    readonly body: string
+  }>
+  readonly replies: ReadonlyArray<{ readonly threadId: string; readonly body: string }>
+}
+
+export const CHECK_RUN_NAME = "janitor/review"
+
+export type CheckRunState =
+  | { readonly status: "in_progress" }
+  | {
+      readonly status: "completed"
+      readonly conclusion: "success" | "failure" | "neutral" | "cancelled"
+    }
+
+export interface CheckRunLink {
+  readonly id: string
+  readonly url: string
+}
+
+export interface PullRequestGitHub {
+  readonly pullRequest: Effect.Effect<PullRequest, PullRequestGitHubFailure>
+  /** The changed files with their patches, paginated, and the size count. */
+  readonly changedFiles: (options: {
+    readonly baseSha: string
+    readonly lockfiles: ReadonlyArray<string>
+  }) => Effect.Effect<ChangedFiles, PullRequestGitHubFailure>
+  /** A file at `ref`; missing or over the contents API's 1 MB cap is `Unreadable`. */
+  readonly readFile: (
+    ref: string,
+    path: string,
+  ) => Effect.Effect<HeadBlob, PullRequestGitHubFailure>
+  /** Every file under a directory at `ref`, recursively; a missing directory has none. */
+  readonly readDirectory: (
+    ref: string,
+    path: string,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly path: string; readonly blob: HeadBlob }>,
+    PullRequestGitHubFailure
+  >
+  readonly compare: (
+    lastReviewedSha: string,
+    headSha: string,
+  ) => Effect.Effect<Comparison, PullRequestGitHubFailure>
+  /** Janitor's earlier threads and reviews; everyone else's are left out. */
+  readonly janitorHistory: Effect.Effect<
+    {
+      readonly threads: ReadonlyArray<JanitorThread>
+      readonly reviews: ReadonlyArray<JanitorReview>
+    },
+    PullRequestGitHubFailure
+  >
+  /** Janitor's submitted review carrying this run's marker, so a retry doesn't post twice. */
+  readonly findReview: (
+    runId: RunId,
+  ) => Effect.Effect<Option.Option<JanitorReview>, PullRequestGitHubFailure>
+  /** A login's repository permission, cached for the run. */
+  readonly permission: (
+    login: string,
+  ) => Effect.Effect<RepositoryPermission, PullRequestGitHubFailure>
+  /** An issue comment on this pull request, by id. */
+  readonly issueComment: (
+    commentId: string,
+  ) => Effect.Effect<IssueComment, PullRequestGitHubFailure>
+  /** Creates or updates the `janitor/review` check run on `headSha`. */
+  readonly upsertCheckRun: (options: {
+    readonly headSha: string
+    readonly state: CheckRunState
+    readonly output: CheckRunOutput
+    /** The check run this run created earlier, when it knows it. */
+    readonly checkRunId?: string
+  }) => Effect.Effect<CheckRunLink, PullRequestGitHubFailure>
+  /**
+   * Posts the review through GraphQL's pending-review path, deleting any
+   * pending review janitor left behind first.
+   */
+  readonly submitReview: (
+    review: ReviewSubmission,
+  ) => Effect.Effect<
+    { readonly reviewId: string; readonly databaseId: number },
+    PullRequestGitHubFailure | UnresolvableLine
+  >
+  readonly dismissReview: (
+    review: JanitorReview,
+    message: string,
+  ) => Effect.Effect<void, PullRequestGitHubFailure | NotOnDismissalAllowList>
+}
+
+/** The gap GitHub asks for between content-creating requests (EFF-1643 section 6). */
+const MUTATION_SPACING = Duration.seconds(1)
+/** Longer rate-limit waits go back to the caller as `RateLimited`. */
+const MAX_INLINE_WAIT = Duration.minutes(2)
+const MAX_RATE_LIMIT_WAITS = 5
+/** A GraphQL rate limit doesn't say when it resets. */
+const GRAPHQL_RATE_LIMIT_WAIT = Duration.minutes(1)
+const PAGE = 100
+const MAX_CHANGED_FILES = 3000
+const MAX_COMPARE_FILES = 300
+/** Bounds a recursive directory read and a GraphQL connection walk. */
+const MAX_DIRECTORY_FILES = 500
+const MAX_CONNECTION_PAGES = 50
+
+const ChangedFileApi = Schema.Struct({
+  filename: Schema.NonEmptyString,
+  status: Schema.Literals([
+    "added",
+    "removed",
+    "modified",
+    "renamed",
+    "copied",
+    "changed",
+    "unchanged",
+  ]),
+  previous_filename: Schema.optionalKey(Schema.String),
+  patch: Schema.optionalKey(Schema.String),
+  additions: Schema.Int,
+  deletions: Schema.Int,
+})
+
+const AccountApi = Schema.NullOr(Schema.Struct({ login: Schema.String, type: Schema.String }))
+
+const PullRequestApi = Schema.Struct({
+  node_id: Schema.String,
+  state: Schema.Literals(["open", "closed"]),
+  draft: Schema.Boolean,
+  title: Schema.String,
+  body: Schema.NullOr(Schema.String),
+  user: AccountApi,
+  head: Schema.Struct({ sha: Schema.String }),
+  base: Schema.Struct({
+    ref: Schema.String,
+    sha: Schema.String,
+    repo: Schema.Struct({
+      private: Schema.Boolean,
+      visibility: Schema.optionalKey(Schema.String),
+    }),
+  }),
+})
+
+const ContentsApi = Schema.Union([
+  Schema.Array(Schema.Struct({ type: Schema.String, path: Schema.String })),
+  Schema.Struct({
+    type: Schema.String,
+    encoding: Schema.optionalKey(Schema.String),
+    content: Schema.optionalKey(Schema.String),
+  }),
+])
+
+type Contents = typeof ContentsApi.Type
+const isListing = (contents: Contents): contents is Extract<Contents, ReadonlyArray<unknown>> =>
+  Array.isArray(contents)
+
+const CompareApi = Schema.Struct({
+  status: Schema.Literals(["diverged", "ahead", "behind", "identical"]),
+  files: Schema.optionalKey(Schema.Array(ChangedFileApi)),
+})
+
+const PermissionApi = Schema.Struct({
+  permission: Schema.String,
+  role_name: Schema.optionalKey(Schema.String),
+})
+
+const IssueCommentApi = Schema.Struct({
+  id: Schema.Int,
+  body: Schema.NullOr(Schema.String),
+  user: AccountApi,
+  created_at: Schema.DateTimeUtcFromString,
+  updated_at: Schema.DateTimeUtcFromString,
+  issue_url: Schema.String,
+})
+
+const CheckRunApi = Schema.Struct({ id: Schema.Int, html_url: Schema.NullOr(Schema.String) })
+
+const CheckRunsApi = Schema.Struct({ check_runs: Schema.Array(CheckRunApi) })
+
+const AppApi = Schema.Struct({ id: Schema.Int })
+
+/** A response schema that decodes without services. */
+type Plain = Schema.Top & { readonly DecodingServices: never }
+
+const PageInfo = Schema.Struct({
+  hasNextPage: Schema.Boolean,
+  endCursor: Schema.NullOr(Schema.String),
+})
+
+const connection = <S extends Schema.Top>(node: S) =>
+  Schema.Struct({ pageInfo: PageInfo, nodes: Schema.Array(node) })
+
+const ThreadCommentNode = Schema.Struct({
+  id: Schema.String,
+  body: Schema.String,
+  createdAt: Schema.DateTimeUtcFromString,
+  viewerDidAuthor: Schema.Boolean,
+  author: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+  pullRequestReview: Schema.optionalKey(
+    Schema.NullOr(Schema.Struct({ state: Schema.optionalKey(Schema.String) })),
+  ),
+})
+type ThreadCommentNode = typeof ThreadCommentNode.Type
+
+const ThreadNode = Schema.Struct({
+  id: Schema.String,
+  path: Schema.String,
+  line: Schema.NullOr(Schema.Int),
+  startLine: Schema.NullOr(Schema.Int),
+  isResolved: Schema.Boolean,
+  isOutdated: Schema.Boolean,
+  resolvedBy: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+  comments: connection(ThreadCommentNode),
+})
+
+const ReviewNode = Schema.Struct({
+  id: Schema.String,
+  databaseId: Schema.Int,
+  state: Schema.String,
+  body: Schema.String,
+  viewerDidAuthor: Schema.Boolean,
+})
+
+const pullRequestData = <S extends Schema.Struct.Fields>(fields: S) =>
+  Schema.Struct({
+    repository: Schema.NullOr(Schema.Struct({ pullRequest: Schema.NullOr(Schema.Struct(fields)) })),
+  })
+
+const ThreadsData = pullRequestData({ reviewThreads: connection(ThreadNode) })
+const ThreadCommentsData = Schema.Struct({
+  node: Schema.NullOr(Schema.Struct({ comments: connection(ThreadCommentNode) })),
+})
+const ReviewsData = pullRequestData({ reviews: connection(ReviewNode) })
+const PendingData = pullRequestData({ id: Schema.String, reviews: connection(ReviewNode) })
+
+const THREADS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id path line startLine isResolved isOutdated
+          resolvedBy { login }
+          comments(first: 100) {
+            pageInfo { hasNextPage endCursor }
+            nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { state } }
+          }
+        }
+      }
+    }
+  }
+}`
+
+const THREAD_COMMENTS_QUERY = `query($id: ID!, $after: String) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { state } }
+      }
+    }
+  }
+}`
+
+const REVIEWS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviews(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id databaseId state body viewerDidAuthor }
+      }
+    }
+  }
+}`
+
+// Pending reviews are only visible to their author, so the viewer's are janitor's.
+const PENDING_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      id
+      reviews(first: 10, states: [PENDING]) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id databaseId state body viewerDidAuthor }
+      }
+    }
+  }
+}`
+
+const mutationDocument = (field: string, input: string, selection: string) =>
+  `mutation($input: ${input}!) { ${field}(input: $input) { ${selection} } }`
+
+const DELETE_REVIEW = mutationDocument(
+  "deletePullRequestReview",
+  "DeletePullRequestReviewInput",
+  "pullRequestReview { id }",
+)
+const ADD_REVIEW = mutationDocument(
+  "addPullRequestReview",
+  "AddPullRequestReviewInput",
+  "pullRequestReview { id databaseId }",
+)
+const ADD_THREAD = mutationDocument(
+  "addPullRequestReviewThread",
+  "AddPullRequestReviewThreadInput",
+  "thread { id }",
+)
+const ADD_REPLY = mutationDocument(
+  "addPullRequestReviewThreadReply",
+  "AddPullRequestReviewThreadReplyInput",
+  "comment { id }",
+)
+const SUBMIT_REVIEW = mutationDocument(
+  "submitPullRequestReview",
+  "SubmitPullRequestReviewInput",
+  "pullRequestReview { id }",
+)
+
+const GraphQLErrors = Schema.optionalKey(
+  Schema.Array(Schema.Struct({ type: Schema.optionalKey(Schema.String), message: Schema.String })),
+)
+
+const graphQLResponse = <S extends Plain>(data: S) =>
+  Schema.Struct({ data: Schema.optionalKey(Schema.NullOr(data)), errors: GraphQLErrors })
+
+const AddReviewData = Schema.Struct({
+  addPullRequestReview: Schema.NullOr(
+    Schema.Struct({
+      pullRequestReview: Schema.Struct({ id: Schema.String, databaseId: Schema.Int }),
+    }),
+  ),
+})
+const AddThreadData = Schema.Struct({
+  addPullRequestReviewThread: Schema.NullOr(
+    Schema.Struct({ thread: Schema.NullOr(Schema.Struct({ id: Schema.String })) }),
+  ),
+})
+
+const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/")
+
+const decodeText = (base64: string): Option.Option<string> => {
+  const decoded = Base64.decode(base64.replace(/\s+/g, ""))
+  return decoded._tag === "Success"
+    ? Option.some(new TextDecoder().decode(decoded.success))
+    : Option.none()
+}
+
+const githubMessage = (body: unknown) =>
+  typeof body === "object" && body !== null && "message" in body && typeof body.message === "string"
+    ? `: ${body.message}`
+    : ""
+
+/** A non-2xx answer as a typed failure. GitHub's message never carries our token. */
+const failed = (
+  operation: string,
+  response: Extract<GitHubResponse, { _tag: "Failed" }>,
+): PullRequestGitHubError | Forbidden | NotFound => {
+  const message = `${operation}: GitHub responded ${response.status}${githubMessage(response.body)}`
+  if (response.status === 403) return new Forbidden({ operation, message })
+  if (response.status === 404) return new NotFound({ operation, message })
+  return new PullRequestGitHubError({ operation, message, status: response.status })
+}
+
+const graphQLFailure = (
+  operation: string,
+  error: { readonly type?: string; readonly message: string },
+): PullRequestGitHubError | Forbidden | NotFound => {
+  const message = `${operation}: ${error.message}`
+  if (error.type === "FORBIDDEN") return new Forbidden({ operation, message })
+  if (error.type === "NOT_FOUND") return new NotFound({ operation, message })
+  return new PullRequestGitHubError({ operation, message })
+}
+
+const isPending = (comment: ThreadCommentNode) => comment.pullRequestReview?.state === "PENDING"
+
+const STANDARD_ROLES = ["admin", "maintain", "write", "triage", "read"] as const
+
+/**
+ * `role_name` tells maintain and triage apart, which `permission` folds into
+ * write and read; a custom role falls back to `permission`.
+ */
+const permissionOf = (body: typeof PermissionApi.Type): RepositoryPermission =>
+  STANDARD_ROLES.find((role) => role === body.role_name) ??
+  STANDARD_ROLES.find((role) => role === body.permission) ??
+  "none"
+
+export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
+  const transport = yield* GitHubTransport
+  const repository = `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`
+  const pullPath = `${repository}/pulls/${target.number}`
+  const pullVariables = { owner: target.owner, repo: target.repo, number: target.number }
+
+  let lastMutationAt: number | undefined
+  const permissions = new Map<string, RepositoryPermission>()
+  let appId: number | undefined
+
+  const decode =
+    <S extends Plain>(operation: string, schema: S) =>
+    (body: unknown) =>
+      Schema.decodeUnknownEffect(schema)(body).pipe(
+        Effect.mapError(
+          (error) =>
+            new PullRequestGitHubError({
+              operation,
+              message: `${operation}: unexpected response: ${error.message}`,
+            }),
+        ),
+      )
+
+  /** Waits out a rate limit inline, or hands it back when it is too long or too frequent. */
+  const waitOut = (operation: string, until: DateTime.Utc, waits: number) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now
+      const wait = Duration.millis(
+        Math.max(0, DateTime.toEpochMillis(until) - DateTime.toEpochMillis(now)),
+      )
+      if (waits >= MAX_RATE_LIMIT_WAITS || Duration.isGreaterThan(wait, MAX_INLINE_WAIT)) {
+        return yield* new RateLimited({ operation, until })
+      }
+      yield* Effect.sleep(wait)
+    })
+
+  const spaceMutation = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis
+    const spacing = Duration.toMillis(MUTATION_SPACING)
+    if (lastMutationAt !== undefined && now - lastMutationAt < spacing) {
+      yield* Effect.sleep(Duration.millis(lastMutationAt + spacing - now))
+    }
+    lastMutationAt = yield* Clock.currentTimeMillis
+  })
+
+  /** Sends one request, waiting out rate limits; a 2xx or a `Failed` answer comes back. */
+  const send = (
+    operation: string,
+    request: Pick<GitHubRequest, "method" | "url" | "body" | "resource"> & {
+      readonly scope?: GitHubRequest["scope"]
+      readonly mutation: boolean
+    },
+  ) =>
+    Effect.gen(function* () {
+      for (let waits = 0; ; waits++) {
+        if (request.mutation) yield* spaceMutation
+        const result = yield* transport
+          .request({
+            scope: request.scope ?? { _tag: "Installation", installationId: target.installationId },
+            priority: "foreground",
+            method: request.method,
+            url: request.url,
+            ...(request.body === undefined ? {} : { body: request.body }),
+            ...(request.resource === undefined ? {} : { resource: request.resource }),
+          })
+          .pipe(Effect.result)
+        if (result._tag === "Success") {
+          const response = result.success
+          if (response._tag === "NotModified") {
+            return yield* new PullRequestGitHubError({
+              operation,
+              message: `${operation}: unexpected 304 without a conditional request`,
+            })
+          }
+          return response
+        }
+        const error = result.failure
+        if (error._tag !== "GitHubRateLimited") {
+          return yield* new PullRequestGitHubError({
+            operation,
+            message: `${operation}: ${error.message}`,
+          })
+        }
+        yield* waitOut(operation, error.until, waits)
+      }
+    })
+
+  /** A 2xx body decoded with `schema`; any other answer is a typed failure. */
+  const rest = <S extends Plain>(
+    operation: string,
+    method: GitHubRequest["method"],
+    url: string,
+    schema: S,
+    body?: unknown,
+  ) =>
+    send(operation, { method, url, body, mutation: method !== "GET" }).pipe(
+      Effect.flatMap((response) =>
+        response._tag === "Failed"
+          ? Effect.fail(failed(operation, response))
+          : decode(
+              operation,
+              schema,
+            )(response.body).pipe(
+              Effect.map((decoded) => ({ body: decoded, link: response.link })),
+            ),
+      ),
+    )
+
+  /**
+   * One GraphQL operation. Errors come back with the data so a caller can
+   * read a specific one; a rate-limited answer is waited out.
+   */
+  const graphql = <S extends Plain>(
+    operation: string,
+    query: string,
+    variables: Record<string, unknown>,
+    data: S,
+  ) =>
+    Effect.gen(function* () {
+      const mutation = query.startsWith("mutation")
+      for (let waits = 0; ; waits++) {
+        const response = yield* send(operation, {
+          method: "POST",
+          url: "/graphql",
+          body: { query, variables },
+          resource: "graphql",
+          mutation,
+        })
+        if (response._tag === "Failed") return yield* failed(operation, response)
+        const decoded = yield* decode(operation, graphQLResponse(data))(response.body)
+        if (decoded.errors?.some((error) => error.type === "RATE_LIMITED")) {
+          const now = yield* DateTime.now
+          yield* waitOut(operation, DateTime.addDuration(now, GRAPHQL_RATE_LIMIT_WAIT), waits)
+          continue
+        }
+        return { data: decoded.data ?? null, errors: decoded.errors ?? [] }
+      }
+    })
+
+  /** GraphQL data, failing on any error. */
+  const graphqlData = <S extends Plain>(
+    operation: string,
+    query: string,
+    variables: Record<string, unknown>,
+    data: S,
+  ) =>
+    graphql(operation, query, variables, data).pipe(
+      Effect.flatMap(({ data, errors }) =>
+        errors.length > 0 || data === null
+          ? Effect.fail(
+              graphQLFailure(operation, errors[0] ?? { message: "GitHub returned no data" }),
+            )
+          : Effect.succeed(data),
+      ),
+    )
+
+  const pullRequestOf = <P>(
+    operation: string,
+    data: { readonly repository: { readonly pullRequest: P | null } | null },
+  ) =>
+    data.repository === null || data.repository.pullRequest === null
+      ? Effect.fail(new NotFound({ operation, message: `${operation}: pull request not found` }))
+      : Effect.succeed(data.repository.pullRequest)
+
+  /** Follows a GraphQL connection with `$after` up to its page bound. */
+  const walk = <A>(
+    page: (after: string | null) => Effect.Effect<
+      {
+        readonly pageInfo: typeof PageInfo.Type
+        readonly nodes: ReadonlyArray<A>
+      },
+      PullRequestGitHubFailure
+    >,
+  ) =>
+    Effect.gen(function* () {
+      const nodes: Array<A> = []
+      let after: string | null = null
+      for (let ordinal = 0; ordinal < MAX_CONNECTION_PAGES; ordinal++) {
+        const current: {
+          readonly pageInfo: typeof PageInfo.Type
+          readonly nodes: ReadonlyArray<A>
+        } = yield* page(after)
+        nodes.push(...current.nodes)
+        if (!current.pageInfo.hasNextPage || current.pageInfo.endCursor === null) break
+        after = current.pageInfo.endCursor
+      }
+      return nodes
+    })
+
+  const pullRequest = rest("pullRequest", "GET", pullPath, PullRequestApi).pipe(
+    Effect.map(({ body }): PullRequest => ({
+      nodeId: body.node_id,
+      state: body.state,
+      draft: body.draft,
+      headSha: body.head.sha,
+      baseSha: body.base.sha,
+      baseRef: body.base.ref,
+      author: Option.fromNullishOr(body.user),
+      title: body.title,
+      body: body.body ?? "",
+      visibility:
+        body.base.repo.visibility === "internal"
+          ? "internal"
+          : body.base.repo.private
+            ? "private"
+            : "public",
+    })),
+  )
+
+  const readFile = (ref: string, path: string) =>
+    send("readFile", {
+      method: "GET",
+      url: `${repository}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`,
+      mutation: false,
+    }).pipe(
+      Effect.flatMap((response) => {
+        if (response._tag === "Failed") {
+          return response.status === 404
+            ? Effect.succeed<HeadBlob>({ _tag: "Unreadable" })
+            : Effect.fail(failed("readFile", response))
+        }
+        return decode(
+          "readFile",
+          ContentsApi,
+        )(response.body).pipe(
+          Effect.map((contents): HeadBlob => {
+            // Over 1 MB the contents API answers without the content (`encoding: "none"`).
+            if (isListing(contents) || contents.type !== "file") return { _tag: "Unreadable" }
+            if (contents.encoding !== "base64" || contents.content === undefined) {
+              return { _tag: "Unreadable" }
+            }
+            return Option.match(decodeText(contents.content), {
+              onNone: (): HeadBlob => ({ _tag: "Unreadable" }),
+              onSome: (text): HeadBlob => ({ _tag: "Read", text }),
+            })
+          }),
+        )
+      }),
+    )
+
+  const readDirectory = (ref: string, path: string) =>
+    Effect.gen(function* () {
+      const files: Array<{ readonly path: string; readonly blob: HeadBlob }> = []
+      const pending = [path]
+      while (pending.length > 0 && files.length < MAX_DIRECTORY_FILES) {
+        const directory = pending.shift()!
+        const response = yield* send("readDirectory", {
+          method: "GET",
+          url: `${repository}/contents/${encodePath(directory)}?ref=${encodeURIComponent(ref)}`,
+          mutation: false,
+        })
+        if (response._tag === "Failed") {
+          if (response.status === 404) continue
+          return yield* failed("readDirectory", response)
+        }
+        const contents = yield* decode("readDirectory", ContentsApi)(response.body)
+        if (!isListing(contents)) continue
+        for (const entry of contents) {
+          if (entry.type === "dir") pending.push(entry.path)
+          else if (entry.type === "file" && files.length < MAX_DIRECTORY_FILES) {
+            files.push({ path: entry.path, blob: yield* readFile(ref, entry.path) })
+          }
+        }
+      }
+      return files
+    })
+
+  const changedFiles = (options: {
+    readonly baseSha: string
+    readonly lockfiles: ReadonlyArray<string>
+  }) =>
+    Effect.gen(function* () {
+      const files: Array<ChangedFile> = []
+      let url: string | null = `${pullPath}/files?per_page=${PAGE}`
+      let pages = 0
+      while (url !== null && pages < MAX_CHANGED_FILES / PAGE) {
+        const page: {
+          readonly body: ReadonlyArray<typeof ChangedFileApi.Type>
+          readonly link: Option.Option<string>
+        } = yield* rest("changedFiles", "GET", url, Schema.Array(ChangedFileApi))
+        files.push(...page.body)
+        url = Option.getOrNull(Option.flatMap(page.link, nextLink))
+        pages++
+      }
+      const gitattributes = yield* readFile(options.baseSha, ".gitattributes")
+      return {
+        files,
+        truncated: url !== null,
+        size: countedSize(files, {
+          lockfiles: options.lockfiles,
+          gitattributes: gitattributes._tag === "Read" ? gitattributes.text : undefined,
+        }),
+      } satisfies ChangedFiles
+    })
+
+  const compare = (lastReviewedSha: string, headSha: string) =>
+    send("compare", {
+      method: "GET",
+      // The file list comes on the first page only, whatever the commit page size.
+      url: `${repository}/compare/${encodeURIComponent(lastReviewedSha)}...${encodeURIComponent(headSha)}?per_page=1`,
+      mutation: false,
+    }).pipe(
+      Effect.flatMap((response) => {
+        if (response._tag === "Failed") {
+          // A force-push can leave the last reviewed SHA unknown to GitHub.
+          return response.status === 404
+            ? Effect.succeed<Comparison>({ ancestor: false, files: [], truncated: false })
+            : Effect.fail(failed("compare", response))
+        }
+        return decode(
+          "compare",
+          CompareApi,
+        )(response.body).pipe(
+          Effect.map((body): Comparison => {
+            const files: ReadonlyArray<ChangedFile> = body.files ?? []
+            return {
+              ancestor: body.status === "ahead" || body.status === "identical",
+              files,
+              truncated: files.length >= MAX_COMPARE_FILES,
+            }
+          }),
+        )
+      }),
+    )
+
+  const threadComments = (threadId: string, after: string) =>
+    walk((cursor) =>
+      graphqlData(
+        "threadComments",
+        THREAD_COMMENTS_QUERY,
+        { id: threadId, after: cursor ?? after },
+        ThreadCommentsData,
+      ).pipe(
+        Effect.flatMap((data) =>
+          data.node === null
+            ? Effect.fail(
+                new NotFound({
+                  operation: "threadComments",
+                  message: "threadComments: thread not found",
+                }),
+              )
+            : Effect.succeed(data.node.comments),
+        ),
+      ),
+    )
+
+  const janitorReviews = walk((after) =>
+    graphqlData("janitorReviews", REVIEWS_QUERY, { ...pullVariables, after }, ReviewsData).pipe(
+      Effect.flatMap((data) => pullRequestOf("janitorReviews", data)),
+      Effect.map((pull) => pull.reviews),
+    ),
+  ).pipe(
+    Effect.map((nodes) =>
+      nodes.flatMap((review): ReadonlyArray<JanitorReview> => {
+        const marker = review.viewerDidAuthor ? parseReviewMarker(review.body) : Option.none()
+        return Option.isNone(marker)
+          ? []
+          : [
+              {
+                id: review.id,
+                databaseId: review.databaseId,
+                state: review.state,
+                marker: marker.value,
+              },
+            ]
+      }),
+    ),
+  )
+
+  const janitorThreads = Effect.gen(function* () {
+    const nodes = yield* walk((after) =>
+      graphqlData("janitorThreads", THREADS_QUERY, { ...pullVariables, after }, ThreadsData).pipe(
+        Effect.flatMap((data) => pullRequestOf("janitorThreads", data)),
+        Effect.map((pull) => pull.reviewThreads),
+      ),
+    )
+    const threads: Array<JanitorThread> = []
+    for (const thread of nodes) {
+      const root = thread.comments.nodes[0]
+      // Only the App's own root counts: anyone can paste a marker into a comment.
+      if (root === undefined || !root.viewerDidAuthor || isPending(root)) continue
+      const fingerprint = parseFingerprintMarker(root.body)
+      if (Option.isNone(fingerprint)) continue
+      const comments =
+        thread.comments.pageInfo.hasNextPage && thread.comments.pageInfo.endCursor !== null
+          ? [
+              ...thread.comments.nodes,
+              ...(yield* threadComments(thread.id, thread.comments.pageInfo.endCursor)),
+            ]
+          : thread.comments.nodes
+      threads.push({
+        id: thread.id,
+        path: thread.path,
+        line: thread.line,
+        startLine: thread.startLine,
+        isResolved: thread.isResolved,
+        isOutdated: thread.isOutdated,
+        resolvedBy: Option.fromNullishOr(thread.resolvedBy?.login),
+        fingerprint: fingerprint.value,
+        comments: comments
+          .filter((comment) => !isPending(comment))
+          .map((comment) => ({
+            id: comment.id,
+            author: comment.author?.login ?? "ghost",
+            byJanitor: comment.viewerDidAuthor,
+            body: comment.body,
+            createdAt: comment.createdAt,
+          })),
+      })
+    }
+    return threads
+  })
+
+  const janitorHistory = Effect.all({ threads: janitorThreads, reviews: janitorReviews })
+
+  const findReview = (runId: RunId) =>
+    janitorReviews.pipe(
+      Effect.map((reviews) =>
+        Option.fromNullishOr(reviews.find((review) => review.marker.runId === runId)),
+      ),
+    )
+
+  const permission = (login: string) =>
+    Effect.gen(function* () {
+      const cached = permissions.get(login)
+      if (cached !== undefined) return cached
+      const response = yield* send("permission", {
+        method: "GET",
+        url: `${repository}/collaborators/${encodeURIComponent(login)}/permission`,
+        mutation: false,
+      })
+      // An unknown login has no access.
+      if (response._tag === "Failed" && response.status !== 404) {
+        return yield* failed("permission", response)
+      }
+      const resolved =
+        response._tag === "Failed"
+          ? "none"
+          : permissionOf(yield* decode("permission", PermissionApi)(response.body))
+      permissions.set(login, resolved)
+      return resolved
+    })
+
+  const issueComment = (commentId: string) =>
+    rest(
+      "issueComment",
+      "GET",
+      `${repository}/issues/comments/${encodeURIComponent(commentId)}`,
+      IssueCommentApi,
+    ).pipe(
+      Effect.flatMap(({ body }) =>
+        // A comment id from elsewhere in the repository is not this pull request's.
+        body.issue_url.endsWith(`/issues/${target.number}`)
+          ? Effect.succeed<IssueComment>({
+              id: String(body.id),
+              body: body.body ?? "",
+              author: Option.fromNullishOr(body.user),
+              createdAt: body.created_at,
+              updatedAt: body.updated_at,
+            })
+          : Effect.fail(
+              new NotFound({
+                operation: "issueComment",
+                message: `issueComment: comment ${commentId} is not on pull request ${target.number}`,
+              }),
+            ),
+      ),
+    )
+
+  const ownAppId = Effect.gen(function* () {
+    if (appId !== undefined) return appId
+    const response = yield* send("appId", {
+      method: "GET",
+      url: "/app",
+      scope: { _tag: "App" },
+      mutation: false,
+    })
+    if (response._tag === "Failed") return yield* failed("appId", response)
+    appId = (yield* decode("appId", AppApi)(response.body)).id
+    return appId
+  })
+
+  const upsertCheckRun = (options: {
+    readonly headSha: string
+    readonly state: CheckRunState
+    readonly output: CheckRunOutput
+    readonly checkRunId?: string
+  }) =>
+    Effect.gen(function* () {
+      const existing =
+        options.checkRunId ??
+        (yield* Effect.gen(function* () {
+          const app = yield* ownAppId
+          const { body } = yield* rest(
+            "findCheckRun",
+            "GET",
+            `${repository}/commits/${encodeURIComponent(options.headSha)}/check-runs?check_name=${encodeURIComponent(CHECK_RUN_NAME)}&app_id=${app}&filter=latest`,
+            CheckRunsApi,
+          )
+          return body.check_runs[0] === undefined ? undefined : String(body.check_runs[0].id)
+        }))
+      const fields = {
+        status: options.state.status,
+        ...(options.state.status === "completed" ? { conclusion: options.state.conclusion } : {}),
+        output: { title: options.output.title, summary: options.output.summary },
+      }
+      const { body } =
+        existing === undefined
+          ? yield* rest("createCheckRun", "POST", `${repository}/check-runs`, CheckRunApi, {
+              name: CHECK_RUN_NAME,
+              head_sha: options.headSha,
+              ...fields,
+            })
+          : yield* rest(
+              "updateCheckRun",
+              "PATCH",
+              `${repository}/check-runs/${encodeURIComponent(existing)}`,
+              CheckRunApi,
+              fields,
+            )
+      return { id: String(body.id), url: body.html_url ?? "" } satisfies CheckRunLink
+    })
+
+  const submitReview = (review: ReviewSubmission) =>
+    Effect.gen(function* () {
+      const pull = yield* graphqlData(
+        "pendingReviews",
+        PENDING_QUERY,
+        pullVariables,
+        PendingData,
+      ).pipe(Effect.flatMap((data) => pullRequestOf("pendingReviews", data)))
+      // A user has at most one pending review per pull request; clear janitor's leftover.
+      for (const leftover of pull.reviews.nodes) {
+        if (!leftover.viewerDidAuthor || leftover.state !== "PENDING") continue
+        yield* graphqlData(
+          "deletePendingReview",
+          DELETE_REVIEW,
+          { input: { pullRequestReviewId: leftover.id } },
+          Schema.Unknown,
+        )
+      }
+      const added = yield* graphqlData(
+        "addReview",
+        ADD_REVIEW,
+        { input: { pullRequestId: pull.id, commitOID: review.commitId } },
+        AddReviewData,
+      )
+      if (added.addPullRequestReview === null) {
+        return yield* new PullRequestGitHubError({
+          operation: "addReview",
+          message: "addReview: GitHub returned no review",
+        })
+      }
+      const pending = added.addPullRequestReview.pullRequestReview
+      for (const thread of review.threads) {
+        const result = yield* graphql(
+          "addThread",
+          ADD_THREAD,
+          {
+            input: {
+              pullRequestReviewId: pending.id,
+              path: thread.path,
+              line: thread.line,
+              side: "RIGHT",
+              ...(thread.startLine === undefined || thread.startLine === thread.line
+                ? {}
+                : { startLine: thread.startLine, startSide: "RIGHT" }),
+              body: thread.body,
+            },
+          },
+          AddThreadData,
+        )
+        const unprocessable = result.errors.find((error) => error.type === "UNPROCESSABLE")
+        const created = result.data?.addPullRequestReviewThread?.thread ?? null
+        // GitHub may refuse a line outside the diff with an error or with no thread at all.
+        if (unprocessable !== undefined || (result.errors.length === 0 && created === null)) {
+          return yield* new UnresolvableLine({
+            path: thread.path,
+            line: thread.line,
+            message: unprocessable?.message ?? "GitHub created no thread for this line",
+          })
+        }
+        if (result.errors.length > 0) return yield* graphQLFailure("addThread", result.errors[0]!)
+      }
+      for (const reply of review.replies) {
+        yield* graphqlData(
+          "addReply",
+          ADD_REPLY,
+          {
+            input: {
+              pullRequestReviewId: pending.id,
+              pullRequestReviewThreadId: reply.threadId,
+              body: reply.body,
+            },
+          },
+          Schema.Unknown,
+        )
+      }
+      yield* graphqlData(
+        "submitReview",
+        SUBMIT_REVIEW,
+        { input: { pullRequestReviewId: pending.id, event: review.event, body: review.body } },
+        Schema.Unknown,
+      )
+      return { reviewId: pending.id, databaseId: pending.databaseId }
+    })
+
+  const dismissReview = (review: JanitorReview, message: string) =>
+    send("dismissReview", {
+      method: "PUT",
+      url: `${pullPath}/reviews/${review.databaseId}/dismissals`,
+      body: { message, event: "DISMISS" },
+      mutation: true,
+    }).pipe(
+      Effect.flatMap(
+        (
+          response,
+        ): Effect.Effect<
+          void,
+          NotOnDismissalAllowList | PullRequestGitHubError | Forbidden | NotFound
+        > =>
+          response._tag !== "Failed"
+            ? Effect.void
+            : response.status === 403
+              ? Effect.fail(new NotOnDismissalAllowList({ reviewId: review.id }))
+              : Effect.fail(failed("dismissReview", response)),
+      ),
+    )
+
+  return {
+    pullRequest,
+    changedFiles,
+    readFile,
+    readDirectory,
+    compare,
+    janitorHistory,
+    findReview,
+    permission,
+    issueComment,
+    upsertCheckRun,
+    submitReview,
+    dismissReview,
+  } satisfies PullRequestGitHub
+})
+
+/**
+ * Mints the token a sandbox fetches with (EFF-1892 point 3): one repository,
+ * `contents: read` only, never cached, so each acquire gets its own.
+ */
+export const mintSandboxToken = (options: {
+  readonly installationId: GitHubInstallationId
+  readonly repositoryId: string
+}): Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError, GitHubAppAuth> =>
+  Effect.gen(function* () {
+    const auth = yield* GitHubAppAuth
+    return yield* auth.installationToken(options.installationId, {
+      repositoryId: options.repositoryId,
+      contents: "read",
+    })
+  })
+
+/** Revokes a sandbox token when its sandbox is released (EFF-1892 point 5). */
+export const revokeSandboxToken = (
+  token: Redacted.Redacted<string>,
+): Effect.Effect<void, GitHubAppAuthError, GitHubAppAuth> =>
+  Effect.gen(function* () {
+    const auth = yield* GitHubAppAuth
+    return yield* auth.revokeInstallationToken(token)
+  })

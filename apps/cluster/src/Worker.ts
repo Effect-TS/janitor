@@ -227,6 +227,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
                 message: "Live GitHub access is disabled without development App credentials",
               }),
             ),
+          revokeInstallationToken: () => Effect.void,
           invalidateInstallationToken: () => Effect.void,
         }),
     })
