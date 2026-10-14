@@ -311,6 +311,8 @@ overrides:
   '@effect/ai-openrouter': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
 
+packageExtensionsChecksum: sha256-rjEpzNY6Uc1dF2O41Db06eYirZn7bOs1iwmBJmhWscE=
+
 patchedDependencies:
   alchemy@2.0.0-beta.80: e22189d28873869f2a513e1d6b75673d0169451e9b6f2556170a8f2a46c2e4c0
 
@@ -5276,6 +5278,8 @@ snapshots:
 
   '@uiw/codemirror-theme-github@4.25.11(@codemirror/language@6.12.4)(@codemirror/state@6.7.1)(@codemirror/view@6.43.8)':
     dependencies:
+      '@babel/runtime': 7.29.7
+      '@lezer/highlight': 1.2.3
       '@uiw/codemirror-themes': 4.25.11(@codemirror/language@6.12.4)(@codemirror/state@6.7.1)(@codemirror/view@6.43.8)
     transitivePeerDependencies:
       - '@codemirror/language'
