@@ -1,0 +1,316 @@
+[
+  {
+    "request": 1,
+    "requestSummary": {
+      "messages": 2,
+      "assistantMessages": 0,
+      "assistantWithToolCalls": 0,
+      "assistantWithDetails": 0,
+      "details": [],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 2896,
+        "completionTokens": 72,
+        "reasoningTokens": 0,
+        "cachedTokens": 2893,
+        "costUsd": 0.0010153
+      }
+    },
+    "producedIds": [],
+    "carriedFromEarlier": {
+      "expected": 0,
+      "carried": 0,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 2,
+    "requestSummary": {
+      "messages": 4,
+      "assistantMessages": 1,
+      "assistantWithToolCalls": 1,
+      "assistantWithDetails": 0,
+      "details": [],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 8616,
+        "completionTokens": 130,
+        "reasoningTokens": 0,
+        "cachedTokens": 2893,
+        "costUsd": 0.0158953
+      }
+    },
+    "producedIds": [],
+    "carriedFromEarlier": {
+      "expected": 0,
+      "carried": 0,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 3,
+    "requestSummary": {
+      "messages": 6,
+      "assistantMessages": 2,
+      "assistantWithToolCalls": 2,
+      "assistantWithDetails": 0,
+      "details": [],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe93ee26087d1bb8945cc21e1b0d7",
+          "format": "openai-responses-v1",
+          "sha": "39df6ea97dd028ed",
+          "bytes": 2029
+        }
+      ],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 11326,
+        "completionTokens": 147,
+        "reasoningTokens": 26,
+        "cachedTokens": 8613,
+        "costUsd": 0.0091123
+      }
+    },
+    "producedIds": [
+      "rs_07337eebd5643326016acfe93ee26087d1bb8945cc21e1b0d7"
+    ],
+    "carriedFromEarlier": {
+      "expected": 0,
+      "carried": 0,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 4,
+    "requestSummary": {
+      "messages": 8,
+      "assistantMessages": 3,
+      "assistantWithToolCalls": 3,
+      "assistantWithDetails": 1,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe93ee26087d1bb8945cc21e1b0d7",
+          "format": "openai-responses-v1",
+          "sha": "39df6ea97dd028ed",
+          "bytes": 2029
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 14318,
+        "completionTokens": 398,
+        "reasoningTokens": 0,
+        "cachedTokens": 11323,
+        "costUsd": 0.0125983
+      }
+    },
+    "producedIds": [],
+    "carriedFromEarlier": {
+      "expected": 1,
+      "carried": 1,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 5,
+    "requestSummary": {
+      "messages": 10,
+      "assistantMessages": 4,
+      "assistantWithToolCalls": 4,
+      "assistantWithDetails": 1,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe93ee26087d1bb8945cc21e1b0d7",
+          "format": "openai-responses-v1",
+          "sha": "39df6ea97dd028ed",
+          "bytes": 2029
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe9532cb887d1a0253ee87c3a9733",
+          "format": "openai-responses-v1",
+          "sha": "dcad0f165a58d689",
+          "bytes": 1965
+        }
+      ],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 15300,
+        "completionTokens": 81,
+        "reasoningTokens": 23,
+        "cachedTokens": 14315,
+        "costUsd": 0.0047025
+      }
+    },
+    "producedIds": [
+      "rs_07337eebd5643326016acfe9532cb887d1a0253ee87c3a9733"
+    ],
+    "carriedFromEarlier": {
+      "expected": 1,
+      "carried": 1,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 6,
+    "requestSummary": {
+      "messages": 12,
+      "assistantMessages": 5,
+      "assistantWithToolCalls": 5,
+      "assistantWithDetails": 2,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe93ee26087d1bb8945cc21e1b0d7",
+          "format": "openai-responses-v1",
+          "sha": "39df6ea97dd028ed",
+          "bytes": 2029
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe9532cb887d1a0253ee87c3a9733",
+          "format": "openai-responses-v1",
+          "sha": "dcad0f165a58d689",
+          "bytes": 1965
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 15846,
+        "completionTokens": 557,
+        "reasoningTokens": 0,
+        "cachedTokens": 15297,
+        "costUsd": 0.0084707
+      }
+    },
+    "producedIds": [],
+    "carriedFromEarlier": {
+      "expected": 2,
+      "carried": 2,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 7,
+    "requestSummary": {
+      "messages": 14,
+      "assistantMessages": 6,
+      "assistantWithToolCalls": 6,
+      "assistantWithDetails": 2,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe93ee26087d1bb8945cc21e1b0d7",
+          "format": "openai-responses-v1",
+          "sha": "39df6ea97dd028ed",
+          "bytes": 2029
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe9532cb887d1a0253ee87c3a9733",
+          "format": "openai-responses-v1",
+          "sha": "dcad0f165a58d689",
+          "bytes": 1965
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_07337eebd5643326016acfe963a44087d1876cfb11785f8108",
+          "format": "openai-responses-v1",
+          "sha": "240d9d0c0000dc99",
+          "bytes": 1901
+        }
+      ],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 16643,
+        "completionTokens": 447,
+        "reasoningTokens": 17,
+        "cachedTokens": 15843,
+        "costUsd": 0.0080528
+      }
+    },
+    "producedIds": [
+      "rs_07337eebd5643326016acfe963a44087d1876cfb11785f8108"
+    ],
+    "carriedFromEarlier": {
+      "expected": 2,
+      "carried": 2,
+      "missing": [],
+      "altered": []
+    }
+  }
+]

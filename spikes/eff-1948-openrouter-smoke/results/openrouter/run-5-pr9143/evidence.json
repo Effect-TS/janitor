@@ -1,0 +1,2269 @@
+[
+  {
+    "request": 1,
+    "requestSummary": {
+      "messages": 2,
+      "assistantMessages": 0,
+      "assistantWithToolCalls": 0,
+      "assistantWithDetails": 0,
+      "details": [],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 4504,
+        "completionTokens": 69,
+        "reasoningTokens": 0,
+        "cachedTokens": 4501,
+        "costUsd": 0.0011461
+      }
+    },
+    "producedIds": [],
+    "carriedFromEarlier": {
+      "expected": 0,
+      "carried": 0,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 2,
+    "requestSummary": {
+      "messages": 4,
+      "assistantMessages": 1,
+      "assistantWithToolCalls": 1,
+      "assistantWithDetails": 0,
+      "details": [],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 6937,
+        "completionTokens": 103,
+        "reasoningTokens": 0,
+        "cachedTokens": 4501,
+        "costUsd": 0.0075686
+      }
+    },
+    "producedIds": [],
+    "carriedFromEarlier": {
+      "expected": 0,
+      "carried": 0,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 3,
+    "requestSummary": {
+      "messages": 6,
+      "assistantMessages": 2,
+      "assistantWithToolCalls": 2,
+      "assistantWithDetails": 0,
+      "details": [],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe99cb56487d19e5544a6412ec50b",
+          "format": "openai-responses-v1",
+          "sha": "d07788339e1c33cf",
+          "bytes": 2881
+        }
+      ],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 12104,
+        "completionTokens": 326,
+        "reasoningTokens": 84,
+        "cachedTokens": 6934,
+        "costUsd": 0.0168769
+      }
+    },
+    "producedIds": [
+      "rs_0e226f6898d972a6016acfe99cb56487d19e5544a6412ec50b"
+    ],
+    "carriedFromEarlier": {
+      "expected": 0,
+      "carried": 0,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 4,
+    "requestSummary": {
+      "messages": 8,
+      "assistantMessages": 3,
+      "assistantWithToolCalls": 3,
+      "assistantWithDetails": 1,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe99cb56487d19e5544a6412ec50b",
+          "format": "openai-responses-v1",
+          "sha": "d07788339e1c33cf",
+          "bytes": 2881
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 31
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe9f32e7487d18b9d345362ec49fd",
+          "format": "openai-responses-v1",
+          "sha": "77ac5f5cf009f538",
+          "bytes": 1877
+        }
+      ],
+      "reasoningChars": 441,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 17184,
+        "completionTokens": 91,
+        "reasoningTokens": 16,
+        "cachedTokens": 12101,
+        "costUsd": 0.0148261
+      }
+    },
+    "producedIds": [
+      "rs_0e226f6898d972a6016acfe9f32e7487d18b9d345362ec49fd"
+    ],
+    "carriedFromEarlier": {
+      "expected": 1,
+      "carried": 1,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 5,
+    "requestSummary": {
+      "messages": 10,
+      "assistantMessages": 4,
+      "assistantWithToolCalls": 4,
+      "assistantWithDetails": 2,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe99cb56487d19e5544a6412ec50b",
+          "format": "openai-responses-v1",
+          "sha": "d07788339e1c33cf",
+          "bytes": 2881
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 31
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe9f32e7487d18b9d345362ec49fd",
+          "format": "openai-responses-v1",
+          "sha": "77ac5f5cf009f538",
+          "bytes": 1877
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe9f6753c87d185147994c5039859",
+          "format": "openai-responses-v1",
+          "sha": "6d63a729e4c6174a",
+          "bytes": 3437
+        }
+      ],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 21729,
+        "completionTokens": 1233,
+        "reasoningTokens": 121,
+        "cachedTokens": 17181,
+        "costUsd": 0.0254166
+      }
+    },
+    "producedIds": [
+      "rs_0e226f6898d972a6016acfe9f6753c87d185147994c5039859"
+    ],
+    "carriedFromEarlier": {
+      "expected": 2,
+      "carried": 2,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 6,
+    "requestSummary": {
+      "messages": 12,
+      "assistantMessages": 5,
+      "assistantWithToolCalls": 5,
+      "assistantWithDetails": 3,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe99cb56487d19e5544a6412ec50b",
+          "format": "openai-responses-v1",
+          "sha": "d07788339e1c33cf",
+          "bytes": 2881
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 31
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe9f32e7487d18b9d345362ec49fd",
+          "format": "openai-responses-v1",
+          "sha": "77ac5f5cf009f538",
+          "bytes": 1877
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe9f6753c87d185147994c5039859",
+          "format": "openai-responses-v1",
+          "sha": "6d63a729e4c6174a",
+          "bytes": 3437
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 35
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 11
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfea0a56c087d1a831f1d856fba2c9",
+          "format": "openai-responses-v1",
+          "sha": "a6eb74d9fdff7d29",
+          "bytes": 2113
+        }
+      ],
+      "reasoningChars": 388,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 23125,
+        "completionTokens": 669,
+        "reasoningTokens": 36,
+        "cachedTokens": 21726,
+        "costUsd": 0.0123586
+      }
+    },
+    "producedIds": [
+      "rs_0e226f6898d972a6016acfea0a56c087d1a831f1d856fba2c9"
+    ],
+    "carriedFromEarlier": {
+      "expected": 3,
+      "carried": 3,
+      "missing": [],
+      "altered": []
+    }
+  },
+  {
+    "request": 7,
+    "requestSummary": {
+      "messages": 14,
+      "assistantMessages": 6,
+      "assistantWithToolCalls": 6,
+      "assistantWithDetails": 4,
+      "details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe99cb56487d19e5544a6412ec50b",
+          "format": "openai-responses-v1",
+          "sha": "d07788339e1c33cf",
+          "bytes": 2881
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 31
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 10
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 12
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe9f32e7487d18b9d345362ec49fd",
+          "format": "openai-responses-v1",
+          "sha": "77ac5f5cf009f538",
+          "bytes": 1877
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfe9f6753c87d185147994c5039859",
+          "format": "openai-responses-v1",
+          "sha": "6d63a729e4c6174a",
+          "bytes": 3437
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 35
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 7
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 9
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 1
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 6
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 2
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 11
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 3
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 5
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 8
+        },
+        {
+          "type": "reasoning.summary",
+          "format": "openai-responses-v1",
+          "bytes": 4
+        },
+        {
+          "type": "reasoning.encrypted",
+          "id": "rs_0e226f6898d972a6016acfea0a56c087d1a831f1d856fba2c9",
+          "format": "openai-responses-v1",
+          "sha": "a6eb74d9fdff7d29",
+          "bytes": 2113
+        }
+      ],
+      "reasoningConfig": {
+        "effort": "medium"
+      },
+      "model": "openai/gpt-6.1-sol"
+    },
+    "response": {
+      "details": [],
+      "reasoningChars": 0,
+      "toolCalls": 1,
+      "finishReason": "tool_calls",
+      "usage": {
+        "promptTokens": 23920,
+        "completionTokens": 143,
+        "reasoningTokens": 0,
+        "cachedTokens": 23122,
+        "costUsd": 0.0057357
+      }
+    },
+    "producedIds": [],
+    "carriedFromEarlier": {
+      "expected": 4,
+      "carried": 4,
+      "missing": [],
+      "altered": []
+    }
+  }
+]

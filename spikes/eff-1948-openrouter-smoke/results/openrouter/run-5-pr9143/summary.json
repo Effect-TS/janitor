@@ -1,0 +1,353 @@
+{
+  "provider": "openrouter",
+  "model": "openai/gpt-6.1-sol",
+  "effort": "medium",
+  "pr": 9143,
+  "prUrl": "https://github.com/Effect-TS/effect/pull/9143",
+  "headSha": "c2859bf0176a671154e578653dfb3ba2578a79ff",
+  "baseSha": "738bc873a779179a9c9f0e675b51b2f074796598",
+  "run": 5,
+  "startedAt": "2026-10-14T20:43:46.780Z",
+  "durationMs": 153350,
+  "outcome": "taskComplete",
+  "summary": "Approve with non-blocking suggestions. No correctness regression found. Reported two comments: clarify the cached full-list naming and assert caller-visible results in the mixed-history test.\n\nValidation: all 65 LanguageModel tests passed. A plain-node probe passed for both APIs, covering mixed approval history, distinct approval/tool-call IDs, result emission, replay without re-execution, and provider prompt cleanup. Results were appended to both finding threads. The probe was removed; the working tree is clean.\n\nFull-suite, check, and lint commands were not run, per the review constraints.",
+  "turns": 7,
+  "modelRequests": 7,
+  "retries": [],
+  "tokens": {
+    "input": 109503,
+    "output": 2634,
+    "cacheRead": 90066,
+    "cacheWrite": 19416,
+    "lastContext": 23920
+  },
+  "costUsdAt2in10out": {
+    "inputUsd": 0.219006,
+    "outputUsd": 0.026340000000000002,
+    "totalUsd": 0.245346
+  },
+  "perTurn": [
+    {
+      "turn": 1,
+      "startedAt": 1792010626957,
+      "scriptStartedAt": 1792010629444,
+      "scriptEndedAt": 1792010630334,
+      "endedAt": 1792010630338,
+      "modelMs": 2487,
+      "scriptMs": 890,
+      "totalMs": 3381,
+      "contextTokens": 4504,
+      "outputTokens": 69,
+      "cacheRead": 4501,
+      "cacheWrite": 0,
+      "reasoningChars": 0,
+      "scriptChars": 195,
+      "scriptOutputChars": 10946
+    },
+    {
+      "turn": 2,
+      "startedAt": 1792010630338,
+      "scriptStartedAt": 1792010633005,
+      "scriptEndedAt": 1792010650459,
+      "endedAt": 1792010650460,
+      "modelMs": 2667,
+      "scriptMs": 17454,
+      "totalMs": 20122,
+      "contextTokens": 6937,
+      "outputTokens": 103,
+      "cacheRead": 4501,
+      "cacheWrite": 2433,
+      "reasoningChars": 0,
+      "scriptChars": 312,
+      "scriptOutputChars": 23588
+    },
+    {
+      "turn": 3,
+      "startedAt": 1792010650460,
+      "scriptStartedAt": 1792010658757,
+      "scriptEndedAt": 1792010737690,
+      "endedAt": 1792010737691,
+      "modelMs": 8297,
+      "scriptMs": 78933,
+      "totalMs": 87231,
+      "contextTokens": 12104,
+      "outputTokens": 326,
+      "cacheRead": 6934,
+      "cacheWrite": 5167,
+      "reasoningChars": 211,
+      "scriptChars": 662,
+      "scriptOutputChars": 21058
+    },
+    {
+      "turn": 4,
+      "startedAt": 1792010737691,
+      "scriptStartedAt": 1792010740988,
+      "scriptEndedAt": 1792010741180,
+      "endedAt": 1792010741181,
+      "modelMs": 3297,
+      "scriptMs": 192,
+      "totalMs": 3490,
+      "contextTokens": 17184,
+      "outputTokens": 91,
+      "cacheRead": 12101,
+      "cacheWrite": 5080,
+      "reasoningChars": 451,
+      "scriptChars": 209,
+      "scriptOutputChars": 20849
+    },
+    {
+      "turn": 5,
+      "startedAt": 1792010741181,
+      "scriptStartedAt": 1792010759545,
+      "scriptEndedAt": 1792010760414,
+      "endedAt": 1792010760415,
+      "modelMs": 18364,
+      "scriptMs": 869,
+      "totalMs": 19234,
+      "contextTokens": 21729,
+      "outputTokens": 1233,
+      "cacheRead": 17181,
+      "cacheWrite": 4545,
+      "reasoningChars": 10,
+      "scriptChars": 3789,
+      "scriptOutputChars": 490
+    },
+    {
+      "turn": 6,
+      "startedAt": 1792010760415,
+      "scriptStartedAt": 1792010774701,
+      "scriptEndedAt": 1792010775743,
+      "endedAt": 1792010775747,
+      "modelMs": 14286,
+      "scriptMs": 1042,
+      "totalMs": 15332,
+      "contextTokens": 23125,
+      "outputTokens": 669,
+      "cacheRead": 21726,
+      "cacheWrite": 1396,
+      "reasoningChars": 846,
+      "scriptChars": 2459,
+      "scriptOutputChars": 319
+    },
+    {
+      "turn": 7,
+      "startedAt": 1792010775747,
+      "scriptStartedAt": 1792010779590,
+      "scriptEndedAt": 1792010779627,
+      "endedAt": 1792010779628,
+      "modelMs": 3843,
+      "scriptMs": 37,
+      "totalMs": 3881,
+      "contextTokens": 23920,
+      "outputTokens": 143,
+      "cacheRead": 23122,
+      "cacheWrite": 795,
+      "reasoningChars": 0,
+      "scriptChars": 625,
+      "scriptOutputChars": 0
+    }
+  ],
+  "http": [
+    {
+      "n": 1,
+      "status": 200,
+      "totalMs": 2470,
+      "firstByteMs": 833,
+      "requestBytes": 20787,
+      "responseBytes": 20649
+    },
+    {
+      "n": 2,
+      "status": 200,
+      "totalMs": 2664,
+      "firstByteMs": 668,
+      "requestBytes": 32504,
+      "responseBytes": 31888
+    },
+    {
+      "n": 3,
+      "status": 200,
+      "totalMs": 8296,
+      "firstByteMs": 790,
+      "requestBytes": 57408,
+      "responseBytes": 76368
+    },
+    {
+      "n": 4,
+      "status": 200,
+      "totalMs": 3300,
+      "firstByteMs": 845,
+      "requestBytes": 83724,
+      "responseBytes": 54875
+    },
+    {
+      "n": 5,
+      "status": 200,
+      "totalMs": 18363,
+      "firstByteMs": 720,
+      "requestBytes": 113737,
+      "responseBytes": 369129
+    },
+    {
+      "n": 6,
+      "status": 200,
+      "totalMs": 14284,
+      "firstByteMs": 721,
+      "requestBytes": 122297,
+      "responseBytes": 234655
+    },
+    {
+      "n": 7,
+      "status": 200,
+      "totalMs": 3842,
+      "firstByteMs": 723,
+      "requestBytes": 132662,
+      "responseBytes": 45295
+    }
+  ],
+  "history": [
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "user"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    }
+  ],
+  "toolCalls": [
+    {
+      "at": 1792010774739,
+      "tool": "reportFinding",
+      "params": {
+        "path": "packages/effect/src/ai/LanguageModel.ts",
+        "line": 1135,
+        "severity": "nit",
+        "title": "Name the cached full list allApproved rather than allResolved",
+        "body": "Optional naming cleanup: the `approved` array returned by the collector includes pending approvals too, so `allResolved` is not yet a resolved-only list at this point. Using `allApproved` in both request paths would make its relationship to `allDenied` and `pendingApproved` explicit and avoid suggesting that it is safe to execute the entire list. The current behavior is correct; this is just clarity for the newly cached state."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f1"
+      }
+    },
+    {
+      "at": 1792010774744,
+      "tool": "reportFinding",
+      "params": {
+        "path": "packages/effect/test/ai/LanguageModel.test.ts",
+        "line": 2219,
+        "endLine": 2221,
+        "severity": "suggestion",
+        "title": "Also assert the results returned from mixed approval history",
+        "body": "Optional regression coverage: this new mixed-history test discards the generated response and drains the stream, so it verifies handler execution and the provider prompt but not which pre-resolved results reach the caller. Capture the response/stream parts and assert that only `pending-approved` and `pending-denied` are emitted, once each, with the expected failure flags. The existing stream emission test covers only a single pending approved call, not the resolved/pending and approved/denied partition exercised here."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f2"
+      }
+    },
+    {
+      "at": 1792010775004,
+      "tool": "updateThread",
+      "params": {
+        "id": "f1",
+        "body": "Validation: all 65 tests in `pnpm test --run packages/effect/test/ai/LanguageModel.test.ts` passed. The plain-node mixed-history probe passed for both APIs and confirmed that the full approved list contains entries whose tool results are only added during pre-resolution; no functional issue was observed."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f1",
+        "comments": 1
+      }
+    },
+    {
+      "at": 1792010775202,
+      "tool": "updateThread",
+      "params": {
+        "id": "f2",
+        "body": "Probe result: `node scratchpad/pr-9143-approvals.ts` passed for both generateText and streamText with distinct approval IDs and tool-call IDs. Each emitted exactly the newly approved and newly denied result (failure flags false/true); replay emitted no tool results and did not re-execute the handler. Both provider requests retained four tool results and no resolved approval artifacts. This is a request to retain that coverage in the checked-in test, not a demonstrated bug."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f2",
+        "comments": 1
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "f1",
+      "path": "packages/effect/src/ai/LanguageModel.ts",
+      "line": 1135,
+      "severity": "nit",
+      "title": "Name the cached full list allApproved rather than allResolved",
+      "body": "Optional naming cleanup: the `approved` array returned by the collector includes pending approvals too, so `allResolved` is not yet a resolved-only list at this point. Using `allApproved` in both request paths would make its relationship to `allDenied` and `pendingApproved` explicit and avoid suggesting that it is safe to execute the entire list. The current behavior is correct; this is just clarity for the newly cached state.",
+      "thread": [
+        {
+          "body": "Validation: all 65 tests in `pnpm test --run packages/effect/test/ai/LanguageModel.test.ts` passed. The plain-node mixed-history probe passed for both APIs and confirmed that the full approved list contains entries whose tool results are only added during pre-resolution; no functional issue was observed."
+        }
+      ]
+    },
+    {
+      "id": "f2",
+      "path": "packages/effect/test/ai/LanguageModel.test.ts",
+      "line": 2219,
+      "endLine": 2221,
+      "severity": "suggestion",
+      "title": "Also assert the results returned from mixed approval history",
+      "body": "Optional regression coverage: this new mixed-history test discards the generated response and drains the stream, so it verifies handler execution and the provider prompt but not which pre-resolved results reach the caller. Capture the response/stream parts and assert that only `pending-approved` and `pending-denied` are emitted, once each, with the expected failure flags. The existing stream emission test covers only a single pending approved call, not the resolved/pending and approved/denied partition exercised here.",
+      "thread": [
+        {
+          "body": "Probe result: `node scratchpad/pr-9143-approvals.ts` passed for both generateText and streamText with distinct approval IDs and tool-call IDs. Each emitted exactly the newly approved and newly denied result (failure flags false/true); replay emitted no tool results and did not re-execute the handler. Both provider requests retained four tool results and no resolved approval artifacts. This is a request to retain that coverage in the checked-in test, not a demonstrated bug."
+        }
+      ]
+    }
+  ]
+}

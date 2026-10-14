@@ -1,0 +1,24 @@
+{
+  "name": "@janitor/eff-1948-openrouter-smoke",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway smoke-test harness for EFF-1948: clanka (master @ 9d0da00, PRs #219 and #220) on openai/gpt-6.1-sol through @effect/ai-openrouter, with every @effect package pinned to the #7322 snapshot at 667feb7. Standalone pnpm workspace; nothing here is for merging.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "review": "node src/run.ts"
+  },
+  "dependencies": {
+    "@effect/ai-openai": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@667feb75dcf5259c4d9eafe51476487b18b8de01",
+    "@effect/ai-openai-compat": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@667feb75dcf5259c4d9eafe51476487b18b8de01",
+    "@effect/ai-openrouter": "https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01",
+    "@effect/platform-node": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01",
+    "@effect/platform-node-shared": "https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@667feb75dcf5259c4d9eafe51476487b18b8de01",
+    "@effect/sql-sqlite-node": "https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@667feb75dcf5259c4d9eafe51476487b18b8de01",
+    "clanka": "file:vendor/clanka-0.8.6-9d0da00.tgz",
+    "effect": "https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^5.9.3"
+  }
+}

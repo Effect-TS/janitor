@@ -1,0 +1,24 @@
+{
+  "n": 7,
+  "url": "https://openrouter.ai/api/v1/chat/completions",
+  "status": 200,
+  "startedAt": 1792010605981,
+  "headersAt": 1792010606860,
+  "endedAt": 1792010613377,
+  "requestBytes": 105346,
+  "responseBytes": 85796,
+  "responseHeaders": {
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": "X-Generation-Id,X-Provider-Name,request-id,cf-ray",
+    "cache-control": "no-cache",
+    "cf-ray": "a4a96a8f7cd47dd3-EWR",
+    "content-type": "text/event-stream",
+    "date": "Wed, 14 Oct 2026 20:43:26 GMT",
+    "permissions-policy": "payment=(self \"https://checkout.stripe.com\" \"https://connect-js.stripe.com\" \"https://js.stripe.com\" \"https://*.js.stripe.com\" \"https://hooks.stripe.com\")",
+    "referrer-policy": "no-referrer, strict-origin-when-cross-origin",
+    "server": "cloudflare",
+    "set-cookie": "<redacted>",
+    "x-content-type-options": "nosniff",
+    "x-generation-id": "gen-1792010606-jyFz6so9iy5ecGrR6Rp7"
+  }
+}

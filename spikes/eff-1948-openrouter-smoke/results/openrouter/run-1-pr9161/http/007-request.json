@@ -1,0 +1,873 @@
+{
+  "n": 7,
+  "url": "https://openrouter.ai/api/v1/chat/completions",
+  "method": "POST",
+  "headers": {
+    "accept": "application/json",
+    "authorization": "<redacted>",
+    "b3": "5081a261f299dbce2f2c2aa53dd71601-252bdecd9cb28b6a-1",
+    "content-type": "application/json",
+    "traceparent": "00-5081a261f299dbce2f2c2aa53dd71601-252bdecd9cb28b6a-01"
+  },
+  "body": {
+    "model": "openai/gpt-6.1-sol",
+    "reasoning": {
+      "effort": "medium"
+    },
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "You are a world-class software engineer: precise and efficient.\n\nYOU ONLY HAVE ONE TOOL AVAILABLE: \"execute\", to run javascript code to do your work.\n\n- Use `console.log` to print any output you need.\n- Use top level await.\n- You can add / update / remove multiple files in one go with \"applyPatch\". Prefer it over \"writeFile\" to update existing files.\n- Avoid passing scripts into the \"bash\" function, and instead write javascript.\n- Variables are not shared between executions.\n- Do not use `require`, `import`, `process`, or any other Node.js apis.\n\nWhen you have fully completed your task, call the \"taskComplete\" function with the final output.\nMake sure every detail of the task is done before calling \"taskComplete\".\n\nHere is how you would read a file and list a directory:\n\n```\nconst [files, content] = await Promise.all([\n  ls(\".\"),\n  readFile({\n    path: \"package.json\",\n    startLine: 1,\n    endLine: 10,\n  })\n])\nconsole.log(\"files:\", files)\nconsole.log(\"package.json:\", JSON.parse(content))\n```\n\nAnd then you will revieve back the console output:\n\n```\n[22:44:53.050] INFO (#47): Calling \"ls\" { directory: '.' }\n[22:44:53.054] INFO (#47): Calling \"readFile\" { path: 'package.json' }\nfiles: [ 'package.json' ]\npackage.json: {\n  \"name\": \"my-project\",\n  \"version\": \"1.0.0\"\n}\n```\n\nThese are the functions available to you:\n\n```ts\n/** Change the executor's working directory to an existing directory and return its absolute path. Relative paths resolve from the current directory without shell expansion. Await this before dependent tools. The change persists across scripts and is shared with delegates using this executor. Startup AGENTS.md, skills, and the semantic-search index root remain fixed. Navigation does not survive a session reload. */\ndeclare function changeDirectory(directory: string): Promise<string>\n\n/** Read a file and optionally filter the lines to return. Returns null if the file doesn't exist. For png/jpeg/gif/webp files the image itself is attached to your next turn and a short marker is returned instead of the bytes; line ranges are not allowed on images. */\ndeclare function readFile(options: {\n    readonly path: string;\n    readonly startLine?: number | undefined;\n    readonly endLine?: number | undefined;\n}): Promise<string | null>\n\n/** Search for a pattern in files using ripgrep */\ndeclare function rg(options: {\n    readonly pattern: string;\n    /** --glob */\n    readonly glob?: string | undefined;\n    /** Only return file paths --files-with-matches */\n    readonly filesOnly?: boolean | undefined;\n    /** The total maximum number of lines to return across all files (default: 500) */\n    readonly maxLines?: number | undefined;\n}): Promise<string>\n\n/** Find files matching a glob pattern. */\ndeclare function glob(pattern: string): Promise<readonly string[]>\n\n/** Run a bash command and return the output */\ndeclare function bash(command: {\n    readonly command: string;\n    /** Timeout in ms (default and max: 180000) */\n    readonly timeoutMs?: number | undefined;\n}): Promise<string>\n\n/** Add, update or remove multiple files with a git diff / unified diff / wrapped patch. */\ndeclare function applyPatch(patch: string): Promise<string>\n\n/** Write content to a file, creating parent directories if needed. */\ndeclare function writeFile(options: {\n    readonly path: string;\n    readonly content: string;\n}): Promise<void>\n\n/** Remove a file. */\ndeclare function removeFile(path: string): Promise<void>\n\n/** Rename or move a file, creating parent directories if needed. */\ndeclare function renameFile(options: {\n    readonly from: string;\n    readonly to: string;\n}): Promise<void>\n\n/** List the contents of a directory */\ndeclare function ls(directory: string): Promise<readonly string[]>\n\n/** Sleep for a specified number of milliseconds */\ndeclare function sleep(ms: number): Promise<void>\n\n/** Only call this when the task is fully complete and you have a final output message to send. */\ndeclare function taskComplete(output: string): Promise<void>\n\n/** Report one review finding on the pull request. `path` is a file the PR changes and `line` (optionally through `endLine`) are new-side line numbers that lie inside the PR diff hunks; anchors outside the diff are rejected. Returns the finding id, which `updateThread` takes. */\ndeclare function reportFinding(options: {\n    readonly path: string;\n    readonly line: number;\n    readonly endLine?: number;\n    readonly severity: \"blocking\" | \"suggestion\" | \"nit\" | \"question\";\n    readonly title: string;\n    readonly body: string;\n}): Promise<{\n    readonly id: string;\n}>\n\n/** Append a comment to the thread of a finding reported earlier in this review, for example a test or probe result that confirms or withdraws it. Returns the thread's comment count. */\ndeclare function updateThread(options: {\n    readonly id: string;\n    readonly body: string;\n    readonly resolve?: boolean;\n}): Promise<{\n    readonly id: string;\n    readonly comments: number;\n}>\n\n/** The global Fetch API available for making HTTP requests. */\ndeclare const fetch: typeof globalThis.fetch\n```\n\n# Project instructions\n\n**ALWAYS follow these instructions when completing tasks**:\n\n<!-- instructions start -->\nThis is the Effect TypeScript monorepo. The git base branch is `main`; use `pnpm` from the repository root.\n\n## Layout\n\n- Core library source, runtime tests, and type tests are in `packages/effect/src`, `packages/effect/test`, and\n  `packages/effect/typetest`.\n- Other package families include `packages/ai`, `packages/atom`, `packages/platform`, `packages/sql`, and\n  `packages/tools`; standalone packages also live directly under `packages`.\n- Package tests and type tests live beside source in `test` and `typetest` directories.\n- AI documentation sources are in `ai-docs/src`.\n- Changesets are in `.changeset`.\n- Migration sources (v3-to-v4) are in `migration/annotations`.\n- Inspect nearby code before editing.\n\n## Validation\n\nUse the narrowest validation that covers the change:\n\n| Change type                        | Validation                                                                         |\n| ---------------------------------- | ---------------------------------------------------------------------------------- |\n| Runtime source or test changes     | `pnpm lint-fix`, targeted `pnpm test --run <test_file.ts>`, `pnpm check`           |\n| Type-system behavior or type tests | Targeted `pnpm test-types <filename>`, plus `pnpm check` when source types changed |\n| JSDoc text/category/link changes   | `pnpm jsdocs --check`, `pnpm lint`                                                 |\n| JSDoc example changes              | `pnpm jsdocs --check`, `pnpm lint`, root `pnpm doctest --run <files>`              |\n| Docs-only changes                  | `pnpm lint-fix`; no tests unless examples or code changed                          |\n\nChoose coverage from the contract being changed. Runtime tests cover executed\nbehavior. Tstyche tests cover intended compiler behavior such as inference,\nassignability, rejection, or displayed public types. An ordinary source edit or\nexported declaration is covered by `pnpm check` unless compiler behavior is part\nof the task.\n\nNever run bare `pnpm test` or `pnpm doctest`; both start the full suite in watch mode. Always pass `--run` and the\nspecific files covering the change. CI runs the full suite.\n\nFor an ad hoc runnable probe, create `scratchpad/<name>.ts`, run it with plain `node`, and remove it when finished.\n\nReport any commands that could not be run.\n\n## Generated Files\n\nDo not edit generated output directly.\n\nSome `index.ts` sections marked with `@barrel` are generated. Do not edit those\nsections manually; update their source modules and run `pnpm codegen`.\nHand-maintained `index.ts` files and unmarked sections are not covered by this\nrule.\n\n`LLMS.md` is generated from `ai-docs/src`, and `migration/v3-to-v4.md` is\ngenerated from `migration/annotations`. Update checked-in third-party assets\nthrough their generator or documented import procedure.\n\n<!-- instructions end -->\n"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Review pull request #9161 of Effect-TS/effect: \"Fix Duration losing nanosecond precision for large integer millisecond values\".\n\nThe working directory is a checkout of the repository at the PR's squash-merge commit, so `git diff HEAD~1` is the PR diff (it is also pasted below). Dependencies are installed: `pnpm test --run <test file>` works from the repository root. Every command is limited to 3 minutes, so run targeted test files and small `node` probes; do not run `pnpm check`, `pnpm lint` or the whole suite.\n\nDo the review in this order:\n1. Read the changed code and enough of the surrounding implementation to judge it.\n2. Run the test file(s) the change touches, and at least one ad-hoc probe of the new behaviour (for example a scratchpad script run with `node`).\n3. Report each finding with `reportFinding`, anchored on a line of the diff. Report at least two findings; a question or a nit counts when there is nothing serious. When a call is rejected, read the error and fix the call.\n4. Once you have test or probe results, append them to the relevant finding's thread with `updateThread`.\n5. Finish with `taskComplete`, giving a short verdict (approve or request changes) and why.\n\nPR description:\nFollow-up to #9109. `roundMillisToNanos` still multiplies millis by 1e6 as a double, which stops being exact past about 5.76e11 ms (around 18 years). Epoch timestamps are well past that:\n\n```ts\nconst ms = 1_760_450_000_123\nDuration.toHrTime(Duration.millis(ms))\n// [1760450000, 123000064], should be [1760450000, 123000000]\nDuration.equals(Duration.millis(ms), Duration.nanos(BigInt(ms) * 1_000_000n))\n// false\n```\n\nInteger millis now convert with `BigInt(millis) * 1_000_000n`, which is exact and also covers the overflow case from #9109, since any value large enough to overflow is an integer. Fractional millis keep the existing rounding. `Hash` goes through the same helper, so it stays consistent with `equals`.\n\nAdded an assert to the existing `toNanosUnsafe` test that fails on main.\n\nDiff:\n```diff\ndiff --git a/.changeset/duration-large-millis-precision.md b/.changeset/duration-large-millis-precision.md\nnew file mode 100644\nindex 000000000..0d66a852e\n--- /dev/null\n+++ b/.changeset/duration-large-millis-precision.md\n@@ -0,0 +1,5 @@\n+---\n+\"effect\": patch\n+---\n+\n+Fix `Duration` conversions losing nanosecond precision for large integer millisecond values.\ndiff --git a/packages/effect/src/Duration.ts b/packages/effect/src/Duration.ts\nindex 8d66cfa28..5d4a3a402 100644\n--- a/packages/effect/src/Duration.ts\n+++ b/packages/effect/src/Duration.ts\n@@ -38,10 +38,8 @@ const bigint1e9 = BigInt(1_000_000_000)\n \n const roundTiesAwayFromZero = (input: number): bigint => BigInt(Math.sign(input) * Math.round(Math.abs(input)))\n \n-const roundMillisToNanos = (millis: number): bigint => {\n-  const nanos = millis * 1_000_000\n-  return Number.isFinite(nanos) ? roundTiesAwayFromZero(nanos) : BigInt(millis) * bigint1e6\n-}\n+const roundMillisToNanos = (millis: number): bigint =>\n+  Number.isInteger(millis) ? BigInt(millis) * bigint1e6 : roundTiesAwayFromZero(millis * 1_000_000)\n \n const fromNanosNumber = (nanos: number): Duration => make(Number.isFinite(nanos) ? roundTiesAwayFromZero(nanos) : nanos)\n \ndiff --git a/packages/effect/test/Duration.test.ts b/packages/effect/test/Duration.test.ts\nindex 1ba19fa12..f0c969ad0 100644\n--- a/packages/effect/test/Duration.test.ts\n+++ b/packages/effect/test/Duration.test.ts\n@@ -566,6 +566,7 @@ describe(\"Duration\", () => {\n     strictEqual(Duration.millis(-0.0000015).pipe(Duration.toNanosUnsafe), -2n)\n     strictEqual(Duration.millis(100).pipe(Duration.toNanosUnsafe), 100_000_000n)\n     strictEqual(Duration.millis(2 ** 1023).pipe(Duration.toNanosUnsafe), 1_000_000n << 1023n)\n+    strictEqual(Duration.millis(1_760_450_000_123).pipe(Duration.toNanosUnsafe), 1_760_450_000_123_000_000n)\n   })\n \n   it(\"toHrTime\", () => {\n\n```\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": null,
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_q0CTOSOL67xlMGbWOztp6Igy",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await bash({command:'git diff HEAD~1 -- packages/effect/src/Duration.ts packages/effect/test/Duration.test.ts .changeset/duration-large-millis-precision.md'})); console.log(await readFile({path:'packages/effect/src/Duration.ts',startLine:1,endLine:300}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_q0CTOSOL67xlMGbWOztp6Igy",
+        "content": "[20:38:55.846] INFO (#46): Calling \"bash\" {\n  command: 'git diff HEAD~1 -- packages/effect/src/Duration.ts packages/effect/test/Duration.test.ts .changeset/duration-large-millis-precision.md',\n  timeoutMs: 180000\n}\ndiff --git a/.changeset/duration-large-millis-precision.md b/.changeset/duration-large-millis-precision.md\nnew file mode 100644\nindex 000000000..0d66a852e\n--- /dev/null\n+++ b/.changeset/duration-large-millis-precision.md\n@@ -0,0 +1,5 @@\n+---\n+\"effect\": patch\n+---\n+\n+Fix `Duration` conversions losing nanosecond precision for large integer millisecond values.\ndiff --git a/packages/effect/src/Duration.ts b/packages/effect/src/Duration.ts\nindex 8d66cfa28..5d4a3a402 100644\n--- a/packages/effect/src/Duration.ts\n+++ b/packages/effect/src/Duration.ts\n@@ -38,10 +38,8 @@ const bigint1e9 = BigInt(1_000_000_000)\n \n const roundTiesAwayFromZero = (input: number): bigint => BigInt(Math.sign(input) * Math.round(Math.abs(input)))\n \n-const roundMillisToNanos = (millis: number): bigint => {\n-  const nanos = millis * 1_000_000\n-  return Number.isFinite(nanos) ? roundTiesAwayFromZero(nanos) : BigInt(millis) * bigint1e6\n-}\n+const roundMillisToNanos = (millis: number): bigint =>\n+  Number.isInteger(millis) ? BigInt(millis) * bigint1e6 : roundTiesAwayFromZero(millis * 1_000_000)\n \n const fromNanosNumber = (nanos: number): Duration => make(Number.isFinite(nanos) ? roundTiesAwayFromZero(nanos) : nanos)\n \ndiff --git a/packages/effect/test/Duration.test.ts b/packages/effect/test/Duration.test.ts\nindex 1ba19fa12..f0c969ad0 100644\n--- a/packages/effect/test/Duration.test.ts\n+++ b/packages/effect/test/Duration.test.ts\n@@ -566,6 +566,7 @@ describe(\"Duration\", () => {\n     strictEqual(Duration.millis(-0.0000015).pipe(Duration.toNanosUnsafe), -2n)\n     strictEqual(Duration.millis(100).pipe(Duration.toNanosUnsafe), 100_000_000n)\n     strictEqual(Duration.millis(2 ** 1023).pipe(Duration.toNanosUnsafe), 1_000_000n << 1023n)\n+    strictEqual(Duration.millis(1_760_450_000_123).pipe(Duration.toNanosUnsafe), 1_760_450_000_123_000_000n)\n   })\n \n   it(\"toHrTime\", () => {\n\n[20:38:55.870] INFO (#51): Calling \"readFile\" { path: 'packages/effect/src/Duration.ts', startLine: 1, endLine: 300 }\n/**\n * Represents immutable spans of time.\n *\n * A `Duration` can be finite, positive infinity, or negative infinity. It is\n * the standard representation for delays, timeouts, intervals, and\n * time-to-live values across Effect APIs. This module includes constructors\n * from common input shapes, unit conversions, comparisons, arithmetic,\n * formatting, and reusable reducer or combiner helpers.\n *\n * @stability stable\n * @since 2.0.0\n */\nimport * as Combiner from \"./Combiner.ts\"\nimport * as Equal from \"./Equal.ts\"\nimport type * as Equ from \"./Equivalence.ts\"\nimport { dual, identity } from \"./Function.ts\"\nimport * as Hash from \"./Hash.ts\"\nimport type * as Inspectable from \"./Inspectable.ts\"\nimport { NodeInspectSymbol } from \"./Inspectable.ts\"\nimport * as Option from \"./Option.ts\"\nimport * as order from \"./Order.ts\"\nimport type { Pipeable } from \"./Pipeable.ts\"\nimport { pipeArguments } from \"./Pipeable.ts\"\nimport { hasProperty, isNumber } from \"./Predicate.ts\"\nimport * as Reducer from \"./Reducer.ts\"\n\nconst TypeId = \"~effect/Duration\"\n\nconst bigint0 = BigInt(0)\nconst bigint1 = BigInt(1)\nconst bigint2 = BigInt(2)\nconst bigint10 = BigInt(10)\nconst bigint24 = BigInt(24)\nconst bigint60 = BigInt(60)\nconst bigint1e3 = BigInt(1_000)\nconst bigint1e6 = BigInt(1_000_000)\nconst bigint1e9 = BigInt(1_000_000_000)\n\nconst roundTiesAwayFromZero = (input: number): bigint => BigInt(Math.sign(input) * Math.round(Math.abs(input)))\n\nconst roundMillisToNanos = (millis: number): bigint =>\n  Number.isInteger(millis) ? BigInt(millis) * bigint1e6 : roundTiesAwayFromZero(millis * 1_000_000)\n\nconst fromNanosNumber = (nanos: number): Duration => make(Number.isFinite(nanos) ? roundTiesAwayFromZero(nanos) : nanos)\n\nconst parseNanos = (input: string, scale: bigint): bigint => {\n  const decimalIndex = input.indexOf(\".\")\n  if (decimalIndex === -1) return BigInt(input) * scale\n\n  const isNegative = input[0] === \"-\"\n  const fractional = input.slice(decimalIndex + 1)\n  const fractionalScale = bigint10 ** BigInt(fractional.length)\n  const scaled = (\n    BigInt(input.slice(isNegative ? 1 : 0, decimalIndex)) * fractionalScale + BigInt(fractional)\n  ) * scale\n  return divideTiesAwayFromZero(isNegative ? -scaled : scaled, fractionalScale)\n}\n\nconst divideTiesAwayFromZero = (numerator: bigint, denominator: bigint): bigint => {\n  const absolute = numerator < bigint0 ? -numerator : numerator\n  const rounded = absolute / denominator + (absolute % denominator * bigint2 >= denominator ? bigint1 : bigint0)\n  return numerator < bigint0 ? -rounded : rounded\n}\n\nconst nanosToHrTime = (nanos: bigint): [seconds: number, nanos: number] => {\n  const sign = nanos < bigint0 ? -bigint1 : bigint1\n  const absolute = nanos < bigint0 ? -nanos : nanos\n  return [\n    Number(sign * (absolute / bigint1e9)),\n    Number(sign * (absolute % bigint1e9))\n  ]\n}\n\n/**\n * Represents a span of time with high precision, supporting operations from\n * nanoseconds to weeks.\n *\n * **When to use**\n *\n * Use to model elapsed time, delays, timeouts, schedule intervals, and cache\n * TTLs as immutable duration values.\n *\n * @see {@link Input} for values accepted by APIs that decode duration-like\n * inputs\n * @see {@link DurationValue} for the tagged representation exposed by the\n * `value` field\n *\n * @stability stable\n * @category models\n * @since 2.0.0\n */\nexport interface Duration extends Equal.Equal, Pipeable, Inspectable.Inspectable {\n  readonly [TypeId]: typeof TypeId\n  readonly value: DurationValue\n}\n\n/**\n * Tagged representation of a `Duration` value.\n *\n * **When to use**\n *\n * Use when modeling or inspecting the exact tagged representation stored in a\n * `Duration`, including finite millisecond or nanosecond values and infinite\n * sentinels.\n *\n * **Details**\n *\n * A duration is represented as milliseconds, nanoseconds, positive infinity,\n * or negative infinity.\n *\n * @see {@link Duration} for the public type whose `value` field contains this\n * representation\n * @see {@link match} for pattern matching without reading `value` directly\n *\n * @stability stable\n * @category models\n * @since 2.0.0\n */\nexport type DurationValue =\n  | { _tag: \"Millis\"; millis: number }\n  | { _tag: \"Nanos\"; nanos: bigint }\n  | { _tag: \"Infinity\" }\n  | { _tag: \"NegativeInfinity\" }\n\n/**\n * Valid time units that can be used in duration string representations.\n *\n * **When to use**\n *\n * Use when typing the unit portion of duration string inputs accepted by\n * `Duration.Input`.\n *\n * @see {@link Input} for the full duration input union\n *\n * @stability stable\n * @category models\n * @since 2.0.0\n */\nexport type Unit =\n  | \"nano\"\n  | \"nanos\"\n  | \"micro\"\n  | \"micros\"\n  | \"milli\"\n  | \"millis\"\n  | \"second\"\n  | \"seconds\"\n  | \"minute\"\n  | \"minutes\"\n  | \"hour\"\n  | \"hours\"\n  | \"day\"\n  | \"days\"\n  | \"week\"\n  | \"weeks\"\n\n/**\n * Valid input types that can be converted to a Duration.\n *\n * **When to use**\n *\n * Use when an API should accept any value that Effect can convert into a\n * `Duration`, including existing durations, millisecond numbers, nanosecond\n * bigints, high-resolution tuples, duration strings, infinity strings, or\n * duration objects.\n *\n * **Details**\n *\n * String inputs accept values like `\"10 seconds\"`, `\"500 millis\"`,\n * `\"Infinity\"`, and `\"-Infinity\"`. Finite fractional values that are\n * normalized to nanoseconds are rounded to the nearest nanosecond, with ties\n * away from zero.\n *\n * @see {@link fromInput} for safe conversion to `Option`\n * @see {@link fromInputUnsafe} for throwing conversion\n * @see {@link DurationObject} for object-shaped duration input\n * @see {@link Unit} for supported string units\n *\n * @stability stable\n * @category models\n * @since 4.0.0\n */\nexport type Input =\n  | Duration\n  | number // millis\n  | bigint // nanos\n  | readonly [seconds: number, nanos: number]\n  | `${number} ${Unit}`\n  | \"Infinity\"\n  | \"-Infinity\"\n  | DurationObject\n\n/**\n * An object with optional duration components that can be combined to create\n * a Duration. All fields are optional and additive.\n *\n * **Details**\n *\n * Compatible with Temporal.Duration-like objects.\n *\n * **Example** (Combining duration object fields)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.fromInputUnsafe({ seconds: 30 }) // => Duration.seconds(30)\n * Duration.fromInputUnsafe({ days: 1 }) // => Duration.days(1)\n * Duration.fromInputUnsafe({ seconds: 1, nanoseconds: 500 }) // => Duration.nanos(1_000_000_500n)\n * ```\n *\n * @stability stable\n * @category models\n * @since 4.0.0\n */\nexport interface DurationObject {\n  readonly weeks?: number | undefined\n  readonly days?: number | undefined\n  readonly hours?: number | undefined\n  readonly minutes?: number | undefined\n  readonly seconds?: number | undefined\n  readonly milliseconds?: number | undefined\n  readonly microseconds?: number | undefined\n  readonly nanoseconds?: number | undefined\n}\n\nconst DURATION_REGEXP = /^(-?\\d+(?:\\.\\d+)?)\\s+(nanos?|micros?|millis?|seconds?|minutes?|hours?|days?|weeks?)$/\n\n/**\n * Decodes a `Duration.Input` into a `Duration`.\n *\n * **When to use**\n *\n * Use when the input has already been validated or comes from a trusted source\n * and throwing is acceptable for invalid duration syntax.\n *\n * **Gotchas**\n *\n * If the input is not a valid `Duration.Input`, it throws an error.\n *\n * **Example** (Decoding duration inputs)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.fromInputUnsafe(1000) // => Duration.millis(1000)\n * Duration.fromInputUnsafe(\"5 seconds\") // => Duration.seconds(5)\n * Duration.fromInputUnsafe(\"Infinity\") // => Duration.infinity\n * Duration.fromInputUnsafe([2, 500_000_000]) // => Duration.nanos(2_500_000_000n)\n * ```\n *\n * @stability stable\n * @category constructors\n * @since 4.0.0\n */\nexport const fromInputUnsafe = (input: Input): Duration => {\n  switch (typeof input) {\n    case \"number\":\n      return millis(input)\n    case \"bigint\":\n      return nanos(input)\n    case \"string\": {\n      if (input === \"Infinity\") {\n        return infinity\n      }\n      if (input === \"-Infinity\") {\n        return negativeInfinity\n      }\n      const match = DURATION_REGEXP.exec(input)\n      if (!match) break\n      const [_, valueStr, unit] = match\n      if (unit === \"nano\" || unit === \"nanos\") {\n        return nanos(parseNanos(valueStr, bigint1))\n      }\n      if (unit === \"micro\" || unit === \"micros\") {\n        return nanos(parseNanos(valueStr, bigint1e3))\n      }\n      const value = Number(valueStr)\n      switch (unit) {\n        case \"milli\":\n        case \"millis\":\n          return millis(value)\n        case \"second\":\n        case \"seconds\":\n          return seconds(value)\n        case \"minute\":\n        case \"minutes\":\n          return minutes(value)\n        case \"hour\":\n        case \"hours\":\n          return hours(value)\n        case \"day\":\n        case \"days\":\n          return days(value)\n        case \"week\":\n        case \"weeks\":\n          return weeks(value)\n      }\n      break\n    }\n    case \"object\": {\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": null,
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_MO1Bcka7I5qpIxd5ivsmt7ur",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await rg({pattern:'roundMillisToNanos|const make|\\\\[Hash|\\\\[Equal|export const (equals|toHrTime|toNanosUnsafe)',glob:'packages/effect/src/Duration.ts'})); console.log(await readFile({path:'packages/effect/src/Duration.ts',startLine:395,endLine:555})); console.log(await readFile({path:'packages/effect/test/Duration.test.ts',startLine:1,endLine:110})); console.log(await readFile({path:'packages/effect/test/Duration.test.ts',startLine:490,endLine:655}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_MO1Bcka7I5qpIxd5ivsmt7ur",
+        "content": "[20:38:59.934] INFO (#70): Calling \"rg\" {\n  pattern: 'roundMillisToNanos|const make|[Hash|[Equal|export const (equals|toHrTime|toNanosUnsafe)',\n  glob: 'packages/effect/src/Duration.ts'\n}\n\n[20:38:59.942] INFO (#71): Calling \"readFile\" {\n  path: 'packages/effect/src/Duration.ts',\n  startLine: 395,\n  endLine: 555\n}\n        return { _id: \"Duration\", _tag: \"Millis\", millis: this.value.millis }\n      case \"Nanos\":\n        return { _id: \"Duration\", _tag: \"Nanos\", nanos: String(this.value.nanos) }\n      case \"Infinity\":\n        return { _id: \"Duration\", _tag: \"Infinity\" }\n      case \"NegativeInfinity\":\n        return { _id: \"Duration\", _tag: \"NegativeInfinity\" }\n    }\n  },\n  [NodeInspectSymbol]() {\n    return this.toJSON()\n  },\n  pipe() {\n    return pipeArguments(this, arguments)\n  }\n} as const\n\nconst make = (input: number | bigint): Duration => {\n  const duration = Object.create(DurationProto)\n  if (typeof input === \"number\") {\n    if (isNaN(input) || input === 0 || Object.is(input, -0)) {\n      duration.value = zeroDurationValue\n    } else if (!Number.isFinite(input)) {\n      duration.value = input > 0 ? infinityDurationValue : negativeInfinityDurationValue\n    } else if (!Number.isInteger(input)) {\n      duration.value = { _tag: \"Nanos\", nanos: roundMillisToNanos(input) }\n    } else {\n      duration.value = { _tag: \"Millis\", millis: input }\n    }\n  } else if (input === bigint0) {\n    duration.value = zeroDurationValue\n  } else {\n    duration.value = { _tag: \"Nanos\", nanos: input }\n  }\n  return duration\n}\n\n/**\n * Checks whether a value is a Duration.\n *\n * **Example** (Checking for durations)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.isDuration(Duration.seconds(1)) // => true\n * Duration.isDuration(1000) // => false\n * ```\n *\n * @stability stable\n * @category guards\n * @since 2.0.0\n */\nexport const isDuration = (u: unknown): u is Duration => hasProperty(u, TypeId)\n\n/**\n * Checks whether a Duration is finite (not infinite).\n *\n * **Example** (Checking finite durations)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.isFinite(Duration.seconds(5)) // => true\n * Duration.isFinite(Duration.infinity) // => false\n * ```\n *\n * @stability stable\n * @category predicates\n * @since 2.0.0\n */\nexport const isFinite = (self: Duration): boolean =>\n  self.value._tag !== \"Infinity\" && self.value._tag !== \"NegativeInfinity\"\n\n/**\n * Checks whether a Duration is zero.\n *\n * **Example** (Checking for zero durations)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.isZero(Duration.zero) // => true\n * Duration.isZero(Duration.seconds(1)) // => false\n * ```\n *\n * @stability stable\n * @category predicates\n * @since 3.5.0\n */\nexport const isZero = (self: Duration): boolean => {\n  switch (self.value._tag) {\n    case \"Millis\":\n      return self.value.millis === 0\n    case \"Nanos\":\n      return self.value.nanos === bigint0\n    case \"Infinity\":\n    case \"NegativeInfinity\":\n      return false\n  }\n}\n\n/**\n * Returns `true` if the duration is negative (strictly less than zero).\n *\n * **Example** (Checking for negative durations)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.isNegative(Duration.seconds(-5)) // => true\n * Duration.isNegative(Duration.zero) // => false\n * Duration.isNegative(Duration.negativeInfinity) // => true\n * ```\n *\n * @stability stable\n * @category predicates\n * @since 4.0.0\n */\nexport const isNegative = (self: Duration): boolean => {\n  switch (self.value._tag) {\n    case \"Millis\":\n      return self.value.millis < 0\n    case \"Nanos\":\n      return self.value.nanos < bigint0\n    case \"NegativeInfinity\":\n      return true\n    case \"Infinity\":\n      return false\n  }\n}\n\n/**\n * Returns `true` if the duration is positive (strictly greater than zero).\n *\n * **Example** (Checking for positive durations)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.isPositive(Duration.seconds(5)) // => true\n * Duration.isPositive(Duration.zero) // => false\n * Duration.isPositive(Duration.infinity) // => true\n * ```\n *\n * @stability stable\n * @category predicates\n * @since 4.0.0\n */\nexport const isPositive = (self: Duration): boolean => {\n  switch (self.value._tag) {\n    case \"Millis\":\n      return self.value.millis > 0\n    case \"Nanos\":\n      return self.value.nanos > bigint0\n    case \"Infinity\":\n      return true\n    case \"NegativeInfinity\":\n      return false\n  }\n}\n[20:38:59.944] INFO (#72): Calling \"readFile\" {\n  path: 'packages/effect/test/Duration.test.ts',\n  startLine: 1,\n  endLine: 110\n}\nimport { describe, it } from \"@effect/vitest\"\nimport {\n  assertFalse,\n  assertNone,\n  assertSome,\n  assertTrue,\n  deepStrictEqual,\n  strictEqual,\n  throws\n} from \"@effect/vitest/utils\"\nimport { Duration, Equal, Hash, HashSet, pipe } from \"effect\"\n\ndescribe(\"Duration\", () => {\n  it(\"fromInputUnsafe\", () => {\n    const millis100 = Duration.millis(100)\n    assertTrue(Duration.fromInputUnsafe(millis100) === millis100)\n\n    deepStrictEqual(Duration.fromInputUnsafe(100), millis100)\n\n    deepStrictEqual(Duration.fromInputUnsafe(10n), Duration.nanos(10n))\n\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 nano\"), Duration.nanos(1n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 nanos\"), Duration.nanos(10n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1.5 nanos\"), Duration.nanos(2n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"-1.5 nanos\"), Duration.nanos(-2n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"9007199254740993.1 nanos\"), Duration.nanos(9_007_199_254_740_993n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"-9007199254740993.5 nanos\"), Duration.nanos(-9_007_199_254_740_994n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 micro\"), Duration.micros(1n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 micros\"), Duration.micros(10n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1.5 micros\"), Duration.nanos(1500n))\n    deepStrictEqual(Duration.fromInputUnsafe(\"-1.5 micros\"), Duration.nanos(-1500n))\n    deepStrictEqual(\n      Duration.fromInputUnsafe(\"9007199254740993.1 micros\"),\n      Duration.nanos(9_007_199_254_740_993_100n)\n    )\n    deepStrictEqual(\n      Duration.fromInputUnsafe(\"-9007199254740993.0005 micros\"),\n      Duration.nanos(-9_007_199_254_740_993_001n)\n    )\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 milli\"), Duration.millis(1))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 millis\"), Duration.millis(10))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 second\"), Duration.seconds(1))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 seconds\"), Duration.seconds(10))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 minute\"), Duration.minutes(1))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 minutes\"), Duration.minutes(10))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 hour\"), Duration.hours(1))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 hours\"), Duration.hours(10))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 day\"), Duration.days(1))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 days\"), Duration.days(10))\n    deepStrictEqual(Duration.fromInputUnsafe(\"1 week\"), Duration.weeks(1))\n    deepStrictEqual(Duration.fromInputUnsafe(\"10 weeks\"), Duration.weeks(10))\n\n    deepStrictEqual(Duration.fromInputUnsafe(\"1.5 seconds\"), Duration.seconds(1.5))\n    deepStrictEqual(Duration.fromInputUnsafe(\"-1.5 seconds\"), Duration.seconds(-1.5))\n    deepStrictEqual(Duration.fromInputUnsafe(\"Infinity\"), Duration.infinity)\n    deepStrictEqual(Duration.fromInputUnsafe(\"-Infinity\"), Duration.negativeInfinity)\n\n    deepStrictEqual(Duration.fromInputUnsafe([500, 123456789]), Duration.nanos(500123456789n))\n    deepStrictEqual(Duration.fromInputUnsafe([-500, 123456789]), Duration.nanos(-500000000000n + 123456789n))\n    deepStrictEqual(Duration.fromInputUnsafe([0, 1.5]), Duration.nanos(2n))\n    deepStrictEqual(Duration.fromInputUnsafe([0, -1.5]), Duration.nanos(-2n))\n    deepStrictEqual(Duration.fromInputUnsafe([0.0000000005, 0.5]), Duration.nanos(1n))\n    deepStrictEqual(Duration.fromInputUnsafe([Infinity, 0]), Duration.infinity)\n    deepStrictEqual(Duration.fromInputUnsafe([-Infinity, 0]), Duration.negativeInfinity)\n    deepStrictEqual(Duration.fromInputUnsafe([NaN, 0]), Duration.zero)\n    deepStrictEqual(Duration.fromInputUnsafe([0, Infinity]), Duration.infinity)\n    deepStrictEqual(Duration.fromInputUnsafe([0, -Infinity]), Duration.negativeInfinity)\n    deepStrictEqual(Duration.fromInputUnsafe([0, NaN]), Duration.zero)\n\n    // object input\n    deepStrictEqual(Duration.fromInputUnsafe({}), Duration.zero)\n    deepStrictEqual(Duration.fromInputUnsafe({ hours: 2 }), Duration.hours(2))\n    deepStrictEqual(Duration.fromInputUnsafe({ weeks: 1 }), Duration.weeks(1))\n    deepStrictEqual(Duration.fromInputUnsafe({ days: 3 }), Duration.days(3))\n    deepStrictEqual(Duration.fromInputUnsafe({ minutes: 45 }), Duration.minutes(45))\n    deepStrictEqual(Duration.fromInputUnsafe({ seconds: 30 }), Duration.seconds(30))\n    deepStrictEqual(Duration.fromInputUnsafe({ milliseconds: 500 }), Duration.millis(500))\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ hours: 1, minutes: 30 }),\n      Duration.sum(Duration.hours(1), Duration.minutes(30))\n    )\n    deepStrictEqual(Duration.fromInputUnsafe({ hours: -1 }), Duration.hours(-1))\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ seconds: 1, nanoseconds: 500 }),\n      Duration.nanos(1_000_000_500n)\n    )\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ microseconds: 100 }),\n      Duration.micros(100n)\n    )\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ microseconds: -1.5 }),\n      Duration.nanos(-1500n)\n    )\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ nanoseconds: 1.5 }),\n      Duration.nanos(2n)\n    )\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ nanoseconds: -1.5 }),\n      Duration.nanos(-2n)\n    )\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ milliseconds: 0.0000005, nanoseconds: 0.5 }),\n      Duration.nanos(1n)\n    )\n    deepStrictEqual(\n      Duration.fromInputUnsafe({ days: 1, hours: 2, minutes: 30, seconds: 15 }),\n      Duration.sum(\n        Duration.sum(Duration.days(1), Duration.hours(2)),\n[20:38:59.946] INFO (#73): Calling \"readFile\" {\n  path: 'packages/effect/test/Duration.test.ts',\n  startLine: 490,\n  endLine: 655\n}\n      days: 0,\n      hours: 0,\n      minutes: 5,\n      seconds: 19,\n      millis: 500,\n      nanos: 0\n    })\n\n    deepStrictEqual(Duration.parts(Duration.minutes(3.11125)), {\n      days: 0,\n      hours: 0,\n      minutes: 3,\n      seconds: 6,\n      millis: 675,\n      nanos: 0\n    })\n  })\n\n  it(\"toJSON\", () => {\n    deepStrictEqual(Duration.seconds(2).toJSON(), { _id: \"Duration\", _tag: \"Millis\", millis: 2000 })\n    deepStrictEqual(Duration.nanos(5n).toJSON(), { _id: \"Duration\", _tag: \"Nanos\", nanos: \"5\" })\n    deepStrictEqual(Duration.millis(1.5).toJSON(), { _id: \"Duration\", _tag: \"Nanos\", nanos: \"1500000\" })\n    deepStrictEqual(Duration.infinity.toJSON(), { _id: \"Duration\", _tag: \"Infinity\" })\n  })\n\n  it(`inspect`, () => {\n    if (typeof window === \"undefined\") {\n      // oxlint-disable-next-line @typescript-eslint/no-require-imports\n      const { inspect } = require(\"node:util\")\n      deepStrictEqual(inspect(Duration.millis(1000)), inspect({ _id: \"Duration\", _tag: \"Millis\", millis: 1000 }))\n    }\n  })\n\n  it(\".pipe()\", () => {\n    deepStrictEqual(Duration.seconds(1).pipe(Duration.sum(Duration.seconds(1))), Duration.seconds(2))\n  })\n\n  it(\"isDuration\", () => {\n    assertTrue(Duration.isDuration(Duration.millis(100)))\n    assertFalse(Duration.isDuration(null))\n  })\n\n  it(\"zero\", () => {\n    deepStrictEqual(Duration.sum(Duration.seconds(1), Duration.zero), Duration.seconds(1))\n  })\n\n  it(\"weeks\", () => {\n    assertTrue(Equal.equals(Duration.weeks(1), Duration.days(7)))\n    assertFalse(Equal.equals(Duration.weeks(1), Duration.days(1)))\n  })\n\n  it(\"toMillis\", () => {\n    strictEqual(Duration.millis(1).pipe(Duration.toMillis), 1)\n    strictEqual(Duration.nanos(1n).pipe(Duration.toMillis), 0.000001)\n    strictEqual(Duration.infinity.pipe(Duration.toMillis), Infinity)\n  })\n\n  it(\"toSeconds\", () => {\n    strictEqual(Duration.millis(1).pipe(Duration.toSeconds), 0.001)\n    strictEqual(Duration.nanos(1n).pipe(Duration.toSeconds), 1e-9)\n    strictEqual(Duration.infinity.pipe(Duration.toSeconds), Infinity)\n  })\n\n  it(\"toNanos\", () => {\n    assertSome(Duration.nanos(1n).pipe(Duration.toNanos), 1n)\n    assertNone(Duration.infinity.pipe(Duration.toNanos))\n    assertNone(Duration.negativeInfinity.pipe(Duration.toNanos))\n    assertSome(Duration.millis(1.0005).pipe(Duration.toNanos), 1_000_500n)\n    assertSome(Duration.millis(100).pipe(Duration.toNanos), 100_000_000n)\n  })\n\n  it(\"toNanosUnsafe\", () => {\n    strictEqual(Duration.nanos(1n).pipe(Duration.toNanosUnsafe), 1n)\n    throws(() => Duration.infinity.pipe(Duration.toNanosUnsafe))\n    strictEqual(Duration.millis(1.0005).pipe(Duration.toNanosUnsafe), 1_000_500n)\n    strictEqual(Duration.millis(0.0000015).pipe(Duration.toNanosUnsafe), 2n)\n    strictEqual(Duration.millis(-0.0000015).pipe(Duration.toNanosUnsafe), -2n)\n    strictEqual(Duration.millis(100).pipe(Duration.toNanosUnsafe), 100_000_000n)\n    strictEqual(Duration.millis(2 ** 1023).pipe(Duration.toNanosUnsafe), 1_000_000n << 1023n)\n    strictEqual(Duration.millis(1_760_450_000_123).pipe(Duration.toNanosUnsafe), 1_760_450_000_123_000_000n)\n  })\n\n  it(\"toHrTime\", () => {\n    deepStrictEqual(Duration.millis(1).pipe(Duration.toHrTime), [0, 1_000_000])\n    deepStrictEqual(Duration.nanos(1n).pipe(Duration.toHrTime), [0, 1])\n    deepStrictEqual(Duration.nanos(1_000_000_001n).pipe(Duration.toHrTime), [1, 1])\n    deepStrictEqual(Duration.millis(1001).pipe(Duration.toHrTime), [1, 1_000_000])\n    deepStrictEqual(Duration.infinity.pipe(Duration.toHrTime), [Infinity, 0])\n  })\n\n  it(\"negative values\", () => {\n    // negative constructors produce negative durations\n    assertTrue(Duration.isNegative(Duration.millis(-1)))\n    assertTrue(Duration.isNegative(Duration.nanos(-1n)))\n    strictEqual(Duration.toMillis(Duration.millis(-1)), -1)\n    strictEqual(Duration.toNanosUnsafe(Duration.nanos(-1n)), -1n)\n\n    // isNegative / isPositive\n    assertTrue(Duration.isNegative(Duration.seconds(-5)))\n    assertFalse(Duration.isNegative(Duration.zero))\n    assertFalse(Duration.isNegative(Duration.seconds(5)))\n    assertFalse(Duration.isNegative(Duration.infinity))\n    assertTrue(Duration.isNegative(Duration.negativeInfinity))\n\n    assertTrue(Duration.isPositive(Duration.seconds(5)))\n    assertFalse(Duration.isPositive(Duration.zero))\n    assertFalse(Duration.isPositive(Duration.seconds(-5)))\n    assertTrue(Duration.isPositive(Duration.infinity))\n    assertFalse(Duration.isPositive(Duration.negativeInfinity))\n\n    // abs\n    deepStrictEqual(Duration.abs(Duration.seconds(-5)), Duration.seconds(5))\n    deepStrictEqual(Duration.abs(Duration.seconds(5)), Duration.seconds(5))\n    deepStrictEqual(Duration.abs(Duration.zero), Duration.zero)\n    deepStrictEqual(Duration.abs(Duration.negativeInfinity), Duration.infinity)\n    deepStrictEqual(Duration.abs(Duration.infinity), Duration.infinity)\n\n    // negate\n    deepStrictEqual(Duration.negate(Duration.seconds(5)), Duration.seconds(-5))\n    deepStrictEqual(Duration.negate(Duration.seconds(-5)), Duration.seconds(5))\n    deepStrictEqual(Duration.negate(Duration.zero), Duration.zero)\n    deepStrictEqual(Duration.negate(Duration.infinity), Duration.negativeInfinity)\n    deepStrictEqual(Duration.negate(Duration.negativeInfinity), Duration.infinity)\n\n    // negativeInfinity\n    assertFalse(Duration.isFinite(Duration.negativeInfinity))\n    assertFalse(Duration.isZero(Duration.negativeInfinity))\n    strictEqual(Duration.toMillis(Duration.negativeInfinity), -Infinity)\n    strictEqual(Duration.toSeconds(Duration.negativeInfinity), -Infinity)\n    deepStrictEqual(Duration.toHrTime(Duration.negativeInfinity), [-Infinity, 0])\n\n    // format\n    strictEqual(Duration.format(Duration.seconds(-5)), \"-5s\")\n    strictEqual(Duration.format(Duration.negativeInfinity), \"-Infinity\")\n\n    // Order with negatives\n    deepStrictEqual(Duration.Order(Duration.negativeInfinity, Duration.negativeInfinity), 0)\n    deepStrictEqual(Duration.Order(Duration.negativeInfinity, Duration.seconds(-5)), -1)\n    deepStrictEqual(Duration.Order(Duration.seconds(-5), Duration.negativeInfinity), 1)\n    deepStrictEqual(Duration.Order(Duration.negativeInfinity, Duration.infinity), -1)\n    deepStrictEqual(Duration.Order(Duration.infinity, Duration.negativeInfinity), 1)\n    deepStrictEqual(Duration.Order(Duration.seconds(-5), Duration.seconds(-3)), -1)\n    deepStrictEqual(Duration.Order(Duration.seconds(-3), Duration.seconds(-5)), 1)\n\n    // Equivalence with negatives\n    assertTrue(Duration.Equivalence(Duration.negativeInfinity, Duration.negativeInfinity))\n    assertFalse(Duration.Equivalence(Duration.negativeInfinity, Duration.infinity))\n\n    // sum with negativeInfinity\n    deepStrictEqual(Duration.sum(Duration.infinity, Duration.negativeInfinity), Duration.zero)\n    deepStrictEqual(Duration.sum(Duration.negativeInfinity, Duration.infinity), Duration.zero)\n    deepStrictEqual(Duration.sum(Duration.negativeInfinity, Duration.negativeInfinity), Duration.negativeInfinity)\n    deepStrictEqual(Duration.sum(Duration.negativeInfinity, Duration.seconds(5)), Duration.negativeInfinity)\n\n    // times with negatives\n    deepStrictEqual(Duration.times(Duration.infinity, -1), Duration.negativeInfinity)\n    deepStrictEqual(Duration.times(Duration.negativeInfinity, -1), Duration.infinity)\n    deepStrictEqual(Duration.times(Duration.infinity, 0), Duration.zero)\n    deepStrictEqual(Duration.times(Duration.seconds(5), -2), Duration.seconds(-10))\n\n    // parts with negative\n    deepStrictEqual(Duration.parts(Duration.negativeInfinity), {\n      days: -Infinity,\n      hours: -Infinity,\n      minutes: -Infinity,\n      seconds: -Infinity,\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": "[REDACTED]",
+        "reasoning_details": [
+          {
+            "data": "gAAAAABqz-hm7Gp-YzTpZcst9TSMLNNnl4T0HSudG3fS8s9JJjkvtMZcmlGfGgHWtIIq0IzRqVFdjUci_8HfmxbstO5f-rY_bMEdNxar61J-wHj7zV5E_Sq7OkqfUWn4A2JiM3ezcPDMsizwxDCHz8l6udqQic6tW5JfIjZ0w6itXUdBirvfRjs_eUPiYq6d-bia1R-Fz83V73XiSylrlEjzokJgxYai4ZITjMfAJwNhin8pNyO1kpqfX_wdI7w2wR9iv8LEP4jI55dv5vDW5XrzGHMRsf7QE8-W3i8U5_S-cF7SVwafT65zkBKR5Pm7Avgqsz7JA4358_osAv8RKAcSNdRCKJ4g6qGDcVYHaHHKSt7tH8jeWvpW2N1vBU8q8KlbAQp65HGfvfmESgRIsPx8H8A_8IUgQYihU8xhoH2l1O8YEQgl22DHzwG1us1wRahB9pdhAkoxXJ2LlKU5_IJqoeCxkswd7WR8-ZwE-CgLO_VciRZGlT8_SPmN5uZWAZGRXZxQLKAhFhOrs-KtmKPvok7W80v5hfgVVYIfMlIZ9TreCV_vjQlB8QBhpbGSWYqs_3qP5MT-V_oAieAHLUuNd5Zfzk08mASsyxZtg76Z1Laht_EC243bdPTnTo49eO8oQDogwJQ2k7-bXw6UAkBSc0sr2YWbB2cYOCEpiFhhOoGeKjzBFRx0fGYwzmSiP0yn36VYY7lerZuUul9ZdebOkIF6-Cd-ztbjrel4iCbV1kFlx0bnzIX1dLIn678FuhBP2s0NrnBS2gMmpYGTLsKMg_-o9trWbz12Rl4QA09FFw8YF2U5RNr95iKnPTPFXVSskj-WtTz9us-5dXSytO4LZEV9LZ_mBLyHTpWigMm4pfVDczyTYEHQcwircxP3O2Rt1O5Nyl83hZrMrz0ab60hDhLphr4Tcd4wgo5VXTillrBJwp4q-EOcL47o0ALe_8yeq_nFE5DLWzNk361y9mqsRNPcEQQjHa8BQsD0HmOkkNPt3cb1ZAMkbQ5Guis1fDkjmQar0ZDEJubMEIt0BJnxZXIAovMSdT2NaRLOy3yMZlgsntM7MDQE8du6ZaEmdDntJac9hluZoqqktn8sBNHaLXrUiCB_rBExJ-Nty7goGtUfDOlJvy8IavyyHEgIrWe3R-UR-2hqhSExVVdid1hlSvQjkXv44WIKDoR6Pa409cI-VhkpMvRNUy4-tMrq5_sHHCGWRmeLeZsKma1RHug40L_4s49qWma7G4idKAtHiDRp3fQUpkfDbE3aVSeQSTdrSOFzZV2D7suWJH7nu-GWIQEk_vWArVBXUc1CGJhqM6f-KSlmOsADh3uB2TS9hQvfQnk0g4zsWCSdI15Cvk2kU2aqDTcFx-yW0MFY9g3JVNvltVfVyPmP_K3iFBBvYTc2B7BIr30VpBj9671dvMAcMJKp3lXw3H9O8O4I90oK9FVEOuS8egl3pPtfm1KrCccgrtdrQz-VmXt4MSUUA2ws1NiR6o9buUGvMPagmZ-zI4SxibRf1VnCkuSNnQ9FwfMYxkK8IqFafaXN-1vC0stXnESCDEaIrjSwOcdzdy7A4Bsutw_c5ptvTXocDtkW-J_Oebp1eXnGmbKsnuyEbj77MSvpf1CTzYWF5mar_4SBL1x9W6gZkk_5ZbEIWFhGilZ-l8WvkHduwlVID9CLr9QRD9gBe-amlQur3iVfSKaSo2UFlgzTYLbV1DwsVuzzIz8EtpsYake3.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_0a5420b676d7ff83016acfe865540087d1bf2e12805b07d035",
+            "index": 0,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_8AZhd0QgNe1g5WmduIb1b9MD",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await rg({pattern:'roundMillisToNanos|toHrTime =|toNanosUnsafe =|equals =|Hash.symbol',glob:'packages/effect/src/Duration.ts'})); console.log(await readFile({path:'packages/effect/src/Duration.ts',startLine:350,endLine:395})); console.log(await readFile({path:'packages/effect/src/Duration.ts',startLine:1040,endLine:1220})); console.log(await rg({pattern:'Hash|Equivalence|equals',glob:'packages/effect/test/Duration.test.ts',maxLines:65}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_8AZhd0QgNe1g5WmduIb1b9MD",
+        "content": "[20:39:03.676] INFO (#92): Calling \"rg\" {\n  pattern: 'roundMillisToNanos|toHrTime =|toNanosUnsafe =|equals =|Hash.symbol',\n  glob: 'packages/effect/src/Duration.ts'\n}\npackages/effect/src/Duration.ts\n41:const roundMillisToNanos = (millis: number): bigint =>\n365:  [Hash.symbol](this: Duration) {\n370:        return Hash.hash(roundMillisToNanos(this.value.millis))\n420:      duration.value = { _tag: \"Nanos\", nanos: roundMillisToNanos(input) }\n977:export const toNanosUnsafe = (input: Input): bigint => {\n986:      return roundMillisToNanos(self.value.millis)\n1027:export const toHrTime = (input: Input): [seconds: number, nanos: number] => {\n1037:      return nanosToHrTime(roundMillisToNanos(self.value.millis))\n[20:39:03.713] INFO (#93): Calling \"readFile\" {\n  path: 'packages/effect/src/Duration.ts',\n  startLine: 350,\n  endLine: 395\n}\n *\n * @stability stable\n * @category constructors\n * @since 4.0.0\n */\nexport const fromInput: (u: Input) => Option.Option<Duration> = Option.liftThrowable(\n  fromInputUnsafe\n)\n\nconst zeroDurationValue: DurationValue = { _tag: \"Millis\", millis: 0 }\nconst infinityDurationValue: DurationValue = { _tag: \"Infinity\" }\nconst negativeInfinityDurationValue: DurationValue = { _tag: \"NegativeInfinity\" }\n\nconst DurationProto: Omit<Duration, \"value\"> = {\n  [TypeId]: TypeId,\n  [Hash.symbol](this: Duration) {\n    // Hash equal finite durations using the same canonical nanoseconds\n    // representation used by `equals`.\n    switch (this.value._tag) {\n      case \"Millis\":\n        return Hash.hash(roundMillisToNanos(this.value.millis))\n      case \"Nanos\":\n        return Hash.hash(this.value.nanos)\n      default:\n        return Hash.structure(this.value)\n    }\n  },\n  [Equal.symbol](this: Duration, that: unknown): boolean {\n    return isDuration(that) && equals(this, that)\n  },\n  toString(this: Duration) {\n    switch (this.value._tag) {\n      case \"Infinity\":\n        return \"Infinity\"\n      case \"NegativeInfinity\":\n        return \"-Infinity\"\n      case \"Nanos\":\n        return `${this.value.nanos} nanos`\n      case \"Millis\":\n        return `${this.value.millis} millis`\n    }\n  },\n  toJSON(this: Duration) {\n    switch (this.value._tag) {\n      case \"Millis\":\n        return { _id: \"Duration\", _tag: \"Millis\", millis: this.value.millis }\n[20:39:03.715] INFO (#94): Calling \"readFile\" {\n  path: 'packages/effect/src/Duration.ts',\n  startLine: 1040,\n  endLine: 1220\n}\n\n/**\n * Pattern matches on the representation of a `Duration`.\n *\n * **Details**\n *\n * Provide handlers for millisecond-backed values, nanosecond-backed values,\n * and positive infinity. Use `onNegativeInfinity` to handle negative infinity\n * separately; otherwise negative infinity is handled by `onInfinity`.\n *\n * **Example** (Pattern matching on duration representations)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.match(Duration.seconds(5), {\n *   onMillis: (millis) => `${millis} milliseconds`,\n *   onNanos: (nanos) => `${nanos} nanoseconds`,\n *   onInfinity: () => \"infinite\"\n * }) // => \"5000 milliseconds\"\n * ```\n *\n * @stability stable\n * @category pattern matching\n * @since 2.0.0\n */\nexport const match: {\n  <A, B, C, D = C>(\n    options: {\n      readonly onMillis: (millis: number) => A\n      readonly onNanos: (nanos: bigint) => B\n      readonly onInfinity: () => C\n      readonly onNegativeInfinity?: () => D\n    }\n  ): (self: Duration) => A | B | C | D\n  <A, B, C, D = C>(\n    self: Duration,\n    options: {\n      readonly onMillis: (millis: number) => A\n      readonly onNanos: (nanos: bigint) => B\n      readonly onInfinity: () => C\n      readonly onNegativeInfinity?: () => D\n    }\n  ): A | B | C | D\n} = dual(2, <A, B, C, D = C>(\n  self: Duration,\n  options: {\n    readonly onMillis: (millis: number) => A\n    readonly onNanos: (nanos: bigint) => B\n    readonly onInfinity: () => C\n    readonly onNegativeInfinity?: () => D\n  }\n): A | B | C | D => {\n  switch (self.value._tag) {\n    case \"Millis\":\n      return options.onMillis(self.value.millis)\n    case \"Nanos\":\n      return options.onNanos(self.value.nanos)\n    case \"Infinity\":\n      return options.onInfinity()\n    case \"NegativeInfinity\":\n      return (options.onNegativeInfinity ?? options.onInfinity as unknown as () => D)()\n  }\n})\n\n/**\n * Pattern matches on two `Duration`s, providing handlers that receive both values.\n *\n * **Example** (Pattern matching on duration pairs)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.matchPair(Duration.seconds(3), Duration.seconds(2), {\n *   onMillis: (a, b) => a + b,\n *   onNanos: (a, b) => Number(a + b),\n *   onInfinity: () => Infinity\n * }) // => 5000\n * ```\n *\n * @stability stable\n * @category pattern matching\n * @since 4.0.0\n */\nexport const matchPair: {\n  <A, B, C>(\n    that: Duration,\n    options: {\n      readonly onMillis: (self: number, that: number) => A\n      readonly onNanos: (self: bigint, that: bigint) => B\n      readonly onInfinity: (self: Duration, that: Duration) => C\n    }\n  ): (self: Duration) => A | B | C\n  <A, B, C>(\n    self: Duration,\n    that: Duration,\n    options: {\n      readonly onMillis: (self: number, that: number) => A\n      readonly onNanos: (self: bigint, that: bigint) => B\n      readonly onInfinity: (self: Duration, that: Duration) => C\n    }\n  ): A | B | C\n} = dual(3, <A, B, C>(\n  self: Duration,\n  that: Duration,\n  options: {\n    readonly onMillis: (self: number, that: number) => A\n    readonly onNanos: (self: bigint, that: bigint) => B\n    readonly onInfinity: (self: Duration, that: Duration) => C\n  }\n): A | B | C => {\n  if (\n    self.value._tag === \"Infinity\" || self.value._tag === \"NegativeInfinity\" ||\n    that.value._tag === \"Infinity\" || that.value._tag === \"NegativeInfinity\"\n  ) return options.onInfinity(self, that)\n  if (self.value._tag === \"Millis\") {\n    return that.value._tag === \"Millis\"\n      ? options.onMillis(self.value.millis, that.value.millis)\n      : options.onNanos(toNanosUnsafe(self), that.value.nanos)\n  } else {\n    return options.onNanos(self.value.nanos, toNanosUnsafe(that))\n  }\n})\n\n/**\n * Provides an `Order` instance for comparing `Duration` values.\n *\n * **Details**\n *\n * `NegativeInfinity` < any finite value < `Infinity`.\n *\n * **Example** (Sorting durations)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * const durations = [\n *   Duration.seconds(3),\n *   Duration.seconds(1),\n *   Duration.seconds(2)\n * ]\n * durations.sort((a, b) => Duration.Order(a, b)).map(Duration.toSeconds) // => [1, 2, 3]\n * ```\n *\n * @stability stable\n * @category instances\n * @since 2.0.0\n */\nexport const Order: order.Order<Duration> = order.make((self, that) =>\n  matchPair(self, that, {\n    onMillis: (self, that) => (self < that ? -1 : self > that ? 1 : 0),\n    onNanos: (self, that) => (self < that ? -1 : self > that ? 1 : 0),\n    onInfinity: (self, that) => {\n      if (self.value._tag === that.value._tag) return 0\n      if (self.value._tag === \"Infinity\") return 1\n      if (self.value._tag === \"NegativeInfinity\") return -1\n      // self is finite\n      if (that.value._tag === \"Infinity\") return -1\n      // that is NegativeInfinity\n      return 1\n    }\n  })\n)\n\n/**\n * Returns `true` if a `Duration` is greater than or equal to `minimum` and\n * less than or equal to `maximum`, according to `Duration.Order`.\n *\n * **When to use**\n *\n * Use to test whether a duration is inside an inclusive range.\n *\n * **Details**\n *\n * Both bounds are inclusive and compared with `Duration.Order`.\n *\n * **Gotchas**\n *\n * The bounds are not normalized. If `minimum` is greater than `maximum`, the\n * predicate returns `false` for every duration.\n *\n[20:39:03.716] INFO (#95): Calling \"rg\" {\n  pattern: 'Hash|Equivalence|equals',\n  glob: 'packages/effect/test/Duration.test.ts',\n  maxLines: 65\n}\npackages/effect/test/Duration.test.ts\n11:import { Duration, Equal, Hash, HashSet, pipe } from \"effect\"\n184:  it(\"Equivalence\", () => {\n186:    assertTrue(Duration.Equivalence(Duration.millis(1), Duration.millis(1)))\n187:    assertTrue(Duration.Equivalence(Duration.millis(1), Duration.nanos(1_000_000n)))\n188:    assertFalse(Duration.Equivalence(Duration.millis(1), Duration.millis(2)))\n189:    assertFalse(Duration.Equivalence(Duration.millis(1), Duration.millis(2)))\n192:    assertTrue(Duration.Equivalence(Duration.nanos(1n), Duration.nanos(1n)))\n193:    assertTrue(Duration.Equivalence(Duration.nanos(1_000_000n), Duration.millis(1)))\n194:    assertFalse(Duration.Equivalence(Duration.nanos(1n), Duration.nanos(2n)))\n195:    assertFalse(Duration.Equivalence(Duration.nanos(1n), Duration.nanos(2n)))\n198:    assertTrue(Duration.Equivalence(Duration.infinity, Duration.infinity))\n199:    assertFalse(Duration.Equivalence(Duration.infinity, Duration.millis(1)))\n200:    assertFalse(Duration.Equivalence(Duration.infinity, Duration.nanos(1n)))\n201:    assertFalse(Duration.Equivalence(Duration.millis(1), Duration.infinity))\n202:    assertFalse(Duration.Equivalence(Duration.nanos(1n), Duration.infinity))\n232:  it(\"equals\", () => {\n233:    assertTrue(pipe(Duration.hours(1), Duration.equals(Duration.minutes(60))))\n236:  it(\"Hash.symbol agrees with equals across Millis/Nanos representations\", () => {\n240:    assertTrue(Duration.equals(millisTagged, nanosTagged))\n241:    assertTrue(Equal.equals(millisTagged, nanosTagged))\n242:    strictEqual(Hash.hash(millisTagged), Hash.hash(nanosTagged))\n243:    strictEqual(Hash.hash(Duration.millis(-5000)), Hash.hash(Duration.nanos(-5_000_000_000n)))\n244:    strictEqual(Hash.hash(Duration.infinity), Hash.hash(Duration.infinity))\n245:    assertFalse(Equal.equals(Duration.infinity, Duration.negativeInfinity))\n247:    assertTrue(HashSet.has(HashSet.make(millisTagged), nanosTagged))\n248:    assertTrue(Equal.equals(Duration.millis(2 ** 1023), Duration.nanos(1_000_000n << 1023n)))\n251:  it(\"Hash.symbol handles finite millis too large to convert to nanos\", () => {\n254:    assertTrue(Equal.equals(duration, Duration.millis(1e303)))\n255:    assertTrue(HashSet.has(HashSet.make(duration), Duration.millis(1e303)))\n537:    assertTrue(Equal.equals(Duration.weeks(1), Duration.days(7)))\n538:    assertFalse(Equal.equals(Duration.weeks(1), Duration.days(1)))\n634:    // Equivalence with negatives\n635:    assertTrue(Duration.Equivalence(Duration.negativeInfinity, Duration.negativeInfinity))\n636:    assertFalse(Duration.Equivalence(Duration.negativeInfinity, Duration.infinity))\n"
+      },
+      {
+        "role": "assistant",
+        "content": "The conversion change appears sound: finite integer milliseconds now use exact BigInt multiplication, while fractional rounding and infinity handling remain unchanged. I’ll run the Duration tests and probe large positive/negative values, high-resolution conversion, and equality/hash consistency.",
+        "reasoning": "**Exploring import options**\n\nIt seems like I have two suggestions about coverage signs and needing to test the source for dynamic imports. I need to check if the restriction on using Node APIs applies here while trying to import things in TypeScript. It's essential to decide if I can use dynamic imports from a file string. Also, I’ll need to figure out how to import `Duration` and `HashSet` correctly from their respective sources. Let’s clarify this![REDACTED]",
+        "reasoning_details": [
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "**Exploring import options**\n\nIt",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " seems",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " like",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " I",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " have",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " two",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " suggestions",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " about",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " coverage",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " signs",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " and",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " needing",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " to",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " test",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " the",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " source",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " for",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " dynamic",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " imports",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": ".",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " need",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " check",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " if",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " restriction",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " on",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " using",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " Node",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " APIs",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " applies",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " here",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " while",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " trying",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " import",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " things",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " in",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " Type",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "Script",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " It's",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " essential",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " decide",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " can",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " use",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " from",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " a",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " file",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " string",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " Also",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": ",",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "’ll",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " figure",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " out",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " how",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " `",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "Duration",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "`",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "Hash",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "Set",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " correctly",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " their",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " respective",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " sources",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " Let",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "’s",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " clarify",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " this",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "!",
+            "type": "reasoning.summary"
+          },
+          {
+            "data": "gAAAAABqz-hsUW0JRdg_4NIRPYpYRWYorEqY_LFOxa70WDeIsd1bxvJp6Spua0KZa9YfUV4KU8VslxKCu7nNrX6xQe9HFArSWufoYMcaGzp11b9bu5cm8u3VJfGo8z76VoKq1N4h1pttYn60xpxc3CSQh2MZdryuEV2NIhfffULEnw6b_efU_gPCbnXNUCyksDpoex37_Mk0hgq4JLWI4NDcEY8dweHpi_fDa-LXHR6-3YUzLgWDVHCbGUHxsPqhLgvPsISyPLkjBQUJm1tw0eMm5M04aEoJDyhLX_dZezTDH2E-OMrFC3FSN4g1CcFrN7OY4FTvqbtPBaTV-KezdET8mkDY-KSYiIFGRhg8YCcP5Tbzz9gLNhG_eWxfUy51IBL6Gq17GWmlOEigJLDHqkgGcVO21moMtzj_geJr5sAWAIoJ4zqPpHQLkkSPGJpTUOIPdzOba6gD__G7NJyCPcZWEqaKENfkJ0FZLxrriQxfvbjwGhHMQQlVoP8Ac20xEXkfPXj7SDrT1k1rTwQP6tMOdh46W5hDbGt2t8NL8Y7wq6HgLunclf2n_0fVVoCqyXuFXat20x-69d9NGMYCdGcWVbokAV-O5rUFamlcRfyI_YzZ-V5vxpk7wwozLjjmu1vBwwRHt50HzQSEnmSNs3k7rxtefRqGjFf_TKYPwcd2noSd8HshnIVrURSpYeSxcnd1bpYQISMqn0rPrQvSBmZDi4sKPyhqtsuMSerPd3G6T_ZyuzBgW11rtPHA3Zo00aTtffIadThvGJGgU_fcC7dics5T6EvEoufU5pvAH_gVNn5of7NYwPQ5Vo45o3OQlWgAUJyCseV09ExlxuaDdAQyAwpTm8NJYYlkqveZwfpwEIg6DsBi_9EF_V28BfZlPjPFxFdvajSrzzFw6k2dFY0dTKfZghiwCX1-Ty-D_9e4Cg_KKlVSYVYdkwxpGHdcH3PIYDuOSpsUFfsY9fsJyZExgcDpJecymLPfI4Fo4XeyB0j15mctdpJKrQ5bywXzsipHbHABrMV6gW6qLBBtX_BTdyIRE-7kaVI22u_ZsW-mTOFnK79LKZrv7sC_8ac54AmaI2-QXogu2Re9JA3Gdi4Fr_AKpaE6XvmADC8_WpFlMbzvreJtEh2GUjMVKkHqZRzm3QF2myN1JQy8F4JqMxtFtFoTwqUKalzwrU7_WX1tmNzrIDYaqv0cNEarRNvcb1PpXejlvbLoZAqUFaRCmq6EOlfeaKB1b8Pr_9JEtPnewl5k9fU9ci-qGabMLr5rKMtiCw5h7z2cGXL0CxKOCBG5udNZC1hJ2lJwl4U6-I7UpEl2BIartAaaP1aXENKzSRPUO24UyXnR5fHOlIsJLG4qz1899f0UEHf7q3bLMOM88RzR4fTHuN_NE4rI5OyPs9NIlOih0wgXlxTU4gweZExliHPUtRFvLZoIptahGzvsrp_PJIm3Sfs_pBbKHxWa-yvnQ-9VEcAQX_yoraPTmJ4vCJZYfyTwOapCNKbE8gmAmXHg3F5hpOHMOd6gVTOdkVjKaLs1o-EpinI4MoZwSdusiauALtSZAqOqCjzrcF-P1ix_47LuOigrP_2Kg6nCihrH4vQJbbpICBOPXed6eCGFUjct6q43oHW4VF7a8VLnfo9i33WaRCn7TAaxS2EgYApYSqc9xVAbwuCjXBKfqrDpPJk_i_xW1AwgCeZzOvMgDiuP6h8WfrYvZ4I8IvcZFl-GiqWjNOr2ad9dPq3ABPXpszbyb_Qx_cxDhJqQvldHAklCJDbjjED0ZHd2TwLR0W9-eTYn-arTUWLquRNPWznaYxCSpHCxmlSj7EPkh00i19yFvA18y51_-Vx3nQlkAefgs4puBWrP9-yLlD2ssPWYTohRiMuxSUn8kHjKfvRV0-RvMmHfHS_c7DIUZ7EGUo3bP-6Rh7SrZe2mWyhxUytA3kmG0uEqGwuJyyEKvjM0DaG1Qupj_hntNmsi44HHKlGmnaBCZFkAx9OIXjRqIVhs8lPjrLI4AY04s7oYfCjmUzZNnL3SGmDPBpSY1newORxt1ZCt7Og0_-j0xQjCpXFEQT8bfzC5IWP2PqcK2Ult_hdc_P12TuvqM9fTzPKYMYfvDa_p7l_DdLZS3-nGzqnmcWOS73qcflFWuN6oiRMd4wUdMNq5fktWTd1qJu4xNTqfZ0ZCesFuGzrM-90i_V5oFqbUSKDc4Y1Zr2vT3wa-oipPQ3s_06kHdlM3TuU2z1PavTr2XM4thp9mbfvJ7D0ivJEhbFBxV56bepRlbIf-vWNpRs0pd86wNp3CQpUFsFtZm5qKfRhyGtpv9wGGMTJ_kc1KOEFWu8onZaS5Wr6ULDNhUnT-_9hZoTH-8aJtz4oKrsL-__nBn7UVZ0acanlfaYOxzEEOQqW2cfGf3JkX1q8BCpxIfjY0-kHsSsozp-bMb_V1F_BnuQf-JOZM4X9lbHBT5w650DK14xRBcAwuRehaiqqIi0yYkH9wuqFWWeIAKnSrOo7-QfMxb2gllz9t9H9JPIzo9IdHXcbq8rWb_OQkN1MnjHA=.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_0a5420b676d7ff83016acfe869a09087d188132cf88fdd8ebd",
+            "index": 1,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_Pt6t7plJPguXPMoRxTZHOk13",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await bash({command:'pnpm test --run packages/effect/test/Duration.test.ts'})); console.log(await readFile({path:'packages/effect/src/Duration.ts',startLine:945,endLine:1040})); console.log(await readFile({path:'packages/effect/test/Duration.test.ts',startLine:230,endLine:260}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_Pt6t7plJPguXPMoRxTZHOk13",
+        "content": "[20:39:09.972] INFO (#114): Calling \"bash\" {\n  command: 'pnpm test --run packages/effect/test/Duration.test.ts',\n  timeoutMs: 180000\n}\n$ vitest --run packages/effect/test/Duration.test.ts\n\n RUN  v5.0.3 /home/tim/multica_workspaces/tim-smart-f-546454766676/eff-1948-8779866c00c1/workdir/janitor/spikes/eff-1948-openrouter-smoke/scratch/pr-9161\n\n\n Test Files  1 passed (1)\n      Tests  46 passed (46)\n   Start at  20:39:12\n   Duration  5.80s (transform 89%, setup 6%, import 4%, tests 1%)\n\n  Transform  |effect| transforming modules took 5.02s · 89% of tracked time, re-done on every run\n             persist transforms across runs with fsModuleCache: true\n             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns\n\n\n[20:39:18.350] INFO (#119): Calling \"readFile\" {\n  path: 'packages/effect/src/Duration.ts',\n  startLine: 945,\n  endLine: 1040\n}\n/**\n * Gets the duration in nanoseconds as a bigint.\n *\n * **When to use**\n *\n * Use when the duration is known to be finite and you need the nanosecond value\n * as a `bigint`.\n *\n * **Details**\n *\n * Millisecond-backed fractional durations are rounded to the nearest\n * nanosecond, with ties away from zero.\n *\n * **Gotchas**\n *\n * If the duration is infinite, it throws an error.\n *\n * **Example** (Reading nanoseconds unsafely)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.toNanosUnsafe(Duration.seconds(2)) // => 2_000_000_000n\n *\n * // Duration.toNanosUnsafe(Duration.infinity)\n * // throws Error: \"Cannot convert infinite duration to nanos\"\n * ```\n *\n * @stability stable\n * @category getters\n * @since 4.0.0\n */\nexport const toNanosUnsafe = (input: Input): bigint => {\n  const self = fromInputUnsafe(input)\n  switch (self.value._tag) {\n    case \"Infinity\":\n    case \"NegativeInfinity\":\n      throw new Error(\"Cannot convert infinite duration to nanos\")\n    case \"Nanos\":\n      return self.value.nanos\n    case \"Millis\":\n      return roundMillisToNanos(self.value.millis)\n  }\n}\n\n/**\n * Gets the duration in nanoseconds safely as an `Option<bigint>`.\n *\n * **Details**\n *\n * If the duration is infinite, returns `Option.none()`.\n *\n * **Example** (Safely reading nanoseconds)\n *\n * ```ts import.meta.vitest\n * import { Duration, Option } from \"effect\"\n *\n * Duration.toNanos(Duration.seconds(1)) // => Option.some(1_000_000_000n)\n * Duration.toNanos(Duration.infinity) // => Option.none()\n * ```\n *\n * @stability stable\n * @category getters\n * @since 2.0.0\n */\nexport const toNanos: (self: Input) => Option.Option<bigint> = Option.liftThrowable(toNanosUnsafe)\n\n/**\n * Converts a Duration to high-resolution time format [seconds, nanoseconds].\n *\n * **Example** (Converting durations to high-resolution time)\n *\n * ```ts import.meta.vitest\n * import { Duration } from \"effect\"\n *\n * Duration.toHrTime(Duration.millis(1500)) // => [1, 500_000_000]\n * ```\n *\n * @stability stable\n * @category getters\n * @since 2.0.0\n */\nexport const toHrTime = (input: Input): [seconds: number, nanos: number] => {\n  const self = fromInputUnsafe(input)\n  switch (self.value._tag) {\n    case \"Infinity\":\n      return [Infinity, 0]\n    case \"NegativeInfinity\":\n      return [-Infinity, 0]\n    case \"Nanos\":\n      return nanosToHrTime(self.value.nanos)\n    case \"Millis\":\n      return nanosToHrTime(roundMillisToNanos(self.value.millis))\n  }\n}\n\n[20:39:18.358] INFO (#120): Calling \"readFile\" {\n  path: 'packages/effect/test/Duration.test.ts',\n  startLine: 230,\n  endLine: 260\n}\n  })\n\n  it(\"equals\", () => {\n    assertTrue(pipe(Duration.hours(1), Duration.equals(Duration.minutes(60))))\n  })\n\n  it(\"Hash.symbol agrees with equals across Millis/Nanos representations\", () => {\n    const millisTagged = Duration.seconds(5)\n    const nanosTagged = Duration.nanos(5_000_000_000n)\n\n    assertTrue(Duration.equals(millisTagged, nanosTagged))\n    assertTrue(Equal.equals(millisTagged, nanosTagged))\n    strictEqual(Hash.hash(millisTagged), Hash.hash(nanosTagged))\n    strictEqual(Hash.hash(Duration.millis(-5000)), Hash.hash(Duration.nanos(-5_000_000_000n)))\n    strictEqual(Hash.hash(Duration.infinity), Hash.hash(Duration.infinity))\n    assertFalse(Equal.equals(Duration.infinity, Duration.negativeInfinity))\n\n    assertTrue(HashSet.has(HashSet.make(millisTagged), nanosTagged))\n    assertTrue(Equal.equals(Duration.millis(2 ** 1023), Duration.nanos(1_000_000n << 1023n)))\n  })\n\n  it(\"Hash.symbol handles finite millis too large to convert to nanos\", () => {\n    const duration = Duration.millis(1e303)\n\n    assertTrue(Equal.equals(duration, Duration.millis(1e303)))\n    assertTrue(HashSet.has(HashSet.make(duration), Duration.millis(1e303)))\n  })\n\n  it(\"between\", () => {\n    assertTrue(Duration.between(Duration.hours(1), {\n      minimum: Duration.minutes(59),\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": null,
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_whkHyFZXexmm9EuDAfedosMj",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await applyPatch('*** Begin Patch\\\\n*** Add File: scratchpad/duration-9161-review.ts\\\\n+import * as Duration from \\\"../packages/effect/src/Duration.ts\\\"\\\\n+import * as Equal from \\\"../packages/effect/src/Equal.ts\\\"\\\\n+import * as Hash from \\\"../packages/effect/src/Hash.ts\\\"\\\\n+import * as HashSet from \\\"../packages/effect/src/HashSet.ts\\\"\\\\n+\\\\n+function check(ok: boolean, label: string) {\\\\n+  if (!ok) throw new Error(label)\\\\n+}\\\\n+const inputs = [0, -0, 576_460_752_305, -576_460_752_305, 1_760_450_000_123, -1_760_450_000_123, Number.MAX_SAFE_INTEGER, -Number.MAX_SAFE_INTEGER, 2 ** 53, -(2 ** 53), Number.MAX_VALUE, -Number.MAX_VALUE]\\\\n+for (const ms of inputs) {\\\\n+  const nanos = BigInt(ms) * 1_000_000n\\\\n+  const a = Duration.millis(ms)\\\\n+  const b = Duration.nanos(nanos)\\\\n+  check(Duration.toNanosUnsafe(a) === nanos, `toNanosUnsafe ${ms}`)\\\\n+  check(Duration.equals(a, b) && Equal.equals(a, b), `equals ${ms}`)\\\\n+  check(Hash.hash(a) === Hash.hash(b), `hash ${ms}`)\\\\n+  check(HashSet.has(HashSet.make(a), b), `HashSet ${ms}`)\\\\n+  const hr = Duration.toHrTime(a)\\\\n+  check(hr[0] === Number(nanos / 1_000_000_000n) && hr[1] === Number(nanos % 1_000_000_000n), `toHrTime ${ms}`)\\\\n+}\\\\n+for (const [ms, expected] of [[0.0000015, 2n], [-0.0000015, -2n], [1.0005, 1_000_500n], [-1.0005, -1_000_500n]] as const) {\\\\n+  check(Duration.toNanosUnsafe(Duration.millis(ms)) === expected, `fractional ${ms}`)\\\\n+}\\\\n+console.log(`PASS: ${inputs.length} integer cases (conversions, equals, hash, HashSet), 4 fractional cases`)\\\\n+console.log(\\\"epoch hrTime:\\\", Duration.toHrTime(Duration.millis(1_760_450_000_123)))\\\\n+console.log(\\\"negative epoch hrTime:\\\", Duration.toHrTime(Duration.millis(-1_760_450_000_123)))\\\\n*** End Patch')); console.log(await bash({command:'node scratchpad/duration-9161-review.ts'})); await removeFile('scratchpad/duration-9161-review.ts');\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_whkHyFZXexmm9EuDAfedosMj",
+        "content": "[20:39:29.307] INFO (#139): Calling \"applyPatch\"\nSuccess. Updated the following files:\nA scratchpad/duration-9161-review.ts\n[20:39:29.311] INFO (#140): Calling \"bash\" {\n  command: 'node scratchpad/duration-9161-review.ts',\n  timeoutMs: 180000\n}\nPASS: 12 integer cases (conversions, equals, hash, HashSet), 4 fractional cases\nepoch hrTime: [ 1760450000, 123000000 ]\nnegative epoch hrTime: [ -1760450000, -123000000 ]\n\n[20:39:29.466] INFO (#145): Calling \"removeFile\" { path: 'scratchpad/duration-9161-review.ts' }\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": "**Evaluating findings for testing**\n\nI need to find two valid findings, ensuring they’re non-blocking and not something I just make up. I'll test the hrTime coverage against the hash coverage and check for valid suggestions that are separate but share the same anchor. I should also think about how to title my report to reflect that it's non-blocking. This will help keep everything organized and make it easier to interpret later.[REDACTED]",
+        "reasoning_details": [
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "**Evaluating findings for testing**\n\nI",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " find",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " valid",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " findings",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " ensuring",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " they",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "’re",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " non",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "-block",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "ing",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " not",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " something",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " just",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " make",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " up",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " I'll",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " hr",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "Time",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " against",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " hash",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " that",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " are",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " separate",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " but",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " share",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " same",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " anchor",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " should",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " also",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " think",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " title",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " my",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " report",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " reflect",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " it's",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " This",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " will",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " help",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " keep",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " everything",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " organized",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " it",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " easier",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " interpret",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " later",
+            "type": "reasoning.summary"
+          },
+          {
+            "data": "gAAAAABqz-iFq4jyNTiTXbRnA_dZ8ijBAfWa4PPpbrwDI5rqVe8YBEkYc1NyxuuYQ3E0Ucn9GsUxsSrX9iu_zaufGpxmdFTyir3nAqqAGIeavydrrwlLslZ-xFVkRDZlLzFvZMJFpXQN8uuLMAY-QT_i1ya3Nr0vihY_LPpcWyFNzHK7DBHuEEFGm3AvYTab2mqI17lcdb26YcWnHZkfwjYWX_pE43WyBbbeX8dRWwJPyVa9AAP7h-5XgR3YFGEiq8Y1V3kg7JTZ43jxeMtt1nUyrOwl4HSxl1I9mid5j90UekyNw1Z0_YggsFDHeazbaMJTfUVxyHrFeERLhbGOvp25A8GCOTbosidBgOrv2by6FEN8UxQ6BRoZS4BqA2s8jD8pa9my0ddkIUc7Pi8ZdqxrBZvWB6vYIwqB9paa6pplfneUvXvPBsGSL6PWyWoxPMpR8R5Gxofa-gOLNiEuLdj8hdW-EiJsQNAz3EkbawWTrDvnVYbybBowJbXGFSSnUr4S_G_uIb22bRIP9JX8Asm3ADvHt-xqAlMrkAKGH1MiTIcoOJYXarfHxUPtTjV4NvaMjH5PzImW6NN4PPYZT6jk6HNnBVWy_vIcWHnWrR4qZM1RMGmzyL9GcgwjMg2DCLP3GD3aGKI1oM5cJBtwwIAjNz0pDznvGSU0Ltsk8OBYjSQZVbMr-KeKydnnhjl_WoyxWadYgg0SEkQwxGAEMTqUoXkrdTXq9js535Pqd0Ca8Y_rMadUf1IYkVzw9sKOH_Mk5e8TGNFONApPztImWYKsXXJNv9OlF4QfVvtzD562bvY9hGa79rh7mYnsxtP7hqv07B-DebICegDsQJDhmIs7Mmy6gYcZ8e5jZD6pPlWnM6Es9hbL3A6Ge7WKyLTQIMcBlLg3VTDowx9eUAGpt1jcp-oBHPVFI8GLHyvDt6rcgXszH7vFjpMzCoXKAOmTHeU7lKUvusInAeutl7ci181MN7YF7zYjG_E8iS_Jg8ewiSnO-N3tBGcmCl9kpQsvqiux82CTjWxuOWlNmyV4iAgu4kBS6tiLnLEJQC1jk-DyJJ-2Min7KMXPcQKo2p0FS3BAYW95DpCaRg1g_CnSnn8as2GLhMHR7Nlwrg0bx_tmutsdyNGf6854673BM49W3d4ylEPjenikMl28h9VCE8MnIJbD8HtpRdGFOxr94jHSUNNnQdpuElRdX0aelcbuqgRYim979cU2FV1v7WuxcyEZbZK3DnBs91pnu8J-k6H1H0rykSgATv6d0gK16b78dg6SBjX4Qwg1l4XoJy2sPqTZntPbAA0x5oSoW6G7D1JeQ5t4zoozZySM_oyusd79Yy2AXuUIhExpiQ7PloXFcDo203Ri898Si9186krYlqnqO1qW0Xm_I5CpvWrExsRo01PSXFpIsmh_I6Pe-XviQQSee39EqsX0dbghpf-zW2AQIeFQ9f5rQPWcm-iAYGyK9y84sY3exDhdsXu8pN1CGO1CNJvlzDLKCqQ9FTaURujFFJcRbv8LKgO4UTeSvlKoRQvPSF7-0LmC7Ls8K7O3oqSV2VfR6Bylww5vUr7awitTqTCxcaajXfNgL34E6o-GgaZxQr_gj6Vs9NCbD3fbedSwg1tbiygtl3Me59-i9HgPUPVazOchIxzY0lIWZXhx0sLIesMxYqqCchSZgN7hJ0eChy039EC8tWFyHHfZmeFf8pqTyVVKfvNOUZV9u5wA-zNznFWeu6ZbJ6gqML-kckNqYdvcjrJkeZBJYt3CYEm7a8P7Dn6Z3w5gK3ERI_vgokHKcXPF3T0ALV6qdIcjJUf6Uvyf9NOvuhxyJt2hIdiJ6p-HQ9ED2wMgwgKn9MIV69UGAV1DH0PkhS_GqyedQW3hs13v0FgneAJUk_7JUSU_3JoplKAvXUyirx2zI5fstCwflIwClXcYFjJSfYomqykMjUe-Dq9nGNMXRFvOia2Ax9ki1oQ8wjsOuHsTc9G_VmH23FGbcycRjbEMQemSVaQfqjontEI4ag==.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_0a5420b676d7ff83016acfe882ecbc87d1bbdaf3ac12339671",
+            "index": 1,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_IloGY1K7JergQxjoThzdR1sG",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"const a = await reportFinding({path:'packages/effect/test/Duration.test.ts',line:569,severity:'suggestion',title:'Add a large-value equality/hash regression case',body:'Non-blocking: the new assertion covers the conversion, but the PR also fixes cross-representation equality and hashing. The existing equality/hash test uses only small values (plus a power of two for overflow), so it does not pin the precision-loss case. Consider extending that test with `Duration.millis(1_760_450_000_123)` versus `Duration.nanos(1_760_450_000_123_000_000n)`, asserting `Equal.equals`, equal hashes, and HashSet lookup.'}); const b = await reportFinding({path:'packages/effect/test/Duration.test.ts',line:569,severity:'suggestion',title:'Pin the reported high-resolution conversion for both signs',body:'Non-blocking: the motivating `toHrTime` example is not asserted in the committed tests. Consider adding `[1_760_450_000, 123_000_000]` for the positive epoch-sized input and `[-1_760_450_000, -123_000_000]` for its negative counterpart. This would cover the public symptom and ensure the exact integer path remains symmetric for signed durations, rather than only checking the positive bigint conversion.'}); console.log(a,b); await updateThread({id:a.id,body:'Validation: `pnpm test --run packages/effect/test/Duration.test.ts` passed all 46 tests. A temporary scratchpad run with plain `node` checked exact conversion, Duration/Equal equality, hash agreement, and HashSet membership for 12 integer inputs, including both signs of the epoch-sized value, MAX_SAFE_INTEGER, 2**53, and MAX_VALUE; all passed. This is a regression-coverage suggestion, not an observed runtime defect.'}); await updateThread({id:b.id,body:'Probe result: the plain-node scratchpad returned `[1760450000, 123000000]` and `[-1760450000, -123000000]` for the positive/negative epoch-sized values. High-resolution conversion checks passed for all 12 integer inputs; four fractional rounding checks also passed. The scratchpad was removed afterward. The implementation currently behaves correctly; the suggestion is to retain these public-API checks as tests.'}); console.log(await bash({command:'git status --short'}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_IloGY1K7JergQxjoThzdR1sG",
+        "content": "[20:39:40.795] FATAL (#159): Error: reportFinding rejected: finding f1 is already anchored on packages/effect/test/Duration.test.ts:569 (\"Add a large-value equality/hash regression case\"). Use updateThread({ id: \"f1\", body }) to add to it instead.\n    at file:///home/tim/.local/share/pnpm/store/v11/links/@/clanka/0.8.6/97dad408f6c704a8178d89311b09ff09e1cea15a0301eb320e34a51a1f996906/node_modules/clanka/dist/AgentExecutor.js:158:112\n    at file:///home/tim/.local/share/pnpm/store/v11/links/@/effect/4.0.4/6043ae039cd3946ffb402697d13f29cd29b5fe9807b40c01dacae3c6f75a8763/node_modules/effect/dist/internal/effect.js:1396:96\n    at AgentExecutorServer.execute\n"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "execute",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "script": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "script"
+            ],
+            "additionalProperties": false
+          },
+          "strict": null,
+          "description": "Execute javascript code and return the output"
+        }
+      }
+    ],
+    "tool_choice": "auto",
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    }
+  }
+}

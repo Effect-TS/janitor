@@ -1,0 +1,415 @@
+{
+  "provider": "openrouter",
+  "model": "openai/gpt-6.1-sol",
+  "effort": "medium",
+  "pr": 9143,
+  "prUrl": "https://github.com/Effect-TS/effect/pull/9143",
+  "headSha": "c2859bf0176a671154e578653dfb3ba2578a79ff",
+  "baseSha": "738bc873a779179a9c9f0e675b51b2f074796598",
+  "run": 4,
+  "startedAt": "2026-10-14T20:42:40.178Z",
+  "durationMs": 64210,
+  "outcome": "taskComplete",
+  "summary": "Approve. No correctness regression found; reported two non-blocking improvements: clearer naming for the full approved list and assertions for caller-visible results in the mixed-history test.\n\nValidation: all 65 LanguageModel tests passed. A plain-node probe passed for both generateText and streamText, confirming only pending tools execute, only newly resolved results reach callers, and unanswered/unmatched approval artifacts survive. Results were appended to both finding threads.\n\nThe probe was removed and the working tree is clean. Broad checks and lint were not run, as requested.",
+  "turns": 9,
+  "modelRequests": 9,
+  "retries": [],
+  "tokens": {
+    "input": 136776,
+    "output": 2303,
+    "cacheRead": 118123,
+    "cacheWrite": 18626,
+    "lastContext": 20423
+  },
+  "costUsdAt2in10out": {
+    "inputUsd": 0.273552,
+    "outputUsd": 0.02303,
+    "totalUsd": 0.296582
+  },
+  "perTurn": [
+    {
+      "turn": 1,
+      "startedAt": 1792010560459,
+      "scriptStartedAt": 1792010563371,
+      "scriptEndedAt": 1792010563591,
+      "endedAt": 1792010563598,
+      "modelMs": 2912,
+      "scriptMs": 220,
+      "totalMs": 3139,
+      "contextTokens": 4504,
+      "outputTokens": 63,
+      "cacheRead": 1794,
+      "cacheWrite": 2707,
+      "reasoningChars": 0,
+      "scriptChars": 163,
+      "scriptOutputChars": 11117
+    },
+    {
+      "turn": 2,
+      "startedAt": 1792010563598,
+      "scriptStartedAt": 1792010566988,
+      "scriptEndedAt": 1792010567192,
+      "endedAt": 1792010567194,
+      "modelMs": 3390,
+      "scriptMs": 204,
+      "totalMs": 3596,
+      "contextTokens": 6876,
+      "outputTokens": 139,
+      "cacheRead": 4501,
+      "cacheWrite": 2372,
+      "reasoningChars": 0,
+      "scriptChars": 442,
+      "scriptOutputChars": 36578
+    },
+    {
+      "turn": 3,
+      "startedAt": 1792010567194,
+      "scriptStartedAt": 1792010570869,
+      "scriptEndedAt": 1792010570974,
+      "endedAt": 1792010570977,
+      "modelMs": 3675,
+      "scriptMs": 105,
+      "totalMs": 3783,
+      "contextTokens": 14088,
+      "outputTokens": 137,
+      "cacheRead": 6873,
+      "cacheWrite": 7212,
+      "reasoningChars": 492,
+      "scriptChars": 337,
+      "scriptOutputChars": 7750
+    },
+    {
+      "turn": 4,
+      "startedAt": 1792010570977,
+      "scriptStartedAt": 1792010574929,
+      "scriptEndedAt": 1792010582849,
+      "endedAt": 1792010582851,
+      "modelMs": 3952,
+      "scriptMs": 7920,
+      "totalMs": 11874,
+      "contextTokens": 16071,
+      "outputTokens": 113,
+      "cacheRead": 14085,
+      "cacheWrite": 1983,
+      "reasoningChars": 267,
+      "scriptChars": 116,
+      "scriptOutputChars": 768
+    },
+    {
+      "turn": 5,
+      "startedAt": 1792010582851,
+      "scriptStartedAt": 1792010586115,
+      "scriptEndedAt": 1792010586154,
+      "endedAt": 1792010586155,
+      "modelMs": 3264,
+      "scriptMs": 39,
+      "totalMs": 3304,
+      "contextTokens": 16439,
+      "outputTokens": 91,
+      "cacheRead": 16068,
+      "cacheWrite": 368,
+      "reasoningChars": 10,
+      "scriptChars": 224,
+      "scriptOutputChars": 7375
+    },
+    {
+      "turn": 6,
+      "startedAt": 1792010586155,
+      "scriptStartedAt": 1792010605103,
+      "scriptEndedAt": 1792010605977,
+      "endedAt": 1792010605979,
+      "modelMs": 18948,
+      "scriptMs": 874,
+      "totalMs": 19824,
+      "contextTokens": 18519,
+      "outputTokens": 1098,
+      "cacheRead": 16436,
+      "cacheWrite": 2080,
+      "reasoningChars": 10,
+      "scriptChars": 3470,
+      "scriptOutputChars": 487
+    },
+    {
+      "turn": 7,
+      "startedAt": 1792010605979,
+      "scriptStartedAt": 1792010613376,
+      "scriptEndedAt": 1792010613879,
+      "endedAt": 1792010613880,
+      "modelMs": 7397,
+      "scriptMs": 503,
+      "totalMs": 7901,
+      "contextTokens": 19772,
+      "outputTokens": 286,
+      "cacheRead": 18516,
+      "cacheWrite": 1253,
+      "reasoningChars": 10,
+      "scriptChars": 1235,
+      "scriptOutputChars": 26
+    },
+    {
+      "turn": 8,
+      "startedAt": 1792010613880,
+      "scriptStartedAt": 1792010619017,
+      "scriptEndedAt": 1792010619439,
+      "endedAt": 1792010619440,
+      "modelMs": 5137,
+      "scriptMs": 422,
+      "totalMs": 5560,
+      "contextTokens": 20084,
+      "outputTokens": 240,
+      "cacheRead": 19769,
+      "cacheWrite": 312,
+      "reasoningChars": 0,
+      "scriptChars": 1017,
+      "scriptOutputChars": 239
+    },
+    {
+      "turn": 9,
+      "startedAt": 1792010619440,
+      "scriptStartedAt": 1792010623807,
+      "scriptEndedAt": 1792010623882,
+      "endedAt": 1792010623885,
+      "modelMs": 4367,
+      "scriptMs": 75,
+      "totalMs": 4445,
+      "contextTokens": 20423,
+      "outputTokens": 136,
+      "cacheRead": 20081,
+      "cacheWrite": 339,
+      "reasoningChars": 0,
+      "scriptChars": 617,
+      "scriptOutputChars": 0
+    }
+  ],
+  "http": [
+    {
+      "n": 1,
+      "status": 200,
+      "totalMs": 2901,
+      "firstByteMs": 840,
+      "requestBytes": 20787,
+      "responseBytes": 18686
+    },
+    {
+      "n": 2,
+      "status": 200,
+      "totalMs": 3380,
+      "firstByteMs": 708,
+      "requestBytes": 32650,
+      "responseBytes": 43790
+    },
+    {
+      "n": 3,
+      "status": 200,
+      "totalMs": 3672,
+      "firstByteMs": 679,
+      "requestBytes": 66702,
+      "responseBytes": 68859
+    },
+    {
+      "n": 4,
+      "status": 200,
+      "totalMs": 3949,
+      "firstByteMs": 772,
+      "requestBytes": 83633,
+      "responseBytes": 28621
+    },
+    {
+      "n": 5,
+      "status": 200,
+      "totalMs": 3264,
+      "firstByteMs": 739,
+      "requestBytes": 87003,
+      "responseBytes": 25656
+    },
+    {
+      "n": 6,
+      "status": 200,
+      "totalMs": 18944,
+      "firstByteMs": 1098,
+      "requestBytes": 97442,
+      "responseBytes": 329229
+    },
+    {
+      "n": 7,
+      "status": 200,
+      "totalMs": 7396,
+      "firstByteMs": 879,
+      "requestBytes": 105346,
+      "responseBytes": 85796
+    },
+    {
+      "n": 8,
+      "status": 200,
+      "totalMs": 5135,
+      "firstByteMs": 746,
+      "requestBytes": 109072,
+      "responseBytes": 77436
+    },
+    {
+      "n": 9,
+      "status": 200,
+      "totalMs": 4366,
+      "firstByteMs": 1313,
+      "requestBytes": 110616,
+      "responseBytes": 42998
+    }
+  ],
+  "history": [
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "user"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    },
+    {
+      "kind": "HistoryAppended",
+      "roles": [
+        "assistant",
+        "tool"
+      ]
+    }
+  ],
+  "toolCalls": [
+    {
+      "at": 1792010613410,
+      "tool": "reportFinding",
+      "params": {
+        "path": "packages/effect/src/ai/LanguageModel.ts",
+        "line": 1135,
+        "severity": "nit",
+        "title": "Name the full approved list consistently with its contents",
+        "body": "`allResolved` now comes from the initial prompt snapshot and includes approved calls that have not been executed yet (those also appear in `pendingApproved`). Consider naming it `allApproved`, alongside `allDenied`, in both request paths. That makes the distinction between all approval responses and pending executions explicit without implying that every entry already has a tool result."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f1"
+      }
+    },
+    {
+      "at": 1792010613414,
+      "tool": "reportFinding",
+      "params": {
+        "path": "packages/effect/test/ai/LanguageModel.test.ts",
+        "line": 2217,
+        "severity": "suggestion",
+        "title": "Assert caller-visible results in the mixed-history regression test",
+        "body": "The new test verifies tool execution and the provider prompt, but discards the generated response and drains the stream. Consider also asserting that the caller receives exactly the two newly resolved tool results, and neither historical result. This would cover the history-persistence side of the same pending-versus-all distinction, especially for `streamText`, where provider prompt correctness alone does not establish that Chat can persist the results."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f2"
+      }
+    },
+    {
+      "at": 1792010619055,
+      "tool": "updateThread",
+      "params": {
+        "id": "f1",
+        "body": "Validation: `pnpm test --run packages/effect/test/ai/LanguageModel.test.ts` passed all 65 tests. A plain-node scratchpad probe confirmed both request paths execute only the newly approved tool while retaining an unanswered approval request and an unmatched response. No behavior defect found; this is a naming-only nit."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f1",
+        "comments": 1
+      }
+    },
+    {
+      "at": 1792010619058,
+      "tool": "updateThread",
+      "params": {
+        "id": "f2",
+        "body": "The ad-hoc probe (`node scratchpad/pr-9143-review.ts`) exercised mixed approved/denied history in both methods, with distinct approval IDs and tool-call IDs. Both returned exactly [\"new-yes\", \"new-no\"], executed only \"new-yes\", preserved the unanswered request and unmatched response, and omitted historical results from caller output. Thus the suggested assertion passes today; adding it would retain that coverage in the regression suite. The full changed test file also passed (65/65)."
+      },
+      "outcome": "ok",
+      "result": {
+        "id": "f2",
+        "comments": 1
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "f1",
+      "path": "packages/effect/src/ai/LanguageModel.ts",
+      "line": 1135,
+      "severity": "nit",
+      "title": "Name the full approved list consistently with its contents",
+      "body": "`allResolved` now comes from the initial prompt snapshot and includes approved calls that have not been executed yet (those also appear in `pendingApproved`). Consider naming it `allApproved`, alongside `allDenied`, in both request paths. That makes the distinction between all approval responses and pending executions explicit without implying that every entry already has a tool result.",
+      "thread": [
+        {
+          "body": "Validation: `pnpm test --run packages/effect/test/ai/LanguageModel.test.ts` passed all 65 tests. A plain-node scratchpad probe confirmed both request paths execute only the newly approved tool while retaining an unanswered approval request and an unmatched response. No behavior defect found; this is a naming-only nit."
+        }
+      ]
+    },
+    {
+      "id": "f2",
+      "path": "packages/effect/test/ai/LanguageModel.test.ts",
+      "line": 2217,
+      "severity": "suggestion",
+      "title": "Assert caller-visible results in the mixed-history regression test",
+      "body": "The new test verifies tool execution and the provider prompt, but discards the generated response and drains the stream. Consider also asserting that the caller receives exactly the two newly resolved tool results, and neither historical result. This would cover the history-persistence side of the same pending-versus-all distinction, especially for `streamText`, where provider prompt correctness alone does not establish that Chat can persist the results.",
+      "thread": [
+        {
+          "body": "The ad-hoc probe (`node scratchpad/pr-9143-review.ts`) exercised mixed approved/denied history in both methods, with distinct approval IDs and tool-call IDs. Both returned exactly [\"new-yes\", \"new-no\"], executed only \"new-yes\", preserved the unanswered request and unmatched response, and omitted historical results from caller output. Thus the suggested assertion passes today; adding it would retain that coverage in the regression suite. The full changed test file also passed (65/65)."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+# Standalone workspace root: janitor's root workspace does not glob `spikes/*`.
+# Every Effect package clanka loads is forced onto the #7322 snapshot commit
+# janitor pinned in EFF-1937 (`667feb7`), including clanka's own peer deps.
+blockExoticSubdeps: false
+
+overrides:
+  effect: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/ai-openai": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/platform-node-shared": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/sql-sqlite-node": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@667feb75dcf5259c4d9eafe51476487b18b8de01
+
+allowBuilds:
+  "@vscode/ripgrep": true
+  esbuild: true
+  msgpackr-extract: true
+  tree-sitter: true
+  tree-sitter-javascript: true
+  tree-sitter-typescript: true

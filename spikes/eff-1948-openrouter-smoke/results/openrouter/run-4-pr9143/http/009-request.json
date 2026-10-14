@@ -1,0 +1,643 @@
+{
+  "n": 9,
+  "url": "https://openrouter.ai/api/v1/chat/completions",
+  "method": "POST",
+  "headers": {
+    "accept": "application/json",
+    "authorization": "<redacted>",
+    "b3": "4512b7d8e9ecf9ad4bf5c98a3672fba6-56d4852834cfde3a-1",
+    "content-type": "application/json",
+    "traceparent": "00-4512b7d8e9ecf9ad4bf5c98a3672fba6-56d4852834cfde3a-01"
+  },
+  "body": {
+    "model": "openai/gpt-6.1-sol",
+    "reasoning": {
+      "effort": "medium"
+    },
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "You are a world-class software engineer: precise and efficient.\n\nYOU ONLY HAVE ONE TOOL AVAILABLE: \"execute\", to run javascript code to do your work.\n\n- Use `console.log` to print any output you need.\n- Use top level await.\n- You can add / update / remove multiple files in one go with \"applyPatch\". Prefer it over \"writeFile\" to update existing files.\n- Avoid passing scripts into the \"bash\" function, and instead write javascript.\n- Variables are not shared between executions.\n- Do not use `require`, `import`, `process`, or any other Node.js apis.\n\nWhen you have fully completed your task, call the \"taskComplete\" function with the final output.\nMake sure every detail of the task is done before calling \"taskComplete\".\n\nHere is how you would read a file and list a directory:\n\n```\nconst [files, content] = await Promise.all([\n  ls(\".\"),\n  readFile({\n    path: \"package.json\",\n    startLine: 1,\n    endLine: 10,\n  })\n])\nconsole.log(\"files:\", files)\nconsole.log(\"package.json:\", JSON.parse(content))\n```\n\nAnd then you will revieve back the console output:\n\n```\n[22:44:53.050] INFO (#47): Calling \"ls\" { directory: '.' }\n[22:44:53.054] INFO (#47): Calling \"readFile\" { path: 'package.json' }\nfiles: [ 'package.json' ]\npackage.json: {\n  \"name\": \"my-project\",\n  \"version\": \"1.0.0\"\n}\n```\n\nThese are the functions available to you:\n\n```ts\n/** Change the executor's working directory to an existing directory and return its absolute path. Relative paths resolve from the current directory without shell expansion. Await this before dependent tools. The change persists across scripts and is shared with delegates using this executor. Startup AGENTS.md, skills, and the semantic-search index root remain fixed. Navigation does not survive a session reload. */\ndeclare function changeDirectory(directory: string): Promise<string>\n\n/** Read a file and optionally filter the lines to return. Returns null if the file doesn't exist. For png/jpeg/gif/webp files the image itself is attached to your next turn and a short marker is returned instead of the bytes; line ranges are not allowed on images. */\ndeclare function readFile(options: {\n    readonly path: string;\n    readonly startLine?: number | undefined;\n    readonly endLine?: number | undefined;\n}): Promise<string | null>\n\n/** Search for a pattern in files using ripgrep */\ndeclare function rg(options: {\n    readonly pattern: string;\n    /** --glob */\n    readonly glob?: string | undefined;\n    /** Only return file paths --files-with-matches */\n    readonly filesOnly?: boolean | undefined;\n    /** The total maximum number of lines to return across all files (default: 500) */\n    readonly maxLines?: number | undefined;\n}): Promise<string>\n\n/** Find files matching a glob pattern. */\ndeclare function glob(pattern: string): Promise<readonly string[]>\n\n/** Run a bash command and return the output */\ndeclare function bash(command: {\n    readonly command: string;\n    /** Timeout in ms (default and max: 180000) */\n    readonly timeoutMs?: number | undefined;\n}): Promise<string>\n\n/** Add, update or remove multiple files with a git diff / unified diff / wrapped patch. */\ndeclare function applyPatch(patch: string): Promise<string>\n\n/** Write content to a file, creating parent directories if needed. */\ndeclare function writeFile(options: {\n    readonly path: string;\n    readonly content: string;\n}): Promise<void>\n\n/** Remove a file. */\ndeclare function removeFile(path: string): Promise<void>\n\n/** Rename or move a file, creating parent directories if needed. */\ndeclare function renameFile(options: {\n    readonly from: string;\n    readonly to: string;\n}): Promise<void>\n\n/** List the contents of a directory */\ndeclare function ls(directory: string): Promise<readonly string[]>\n\n/** Sleep for a specified number of milliseconds */\ndeclare function sleep(ms: number): Promise<void>\n\n/** Only call this when the task is fully complete and you have a final output message to send. */\ndeclare function taskComplete(output: string): Promise<void>\n\n/** Report one review finding on the pull request. `path` is a file the PR changes and `line` (optionally through `endLine`) are new-side line numbers that lie inside the PR diff hunks; anchors outside the diff are rejected. Returns the finding id, which `updateThread` takes. */\ndeclare function reportFinding(options: {\n    readonly path: string;\n    readonly line: number;\n    readonly endLine?: number;\n    readonly severity: \"blocking\" | \"suggestion\" | \"nit\" | \"question\";\n    readonly title: string;\n    readonly body: string;\n}): Promise<{\n    readonly id: string;\n}>\n\n/** Append a comment to the thread of a finding reported earlier in this review, for example a test or probe result that confirms or withdraws it. Returns the thread's comment count. */\ndeclare function updateThread(options: {\n    readonly id: string;\n    readonly body: string;\n    readonly resolve?: boolean;\n}): Promise<{\n    readonly id: string;\n    readonly comments: number;\n}>\n\n/** The global Fetch API available for making HTTP requests. */\ndeclare const fetch: typeof globalThis.fetch\n```\n\n# Project instructions\n\n**ALWAYS follow these instructions when completing tasks**:\n\n<!-- instructions start -->\nThis is the Effect TypeScript monorepo. The git base branch is `main`; use `pnpm` from the repository root.\n\n## Layout\n\n- Core library source, runtime tests, and type tests are in `packages/effect/src`, `packages/effect/test`, and\n  `packages/effect/typetest`.\n- Other package families include `packages/ai`, `packages/atom`, `packages/platform`, `packages/sql`, and\n  `packages/tools`; standalone packages also live directly under `packages`.\n- Package tests and type tests live beside source in `test` and `typetest` directories.\n- AI documentation sources are in `ai-docs/src`.\n- Changesets are in `.changeset`.\n- Migration sources (v3-to-v4) are in `migration/annotations`.\n- Inspect nearby code before editing.\n\n## Validation\n\nUse the narrowest validation that covers the change:\n\n| Change type                        | Validation                                                                         |\n| ---------------------------------- | ---------------------------------------------------------------------------------- |\n| Runtime source or test changes     | `pnpm lint-fix`, targeted `pnpm test --run <test_file.ts>`, `pnpm check`           |\n| Type-system behavior or type tests | Targeted `pnpm test-types <filename>`, plus `pnpm check` when source types changed |\n| JSDoc text/category/link changes   | `pnpm jsdocs --check`, `pnpm lint`                                                 |\n| JSDoc example changes              | `pnpm jsdocs --check`, `pnpm lint`, root `pnpm doctest --run <files>`              |\n| Docs-only changes                  | `pnpm lint-fix`; no tests unless examples or code changed                          |\n\nChoose coverage from the contract being changed. Runtime tests cover executed\nbehavior. Tstyche tests cover intended compiler behavior such as inference,\nassignability, rejection, or displayed public types. An ordinary source edit or\nexported declaration is covered by `pnpm check` unless compiler behavior is part\nof the task.\n\nNever run bare `pnpm test` or `pnpm doctest`; both start the full suite in watch mode. Always pass `--run` and the\nspecific files covering the change. CI runs the full suite.\n\nFor an ad hoc runnable probe, create `scratchpad/<name>.ts`, run it with plain `node`, and remove it when finished.\n\nReport any commands that could not be run.\n\n## Generated Files\n\nDo not edit generated output directly.\n\nSome `index.ts` sections marked with `@barrel` are generated. Do not edit those\nsections manually; update their source modules and run `pnpm codegen`.\nHand-maintained `index.ts` files and unmarked sections are not covered by this\nrule.\n\n`LLMS.md` is generated from `ai-docs/src`, and `migration/v3-to-v4.md` is\ngenerated from `migration/annotations`. Update checked-in third-party assets\nthrough their generator or documented import procedure.\n\n<!-- instructions end -->\n"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Review pull request #9143 of Effect-TS/effect: \"perf(ai): collect tool approvals once per request\".\n\nThe working directory is a checkout of the repository at the PR's squash-merge commit, so `git diff HEAD~1` is the PR diff (it is also pasted below). Dependencies are installed: `pnpm test --run <test file>` works from the repository root. Every command is limited to 3 minutes, so run targeted test files and small `node` probes; do not run `pnpm check`, `pnpm lint` or the whole suite.\n\nDo the review in this order:\n1. Read the changed code and enough of the surrounding implementation to judge it.\n2. Run the test file(s) the change touches, and at least one ad-hoc probe of the new behaviour (for example a scratchpad script run with `node`).\n3. Report each finding with `reportFinding`, anchored on a line of the diff. Report at least two findings; a question or a nit counts when there is nothing serious. When a call is rejected, read the error and fix the call.\n4. Once you have test or probe results, append them to the relevant finding's thread with `updateThread`.\n5. Finish with `taskComplete`, giving a short verdict (approve or request changes) and why.\n\nPR description:\n`generateContent` and `streamContent` called `collectToolApprovals` twice per request: once for pending approvals, and again for all approvals to strip resolved artifacts. Each pass walks the whole prompt, so the work grows with conversation length.\r\n\r\nCollect both lists in one pass and reuse them. Pending approvals are still the ones without a tool result, and the prompt sent to the provider is unchanged.\n\nCloses EFF-2124\n\nDiff:\n```diff\ndiff --git a/.changeset/quick-approvals-reuse.md b/.changeset/quick-approvals-reuse.md\nnew file mode 100644\nindex 000000000..a1c38b17c\n--- /dev/null\n+++ b/.changeset/quick-approvals-reuse.md\n@@ -0,0 +1,5 @@\n+---\n+\"effect\": patch\n+---\n+\n+Collect tool approvals once per `LanguageModel` request instead of twice.\ndiff --git a/packages/effect/src/ai/LanguageModel.ts b/packages/effect/src/ai/LanguageModel.ts\nindex 552b4a224..fb34fe8c3 100644\n--- a/packages/effect/src/ai/LanguageModel.ts\n+++ b/packages/effect/src/ai/LanguageModel.ts\n@@ -1132,10 +1132,8 @@ export const make: (params: {\n     }\n \n     // Check for pending approvals that need resolution\n-    const { approved, denied } = collectToolApprovals(\n-      providerOptions.prompt.content,\n-      { excludeResolved: true }\n-    )\n+    const { approved: allResolved, denied: allDenied, pendingApproved: approved, pendingDenied: denied } =\n+      collectToolApprovals(providerOptions.prompt.content)\n     const hasPendingApprovals = approved.length > 0 || denied.length > 0\n \n     // If there is no toolkit, the generated content can be returned immediately\n@@ -1245,17 +1243,12 @@ export const make: (params: {\n \n     // Strip all resolved approval artifacts (both current and from previous\n     // rounds) in a single pass before sending to the provider.\n-    {\n-      const { approved: allResolved, denied: allDenied } = collectToolApprovals(\n-        providerOptions.prompt.content\n+    if (allResolved.length > 0 || allDenied.length > 0) {\n+      providerOptions.prompt = stripResolvedApprovals(\n+        providerOptions.prompt,\n+        allResolved,\n+        allDenied\n       )\n-      if (allResolved.length > 0 || allDenied.length > 0) {\n-        providerOptions.prompt = stripResolvedApprovals(\n-          providerOptions.prompt,\n-          allResolved,\n-          allDenied\n-        )\n-      }\n     }\n \n     const tools = typeof toolChoice === \"object\" && \"oneOf\" in toolChoice\n@@ -1407,9 +1400,9 @@ export const make: (params: {\n     }\n \n     // Check for pending approvals that need resolution\n-    const { approved: pendingApproved, denied: pendingDenied } = collectToolApprovals(providerOptions.prompt.content, {\n-      excludeResolved: true\n-    })\n+    const { approved: allResolved, denied: allDenied, pendingApproved, pendingDenied } = collectToolApprovals(\n+      providerOptions.prompt.content\n+    )\n     const hasPendingApprovals = pendingApproved.length > 0 || pendingDenied.length > 0\n \n     // If there is no toolkit, return immediately\n@@ -1564,9 +1557,6 @@ export const make: (params: {\n \n     // Strip all resolved approval artifacts (both current and from previous\n     // rounds) in a single pass before sending to the provider.\n-    const { approved: allResolved, denied: allDenied } = collectToolApprovals(\n-      providerOptions.prompt.content\n-    )\n     if (allResolved.length > 0 || allDenied.length > 0) {\n       providerOptions.prompt = stripResolvedApprovals(\n         providerOptions.prompt,\n@@ -1638,8 +1628,7 @@ export const make: (params: {\n     const deferredFinishParts: Array<Response.StreamPart<Tools>> = []\n \n     // Emit pre-resolved tool results so Chat.streamText persists them to\n-    // history. This ensures collectToolApprovals({ excludeResolved }) can\n-    // find the corresponding tool-results on future rounds.\n+    // history, where collectToolApprovals finds them on future rounds.\n     if (preResolvedStreamParts.length > 0) {\n       yield* Queue.offerAll(queue, preResolvedStreamParts)\n     }\n@@ -2072,16 +2061,13 @@ interface ApprovalResult {\n   readonly toolCall?: Prompt.ToolCallPart | undefined\n }\n \n-interface CollectToolApprovalsOptions {\n-  readonly excludeResolved?: boolean\n-}\n-\n const collectToolApprovals = (\n-  messages: ReadonlyArray<Prompt.Message>,\n-  options?: CollectToolApprovalsOptions\n+  messages: ReadonlyArray<Prompt.Message>\n ): {\n   readonly approved: Array<ApprovalResult>\n   readonly denied: Array<ApprovalResult>\n+  readonly pendingApproved: Array<ApprovalResult>\n+  readonly pendingDenied: Array<ApprovalResult>\n } => {\n   const requests = new Map<\n     string,\n@@ -2124,15 +2110,12 @@ const collectToolApprovals = (\n \n   const approved: Array<ApprovalResult> = []\n   const denied: Array<ApprovalResult> = []\n+  const pendingApproved: Array<ApprovalResult> = []\n+  const pendingDenied: Array<ApprovalResult> = []\n \n   for (const response of responses) {\n     const request = requests.get(response.approvalId)\n     if (Predicate.isNotUndefined(request)) {\n-      // Skip if already resolved\n-      if (options?.excludeResolved && toolResultIds.has(request.toolCallId)) {\n-        continue\n-      }\n-\n       const result: ApprovalResult = {\n         ...response,\n         toolCallId: request.toolCallId,\n@@ -2141,13 +2124,15 @@ const collectToolApprovals = (\n \n       if (response.approved) {\n         approved.push(result)\n+        if (!toolResultIds.has(request.toolCallId)) pendingApproved.push(result)\n       } else {\n         denied.push(result)\n+        if (!toolResultIds.has(request.toolCallId)) pendingDenied.push(result)\n       }\n     }\n   }\n \n-  return { approved, denied }\n+  return { approved, denied, pendingApproved, pendingDenied }\n }\n \n /**\ndiff --git a/packages/effect/test/ai/LanguageModel.test.ts b/packages/effect/test/ai/LanguageModel.test.ts\nindex 365b3c572..003010f7b 100644\n--- a/packages/effect/test/ai/LanguageModel.test.ts\n+++ b/packages/effect/test/ai/LanguageModel.test.ts\n@@ -2167,6 +2167,107 @@ describe(\"LanguageModel\", () => {\n   })\n \n   describe(\"tool approval\", () => {\n+    for (const method of [\"generateText\", \"streamText\"] as const) {\n+      it.effect(`resolves only pending approvals in mixed approval history (${method})`, () =>\n+        Effect.gen(function*() {\n+          const executed: Array<string> = []\n+          let capturedPrompt: LanguageModel.ProviderOptions[\"prompt\"] | undefined\n+          const prompt: Array<Prompt.Message> = []\n+\n+          for (\n+            const [id, approved, resolved] of [\n+              [\"previous-approved\", true, true],\n+              [\"previous-denied\", false, true],\n+              [\"pending-approved\", true, false],\n+              [\"pending-denied\", false, false]\n+            ] as const\n+          ) {\n+            prompt.push(\n+              Prompt.assistantMessage({\n+                content: [\n+                  Prompt.toolCallPart({\n+                    id,\n+                    name: \"ApprovalTool\",\n+                    params: { action: id },\n+                    providerExecuted: false\n+                  }),\n+                  Prompt.toolApprovalRequestPart({ approvalId: id, toolCallId: id })\n+                ]\n+              }),\n+              Prompt.toolMessage({\n+                content: [\n+                  Prompt.toolApprovalResponsePart({ approvalId: id, approved, reason: \"User declined\" }),\n+                  ...(resolved\n+                    ? [Prompt.toolResultPart({\n+                      id,\n+                      name: \"ApprovalTool\",\n+                      result: { result: id },\n+                      isFailure: !approved,\n+                      providerExecuted: false\n+                    })]\n+                    : [])\n+                ]\n+              })\n+            )\n+          }\n+\n+          const options = { prompt, toolkit: ApprovalToolkit }\n+          yield* (method === \"generateText\"\n+            ? LanguageModel.generateText(options)\n+            : LanguageModel.streamText(options).pipe(Stream.runDrain)).pipe(\n+              TestUtils.withLanguageModel({\n+                generateText: (opts) => {\n+                  capturedPrompt = opts.prompt\n+                  return Effect.succeed([finishPart])\n+                },\n+                streamText: (opts) => {\n+                  capturedPrompt = opts.prompt\n+                  return [finishPart]\n+                }\n+              }),\n+              Effect.provide(ApprovalToolkit.toLayer({\n+                ApprovalTool: ({ action }) =>\n+                  Effect.sync(() => {\n+                    executed.push(action)\n+                    return { result: \"approved-result\" }\n+                  }),\n+                DynamicApprovalTool: () => Effect.succeed({ result: \"dynamic-result\" })\n+              }))\n+            )\n+\n+          deepStrictEqual(executed, [\"pending-approved\"])\n+          assertDefined(capturedPrompt)\n+          const parts = capturedPrompt.content.flatMap<Prompt.AssistantMessagePart | Prompt.ToolMessagePart>((\n+            message\n+          ) => message.role === \"assistant\" || message.role === \"tool\" ? message.content : [])\n+          deepStrictEqual(parts.filter((part) => part.type === \"tool-approval-request\"), [])\n+          deepStrictEqual(parts.filter((part) => part.type === \"tool-approval-response\"), [])\n+          deepStrictEqual(parts.filter((part) => part.type === \"tool-call\").map((part) => part.id), [\n+            \"previous-approved\",\n+            \"previous-denied\",\n+            \"pending-approved\",\n+            \"pending-denied\"\n+          ])\n+          deepStrictEqual(\n+            parts.filter((part) => part.type === \"tool-result\").map((part) => ({\n+              id: part.id,\n+              result: part.result,\n+              isFailure: part.isFailure\n+            })),\n+            [\n+              { id: \"previous-approved\", result: { result: \"previous-approved\" }, isFailure: false },\n+              { id: \"previous-denied\", result: { result: \"previous-denied\" }, isFailure: true },\n+              { id: \"pending-approved\", result: { result: \"approved-result\" }, isFailure: false },\n+              {\n+                id: \"pending-denied\",\n+                result: { type: \"execution-denied\", reason: \"User declined\" },\n+                isFailure: true\n+              }\n+            ]\n+          )\n+        }))\n+    }\n+\n     it.effect(\"emits tool-approval-request when tool has needsApproval: true\", () =>\n       Effect.gen(function*() {\n         const parts: Array<Response.StreamPart<Toolkit.Tools<typeof ApprovalToolkit>, \"opaque\">> = []\n\n```\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": null,
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_7Y7vIgnePpUy9FXZtE9pXsRT",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await bash({command:'git status --short'})); console.log(await readFile({path:'packages/effect/src/ai/LanguageModel.ts',startLine:1050,endLine:1320}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_7Y7vIgnePpUy9FXZtE9pXsRT",
+        "content": "[20:42:43.478] INFO (#46): Calling \"bash\" { command: 'git status --short', timeoutMs: 180000 }\n\n[20:42:43.562] INFO (#51): Calling \"readFile\" {\n  path: 'packages/effect/src/ai/LanguageModel.ts',\n  startLine: 1050,\n  endLine: 1320\n}\n      const stream = yield* streamContent(options, providerOptions)\n\n      // Return the stream immediately if there is no span transformer\n      const spanTransformer = yield* getSpanTransformer\n      if (Option.isNone(spanTransformer)) {\n        return stream\n      }\n\n      // Otherwise aggregate generated content and apply the span transformer\n      // when the stream is finished\n      const content: Array<Response.StreamPart<Tools>> = []\n      return stream.pipe(\n        Stream.mapArray((parts) => {\n          content.push(...parts)\n          return parts\n        }),\n        Stream.ensuring(\n          Effect.sync(() => {\n            spanTransformer.value({\n              ...providerOptions,\n              response: content as any\n            })\n          })\n        )\n      )\n    },\n    Stream.unwrap,\n    Stream.mapError((error) =>\n      Schema.isSchemaError(error)\n        ? AiError.make({\n          module: \"LanguageModel\",\n          method: \"streamText\",\n          reason: AiError.InvalidOutputError.fromSchemaError(error)\n        })\n        : error\n    ),\n    Stream.provideService(IdGenerator, idGenerator)\n  ) as any\n\n  const generateContent: <\n    Options extends NoExcessProperties<GenerateTextOptions<any>, Options>,\n    Tools extends Record<string, Tool.Any> = {}\n  >(\n    options: Options & GenerateTextOptions<Tools>,\n    providerOptions: Mutable<ProviderOptions>\n  ) => Effect.Effect<\n    Array<Response.Part<Tools>>,\n    AiError.AiError | Schema.SchemaError,\n    IdGenerator\n  > = Effect.fnUntraced(function*<\n    Tools extends Record<string, Tool.Any>,\n    Options extends NoExcessProperties<GenerateTextOptions<Tools>, Options>\n  >(\n    options: Options & GenerateTextOptions<Tools>,\n    providerOptions: Mutable<ProviderOptions>\n  ) {\n    const tracker = Option.getOrUndefined(yield* Effect.serviceOption(ResponseIdTracker.ResponseIdTracker))\n    const toolChoice = options.toolChoice ?? \"auto\"\n    const concurrency = options.concurrency ?? \"unbounded\"\n    annotateRequestOptions(providerOptions, toolChoice, concurrency)\n    const deferToolCallValidation = isToolCallValidationDeferred(options)\n    if (deferToolCallValidation) {\n      providerOptions.toolCallValidation = \"deferred\"\n    }\n\n    const generateWithNonIncrementalFallback = () => {\n      const requestOptions: ProviderOptions = {\n        ...providerOptions\n      }\n      const fallbackPrompt = requestOptions.prompt\n      const fallbackOptions: ProviderOptions = {\n        ...requestOptions,\n        prompt: fallbackPrompt,\n        incrementalPrompt: undefined,\n        previousResponseId: undefined,\n        incrementalFallback: true\n      }\n      return requestOptions.incrementalPrompt\n        ? params.generateText(requestOptions).pipe(\n          Effect.catchReason(\"AiError\", \"InvalidRequestError\", (_) => params.generateText(fallbackOptions))\n        )\n        : params.generateText(requestOptions)\n    }\n\n    // Check for pending approvals that need resolution\n    const { approved: allResolved, denied: allDenied, pendingApproved: approved, pendingDenied: denied } =\n      collectToolApprovals(providerOptions.prompt.content)\n    const hasPendingApprovals = approved.length > 0 || denied.length > 0\n\n    // If there is no toolkit, the generated content can be returned immediately\n    if (Predicate.isUndefined(options.toolkit)) {\n      // But first check if we have pending approvals that require a toolkit\n      if (hasPendingApprovals) {\n        return yield* AiError.make({\n          module: \"LanguageModel\",\n          method: \"generateText\",\n          reason: new AiError.ToolkitRequiredError({\n            pendingApprovals: [...approved, ...denied]\n              .map((result) => result.toolCall?.name)\n              .filter(Predicate.isNotUndefined)\n          })\n        })\n      }\n      if (tracker) {\n        const prepared = tracker.prepareUnsafe(providerOptions.prompt)\n        if (Option.isSome(prepared)) {\n          providerOptions.previousResponseId = prepared.value.previousResponseId\n          providerOptions.incrementalPrompt = prepared.value.prompt\n        }\n      }\n      const ResponseSchema = Schema.mutable(\n        Schema.Array(withUndeclaredToolCalls(Response.Part(Toolkit.empty), deferToolCallValidation))\n      )\n      const rawContent = yield* generateWithNonIncrementalFallback()\n      const content = yield* Schema.decodeEffect(ResponseSchema)(rawContent)\n      if (tracker) {\n        const responseMetadata = content.find((part) => part.type === \"response-metadata\")\n        if (Predicate.isNotUndefined(responseMetadata) && Predicate.isNotUndefined(responseMetadata.id)) {\n          tracker.markParts(providerOptions.prompt.content, responseMetadata.id)\n        }\n      }\n      return content as Array<Response.Part<Tools>>\n    }\n\n    // If there is a toolkit resolve and apply it to the provider options\n    const toolkit = yield* resolveToolkit<Tools, any, any>(options.toolkit)\n\n    // If the resolved toolkit is empty, return the generated content immediately\n    if (Object.values(toolkit.tools).length === 0) {\n      // But first check if we have pending approvals that require a toolkit\n      if (hasPendingApprovals) {\n        return yield* AiError.make({\n          module: \"LanguageModel\",\n          method: \"generateText\",\n          reason: new AiError.ToolkitRequiredError({\n            pendingApprovals: [...approved, ...denied]\n              .map((result) => result.toolCall?.name)\n              .filter(Predicate.isNotUndefined)\n          })\n        })\n      }\n      if (tracker) {\n        const prepared = tracker.prepareUnsafe(providerOptions.prompt)\n        if (Option.isSome(prepared)) {\n          providerOptions.previousResponseId = prepared.value.previousResponseId\n          providerOptions.incrementalPrompt = prepared.value.prompt\n        }\n      }\n      const ResponseSchema = Schema.mutable(\n        Schema.Array(withUndeclaredToolCalls(Response.Part(Toolkit.empty), deferToolCallValidation))\n      )\n      const rawContent = yield* generateWithNonIncrementalFallback()\n      const content = yield* Schema.decodeEffect(ResponseSchema)(rawContent)\n      if (tracker) {\n        const responseMetadata = content.find((part) => part.type === \"response-metadata\")\n        if (Predicate.isNotUndefined(responseMetadata) && Predicate.isNotUndefined(responseMetadata.id)) {\n          tracker.markParts(providerOptions.prompt.content, responseMetadata.id)\n        }\n      }\n      return content as Array<Response.Part<Tools>>\n    }\n\n    // Pre-resolve pending tool approvals before calling the LLM\n    let preResolvedResults: Array<Response.ToolResultPart<string, unknown, unknown>> = []\n    if (hasPendingApprovals) {\n      for (const approval of approved) {\n        if (approval.toolCall && !toolkit.tools[approval.toolCall.name]) {\n          return yield* AiError.make({\n            module: \"LanguageModel\",\n            method: \"generateText\",\n            reason: new AiError.ToolNotFoundError({\n              toolName: approval.toolCall.name,\n              availableTools: Object.keys(toolkit.tools)\n            })\n          })\n        }\n      }\n\n      const approvedResults = yield* executeApprovedToolCalls(\n        approved,\n        toolkit,\n        concurrency\n      )\n      const deniedResults = createDenialResults(denied)\n      preResolvedResults = [...approvedResults, ...deniedResults]\n\n      if (preResolvedResults.length > 0) {\n        providerOptions.prompt = Prompt.fromMessages([\n          ...providerOptions.prompt.content,\n          ...Prompt.fromResponseParts(preResolvedResults).content\n        ])\n      }\n    }\n\n    // Strip all resolved approval artifacts (both current and from previous\n    // rounds) in a single pass before sending to the provider.\n    if (allResolved.length > 0 || allDenied.length > 0) {\n      providerOptions.prompt = stripResolvedApprovals(\n        providerOptions.prompt,\n        allResolved,\n        allDenied\n      )\n    }\n\n    const tools = typeof toolChoice === \"object\" && \"oneOf\" in toolChoice\n      ? Object.values(toolkit.tools).filter((tool) => toolChoice.oneOf.includes(tool.name))\n      : Object.values(toolkit.tools)\n    providerOptions.tools = tools\n    providerOptions.toolChoice = toolChoice\n\n    if (tracker) {\n      const prepared = tracker.prepareUnsafe(providerOptions.prompt)\n      if (Option.isSome(prepared)) {\n        providerOptions.previousResponseId = prepared.value.previousResponseId\n        providerOptions.incrementalPrompt = prepared.value.prompt\n      }\n    }\n\n    const ResponseSchema = Schema.mutable(Schema.Array(withUndeclaredToolCalls(\n      Response.Part(\n        options.disableToolCallResolution === true && !deferToolCallValidation\n          ? makeToolkitWithEncodedParameters(toolkit)\n          : makeToolkitWithOpaqueParameters(toolkit)\n      ),\n      deferToolCallValidation\n    )))\n\n    // If tool call resolution is disabled, return the response without\n    // resolving the tool calls that were generated\n    if (options.disableToolCallResolution === true) {\n      const rawContent = yield* generateWithNonIncrementalFallback()\n      const content = yield* Schema.decodeEffect(ResponseSchema)(rawContent)\n      if (deferToolCallValidation) {\n        yield* validateProviderExecutedToolCalls(makeToolkitWithEncodedParameters(toolkit), rawContent)\n      }\n      if (tracker) {\n        const responseMetadata = content.find((part) => part.type === \"response-metadata\")\n        if (Predicate.isNotUndefined(responseMetadata) && Predicate.isNotUndefined(responseMetadata.id)) {\n          tracker.markParts(providerOptions.prompt.content, responseMetadata.id)\n        }\n      }\n      return [...preResolvedResults, ...content] as Array<Response.Part<Tools>>\n    }\n\n    const rawContent = yield* generateWithNonIncrementalFallback()\n\n    // Validate before running tool handlers.\n    const content = yield* Schema.decodeEffect(ResponseSchema)(rawContent)\n    yield* validateProviderExecutedToolCalls(toolkit, rawContent)\n\n    // Resolve the generated tool calls. When the finish reason indicates an\n    // incomplete response, handlers do not run and every executable tool call\n    // gets a synthesized failure result instead.\n    const incompleteFinishReason = findIncompleteFinishReason(rawContent)\n    const toolResults = incompleteFinishReason !== undefined\n      ? rawContent\n        .filter((part): part is Response.ToolCallPartEncoded =>\n          part.type === \"tool-call\" &&\n          part.providerExecuted !== true &&\n          toolkit.tools[part.name] !== undefined\n        )\n        .map((part) => makeInterruptedToolResult(part, incompleteFinishReason) as ToolResolutionResult<Tools>)\n      : yield* resolveToolCalls(\n        rawContent,\n        toolkit,\n        providerOptions.prompt.content,\n        concurrency\n      ).pipe(\n        Stream.filter(\n          (result) =>\n            result.type === \"tool-approval-request\" ||\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": null,
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_JoYP3fFzLVgDGVuEhtOa3G8s",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await readFile({path:'packages/effect/src/ai/LanguageModel.ts',startLine:1340,endLine:1680})); console.log(await readFile({path:'packages/effect/src/ai/LanguageModel.ts',startLine:2030,endLine:2330})); console.log(await readFile({path:'packages/effect/test/ai/LanguageModel.test.ts',startLine:1,endLine:150})); console.log(await rg({pattern:'approval|Approval',glob:'packages/effect/test/ai/LanguageModel.test.ts',maxLines:130}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_JoYP3fFzLVgDGVuEhtOa3G8s",
+        "content": "[20:42:47.142] INFO (#70): Calling \"readFile\" {\n  path: 'packages/effect/src/ai/LanguageModel.ts',\n  startLine: 1340,\n  endLine: 1680\n}\n  >(\n    options: Options & GenerateTextOptions<Tools>,\n    providerOptions: Mutable<ProviderOptions>\n  ) => Effect.Effect<\n    Stream.Stream<\n      Response.StreamPart<Tools>,\n      AiError.AiError | Schema.SchemaError,\n      IdGenerator\n    >,\n    Options extends { readonly toolkit: infer ToolkitValue } ?\n      ExtractToolkitResolutionError<Exclude<ToolkitValue, undefined>>\n      : never,\n    Options extends { readonly toolkit: infer ToolkitValue } ?\n      ExtractToolkitResolutionServices<Exclude<ToolkitValue, undefined>>\n      : never\n  > = Effect.fnUntraced(function*<\n    Tools extends Record<string, Tool.Any>,\n    Options extends NoExcessProperties<GenerateTextOptions<Tools>, Options>\n  >(\n    options: Options & GenerateTextOptions<Tools>,\n    providerOptions: Mutable<ProviderOptions>\n  ) {\n    const tracker = Option.getOrUndefined(yield* Effect.serviceOption(ResponseIdTracker.ResponseIdTracker))\n    const toolChoice = options.toolChoice ?? \"auto\"\n    const concurrency = options.concurrency ?? \"unbounded\"\n    annotateRequestOptions(providerOptions, toolChoice, concurrency)\n    const deferToolCallValidation = isToolCallValidationDeferred(options)\n    if (deferToolCallValidation) {\n      providerOptions.toolCallValidation = \"deferred\"\n    }\n\n    const streamWithNonIncrementalFallback = () => {\n      const requestOptions: ProviderOptions = {\n        ...providerOptions\n      }\n      const fallbackPrompt = requestOptions.prompt\n      const fallbackOptions: ProviderOptions = {\n        ...requestOptions,\n        prompt: fallbackPrompt,\n        incrementalPrompt: undefined,\n        previousResponseId: undefined,\n        incrementalFallback: true\n      }\n      // Only response parts with content count as emitted - a lone\n      // response-metadata part must not disable the full-prompt fallback.\n      let emitted = false\n      return requestOptions.incrementalPrompt\n        ? params.streamText(requestOptions).pipe(\n          Stream.tap((part) =>\n            Effect.sync(() => {\n              if (part.type !== \"response-metadata\") emitted = true\n            })\n          ),\n          Stream.catchReason(\n            \"AiError\",\n            \"InvalidRequestError\",\n            (_, error) => emitted ? Stream.fail(error) : params.streamText(fallbackOptions)\n          )\n        )\n        : params.streamText(requestOptions)\n    }\n\n    // Check for pending approvals that need resolution\n    const { approved: allResolved, denied: allDenied, pendingApproved, pendingDenied } = collectToolApprovals(\n      providerOptions.prompt.content\n    )\n    const hasPendingApprovals = pendingApproved.length > 0 || pendingDenied.length > 0\n\n    // If there is no toolkit, return immediately\n    if (Predicate.isUndefined(options.toolkit)) {\n      // But first check if we have pending approvals that require a toolkit\n      if (hasPendingApprovals) {\n        return yield* AiError.make({\n          module: \"LanguageModel\",\n          method: \"streamText\",\n          reason: new AiError.ToolkitRequiredError({\n            pendingApprovals: [...pendingApproved, ...pendingDenied]\n              .map((a) => a.toolCall?.name)\n              .filter(Predicate.isNotUndefined)\n          })\n        })\n      }\n      if (tracker) {\n        const prepared = tracker.prepareUnsafe(providerOptions.prompt)\n        if (Option.isSome(prepared)) {\n          providerOptions.previousResponseId = prepared.value.previousResponseId\n          providerOptions.incrementalPrompt = prepared.value.prompt\n        }\n      }\n      const schema = Schema.NonEmptyArray(\n        withUndeclaredToolCalls(Response.StreamPart(Toolkit.empty), deferToolCallValidation)\n      )\n      const decodeParts = Schema.decodeEffect(schema)\n      return pipe(\n        streamWithNonIncrementalFallback(),\n        Stream.mapArrayEffect((parts) =>\n          decodeParts(parts).pipe(\n            tracker ?\n              Effect.tap((decodedParts) => {\n                for (const part of decodedParts) {\n                  if (part.type === \"response-metadata\" && Predicate.isNotUndefined(part.id)) {\n                    tracker.markParts(providerOptions.prompt.content, part.id)\n                  }\n                }\n                return Effect.void\n              }) :\n              identity\n          )\n        )\n      ) as Stream.Stream<\n        Response.StreamPart<Tools>,\n        AiError.AiError | Schema.SchemaError,\n        IdGenerator\n      >\n    }\n\n    // If there is a toolkit resolve and apply it to the provider options\n    const toolkit = yield* resolveToolkit<Tools, any, any>(options.toolkit)\n\n    // If the toolkit is empty, return immediately\n    if (Object.values(toolkit.tools).length === 0) {\n      // But first check if we have pending approvals that require a toolkit\n      if (hasPendingApprovals) {\n        return yield* AiError.make({\n          module: \"LanguageModel\",\n          method: \"streamText\",\n          reason: new AiError.ToolkitRequiredError({\n            pendingApprovals: [...pendingApproved, ...pendingDenied]\n              .map((a) => a.toolCall?.name)\n              .filter(Predicate.isNotUndefined)\n          })\n        })\n      }\n      if (tracker) {\n        const prepared = tracker.prepareUnsafe(providerOptions.prompt)\n        if (Option.isSome(prepared)) {\n          providerOptions.previousResponseId = prepared.value.previousResponseId\n          providerOptions.incrementalPrompt = prepared.value.prompt\n        }\n      }\n      const schema = Schema.NonEmptyArray(\n        withUndeclaredToolCalls(Response.StreamPart(Toolkit.empty), deferToolCallValidation)\n      )\n      const decodeParts = Schema.decodeEffect(schema)\n      return pipe(\n        streamWithNonIncrementalFallback(),\n        Stream.mapArrayEffect((parts) =>\n          decodeParts(parts).pipe(\n            tracker ?\n              Effect.tap((decodedParts) => {\n                for (const part of decodedParts) {\n                  if (part.type === \"response-metadata\" && part.id) {\n                    tracker.markParts(providerOptions.prompt.content, part.id)\n                  }\n                }\n                return Effect.void\n              }) :\n              identity\n          )\n        )\n      ) as Stream.Stream<\n        Response.StreamPart<Tools>,\n        AiError.AiError | Schema.SchemaError,\n        IdGenerator\n      >\n    }\n\n    // Pre-resolve pending tool approvals before calling the LLM\n    let preResolvedStreamParts: Array<Response.StreamPart<Tools>> = []\n\n    if (hasPendingApprovals) {\n      for (const approval of pendingApproved) {\n        if (approval.toolCall && !toolkit.tools[approval.toolCall.name]) {\n          return yield* AiError.make({\n            module: \"LanguageModel\",\n            method: \"streamText\",\n            reason: new AiError.ToolNotFoundError({\n              toolName: approval.toolCall.name,\n              availableTools: Object.keys(toolkit.tools)\n            })\n          })\n        }\n      }\n\n      const approvedResults = yield* executeApprovedToolCalls(\n        pendingApproved,\n        toolkit,\n        concurrency\n      )\n      const deniedResults = createDenialResults(pendingDenied)\n      const preResolvedResults = [...approvedResults, ...deniedResults]\n\n      if (preResolvedResults.length > 0) {\n        providerOptions.prompt = Prompt.fromMessages([\n          ...providerOptions.prompt.content,\n          ...Prompt.fromResponseParts(preResolvedResults).content\n        ])\n      }\n\n      // Emit pre-resolved tool-results as stream parts so Chat.streamText\n      // persists them to history. This lets collectToolApprovals find them\n      // on subsequent rounds and skip the now-resolved approvals.\n      // Preserve the existing encoded result representation for streaming approvals.\n      for (const r of preResolvedResults) {\n        preResolvedStreamParts.push(\n          Response.makePart(\"tool-result\", {\n            id: r.id,\n            name: r.name,\n            providerExecuted: false,\n            preliminary: false,\n            result: r.encodedResult,\n            encodedResult: r.encodedResult,\n            isFailure: r.isFailure\n          }) as Response.StreamPart<Tools>\n        )\n      }\n    }\n\n    // Strip all resolved approval artifacts (both current and from previous\n    // rounds) in a single pass before sending to the provider.\n    if (allResolved.length > 0 || allDenied.length > 0) {\n      providerOptions.prompt = stripResolvedApprovals(\n        providerOptions.prompt,\n        allResolved,\n        allDenied\n      )\n    }\n\n    const tools = typeof toolChoice === \"object\" && \"oneOf\" in toolChoice\n      ? Object.values(toolkit.tools).filter((tool) => toolChoice.oneOf.includes(tool.name))\n      : Object.values(toolkit.tools)\n    providerOptions.tools = tools\n    providerOptions.toolChoice = toolChoice\n\n    if (tracker) {\n      const prepared = tracker.prepareUnsafe(providerOptions.prompt)\n      if (Option.isSome(prepared)) {\n        providerOptions.previousResponseId = prepared.value.previousResponseId\n        providerOptions.incrementalPrompt = prepared.value.prompt\n      }\n    }\n\n    const ResponseSchema = Schema.NonEmptyArray(withUndeclaredToolCalls(\n      Response.StreamPart(\n        options.disableToolCallResolution === true && !deferToolCallValidation\n          ? makeToolkitWithEncodedParameters(toolkit)\n          : makeToolkitWithOpaqueParameters(toolkit)\n      ),\n      deferToolCallValidation\n    ))\n    const decodeParts = Schema.decodeEffect(ResponseSchema)\n\n    // If tool call resolution is disabled, return the response without\n    // resolving the tool calls that were generated\n    if (options.disableToolCallResolution === true) {\n      const encodedToolkit = deferToolCallValidation ? makeToolkitWithEncodedParameters(toolkit) : undefined\n      return streamWithNonIncrementalFallback().pipe(\n        Stream.mapArrayEffect((parts) =>\n          decodeParts(parts).pipe(\n            encodedToolkit\n              ? Effect.tap(() => validateProviderExecutedToolCalls(encodedToolkit, parts))\n              : identity,\n            tracker ?\n              Effect.tap((decodedParts) => {\n                for (const part of decodedParts) {\n                  if (part.type === \"response-metadata\" && Predicate.isNotUndefined(part.id)) {\n                    tracker.markParts(providerOptions.prompt.content, part.id)\n                  }\n                }\n                return Effect.void\n              }) :\n              identity\n          )\n        )\n      ) as Stream.Stream<\n        Response.StreamPart<Tools>,\n        AiError.AiError | Schema.SchemaError,\n        IdGenerator\n      >\n    }\n\n    // Queue for decoded parts and tool results\n    const queue = yield* Queue.make<\n      Response.StreamPart<Tools>,\n      | AiError.AiError\n      | Cause.Done\n      | Schema.SchemaError\n    >()\n    const deferredFinishParts: Array<Response.StreamPart<Tools>> = []\n\n    // Emit pre-resolved tool results so Chat.streamText persists them to\n    // history, where collectToolApprovals finds them on future rounds.\n    if (preResolvedStreamParts.length > 0) {\n      yield* Queue.offerAll(queue, preResolvedStreamParts)\n    }\n\n    // FiberSet to track concurrent tool call handlers\n    const toolCallFibers = yield* FiberSet.make<void, AiError.AiError>()\n    const toolCallSemaphore = concurrency === \"unbounded\"\n      ? undefined\n      : yield* Semaphore.make(concurrency)\n    // Tool calls that have been observed but not yet resolved with a final\n    // result or approval request (id -> tool name)\n    const pendingToolCalls = new Map<string, string>()\n    // One-chunk lookahead buffer: a tool call's handler only starts once the\n    // stream has moved past the call (the next chunk arrives, or the stream\n    // ends with a complete finish). Providers emit a truncating finish\n    // back-to-back with the last tool call, so this window is what lets an\n    // incomplete finish prevent handlers from starting at all.\n    const bufferedToolCalls: Array<Response.ToolCallPartEncoded> = []\n\n    // Helper function to handle tool calls with approval logic\n    const handleToolCall = Effect.fnUntraced(function*(part: Response.ToolCallPartEncoded) {\n      const tool = toolkit.tools[part.name]\n      if (!tool) return\n\n      const needsApproval = yield* isApprovalNeeded(\n        tool,\n        part,\n        providerOptions.prompt.content\n      )\n\n      if (needsApproval) {\n        const idGen = yield* IdGenerator\n        const approvalId = yield* idGen.generateId()\n        const approvalPart = Response.makePart(\"tool-approval-request\", {\n          approvalId,\n          toolCallId: part.id\n        }) as Response.StreamPart<Tools>\n        Queue.offerUnsafe(queue, approvalPart)\n        pendingToolCalls.delete(part.id)\n        return\n      }\n\n      yield* toolkit.handle(part.name, part.params as any, part.id).pipe(\n        Stream.unwrap,\n        Stream.runForEach((result) => {\n          const toolResultPart = Response.makePart(\"tool-result\", {\n            id: part.id,\n            name: part.name,\n            providerExecuted: false,\n[20:42:47.150] INFO (#71): Calling \"readFile\" {\n  path: 'packages/effect/src/ai/LanguageModel.ts',\n  startLine: 2030,\n  endLine: 2330\n}\n  // Toolkit unions: recover distributive `ExtractTools<Options>` inference for `toolkitA | toolkitB` call sites.\n  <\n    Options extends {\n      readonly toolkit: ToolkitOption<any>\n    } & NoExcessProperties<GenerateTextOptions<any>, Options>\n  >(\n    options: Options & GenerateTextOptions<ExtractTools<Options>> & { readonly toolkit: Options[\"toolkit\"] }\n  ): Stream.Stream<\n    Response.StreamPart<ExtractTools<Options>, ExtractToolParametersMode<Options>>,\n    ExtractError<Options>,\n    ExtractServices<Options> | LanguageModel\n  >\n} = (options: GenerateTextOptions<any>): Stream.Stream<\n  Response.StreamPart<{}>,\n  AiError.AiError,\n  LanguageModel\n> =>\n  Stream.unwrap(Effect.map(\n    Effect.service(LanguageModel),\n    (model) => model.streamText(options as any)\n  )) as any\n\n// =============================================================================\n// Tool Approval Helpers\n// =============================================================================\n\ninterface ApprovalResult {\n  readonly approvalId: string\n  readonly toolCallId: string\n  readonly approved: boolean\n  readonly reason?: string | undefined\n  readonly toolCall?: Prompt.ToolCallPart | undefined\n}\n\nconst collectToolApprovals = (\n  messages: ReadonlyArray<Prompt.Message>\n): {\n  readonly approved: Array<ApprovalResult>\n  readonly denied: Array<ApprovalResult>\n  readonly pendingApproved: Array<ApprovalResult>\n  readonly pendingDenied: Array<ApprovalResult>\n} => {\n  const requests = new Map<\n    string,\n    Pick<ApprovalResult, \"approvalId\" | \"toolCallId\">\n  >()\n  const responses: Array<Omit<ApprovalResult, \"toolCallId\" | \"toolCall\">> = []\n  const toolCallsById = new Map<string, Prompt.ToolCallPart>()\n  const toolResultIds = new Set<string>()\n\n  // Collect all tool approval requests, responses, tool calls, and tool results\n  for (const message of messages) {\n    if (message.role === \"assistant\") {\n      for (const part of message.content) {\n        if (part.type === \"tool-approval-request\") {\n          requests.set(part.approvalId, {\n            approvalId: part.approvalId,\n            toolCallId: part.toolCallId\n          })\n        }\n        if (part.type === \"tool-call\") {\n          toolCallsById.set(part.id, part)\n        }\n      }\n    }\n    if (message.role === \"tool\") {\n      for (const part of message.content) {\n        if (part.type === \"tool-approval-response\") {\n          responses.push({\n            approvalId: part.approvalId,\n            approved: part.approved,\n            reason: part.reason\n          })\n        }\n        if (part.type === \"tool-result\") {\n          toolResultIds.add(part.id)\n        }\n      }\n    }\n  }\n\n  const approved: Array<ApprovalResult> = []\n  co\n\n[... output capped: 4578 of 36578 chars omitted from the middle. Do not re-run this as is. Narrow the read instead: use readFile with startLine/endLine, search for what you need, or print smaller logs ...]\n\nm.filter((result) => result.preliminary === false),\n      Stream.run(Sink.last()),\n      Effect.flatMap(\n        Option.match({\n          onNone: () => Effect.die(\"Tool handler did not produce a final result\"),\n          onSome: Effect.succeed\n        })\n      )\n    )\n\n    return Response.makePart(\"tool-result\", {\n      id: approval.toolCallId,\n      name: toolCall.name,\n      result: terminalResult.result,\n      encodedResult: terminalResult.encodedResult,\n      isFailure: terminalResult.isFailure,\n      preliminary: terminalResult.preliminary,\n      providerExecuted: false\n    })\n  })\n\n  return Effect.forEach(approvals, executeTool, {\n    concurrency\n  })\n}\n\nconst createDenialResults = (\n  denials: ReadonlyArray<ApprovalResult>\n): ReadonlyArray<Response.ToolResultPart<string, unknown, unknown>> => {\n  const results: Array<Response.ToolResultPart<string, unknown, unknown>> = []\n  for (const denial of denials) {\n    if (Predicate.isNotUndefined(denial.toolCall)) {\n      results.push(\n        Response.makePart(\"tool-result\", {\n          id: denial.toolCallId,\n          name: denial.toolCall.name,\n          isFailure: true,\n          result: { type: \"execution-denied\", reason: denial.reason },\n          encodedResult: { type: \"execution-denied\", reason: denial.reason },\n          preliminary: false,\n          providerExecuted: false\n        })\n      )\n    }\n  }\n  return results\n}\n\n// =============================================================================\n// Tool Call Resolution\n// =============================================================================\n\n// Finish reasons that indicate the provider completed the response. Anything\n// else (including \"unknown\", \"other\", and future reasons) fails safe and\n// prevents tool handlers from running.\nconst completeFinishReasons: ReadonlyArray<Response.FinishReason> = [\"stop\", \"tool-calls\", \"pause\"]\n\nconst findIncompleteFinishReason = (\n  content: ReadonlyArray<{ readonly type: string; readonly reason?: unknown }>\n): string | undefined => {\n  for (const part of content) {\n    if (\n      part.type === \"finish\" &&\n      !completeFinishReasons.includes(part.reason as Response.FinishReason)\n    ) {\n      return typeof part.reason === \"string\" ? part.reason : \"unknown\"\n    }\n  }\n  return undefined\n}\n\n// Synthesized failure result for a tool call whose handler was interrupted or\n// never started because the response finished with an incomplete reason. This\n// keeps the tool call resolved so the conversation history stays well-formed\n// for subsequent provider requests.\n[20:42:47.156] INFO (#72): Calling \"readFile\" {\n  path: 'packages/effect/test/ai/LanguageModel.test.ts',\n  startLine: 1,\n  endLine: 150\n}\nimport { describe, it } from \"@effect/vitest\"\nimport { assertDefined, assertTrue, deepStrictEqual, strictEqual } from \"@effect/vitest/utils\"\nimport { type Cause, Effect, Fiber, Latch, Option, Queue, Ref, Schema, Stream } from \"effect\"\nimport { AiError, LanguageModel, Prompt, Response, ResponseIdTracker, Tool, Toolkit } from \"effect/ai\"\nimport { TestClock } from \"effect/testing\"\nimport * as TestUtils from \"./utils.ts\"\n\nconst MyTool = Tool.make(\"MyTool\", {\n  parameters: Schema.Struct({ testParam: Schema.String }),\n  success: Schema.Struct({ testSuccess: Schema.String })\n})\n\nconst MyToolkit = Toolkit.make(MyTool)\n\nconst MyToolkitLayer = MyToolkit.toLayer({\n  MyTool: () =>\n    Effect.succeed({ testSuccess: \"test-success\" }).pipe(\n      Effect.delay(\"10 seconds\")\n    )\n})\n\nconst TransformTool = Tool.make(\"TransformTool\", {\n  parameters: Schema.FiniteFromString,\n  success: Schema.Finite\n})\n\nconst TransformToolkit = Toolkit.make(TransformTool)\n\nconst TransformToolkitLayer = TransformToolkit.toLayer({\n  TransformTool: (value) => Effect.succeed(value * 2)\n})\n\nconst ReturnModeTool = Tool.make(\"ReturnModeTool\", {\n  failureMode: \"return\",\n  parameters: Schema.Struct({ testParam: Schema.String }),\n  success: Schema.Struct({ testSuccess: Schema.String }),\n  failure: Schema.Struct({ testFailure: Schema.String })\n})\n\nconst ReturnModeToolkit = Toolkit.make(ReturnModeTool)\n\nconst ApprovalTool = Tool.make(\"ApprovalTool\", {\n  parameters: Schema.Struct({ action: Schema.String }),\n  success: Schema.Struct({ result: Schema.String }),\n  needsApproval: true\n})\n\nconst DynamicApprovalTool = Tool.make(\"DynamicApprovalTool\", {\n  parameters: Schema.Struct({ dangerous: Schema.Boolean }),\n  success: Schema.Struct({ result: Schema.String }),\n  needsApproval: (params) => params.dangerous\n})\n\nconst ApprovalToolkit = Toolkit.make(ApprovalTool, DynamicApprovalTool)\n\nconst ApprovalToolkitLayer = ApprovalToolkit.toLayer({\n  ApprovalTool: () => Effect.succeed({ result: \"approved-result\" }),\n  DynamicApprovalTool: () => Effect.succeed({ result: \"dynamic-result\" })\n})\n\ndescribe(\"LanguageModel\", () => {\n  const finishPart: Response.FinishPartEncoded = {\n    type: \"finish\",\n    reason: \"stop\",\n    usage: {\n      inputTokens: { uncached: 5, total: 5, cacheRead: undefined, cacheWrite: undefined },\n      outputTokens: { total: 5, text: undefined, reasoning: undefined }\n    },\n    response: undefined\n  }\n\n  describe(\"generateText\", () => {\n    it.effect(\"records resolved request options on a client span\", () =>\n      LanguageModel.generateText({ prompt: \"hi\" }).pipe(\n        TestUtils.withLanguageModel({\n          generateText: ({ span }) => {\n            strictEqual(span.kind, \"client\")\n            strictEqual(span.attributes.get(\"gen_ai.output.type\"), \"text\")\n            strictEqual(span.attributes.get(\"effect.ai.tool_choice\"), \"auto\")\n            strictEqual(span.attributes.get(\"effect.ai.concurrency\"), \"unbounded\")\n            return []\n          }\n        })\n      ))\n\n    it.effect(\"JSON-encodes object tool choices\", () =>\n      LanguageModel.generateText({\n        prompt: \"hi\",\n        toolkit: MyToolkit,\n        toolChoice: { oneOf: [\"MyTool\"] }\n      }).pipe(\n        TestUtils.withLanguageModel({\n          generateText: ({ span }) => {\n            strictEqual(span.attributes.get(\"effect.ai.tool_choice\"), JSON.stringify({ oneOf: [\"MyTool\"] }))\n            return []\n          }\n        }),\n        Effect.provide(MyToolkitLayer)\n      ))\n\n    it.effect(\"does not resolve tool calls after an incomplete finish\", () =>\n      Effect.gen(function*() {\n        const calls = yield* Ref.make(0)\n        const handlers = MyToolkit.toLayer({\n          MyTool: () =>\n            Ref.update(calls, (n) => n + 1).pipe(\n              Effect.as({ testSuccess: \"test-success\" })\n            )\n        })\n\n        for (const reason of [\"length\", \"content-filter\", \"error\", \"unknown\", \"other\"] as const) {\n          const response = yield* LanguageModel.generateText({\n            prompt: [],\n            toolkit: MyToolkit\n          }).pipe(\n            TestUtils.withLanguageModel({\n              generateText: [\n                {\n                  type: \"tool-call\",\n                  id: `tool-${reason}`,\n                  name: \"MyTool\",\n                  params: { testParam: \"test-param\" }\n                },\n                { ...finishPart, reason }\n              ]\n            }),\n            Effect.provide(handlers)\n          )\n\n          strictEqual(response.finishReason, reason)\n          strictEqual(response.toolCalls.length, 1)\n          strictEqual(response.toolResults.length, 1)\n\n          const toolResult = response.toolResults[0]!\n          strictEqual(toolResult.isFailure, true)\n          deepStrictEqual<unknown>(toolResult.result, {\n            type: \"execution-interrupted\",\n            reason: `Tool call execution was interrupted because the response finished with reason \"${reason}\"`\n          })\n        }\n\n        strictEqual(yield* Ref.get(calls), 0)\n      }))\n\n    it.effect(\"validates the complete response before resolving tool calls\", () =>\n      Effect.gen(function*() {\n        const calls = yield* Ref.make(0)\n        const handlers = MyToolkit.toLayer({\n          MyTool: () =>\n            Ref.update(calls, (n) => n + 1).pipe(\n[20:42:47.158] INFO (#73): Calling \"rg\" {\n  pattern: 'approval|Approval',\n  glob: 'packages/effect/test/ai/LanguageModel.test.ts',\n  maxLines: 130\n}\npackages/effect/test/ai/LanguageModel.test.ts\n42:const ApprovalTool = Tool.make(\"ApprovalTool\", {\n45:  needsApproval: true\n48:const DynamicApprovalTool = Tool.make(\"DynamicApprovalTool\", {\n51:  needsApproval: (params) => params.dangerous\n54:const ApprovalToolkit = Toolkit.make(ApprovalTool, DynamicApprovalTool)\n56:const ApprovalToolkitLayer = ApprovalToolkit.toLayer({\n57:  ApprovalTool: () => Effect.succeed({ result: \"approved-result\" }),\n58:  DynamicApprovalTool: () => Effect.succeed({ result: \"dynamic-result\" })\n660:    it.effect(\"does not synthesize results for tool calls awaiting approval on an incomplete finish\", () =>\n662:        const parts: Array<Response.StreamPart<Toolkit.Tools<typeof ApprovalToolkit>, \"opaque\">> = []\n664:        const approvalObserved = yield* Latch.make()\n669:          toolkit: ApprovalToolkit\n678:                  : part.type === \"tool-approval-request\"\n679:                  ? approvalObserved.open\n687:          Effect.provide(ApprovalToolkitLayer),\n693:          id: \"tool-awaiting-approval\",\n694:          name: \"ApprovalTool\",\n699:        yield* approvalObserved.await\n705:        // The approval request already resolves the call for this turn\n708:          [\"tool-call\", \"text-delta\", \"tool-approval-request\", \"finish\"]\n1264:    it.effect(\"bounds needsApproval evaluation with the tool handler concurrency\", () =>\n1271:        const tool = Tool.make(\"ApprovalConcurrencyTool\", {\n1274:          needsApproval: () =>\n1285:          ApprovalConcurrencyTool: () => Effect.succeed({ output: \"done\" })\n1299:                name: \"ApprovalConcurrencyTool\",\n1305:                name: \"ApprovalConcurrencyTool\",\n1763:    it.effect(\"calls tracker.prepareUnsafe after stripping resolved approvals in toolkit flow\", () =>\n1766:        const approvalId = \"approval-tracker\"\n1776:                name: \"ApprovalTool\",\n1780:              Prompt.makePart(\"tool-approval-request\", {\n1781:                approvalId,\n1788:              Prompt.toolApprovalResponsePart({\n1789:                approvalId,\n1794:                name: \"ApprovalTool\",\n1806:          toolkit: ApprovalToolkit\n1835:          Effect.provide(ApprovalToolkitLayer)\n1841:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-request\").length, 0)\n1844:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-response\").length, 0)\n1972:    it.effect(\"calls tracker.prepareUnsafe after stripping resolved approvals in streamText toolkit flow\", () =>\n1975:        const approvalId = \"approval-tracker-stream\"\n1985:                name: \"ApprovalTool\",\n1989:              Prompt.makePart(\"tool-approval-request\", {\n1990:                approvalId,\n1997:              Prompt.toolApprovalResponsePart({\n1998:                approvalId,\n2003:                name: \"ApprovalTool\",\n2015:          toolkit: ApprovalToolkit\n2045:          Effect.provide(ApprovalToolkitLayer)\n2051:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-request\").length, 0)\n2054:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-response\").length, 0)\n2064:        const approvalId = \"approval-tracker-stream-disable\"\n2080:                name: \"ApprovalTool\",\n2084:              Prompt.makePart(\"tool-approval-request\", {\n2085:                approvalId,\n2092:              Prompt.toolApprovalResponsePart({\n2093:                approvalId,\n2098:                name: \"ApprovalTool\",\n2110:          toolkit: ApprovalToolkit,\n2147:          Effect.provide(ApprovalToolkitLayer)\n2157:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-request\").length, 0)\n2160:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-response\").length, 0)\n2169:  describe(\"tool approval\", () => {\n2171:      it.effect(`resolves only pending approvals in mixed approval history (${method})`, () =>\n2190:                    name: \"ApprovalTool\",\n2194:                  Prompt.toolApprovalRequestPart({ approvalId: id, toolCallId: id })\n2199:                  Prompt.toolApprovalResponsePart({ approvalId: id, approved, reason: \"User declined\" }),\n2203:                      name: \"ApprovalTool\",\n2214:          const options = { prompt, toolkit: ApprovalToolkit }\n2228:              Effect.provide(ApprovalToolkit.toLayer({\n2229:                ApprovalTool: ({ action }) =>\n2234:                DynamicApprovalTool: () => Effect.succeed({ result: \"dynamic-result\" })\n2243:          deepStrictEqual(parts.filter((part) => part.type === \"tool-approval-request\"), [])\n2244:          deepStrictEqual(parts.filter((part) => part.type === \"tool-approval-response\"), [])\n2271:    it.effect(\"emits tool-approval-request when tool has needsApproval: true\", () =>\n2273:        const parts: Array<Response.StreamPart<Toolkit.Tools<typeof ApprovalToolkit>, \"opaque\">> = []\n2276:        const toolName = \"ApprovalTool\"\n2281:          toolkit: ApprovalToolkit\n2298:          Effect.provide(ApprovalToolkitLayer)\n2312:        const approvalPart = parts[1]\n2313:        strictEqual(approvalPart.type, \"tool-approval-request\")\n2314:        if (approvalPart.type === \"tool-approval-request\") {\n2315:          strictEqual(approvalPart.toolCallId, toolCallId)\n2316:          assertDefined(approvalPart.approvalId)\n2323:        const approvalId = \"approval-456\"\n2331:                name: \"ApprovalTool\",\n2335:              Prompt.makePart(\"tool-approval-request\", {\n2336:                approvalId,\n2343:              Prompt.toolApprovalResponsePart({\n2344:                approvalId,\n2353:          toolkit: ApprovalToolkit\n2362:          Effect.provide(ApprovalToolkitLayer)\n2383:        const approvalId = \"approval-789\"\n2391:                name: \"ApprovalTool\",\n2395:              Prompt.makePart(\"tool-approval-request\", {\n2396:                approvalId,\n2403:              Prompt.toolApprovalResponsePart({\n2404:                approvalId,\n2414:          toolkit: ApprovalToolkit\n2423:          Effect.provide(ApprovalToolkitLayer)\n2443:    it.effect(\"strips approved approval artifacts from prompt sent to provider (streamText)\", () =>\n2446:        const approvalId = \"approval-strip\"\n2454:                name: \"ApprovalTool\",\n2458:              Prompt.makePart(\"tool-approval-request\", {\n2459:                approvalId,\n2466:              Prompt.toolApprovalResponsePart({\n2467:                approvalId,\n2476:          toolkit: ApprovalToolkit\n2485:          Effect.provide(ApprovalToolkitLayer)\n2491:        // Assistant message should retain tool-call but not tool-approval-request\n2495:          strictEqual(assistantMsg.content.filter((p) => p.type === \"tool-approval-request\").length, 0)\n2499:        // No tool message should contain tool-approval-response parts\n2502:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-response\").length, 0)\n2507:    it.effect(\"strips denied approval artifacts from prompt sent to provider\", () =>\n2510:        const approvalId = \"approval-strip-deny\"\n2518:                name: \"ApprovalTool\",\n2522:              Prompt.makePart(\"tool-approval-request\", {\n2523:                approvalId,\n2530:              Prompt.toolApprovalResponsePart({\n2531:                approvalId,\n2541:          toolkit: ApprovalToolkit\n2550:          Effect.provide(ApprovalToolkitLayer)\n2556:        // Approval artifacts stripped\n2559:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-request\").length, 0)\n2562:            strictEqual(msg.content.filter((p) => p.type === \"tool-approval-response\").length, 0)\n2578:    it.effect(\"strips only resolved approvals, preserves unrelated parts\", () =>\n2581:        const resolvedApprovalId = \"approval-resolved\"\n2583:        const unresolvedApprovalId = \"approval-unresolved\"\n2591:                name: \"ApprovalTool\",\n2595:              Prompt.makePart(\"tool-approval-request\", {\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": "**Inspecting prompt normalization**\n\nI need to check the strip prompt normalization thoroughly, likely focusing on two meaningful aspects. I don't think there are any bugs, but I'll be cautious. I wonder if anything has changed due to the merged assistant maps and how that might impact the normalization process. It's essential to ensure everything aligns correctly to avoid potential issues. I'll dive deeper into this to make sure everything is clear and functioning as intended.[REDACTED]",
+        "reasoning_details": [
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": "**Inspecting prompt normalization**\n\nI",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " need",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " to",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " check",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " the",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " strip",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " prompt",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " normalization",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " thoroughly",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": ",",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " likely",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " focusing",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " on",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " two",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " meaningful",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " aspects",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": ".",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " I",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " don't",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " think",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " there",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " are",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " any",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " bugs",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " but",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " I'll",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " be",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " cautious",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " wonder",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " if",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " anything",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " has",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " changed",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " due",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " merged",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " assistant",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " maps",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " and",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " how",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " that",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " might",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " impact",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " process",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " It's",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " essential",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " ensure",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " everything",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " aligns",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " correctly",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " avoid",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " potential",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " issues",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " dive",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " deeper",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " into",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " this",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " make",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " sure",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " is",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " clear",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " functioning",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " as",
+            "type": "reasoning.summary"
+          },
+          {
+            "format": "openai-responses-v1",
+            "index": 0,
+            "summary": " intended",
+            "type": "reasoning.summary"
+          },
+          {
+            "data": "gAAAAABqz-lKIu10LMe_WzLh5Rv5uSdbnPzzO3Z3RzVnTpESlnfIn5brXa_RbVCFQpHjbb653K8fFlX4FR8uUIYj1qT7tMIde5VuKIFUds_r5MZPTvOktvOS0J1_Shf6qJe0Nde_lhQFWnVXRnwMOK1N-iJIzXtBSgadS4AZdIqjJN0FtODbKBcmJkKHd3A2Gd-Tlwapedg_LLZ0hTZ_HPPBHjs1eWukenH5PQJLGZcsqhEffWhdUsGiwH8qrZt-bDLcdoxWlcXJBt1NjD2AMrAh57XpXb87q2DHljT3tskSeD77M_sNg8bPqK8D4N6__3cxPZ9D5Kss45sWU7yPTi5D0177vmhKBQnX3T3-oW7lpNYUtJryaXeJW1BXahlrYyW1O_fLpXxBkVq3z5CcOlat5XUybdrFl_2BXCSlnxkbCO2KXqDjyRGVNYNxMogv_PDj5wla1-rpDiIKJfKXUciV0YiblQsq6flZHRMX1ALliJu1MTMsOTdrNfYf2Y8IMkRCLL2C1omc-X7jsouSGN0Ajf3U2QinscwtKNj4q6p0BLKBln2j58zBGiZSNbxuXsVFboileJSFTdNIXRGuO_LYzwTPQZ9T1L_BtLwONyCBsiR00CH_nEiew7kKCr4iPmJ85gaVQvpB4KqElI-8o1irj0sDXUql-zvyGO0gG464ycabH8FujUrPCqOgp3sydsmw4HXL4u5g36uRDFOJrTgGFOAcq26VVqS0Xsk9vAkOwDmW1nRB5_aFCT5f0TUUnBtxPwl-_KePZhqOhKOnH4BU2t20cIvvW5NaRe3flGcQqJ5zy7HIH9mWP02czBfRyJF1zjE0WI4DR3iFljES3dkO_C_C8MsCdyuQRD7TrNxiX9SxpVqf_nVJY38vCzUaEtfOwcnEalfDNyfLi7_BcPEKKE8nbPA5RorFBtHPC-yjd9CkGRR4DoxfSY-t2T2-aGKBPSXYENB2U_74Nef5pJQ6tGxJpqr0XIXMe0hhf7JGv7aHWfZY5YYgzKtksWo15gnHWXfGcZ04ouIxVBbUgM88CzjkzkKzSilS-hFNc9TP_BI2tS8kBFjecb3T9Rmjwcz4QkxasjmloTthwPswH2SA6jP1FtKM4E5OjUxRlpM-yMpoKh2TbJya5ocVtej-dw-2pohevrhLdg4ebW_FzkGffsZ2FbTSgVF-Bg8F4I9zbY56M4psmgY3HoGVZIy_ZjbAp87xvhP14GBGxLG_AY6lCt_Z4mLruPAJGVjrfKPlBXEcNsHl5dFigvRKtiXlDT1gzEyOZfrT5pe4fUSrFSp9Ynz3JK71N7mYYjwlL15Cy790sajZg6xfw3jRuD1cnozi2U0DCn4v6kr1DrR2DGysLkerDqgBYrB38gOLXjss0VkQ1l1DcGbgtsnRgVkUXF7KRZRIlvQCKPenrIMw8p0KIimoM5bvhs4bp0elkvHug7ofmkCdyoSe8QdtvRD-3NFA-Oh_eJ83Kz6JNNwHSVfUlJwRK8evplShyhni1O2XQaHEsZ0JvmW2eWBRSQ54BBZPzd502HI3mcB_P3BcJs1oJptHYkweeuVT4Uf-uftZn-tK4ZXZk7MBwZWH5L7GXmA9apthJg3AMnnQGhBTO_riQpRKL049KD1by8lTVtPQHLA9xOOlPvYNcb53ymq7HKSVbuLKaQaQkXoSWuTR5v4v_VZEzWWchNJlgvFytg7rW3OUKxfYQdQrybPYYrDxbX8HG81T5XLJAEW6Zzs3bxIOjGW8oqf4eq71fy7xaGYULDvxlX-f_YFQlWJUP4bBdHB3pW-lGQBMOBkUT_VpWU6YTp5q6gAjJ3NgO9NG2rtOqTJzbjVd-0UtEQq1Do3j95EolWwq6am4HyFxfiNmDpFugasW35SaFx2WZ5Rcy5X6NyHyCPxu09n2IYmBSrms7-4UBMvRpijZ.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_04e2cc9425c16b8b016acfe94870d087d1ad42387f1216a7d8",
+            "index": 1,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_nCFoLY6vbSFGxcJ1rGHZNB3o",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await readFile({path:'packages/effect/src/ai/LanguageModel.ts',startLine:2110,endLine:2260}));console.log(await readFile({path:'packages/effect/test/ai/utils.ts',startLine:1,endLine:180})); console.log(await readFile({path:'.changeset/quick-approvals-reuse.md'})); console.log(await bash({command:'git diff HEAD~1 --stat'}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_nCFoLY6vbSFGxcJ1rGHZNB3o",
+        "content": "[20:42:50.927] INFO (#92): Calling \"readFile\" {\n  path: 'packages/effect/src/ai/LanguageModel.ts',\n  startLine: 2110,\n  endLine: 2260\n}\n\n  const approved: Array<ApprovalResult> = []\n  const denied: Array<ApprovalResult> = []\n  const pendingApproved: Array<ApprovalResult> = []\n  const pendingDenied: Array<ApprovalResult> = []\n\n  for (const response of responses) {\n    const request = requests.get(response.approvalId)\n    if (Predicate.isNotUndefined(request)) {\n      const result: ApprovalResult = {\n        ...response,\n        toolCallId: request.toolCallId,\n        toolCall: toolCallsById.get(request.toolCallId)\n      }\n\n      if (response.approved) {\n        approved.push(result)\n        if (!toolResultIds.has(request.toolCallId)) pendingApproved.push(result)\n      } else {\n        denied.push(result)\n        if (!toolResultIds.has(request.toolCallId)) pendingDenied.push(result)\n      }\n    }\n  }\n\n  return { approved, denied, pendingApproved, pendingDenied }\n}\n\n/**\n * Strip resolved approval artifacts from the prompt before sending to the\n * provider. After pre-resolving approvals (executing approved tools and\n * creating denial results), the original `tool-approval-request` parts in\n * assistant messages and `tool-approval-response` parts in tool messages are\n * no longer needed. Leaving them in causes provider-specific errors (e.g.\n * OpenAI rejects `mcp_approval_response` items that reference approval\n * requests it never issued).\n */\nconst stripResolvedApprovals = (\n  prompt: Prompt.Prompt,\n  approved: ReadonlyArray<ApprovalResult>,\n  denied: ReadonlyArray<ApprovalResult>\n): Prompt.Prompt => {\n  const resolvedApprovalIds = new Set<string>()\n  for (const a of approved) resolvedApprovalIds.add(a.approvalId)\n  for (const d of denied) resolvedApprovalIds.add(d.approvalId)\n\n  const cleanedMessages: Array<Prompt.Message> = []\n\n  for (const message of prompt.content) {\n    if (message.role === \"assistant\") {\n      const filteredContent = message.content.filter(\n        (part) =>\n          part.type !== \"tool-approval-request\" ||\n          !resolvedApprovalIds.has(part.approvalId)\n      )\n      if (filteredContent.length > 0) {\n        cleanedMessages.push(\n          Prompt.makeMessage(\"assistant\", {\n            content: filteredContent,\n            options: message.options\n          })\n        )\n      }\n    } else if (message.role === \"tool\") {\n      const filteredContent = message.content.filter(\n        (part) =>\n          part.type !== \"tool-approval-response\" ||\n          !resolvedApprovalIds.has(part.approvalId)\n      )\n      if (filteredContent.length > 0) {\n        cleanedMessages.push(\n          Prompt.makeMessage(\"tool\", {\n            content: filteredContent,\n            options: message.options\n          })\n        )\n      }\n    } else {\n      cleanedMessages.push(message)\n    }\n  }\n\n  return Prompt.fromMessages(cleanedMessages)\n}\n\nconst isApprovalNeeded = Effect.fnUntraced(function*<T extends Tool.Any>(\n  tool: T,\n  toolCall: Response.ToolCallPartEncoded,\n  messages: ReadonlyArray<Prompt.Message>\n): Effect.fn.Return<boolean, Schema.SchemaError, Tool.HandlerServices<T>> {\n  if (Predicate.isUndefined(tool.needsApproval)) {\n    return false\n  }\n\n  if (typeof tool.needsApproval === \"function\") {\n    const params = yield* Schema.decodeUnknownEffect(tool.parametersSchema)(\n      toolCall.params\n    ) as any\n\n    const result = tool.needsApproval(params, {\n      toolCallId: toolCall.id,\n      messages\n    })\n\n    return Effect.isEffect(result) ? yield* result : result\n  }\n\n  return tool.needsApproval\n}, Effect.orElseSucceed(constFalse))\n\nconst executeApprovedToolCalls = <Tools extends Record<string, Tool.Any>>(\n  approvals: ReadonlyArray<ApprovalResult>,\n  toolkit: Toolkit.WithHandler<Tools>,\n  concurrency: Concurrency\n): Effect.Effect<\n  Array<Response.ToolResultPart<string, unknown, unknown>>,\n  Tool.HandlerError<Tools[keyof Tools]> | AiError.AiError,\n  Tool.HandlerServices<Tools[keyof Tools]>\n> => {\n  const executeTool = Effect.fnUntraced(function*(approval: ApprovalResult) {\n    const toolCall = approval.toolCall\n\n    if (Predicate.isUndefined(toolCall)) {\n      return yield* Effect.die(\"Approval missing tool call reference\")\n    }\n\n    const tool = toolkit.tools[toolCall.name]\n\n    if (Predicate.isUndefined(tool)) {\n      return yield* AiError.make({\n        module: \"LanguageModel\",\n        method: \"generateText\",\n        reason: new AiError.ToolNotFoundError({\n          toolName: toolCall.name,\n          availableTools: Object.keys(toolkit.tools)\n        })\n      })\n    }\n\n    const resultStream = yield* toolkit.handle(\n      toolCall.name,\n      toolCall.params as any,\n      approval.toolCallId\n    )\n\n    const terminalResult = yield* resultStream.pipe(\n      Stream.filter((result) => result.preliminary === false),\n      Stream.run(Sink.last()),\n      Effect.flatMap(\n        Option.match({\n          onNone: () => Effect.die(\"Tool handler did not produce a final result\"),\n[20:42:50.933] INFO (#93): Calling \"readFile\" {\n  path: 'packages/effect/test/ai/utils.ts',\n  startLine: 1,\n  endLine: 180\n}\nimport { Effect, Predicate, Stream } from \"effect\"\nimport type { AiError, IdGenerator, Response } from \"effect/ai\"\nimport { LanguageModel } from \"effect/ai\"\nimport { dual } from \"effect/Function\"\n\ninterface WithLanguageModelOptions {\n  readonly generateText?:\n    | Array<Response.PartEncoded>\n    | ((options: LanguageModel.ProviderOptions) =>\n      | Array<Response.PartEncoded>\n      | Effect.Effect<Array<Response.PartEncoded>, AiError.AiError, IdGenerator.IdGenerator>)\n  readonly streamText?:\n    | Array<Response.StreamPartEncoded>\n    | ((options: LanguageModel.ProviderOptions) =>\n      | Array<Response.StreamPartEncoded>\n      | Stream.Stream<Response.StreamPartEncoded, AiError.AiError, IdGenerator.IdGenerator>)\n}\n\nexport const withLanguageModel: {\n  (options: WithLanguageModelOptions): <A, E, R>(\n    effect: Effect.Effect<A, E, R>\n  ) => Effect.Effect<A, E, Exclude<R, LanguageModel.LanguageModel>>\n  <A, E, R>(\n    effect: Effect.Effect<A, E, R>,\n    options: WithLanguageModelOptions\n  ): Effect.Effect<A, E, Exclude<R, LanguageModel.LanguageModel>>\n} = dual(2, <A, E, R>(\n  effect: Effect.Effect<A, E, R>,\n  options: WithLanguageModelOptions\n): Effect.Effect<A, E, Exclude<R, LanguageModel.LanguageModel>> =>\n  Effect.provideServiceEffect(\n    effect,\n    LanguageModel.LanguageModel,\n    LanguageModel.make({\n      generateText: (opts) => {\n        if (Predicate.isUndefined(options.generateText)) {\n          return Effect.succeed([])\n        }\n        if (Array.isArray(options.generateText)) {\n          return Effect.succeed(options.generateText)\n        }\n        const result = options.generateText(opts)\n        return Effect.isEffect(result) ? result : Effect.succeed(result)\n      },\n      streamText: (opts) => {\n        if (Predicate.isUndefined(options.streamText)) {\n          return Stream.empty\n        }\n        if (Array.isArray(options.streamText)) {\n          return Stream.fromIterable(options.streamText)\n        }\n        const result = options.streamText(opts)\n        return Array.isArray(result) ? Stream.fromIterable(result) : result\n      }\n    })\n  ))\n[20:42:50.937] INFO (#94): Calling \"readFile\" { path: '.changeset/quick-approvals-reuse.md' }\n---\n\"effect\": patch\n---\n\nCollect tool approvals once per `LanguageModel` request instead of twice.\n[20:42:50.940] INFO (#95): Calling \"bash\" { command: 'git diff HEAD~1 --stat', timeoutMs: 180000 }\n .changeset/quick-approvals-reuse.md           |   5 ++\n packages/effect/src/ai/LanguageModel.ts       |  53 +++++---------\n packages/effect/test/ai/LanguageModel.test.ts | 101 ++++++++++++++++++++++++++\n 3 files changed, 125 insertions(+), 34 deletions(-)\n\n"
+      },
+      {
+        "role": "assistant",
+        "content": "The refactor appears to preserve the pending-approval filter and reuse the full approval lists for cleanup. I’m running the changed test file, then I’ll probe whether request-only approvals remain intact and whether newly resolved results reach the caller.\n",
+        "reasoning": "[REDACTED]",
+        "reasoning_details": [
+          {
+            "data": "gAAAAABqz-lN2hoCxV_7tbPxLYHMCFAAB_fchkwBaX_2-yRhkrFXdMhrW6G9uXAWtqU69S5-amf0U2DHYmG754m6hEH3ns0fuddY4moGNsvEJluvJ-ProoK9aaA31d7RwyyhWSMyC1ibwXIlaetXKF_T56oTvm-FTQbEIwArlJFd-sw0Hujko6XRR2Rjo5AYMJf_agECbcOk2skflOwDu8zrrDJDSF-8VYF9H_K2JPpZ33hl4dQANpgJRLUYMCM-YkMhbrbCcOmORNpyz3tM-X84yLZp3pNu9Y_e8Mhstz9vBF3JuysjdNxlasMNcbhfKcJfttEZOLinV1XYBxD69I25OQeuHxLlov-M6tnh3Xhe62DSBzeMs5a4WQPGFJ8WRvvKehlTsWH8Sf-hRLm4jAQGlJjIGl-QhjL5jUEdevtPdV7VvqzztvbSQTmAAyFENM50HE2f7Ulhjw29q-9tiX6XNZlQfQHRfXo9y_TULgc_FrGMwdpuoypfLsIvUchL2wpGdgfUkvCSUM1oS7aTkWuz_ixAq44pfVUY3hphkzDieXaU_nXeMvlDN5UWXK6_x1JoE6JyOuMClxaUYm1npgxgDfPHOVjq5YJmwIkXjK-R0xZSnWi6hzzefck8gb83OkSok8nDvf31MPtyTy6_ssJ78YktFHUHZ4L9q--AZA1tm_Cj9IfS376LiX90sOgvAG0N3KgqK_ReXxgimx7oiXxtjUSGD5W5iKblQNNkiiqmogtUB_YV9OsLooqiWNoX5VZX-_rhWm8l4NzkeUHXjHR4P84MPxiJT5USUXQ64nc-i0Xfn6oHb3LKG7vWAAzIIihSARbXsJx2-Ks53HUaLtnqqXjiCpzmX-STMpthUQrrt7vJZpKBNJwgGKhBRkX3tgEBwwAJh2f7Ds4X56_i7bq5nXHNM4yeV-eOT6TV-1zCc3vRm8HhDDggS26Gzsm1G32EYdod9gJdC8to-MIV-0SexFRvz60pMre2nZ-q9X0IufnShIsbela1gDkW41PJW9dK2Zi8yUNv4lP7_Gw2S1rbqMzUqnziEdvzKXbmb2IYqXoGJ-MDzs7tP9oQkX5d4Z44YtrQR5Un9TsjVTTRzYMSmfA_N7sZl6C5w5VMbRB9eUSLoYpoAa8xZy0S8aXEv-P7aWXX2ygM7h6hFxEUpL9LvJLrVBQS3Yr8iVe29wvey65gJsYVWB_dZiQioIh76vtbbuJ7Mlh-G3raIO0Ukjru7R0DzqFr0LTZ76ckxJfCp_6YobbdaBOiRJB0O1zoV049eF62b9GFfwzMAlc7l6P9lkTy2H6boWYXlTBIGwJsn7geX0rFiHOjibhmLsUC8dxzjGn62X1Ni38AIm19Qc7hKRomoQ0iUh9ZXD-OFBEayj6eKVJ54UlSgLq3a2cv8l8EQI05LhvPiHcuVWr2FwffafHHlxydqzoHxOcZDc8ZXIJk0hNCGkeHTgep3sk0MDRjsfP4c1P1Ui15iwfgbsFRN3CdkxtRWOKk4DaVvmwKrEq1sa51_OPP0vkx85jeRP9yGYOb_5Via3tCLIMDhH4nW04z-9Id-TeGZgsNvwSuvu5FnLMLa3bhBf82hL4TH53QIlXv5OXB-Thd6mJL6Z4IvTkVz2iIw2kenWec0GZTq7PP6EYDFeBagvHSiyy3jicfnQiJmOhfAhUoBNY1KyrKKEs2Dp6v2Q==.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_04e2cc9425c16b8b016acfe94ced5887d1a38142827d0d5dfc",
+            "index": 0,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_ICxJJfOtc9BZQCU0ZPqv5KUJ",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await bash({command:'pnpm test --run packages/effect/test/ai/LanguageModel.test.ts',timeoutMs:180000}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_ICxJJfOtc9BZQCU0ZPqv5KUJ",
+        "content": "[20:42:54.965] INFO (#118): Calling \"bash\" {\n  command: 'pnpm test --run packages/effect/test/ai/LanguageModel.test.ts',\n  timeoutMs: 180000\n}\n$ vitest --run packages/effect/test/ai/LanguageModel.test.ts\n\n RUN  v5.0.3 /home/tim/multica_workspaces/tim-smart-f-546454766676/eff-1948-8779866c00c1/workdir/janitor/spikes/eff-1948-openrouter-smoke/scratch/pr-9143\n\n\n Test Files  1 passed (1)\n      Tests  65 passed (65)\n   Start at  20:42:57\n   Duration  5.29s (transform 83%, setup 8%, import 6%, tests 3%)\n\n  Transform  |effect| transforming modules took 4.21s · 83% of tracked time, re-done on every run\n             persist transforms across runs with fsModuleCache: true\n             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns\n\n\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": "[REDACTED]",
+        "reasoning_details": [
+          {
+            "data": "gAAAAABqz-lZbqWcNzXN8spoBfYrKgQdZ8HzSGD3n9W8dRZmd79lrbQquqbQerAZXwTkdCcHDdbzdX5_w7CUjShEIzT5yLt05Amff-4i73fa6fH6JZXhxcwplCXaVLyMlRpT9seNUOCvwc0OY3AEuxvQN3uk7E6hvdERY6QnJhXM0fiv3qUhEY4wZsV8GfZQOQo8WGSK7TiZv4SM6E-iKWkWDOb-TTJbcNdGgh03A03ri-h-DD992253_4QhKjUXJ4br3AUuHjBPCiY9czGAbyXa10OqqmTqmBZgEd3onxpUc9NWuRuKXNwriyOZ4OLT6AZmHkG1dB9BqNJVuhhe2kKJ3kZAuQJkI8w8dpo8Tz_SJcCMxqWfN3C3aPkQeBa8TFbBBA7BcbaL6C9MJ9Q20PtlLGhPmK1ic9ilnZyrAN5aJKqDIax0ol_hUsqeLOIUTiZYvXelYdPyu2yAdefPE9TdDrrQ01BQlwm6B9nbgeBtn9WQahdBhzd_tzmp8tg8Lw0RYAEwkT21N59yU3d2kZvHU3HKiJ4ZFJ6tlhNVtqVTFT7UwG7Bg_QTZj2zNOFK9IcLmvq-qGdHfvFEwGrwUuEZqtmUysa3Um4zcrCrlq2yKl4NqoQUNmQo4Wsh0s9NHWiA_6L18IwkW0Z9lq1YbYlvxbhWPTjUVeyRwKu0d2KqySQ9fuXAEeMDvK5O4zSD4r-RechOhIJSA-QCYKV3pvmMrMyeFTmSev9lb6d-VaRWcULrl_DJAcg6Y9aSLAlYMUOooRZW-dwh-6IXzaxpTIQIzIJkQRV9hA0rqduP-l12E0jRS7rSQq8w969rD0ZkBAAvdrDq4JAub5JjYbSs07A4KcxYokDVxgVtBUHIc7Hf9FQcEhUoarp5w_aqzzmenSt-uBQzCsCudBEvP-PXYn1H_AlExDEUbQFrfcbahQZMoUfia29bUTXc9ra8s7ZGamrBiUSABx_eRtzRGkrvNj2RIfj7y1lzBoOnjlw7c0o_efub14T8Yv2TizWS5PZm6IM0JqKt3zAtce74z6gMPr2CzuYq-AR6yQX-UU5iftSYmAR8omCw2-gbNs8GdimlVX4GHQvtumqLvngwvuGL9b1xtQ4eBMtXMPfBDgdmwd4LpzkyvHXGxKdRrotlgxH6rEAZYf1-PoeNrS_N7WWf2BXrrdu5K8WxCqgAFwz-s8qGre-m-DbOOk0csdgfCOo41GmQ2-w66-lDVhuzmQhBg6A8-WRh-D-cJ25rhN9uXCP78Wnx5lJyF4iE9nXf11kQwfduZ69gUcXeBPT5_6pqGrQP9z7b3mBlAoM799YWw1QJKjhiefpEMKgw9pUMjXqUnQO7KW7z9npx7eyxNsEsIk17pfSvsg6Q0xY0LrkAd5WLyluYZCXN65WlIZAhh9wJ4BMtmW3UGkIrrfdygU9BQneCDHdTHRCeGDs-wikcTfVP0TdSZjs4UOQlw7XsaNM9tUlG4_gftnxHd5bU2uJp43ft0emRmkAOeBYneWaB7t_ggvU7ggfqLG0-O7AQZrYoNYBD6L2cDKJqwSpMBUUZLU-Begee9Pd0lmTh2dsQSMs4yNNk9M0z2NT1_IJv_gECreGpwcTfLL7A2xNctsJUMx_PV-DU4PmCBwo7rlWPYydOaejYioH7_UJ_1-hJ_ejhNqoiFJtZ_MjDrneqfqHyO56I_VYH-1bx7wggmYSeB2xPypBwtM65pW-xAidWO96ff9OtY7PRN2eIGCewkLlUR-PHXRoFhgIKvA==.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_04e2cc9425c16b8b016acfe95898c487d192b238e7277dba03",
+            "index": 0,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_dp7fdEZGUE3VK1PDE9d544w7",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await readFile({path:'package.json',startLine:1,endLine:90})); console.log(await readFile({path:'packages/effect/test/ai/LanguageModel.test.ts',startLine:2578,endLine:2670})); console.log(await ls('scratchpad'));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_dp7fdEZGUE3VK1PDE9d544w7",
+        "content": "[20:43:06.146] INFO (#141): Calling \"readFile\" { path: 'package.json', startLine: 1, endLine: 90 }\n{\n  \"private\": true,\n  \"type\": \"module\",\n  \"packageManager\": \"pnpm@11.20.0\",\n  \"scripts\": {\n    \"prepare\": \"node scripts/setup-agents.mjs && effect-tsgo patch\",\n    \"clean\": \"node scripts/clean.mjs\",\n    \"codegen\": \"pnpm --recursive --parallel --filter \\\"./packages/**/*\\\" run codegen\",\n    \"codemod\": \"node scripts/codemod.mjs\",\n    \"build\": \"tsc -b tsconfig.packages.json && pnpm --recursive --parallel --filter \\\"./packages/**/*\\\" run build && node scripts/copy-ai-docs.mjs\",\n    \"bundle-analyze\": \"bash scripts/bundle-analyze.sh\",\n    \"bundle-compare\": \"bash scripts/bundle-compare.sh\",\n    \"bundle-compare-selected\": \"bash scripts/bundle-compare-selected.sh\",\n    \"circular\": \"node scripts/circular.mjs\",\n    \"test\": \"vitest\",\n    \"test-cluster\": \"vitest run --project cluster-integration\",\n    \"doctest\": \"vitest --config vitest.docs.ts\",\n    \"coverage\": \"vitest --coverage\",\n    \"check\": \"tsc -b tsconfig.json\",\n    \"typeperf\": \"pnpm --dir packages/effect exec node typeperf/run.mjs\",\n    \"typeperf-compare\": \"pnpm --dir packages/effect exec node typeperf/compare.mjs\",\n    \"runtimeperf\": \"pnpm --dir packages/effect exec node runtimeperf/run.mts\",\n    \"runtimeperf-compare\": \"pnpm --dir packages/effect exec node runtimeperf/compare.mts\",\n    \"check-recursive\": \"pnpm --recursive --filter \\\"./packages/**/*\\\" exec tsc -b tsconfig.json\",\n    \"check-dist-types\": \"node scripts/check-dist-types.mjs\",\n    \"jsdocs\": \"effect-jsdocs\",\n    \"lint\": \"oxlint -f unix && dprint check\",\n    \"lint-fix\": \"oxlint --fix && dprint fmt\",\n    \"ai-docgen\": \"effect-ai-docgen ai-docs/src -o LLMS.md\",\n    \"ai-docgen:watch\": \"pnpm ai-docgen --watch\",\n    \"api-diff\": \"pnpm --dir packages/tools/api-diff exec node src/bin.ts\",\n    \"test-types\": \"tstyche --target '>=5.9'\",\n    \"changeset-version\": \"changeset version && node scripts/version.mjs\",\n    \"changeset-publish\": \"node scripts/set-strip-internal.mjs && pnpm codemod && pnpm build && changeset publish --tag staging\"\n  },\n  \"devDependencies\": {\n    \"@babel/cli\": \"^8.0.6\",\n    \"@babel/core\": \"^8.0.7\",\n    \"@babel/plugin-transform-export-namespace-from\": \"^8.0.1\",\n    \"@babel/plugin-transform-modules-commonjs\": \"^8.0.1\",\n    \"@changesets/changelog-github\": \"1.0.1\",\n    \"@changesets/cli\": \"3.0.3\",\n    \"@effect/ai-docgen\": \"workspace:^\",\n    \"@effect/bundle\": \"workspace:^\",\n    \"@effect/docgen\": \"workspace:^\",\n    \"@effect/doctest\": \"workspace:^\",\n    \"@effect/jsdocs\": \"workspace:^\",\n    \"@effect/oxc\": \"workspace:^\",\n    \"@effect/tsgo\": \"^0.51.1\",\n    \"@effect/utils\": \"workspace:^\",\n    \"@effect/vitest\": \"workspace:^\",\n    \"@faker-js/faker\": \"^10.6.0\",\n    \"@rollup/plugin-node-resolve\": \"^16.0.3\",\n    \"@rollup/plugin-replace\": \"^6.0.3\",\n    \"@rollup/plugin-terser\": \"^1.0.0\",\n    \"@types/jscodeshift\": \"^17.3.0\",\n    \"@types/node\": \"^26.6.5\",\n    \"@vitest/coverage-v8\": \"^5.0.3\",\n    \"@vitest/web-worker\": \"^5.0.3\",\n    \"ast-types\": \"^0.16.3\",\n    \"babel-plugin-annotate-pure-calls\": \"^0.5.0\",\n    \"dprint\": \"^0.61.1\",\n    \"fast-check\": \"^4.10.2\",\n    \"glob\": \"^13.0.6\",\n    \"happy-dom\": \"^20.14.6\",\n    \"jscodeshift\": \"^17.4.0\",\n    \"lalph\": \"^0.3.139\",\n    \"madge\": \"^8.0.0\",\n    \"oxlint\": \"^1.87.0\",\n    \"pkg-pr-new\": \"0.0.91\",\n    \"playwright\": \"^1.64.0\",\n    \"rollup\": \"^4.64.5\",\n    \"rollup-plugin-bundle-stats\": \"^4.22.3\",\n    \"rollup-plugin-esbuild\": \"^6.2.1\",\n    \"rollup-plugin-visualizer\": \"^7.1.1\",\n    \"terser\": \"^5.51.2\",\n    \"tstyche\": \"^7.2.5\",\n    \"typescript\": \"^7.0.2\",\n    \"vite\": \"^8.3.4\",\n    \"vitest\": \"^5.0.3\",\n    \"vitest-websocket-mock\": \"^0.8.0\",\n    \"zod\": \"^4.6.5\"\n  }\n}\n[20:43:06.149] INFO (#142): Calling \"readFile\" {\n  path: 'packages/effect/test/ai/LanguageModel.test.ts',\n  startLine: 2578,\n  endLine: 2670\n}\n    it.effect(\"strips only resolved approvals, preserves unrelated parts\", () =>\n      Effect.gen(function*() {\n        const resolvedCallId = \"call-resolved\"\n        const resolvedApprovalId = \"approval-resolved\"\n        const unresolvedCallId = \"call-unresolved\"\n        const unresolvedApprovalId = \"approval-unresolved\"\n        let capturedPrompt: LanguageModel.ProviderOptions[\"prompt\"] | undefined\n\n        const prompt: Array<Prompt.Message> = [\n          Prompt.assistantMessage({\n            content: [\n              Prompt.makePart(\"tool-call\", {\n                id: resolvedCallId,\n                name: \"ApprovalTool\",\n                params: { action: \"delete\" },\n                providerExecuted: false\n              }),\n              Prompt.makePart(\"tool-approval-request\", {\n                approvalId: resolvedApprovalId,\n                toolCallId: resolvedCallId\n              }),\n              Prompt.makePart(\"tool-call\", {\n                id: unresolvedCallId,\n                name: \"ApprovalTool\",\n                params: { action: \"read\" },\n                providerExecuted: false\n              }),\n              Prompt.makePart(\"tool-approval-request\", {\n                approvalId: unresolvedApprovalId,\n                toolCallId: unresolvedCallId\n              })\n            ]\n          }),\n          // Only resolve one of the two approvals\n          Prompt.toolMessage({\n            content: [\n              Prompt.toolApprovalResponsePart({\n                approvalId: resolvedApprovalId,\n                approved: true\n              })\n            ]\n          })\n        ]\n\n        yield* LanguageModel.streamText({\n          prompt,\n          toolkit: ApprovalToolkit\n        }).pipe(\n          Stream.runDrain,\n          TestUtils.withLanguageModel({\n            streamText: (opts) => {\n              capturedPrompt = opts.prompt\n              return [finishPart]\n            }\n          }),\n          Effect.provide(ApprovalToolkitLayer)\n        )\n\n        assertDefined(capturedPrompt)\n        const messages = capturedPrompt.content\n\n        // The assistant message should have the resolved approval-request stripped\n        // but the unresolved one preserved\n        const assistantMsg = messages.find((m) => m.role === \"assistant\")\n        assertDefined(assistantMsg)\n        if (assistantMsg.role === \"assistant\") {\n          const approvalRequests = assistantMsg.content.filter(\n            (p) => p.type === \"tool-approval-request\"\n          )\n          strictEqual(approvalRequests.length, 1)\n          if (approvalRequests[0].type === \"tool-approval-request\") {\n            strictEqual(approvalRequests[0].approvalId, unresolvedApprovalId)\n          }\n          // Both tool-calls should survive\n          strictEqual(assistantMsg.content.filter((p) => p.type === \"tool-call\").length, 2)\n        }\n      }))\n\n    it.effect(\"strips approval artifacts via generateText path\", () =>\n      Effect.gen(function*() {\n        const toolCallId = \"call-gen\"\n        const approvalId = \"approval-gen\"\n        let capturedPrompt: LanguageModel.ProviderOptions[\"prompt\"] | undefined\n\n        const prompt: Array<Prompt.Message> = [\n          Prompt.assistantMessage({\n            content: [\n              Prompt.makePart(\"tool-call\", {\n                id: toolCallId,\n                name: \"ApprovalTool\",\n                params: { action: \"delete\" },\n                providerExecuted: false\n              }),\n[20:43:06.151] INFO (#143): Calling \"ls\" { directory: 'scratchpad' }\n[ 'index.ts', 'node_modules', 'package.json', 'tsconfig.json' ]\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": "[REDACTED]",
+        "reasoning_details": [
+          {
+            "data": "gAAAAABqz-lfGTiupVRzhC9oSgzqO6rnhmssSEhBC46rll7yU83cKNm6-JPIRWkIb21NYDrlLSRWlWwme31zBatXDXhPNeKQJh6l155JRTY0m2uJPHjOz5v3VB_C7_RLtz5gS3C8Se6xvsRVooTgHzUavZYpVNEQYnU4pxOe9Z7zhxL9uf0f-73hgVIhdNu8LjdDTXf_rhx1wOV3mwGDRcRFkx6csMvRCFlhj9TVr1mGbNM8zHuv1A_rsSEXWUX4tWtQsNSxt-zmBB4raEM4sFh6wbWDPCh7fCrscL_8QnbFvIqMkxls9d5T6Q3NgPVvgugPMgIDWH5meRpb3EqvdvSrWZletNYBX_j4oD77kIoT56UWSpbhsaUmJ2qqpYqyNEXDdtOOPuyV9T6mPZa0wIWF4OU7thh2o7HCqDPa8JWw3qSf6CDUbKPV3buJAHhSYkpc55e6nH4HTRtgQxE7367AA9M7aooFs2RiHnDulIXpx5R0wAYj0K777anxakEydS2_-qTqbogastc36zTza9sp0-lYnExEUB6PHhfMoSXw6LwN5Q9OLLAd3mRQilO1jp2shtZk-r7qqvchWDT3IwSckNOW02QIlNo7lyMPL-Ym__Zg3w4BeltZdNyKC73uJNQ2mAHy1YLqp2VN-_Xqnc78ssEZvIHOFDNAPvO0L8SywHCF2SsaNZ43Q0YY1CkTDB99BzAmabsDSPZxZDxW9Kr1ynZUPpCpTelfUqm9yiI60tAxHRYqfw8rIC5KABqkDXeyL7byyxDRHRsWgwEY4dlh4_rcBa3MxqnZw6Es4JR72QMGe6I769NhAYjQq2bknx_LutYPIHr8MGQ67X_3Gr70Z_Nf_UbVCEpMY1HLxUGbuW0IPIhOTGAIGP2Gl5W387XJjSkf3Wt4hQ7Zm4B6H3XRHO0-0e9e3oKo0ppnBwQS9rq2hnUShystO_g2vPdG3xjnqN1v-_XkJ_bwChi_VsP905SWk2rG18ibEqu0bmBM8_fRgpKFQwbGOpNa770al4KjifE_KsSuvhKuAnEO5tqVBgIte54hx-u2eNPPl3-jUadWZ-k27y1wAw_1OG_P59eu66bsptc-GZww2pkQYTJaRm7pM5g8VxrlPlT2268vnr-wfPczhki_Rg53Nc4xKmhKYC8DNIC_afoWirvco5oZlslWAepzREk94QClgmH-HpjYDLZF8EWlRACV9yi0zZps1AmWqhGsFyDGVLLJjlpXL0ZYgLJHFQxdUEHesxZEi1IN2oOshzDqmWJ7xwMijbPo29sBsnbldlWg83ti67g8qUdSKhisWx4GzXk_ap8JZIiKADUhdi7j-UN_eN07PbJJ6HHGTO2ZgRjkl79mIELM7Kz4G57lLH2-A8bs8XDtbwLlR5fQQN718eiLQVL1mSUEXxIcokzCr5w_-sxUB-tpwP7mNJ4wlu0fbiQVljlDPgcVSDzd6FaPMslvt1SyyrzOgce-_6eFvL8oOb4f4YQ2PFJj7qyqM75QRqKBVbJXs4H6pbzWYqDMnjIQaBBELxvPZcQMUXgvJdQ_Vj8WPagHi7-KqQFYdhV-tOn0gH5A4yOeAmyA3fk2XJIoIrVWJiBB5WlKdXFbMJkBEt8TSHsBOgrWIzYthU0XAVXK2GDOoXtMn2-QiWqBLtSXwjzkAniqX53k_9CnDZ2wYfYMWVKQDdpLH0RVpRcfknbvTczUC9jyBfFXH5CRdNXyErTHksVuFrwd0arMjyuk4Fa_p6ma0r_e5ms2t_OefmlfJlwyEp73lQ6nGqUoeA3irmarGv2P1G-NIsKqVIzIyy8WpD29ROndy7hw7iRok1-eJOhkSa32G1a_ocnnLI5XhMBCyv-a0T_tTNNPqKZsjDh8KV4TKrCzCd5wAV6IzIhN2uCTZY8QbTHhvW_RLEcv0VIG4XO6VOUJporx5h90ZEahiY9pm8z6iFZEaAn0CAKDXgU8gdyT6cc09THHvRGgXx7IEcXWRrXCsusPez27AP3xJPmOPTEFFLlkPkWFLgXVCIG6Tp6SA5lhjB_6Anb2rXvono5RS8W_BQ_m05m4Ckedm_Kpsgiuq1wullZLFR4hi5sdpnNslgRE4kmbXAOxu9TwEqiLAIRpeq6h0xMO07N-VEbO6q5HtbP0NbR5fEBKt1PLerHNywc9Odr2flI6iet6N-XpCVfZqUIXKldtHcq3JjqS47PGCDAkfYV3wUE0uYGlXpxJ3o0BSwS6AisMUvZhyJ45Zt_71er9149ut8SdpHeb4fpWHnb8oL8bq_n8226KFhtmX1hMt_2IR3LmVlanO38ZMZWJDUtlVkMxpZ-UKFU_yJbVcJDTeuhHTPwkCLa2UbmXofEeAZySIuQKBztEPcijpRLLmDIw5AZl3564TBTKoNiIW5q18lnFRFi-fL0o2MNQa1cX7tFJwF6Gf-RNSu9CirJ41uKfDbSH8zROGcKYDf6T0oLZ-XcD1tbDPIau3J6SRolnOOol0BwITMi16WAvLULR_Xlyfst4hTzbhqZNaCV9_NPwD4QB6Y5ysTZCsvz9vUuzb400Ka9Fr8VUHholyPiUrYNCwutTyqyzjPZ8AC8I7M8cRdNnckxw3KaXRMWfAAfAxpCzX23D2zbGH3zpZzRaActMieci38hANcTvZ9BkvmuKekrBBPKAZqTULvOpiyH9_Dl0TbKJpwpnNhD-c3Fi_dpZTcBJDRTLYoaFRsoAilpROirQxTDc0UUK6ONeqlafx5eA2QB7PIdmlI1BN5UOzCgfLWKAxTrfG7gHceENVW-l1HzLJblRYmLgkO_hsSbZFvPvLlviigt7fQ5e1s0T9SAPNagGQEJQEPqoUzgxUeUj2xZtNGQdvex-9SwvDj0YLYNSZvBed7X5c-JLDYMfS10Che8J_VUtfNIg5yajblHl97r33q2TLMzFSC-6HaDXjPktGXdYgI8D1YbYf6IoQBJ-xqjTzVlxADQDH_7-hvO4cNJXzdQtXz1QhJ_PMfHmdmf22O01_zFzIOC5eBGe6ZNQDPjQ8dMK-97829xGMqzAPgWuWAyzZxFrUEovHUI4AWnpVUpPzUab0t0xpu38ngFc.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_04e2cc9425c16b8b016acfe95c263487d1a4f06bc8f17ed410",
+            "index": 0,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_l8IwKTuXkeIb1VEnSXrPpAhl",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await writeFile({path:'scratchpad/pr-9143-review.ts',content:`import { Effect, Schema, Stream } from \\\"../packages/effect/src/index.ts\\\"\\nimport { LanguageModel, Prompt, Tool, Toolkit } from \\\"../packages/effect/src/ai/index.ts\\\"\\n\\nconst tool = Tool.make(\\\"ReviewTool\\\", {\\n  parameters: Schema.Struct({ action: Schema.String }),\\n  success: Schema.String,\\n  needsApproval: true\\n})\\nconst toolkit = Toolkit.make(tool)\\nconst finish = {\\n  type: \\\"finish\\\", reason: \\\"stop\\\",\\n  usage: {\\n    inputTokens: { uncached: 0, total: 0, cacheRead: undefined, cacheWrite: undefined },\\n    outputTokens: { total: 0, text: undefined, reasoning: undefined }\\n  }, response: undefined\\n} as const\\nconst check = (condition: boolean, message: string) => { if (!condition) throw new Error(message) }\\nfor (const method of [\\\"generateText\\\", \\\"streamText\\\"] as const) {\\n  const executed: string[] = []\\n  const messages: Prompt.Message[] = []\\n  for (const [id, approved, resolved] of [\\n    [\\\"old-yes\\\", true, true], [\\\"old-no\\\", false, true],\\n    [\\\"new-yes\\\", true, false], [\\\"new-no\\\", false, false],\\n    [\\\"unanswered\\\", undefined, false]\\n  ] as const) {\\n    messages.push(Prompt.assistantMessage({ content: [\\n      Prompt.toolCallPart({ id, name: \\\"ReviewTool\\\", params: { action: id }, providerExecuted: false }),\\n      Prompt.toolApprovalRequestPart({ approvalId: \\\"approval-\\\" + id, toolCallId: id })\\n    ] }))\\n    if (approved !== undefined) messages.push(Prompt.toolMessage({ content: [\\n      Prompt.toolApprovalResponsePart({ approvalId: \\\"approval-\\\" + id, approved }),\\n      ...(resolved ? [Prompt.toolResultPart({ id, name: \\\"ReviewTool\\\", result: id, isFailure: !approved, providerExecuted: false })] : [])\\n    ] }))\\n  }\\n  messages.push(Prompt.toolMessage({ content: [Prompt.toolApprovalResponsePart({ approvalId: \\\"orphan\\\", approved: true })] }))\\n  let captured: Prompt.Prompt | undefined\\n  const model = await Effect.runPromise(LanguageModel.make({\\n    generateText: (opts) => { captured = opts.prompt; return Effect.succeed([finish]) },\\n    streamText: (opts) => { captured = opts.prompt; return Stream.make(finish) }\\n  }))\\n  const options = { prompt: messages, toolkit }\\n  const response = await Effect.runPromise((method === \\\"generateText\\\"\\n    ? model.generateText(options).pipe(Effect.map((r) => r.toolResults))\\n    : model.streamText(options).pipe(Stream.filter((p) => p.type === \\\"tool-result\\\"), Stream.runCollect)\\n  ).pipe(Effect.provide(toolkit.toLayer({ ReviewTool: ({ action }) => Effect.sync(() => { executed.push(action); return action }) }))))\\n  const parts = captured!.content.flatMap((m) => m.role === \\\"assistant\\\" || m.role === \\\"tool\\\" ? m.content as readonly {type: string; approvalId?: string; id?: string}[] : [])\\n  const requests = parts.filter((p) => p.type === \\\"tool-approval-request\\\").map((p) => p.approvalId)\\n  const responses = parts.filter((p) => p.type === \\\"tool-approval-response\\\").map((p) => p.approvalId)\\n  const returned = response.map((p) => p.id)\\n  check(JSON.stringify(executed) === '[\\\"new-yes\\\"]', \\\"executed historical tool\\\")\\n  check(JSON.stringify(requests) === '[\\\"approval-unanswered\\\"]', \\\"lost unanswered request\\\")\\n  check(JSON.stringify(responses) === '[\\\"orphan\\\"]', \\\"lost unmatched response\\\")\\n  check(JSON.stringify(returned) === '[\\\"new-yes\\\",\\\"new-no\\\"]', \\\"incorrect caller-visible results\\\")\\n  console.log(JSON.stringify({ method, executed, requests, responses, returned }))\\n}\\n`})); console.log(await bash({command:'node scratchpad/pr-9143-review.ts',timeoutMs:180000}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_l8IwKTuXkeIb1VEnSXrPpAhl",
+        "content": "[20:43:25.144] INFO (#162): Calling \"writeFile\" { path: 'scratchpad/pr-9143-review.ts' }\nundefined\n[20:43:25.147] INFO (#163): Calling \"bash\" { command: 'node scratchpad/pr-9143-review.ts', timeoutMs: 180000 }\n{\"method\":\"generateText\",\"executed\":[\"new-yes\"],\"requests\":[\"approval-unanswered\"],\"responses\":[\"orphan\"],\"returned\":[\"new-yes\",\"new-no\"]}\n{\"method\":\"streamText\",\"executed\":[\"new-yes\"],\"requests\":[\"approval-unanswered\"],\"responses\":[\"orphan\"],\"returned\":[\"new-yes\",\"new-no\"]}\n\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": "[REDACTED]",
+        "reasoning_details": [
+          {
+            "data": "gAAAAABqz-lxEDc3lco5QrsTSbOodevyuv7MCAiCgYM8qian55HCrNuhfeu80ifiMgytm0RoPyRJtCWVgSRbUgcUlNO8W9hokHO0XaFsLcWO9trR7TwWeYV2qBtbvffKZR-yhLnZ8uQwy6CYlVaUbQCTMw_xlI566pZL8nQIu-rsf9i4t7c2Kijmk-H2zE1ea5DLLglL2tV6mjwoBArvyGF44DuYuJkmyh7XiDHEwi6HV6M1uD_jHydJHvXDOB24lCSTNSZYwAUgBqgUEXrE9YO7LdPff5JSjTbhlDXIJuyFYIB7u5u-nxnAt60nyihLn3mhBuAazyTYQqBXTsKm4J1v9pddaqcBo6HGA7k3sMZwcHWbGv58CAScO6KvUzaUOqbTBwaQMf3OvFhot-WwLssU2eciyBkyomLjGOi9eeNfnY3HqoPjSC8dkbgwadxaK16OlqSpBKt39Ibp5BReHG0GY5rifTnneAn5vbWHUsOJtVbgc6GFNR8R3BszjqW9s1KtyFJC4PMvXBN2Mim2PE86rIACTLP_4E8gUpxaKIPnIfF4iwXOuHVScHFwe9rMpLs3uWq4BwutItmykeOWXXRqErDjXIeIHdDxis5YFYmW5hVN9gF-C5TnH0mW9K05npSP441uBDPJlAxerv5CkSWaZtz3DPIlh4SAbtLl7TWoM_vBVFaNax-yXk6vmMeK4wCfqK2xjz4Zeugjj_gd-9nhohmKOjAhBDFU6Xol2AKSguori9Rebcupnoy3P60UfXfbV9jaA79W2ZaF7LC4Y3kqInFmbttayI5Cgz2idYg8y7tzUZ1nSOO-4nO6zy9fwYPsX4iXfQG07ltz4AhckxbOn5S07t2-jRDjV4syDb_4AnwiTZFVHzkE9gQfoE1MOYCgHzW3E0aJynMsFLjLBDmlee5eGgBoTBM8qwlFVILXoO7ytpVGALisALUgXLdbYA-6_nW7A5h290XafH_yqhi6b3RrvkbtSdC19yH7_Pln3OjuUFlK1WbRWax-dMDnOk7EVgql39tcaj_V9AXiHAddDp5VGFdWSPOhQpqdNvnPtm4aamX0eP71DZBkbg2Xc3jo8AfkmNi3qYS4DLPe3FkGx77heY8KzqHmay2uMEEEsdT0jqx_CMvaW-JWp55IgyNSceMTP7zp1vfUEkLCvNWfddw2x9hxPP-ywlgo9CcGLcRBVlPNygmCXV_p2gZKRZOmrXAR50Lo59RseM5EQLyYArG2iPM7aMwbaLWaZz-fNr_im5yvXXAsQCE-DAUAAsRPXmbK7vaJDw3YrwinRiDm2DVcBHOpaQei_2pt2skvTZzYaIrHBt0rS51Ow-pCxidATf02YiHQMSB8i1ZwZuHF7xBTQp2WIdrCXeBqwHSSWbjzEY968Ut6NTwCACf5p3N9tTgYK4hMAFhb-1O52euzc18VMeBtLHRw4RQ_ZBkcvpMFkz3yDDa4Vn88xrkMBrqti-SS4pM04U16IFV3yi0foj3WSJTdT8sfxBjCtX_OFb4aRJATlgDt_OIEYN1-P7YDTlf2z4uG8B2wU_YOqb1mUc9RHVtI21_AGzQ1jpsePQ9fTGO3dfqjUGhGYn5BBqgwrYT6_KnYHH7fwaUjKtxekYaOBUU3_OPzhRhDbXfJRaIEtOEAlJ1Q1JW7v86o1OYTsWJr6rwuCEuTCMirJyP9BOtOh4sH1WuaQ22IxdaEkxurcmNVwIi7t2JIk2eADSeHhhurDTsNqCNoTa_YEda90oYzwdlNR3eVlt_wcDTZjcM01ioUpRUT-ftTL_20NXbj1357lNk3zAOy4MaJXrsT29You9Fhtj1Z6eK2Nk8MeMlTaQDbcH0hN55mm8XV8jpnGebTbgQXDPTSydXkcbY7UPRg6gbhu2Kpf1ldObsvzva2yqiLQYSHWdJRaFk5Pf5Xrv3xBQvKucN0boLztwf9pWBEPKCADQ==.eyJlbmRwb2ludF9zbHVnIjoib3BlbmFpL2dwdC02LjEtc29sLTIwMjYwOTI5fG9wZW5haSJ9",
+            "format": "openai-responses-v1",
+            "id": "rs_04e2cc9425c16b8b016acfe96fd3d887d19b698de6c9e42121",
+            "index": 0,
+            "type": "reasoning.encrypted"
+          }
+        ],
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_xtS3G0gew7eq3KtXF8j8940D",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await reportFinding({path:'packages/effect/src/ai/LanguageModel.ts',line:1135,severity:'nit',title:'Name the full approved list consistently with its contents',body:'`allResolved` now comes from the initial prompt snapshot and includes approved calls that have not been executed yet (those also appear in `pendingApproved`). Consider naming it `allApproved`, alongside `allDenied`, in both request paths. That makes the distinction between all approval responses and pending executions explicit without implying that every entry already has a tool result.'})); console.log(await reportFinding({path:'packages/effect/test/ai/LanguageModel.test.ts',line:2217,severity:'suggestion',title:'Assert caller-visible results in the mixed-history regression test',body:'The new test verifies tool execution and the provider prompt, but discards the generated response and drains the stream. Consider also asserting that the caller receives exactly the two newly resolved tool results, and neither historical result. This would cover the history-persistence side of the same pending-versus-all distinction, especially for `streamText`, where provider prompt correctness alone does not establish that Chat can persist the results.'}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_xtS3G0gew7eq3KtXF8j8940D",
+        "content": "{ id: 'f1' }\n{ id: 'f2' }\n"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning": null,
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "call_TsUe0loCSy25pQDujQOICir5",
+            "function": {
+              "name": "execute",
+              "arguments": "{\"script\":\"console.log(await updateThread({id:'f1',body:'Validation: `pnpm test --run packages/effect/test/ai/LanguageModel.test.ts` passed all 65 tests. A plain-node scratchpad probe confirmed both request paths execute only the newly approved tool while retaining an unanswered approval request and an unmatched response. No behavior defect found; this is a naming-only nit.'})); console.log(await updateThread({id:'f2',body:'The ad-hoc probe (`node scratchpad/pr-9143-review.ts`) exercised mixed approved/denied history in both methods, with distinct approval IDs and tool-call IDs. Both returned exactly [\\\"new-yes\\\", \\\"new-no\\\"], executed only \\\"new-yes\\\", preserved the unanswered request and unmatched response, and omitted historical results from caller output. Thus the suggested assertion passes today; adding it would retain that coverage in the regression suite. The full changed test file also passed (65/65).'})); await removeFile('scratchpad/pr-9143-review.ts'); console.log(await bash({command:'git status --short'}));\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_TsUe0loCSy25pQDujQOICir5",
+        "content": "{ id: 'f1', comments: 1 }\n{ id: 'f2', comments: 1 }\n[20:43:39.415] INFO (#236): Calling \"removeFile\" { path: 'scratchpad/pr-9143-review.ts' }\n[20:43:39.418] INFO (#237): Calling \"bash\" { command: 'git status --short', timeoutMs: 180000 }\n\n"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "execute",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "script": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "script"
+            ],
+            "additionalProperties": false
+          },
+          "strict": null,
+          "description": "Execute javascript code and return the output"
+        }
+      }
+    ],
+    "tool_choice": "auto",
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    }
+  }
+}
