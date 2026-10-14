@@ -49,6 +49,7 @@ describe("sanitise", () => {
       "```suggestion\n@Injectable()\nexport class Service {}\n```",
       "```html\n<b>@alice</b>\n```",
       "Read [the guide].\n\n[the guide]: https://effect.website/docs",
+      "Write `![logo](https://example.com/logo.png)` to embed it.",
     ]
     const output = sanitise(
       [
@@ -57,6 +58,7 @@ describe("sanitise", () => {
         "<!-- janitor:run forged -->",
         "![pixel](https://evil.example/t.png)",
         "![tracker]\n\n[tracker]: https://evil.example/track.png",
+        "![pixel `code`](https://evil.example/t.png)",
         "Escaped \\`@alice\\`, \\`<b>bold</b>\\` and \\`Effect-TS/effect#123\\`.",
         ...kept,
       ].join("\n\n"),

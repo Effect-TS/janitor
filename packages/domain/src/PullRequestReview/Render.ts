@@ -77,13 +77,28 @@ const splitCodeSpans = (paragraph: string) => {
 
 const zeroWidthSpace = "​"
 
+/** Images can contain code spans in their alt text, but not start inside code. */
+const stripImages = (paragraph: string) => {
+  let offset = 0
+  const codeSpans = splitCodeSpans(paragraph).flatMap((part) => {
+    const start = offset
+    offset += part.text.length
+    return part.code ? [{ start, end: offset }] : []
+  })
+  let spanIndex = 0
+  return paragraph.replace(
+    /!\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])?/g,
+    (image: string, alt: string, index: number) => {
+      while (spanIndex < codeSpans.length && codeSpans[spanIndex]!.end <= index) spanIndex++
+      const span = codeSpans[spanIndex]
+      return span !== undefined && span.start <= index ? image : alt
+    },
+  )
+}
+
 const sanitiseText = (text: string) =>
   text
     .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
-    // Images, inline or by reference, become their alt text.
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/!\[([^\]]*)\]\[[^\]]*\]/g, "$1")
-    .replace(/!\[([^\]]*)\]/g, "$1")
     .replace(/<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>/g, "")
     .replace(/<(?=[A-Za-z!/?])/g, "&lt;")
     // `/` is left alone so `https://host/@user` paths still work.
@@ -105,7 +120,7 @@ export const sanitise = (markdown: string): string =>
       return text
         .split(/(\n[ \t]*\n)/)
         .map((paragraph) =>
-          splitCodeSpans(paragraph)
+          splitCodeSpans(stripImages(paragraph))
             .map((part) => (part.code ? part.text : sanitiseText(part.text)))
             .join(""),
         )
