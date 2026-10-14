@@ -8,12 +8,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import type * as SqlError from "effect/sql/SqlError"
 import type * as Statement from "effect/sql/Statement"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import type { Finding, FindingOutcome } from "@janitor/domain/PullRequestReview/Finding"
-import {
-  FindingOutcome as FindingOutcomeSchema,
-  LineNumber,
-  Severity,
-} from "@janitor/domain/PullRequestReview/Finding"
+import { Finding, FindingOutcome } from "@janitor/domain/PullRequestReview/Finding"
 import {
   FinalStatus,
   RunId,
@@ -77,10 +72,13 @@ export interface FinishedRun extends StartedRun {
   readonly checkRun: GitHubLink | null
 }
 
-export interface RecordedFinding extends Finding {
-  readonly fingerprint: string
-  readonly outcome: FindingOutcome
-}
+/** A finding as recorded for a run, with its fingerprint and what became of it. */
+export const RecordedFinding = Schema.Struct({
+  ...Finding.fields,
+  fingerprint: Schema.String,
+  outcome: FindingOutcome,
+})
+export type RecordedFinding = typeof RecordedFinding.Type
 
 const summaryFields = {
   runId: RunId,
@@ -120,27 +118,29 @@ export interface RunPage {
   readonly next: Option.Option<string>
 }
 
-const StoredFinding = Schema.Struct({
-  path: Schema.String,
-  startLine: LineNumber,
-  endLine: LineNumber,
-  severity: Severity,
-  comment: Schema.String,
-  fingerprint: Schema.String,
-  outcome: FindingOutcomeSchema,
-})
-
 const FailedGatesJson = Schema.fromJsonString(Schema.Array(Schema.String))
 const JsonText = Schema.fromJsonString(Schema.Json)
 
 const triggerColumns = (trigger: Trigger) =>
   trigger._tag === "Automatic"
-    ? { trigger: "automatic", invoker: null, commentId: null }
+    ? { trigger: "automatic", invoker_login: null, invoker_comment_id: null }
     : {
         trigger: trigger._tag === "Rerun" ? "rerun" : "forced",
-        invoker: trigger.invoker,
-        commentId: trigger.commentId,
+        invoker_login: trigger.invoker,
+        invoker_comment_id: trigger.commentId,
       }
+
+/** The columns every run row has, known when the run starts. */
+const startColumns = (run: StartedRun) => ({
+  run_id: run.runId,
+  repository_id: run.repositoryId,
+  pull_request_number: run.number,
+  pull_request_title: run.title,
+  head_sha: run.headSha,
+  base_sha: run.baseSha,
+  ...triggerColumns(run.trigger),
+  started_at: DateTime.toDateUtc(run.startedAt),
+})
 
 export class PullRequestReviewStore extends Context.Service<
   PullRequestReviewStore,
@@ -181,20 +181,11 @@ export class PullRequestReviewStore extends Context.Service<
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
 
-    const insertStarted = (
-      run: StartedRun,
-      status: "running" | "skipped",
-      reason: SkipReason | null,
-    ) => {
-      const trigger = triggerColumns(run.trigger)
-      return sql`
-        INSERT INTO pr_review_runs (run_id, repository_id, pull_request_number, pull_request_title,
-          head_sha, base_sha, trigger, invoker_login, invoker_comment_id, status, skip_reason, started_at)
-        VALUES (${run.runId}::uuid, ${run.repositoryId}, ${run.number}, ${run.title}, ${run.headSha},
-          ${run.baseSha}, ${trigger.trigger}, ${trigger.invoker}, ${trigger.commentId}, ${status},
-          ${reason}, ${DateTime.toDateUtc(run.startedAt)})
-        ON CONFLICT (run_id) DO NOTHING`
-    }
+    /** A row already recorded for the run is left as it is. */
+    const insertStarted = (columns: Record<string, unknown>) =>
+      sql`INSERT INTO pr_review_runs ${sql.insert(columns)} ON CONFLICT (run_id) DO NOTHING`.pipe(
+        Effect.asVoid,
+      )
 
     const summaries = (
       repositoryId: GitHubRepositoryDatabaseId,
@@ -240,24 +231,29 @@ export class PullRequestReviewStore extends Context.Service<
           Effect.asVoid,
           wrap("setEnabled"),
         ),
-      start: (run) => insertStarted(run, "running", null).pipe(Effect.asVoid, wrap("start")),
-      skip: (run) => insertStarted(run, "skipped", run.reason).pipe(Effect.asVoid, wrap("skip")),
+      start: (run) =>
+        insertStarted({ ...startColumns(run), status: "running" }).pipe(wrap("start")),
+      skip: (run) =>
+        insertStarted({ ...startColumns(run), status: "skipped", skip_reason: run.reason }).pipe(
+          wrap("skip"),
+        ),
       finish: (run) =>
         Effect.gen(function* () {
-          const trigger = triggerColumns(run.trigger)
-          const failedGates = yield* Schema.encodeEffect(FailedGatesJson)(run.failedGates)
-          const standardsSources = yield* Schema.encodeEffect(JsonText)(run.standardsSources)
           yield* sql`
-            INSERT INTO pr_review_runs (run_id, repository_id, pull_request_number, pull_request_title,
-              head_sha, base_sha, trigger, invoker_login, invoker_comment_id, status, verdict,
-              failed_gates, standards_sources, started_at, finished_at, resume_count, error_category,
-              review_id, review_url, check_run_id, check_run_url)
-            VALUES (${run.runId}::uuid, ${run.repositoryId}, ${run.number}, ${run.title}, ${run.headSha},
-              ${run.baseSha}, ${trigger.trigger}, ${trigger.invoker}, ${trigger.commentId}, ${run.status},
-              ${run.verdict}, ${failedGates}::jsonb, ${standardsSources}::jsonb,
-              ${DateTime.toDateUtc(run.startedAt)}, ${DateTime.toDateUtc(run.finishedAt)},
-              ${run.resumeCount}, ${run.errorCategory}, ${run.review?.id ?? null},
-              ${run.review?.url ?? null}, ${run.checkRun?.id ?? null}, ${run.checkRun?.url ?? null})
+            INSERT INTO pr_review_runs ${sql.insert({
+              ...startColumns(run),
+              status: run.status,
+              verdict: run.verdict,
+              failed_gates: yield* Schema.encodeEffect(FailedGatesJson)(run.failedGates),
+              standards_sources: yield* Schema.encodeEffect(JsonText)(run.standardsSources),
+              finished_at: DateTime.toDateUtc(run.finishedAt),
+              resume_count: run.resumeCount,
+              error_category: run.errorCategory,
+              review_id: run.review?.id ?? null,
+              review_url: run.review?.url ?? null,
+              check_run_id: run.checkRun?.id ?? null,
+              check_run_url: run.checkRun?.url ?? null,
+            })}
             ON CONFLICT (run_id) DO UPDATE SET
               pull_request_title = EXCLUDED.pull_request_title, head_sha = EXCLUDED.head_sha,
               base_sha = EXCLUDED.base_sha, status = EXCLUDED.status, skip_reason = NULL,
@@ -288,7 +284,7 @@ export class PullRequestReviewStore extends Context.Service<
           SELECT path, start_line AS "startLine", end_line AS "endLine", severity, comment,
             fingerprint, outcome
           FROM pr_review_findings WHERE run_id = ${runId}::uuid ORDER BY finding_id`.pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(StoredFinding))),
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(RecordedFinding))),
           wrap("findings"),
         ),
       runs: (repositoryId, query) =>

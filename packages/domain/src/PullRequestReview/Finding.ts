@@ -27,8 +27,7 @@ export type Severity = typeof Severity.Type
 /** One problem the agent reports, anchored to lines of the pull request's version of a file. */
 export const Finding = Schema.Struct({
   path: Schema.NonEmptyString,
-  startLine: LineNumber,
-  endLine: LineNumber,
+  ...LineRange.fields,
   severity: Severity,
   comment: Schema.String,
 })

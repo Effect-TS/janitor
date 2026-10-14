@@ -80,14 +80,12 @@ const ReviewTiming = Schema.Struct({
   commandTimeout: Schema.Duration,
 }).check(
   Schema.makeFilter(
-    ({ runDeadline, wrapUpAfter }) =>
-      Duration.toSeconds(wrapUpAfter) < Duration.toSeconds(runDeadline),
+    ({ runDeadline, wrapUpAfter }) => Duration.isLessThan(wrapUpAfter, runDeadline),
     { expected: "PR_REVIEW_WRAP_UP_AFTER_SECONDS < PR_REVIEW_RUN_DEADLINE_SECONDS" },
   ),
   Schema.makeFilter(
     ({ runDeadline, wrapUpAfter, commandTimeout }) =>
-      Duration.toSeconds(commandTimeout) <=
-      Duration.toSeconds(runDeadline) - Duration.toSeconds(wrapUpAfter),
+      Duration.isLessThanOrEqualTo(commandTimeout, Duration.subtract(runDeadline, wrapUpAfter)),
     {
       expected:
         "PR_REVIEW_COMMAND_TIMEOUT_SECONDS <= PR_REVIEW_RUN_DEADLINE_SECONDS - PR_REVIEW_WRAP_UP_AFTER_SECONDS",
