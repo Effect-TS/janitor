@@ -59,6 +59,7 @@ describe("sanitise", () => {
         "![pixel](https://evil.example/t.png)",
         "![tracker]\n\n[tracker]: https://evil.example/track.png",
         "![pixel `code`](https://evil.example/t.png)",
+        "![![pixel](https://evil.example/inner.png)](https://evil.example/outer.png)",
         "Escaped \\`@alice\\`, \\`<b>bold</b>\\` and \\`Effect-TS/effect#123\\`.",
         ...kept,
       ].join("\n\n"),

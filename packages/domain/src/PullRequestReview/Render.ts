@@ -78,7 +78,7 @@ const splitCodeSpans = (paragraph: string) => {
 const zeroWidthSpace = "​"
 
 /** Images can contain code spans in their alt text, but not start inside code. */
-const stripImages = (paragraph: string) => {
+const stripImagesOnce = (paragraph: string) => {
   let offset = 0
   const codeSpans = splitCodeSpans(paragraph).flatMap((part) => {
     const start = offset
@@ -94,6 +94,16 @@ const stripImages = (paragraph: string) => {
       return span !== undefined && span.start <= index ? image : alt
     },
   )
+}
+
+const stripImages = (paragraph: string): string => {
+  // Removing an inner image can expose an outer one. Each changed pass is
+  // strictly shorter, and each pass still leaves literal code untouched.
+  while (true) {
+    const stripped = stripImagesOnce(paragraph)
+    if (stripped === paragraph) return stripped
+    paragraph = stripped
+  }
 }
 
 const sanitiseText = (text: string) =>
