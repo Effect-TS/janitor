@@ -89,4 +89,17 @@ describe("PR review configuration", () => {
       })
     }),
   )
+
+  it.effect("rejects limits that leave no wrap-up window for the last command", () =>
+    Effect.gen(function* () {
+      for (const values of [
+        { PR_REVIEW_WRAP_UP_AFTER_SECONDS: "600" },
+        { PR_REVIEW_RUN_DEADLINE_SECONDS: "300" },
+        { PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "181" },
+      ]) {
+        const error = yield* Effect.flip(read(values))
+        assert.strictEqual(error._tag, "ConfigError", Object.keys(values).join())
+      }
+    }),
+  )
 })

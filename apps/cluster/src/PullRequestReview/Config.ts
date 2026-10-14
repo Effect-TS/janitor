@@ -1,5 +1,6 @@
 import * as Config from "effect/Config"
 import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
 import type * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
@@ -73,6 +74,27 @@ const days = (name: string, fallback: number) =>
 const names = (name: string, fallback: ReadonlyArray<string>) =>
   Config.Array(Schema.NonEmptyString, name).pipe(Config.withDefault(fallback))
 
+const ReviewTiming = Schema.Struct({
+  runDeadline: Schema.Duration,
+  wrapUpAfter: Schema.Duration,
+  commandTimeout: Schema.Duration,
+}).check(
+  Schema.makeFilter(
+    ({ runDeadline, wrapUpAfter }) =>
+      Duration.toSeconds(wrapUpAfter) < Duration.toSeconds(runDeadline),
+    { expected: "PR_REVIEW_WRAP_UP_AFTER_SECONDS < PR_REVIEW_RUN_DEADLINE_SECONDS" },
+  ),
+  Schema.makeFilter(
+    ({ runDeadline, wrapUpAfter, commandTimeout }) =>
+      Duration.toSeconds(commandTimeout) <=
+      Duration.toSeconds(runDeadline) - Duration.toSeconds(wrapUpAfter),
+    {
+      expected:
+        "PR_REVIEW_COMMAND_TIMEOUT_SECONDS <= PR_REVIEW_RUN_DEADLINE_SECONDS - PR_REVIEW_WRAP_UP_AFTER_SECONDS",
+    },
+  ),
+)
+
 export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = Config.all({
   apiKey: Config.option(Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY")),
   model: Config.NonEmptyString("PR_REVIEW_AI_MODEL").pipe(Config.withDefault(DEFAULT_MODEL)),
@@ -100,4 +122,11 @@ export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = C
     "deno.lock",
   ]),
   manifests: names("PR_REVIEW_MANIFESTS", ["package.json"]),
-})
+}).pipe(
+  Config.mapEffect((config) =>
+    Schema.decodeEffect(ReviewTiming)(config).pipe(
+      Effect.as(config),
+      Effect.mapError((error) => new Config.ConfigError(error)),
+    ),
+  ),
+)
