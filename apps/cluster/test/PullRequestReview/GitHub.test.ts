@@ -91,6 +91,64 @@ describe("PR review GitHub", () => {
       }),
   )
 
+  it.effect("reports a listing that stops at GitHub's 3,000-file cap as truncated", () =>
+    Effect.gen(function* () {
+      const fake = makeFake(
+        Array.from({ length: 3001 }, (_, index) => ({
+          filename: `src/f${index}.ts`,
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+        })),
+      )
+      const github = yield* client(fake)
+
+      const changed = yield* github.changedFiles({ baseSha: BASE, lockfiles: [] })
+
+      assert.strictEqual(changed.files.length, 3000)
+      assert.isTrue(changed.truncated)
+    }),
+  )
+
+  it.effect(
+    "applies nested .gitattributes at the base SHA, also when the tree listing is truncated",
+    () =>
+      Effect.gen(function* () {
+        const changed = (filename: string, additions: number) => ({
+          filename,
+          status: "modified",
+          additions,
+          deletions: 0,
+        })
+        for (const treeTruncated of [false, true]) {
+          const fake = makeFake([
+            changed("generated/schema.ts", 100),
+            // A nested override of the root rule.
+            changed("generated/hand/edit.ts", 3),
+            changed("packages/api/out.ts", 200),
+            // Anchored to its own directory, the nested `/out.ts` doesn't reach here.
+            changed("packages/api/sub/out.ts", 5),
+            changed("packages/api/sub/client.gen.ts", 300),
+            changed("src/index.ts", 7),
+          ])
+            .file(BASE, ".gitattributes", "generated/** linguist-generated\n")
+            .file(BASE, "generated/hand/.gitattributes", "*.ts -linguist-generated\n")
+            .file(
+              BASE,
+              "packages/api/.gitattributes",
+              "/out.ts linguist-generated\n*.gen.ts linguist-generated\n",
+            )
+            .file(HEAD, "src/.gitattributes", "* linguist-generated\n")
+          fake.treeTruncated = treeTruncated
+          const github = yield* client(fake)
+
+          const { size } = yield* github.changedFiles({ baseSha: BASE, lockfiles: [] })
+
+          assert.deepStrictEqual(size, { files: 3, lines: 15 }, `tree truncated: ${treeTruncated}`)
+        }
+      }),
+  )
+
   it.effect(
     "reads files and directories at a ref, with missing and oversized files unreadable",
     () =>
@@ -280,8 +338,69 @@ describe("PR review GitHub", () => {
     }),
   )
 
+  it.effect("finds janitor's pending review and the threads and replies it holds", () =>
+    Effect.gen(function* () {
+      const fake = makeFake([
+        {
+          filename: "src/a.ts",
+          status: "modified",
+          patch:
+            "@@ -1,3 +1,20 @@\n" +
+            Array.from({ length: 20 }, (_, i) => `+line ${i + 1}`).join("\n"),
+        },
+      ])
+      const marked = inlineComment({ comment: "Missing null check.", fingerprint })
+      fake.threads = [
+        {
+          id: "PRRT_earlier",
+          path: "src/a.ts",
+          line: 2,
+          startLine: null,
+          side: "RIGHT",
+          isResolved: false,
+          isOutdated: false,
+          resolvedBy: null,
+          // Submitted by an earlier run, so not part of the pending review.
+          comments: [{ ...comment("PRRC_earlier", APP_LOGIN, marked, 0), reviewId: "PRR_earlier" }],
+        },
+      ]
+      const github = yield* client(fake)
+      const before = yield* github.pendingReview
+
+      const written = yield* withElapsingClock(
+        Effect.gen(function* () {
+          const review = yield* github.createPendingReview(HEAD)
+          const thread = yield* github.addThread(review.id, {
+            path: "src/a.ts",
+            line: 12,
+            body: marked,
+          })
+          const reply = yield* github.addReply(review.id, {
+            threadId: "PRRT_earlier",
+            body: "Still applies.",
+          })
+          return { review, thread, reply }
+        }),
+        Duration.millis(100),
+      )
+      // A restarted run has none of this run's state, only GitHub's.
+      const restarted = yield* client(fake)
+
+      assert.isTrue(Option.isNone(before))
+      assert.deepStrictEqual(
+        yield* restarted.pendingReview,
+        Option.some({
+          id: written.review.id,
+          databaseId: written.review.databaseId,
+          threads: [{ threadId: written.thread.threadId, path: "src/a.ts", line: 12, fingerprint }],
+          replies: [{ threadId: "PRRT_earlier", commentId: written.reply.commentId }],
+        }),
+      )
+    }),
+  )
+
   it.effect(
-    "replaces a leftover pending review and submits one pinned review, a second between mutations",
+    "replaces a leftover pending review and builds one pinned review step by step, a second between mutations",
     () =>
       Effect.gen(function* () {
         const fake = makeFake([
@@ -338,12 +457,21 @@ describe("PR review GitHub", () => {
         const github = yield* client(fake)
 
         const submitted = yield* withElapsingClock(
-          github.submitReview({
-            commitId: HEAD,
-            event: "REQUEST_CHANGES",
-            body: "One blocking finding.",
-            threads: [{ path: "src/a.ts", line: 12, startLine: 10, body: "Range finding." }],
-            replies: [{ threadId: "PRRT_earlier", body: "Still applies." }],
+          Effect.gen(function* () {
+            yield* github.deletePendingReview
+            const review = yield* github.createPendingReview(HEAD)
+            yield* github.addThread(review.id, {
+              path: "src/a.ts",
+              line: 12,
+              startLine: 10,
+              body: "Range finding.",
+            })
+            yield* github.addReply(review.id, { threadId: "PRRT_earlier", body: "Still applies." })
+            yield* github.submitPendingReview(review.id, {
+              event: "REQUEST_CHANGES",
+              body: "One blocking finding.",
+            })
+            return { reviewId: review.id }
           }),
           Duration.millis(100),
         )
@@ -427,15 +555,12 @@ describe("PR review GitHub", () => {
         )
         .pipe(Effect.flip)
       const unresolvable = yield* withElapsingClock(
-        github
-          .submitReview({
-            commitId: HEAD,
-            event: "COMMENT",
-            body: "A nit.",
-            threads: [{ path: "src/a.ts", line: 99, body: "Not in the diff." }],
-            replies: [],
-          })
-          .pipe(Effect.flip),
+        github.createPendingReview(HEAD).pipe(
+          Effect.flatMap((review) =>
+            github.addThread(review.id, { path: "src/a.ts", line: 99, body: "Not in the diff." }),
+          ),
+          Effect.flip,
+        ),
         Duration.millis(100),
       )
 

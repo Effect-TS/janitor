@@ -1,7 +1,7 @@
 /**
  * The size count behind the oversized check (EFF-1652 point 5): changed lines
- * and files, leaving out lockfiles, files the base SHA's root `.gitattributes`
- * marks `linguist-generated`, and `.changeset/*`.
+ * and files, leaving out lockfiles, files the base SHA's `.gitattributes`
+ * mark `linguist-generated`, and `.changeset/*`.
  */
 
 export interface SizedFile {
@@ -13,6 +13,12 @@ export interface SizedFile {
 export interface Size {
   readonly lines: number
   readonly files: number
+}
+
+/** One `.gitattributes` file and the directory it sits in (`""` for the root). */
+export interface Gitattributes {
+  readonly directory: string
+  readonly text: string
 }
 
 interface GeneratedRule {
@@ -85,19 +91,38 @@ const generatedRules = (gitattributes: string): ReadonlyArray<GeneratedRule> =>
 
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1)
 
-/** Later `.gitattributes` lines override earlier ones. */
-const isGenerated = (rules: ReadonlyArray<GeneratedRule>, path: string) =>
-  rules.reduce((generated, rule) => (rule.pattern.test(path) ? rule.generated : generated), false)
+/**
+ * Patterns are relative to their file's directory. Later lines override
+ * earlier ones, and a deeper file overrides a shallower one.
+ */
+const isGenerated = (
+  files: ReadonlyArray<{ readonly prefix: string; readonly rules: ReadonlyArray<GeneratedRule> }>,
+  path: string,
+) =>
+  files.reduce(
+    (generated, file) =>
+      path.startsWith(file.prefix)
+        ? file.rules.reduce(
+            (generated, rule) =>
+              rule.pattern.test(path.slice(file.prefix.length)) ? rule.generated : generated,
+            generated,
+          )
+        : generated,
+    false,
+  )
 
 export const countedSize = (
   files: ReadonlyArray<SizedFile>,
   options: {
     readonly lockfiles: ReadonlyArray<string>
-    /** The root `.gitattributes` at the base SHA, if it exists. */
-    readonly gitattributes: string | undefined
+    /** The base SHA's `.gitattributes` files that can apply, shallowest first. */
+    readonly gitattributes: ReadonlyArray<Gitattributes>
   },
 ): Size => {
-  const rules = options.gitattributes === undefined ? [] : generatedRules(options.gitattributes)
+  const rules = options.gitattributes.map((file) => ({
+    prefix: file.directory === "" ? "" : `${file.directory}/`,
+    rules: generatedRules(file.text),
+  }))
   const counted = files.filter(
     (file) =>
       !options.lockfiles.includes(fileName(file.filename)) &&

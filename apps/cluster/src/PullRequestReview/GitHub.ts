@@ -8,7 +8,7 @@ import {
   type ReviewMarker,
 } from "@janitor/domain/PullRequestReview/Render"
 import type { RunId } from "@janitor/domain/PullRequestReview/Run"
-import { countedSize } from "@janitor/domain/PullRequestReview/Size"
+import { countedSize, type Gitattributes } from "@janitor/domain/PullRequestReview/Size"
 import * as Clock from "effect/Clock"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
@@ -155,20 +155,34 @@ export interface IssueComment {
   readonly updatedAt: DateTime.Utc
 }
 
-/** One GitHub review: new threads and replies to earlier threads, submitted together. */
-export interface ReviewSubmission {
-  /** The reviewed head SHA the review is pinned to. */
-  readonly commitId: string
-  readonly event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"
+export type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT"
+
+/** A new `RIGHT`-side thread; `startLine` only for a multi-line range. */
+export interface NewThread {
+  readonly path: string
+  readonly line: number
+  readonly startLine?: number
   readonly body: string
-  /** `RIGHT`-side threads; `startLine` only for a multi-line range. */
+}
+
+/**
+ * Janitor's pending review on the pull request and what it holds so far. A
+ * user has at most one pending review per pull request, so after Publish
+ * clears leftovers this is the current run's, and a write cut off mid-request
+ * can be checked here before it is retried.
+ */
+export interface PendingReview {
+  readonly id: string
+  readonly databaseId: number
+  /** Threads the review opens, recognised by the fingerprint marker in their root. */
   readonly threads: ReadonlyArray<{
+    readonly threadId: string
     readonly path: string
-    readonly line: number
-    readonly startLine?: number
-    readonly body: string
+    readonly line: number | null
+    readonly fingerprint: Fingerprint
   }>
-  readonly replies: ReadonlyArray<{ readonly threadId: string; readonly body: string }>
+  /** Replies the review adds to earlier threads. */
+  readonly replies: ReadonlyArray<{ readonly threadId: string; readonly commentId: string }>
 }
 
 export const CHECK_RUN_NAME = "janitor/review"
@@ -237,16 +251,26 @@ export interface PullRequestGitHub {
     /** The check run this run created earlier, when it knows it. */
     readonly checkRunId?: string
   }) => Effect.Effect<CheckRunLink, PullRequestGitHubFailure>
-  /**
-   * Posts the review through GraphQL's pending-review path, deleting any
-   * pending review janitor left behind first.
-   */
-  readonly submitReview: (
-    review: ReviewSubmission,
-  ) => Effect.Effect<
-    { readonly reviewId: string; readonly databaseId: number },
-    PullRequestGitHubFailure | UnresolvableLine
-  >
+  /** Janitor's pending review, if it has one. */
+  readonly pendingReview: Effect.Effect<Option.Option<PendingReview>, PullRequestGitHubFailure>
+  /** Deletes janitor's pending review, if it has one. */
+  readonly deletePendingReview: Effect.Effect<void, PullRequestGitHubFailure>
+  /** Starts a pending review pinned to `commitId`, the reviewed head SHA. */
+  readonly createPendingReview: (
+    commitId: string,
+  ) => Effect.Effect<{ readonly id: string; readonly databaseId: number }, PullRequestGitHubFailure>
+  readonly addThread: (
+    reviewId: string,
+    thread: NewThread,
+  ) => Effect.Effect<{ readonly threadId: string }, PullRequestGitHubFailure | UnresolvableLine>
+  readonly addReply: (
+    reviewId: string,
+    reply: { readonly threadId: string; readonly body: string },
+  ) => Effect.Effect<{ readonly commentId: string }, PullRequestGitHubFailure>
+  readonly submitPendingReview: (
+    reviewId: string,
+    submission: { readonly event: ReviewEvent; readonly body: string },
+  ) => Effect.Effect<void, PullRequestGitHubFailure>
   readonly dismissReview: (
     review: JanitorReview,
     message: string,
@@ -360,7 +384,12 @@ const ThreadCommentNode = Schema.Struct({
   viewerDidAuthor: Schema.Boolean,
   author: Schema.NullOr(Schema.Struct({ login: Schema.String })),
   pullRequestReview: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ state: Schema.optionalKey(Schema.String) })),
+    Schema.NullOr(
+      Schema.Struct({
+        id: Schema.optionalKey(Schema.String),
+        state: Schema.optionalKey(Schema.String),
+      }),
+    ),
   ),
 })
 type ThreadCommentNode = typeof ThreadCommentNode.Type
@@ -406,7 +435,7 @@ const THREADS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $af
           resolvedBy { login }
           comments(first: 100) {
             pageInfo { hasNextPage endCursor }
-            nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { state } }
+            nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { id state } }
           }
         }
       }
@@ -419,7 +448,7 @@ const THREAD_COMMENTS_QUERY = `query($id: ID!, $after: String) {
     ... on PullRequestReviewThread {
       comments(first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
-        nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { state } }
+        nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { id state } }
       }
     }
   }
@@ -496,6 +525,16 @@ const AddThreadData = Schema.Struct({
   addPullRequestReviewThread: Schema.NullOr(
     Schema.Struct({ thread: Schema.NullOr(Schema.Struct({ id: Schema.String })) }),
   ),
+})
+const AddReplyData = Schema.Struct({
+  addPullRequestReviewThreadReply: Schema.NullOr(
+    Schema.Struct({ comment: Schema.NullOr(Schema.Struct({ id: Schema.String })) }),
+  ),
+})
+
+const TreeApi = Schema.Struct({
+  truncated: Schema.Boolean,
+  tree: Schema.Array(Schema.Struct({ path: Schema.String })),
 })
 
 const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/")
@@ -813,6 +852,33 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       return files
     })
 
+  /** The `.gitattributes` files at `ref` that can apply to `paths`, shallowest first. */
+  const gitattributesFor = (ref: string, paths: ReadonlyArray<string>) =>
+    Effect.gen(function* () {
+      const directories = new Set([""])
+      for (const path of paths) {
+        for (let end = path.lastIndexOf("/"); end > 0; end = path.lastIndexOf("/", end - 1))
+          directories.add(path.slice(0, end))
+      }
+      // The tree listing shows which directories have one; a truncated listing can't rule any out.
+      const { body: tree } = yield* rest(
+        "gitattributes",
+        "GET",
+        `${repository}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+        TreeApi,
+      )
+      const listed = new Set(tree.tree.map((entry) => entry.path))
+      const found: Array<Gitattributes> = []
+      // An ancestor's path is always shorter than its descendants'.
+      for (const directory of [...directories].sort((a, b) => a.length - b.length)) {
+        const path = directory === "" ? ".gitattributes" : `${directory}/.gitattributes`
+        if (!tree.truncated && !listed.has(path)) continue
+        const blob = yield* readFile(ref, path)
+        if (blob._tag === "Read") found.push({ directory, text: blob.text })
+      }
+      return found
+    })
+
   const changedFiles = (options: {
     readonly baseSha: string
     readonly lockfiles: ReadonlyArray<string>
@@ -830,13 +896,16 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
         url = Option.getOrNull(Option.flatMap(page.link, nextLink))
         pages++
       }
-      const gitattributes = yield* readFile(options.baseSha, ".gitattributes")
       return {
         files,
-        truncated: url !== null,
+        // GitHub ends the listing at its cap without a next link, so reaching the cap may hide more.
+        truncated: url !== null || files.length >= MAX_CHANGED_FILES,
         size: countedSize(files, {
           lockfiles: options.lockfiles,
-          gitattributes: gitattributes._tag === "Read" ? gitattributes.text : undefined,
+          gitattributes: yield* gitattributesFor(
+            options.baseSha,
+            files.map((file) => file.filename),
+          ),
         }),
       } satisfies ChangedFiles
     })
@@ -915,13 +984,23 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     ),
   )
 
+  const reviewThreads = walk((after) =>
+    graphqlData("reviewThreads", THREADS_QUERY, { ...pullVariables, after }, ThreadsData).pipe(
+      Effect.flatMap((data) => pullRequestOf("reviewThreads", data)),
+      Effect.map((pull) => pull.reviewThreads),
+    ),
+  )
+
+  /** Every comment on a thread; later pages are fetched only when there are any. */
+  const allComments = (thread: typeof ThreadNode.Type) =>
+    thread.comments.pageInfo.hasNextPage && thread.comments.pageInfo.endCursor !== null
+      ? threadComments(thread.id, thread.comments.pageInfo.endCursor).pipe(
+          Effect.map((rest) => [...thread.comments.nodes, ...rest]),
+        )
+      : Effect.succeed(thread.comments.nodes)
+
   const janitorThreads = Effect.gen(function* () {
-    const nodes = yield* walk((after) =>
-      graphqlData("janitorThreads", THREADS_QUERY, { ...pullVariables, after }, ThreadsData).pipe(
-        Effect.flatMap((data) => pullRequestOf("janitorThreads", data)),
-        Effect.map((pull) => pull.reviewThreads),
-      ),
-    )
+    const nodes = yield* reviewThreads
     const threads: Array<JanitorThread> = []
     for (const thread of nodes) {
       const root = thread.comments.nodes[0]
@@ -929,13 +1008,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       if (root === undefined || !root.viewerDidAuthor || isPending(root)) continue
       const fingerprint = parseFingerprintMarker(root.body)
       if (Option.isNone(fingerprint)) continue
-      const comments =
-        thread.comments.pageInfo.hasNextPage && thread.comments.pageInfo.endCursor !== null
-          ? [
-              ...thread.comments.nodes,
-              ...(yield* threadComments(thread.id, thread.comments.pageInfo.endCursor)),
-            ]
-          : thread.comments.nodes
+      const comments = yield* allComments(thread)
       threads.push({
         id: thread.id,
         path: thread.path,
@@ -1069,28 +1142,70 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       return { id: String(body.id), url: body.html_url ?? "" } satisfies CheckRunLink
     })
 
-  const submitReview = (review: ReviewSubmission) =>
-    Effect.gen(function* () {
-      const pull = yield* graphqlData(
-        "pendingReviews",
-        PENDING_QUERY,
-        pullVariables,
-        PendingData,
-      ).pipe(Effect.flatMap((data) => pullRequestOf("pendingReviews", data)))
-      // A user has at most one pending review per pull request; clear janitor's leftover.
-      for (const leftover of pull.reviews.nodes) {
-        if (!leftover.viewerDidAuthor || leftover.state !== "PENDING") continue
-        yield* graphqlData(
-          "deletePendingReview",
-          DELETE_REVIEW,
-          { input: { pullRequestReviewId: leftover.id } },
-          Schema.Unknown,
-        )
+  const pendingReviews = graphqlData(
+    "pendingReviews",
+    PENDING_QUERY,
+    pullVariables,
+    PendingData,
+  ).pipe(Effect.flatMap((data) => pullRequestOf("pendingReviews", data)))
+
+  /** A user has at most one pending review per pull request. */
+  const ownPending = (pull: {
+    readonly reviews: { readonly nodes: ReadonlyArray<typeof ReviewNode.Type> }
+  }) => pull.reviews.nodes.find((review) => review.viewerDidAuthor && review.state === "PENDING")
+
+  const pendingReview = Effect.gen(function* () {
+    const review = ownPending(yield* pendingReviews)
+    if (review === undefined) return Option.none<PendingReview>()
+    const inReview = (comment: ThreadCommentNode) => comment.pullRequestReview?.id === review.id
+    const threads: Array<PendingReview["threads"][number]> = []
+    const replies: Array<PendingReview["replies"][number]> = []
+    for (const thread of yield* reviewThreads) {
+      const root = thread.comments.nodes[0]
+      // Janitor only opens threads and replies to its own.
+      if (root === undefined || !root.viewerDidAuthor) continue
+      if (inReview(root)) {
+        const fingerprint = parseFingerprintMarker(root.body)
+        if (Option.isSome(fingerprint)) {
+          threads.push({
+            threadId: thread.id,
+            path: thread.path,
+            line: thread.line,
+            fingerprint: fingerprint.value,
+          })
+        }
+        continue
       }
+      for (const comment of yield* allComments(thread)) {
+        if (inReview(comment)) replies.push({ threadId: thread.id, commentId: comment.id })
+      }
+    }
+    return Option.some<PendingReview>({
+      id: review.id,
+      databaseId: review.databaseId,
+      threads,
+      replies,
+    })
+  })
+
+  const deletePendingReview = Effect.gen(function* () {
+    const leftover = ownPending(yield* pendingReviews)
+    if (leftover === undefined) return
+    yield* graphqlData(
+      "deletePendingReview",
+      DELETE_REVIEW,
+      { input: { pullRequestReviewId: leftover.id } },
+      Schema.Unknown,
+    )
+  })
+
+  const createPendingReview = (commitId: string) =>
+    Effect.gen(function* () {
+      const pull = yield* pendingReviews
       const added = yield* graphqlData(
         "addReview",
         ADD_REVIEW,
-        { input: { pullRequestId: pull.id, commitOID: review.commitId } },
+        { input: { pullRequestId: pull.id, commitOID: commitId } },
         AddReviewData,
       )
       if (added.addPullRequestReview === null) {
@@ -1099,59 +1214,84 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
           message: "addReview: GitHub returned no review",
         })
       }
-      const pending = added.addPullRequestReview.pullRequestReview
-      for (const thread of review.threads) {
-        const result = yield* graphql(
-          "addThread",
-          ADD_THREAD,
-          {
-            input: {
-              pullRequestReviewId: pending.id,
-              path: thread.path,
-              line: thread.line,
-              side: "RIGHT",
-              ...(thread.startLine === undefined || thread.startLine === thread.line
-                ? {}
-                : { startLine: thread.startLine, startSide: "RIGHT" }),
-              body: thread.body,
-            },
-          },
-          AddThreadData,
-        )
-        const unprocessable = result.errors.find((error) => error.type === "UNPROCESSABLE")
-        const created = result.data?.addPullRequestReviewThread?.thread ?? null
-        // GitHub may refuse a line outside the diff with an error or with no thread at all.
-        if (unprocessable !== undefined || (result.errors.length === 0 && created === null)) {
-          return yield* new UnresolvableLine({
+      return added.addPullRequestReview.pullRequestReview
+    })
+
+  const addThread = (reviewId: string, thread: NewThread) =>
+    Effect.gen(function* () {
+      const result = yield* graphql(
+        "addThread",
+        ADD_THREAD,
+        {
+          input: {
+            pullRequestReviewId: reviewId,
             path: thread.path,
             line: thread.line,
-            message: unprocessable?.message ?? "GitHub created no thread for this line",
-          })
-        }
-        if (result.errors.length > 0) return yield* graphQLFailure("addThread", result.errors[0]!)
-      }
-      for (const reply of review.replies) {
-        yield* graphqlData(
-          "addReply",
-          ADD_REPLY,
-          {
-            input: {
-              pullRequestReviewId: pending.id,
-              pullRequestReviewThreadId: reply.threadId,
-              body: reply.body,
-            },
+            side: "RIGHT",
+            ...(thread.startLine === undefined || thread.startLine === thread.line
+              ? {}
+              : { startLine: thread.startLine, startSide: "RIGHT" }),
+            body: thread.body,
           },
-          Schema.Unknown,
+        },
+        AddThreadData,
+      )
+      const unprocessable = result.errors.find((error) => error.type === "UNPROCESSABLE")
+      const created = result.data?.addPullRequestReviewThread?.thread ?? null
+      // GitHub may refuse a line outside the diff with an error or with no thread at all.
+      if (unprocessable !== undefined || (result.errors.length === 0 && created === null)) {
+        return yield* new UnresolvableLine({
+          path: thread.path,
+          line: thread.line,
+          message: unprocessable?.message ?? "GitHub created no thread for this line",
+        })
+      }
+      if (result.errors.length > 0 || created === null) {
+        return yield* graphQLFailure(
+          "addThread",
+          result.errors[0] ?? { message: "GitHub returned no thread" },
         )
       }
-      yield* graphqlData(
-        "submitReview",
-        SUBMIT_REVIEW,
-        { input: { pullRequestReviewId: pending.id, event: review.event, body: review.body } },
-        Schema.Unknown,
-      )
-      return { reviewId: pending.id, databaseId: pending.databaseId }
+      return { threadId: created.id }
     })
+
+  const addReply = (
+    reviewId: string,
+    reply: { readonly threadId: string; readonly body: string },
+  ) =>
+    Effect.gen(function* () {
+      const added = yield* graphqlData(
+        "addReply",
+        ADD_REPLY,
+        {
+          input: {
+            pullRequestReviewId: reviewId,
+            pullRequestReviewThreadId: reply.threadId,
+            body: reply.body,
+          },
+        },
+        AddReplyData,
+      )
+      const comment = added.addPullRequestReviewThreadReply?.comment ?? null
+      if (comment === null) {
+        return yield* new PullRequestGitHubError({
+          operation: "addReply",
+          message: "addReply: GitHub returned no comment",
+        })
+      }
+      return { commentId: comment.id }
+    })
+
+  const submitPendingReview = (
+    reviewId: string,
+    submission: { readonly event: ReviewEvent; readonly body: string },
+  ) =>
+    graphqlData(
+      "submitReview",
+      SUBMIT_REVIEW,
+      { input: { pullRequestReviewId: reviewId, event: submission.event, body: submission.body } },
+      Schema.Unknown,
+    ).pipe(Effect.asVoid)
 
   const dismissReview = (review: JanitorReview, message: string) =>
     send("dismissReview", {
@@ -1186,7 +1326,12 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     permission,
     issueComment,
     upsertCheckRun,
-    submitReview,
+    pendingReview,
+    deletePendingReview,
+    createPendingReview,
+    addThread,
+    addReply,
+    submitPendingReview,
     dismissReview,
   } satisfies PullRequestGitHub
 })

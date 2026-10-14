@@ -71,6 +71,8 @@ export class FakeReviewGitHub extends FakeGitHub {
   reviews: Array<FakeReview> = []
   /** Refuse dismissals, as for an App missing from the dismissal allow-list. */
   dismissalForbidden = false
+  /** Answer a recursive tree listing the way GitHub does for a large repository: top level only, `truncated`. */
+  treeTruncated = false
   private ids = 0
 
   constructor(readonly number = 7) {
@@ -145,6 +147,30 @@ export class FakeReviewGitHub extends FakeGitHub {
     return this.ok([...entries].map(([name, type]) => ({ type, name, path: `${prefix}${name}` })))
   }
 
+  /** The git trees API at `ref`: every file and directory under it, or the top level only. */
+  private gitTree(ref: string, recursive: boolean): GitHubResponse {
+    const paths = new Map<string, "blob" | "tree">()
+    for (const path of this.files.get(ref)?.keys() ?? []) {
+      const parts = path.split("/")
+      parts.forEach((_, index) =>
+        paths.set(
+          parts.slice(0, index + 1).join("/"),
+          index === parts.length - 1 ? "blob" : "tree",
+        ),
+      )
+    }
+    const truncated = recursive && this.treeTruncated
+    const tree = [...paths]
+      .filter(([path]) => (recursive && !truncated) || !path.includes("/"))
+      .map(([path, type]) => ({
+        path,
+        mode: type === "blob" ? "100644" : "040000",
+        type,
+        sha: ref,
+      }))
+    return this.ok({ sha: ref, tree, truncated })
+  }
+
   private pending() {
     return this.reviews.find((review) => review.byApp && review.state === "PENDING")
   }
@@ -193,7 +219,14 @@ export class FakeReviewGitHub extends FakeGitHub {
                   author: { __typename: comment.byApp ? "Bot" : "User", login: comment.author },
                   viewerDidAuthor: comment.byApp,
                   pullRequestReview:
-                    comment.reviewId === undefined ? null : { id: comment.reviewId },
+                    comment.reviewId === undefined
+                      ? null
+                      : {
+                          id: comment.reviewId,
+                          state:
+                            this.reviews.find((review) => review.id === comment.reviewId)?.state ??
+                            "COMMENTED",
+                        },
                 })),
               },
             })),
@@ -335,6 +368,16 @@ export class FakeReviewGitHub extends FakeGitHub {
     const contents = rest === null ? null : /^\/contents\/?(.*)$/.exec(rest)
     if (contents && request.method === "GET")
       return this.contents(url.searchParams.get("ref"), decodeURIComponent(contents[1]!))
+    const tree = rest === null ? null : /^\/git\/trees\/([^/]+)$/.exec(rest)
+    if (tree && request.method === "GET")
+      return this.gitTree(decodeURIComponent(tree[1]!), url.searchParams.has("recursive"))
+    // GitHub lists at most 3,000 changed files, and the last page has no next link.
+    if (rest === `/pulls/${this.number}/files` && request.method === "GET")
+      return this.page(
+        url.pathname,
+        url.searchParams,
+        (this.pull(this.number)?.files ?? []).slice(0, 3000),
+      )
     const dismissal =
       rest === null
         ? null
