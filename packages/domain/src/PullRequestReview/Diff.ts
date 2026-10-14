@@ -41,42 +41,28 @@ const hunkHeader = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 /** Hunks with no `RIGHT`-side lines, such as pure deletions, are left out. */
 const parseHunks = (patch: string): ReadonlyArray<Hunk> => {
   const hunks: Array<Hunk> = []
-  let current: { startLine: number; lines: Array<string> } | undefined
-  let oldLeft = 0
-  let newLeft = 0
+  let startLine = 0
+  let lines: Array<string> = []
+  /** `RIGHT`-side lines the current hunk's header still promises. */
+  let remaining = 0
   const close = () => {
-    if (current !== undefined && current.lines.length > 0) {
-      hunks.push({
-        startLine: current.startLine,
-        endLine: current.startLine + current.lines.length - 1,
-        lines: current.lines,
-      })
+    if (lines.length > 0) {
+      hunks.push({ startLine, endLine: startLine + lines.length - 1, lines })
     }
-    current = undefined
+    lines = []
   }
   for (const line of patch.split("\n")) {
     const header = hunkHeader.exec(line)
     if (header !== null) {
       close()
-      current = { startLine: Number(header[3]), lines: [] }
-      oldLeft = Number(header[2] ?? "1")
-      newLeft = Number(header[4] ?? "1")
-      continue
-    }
-    if (current === undefined) continue
-    const marker = line[0]
-    if (marker === "+") {
-      current.lines.push(line.slice(1))
-      newLeft--
-    } else if (marker === "-") {
-      oldLeft--
-    } else if (marker === " " || (line === "" && oldLeft > 0 && newLeft > 0)) {
+      startLine = Number(header[3])
+      remaining = Number(header[4] ?? "1")
+    } else if (remaining > 0 && (line[0] === "+" || line[0] === " " || line === "")) {
       // An empty line inside a hunk is a context line whose leading space was trimmed.
-      current.lines.push(line.slice(1))
-      oldLeft--
-      newLeft--
+      lines.push(line.slice(1))
+      remaining--
     }
-    // `\ No newline at end of file` and anything else carries no line.
+    // `-` lines, `\ No newline at end of file` and anything else carry no `RIGHT`-side line.
   }
   close()
   return hunks
@@ -126,8 +112,7 @@ const formatRange = (start: number, end: number) => (start === end ? `${start}` 
 const nearestRanges = (hunks: ReadonlyArray<Hunk>, anchor: LineAnchor) => {
   const before = hunks.findLast((hunk) => hunk.startLine <= anchor.startLine)
   const after = hunks.find((hunk) => hunk.endLine >= anchor.endLine)
-  const nearest = before === after || after === undefined ? [before] : [before, after]
-  return nearest.flatMap((hunk) =>
+  return [...new Set([before, after])].flatMap((hunk) =>
     hunk === undefined ? [] : [formatRange(hunk.startLine, hunk.endLine)],
   )
 }
@@ -143,15 +128,11 @@ export const validateAnchor = (diff: TrustedDiff, anchor: LineAnchor): AnchorRes
     (candidate) => candidate.startLine <= anchor.startLine && anchor.endLine <= candidate.endLine,
   )
   if (hunk !== undefined) {
+    const offset = anchor.startLine - hunk.startLine
     return {
       _tag: "Anchored",
-      path: file.path,
-      startLine: anchor.startLine,
-      endLine: anchor.endLine,
-      lines: hunk.lines.slice(
-        anchor.startLine - hunk.startLine,
-        anchor.endLine - hunk.startLine + 1,
-      ),
+      ...anchor,
+      lines: hunk.lines.slice(offset, offset + anchor.endLine - anchor.startLine + 1),
     }
   }
   const problem =

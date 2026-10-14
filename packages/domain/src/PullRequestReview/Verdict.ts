@@ -90,13 +90,12 @@ const sameSection = (base: unknown, head: unknown) => {
 /** A manifest janitor can't read on either side counts as a dependency change. */
 const changesDependencies = (change: ManifestChange | undefined) => {
   if (change === undefined) return true
-  const side = (text: string | undefined): Option.Option<Readonly<Record<string, unknown>>> =>
-    text === undefined ? Option.some({}) : decodeManifest(text)
-  const base = side(change.base)
-  const head = side(change.head)
-  if (Option.isNone(base) || Option.isNone(head)) return true
-  return DEPENDENCY_SECTIONS.some(
-    (section) => !sameSection(base.value[section], head.value[section]),
+  const base = decodeManifest(change.base ?? "{}")
+  const head = decodeManifest(change.head ?? "{}")
+  return (
+    Option.isNone(base) ||
+    Option.isNone(head) ||
+    DEPENDENCY_SECTIONS.some((section) => !sameSection(base.value[section], head.value[section]))
   )
 }
 
@@ -178,18 +177,12 @@ export const decideReview = (input: ReviewInput): ReviewDecision => {
   const nits =
     input.findings.some((finding) => finding.severity === "nit") ||
     input.threads.some((thread) => thread.severity === "nit" && thread.clearing === "standing")
-  const event: Verdict | null = blocking
-    ? changed
-      ? "request_changes"
-      : null
-    : gateFailures.length === 0
-      ? changed || !input.approvedAtHead
-        ? "approve"
-        : null
-      : nits && changed
-        ? "comment"
-        : null
-  return { event, dismissEarlier, gateFailures }
+  const event = (): Verdict | null => {
+    if (blocking) return changed ? "request_changes" : null
+    if (gateFailures.length === 0) return changed || !input.approvedAtHead ? "approve" : null
+    return nits && changed ? "comment" : null
+  }
+  return { event: event(), dismissEarlier, gateFailures }
 }
 
 export type CheckRunInput =

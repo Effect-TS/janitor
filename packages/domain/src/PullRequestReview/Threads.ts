@@ -83,19 +83,23 @@ export interface ThreadState {
   readonly changed: boolean
 }
 
+/** Whether this actor resolved the thread or replied in it. */
+const weighedIn = (thread: EarlierThread, actor: Actor) =>
+  thread.resolvedBy === actor || thread.replies.some((reply) => reply.by === actor)
+
 const clearing = (
   thread: EarlierThread,
   judgement: Judgement,
   headMatch: HeadMatch,
   authorCanWrite: boolean,
 ): Clearing => {
+  if ((judgement === "addressed" && headMatch._tag === "Gone") || weighedIn(thread, "maintainer")) {
+    return "approval"
+  }
   // The PR author never clears for approval, even with write access (EFF-1650 point 3).
-  const maintainer =
-    thread.resolvedBy === "maintainer" || thread.replies.some((reply) => reply.by === "maintainer")
-  if ((judgement === "addressed" && headMatch._tag === "Gone") || maintainer) return "approval"
-  const author =
-    thread.resolvedBy === "author" || thread.replies.some((reply) => reply.by === "author")
-  if (judgement !== "still_applies" || (authorCanWrite && author)) return "dismissal"
+  if (judgement !== "still_applies" || (authorCanWrite && weighedIn(thread, "author"))) {
+    return "dismissal"
+  }
   return "standing"
 }
 
