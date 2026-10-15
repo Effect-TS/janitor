@@ -1,3 +1,35 @@
+diff --git a/lib/Cloudflare/Workers/Sources/Rolldown.js b/lib/Cloudflare/Workers/Sources/Rolldown.js
+index 2792c017a63fbc3f6c43f3125d5a9dbc16a146d7..bbc0d66c0f5259518896377d4bd3a3533ce4468c 100644
+--- a/lib/Cloudflare/Workers/Sources/Rolldown.js
++++ b/lib/Cloudflare/Workers/Sources/Rolldown.js
+@@ -175,6 +175,8 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+     const doClasses = [];
+     const wfClasses = [];
+     const migrations = {};
++    // Named `WorkerEntrypoint` classes re-exported from their own module.
++    const entrypointModules = [];
+     for (const [className, entry] of Object.entries(exports)) {
+         if (isDurableObjectExport(entry)) {
+             doClasses.push(className);
+@@ -185,6 +187,9 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+         else if (entry.kind === "sqlMigrations") {
+             migrations[className] = entry.snapshot;
+         }
++        else if (entry.kind === "entrypointModule") {
++            entrypointModules.push(`export { ${entry.exportName} as ${className} } from ${JSON.stringify(entry.module)};`);
++        }
+     }
+     const hasMigrations = Object.keys(migrations).length > 0;
+     const hasDoClasses = doClasses.length > 0;
+@@ -208,6 +213,8 @@ const meta = {
+ 
+ export default makeWorkerBridge(WorkerEntrypoint, meta);
+ 
++${entrypointModules.join("\n")}
++
+ // export class proxy stubs for Durable Objects and Workflows
+ ${[
+         ...(hasDoClasses
 diff --git a/lib/Command/Memo.js b/lib/Command/Memo.js
 index c19d7692162404bd4d11d61c83f2599b48cad311..3a516afb7955c458e09047600a0a54111e4f810e 100644
 --- a/lib/Command/Memo.js
@@ -33,6 +65,43 @@ index a752601b86022db1ea8bf3a33a80e783c3a1b1a7..1224507a0fa0f2d92a6138e2f392778b
              return systemError({
                  _tag: "NotFound",
                  args,
+diff --git a/src/Cloudflare/Workers/Sources/Rolldown.ts b/src/Cloudflare/Workers/Sources/Rolldown.ts
+index ce7a8441c0c4b1d11f1f9d66d6797c53eebb3332..10fe67c8d7bdbb53e91e2f5c6bd77d270a7b4165 100644
+--- a/src/Cloudflare/Workers/Sources/Rolldown.ts
++++ b/src/Cloudflare/Workers/Sources/Rolldown.ts
+@@ -284,6 +284,8 @@ export const makeEffectVirtualEntry = (
+   const doClasses: string[] = [];
+   const wfClasses: string[] = [];
+   const migrations: Record<string, SqlMigrationSnapshot> = {};
++  // Named `WorkerEntrypoint` classes re-exported from their own module.
++  const entrypointModules: string[] = [];
+   for (const [className, entry] of Object.entries(exports)) {
+     if (isDurableObjectExport(entry)) {
+       doClasses.push(className);
+@@ -291,6 +293,14 @@ export const makeEffectVirtualEntry = (
+       wfClasses.push(className);
+     } else if (entry.kind === "sqlMigrations") {
+       migrations[className] = entry.snapshot;
++    } else if ((entry as { kind: string }).kind === "entrypointModule") {
++      const { module, exportName } = entry as unknown as {
++        module: string;
++        exportName: string;
++      };
++      entrypointModules.push(
++        `export { ${exportName} as ${className} } from ${JSON.stringify(module)};`,
++      );
+     }
+   }
+   const hasMigrations = Object.keys(migrations).length > 0;
+@@ -315,6 +325,8 @@ const meta = {
+ 
+ export default makeWorkerBridge(WorkerEntrypoint, meta);
+ 
++${entrypointModules.join("\n")}
++
+ // export class proxy stubs for Durable Objects and Workflows
+ ${[
+   ...(hasDoClasses
 diff --git a/src/Command/Memo.ts b/src/Command/Memo.ts
 index 7a405c8df86c9bbb391ca46ab0386c32f83f6e58..543d8e5b5fcdd320674f22026b04250a5c471988 100644
 --- a/src/Command/Memo.ts

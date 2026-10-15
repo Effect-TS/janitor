@@ -9,13 +9,14 @@
   "dependencies": {
     "@effect/ai-openrouter": "catalog:",
     "@effect/platform-cloudflare": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",
     "@janitor/domain": "workspace:^",
     "alchemy": "catalog:",
+    "clanka": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@testcontainers/postgresql": "catalog:",
     "vite-plus": "catalog:"

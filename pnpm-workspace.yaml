@@ -23,6 +23,9 @@ catalog:
   "@lezer/common": 1.5.2
   "@uiw/codemirror-theme-github": 4.25.11
   "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/ai-openai": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/sql-sqlite-node": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@667feb75dcf5259c4d9eafe51476487b18b8de01
@@ -43,6 +46,7 @@ catalog:
   "@types/node": ^24.13.3
   alchemy: 2.0.0-beta.80
   "@distilled.cloud/cloudflare": 1.0.0-rc.13
+  clanka: 0.10.1
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
   happy-dom: ^20.0.0
@@ -68,6 +72,9 @@ overrides:
   "@effect/sql-d1": "catalog:"
   "@effect/sql-sqlite-do": "catalog:"
   "@effect/ai-openrouter": "catalog:"
+  "@effect/ai-openai": "catalog:"
+  "@effect/ai-openai-compat": "catalog:"
+  "@effect/sql-sqlite-node": "catalog:"
   vite: "catalog:"
 
 # The GitHub theme imports these packages without declaring them.
@@ -94,6 +101,10 @@ allowBuilds:
   sharp: false
   ssh2: false
   workerd: true
+  # clanka's SemanticSearch needs these; the sandbox executor doesn't use it.
+  tree-sitter: false
+  tree-sitter-javascript: false
+  tree-sitter-typescript: false
 
 minimumReleaseAgeExclude:
   - "@alchemy.run/*"
@@ -101,6 +112,7 @@ minimumReleaseAgeExclude:
   - "@foldkit/*"
   - alchemy
   - foldkit
+  - clanka@0.10.1
 
 patchedDependencies:
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
