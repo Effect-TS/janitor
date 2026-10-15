@@ -7,6 +7,7 @@ import * as HttpEffect from "effect/http/HttpEffect"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import * as Latch from "effect/Latch"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
@@ -379,6 +380,24 @@ describe("PR review sandbox workspace", () => {
           )
         }
       }),
+  )
+
+  it.effect("release still destroys the container when a token request never answers", () =>
+    Effect.gen(function* () {
+      const minting = yield* Deferred.make<void>()
+      const auth = makeAuth(Deferred.succeed(minting, undefined).pipe(Effect.andThen(Effect.never)))
+      const container = new FakeContainer({ git: scriptedGit(HEAD) })
+      const workspace = yield* makeWorkspace(makeState(container)).pipe(Effect.provide(auth.layer))
+
+      // Detached: a mint that can't be stopped would otherwise hold up the test's teardown too.
+      yield* Effect.forkDetach(workspace.acquire(acquireInput))
+      yield* Deferred.await(minting)
+      // Well inside the run's own 10-minute deadline.
+      const released = yield* elapsing(workspace.release.pipe(Effect.timeoutOption("1 minute")))
+
+      assert.isTrue(Option.isSome(released))
+      assert.isFalse(container.running)
+    }),
   )
 
   it.effect("sets the inactivity timeout again when constructed over a running container", () =>

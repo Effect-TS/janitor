@@ -119,6 +119,8 @@ const RELEASED_KEY = "released"
 const HEALTH_POLL = Duration.millis(250)
 const HEALTH_TIMEOUT = Duration.seconds(5)
 const PROVISION_TIMEOUT = Duration.minutes(3)
+/** Bounds a token request, so `release` never waits on GitHub for long. */
+const MINT_TIMEOUT = Duration.seconds(30)
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
@@ -223,12 +225,18 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
   const attempt = (input: AcquireInput) =>
     Effect.gen(function* () {
       yield* revoke
-      // Minted and kept in one step: `release` can't stop it halfway and miss a token GitHub issued.
+      // Minted and kept in one step: `release` can't stop it halfway and miss a token GitHub
+      // issued. The timeout sits inside that step, so `release` waits at most this long; a
+      // token whose answer never arrived is left to its 1-hour expiry.
       const fresh = yield* mintSandboxToken({
         installationId: input.installationId as GitHubInstallationId,
         repositoryId: input.repositoryId,
       }).pipe(
         Effect.provideService(GitHubAppAuth, auth),
+        Effect.timeoutOrElse({
+          duration: MINT_TIMEOUT,
+          orElse: () => Effect.fail({ message: "minting the sandbox token timed out" }),
+        }),
         Effect.tap((minted) =>
           Effect.sync(() => {
             token = minted
