@@ -190,6 +190,23 @@ describe("PR review GitHub", () => {
       }),
   )
 
+  it.effect("refuses a directory with more files than the read bound", () =>
+    Effect.gen(function* () {
+      const fake = makeFake()
+      for (let index = 0; index < 501; index++) {
+        fake.file(BASE, `.agents/skills/review/references/note-${index}.md`, `note ${index}`)
+      }
+      const github = yield* client(fake)
+
+      const error = yield* github.readDirectory(BASE, ".agents/skills").pipe(Effect.flip)
+
+      assert.instanceOf(error, ReviewGitHub.DirectoryTooLarge)
+      assert.deepInclude(error, { path: ".agents/skills", limit: 500 })
+      // The bound still holds: three directory listings and at most 500 file reads.
+      assert.isAtMost(fake.reads.length, 503)
+    }),
+  )
+
   it.effect("keeps only the App's threads and reviews that carry valid markers", () =>
     Effect.gen(function* () {
       const fake = makeFake()

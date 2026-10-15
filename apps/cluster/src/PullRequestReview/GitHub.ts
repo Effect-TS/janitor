@@ -59,6 +59,12 @@ export class RateLimited extends Data.TaggedError("PullRequestGitHubRateLimited"
 
 export type PullRequestGitHubFailure = PullRequestGitHubError | Forbidden | NotFound | RateLimited
 
+/** A directory read would go past its file bound, so reading it whole is refused. */
+export class DirectoryTooLarge extends Data.TaggedError("PullRequestGitHubDirectoryTooLarge")<{
+  readonly path: string
+  readonly limit: number
+}> {}
+
 /** GitHub refused a review thread whose line isn't part of the diff. */
 export class UnresolvableLine extends Data.TaggedError("UnresolvableLine")<{
   readonly path: string
@@ -216,13 +222,16 @@ export interface PullRequestGitHub {
     ref: string,
     path: string,
   ) => Effect.Effect<HeadBlob, PullRequestGitHubFailure>
-  /** Every file under a directory at `ref`, recursively; a missing directory has none. */
+  /**
+   * Every file under a directory at `ref`, recursively; a missing directory has
+   * none. Past 500 files it fails rather than return part of the directory.
+   */
   readonly readDirectory: (
     ref: string,
     path: string,
   ) => Effect.Effect<
     ReadonlyArray<{ readonly path: string; readonly blob: HeadBlob }>,
-    PullRequestGitHubFailure
+    PullRequestGitHubFailure | DirectoryTooLarge
   >
   readonly compare: (
     lastReviewedSha: string,
@@ -818,7 +827,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     Effect.gen(function* () {
       const files: Array<{ readonly path: string; readonly blob: HeadBlob }> = []
       const pending = [path]
-      while (pending.length > 0 && files.length < MAX_DIRECTORY_FILES) {
+      while (pending.length > 0) {
         const contents = yield* restOrMissing("readDirectory", {
           url: contentsUrl(ref, pending.shift()!),
           schema: ContentsApi,
@@ -826,7 +835,10 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
         if (Option.isNone(contents) || !isListing(contents.value)) continue
         for (const entry of contents.value) {
           if (entry.type === "dir") pending.push(entry.path)
-          else if (entry.type === "file" && files.length < MAX_DIRECTORY_FILES) {
+          else if (entry.type === "file") {
+            if (files.length === MAX_DIRECTORY_FILES) {
+              return yield* new DirectoryTooLarge({ path, limit: MAX_DIRECTORY_FILES })
+            }
             files.push({ path: entry.path, blob: yield* readFile(ref, entry.path) })
           }
         }
