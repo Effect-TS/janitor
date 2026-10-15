@@ -1,9 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Clock from "effect/Clock"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as HttpEffect from "effect/http/HttpEffect"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import * as Latch from "effect/Latch"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
@@ -32,7 +34,7 @@ const acquireInput = {
 } as const
 
 type ContainerEvent =
-  | { readonly _tag: "start"; readonly enableInternet: boolean | undefined }
+  | { readonly _tag: "start"; readonly enableInternet: boolean | undefined; readonly at: number }
   | { readonly _tag: "setInactivityTimeout" }
   | { readonly _tag: "interceptAllOutboundHttp"; readonly token: string }
   | { readonly _tag: "interceptOutboundHttps"; readonly addr: string; readonly token: string }
@@ -58,14 +60,18 @@ class FakeContainer {
   private unavailableStarts: number
   private failedStart = false
   private readonly handler: (request: Request) => Promise<Response>
+  private readonly now: () => number
 
   constructor(options: {
     readonly running?: boolean
+    /** The clock `start` events are stamped with. */
+    readonly now?: () => number
     readonly unavailableStarts?: number
     readonly git?: (args: ReadonlyArray<string>) => Effect.Effect<string, GitCommandFailed>
   }) {
     this.running = options.running ?? false
     this.unavailableStarts = options.unavailableStarts ?? 0
+    this.now = options.now ?? (() => 0)
     const git = options.git ?? (() => Effect.succeed(""))
     const app = HttpEffect.toWebHandler(
       makeContainerApp({
@@ -86,7 +92,7 @@ class FakeContainer {
   }
 
   start(options?: { readonly enableInternet?: boolean }) {
-    this.events.push({ _tag: "start", enableInternet: options?.enableInternet })
+    this.events.push({ _tag: "start", enableInternet: options?.enableInternet, at: this.now() })
     if (this.unavailableStarts > 0) {
       this.unavailableStarts--
       this.running = false
@@ -152,14 +158,18 @@ const makeState = (container: FakeContainer, storage = makeStorage()) => ({
   },
 })
 
-/** A GitHub App that mints `token-1`, `token-2`, ... and records when, and what it revokes. */
-const makeAuth = () => {
+/**
+ * A GitHub App that mints `token-1`, `token-2`, ... and records when, and what
+ * it revokes. Each mint waits for `gate` first.
+ */
+const makeAuth = (gate: Effect.Effect<void> = Effect.void) => {
   const minted: Array<{ readonly token: string; readonly at: number }> = []
   const revoked: Array<string> = []
   const layer = Layer.succeed(GitHubAppAuth, {
     appJwt: Effect.succeed(Redacted.make("jwt")),
     installationToken: () =>
       Effect.gen(function* () {
+        yield* gate
         const token = `token-${minted.length + 1}`
         minted.push({ token, at: yield* Clock.currentTimeMillis })
         return Redacted.make(token)
@@ -314,7 +324,10 @@ describe("PR review sandbox workspace", () => {
           )
           assert.include(significant(recovers), "provision")
 
-          const exhausted = new FakeContainer({ unavailableStarts: Infinity })
+          const clock = yield* Clock.clockWith(Effect.succeed)
+          const now = () => clock.currentTimeMillisUnsafe()
+          const exhausted = new FakeContainer({ unavailableStarts: Infinity, now })
+          const deadline = now() + 10_000
           const error = yield* elapsing(
             Effect.flatMap(makeWorkspace(makeState(exhausted)), (workspace) =>
               Effect.flip(workspace.acquire({ ...acquireInput, startBudget: "10 seconds" })),
@@ -322,8 +335,50 @@ describe("PR review sandbox workspace", () => {
           )
           assert.strictEqual(error._tag, "ContainerUnavailable")
           assert.notInclude(significant(exhausted), "provision")
+          // The budget bounds the whole startup: nothing starts, and nobody waits, past it.
+          for (const event of exhausted.events) {
+            if (event._tag === "start") assert.isBelow(event.at, deadline)
+          }
+          assert.isAtMost(now(), deadline)
         }),
       ),
+  )
+
+  it.effect(
+    "release stops an acquire in flight, then destroys the container and revokes every token it minted",
+    () =>
+      Effect.gen(function* () {
+        // Release arrives while a token is being minted, and while a start waits out "no container instance".
+        for (const pause of ["mint", "start"] as const) {
+          const minting = yield* Deferred.make<void>()
+          const mintGate = yield* Latch.make(pause !== "mint")
+          const auth = makeAuth(
+            Deferred.succeed(minting, undefined).pipe(Effect.andThen(mintGate.await)),
+          )
+          const container = new FakeContainer({
+            unavailableStarts: pause === "start" ? 1 : 0,
+            git: scriptedGit(HEAD),
+          })
+          const workspace = yield* makeWorkspace(makeState(container)).pipe(
+            Effect.provide(auth.layer),
+          )
+
+          const acquire = yield* Effect.forkChild(workspace.acquire(acquireInput))
+          if (pause === "mint") yield* Deferred.await(minting)
+          else yield* settle
+          const release = yield* Effect.forkChild(workspace.release)
+          yield* settle
+          yield* mintGate.open
+          yield* elapsing(Effect.all([Fiber.await(acquire), Fiber.join(release)]))
+
+          assert.isFalse(container.running, pause)
+          assert.deepStrictEqual(
+            auth.revoked,
+            auth.minted.map((mint) => mint.token),
+            pause,
+          )
+        }
+      }),
   )
 
   it.effect("sets the inactivity timeout again when constructed over a running container", () =>

@@ -1,6 +1,8 @@
-import * as Clock from "effect/Clock"
+import * as Cause from "effect/Cause"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import * as Semaphore from "effect/Semaphore"
@@ -21,9 +23,9 @@ import type { EgressProps } from "./Egress.ts"
  *   inactivity timeout, routes its HTTP and HTTPS egress to `GitEgress` with
  *   a fresh installation token, and checks out the pull request.
  * - `forward` passes executor RPC to the container's port as-is.
- * - `release` destroys the container, revokes the token, and leaves a
- *   marker in storage, so a later acquire on this run is refused even after
- *   the object is evicted.
+ * - `release` stops an acquire still in flight, then destroys the container,
+ *   revokes the token, and leaves a marker in storage, so a later acquire on
+ *   this run is refused even after the object is evicted.
  *
  * The token lives only in memory and in the intercepts' props. It is never
  * written to storage, logged, or put in an error.
@@ -133,6 +135,8 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
   const lock = yield* Semaphore.make(1)
   let token: Redacted.Redacted<string> | undefined
   let released = false
+  /** The acquire in flight, which `release` stops before cleaning up. */
+  let acquiring: Fiber.Fiber<void, AcquireError> | undefined
 
   const promise = <A>(evaluate: () => Promise<A>) =>
     Effect.tryPromise({ try: evaluate, catch: message })
@@ -165,46 +169,50 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
   )
 
   /** One `start()`: ready once `/health` answers, or the exit reason. */
-  const startOnce = (deadline: number) =>
-    Effect.gen(function* () {
-      let exit: string | undefined
-      const thrown = yield* Effect.try({
-        try: () => {
-          container.start({ enableInternet: false })
-          container.monitor().then(
-            () => {
-              exit = "the container exited"
-            },
-            (error: unknown) => {
-              exit = message(error)
-            },
-          )
-        },
-        catch: message,
-      }).pipe(Effect.match({ onFailure: (reason) => reason, onSuccess: () => undefined }))
-      if (thrown !== undefined) return thrown
-      while (true) {
-        if (yield* health) return undefined
-        if (exit !== undefined && !container.running) return exit
-        if ((yield* Clock.currentTimeMillis) >= deadline) return "the executor did not answer"
-        yield* Effect.sleep(HEALTH_POLL)
-      }
-    })
+  const startOnce = Effect.gen(function* () {
+    let exit: string | undefined
+    const thrown = yield* Effect.try({
+      try: () => {
+        container.start({ enableInternet: false })
+        container.monitor().then(
+          () => {
+            exit = "the container exited"
+          },
+          (error: unknown) => {
+            exit = message(error)
+          },
+        )
+      },
+      catch: message,
+    }).pipe(Effect.match({ onFailure: (reason) => reason, onSuccess: () => undefined }))
+    if (thrown !== undefined) return thrown
+    while (true) {
+      if (yield* health) return undefined
+      if (exit !== undefined && !container.running) return exit
+      yield* Effect.sleep(HEALTH_POLL)
+    }
+  })
 
+  /** Starts the container, retrying "no container instance"; the budget bounds the whole startup. */
   const start = (budget: Duration.Duration) =>
     Effect.gen(function* () {
       if (container.running) yield* promise(() => container.destroy()).pipe(Effect.ignore)
-      const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(budget)
-      for (let retry = 0; ; retry++) {
-        const exit = yield* startOnce(deadline)
-        if (exit === undefined) return
-        const now = yield* Clock.currentTimeMillis
-        if (!exit.includes(NO_INSTANCE) || now >= deadline) {
-          return yield* new ContainerUnavailable({ reason: exit })
+      let reason = "the executor did not answer"
+      yield* Effect.gen(function* () {
+        for (let retry = 0; ; retry++) {
+          const exit = yield* startOnce
+          if (exit === undefined) return
+          if (!exit.includes(NO_INSTANCE)) return yield* new ContainerUnavailable({ reason: exit })
+          reason = exit
+          yield* Effect.logInfo("No sandbox container instance yet; retrying")
+          yield* Effect.sleep(Duration.min(Duration.seconds(2 ** retry), Duration.seconds(5)))
         }
-        yield* Effect.logInfo("No sandbox container instance yet; retrying")
-        yield* Effect.sleep(Duration.min(Duration.seconds(2 ** retry), Duration.seconds(5)))
-      }
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: budget,
+          orElse: () => Effect.fail(new ContainerUnavailable({ reason })),
+        }),
+      )
     })
 
   const ensureNotReleased = Effect.suspend(() =>
@@ -215,14 +223,20 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
   const attempt = (input: AcquireInput) =>
     Effect.gen(function* () {
       yield* revoke
+      // Minted and kept in one step: `release` can't stop it halfway and miss a token GitHub issued.
       const fresh = yield* mintSandboxToken({
         installationId: input.installationId as GitHubInstallationId,
         repositoryId: input.repositoryId,
       }).pipe(
         Effect.provideService(GitHubAppAuth, auth),
+        Effect.tap((minted) =>
+          Effect.sync(() => {
+            token = minted
+          }),
+        ),
+        Effect.uninterruptible,
         Effect.mapError((error) => new AttemptFailed({ reason: error.message })),
       )
-      token = fresh
       const egress = state.exports.GitEgress({
         props: {
           runId: input.runId,
@@ -297,13 +311,25 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
 
   const acquire = (input: AcquireInput): Effect.Effect<void, AcquireError> =>
     Effect.gen(function* () {
-      if (yield* promise(() => storage.get<boolean>(RELEASED_KEY)).pipe(Effect.orDie)) {
-        released = true
+      const fiber = yield* Effect.forkChild(
+        Effect.gen(function* () {
+          if (yield* promise(() => storage.get<boolean>(RELEASED_KEY)).pipe(Effect.orDie)) {
+            released = true
+          }
+          yield* ensureNotReleased
+          yield* start(Duration.fromInputUnsafe(input.startBudget))
+          yield* hold
+          yield* provision(input)
+        }),
+      )
+      acquiring = fiber
+      const exit = yield* Fiber.await(fiber)
+      acquiring = undefined
+      // Stopped by `release`, which cleans up after it.
+      if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause) && released) {
+        return yield* new WorkspaceReleased()
       }
-      yield* ensureNotReleased
-      yield* start(Duration.fromInputUnsafe(input.startBudget))
-      yield* hold
-      yield* provision(input)
+      return yield* exit
     }).pipe(Semaphore.withPermits(lock, 1))
 
   const forward = (request: Request): Effect.Effect<Response> =>
@@ -329,6 +355,7 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
 
   const release = Effect.gen(function* () {
     released = true
+    if (acquiring !== undefined) yield* Fiber.interrupt(acquiring)
     yield* promise(() => storage.put(RELEASED_KEY, true)).pipe(Effect.orDie)
     if (container.running) {
       yield* promise(() => container.destroy()).pipe(

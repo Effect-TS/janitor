@@ -1,7 +1,10 @@
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import type * as Scope from "effect/Scope"
+import * as Semaphore from "effect/Semaphore"
 import { checkout, CheckoutOutcome, CheckoutRequest, type Git } from "./Checkout.ts"
 
 /** The port the container serves on, and the workspace DO forwards to. */
@@ -18,7 +21,9 @@ export const WORKSPACE_DIRECTORY = "/workspace"
  *   route here.
  * - `GET /health`: answers once the server is up; the workspace DO polls it
  *   after `start()`.
- * - `POST /provision`: one checkout attempt. The workspace DO retries.
+ * - `POST /provision`: one checkout attempt. The workspace DO retries. Its
+ *   timeout doesn't reach in here, so a new attempt first stops the one before
+ *   it; the stopped attempt answers 409.
  */
 export const makeContainerApp = (options: {
   readonly rpc: Effect.Effect<
@@ -33,8 +38,27 @@ export const makeContainerApp = (options: {
   HttpServerResponse.HttpServerResponse,
   never,
   HttpServerRequest.HttpServerRequest | Scope.Scope
-> =>
-  Effect.gen(function* () {
+> => {
+  const lock = Semaphore.makeUnsafe(1)
+  let current: Fiber.Fiber<CheckoutOutcome> | undefined
+
+  /** Stops the previous attempt, then resets the workspace and checks out. */
+  const provision = (request: CheckoutRequest) =>
+    Effect.gen(function* () {
+      if (current !== undefined) yield* Fiber.interrupt(current)
+      current = yield* Effect.forkChild(
+        Effect.gen(function* () {
+          yield* options.reset ?? Effect.void
+          return yield* checkout(options.git, request).pipe(
+            Effect.as({ _tag: "CheckedOut" } as const),
+            Effect.catch((error) => Effect.succeed(error)),
+          )
+        }),
+      )
+      return current
+    }).pipe(Semaphore.withPermits(lock, 1))
+
+  return Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest
     const path = new URL(request.url, "http://container").pathname.replace(/\/+$/, "") || "/"
     switch (path) {
@@ -45,11 +69,11 @@ export const makeContainerApp = (options: {
       case "/provision": {
         if (request.method !== "POST") return HttpServerResponse.empty({ status: 405 })
         const checkoutRequest = yield* HttpServerRequest.schemaBodyJson(CheckoutRequest)
-        yield* options.reset ?? Effect.void
-        const outcome: CheckoutOutcome = yield* checkout(options.git, checkoutRequest).pipe(
-          Effect.as({ _tag: "CheckedOut" } as const),
-          Effect.catch((error) => Effect.succeed(error)),
+        const attempt = yield* provision(checkoutRequest)
+        const outcome = yield* Fiber.join(attempt).pipe(
+          Effect.catchCauseIf(Cause.hasInterruptsOnly, () => Effect.void),
         )
+        if (outcome === undefined) return HttpServerResponse.empty({ status: 409 })
         return yield* HttpServerResponse.schemaJson(CheckoutOutcome)(outcome)
       }
       default:
@@ -62,3 +86,4 @@ export const makeContainerApp = (options: {
       ),
     ),
   )
+}
