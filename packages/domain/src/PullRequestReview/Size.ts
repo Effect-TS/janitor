@@ -1,3 +1,5 @@
+import { fileName } from "./Diff.ts"
+
 /**
  * The size count behind the oversized check (EFF-1652 point 5): changed lines
  * and files, leaving out lockfiles, files the base SHA's `.gitattributes`
@@ -85,11 +87,24 @@ const generatedRules = (gitattributes: string): ReadonlyArray<GeneratedRule> =>
     // Negative patterns are not allowed in `.gitattributes`.
     if (raw === undefined || raw === "" || raw.startsWith("#") || raw.startsWith("!")) return []
     const generated = generatedValue(attributes)
-    const pattern = generated === undefined ? undefined : patternRegExp(raw)
-    return pattern === undefined || generated === undefined ? [] : [{ pattern, generated }]
+    if (generated === undefined) return []
+    const pattern = patternRegExp(raw)
+    return pattern === undefined ? [] : [{ pattern, generated }]
   })
 
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1)
+/**
+ * The directories whose `.gitattributes` can apply to `paths`, shallowest
+ * first, as `countedSize` expects them: the root (`""`) and every ancestor.
+ */
+export const ancestorDirectories = (paths: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const directories = new Set([""])
+  for (const path of paths) {
+    for (let end = path.lastIndexOf("/"); end > 0; end = path.lastIndexOf("/", end - 1))
+      directories.add(path.slice(0, end))
+  }
+  // An ancestor's path is always shorter than its descendants'.
+  return [...directories].sort((a, b) => a.length - b.length)
+}
 
 /**
  * Patterns are relative to their file's directory. Later lines override

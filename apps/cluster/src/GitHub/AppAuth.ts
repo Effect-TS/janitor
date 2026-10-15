@@ -1,7 +1,6 @@
 import {
   GITHUB_API_BASE_URL,
-  GITHUB_API_VERSION,
-  GITHUB_USER_AGENT,
+  GITHUB_REQUEST_HEADERS,
   GitHubInstallationAccessToken,
 } from "@janitor/domain/GitHub/Api"
 import type { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
@@ -41,6 +40,14 @@ export const config = (paths: {
   privateKey: Config.schema(Schema.RedactedFromValue(Schema.NonEmptyString), paths.privateKey),
 })
 
+/** Narrows an installation token to one repository and the listed permissions. */
+export interface InstallationTokenRestriction {
+  readonly repositoryId: string
+  readonly issues?: "read" | "write"
+  readonly contents?: "read" | "write"
+  readonly pullRequests?: "read" | "write"
+}
+
 /** Issues the App JWT and exchanges it for cached installation tokens. */
 export class GitHubAppAuth extends Context.Service<
   GitHubAppAuth,
@@ -48,12 +55,7 @@ export class GitHubAppAuth extends Context.Service<
     readonly appJwt: Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError>
     readonly installationToken: (
       installationId: GitHubInstallationId,
-      restriction?: {
-        readonly repositoryId: string
-        readonly issues?: "read" | "write"
-        readonly contents?: "read" | "write"
-        readonly pullRequests?: "read" | "write"
-      },
+      restriction?: InstallationTokenRestriction,
     ) => Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError>
     /** Revokes a token, such as a sandbox's, through `DELETE /installation/token`. */
     readonly revokeInstallationToken: (
@@ -215,12 +217,7 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
 
   const installationToken = Effect.fn("GitHubAppAuth.installationToken")(function* (
     installationId: GitHubInstallationId,
-    restriction?: {
-      readonly repositoryId: string
-      readonly issues?: "read" | "write"
-      readonly contents?: "read" | "write"
-      readonly pullRequests?: "read" | "write"
-    },
+    restriction?: InstallationTokenRestriction,
   ) {
     const now = yield* DateTime.now
     const cached = restriction === undefined ? tokens.get(installationId) : undefined
@@ -235,11 +232,7 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
       `${GITHUB_API_BASE_URL}/app/installations/${installationId}/access_tokens`,
     ).pipe(
       HttpClientRequest.bearerToken(Redacted.value(jwt)),
-      HttpClientRequest.setHeaders({
-        accept: "application/vnd.github+json",
-        "x-github-api-version": GITHUB_API_VERSION,
-        "user-agent": GITHUB_USER_AGENT,
-      }),
+      HttpClientRequest.setHeaders(GITHUB_REQUEST_HEADERS),
     )
     const scopedRequest =
       restriction === undefined
@@ -284,11 +277,7 @@ export const make = Effect.fnUntraced(function* (credentials: GitHubAppCredentia
       .execute(
         HttpClientRequest.delete(`${GITHUB_API_BASE_URL}/installation/token`).pipe(
           HttpClientRequest.bearerToken(Redacted.value(token)),
-          HttpClientRequest.setHeaders({
-            accept: "application/vnd.github+json",
-            "x-github-api-version": GITHUB_API_VERSION,
-            "user-agent": GITHUB_USER_AGENT,
-          }),
+          HttpClientRequest.setHeaders(GITHUB_REQUEST_HEADERS),
         ),
       )
       .pipe(

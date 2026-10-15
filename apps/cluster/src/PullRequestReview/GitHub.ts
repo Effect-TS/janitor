@@ -8,7 +8,12 @@ import {
   type ReviewMarker,
 } from "@janitor/domain/PullRequestReview/Render"
 import type { RunId } from "@janitor/domain/PullRequestReview/Run"
-import { countedSize, type Gitattributes } from "@janitor/domain/PullRequestReview/Size"
+import {
+  ancestorDirectories,
+  countedSize,
+  type Gitattributes,
+  type Size,
+} from "@janitor/domain/PullRequestReview/Size"
 import * as Clock from "effect/Clock"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
@@ -16,9 +21,9 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Base64 from "effect/encoding/Base64"
 import * as Option from "effect/Option"
-import type * as Redacted from "effect/Redacted"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { GitHubAppAuth, type GitHubAppAuthError } from "../GitHub/AppAuth.ts"
+import { GitHubAppAuth } from "../GitHub/AppAuth.ts"
 import { nextLink } from "../GitHub/Link.ts"
 import { GitHubTransport, type GitHubRequest, type GitHubResponse } from "../GitHub/Transport.ts"
 
@@ -100,7 +105,7 @@ export interface ChangedFiles {
    * What the oversized check counts: changed lines and files, leaving out
    * lockfiles, `linguist-generated` files at the base SHA and `.changeset/*`.
    */
-  readonly size: { readonly lines: number; readonly files: number }
+  readonly size: Size
 }
 
 /** How the last reviewed SHA relates to the head, and what changed between them. */
@@ -377,6 +382,11 @@ const PageInfo = Schema.Struct({
 const connection = <S extends Schema.Top>(node: S) =>
   Schema.Struct({ pageInfo: PageInfo, nodes: Schema.Array(node) })
 
+interface Page<A> {
+  readonly pageInfo: typeof PageInfo.Type
+  readonly nodes: ReadonlyArray<A>
+}
+
 const ThreadCommentNode = Schema.Struct({
   id: Schema.String,
   body: Schema.String,
@@ -425,58 +435,43 @@ const ThreadCommentsData = Schema.Struct({
 const ReviewsData = pullRequestData({ reviews: connection(ReviewNode) })
 const PendingData = pullRequestData({ id: Schema.String, reviews: connection(ReviewNode) })
 
-const THREADS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      reviewThreads(first: 50, after: $after) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id path line startLine isResolved isOutdated
-          resolvedBy { login }
-          comments(first: 100) {
-            pageInfo { hasNextPage endCursor }
-            nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { id state } }
-          }
-        }
-      }
-    }
-  }
+const PAGE_INFO = "pageInfo { hasNextPage endCursor }"
+const COMMENT_FIELDS =
+  "id body createdAt viewerDidAuthor author { login } pullRequestReview { id state }"
+const REVIEW_FIELDS = "id databaseId state body viewerDidAuthor"
+
+/** A query on this pull request; `selection` goes inside `pullRequest`. */
+const pullRequestQuery = (selection: string, after = true) =>
+  `query($owner: String!, $repo: String!, $number: Int!${after ? ", $after: String" : ""}) {
+  repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${selection} } }
 }`
+
+const THREADS_QUERY = pullRequestQuery(`reviewThreads(first: 50, after: $after) {
+  ${PAGE_INFO}
+  nodes {
+    id path line startLine isResolved isOutdated
+    resolvedBy { login }
+    comments(first: 100) { ${PAGE_INFO} nodes { ${COMMENT_FIELDS} } }
+  }
+}`)
 
 const THREAD_COMMENTS_QUERY = `query($id: ID!, $after: String) {
   node(id: $id) {
     ... on PullRequestReviewThread {
-      comments(first: 100, after: $after) {
-        pageInfo { hasNextPage endCursor }
-        nodes { id body createdAt viewerDidAuthor author { login } pullRequestReview { id state } }
-      }
+      comments(first: 100, after: $after) { ${PAGE_INFO} nodes { ${COMMENT_FIELDS} } }
     }
   }
 }`
 
-const REVIEWS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      reviews(first: 100, after: $after) {
-        pageInfo { hasNextPage endCursor }
-        nodes { id databaseId state body viewerDidAuthor }
-      }
-    }
-  }
-}`
+const REVIEWS_QUERY = pullRequestQuery(
+  `reviews(first: 100, after: $after) { ${PAGE_INFO} nodes { ${REVIEW_FIELDS} } }`,
+)
 
 // Pending reviews are only visible to their author, so the viewer's are janitor's.
-const PENDING_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      id
-      reviews(first: 10, states: [PENDING]) {
-        pageInfo { hasNextPage endCursor }
-        nodes { id databaseId state body viewerDidAuthor }
-      }
-    }
-  }
-}`
+const PENDING_QUERY = pullRequestQuery(
+  `id reviews(first: 10, states: [PENDING]) { ${PAGE_INFO} nodes { ${REVIEW_FIELDS} } }`,
+  false,
+)
 
 const mutationDocument = (field: string, input: string, selection: string) =>
   `mutation($input: ${input}!) { ${field}(input: $input) { ${selection} } }`
@@ -539,11 +534,23 @@ const TreeApi = Schema.Struct({
 
 const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/")
 
-const decodeText = (base64: string): Option.Option<string> => {
-  const decoded = Base64.decode(base64.replace(/\s+/g, ""))
-  return decoded._tag === "Success"
-    ? Option.some(new TextDecoder().decode(decoded.success))
-    : Option.none()
+const UNREADABLE: HeadBlob = { _tag: "Unreadable" }
+
+/**
+ * A contents API answer as a blob. Over 1 MB it comes without the content
+ * (`encoding: "none"`); a directory or anything else isn't a readable file.
+ */
+const blobOf = (contents: Contents): HeadBlob => {
+  if (
+    isListing(contents) ||
+    contents.type !== "file" ||
+    contents.encoding !== "base64" ||
+    contents.content === undefined
+  ) {
+    return UNREADABLE
+  }
+  const text = Base64.decodeString(contents.content.replace(/\s+/g, ""))
+  return Result.isSuccess(text) ? { _tag: "Read", text: text.success } : UNREADABLE
 }
 
 const githubMessage = (body: unknown) =>
@@ -635,12 +642,13 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     operation: string,
     request: Pick<GitHubRequest, "method" | "url" | "body" | "resource"> & {
       readonly scope?: GitHubRequest["scope"]
-      readonly mutation: boolean
+      /** Defaults to any method but `GET`; GraphQL says per query. */
+      readonly mutation?: boolean
     },
   ) =>
     Effect.gen(function* () {
       for (let waits = 0; ; waits++) {
-        if (request.mutation) yield* spaceMutation
+        if (request.mutation ?? request.method !== "GET") yield* spaceMutation
         const result = yield* transport
           .request({
             scope: request.scope ?? { _tag: "Installation", installationId: target.installationId },
@@ -675,23 +683,39 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   /** A 2xx body decoded with `schema`; any other answer is a typed failure. */
   const rest = <S extends Plain>(
     operation: string,
-    method: GitHubRequest["method"],
-    url: string,
-    schema: S,
-    body?: unknown,
+    request: {
+      readonly url: string
+      readonly schema: S
+      readonly method?: GitHubRequest["method"]
+      readonly body?: unknown
+      readonly scope?: GitHubRequest["scope"]
+    },
   ) =>
-    send(operation, { method, url, body, mutation: method !== "GET" }).pipe(
+    send(operation, { ...request, method: request.method ?? "GET" }).pipe(
       Effect.flatMap((response) =>
         response._tag === "Failed"
           ? Effect.fail(failed(operation, response))
           : decode(
               operation,
-              schema,
+              request.schema,
             )(response.body).pipe(
               Effect.map((decoded) => ({ body: decoded, link: response.link })),
             ),
       ),
     )
+
+  /** Like `rest`, with a 404 as `None`. */
+  const restOrMissing = <S extends Plain>(
+    operation: string,
+    request: { readonly url: string; readonly schema: S },
+  ) =>
+    rest(operation, request).pipe(
+      Effect.map(({ body }) => Option.some(body)),
+      Effect.catchTag("PullRequestGitHubNotFound", () => Effect.succeed(Option.none<S["Type"]>())),
+    )
+
+  const contentsUrl = (ref: string, path: string) =>
+    `${repository}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`
 
   /**
    * One GraphQL operation. Errors come back with the data so a caller can
@@ -751,22 +775,13 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
 
   /** Follows a GraphQL connection with `$after` up to its page bound. */
   const walk = <A>(
-    page: (after: string | null) => Effect.Effect<
-      {
-        readonly pageInfo: typeof PageInfo.Type
-        readonly nodes: ReadonlyArray<A>
-      },
-      PullRequestGitHubFailure
-    >,
+    page: (after: string | null) => Effect.Effect<Page<A>, PullRequestGitHubFailure>,
   ) =>
     Effect.gen(function* () {
       const nodes: Array<A> = []
       let after: string | null = null
       for (let ordinal = 0; ordinal < MAX_CONNECTION_PAGES; ordinal++) {
-        const current: {
-          readonly pageInfo: typeof PageInfo.Type
-          readonly nodes: ReadonlyArray<A>
-        } = yield* page(after)
+        const current: Page<A> = yield* page(after)
         nodes.push(...current.nodes)
         if (!current.pageInfo.hasNextPage || current.pageInfo.endCursor === null) break
         after = current.pageInfo.endCursor
@@ -774,7 +789,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       return nodes
     })
 
-  const pullRequest = rest("pullRequest", "GET", pullPath, PullRequestApi).pipe(
+  const pullRequest = rest("pullRequest", { url: pullPath, schema: PullRequestApi }).pipe(
     Effect.map(({ body }): PullRequest => ({
       nodeId: body.node_id,
       state: body.state,
@@ -795,34 +810,8 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   )
 
   const readFile = (ref: string, path: string) =>
-    send("readFile", {
-      method: "GET",
-      url: `${repository}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`,
-      mutation: false,
-    }).pipe(
-      Effect.flatMap((response) => {
-        if (response._tag === "Failed") {
-          return response.status === 404
-            ? Effect.succeed<HeadBlob>({ _tag: "Unreadable" })
-            : Effect.fail(failed("readFile", response))
-        }
-        return decode(
-          "readFile",
-          ContentsApi,
-        )(response.body).pipe(
-          Effect.map((contents): HeadBlob => {
-            // Over 1 MB the contents API answers without the content (`encoding: "none"`).
-            if (isListing(contents) || contents.type !== "file") return { _tag: "Unreadable" }
-            if (contents.encoding !== "base64" || contents.content === undefined) {
-              return { _tag: "Unreadable" }
-            }
-            return Option.match(decodeText(contents.content), {
-              onNone: (): HeadBlob => ({ _tag: "Unreadable" }),
-              onSome: (text): HeadBlob => ({ _tag: "Read", text }),
-            })
-          }),
-        )
-      }),
+    restOrMissing("readFile", { url: contentsUrl(ref, path), schema: ContentsApi }).pipe(
+      Effect.map(Option.match({ onNone: () => UNREADABLE, onSome: blobOf })),
     )
 
   const readDirectory = (ref: string, path: string) =>
@@ -830,19 +819,12 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       const files: Array<{ readonly path: string; readonly blob: HeadBlob }> = []
       const pending = [path]
       while (pending.length > 0 && files.length < MAX_DIRECTORY_FILES) {
-        const directory = pending.shift()!
-        const response = yield* send("readDirectory", {
-          method: "GET",
-          url: `${repository}/contents/${encodePath(directory)}?ref=${encodeURIComponent(ref)}`,
-          mutation: false,
+        const contents = yield* restOrMissing("readDirectory", {
+          url: contentsUrl(ref, pending.shift()!),
+          schema: ContentsApi,
         })
-        if (response._tag === "Failed") {
-          if (response.status === 404) continue
-          return yield* failed("readDirectory", response)
-        }
-        const contents = yield* decode("readDirectory", ContentsApi)(response.body)
-        if (!isListing(contents)) continue
-        for (const entry of contents) {
+        if (Option.isNone(contents) || !isListing(contents.value)) continue
+        for (const entry of contents.value) {
           if (entry.type === "dir") pending.push(entry.path)
           else if (entry.type === "file" && files.length < MAX_DIRECTORY_FILES) {
             files.push({ path: entry.path, blob: yield* readFile(ref, entry.path) })
@@ -855,22 +837,14 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   /** The `.gitattributes` files at `ref` that can apply to `paths`, shallowest first. */
   const gitattributesFor = (ref: string, paths: ReadonlyArray<string>) =>
     Effect.gen(function* () {
-      const directories = new Set([""])
-      for (const path of paths) {
-        for (let end = path.lastIndexOf("/"); end > 0; end = path.lastIndexOf("/", end - 1))
-          directories.add(path.slice(0, end))
-      }
       // The tree listing shows which directories have one; a truncated listing can't rule any out.
-      const { body: tree } = yield* rest(
-        "gitattributes",
-        "GET",
-        `${repository}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
-        TreeApi,
-      )
+      const { body: tree } = yield* rest("gitattributes", {
+        url: `${repository}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+        schema: TreeApi,
+      })
       const listed = new Set(tree.tree.map((entry) => entry.path))
       const found: Array<Gitattributes> = []
-      // An ancestor's path is always shorter than its descendants'.
-      for (const directory of [...directories].sort((a, b) => a.length - b.length)) {
+      for (const directory of ancestorDirectories(paths)) {
         const path = directory === "" ? ".gitattributes" : `${directory}/.gitattributes`
         if (!tree.truncated && !listed.has(path)) continue
         const blob = yield* readFile(ref, path)
@@ -879,10 +853,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       return found
     })
 
-  const changedFiles = (options: {
-    readonly baseSha: string
-    readonly lockfiles: ReadonlyArray<string>
-  }) =>
+  const changedFiles: PullRequestGitHub["changedFiles"] = (options) =>
     Effect.gen(function* () {
       const files: Array<ChangedFile> = []
       let url: string | null = `${pullPath}/files?per_page=${PAGE}`
@@ -891,7 +862,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
         const page: {
           readonly body: ReadonlyArray<typeof ChangedFileApi.Type>
           readonly link: Option.Option<string>
-        } = yield* rest("changedFiles", "GET", url, Schema.Array(ChangedFileApi))
+        } = yield* rest("changedFiles", { url, schema: Schema.Array(ChangedFileApi) })
         files.push(...page.body)
         url = Option.getOrNull(Option.flatMap(page.link, nextLink))
         pages++
@@ -911,32 +882,20 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     })
 
   const compare = (lastReviewedSha: string, headSha: string) =>
-    send("compare", {
-      method: "GET",
+    restOrMissing("compare", {
       // The file list comes on the first page only, whatever the commit page size.
       url: `${repository}/compare/${encodeURIComponent(lastReviewedSha)}...${encodeURIComponent(headSha)}?per_page=1`,
-      mutation: false,
+      schema: CompareApi,
     }).pipe(
-      Effect.flatMap((response) => {
-        if (response._tag === "Failed") {
-          // A force-push can leave the last reviewed SHA unknown to GitHub.
-          return response.status === 404
-            ? Effect.succeed<Comparison>({ ancestor: false, files: [], truncated: false })
-            : Effect.fail(failed("compare", response))
+      Effect.map((compared): Comparison => {
+        // A force-push can leave the last reviewed SHA unknown to GitHub.
+        if (Option.isNone(compared)) return { ancestor: false, files: [], truncated: false }
+        const files: ReadonlyArray<ChangedFile> = compared.value.files ?? []
+        return {
+          ancestor: compared.value.status === "ahead" || compared.value.status === "identical",
+          files,
+          truncated: files.length >= MAX_COMPARE_FILES,
         }
-        return decode(
-          "compare",
-          CompareApi,
-        )(response.body).pipe(
-          Effect.map((body): Comparison => {
-            const files: ReadonlyArray<ChangedFile> = body.files ?? []
-            return {
-              ancestor: body.status === "ahead" || body.status === "identical",
-              files,
-              truncated: files.length >= MAX_COMPARE_FILES,
-            }
-          }),
-        )
       }),
     )
 
@@ -1032,7 +991,10 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     return threads
   })
 
-  const janitorHistory = Effect.all({ threads: janitorThreads, reviews: janitorReviews })
+  const janitorHistory = Effect.all(
+    { threads: janitorThreads, reviews: janitorReviews },
+    { concurrency: 2 },
+  )
 
   const findReview = (runId: RunId) =>
     janitorReviews.pipe(
@@ -1045,30 +1007,21 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     Effect.gen(function* () {
       const cached = permissions.get(login)
       if (cached !== undefined) return cached
-      const response = yield* send("permission", {
-        method: "GET",
+      const found = yield* restOrMissing("permission", {
         url: `${repository}/collaborators/${encodeURIComponent(login)}/permission`,
-        mutation: false,
+        schema: PermissionApi,
       })
       // An unknown login has no access.
-      if (response._tag === "Failed" && response.status !== 404) {
-        return yield* failed("permission", response)
-      }
-      const resolved =
-        response._tag === "Failed"
-          ? "none"
-          : permissionOf(yield* decode("permission", PermissionApi)(response.body))
+      const resolved = Option.match(found, { onNone: () => "none" as const, onSome: permissionOf })
       permissions.set(login, resolved)
       return resolved
     })
 
   const issueComment = (commentId: string) =>
-    rest(
-      "issueComment",
-      "GET",
-      `${repository}/issues/comments/${encodeURIComponent(commentId)}`,
-      IssueCommentApi,
-    ).pipe(
+    rest("issueComment", {
+      url: `${repository}/issues/comments/${encodeURIComponent(commentId)}`,
+      schema: IssueCommentApi,
+    }).pipe(
       Effect.flatMap(({ body }) =>
         // A comment id from elsewhere in the repository is not this pull request's.
         body.issue_url.endsWith(`/issues/${target.number}`)
@@ -1089,57 +1042,46 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     )
 
   const ownAppId = Effect.gen(function* () {
-    if (appId !== undefined) return appId
-    const response = yield* send("appId", {
-      method: "GET",
-      url: "/app",
-      scope: { _tag: "App" },
-      mutation: false,
-    })
-    if (response._tag === "Failed") return yield* failed("appId", response)
-    appId = (yield* decode("appId", AppApi)(response.body)).id
+    if (appId === undefined) {
+      const { body } = yield* rest("appId", { url: "/app", scope: { _tag: "App" }, schema: AppApi })
+      appId = body.id
+    }
     return appId
   })
 
-  const upsertCheckRun = (options: {
-    readonly headSha: string
-    readonly state: CheckRunState
-    readonly output: CheckRunOutput
-    readonly checkRunId?: string
-  }) =>
+  /** Janitor's own latest `janitor/review` check run on `headSha`. */
+  const findCheckRun = (headSha: string) =>
     Effect.gen(function* () {
-      const existing =
-        options.checkRunId ??
-        (yield* Effect.gen(function* () {
-          const app = yield* ownAppId
-          const { body } = yield* rest(
-            "findCheckRun",
-            "GET",
-            `${repository}/commits/${encodeURIComponent(options.headSha)}/check-runs?check_name=${encodeURIComponent(CHECK_RUN_NAME)}&app_id=${app}&filter=latest`,
-            CheckRunsApi,
-          )
-          return body.check_runs[0] === undefined ? undefined : String(body.check_runs[0].id)
-        }))
+      const app = yield* ownAppId
+      const { body } = yield* rest("findCheckRun", {
+        url: `${repository}/commits/${encodeURIComponent(headSha)}/check-runs?check_name=${encodeURIComponent(CHECK_RUN_NAME)}&app_id=${app}&filter=latest`,
+        schema: CheckRunsApi,
+      })
+      return body.check_runs[0] === undefined ? undefined : String(body.check_runs[0].id)
+    })
+
+  const upsertCheckRun: PullRequestGitHub["upsertCheckRun"] = (options) =>
+    Effect.gen(function* () {
+      const existing = options.checkRunId ?? (yield* findCheckRun(options.headSha))
       const fields = {
         status: options.state.status,
         ...(options.state.status === "completed" ? { conclusion: options.state.conclusion } : {}),
         output: { title: options.output.title, summary: options.output.summary },
       }
-      const { body } =
-        existing === undefined
-          ? yield* rest("createCheckRun", "POST", `${repository}/check-runs`, CheckRunApi, {
-              name: CHECK_RUN_NAME,
-              head_sha: options.headSha,
-              ...fields,
-            })
-          : yield* rest(
-              "updateCheckRun",
-              "PATCH",
-              `${repository}/check-runs/${encodeURIComponent(existing)}`,
-              CheckRunApi,
-              fields,
-            )
-      return { id: String(body.id), url: body.html_url ?? "" } satisfies CheckRunLink
+      const { body } = yield* existing === undefined
+        ? rest("createCheckRun", {
+            method: "POST",
+            url: `${repository}/check-runs`,
+            schema: CheckRunApi,
+            body: { name: CHECK_RUN_NAME, head_sha: options.headSha, ...fields },
+          })
+        : rest("updateCheckRun", {
+            method: "PATCH",
+            url: `${repository}/check-runs/${encodeURIComponent(existing)}`,
+            schema: CheckRunApi,
+            body: fields,
+          })
+      return { id: String(body.id), url: body.html_url ?? "" }
     })
 
   const pendingReviews = graphqlData(
@@ -1255,10 +1197,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       return { threadId: created.id }
     })
 
-  const addReply = (
-    reviewId: string,
-    reply: { readonly threadId: string; readonly body: string },
-  ) =>
+  const addReply: PullRequestGitHub["addReply"] = (reviewId, reply) =>
     Effect.gen(function* () {
       const added = yield* graphqlData(
         "addReply",
@@ -1282,10 +1221,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       return { commentId: comment.id }
     })
 
-  const submitPendingReview = (
-    reviewId: string,
-    submission: { readonly event: ReviewEvent; readonly body: string },
-  ) =>
+  const submitPendingReview: PullRequestGitHub["submitPendingReview"] = (reviewId, submission) =>
     graphqlData(
       "submitReview",
       SUBMIT_REVIEW,
@@ -1298,7 +1234,6 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       method: "PUT",
       url: `${pullPath}/reviews/${review.databaseId}/dismissals`,
       body: { message, event: "DISMISS" },
-      mutation: true,
     }).pipe(
       Effect.flatMap(
         (
@@ -1338,25 +1273,16 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
 
 /**
  * Mints the token a sandbox fetches with (EFF-1892 point 3): one repository,
- * `contents: read` only, never cached, so each acquire gets its own.
+ * `contents: read` only, never cached, so each acquire gets its own. Revoke
+ * it with `GitHubAppAuth.revokeInstallationToken` on release.
  */
 export const mintSandboxToken = (options: {
   readonly installationId: GitHubInstallationId
   readonly repositoryId: string
-}): Effect.Effect<Redacted.Redacted<string>, GitHubAppAuthError, GitHubAppAuth> =>
-  Effect.gen(function* () {
-    const auth = yield* GitHubAppAuth
-    return yield* auth.installationToken(options.installationId, {
+}) =>
+  GitHubAppAuth.use((auth) =>
+    auth.installationToken(options.installationId, {
       repositoryId: options.repositoryId,
       contents: "read",
-    })
-  })
-
-/** Revokes a sandbox token when its sandbox is released (EFF-1892 point 5). */
-export const revokeSandboxToken = (
-  token: Redacted.Redacted<string>,
-): Effect.Effect<void, GitHubAppAuthError, GitHubAppAuth> =>
-  Effect.gen(function* () {
-    const auth = yield* GitHubAppAuth
-    return yield* auth.revokeInstallationToken(token)
-  })
+    }),
+  )

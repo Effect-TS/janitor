@@ -1,7 +1,6 @@
 import {
   GITHUB_API_BASE_URL,
-  GITHUB_API_VERSION,
-  GITHUB_USER_AGENT,
+  GITHUB_REQUEST_HEADERS,
   type GitHubApiScope,
   GitHubRateLimitHeaders,
   type GitHubRequestPriority,
@@ -21,7 +20,11 @@ import * as Headers from "effect/http/Headers"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import type * as HttpClientResponse from "effect/http/HttpClientResponse"
-import { GitHubAppAuth, type GitHubAppAuthError } from "./AppAuth.ts"
+import {
+  GitHubAppAuth,
+  type GitHubAppAuthError,
+  type InstallationTokenRestriction,
+} from "./AppAuth.ts"
 import { GitHubBudget, type GitHubBudgetError } from "./RateBudget.ts"
 
 export class GitHubTransportError extends Data.TaggedError("GitHubTransportError")<{
@@ -38,12 +41,7 @@ export class GitHubRateLimited extends Data.TaggedError("GitHubRateLimited")<{
 }> {}
 
 export interface GitHubRequest {
-  readonly repositoryPermission?: {
-    readonly repositoryId: string
-    readonly issues?: "read" | "write"
-    readonly contents?: "read" | "write"
-    readonly pullRequests?: "read" | "write"
-  }
+  readonly repositoryPermission?: InstallationTokenRestriction
   readonly scope: GitHubApiScope
   readonly priority: GitHubRequestPriority
   readonly method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
@@ -200,9 +198,7 @@ export class GitHubTransport extends Context.Service<
           let httpRequest = HttpClientRequest.make(request.method)(url).pipe(
             HttpClientRequest.bearerToken(Redacted.value(token)),
             HttpClientRequest.setHeaders({
-              accept: "application/vnd.github+json",
-              "x-github-api-version": GITHUB_API_VERSION,
-              "user-agent": GITHUB_USER_AGENT,
+              ...GITHUB_REQUEST_HEADERS,
               ...(request.etag === undefined ? {} : { "if-none-match": request.etag }),
             }),
           )
