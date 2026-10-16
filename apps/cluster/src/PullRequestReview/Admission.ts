@@ -45,20 +45,20 @@ import { PullRequestReviewStore } from "./Store.ts"
 export const PR_REVIEW_ADMISSION_TAG = "Janitor/PullRequestReviewAdmissionV1"
 
 /** What the webhook said happened to the pull request. */
-export const AdmissionEvent = Schema.Union([
+export const AdmissionEvent = Schema.TaggedUnion({
   /** Opened, ready for review or pushed to. */
-  Schema.TaggedStruct("HeadChanged", { headSha: GitHubCommitSha }),
-  Schema.TaggedStruct("Reopened", { headSha: GitHubCommitSha }),
+  HeadChanged: { headSha: GitHubCommitSha },
+  Reopened: { headSha: GitHubCommitSha },
   /** Closed or merged. */
-  Schema.TaggedStruct("Closed", {}),
-  Schema.TaggedStruct("ConvertedToDraft", {}),
+  Closed: {},
+  ConvertedToDraft: {},
   /** A top-level `/janitor` comment from a human, whose permission is not yet checked. */
-  Schema.TaggedStruct("Invoked", {
+  Invoked: {
     commentId: GitHubCommentDatabaseId,
     authorId: GitHubUserDatabaseId,
     authorLogin: Schema.NonEmptyString,
-  }),
-]).annotate({ identifier: "PullRequestReviewAdmissionEvent" })
+  },
+}).annotate({ identifier: "PullRequestReviewAdmissionEvent" })
 export type AdmissionEvent = typeof AdmissionEvent.Type
 
 /** The outbox payload: ids only, never pull request or comment text. */
