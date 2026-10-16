@@ -23,8 +23,11 @@ import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import { drain, failNextSend, repositoryId, seedRepositories, settle } from "./support.ts"
 
-/** The deployment's environment; the gate is on while the API key is set. */
-const env: Record<string, string> = { PR_REVIEW_OPENROUTER_API_KEY: "test-key" }
+/** The deployment's environment; the gate is on while the API URL and key are set. */
+const env: Record<string, string> = {
+  PR_REVIEW_AI_API_URL: "https://ai.test/v1",
+  PR_REVIEW_AI_API_KEY: "test-key",
+}
 
 type RunMessage =
   | ({ readonly _tag: "Start" | "Skip"; readonly runId: RunId; readonly number: number } & Record<
@@ -279,9 +282,9 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
       yield* pr.push(head(3))
       yield* pr.finish(lastStart(14).runId)
       yield* pr.push(head(4))
-      delete env["PR_REVIEW_OPENROUTER_API_KEY"]
+      delete env["PR_REVIEW_AI_API_KEY"]
       yield* wait("3 minutes")
-      env["PR_REVIEW_OPENROUTER_API_KEY"] = "test-key"
+      env["PR_REVIEW_AI_API_KEY"] = "test-key"
       assert.deepStrictEqual(
         starts(14).map((start) => start.headSha),
         [head(1), head(3)],

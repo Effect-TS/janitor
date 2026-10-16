@@ -19,8 +19,11 @@ import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import { HEAD, makeRunHarness, type RunHarness } from "./runHarness.ts"
 import { repositoryId, seedRepositories } from "./support.ts"
 
-/** The deployment's environment; the gate is on while the API key is set. */
-const env: Record<string, string> = { PR_REVIEW_OPENROUTER_API_KEY: "test-key" }
+/** The deployment's environment; the gate is on while the API URL and key are set. */
+const env: Record<string, string> = {
+  PR_REVIEW_AI_API_URL: "https://ai.test/v1",
+  PR_REVIEW_AI_API_KEY: "test-key",
+}
 
 const Services = Layer.mergeAll(PullRequestReviewStore.layer, NodeServices.layer).pipe(
   Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),

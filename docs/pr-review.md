@@ -2,7 +2,7 @@
 
 PR review has an AI agent review pull requests in connected public repositories. Each run checks out the pull request's head in a fresh sandbox, reviews the diff against the repository's standards, and posts at most one GitHub review: `REQUEST_CHANGES`, `APPROVE` or `COMMENT`. Janitor keeps a `janitor/review` check run on every head it reviews, and the repository's **PR reviews** page lists every run.
 
-PR review is off until both switches are on. The deployment needs `PR_REVIEW_OPENROUTER_API_KEY`, and each repository needs PR review enabled on its Settings page. Enabling it makes reviews live. There is no dry run.
+PR review is off until both switches are on. The deployment needs `PR_REVIEW_AI_API_URL` and `PR_REVIEW_AI_API_KEY`, and each repository needs PR review enabled on its Settings page. Enabling it makes reviews live. There is no dry run.
 
 ## What it does
 
@@ -119,12 +119,14 @@ The development App, `effect-janitor-development`, holds `contents: write` and o
 
 ### Model and spending cap
 
-Set `PR_REVIEW_OPENROUTER_API_KEY` in Infisical (project `janitor`, environment `production`). Without it, PR review is unavailable in the deployment. Webhooks don't start runs, and the Settings panel says "Unavailable in this deployment". Give the key an OpenRouter credit limit. That limit is PR review's spending cap. Once it runs out, model calls fail and runs end as incomplete reviews.
+The agent calls an OpenAI-compatible chat completions endpoint. Set `PR_REVIEW_AI_API_URL` to the endpoint's base URL, the part before `/chat/completions` (for example `https://openrouter.ai/api/v1`), and `PR_REVIEW_AI_API_KEY` to its API key, both in Infisical (project `janitor`, environment `production`). Without both, PR review is unavailable in the deployment. Webhooks don't start runs, and the Settings panel says "Unavailable in this deployment". Give the key a credit limit at the provider. That limit is PR review's spending cap. Once it runs out, model calls fail and runs end as incomplete reviews.
 
 | Setting                         | Default                                                                      |
 | ------------------------------- | ---------------------------------------------------------------------------- |
 | `PR_REVIEW_AI_MODEL`            | `openai/gpt-6.1-sol`                                                         |
 | `PR_REVIEW_AI_REASONING_EFFORT` | `medium` (one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`) |
+
+`PR_REVIEW_AI_MODEL` is the model name as the endpoint expects it. The effort is sent as `reasoning_effort`, so the endpoint must accept that value for the model.
 
 The Settings panel shows the model and effort the deployment runs with.
 
@@ -148,7 +150,7 @@ The limit settings in [Limits](#limits) are optional and deployment-wide. `PR_RE
 - **PR reviews page:** each repository's runs, newest first, with outcome, blocker and nit counts, failed gates, trigger, timing, and links to the review and check run. Running and skipped runs appear too.
 - **Check runs:** `janitor/review` on each pull request is the canonical state of its review.
 - **Logs:** Worker logs in Cloudflare observability. PR review logs carry `runId`, `repositoryId`, `number` (the pull request) and `headSha` where they apply, so filtering on one run's id shows its whole history. They never include provider error bodies, pull request content or tokens: an error logs only its category (`error`), and the `operation` and `status` when it has them.
-- **OpenRouter spend:** the key's usage and remaining credit in OpenRouter. A key near its limit will start failing runs.
+- **Model spend:** the key's usage and remaining credit at the provider. A key near its limit will start failing runs.
 
 The log messages that mark a run's progress:
 
@@ -187,4 +189,4 @@ If the run failed within seconds and the logs say "PR review sandbox has no cont
 
 ### Unavailable deployment
 
-The Settings panel says "Unavailable in this deployment" and the **Enable** button is disabled. `PR_REVIEW_OPENROUTER_API_KEY` isn't set for the deployed Worker. Set it in Infisical's production environment and deploy. Repositories keep their enable flag while the deployment is unavailable, and they start reviewing again once it's available.
+The Settings panel says "Unavailable in this deployment" and the **Enable** button is disabled. `PR_REVIEW_AI_API_URL` or `PR_REVIEW_AI_API_KEY` isn't set for the deployed Worker. Set both in Infisical's production environment and deploy. Repositories keep their enable flag while the deployment is unavailable, and they start reviewing again once it's available.

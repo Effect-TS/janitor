@@ -1,5 +1,5 @@
-import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
-import * as OpenRouterLanguageModel from "@effect/ai-openrouter/OpenRouterLanguageModel"
+import * as OpenAiClient from "@effect/ai-openai-compat/OpenAiClient"
+import * as OpenAiLanguageModel from "@effect/ai-openai-compat/OpenAiLanguageModel"
 import * as Agent from "clanka/Agent"
 import * as AgentExecutor from "clanka/AgentExecutor"
 import type * as AgentOutput from "clanka/AgentOutput"
@@ -66,9 +66,10 @@ const MAX_RETRIES = 3
 export { executorOptions } from "./Sandbox/ExecutorOptions.ts"
 
 /**
- * The PR review model through OpenRouter (EFF-1929), with its own HTTP client:
- * the executor's is pinned to the sandbox. Without an API key PR review is off,
- * so no run ever calls it. Invalid PR review settings fail the model's calls,
+ * The PR review model through an OpenAI-compatible chat completions endpoint
+ * (EFF-1929), with its own HTTP client: the executor's is pinned to the
+ * sandbox. Without the endpoint's URL and key PR review is off, so no run ever
+ * calls it. Invalid PR review settings fail the model's calls,
  * never the cluster labeling shares.
  */
 export const ReviewModelLayer: Layer.Layer<
@@ -84,14 +85,17 @@ export const ReviewModelLayer: Layer.Layer<
             streamText: () => Stream.die(error),
           }),
         ),
-        Layer.succeed(Model.ProviderName, "openrouter"),
+        Layer.succeed(Model.ProviderName, "openai"),
         Layer.succeed(Model.ModelName, "invalid PR review settings"),
       ),
     onSuccess: (config) =>
-      OpenRouterLanguageModel.model(config.model, {
-        reasoning: { effort: config.reasoningEffort },
-      }).pipe(
-        Layer.provide(OpenRouterClient.layer({ apiKey: Option.getOrUndefined(config.apiKey) })),
+      OpenAiLanguageModel.model(config.model, { reasoning_effort: config.reasoningEffort }).pipe(
+        Layer.provide(
+          OpenAiClient.layer({
+            apiUrl: Option.getOrUndefined(config.apiUrl),
+            apiKey: Option.getOrUndefined(config.apiKey),
+          }),
+        ),
         Layer.provide(FetchHttpClient.layer),
       ),
   }),

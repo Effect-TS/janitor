@@ -13,7 +13,7 @@ import * as Schema from "effect/Schema"
 
 export const DEFAULT_MODEL = "openai/gpt-6.1-sol"
 
-/** The OpenRouter reasoning efforts. */
+/** The reasoning efforts, sent as the request's `reasoning_effort`. */
 export const ReasoningEffort = Schema.Literals([
   "none",
   "minimal",
@@ -26,9 +26,11 @@ export const ReasoningEffort = Schema.Literals([
 export type ReasoningEffort = typeof ReasoningEffort.Type
 
 export interface PullRequestReviewConfig {
-  /** `PR_REVIEW_OPENROUTER_API_KEY`. Absent means PR review is off for the deployment. */
+  /** `PR_REVIEW_AI_API_URL`: the OpenAI-compatible endpoint's base URL. Absent means PR review is off. */
+  readonly apiUrl: Option.Option<string>
+  /** `PR_REVIEW_AI_API_KEY`: the endpoint's API key. Absent means PR review is off. */
   readonly apiKey: Option.Option<Redacted.Redacted<string>>
-  /** `PR_REVIEW_AI_MODEL`: the OpenRouter model the agent runs on. */
+  /** `PR_REVIEW_AI_MODEL`: the model the agent runs on, as the endpoint names it. */
   readonly model: string
   /** `PR_REVIEW_AI_REASONING_EFFORT`: the model's reasoning effort. */
   readonly reasoningEffort: ReasoningEffort
@@ -112,14 +114,19 @@ export const sandboxCommandTimeout: Config.Config<Duration.Duration> = seconds(
   180,
 )
 
+const apiUrl = Config.option(Config.NonEmptyString("PR_REVIEW_AI_API_URL"))
+
+const apiKey = Config.option(Config.Redacted("PR_REVIEW_AI_API_KEY"))
+
 /**
- * The deployment-wide gate alone: PR review is on while
- * `PR_REVIEW_OPENROUTER_API_KEY` is set. The webhook hooks read just this, so
- * a bad PR review setting can't fail the projection labeling shares.
+ * The deployment-wide gate alone: PR review is on while both
+ * `PR_REVIEW_AI_API_URL` and `PR_REVIEW_AI_API_KEY` are set. The webhook hooks
+ * read just this, so a bad PR review setting can't fail the projection
+ * labeling shares.
  */
-export const pullRequestReviewGate: Config.Config<boolean> = Config.option(
-  Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY"),
-).pipe(Config.map(Option.isSome))
+export const pullRequestReviewGate: Config.Config<boolean> = Config.all({ apiUrl, apiKey }).pipe(
+  Config.map(({ apiUrl, apiKey }) => Option.isSome(apiUrl) && Option.isSome(apiKey)),
+)
 
 const model = Config.NonEmptyString("PR_REVIEW_AI_MODEL").pipe(Config.withDefault(DEFAULT_MODEL))
 
@@ -138,7 +145,8 @@ export const pullRequestReviewDeployment = Config.all({
 })
 
 export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = Config.all({
-  apiKey: Config.option(Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY")),
+  apiUrl,
+  apiKey,
   model,
   reasoningEffort,
   runDeadline: seconds("PR_REVIEW_RUN_DEADLINE_SECONDS", 600),

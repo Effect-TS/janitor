@@ -368,6 +368,9 @@ importers:
 
   apps/cluster:
     dependencies:
+      '@effect/ai-openai-compat':
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@667feb75dcf5259c4d9eafe51476487b18b8de01
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)
       '@effect/ai-openrouter':
         specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01
         version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)

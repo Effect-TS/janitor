@@ -45,8 +45,11 @@ import { repositoryId, seedRepositories } from "./support.ts"
  * the run entity harness stands in for the cluster, GitHub and the sandbox.
  */
 
-/** The deployment's environment; the gate is on while the API key is set. */
-const env: Record<string, string> = { PR_REVIEW_OPENROUTER_API_KEY: "test-key" }
+/** The deployment's environment; the gate is on while the API URL and key are set. */
+const env: Record<string, string> = {
+  PR_REVIEW_AI_API_URL: "https://ai.test/v1",
+  PR_REVIEW_AI_API_KEY: "test-key",
+}
 
 const Services = Layer.mergeAll(PullRequestReviewStore.layer, NodeServices.layer).pipe(
   Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
@@ -487,7 +490,7 @@ await taskComplete(JSON.stringify([
       const providerDown: Turn = () =>
         Stream.fail(
           AiError.make({
-            module: "OpenRouterLanguageModel",
+            module: "OpenAiLanguageModel",
             method: "streamText",
             reason: new AiError.InternalProviderError({
               description: "upstream said: secret-body",
