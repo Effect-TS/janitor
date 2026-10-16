@@ -69,6 +69,8 @@ class FakeContainer {
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init)
         if (!this.running || port !== EGRESS_PORT) throw new Error("not listening")
+        // A container port speaks plain HTTP only, as workerd's does.
+        if (new URL(request.url).protocol !== "http:") throw new Error("not an http request")
         if (new URL(request.url).pathname === "/healthz") {
           if (this.options.neverHealthy) throw new Error("not listening")
           return new Response(null, { status: 204 })
@@ -103,7 +105,9 @@ describe("tailnet egress", () => {
       assert.deepStrictEqual(container.starts, [{ enableInternet: true }])
       assert.strictEqual(container.inactivityTimeouts, 1)
       const [forwarded] = container.forwarded
-      assert.strictEqual(forwarded?.url, "https://proxy.example.ts.net/v1/chat/completions")
+      // The port speaks plain HTTP; the container knows the upstream.
+      assert.strictEqual(forwarded?.url, "http://container/v1/chat/completions")
+      assert.strictEqual(forwarded?.method, "POST")
       assert.strictEqual(forwarded?.headers.get("authorization"), "Bearer proxy-key")
       assert.strictEqual(
         yield* Effect.promise(() => forwarded!.text()),

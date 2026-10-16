@@ -11,8 +11,8 @@ import * as Semaphore from "effect/Semaphore"
  * - The first request starts the container and waits until it answers
  *   `/healthz`, which it does only once it has joined the tailnet. A start
  *   with no instance available yet is retried until the start budget runs out.
- * - Requests then go to its port as they are, so streamed responses pass
- *   through.
+ * - Requests then go to its port with the same method, path, headers and
+ *   body, and streamed responses pass through.
  * - A failure answers 503 with a fixed reason, never workerd's free text, so
  *   the model client reports it as a provider error and the agent retries.
  */
@@ -48,6 +48,16 @@ const startFailure = (error: unknown): string => {
   if (error instanceof Error && error.message.includes(NO_INSTANCE)) return NO_INSTANCE
   if (error instanceof Error && error.message.includes(NOT_ATTACHED)) return NOT_ATTACHED
   return "the container failed"
+}
+
+/**
+ * The request as the container's port takes it. The port speaks plain HTTP,
+ * so the endpoint's `https://` URL becomes `http://container` with the same
+ * path and query; the container sends it to its fixed upstream.
+ */
+export const toContainer = (request: Request): Request => {
+  const url = new URL(request.url)
+  return new Request(new URL(`${url.pathname}${url.search}`, "http://container"), request)
 }
 
 const unavailable = (reason: string) =>
@@ -135,7 +145,9 @@ export const makeTailnetEgress = Effect.fnUntraced(function* (
         )
         return unavailable(failure)
       }
-      return yield* promise(() => container.getTcpPort(EGRESS_PORT).fetch(request)).pipe(
+      return yield* promise(() =>
+        container.getTcpPort(EGRESS_PORT).fetch(toContainer(request)),
+      ).pipe(
         Effect.catch(() =>
           Effect.as(
             Effect.logWarning("The tailnet egress container did not answer"),
