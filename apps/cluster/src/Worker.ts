@@ -104,7 +104,11 @@ import {
 import { RunPublisherLayer } from "./PullRequestReview/Publish.ts"
 import { ReviewAgentLayer, ReviewModelLayer } from "./PullRequestReview/ReviewAgent.ts"
 import { PullRequestReviewRun, PullRequestReviewRunLayer } from "./PullRequestReview/RunEntity.ts"
-import { PullRequestScheduler, PullRequestSchedulerLayer } from "./PullRequestReview/Scheduler.ts"
+import {
+  PullRequestScheduler,
+  PullRequestSchedulerLayer,
+  RepositoryDisabler,
+} from "./PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "./PullRequestReview/Store.ts"
 import { AutomationIntegration } from "./AutomationIntegration.ts"
 import {
@@ -296,6 +300,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       SyncRepairCronLayer,
       AdmitPullRequestReviewLayer,
       PullRequestSchedulerLayer,
+      RepositoryDisabler.layer,
       PullRequestReviewRunLayer.pipe(
         Layer.provide(RunPublisherLayer),
         Layer.provide(ReviewAgentLayer.pipe(Layer.provide(ReviewModelLayer))),

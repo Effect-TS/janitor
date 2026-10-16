@@ -121,12 +121,26 @@ export const pullRequestReviewGate: Config.Config<boolean> = Config.option(
   Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY"),
 ).pipe(Config.map(Option.isSome))
 
+const model = Config.NonEmptyString("PR_REVIEW_AI_MODEL").pipe(Config.withDefault(DEFAULT_MODEL))
+
+const reasoningEffort = Config.schema(ReasoningEffort, "PR_REVIEW_AI_REASONING_EFFORT").pipe(
+  Config.withDefault("medium" as const),
+)
+
+/**
+ * What the web app shows about the deployment: whether PR review is
+ * available, and the model and effort it runs on.
+ */
+export const pullRequestReviewDeployment = Config.all({
+  available: pullRequestReviewGate,
+  model,
+  reasoningEffort,
+})
+
 export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = Config.all({
   apiKey: Config.option(Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY")),
-  model: Config.NonEmptyString("PR_REVIEW_AI_MODEL").pipe(Config.withDefault(DEFAULT_MODEL)),
-  reasoningEffort: Config.schema(ReasoningEffort, "PR_REVIEW_AI_REASONING_EFFORT").pipe(
-    Config.withDefault("medium" as const),
-  ),
+  model,
+  reasoningEffort,
   runDeadline: seconds("PR_REVIEW_RUN_DEADLINE_SECONDS", 600),
   wrapUpAfter: seconds("PR_REVIEW_WRAP_UP_AFTER_SECONDS", 420),
   commandTimeout: sandboxCommandTimeout,

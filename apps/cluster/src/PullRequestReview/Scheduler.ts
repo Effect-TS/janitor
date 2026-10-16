@@ -6,12 +6,14 @@ import type {
   PersistenceError,
 } from "effect/cluster/ClusterError"
 import * as ClusterSchema from "effect/cluster/ClusterSchema"
+import * as Context from "effect/Context"
 import * as DeliverAt from "effect/cluster/DeliverAt"
 import * as Entity from "effect/cluster/Entity"
 import type * as Config from "effect/Config"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as PrimaryKey from "effect/PrimaryKey"
 import * as Rpc from "effect/rpc/Rpc"
 import * as Schema from "effect/Schema"
@@ -503,3 +505,26 @@ export const disableRepository = (repositoryId: GitHubRepositoryDatabaseId) =>
       { discard: true },
     )
   })
+
+/**
+ * `disableRepository` as a service, so the web routes call it without
+ * reaching the cluster themselves.
+ */
+export class RepositoryDisabler extends Context.Service<
+  RepositoryDisabler,
+  {
+    readonly disable: (
+      repositoryId: GitHubRepositoryDatabaseId,
+    ) => Effect.Effect<void, Effect.Error<ReturnType<typeof disableRepository>>>
+  }
+>()("@janitor/cluster/PullRequestReview/Scheduler/RepositoryDisabler", {
+  make: Effect.gen(function* () {
+    const context = yield* Effect.context<Effect.Services<ReturnType<typeof disableRepository>>>()
+    return {
+      disable: (repositoryId: GitHubRepositoryDatabaseId) =>
+        disableRepository(repositoryId).pipe(Effect.provideContext(context)),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
