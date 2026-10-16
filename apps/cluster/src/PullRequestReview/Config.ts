@@ -1,7 +1,7 @@
 import * as Config from "effect/Config"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import type * as Option from "effect/Option"
+import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 
@@ -101,6 +101,15 @@ export const sandboxMaxInstances: Config.Config<number> = count(
   "PR_REVIEW_SANDBOX_MAX_INSTANCES",
   20,
 )
+
+/**
+ * The deployment-wide gate alone: PR review is on while
+ * `PR_REVIEW_OPENROUTER_API_KEY` is set. The webhook hooks read just this, so
+ * a bad PR review setting can't fail the projection labeling shares.
+ */
+export const pullRequestReviewGate: Config.Config<boolean> = Config.option(
+  Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY"),
+).pipe(Config.map(Option.isSome))
 
 export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = Config.all({
   apiKey: Config.option(Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY")),

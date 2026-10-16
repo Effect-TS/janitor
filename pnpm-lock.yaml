@@ -393,6 +393,9 @@ importers:
         specifier: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
         version: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
     devDependencies:
+      '@effect/sql-sqlite-node':
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@667feb75dcf5259c4d9eafe51476487b18b8de01
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)
       '@effect/vitest':
         specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@667feb75dcf5259c4d9eafe51476487b18b8de01
         version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)(vitest@4.1.11)

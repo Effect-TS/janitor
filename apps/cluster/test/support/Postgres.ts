@@ -3,6 +3,7 @@ import { inject } from "vite-plus/test"
 import type { TestProject } from "vite-plus/test/node"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as PgClient from "@effect/sql-pg/PgClient"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
@@ -85,10 +86,17 @@ const applyMigrations = Effect.gen(function* () {
 /** The migrated database every test database is copied from. */
 const TEMPLATE = "migrated"
 
+/**
+ * Pool timeouts run on the effect clock, so a test that moves the test clock
+ * would expire idle connections and the connect of their replacements. Tests
+ * keep their connections and wait for a connect as long as it takes.
+ */
 const clientLayer = (url: string) =>
   PgClient.layer({
     url: Redacted.make(url, { label: "postgres-connection-url" }),
     types: PostgresTypes.types,
+    idleTimeout: Duration.infinity,
+    connectTimeout: Duration.infinity,
   })
 
 const withDatabase = (url: string, database: string) => {

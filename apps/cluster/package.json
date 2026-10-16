@@ -17,6 +17,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/sql-sqlite-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@testcontainers/postgresql": "catalog:",
     "vite-plus": "catalog:"

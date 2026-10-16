@@ -97,6 +97,15 @@ import {
   type WorkspaceNamespace,
 } from "./PullRequestReview/Sandbox/WorkspaceClient.ts"
 import {
+  AdmitPullRequestReviewLayer,
+  AdmitPullRequestReviewRegistration,
+  PullRequestReviewAutomationIntegrationLayer,
+} from "./PullRequestReview/Admission.ts"
+import { PullRequestReviewRun } from "./PullRequestReview/RunEntity.ts"
+import { PullRequestScheduler, PullRequestSchedulerLayer } from "./PullRequestReview/Scheduler.ts"
+import { PullRequestReviewStore } from "./PullRequestReview/Store.ts"
+import { AutomationIntegration } from "./AutomationIntegration.ts"
+import {
   exportGitEgress,
   ReviewWorkspace,
   ReviewWorkspaceLive,
@@ -283,9 +292,17 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       RuleTestJobLayer,
       WorkflowOutboxCronLayer,
       SyncRepairCronLayer,
+      AdmitPullRequestReviewLayer,
+      PullRequestSchedulerLayer,
     ).pipe(
       Layer.provideMerge(
-        Layer.mergeAll(LabelingSyncIntegrationLayer, LabelingAutomationIntegrationLayer),
+        Layer.mergeAll(
+          LabelingSyncIntegrationLayer,
+          AutomationIntegration.combine(
+            LabelingAutomationIntegrationLayer,
+            PullRequestReviewAutomationIntegrationLayer,
+          ),
+        ),
       ),
       Layer.provideMerge(
         Layer.mergeAll(
@@ -301,6 +318,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           RuleTestJobs.layer,
           LabelingOverview.layer,
           ActivityReader.layer,
+          PullRequestReviewStore.layer,
         ),
       ),
       Layer.provideMerge(Policies.layer),
@@ -316,6 +334,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           RefreshEntityRegistration,
           LabelItemRegistration,
           RuleTestJobRegistration,
+          AdmitPullRequestReviewRegistration,
         ]),
       ),
       Layer.provideMerge(GitHubTransportLayer),
@@ -352,7 +371,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
-      entities: [],
+      // The run entity's handlers come with the PR review run sub-issues.
+      entities: [PullRequestScheduler, PullRequestReviewRun],
       layer: ClusterLayer,
     })
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)

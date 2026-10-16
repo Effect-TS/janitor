@@ -180,9 +180,18 @@ export const applyEvent = (
         })
         return
       }
-      case "issue_comment":
-        // Nothing to mirror: comments are not cached, and nothing acts on them.
+      case "issue_comment": {
+        // Nothing to mirror: comments are not cached. PR review acts on `/janitor`.
+        const { payload } = event
+        const repository = yield* readModel.getRepository(payload.repository.id)
+        if (Option.isNone(repository)) return
+        yield* automation.issueCommentEvent({
+          repositoryId: payload.repository.id,
+          payload,
+          sequence,
+        })
         return
+      }
       case "pull_request": {
         const { payload } = event
         yield* readModel.applyPullRequest({
@@ -207,6 +216,9 @@ export const applyEvent = (
         }
         yield* automation.pullRequestEvent({
           repositoryId: payload.repository.id,
+          repository: payload.repository,
+          action: payload.action,
+          sender: payload.sender,
           pullRequest: payload.pullRequest,
           sequence,
         })
