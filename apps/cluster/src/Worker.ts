@@ -101,7 +101,9 @@ import {
   AdmitPullRequestReviewRegistration,
   PullRequestReviewAutomationIntegrationLayer,
 } from "./PullRequestReview/Admission.ts"
-import { PullRequestReviewRun } from "./PullRequestReview/RunEntity.ts"
+import { RunPublisherLayer } from "./PullRequestReview/Publish.ts"
+import { ReviewAgentLayer, ReviewModelLayer } from "./PullRequestReview/ReviewAgent.ts"
+import { PullRequestReviewRun, PullRequestReviewRunLayer } from "./PullRequestReview/RunEntity.ts"
 import { PullRequestScheduler, PullRequestSchedulerLayer } from "./PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "./PullRequestReview/Store.ts"
 import { AutomationIntegration } from "./AutomationIntegration.ts"
@@ -294,6 +296,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       SyncRepairCronLayer,
       AdmitPullRequestReviewLayer,
       PullRequestSchedulerLayer,
+      PullRequestReviewRunLayer.pipe(
+        Layer.provide(RunPublisherLayer),
+        Layer.provide(ReviewAgentLayer.pipe(Layer.provide(ReviewModelLayer))),
+      ),
     ).pipe(
       Layer.provideMerge(
         Layer.mergeAll(
@@ -371,7 +377,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
-      // The run entity's handlers come with the PR review run sub-issues.
       entities: [PullRequestScheduler, PullRequestReviewRun],
       layer: ClusterLayer,
     })

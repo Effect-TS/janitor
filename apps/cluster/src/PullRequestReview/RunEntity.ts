@@ -422,6 +422,16 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         )
         const result = yield* live.result
         yield* Fiber.interrupt(timers)
+        if (result._tag === "SandboxLost") {
+          // Not a failed run: a fresh sandbox and checkout, and the loop resumes
+          // from its history. The re-acquire counts as a resume.
+          yield* Effect.logWarning("PR review sandbox lost; resuming in a new one").pipe(
+            Effect.annotateLogs({ runId }),
+          )
+          // Not from this fiber: closing the resource interrupts it.
+          yield* Effect.forkIn(Effect.andThen(resource.close, ensureAcquired), entityScope)
+          return
+        }
         const records = yield* storage.records
         const saved = yield* storage.update((state) =>
           state.phase !== "running"
@@ -479,15 +489,29 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       const executor = yield* provision(state, deadline)
       if (cancelling) return yield* new RunStopped({ reason: "cancelled" })
       const history = yield* storage.resumeHistory
+      const records = yield* storage.records
       const live = yield* agent
         .start({
           runId,
+          github: yield* github(state.target!, state.number),
+          pullRequest: { headSha: state.headSha, baseSha: state.baseSha, trigger: state.trigger },
           executor,
           history,
           prompt: state.acquires > 1 ? resumeMessage : undefined,
+          records,
           onStep: (step) => storage.commitStep(step.history, step.records).pipe(Effect.orDie),
         })
-        .pipe(Effect.provideService(Scope.Scope, closeScope))
+        .pipe(
+          Effect.provideService(Scope.Scope, closeScope),
+          Effect.catchTag("ReviewInputError", (error) =>
+            Effect.andThen(
+              Effect.logWarning("Couldn't read the PR review run's inputs").pipe(
+                Effect.annotateLogs({ runId, operation: error.operation }),
+              ),
+              Effect.fail(new RunStopped({ reason: "incomplete" })),
+            ),
+          ),
+        )
       // Cancelled while the agent started: closing the scope stops it, then releases.
       if (cancelling) return yield* new RunStopped({ reason: "cancelled" })
       session = live

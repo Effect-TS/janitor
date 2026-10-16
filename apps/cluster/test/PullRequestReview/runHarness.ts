@@ -1,7 +1,7 @@
 import * as CloudflareCluster from "@effect/platform-cloudflare/CloudflareCluster"
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
 import * as AgentExecutor from "clanka/AgentExecutor"
-import type * as Prompt from "effect/ai/Prompt"
+import * as Prompt from "effect/ai/Prompt"
 import * as Clock from "effect/Clock"
 import * as Entity from "effect/cluster/Entity"
 import * as MessageStorage from "effect/cluster/MessageStorage"
@@ -21,6 +21,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import * as Schema from "effect/Schema"
 import * as Reactivity from "effect/reactivity/Reactivity"
 import * as Scope from "effect/Scope"
 import type * as SqlClient from "effect/sql/SqlClient"
@@ -67,8 +68,8 @@ import { drain, failNextSend, repositoryId, settle } from "./support.ts"
 /** The head every run in the harness reviews, unless a test moves it. */
 export const HEAD = GitHubCommitSha.make("a".repeat(40))
 
-/** The executor the fake workspace hands out. The fake agent never runs a command. */
-const executor = Layer.effect(
+/** The executor the fake workspace hands out by default. The fake agent never runs a command. */
+const neverRuns = Layer.effect(
   AgentExecutor.AgentExecutor,
   Effect.die(new Error("The fake agent never runs commands")),
 )
@@ -185,6 +186,9 @@ export class FakeWorkspaces {
   constructor(
     private readonly events: Array<string>,
     private readonly agent: FakeReviewAgent,
+    /** The executor each acquire hands out, by acquire number from 0; one that never runs a command by default. */
+    private readonly executor: (acquire: number) => Layer.Layer<AgentExecutor.AgentExecutor> = () =>
+      neverRuns,
   ) {}
 
   get layer() {
@@ -192,7 +196,7 @@ export class FakeWorkspaces {
       acquire: (input) =>
         Effect.flatMap(Clock.currentTimeMillis, (at) => {
           this.acquires.push({ ...input, at })
-          if (this.unavailable <= 0) return Effect.succeed(executor)
+          if (this.unavailable <= 0) return Effect.succeed(this.executor(this.acquires.length - 1))
           this.unavailable -= 1
           return Effect.fail(new ContainerUnavailable({ reason: "max_instances reached" }))
         }),
@@ -268,6 +272,10 @@ export interface RunHarnessOptions {
    * handed in `published` and does nothing else.
    */
   readonly publisher?: Layer.Layer<RunPublisher, never, PublisherServices>
+  /** The agent to run. Without one, `agent` is a `FakeReviewAgent` the test drives. */
+  readonly agent?: Layer.Layer<ReviewAgent>
+  /** The executor each acquire hands out, by acquire number from 0. */
+  readonly executor?: (acquire: number) => Layer.Layer<AgentExecutor.AgentExecutor>
 }
 
 /**
@@ -285,7 +293,7 @@ export const makeRunHarnessWith = Effect.fnUntraced(function* (options: RunHarne
   /** The agent and workspace lifecycle, in the order it happened. */
   const events: Array<string> = []
   const agent = new FakeReviewAgent(events)
-  const workspaces = new FakeWorkspaces(events, agent)
+  const workspaces = new FakeWorkspaces(events, agent, options.executor)
   /** What the `Publish` batch was handed, in order. */
   const published: Array<{ readonly runId: RunId; readonly outcome: LoopOutcome }> = []
   /** The `RunFinished` messages the per-PR scheduler received, in order. */
@@ -372,7 +380,7 @@ export const makeRunHarnessWith = Effect.fnUntraced(function* (options: RunHarne
     filename,
     storage,
     services: Layer.mergeAll(
-      agent.layer,
+      options.agent ?? agent.layer,
       workspaces.layer,
       publisher,
       store,
@@ -526,6 +534,19 @@ export const makeRunHarnessWith = Effect.fnUntraced(function* (options: RunHarne
         return rows.map((row) => row.name)
       }).pipe(Effect.orDie),
     ),
+
+    /** The run's history rows, in order, without changing them as a resume would. */
+    history: (runId: RunId) =>
+      use(
+        Effect.gen(function* () {
+          const sql = yield* CloudflareCluster.DurableObjectSqlClient
+          const rows = yield* sql<{ message: string }>`
+          SELECT message FROM pr_review_run_history WHERE run_id = ${runId} ORDER BY seq`
+          return yield* Effect.forEach(rows, (row) =>
+            Schema.decodeEffect(Schema.fromJsonString(Prompt.Message))(row.message),
+          )
+        }).pipe(Effect.orDie),
+      ),
 
     /** The run's Postgres row, if it has one. */
     row: (runId: RunId) =>

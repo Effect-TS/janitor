@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Dockerfile from "alchemy/Docker/Dockerfile"
 import * as AgentExecutor from "clanka/AgentExecutor"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
@@ -12,7 +13,8 @@ import * as RpcSerialization from "effect/rpc/RpcSerialization"
 import * as RpcServer from "effect/rpc/RpcServer"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { sandboxMaxInstances } from "../Config.ts"
+import { sandboxCommandTimeout, sandboxMaxInstances } from "../Config.ts"
+import { executorOptions } from "./ExecutorOptions.ts"
 import { GitCommandFailed, type Git } from "./Checkout.ts"
 import { makeContainerApp, WORKSPACE_DIRECTORY } from "./ContainerApp.ts"
 import { SandboxContainer } from "./SandboxContainer.ts"
@@ -66,6 +68,7 @@ const text = <E>(stream: Stream.Stream<Uint8Array, E>) => Stream.mkString(Stream
 
 export default SandboxContainer.make(
   Effect.gen(function* () {
+    const commandTimeout = yield* sandboxCommandTimeout
     return {
       main: import.meta.url,
       runtime: "node" as const,
@@ -81,6 +84,7 @@ export default SandboxContainer.make(
         RUN git config --system core.hooksPath /dev/null
         RUN mkdir -p /app /workspace
         RUN cd /app && npm install --no-save --no-audit --no-fund @silvia-odwyer/photon-node@0.3.4
+        ENV PR_REVIEW_COMMAND_TIMEOUT_SECONDS=${String(Duration.toSeconds(commandTimeout))}
       `,
     }
   }),
@@ -91,12 +95,17 @@ export default SandboxContainer.make(
     const node = <A, E>(effect: Effect.Effect<A, E, NodeServices.NodeServices>) =>
       Effect.provideContext(effect, services)
     yield* node(trustInterceptCa).pipe(Effect.ignore)
+    // The deploy's command timeout, from the image's environment.
+    const commandTimeout = yield* sandboxCommandTimeout
     const spawner = yield* node(ChildProcessSpawner)
     const http = yield* RpcServer.makeProtocolWithHttpEffect().pipe(
       Effect.provide(RpcSerialization.layerNdjson),
     )
     yield* Layer.build(
-      AgentExecutor.layerRpcServer({ directory: WORKSPACE_DIRECTORY }).pipe(
+      AgentExecutor.layerRpcServer({
+        directory: WORKSPACE_DIRECTORY,
+        ...executorOptions(commandTimeout),
+      }).pipe(
         Layer.provide(Layer.succeed(RpcServer.Protocol, http.protocol)),
         Layer.provide(Layer.succeedContext(services)),
         Layer.provide(FetchHttpClient.layer),
