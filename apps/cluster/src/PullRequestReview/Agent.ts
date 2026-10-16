@@ -64,6 +64,12 @@ export type LoopOutcome = typeof LoopOutcome.Type
 
 /** A running loop. */
 export interface ReviewSession {
+  /**
+   * The review standards sources the loop's instructions were built from
+   * (EFF-1647), such as the fixed protocol, the default rubric, `AGENTS.md`
+   * and invoker guidance. The run record lists them.
+   */
+  readonly standardsSources: ReadonlyArray<string>
   /** Sends the agent a message between its steps, such as the wrap-up message. */
   readonly steer: (message: string) => Effect.Effect<void>
   /** Stops the loop; `result` then ends as `Interrupted`. */

@@ -31,7 +31,8 @@ import { RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { type LoopOutcome, ReviewAgent, type ReviewSession } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import * as ReviewGitHub from "./GitHub.ts"
-import { makeRunStorage, type RunState } from "./RunStorage.ts"
+import { loadRunRecord, writeRunRecord } from "./RunRecord.ts"
+import { makeRunStorage, type RunState, type RunStorage } from "./RunStorage.ts"
 import { SandboxWorkspaces } from "./Sandbox/WorkspaceClient.ts"
 import { PullRequestScheduler, schedulerEntityId } from "./Scheduler.ts"
 import { recordSkip } from "./Skip.ts"
@@ -116,7 +117,11 @@ export const PullRequestReviewRun = Entity.make("PullRequestReviewRun", [
 
 /**
  * What the `Publish` handler does with a finished loop's outcome: the review
- * batch from "PR review: the Publish batch and run record" (EFF-1964).
+ * batch from "PR review: the Publish batch and run record" (EFF-1964),
+ * `RunPublisherLayer` in `Publish.ts`. It journals its steps and the run's
+ * final record in the run's storage and, once done, saves the run as
+ * `published`, or as `cancelled` when a push superseded it, with
+ * `RunFinished` sent and whether the record was written.
  */
 export class RunPublisher extends Context.Service<
   RunPublisher,
@@ -124,6 +129,8 @@ export class RunPublisher extends Context.Service<
     readonly publish: (run: {
       readonly runId: RunId
       readonly outcome: LoopOutcome
+      readonly state: RunState
+      readonly storage: RunStorage
     }) => Effect.Effect<void>
   }
 >()("@janitor/cluster/PullRequestReview/RunEntity/RunPublisher") {}
@@ -141,7 +148,7 @@ const FINAL_ROW_RETRY = Duration.minutes(1)
 const MAX_FINAL_ROW_RETRY = Duration.minutes(30)
 
 const isEnded = (phase: RunState["phase"]) =>
-  phase === "skipped" || phase === "cancelled" || phase === "failed"
+  phase === "skipped" || phase === "cancelled" || phase === "failed" || phase === "published"
 
 /** Waits until epoch millis `at`; a time already past doesn't wait at all. */
 const sleepUntil = (at: number) =>
@@ -249,9 +256,11 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       )
 
     /**
-     * What a run that ended before `Publish` still owes, each part once: the
-     * check run and the final Postgres row, then `RunFinished`, then `Expire`.
-     * A restart picks up where an interrupted pass stopped.
+     * What a final run still owes, each part once: for a run that ended before
+     * `Publish`, the check run and the final Postgres row; for one that
+     * published, the record `Publish` journalled, until Postgres takes it.
+     * Then `RunFinished`, then `Expire`. A restart picks up where an
+     * interrupted pass stopped.
      */
     const finalize = Effect.gen(function* () {
       const loaded = yield* storage.load
@@ -260,7 +269,16 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       const finishedAt = DateTime.makeUnsafe(state.finishedAt ?? (yield* Clock.currentTimeMillis))
       const rowDue = state.target !== null && state.phase !== "skipped"
       let rowWritten = state.finalRowWritten || !rowDue
-      if (!rowWritten && state.target !== null) {
+      const journalled = yield* loadRunRecord(storage)
+      if (!rowWritten && Option.isSome(journalled)) {
+        // `Publish` already did the GitHub writes; only the record is left.
+        rowWritten = yield* writeRunRecord(store, storage, journalled.value)
+        yield* storage.update((current) =>
+          rowWritten
+            ? { ...current, finalRowWritten: true }
+            : { ...current, finalRowAttempts: current.finalRowAttempts + 1 },
+        )
+      } else if (!rowWritten && state.target !== null) {
         // A run cancelled before asking for a check run has none to conclude. One
         // asked for but without a saved id is found by its head SHA.
         if (state.checkRun !== null || state.checkRunAttempted || state.phase === "failed")
@@ -473,6 +491,10 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       // Cancelled while the agent started: closing the scope stops it, then releases.
       if (cancelling) return yield* new RunStopped({ reason: "cancelled" })
       session = live
+      yield* storage.update((current) => ({
+        ...current,
+        standardsSources: live.standardsSources,
+      }))
       // A resume past wrap-up time goes straight to wrap-up.
       if ((yield* Clock.currentTimeMillis) >= wrapUpAt) yield* wrapUp(live)
       yield* Scope.addFinalizer(
@@ -581,7 +603,13 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             return yield* finalize
           }
           const { target, client, pull } = opened.success
-          const known = { ...fresh, target, title: pull.title, baseSha: pull.baseSha }
+          const known = {
+            ...fresh,
+            target,
+            title: pull.title,
+            baseSha: pull.baseSha,
+            baseRef: pull.baseRef,
+          }
           // Closed or turned draft since it was queued: skipped, like the other draft skips.
           if (pull.state === "closed" || pull.draft) {
             yield* storage.save({ ...known, phase: "skipped", finishedAt: startedAt })
@@ -677,7 +705,17 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           if (expired) return
           const state = yield* storage.load
           if (Option.isNone(state) || state.value.outcome === null) return
-          yield* publisher.publish({ runId: payload.runId, outcome: state.value.outcome })
+          // A replay after the batch finished goes straight to `finalize`.
+          if (state.value.phase === "publishing")
+            yield* publisher.publish({
+              runId: payload.runId,
+              outcome: state.value.outcome,
+              state: state.value,
+              storage,
+            })
+          // Retries a record Postgres refused, then expires the run: after the
+          // retention period, or at once when a push superseded it.
+          yield* finalize
         }).pipe(Effect.orDie),
 
       Expire: ({ payload }) =>

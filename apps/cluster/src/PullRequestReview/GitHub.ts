@@ -51,13 +51,27 @@ export class NotFound extends Data.TaggedError("PullRequestGitHubNotFound")<{
   readonly message: string
 }> {}
 
+/**
+ * GitHub answered 422, or a GraphQL `UNPROCESSABLE` error, other than for a
+ * thread line outside the diff.
+ */
+export class Unprocessable extends Data.TaggedError("PullRequestGitHubUnprocessable")<{
+  readonly operation: string
+  readonly message: string
+}> {}
+
 /** GitHub asked for a wait longer than a run waits inline; retry after `until`. */
 export class RateLimited extends Data.TaggedError("PullRequestGitHubRateLimited")<{
   readonly operation: string
   readonly until: DateTime.Utc
 }> {}
 
-export type PullRequestGitHubFailure = PullRequestGitHubError | Forbidden | NotFound | RateLimited
+export type PullRequestGitHubFailure =
+  | PullRequestGitHubError
+  | Forbidden
+  | NotFound
+  | Unprocessable
+  | RateLimited
 
 /** A directory read would go past its file bound, so reading it whole is refused. */
 export class DirectoryTooLarge extends Data.TaggedError("PullRequestGitHubDirectoryTooLarge")<{
@@ -130,6 +144,8 @@ export interface ThreadComment {
   readonly byJanitor: boolean
   readonly body: string
   readonly createdAt: DateTime.Utc
+  /** The comment's page on GitHub, when GitHub sent it. */
+  readonly url?: string
 }
 
 /** A review thread janitor's App opened, recognised by the fingerprint marker in its root. */
@@ -398,6 +414,7 @@ interface Page<A> {
 
 const ThreadCommentNode = Schema.Struct({
   id: Schema.String,
+  url: Schema.optionalKey(Schema.String),
   body: Schema.String,
   createdAt: Schema.DateTimeUtcFromString,
   viewerDidAuthor: Schema.Boolean,
@@ -446,7 +463,7 @@ const PendingData = pullRequestData({ id: Schema.String, reviews: connection(Rev
 
 const PAGE_INFO = "pageInfo { hasNextPage endCursor }"
 const COMMENT_FIELDS =
-  "id body createdAt viewerDidAuthor author { login } pullRequestReview { id state }"
+  "id url body createdAt viewerDidAuthor author { login } pullRequestReview { id state }"
 const REVIEW_FIELDS = "id databaseId state body viewerDidAuthor"
 
 /** A query on this pull request; `selection` goes inside `pullRequest`. */
@@ -571,20 +588,22 @@ const githubMessage = (body: unknown) =>
 const failed = (
   operation: string,
   response: Extract<GitHubResponse, { _tag: "Failed" }>,
-): PullRequestGitHubError | Forbidden | NotFound => {
+): PullRequestGitHubError | Forbidden | NotFound | Unprocessable => {
   const message = `${operation}: GitHub responded ${response.status}${githubMessage(response.body)}`
   if (response.status === 403) return new Forbidden({ operation, message })
   if (response.status === 404) return new NotFound({ operation, message })
+  if (response.status === 422) return new Unprocessable({ operation, message })
   return new PullRequestGitHubError({ operation, message, status: response.status })
 }
 
 const graphQLFailure = (
   operation: string,
   error: { readonly type?: string; readonly message: string },
-): PullRequestGitHubError | Forbidden | NotFound => {
+): PullRequestGitHubError | Forbidden | NotFound | Unprocessable => {
   const message = `${operation}: ${error.message}`
   if (error.type === "FORBIDDEN") return new Forbidden({ operation, message })
   if (error.type === "NOT_FOUND") return new NotFound({ operation, message })
+  if (error.type === "UNPROCESSABLE") return new Unprocessable({ operation, message })
   return new PullRequestGitHubError({ operation, message })
 }
 
@@ -997,6 +1016,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
             byJanitor: comment.viewerDidAuthor,
             body: comment.body,
             createdAt: comment.createdAt,
+            ...(comment.url === undefined ? {} : { url: comment.url }),
           })),
       })
     }
@@ -1252,7 +1272,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
           response,
         ): Effect.Effect<
           void,
-          NotOnDismissalAllowList | PullRequestGitHubError | Forbidden | NotFound
+          NotOnDismissalAllowList | PullRequestGitHubError | Forbidden | NotFound | Unprocessable
         > =>
           response._tag !== "Failed"
             ? Effect.void
