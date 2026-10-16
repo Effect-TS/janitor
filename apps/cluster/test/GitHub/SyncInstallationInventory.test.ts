@@ -136,6 +136,7 @@ const run = (
             applyIssues: () => Effect.void,
             applyIssue: () => Effect.succeed({ _tag: "Applied" as const }),
             applyPullRequestDetails: () => Effect.succeed({ _tag: "Applied" as const }),
+            removeEntity: () => Effect.void,
             getInstallation: () => Effect.succeedNone,
             getRepository: () => Effect.succeedNone,
             getEntity: () => Effect.succeedNone,

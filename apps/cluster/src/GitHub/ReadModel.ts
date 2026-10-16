@@ -271,6 +271,11 @@ export class GitHubReadModel extends Context.Service<
     readonly applyPullRequestDetails: (
       observation: PullRequestDetailsObservation,
     ) => Effect.Effect<PullRequestDetailsProjection, GitHubReadModelError>
+    /** An issue or pull request GitHub reports deleted; the cascade clears its details. */
+    readonly removeEntity: (
+      repositoryId: GitHubRepositoryDatabaseId,
+      number: number,
+    ) => Effect.Effect<void, GitHubReadModelError>
     readonly getInstallation: (
       installationId: GitHubInstallationId,
     ) => Effect.Effect<Option.Option<GitHubInstallationRecord>, GitHubReadModelError>
@@ -922,6 +927,11 @@ export class GitHubReadModel extends Context.Service<
         UPDATE github_installation SET status = 'deleted', projected_sequence = ${sequence}, observed_at = CLOCK_TIMESTAMP()
         WHERE installation_id = ${installationId} AND projected_sequence <= ${sequence}
       `.pipe(Effect.asVoid, wrap("markInstallationLost")),
+      removeEntity: (repositoryId, number) =>
+        sql`DELETE FROM github_entity WHERE repository_id = ${repositoryId} AND number = ${number}`.pipe(
+          Effect.asVoid,
+          wrap("removeEntity"),
+        ),
       listOpenEntityNumbersBefore,
       withTransaction,
       applyInstallation,

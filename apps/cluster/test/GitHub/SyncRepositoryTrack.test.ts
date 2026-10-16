@@ -56,6 +56,7 @@ interface Recorder {
   readonly missingOpen: Array<number>
   readonly missingDetails: Set<number>
   readonly completed: Array<CompleteRequest>
+  readonly removed: Array<number>
   readonly collections: Array<
     import("../../src/GitHub/ReadModel.ts").PullRequestCollectionsObservation
   >
@@ -66,6 +67,7 @@ const makeRecorder = (): Recorder => ({
   issues: [],
   pulls: [],
   completed: [],
+  removed: [],
   invalidated: [],
   missingOpen: [],
   missingDetails: new Set(),
@@ -164,6 +166,8 @@ const services = (
             ? { _tag: "Missing" as const }
             : { _tag: "Applied" as const }
         }),
+      removeEntity: (_repositoryId, number) =>
+        Effect.sync(() => void recorder.removed.push(number)),
       getInstallation: () => Effect.succeedNone,
       getRepository: () => Effect.succeed(stored),
       getEntity: () => Effect.succeedNone,
@@ -484,6 +488,39 @@ describe("RefreshEntity", () => {
         _tag: "Blocked",
         reason: "entity-http-404",
       })
+    }),
+  )
+
+  it.effect("removes the cached entity and verifies when GitHub reports it deleted", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+
+      const result = yield* runRefresh(recorder, () => failed(410))
+
+      assert.strictEqual(result.outcome, "verified")
+      assert.deepStrictEqual(recorder.issues, [])
+      assert.deepStrictEqual(recorder.removed, [42])
+      assert.deepStrictEqual(recorder.completed[0]?.outcome, {
+        _tag: "Verified",
+        watermark: Option.none(),
+      })
+    }),
+  )
+
+  it.effect("removes the cached entity when GitHub reports the pull request deleted", () =>
+    Effect.gen(function* () {
+      const recorder = makeRecorder()
+
+      const result = yield* runRefresh(recorder, (request) =>
+        request.url.endsWith("/issues/42")
+          ? ok(issue(42, "2026-09-02T10:00:00.000Z", true))
+          : failed(410),
+      )
+
+      assert.strictEqual(result.outcome, "verified")
+      assert.deepStrictEqual(recorder.issues, [])
+      assert.deepStrictEqual(recorder.pulls, [])
+      assert.deepStrictEqual(recorder.removed, [42])
     }),
   )
   it.effect("fetches only required reviews and follows all review pages", () =>
