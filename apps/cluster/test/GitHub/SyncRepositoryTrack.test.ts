@@ -557,7 +557,7 @@ describe("RefreshEntity", () => {
       ])
     }),
   )
-  it.effect("reads beyond 300 files and refuses incomplete or changing snapshots", () =>
+  it.effect("reads beyond 300 files, refuses incomplete snapshots and re-reads changing ones", () =>
     Effect.gen(function* () {
       for (const scenario of ["complete", "limit", "mismatch", "changed", "failed"] as const) {
         const recorder = makeRecorder()
@@ -607,6 +607,13 @@ describe("RefreshEntity", () => {
           assert.strictEqual(collections.filesComplete, scenario === "complete")
           if (scenario === "limit")
             assert.include(collections.filesIncompleteReason!, "3000 of 3100")
+        } else if (scenario === "changed") {
+          assert.strictEqual(result.outcome, "changed")
+          assert.lengthOf(recorder.collections, 0)
+          assert.deepStrictEqual(recorder.completed[0]?.outcome, {
+            _tag: "Changed",
+            reason: "Pull request changed during collection refresh",
+          })
         } else {
           assert.strictEqual(result.outcome, "failed")
           assert.lengthOf(recorder.collections, 0)

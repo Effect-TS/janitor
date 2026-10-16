@@ -67,6 +67,8 @@ export type SyncOutcome =
   | { readonly _tag: "Verified"; readonly watermark: Option.Option<DateTime.Utc> }
   | { readonly _tag: "Blocked"; readonly reason: string }
   | { readonly _tag: "Failed"; readonly error: string }
+  /** GitHub changed while the run read it. Not an error: a follow-up run reads it again. */
+  | { readonly _tag: "Changed"; readonly reason: string }
 
 export interface CompleteRequest {
   readonly scope: SyncScope
@@ -286,11 +288,15 @@ export class SyncTargets extends Context.Service<
             if (repositoryId !== null)
               yield* sql`SELECT repository_id FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
             const verified = outcome._tag === "Verified"
+            const changed = outcome._tag === "Changed"
             const watermark = verified
               ? Option.getOrNull(Option.map(outcome.watermark, DateTime.toDateUtc))
               : null
             const rows = yield* sql`
           UPDATE sync_target SET
+            requested_generation = CASE WHEN ${changed}
+              THEN GREATEST(requested_generation, ${request.generation}::bigint + 1)
+              ELSE requested_generation END,
             completed_generation = ${request.generation},
             scan_watermark = CASE WHEN ${verified} THEN COALESCE(${watermark}, scan_watermark) ELSE scan_watermark END,
             last_full_at = CASE WHEN ${verified} AND active_full THEN CLOCK_TIMESTAMP() ELSE last_full_at END,
@@ -301,7 +307,7 @@ export class SyncTargets extends Context.Service<
             health = ${outcome._tag === "Blocked" ? "blocked" : "ok"},
             blocked_reason = ${outcome._tag === "Blocked" ? outcome.reason : null},
             last_error = ${outcome._tag === "Failed" ? outcome.error : null},
-            retry_at = CASE WHEN ${!verified} THEN CLOCK_TIMESTAMP() + INTERVAL '5 minutes' ELSE NULL END,
+            retry_at = CASE WHEN ${!verified && !changed} THEN CLOCK_TIMESTAMP() + INTERVAL '5 minutes' ELSE NULL END,
             active_generation = NULL, active_sequence = NULL, active_full = FALSE,
             updated_at = CLOCK_TIMESTAMP()
           WHERE scope_key = ${syncScopeKey(request.scope)} AND active_generation = ${request.generation}

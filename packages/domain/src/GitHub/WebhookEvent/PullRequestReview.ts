@@ -6,7 +6,7 @@ import {
   GitHubUserDatabaseIdFromStringOrNumber,
 } from "../Id.ts"
 import { BaseGitHubWebhookEvent } from "./Base.ts"
-import { PullRequestWebhookPayloadBase } from "./PullRequest.ts"
+import { PullRequestWebhookPayloadBase, ReviewedPullRequest } from "./PullRequest.ts"
 
 const PullRequestReviewUser = Schema.Struct({
   id: GitHubUserDatabaseIdFromStringOrNumber,
@@ -62,7 +62,7 @@ const PullRequestReviewChanges = Schema.Struct({
 }).annotate({ identifier: "PullRequestReviewChanges" })
 
 const PullRequestReviewPayloadBase = PullRequestWebhookPayloadBase.pipe(
-  Schema.fieldsAssign({ review: PullRequestReview }),
+  Schema.fieldsAssign({ pullRequest: ReviewedPullRequest, review: PullRequestReview }),
 )
 
 export const PullRequestReviewSubmitted = PullRequestReviewPayloadBase.pipe(

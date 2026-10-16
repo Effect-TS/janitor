@@ -18,6 +18,7 @@ import { PullRequestReviewWebhookPayload } from "@janitor/domain/GitHub/WebhookE
 
 const submittedAt = "2026-08-28T12:00:00.000Z"
 const updatedAt = "2026-08-28T11:00:00.000Z"
+// GitHub's review payloads carry a simple pull request without `merged`.
 const payload = {
   pull_request: {
     id: 123,
@@ -27,7 +28,6 @@ const payload = {
     body: null,
     state: "open",
     draft: false,
-    merged: false,
     updated_at: updatedAt,
     labels: [],
     user: { id: 102, login: "octocat" },
@@ -58,7 +58,6 @@ const submittedPayload: PullRequestReviewWebhookPayload = {
     body: null,
     state: "open",
     draft: false,
-    merged: false,
     updatedAt: DateTime.makeUnsafe(updatedAt),
     labels: [],
     user: { id: GitHubUserDatabaseId.make("102"), login: "octocat" },
@@ -88,6 +87,18 @@ describe("pull request review webhook payload schema", () => {
     const decoding = new TestSchema.Asserts(PullRequestReviewWebhookPayload).decoding()
 
     await decoding.succeed({ ...payload, action: "submitted" }, submittedPayload)
+  })
+
+  it("still decodes a pull request that reports merged", async () => {
+    const decoding = new TestSchema.Asserts(PullRequestReviewWebhookPayload).decoding()
+
+    await decoding.succeed(
+      { ...payload, action: "submitted", pull_request: { ...payload.pull_request, merged: false } },
+      {
+        ...submittedPayload,
+        pullRequest: { ...submittedPayload.pullRequest, merged: false },
+      },
+    )
   })
 
   it("encodes a submitted review to GitHub wire keys", async () => {
