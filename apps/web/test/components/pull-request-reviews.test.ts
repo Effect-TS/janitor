@@ -210,4 +210,66 @@ describe("PR reviews", () => {
       id(1),
     ])
   })
+
+  it("keeps loaded history on a live refresh, and Refresh starts again from the newest page", () => {
+    const newest = Array.from({ length: 50 }, (_, index) => run(100 - index))
+    const fetched = (step: ReturnType<typeof Reviews.update>) =>
+      step.commands?.map((command) => command.args)
+    const page = loaded(newest, id(51))
+    const more = Reviews.update(page, Reviews.Message.ClickedMore())
+    const older = Array.from({ length: 49 }, (_, index) => run(50 - index))
+    const history = Reviews.update(
+      more.model,
+      Reviews.Message.Loaded({
+        generation: page.generation,
+        older: true,
+        page: { runs: [...older, run(1, { status: "running", finishedAt: null })], cursor: null },
+      }),
+    ).model
+
+    const polled = Reviews.update(history, Reviews.Message.Polled())
+    expect(fetched(polled)).toEqual([
+      { repositoryId: "701", generation: history.generation, cursor: null },
+    ])
+    const live = Reviews.update(
+      polled.model,
+      Reviews.Message.Loaded({
+        generation: history.generation,
+        older: false,
+        page: { runs: newest, cursor: id(51) },
+      }),
+    ).model
+    expect(live.runs).toHaveLength(100)
+    expect(live.cursor).toBeNull()
+
+    const clicked = Reviews.update(live, Reviews.Message.ClickedRefresh())
+    expect(fetched(clicked)).toEqual([
+      { repositoryId: "701", generation: live.generation, cursor: null },
+    ])
+    const refreshed = Reviews.update(
+      clicked.model,
+      Reviews.Message.Loaded({
+        generation: live.generation,
+        older: false,
+        page: { runs: newest, cursor: id(51) },
+      }),
+    ).model
+    expect(refreshed.runs.map((entry) => entry.runId)).toEqual(newest.map((entry) => entry.runId))
+    expect(refreshed.cursor).toEqual(id(51))
+
+    const again = Reviews.update(refreshed, Reviews.Message.ClickedMore())
+    expect(fetched(again)).toEqual([
+      { repositoryId: "701", generation: refreshed.generation, cursor: id(51) },
+    ])
+    const last = Reviews.update(
+      again.model,
+      Reviews.Message.Loaded({
+        generation: refreshed.generation,
+        older: true,
+        page: { runs: [...older, run(1)], cursor: null },
+      }),
+    ).model
+    expect(last.runs).toHaveLength(100)
+    expect(last.runs.at(-1)).toMatchObject({ runId: id(1), status: "commented" })
+  })
 })

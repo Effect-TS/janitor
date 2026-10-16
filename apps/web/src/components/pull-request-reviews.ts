@@ -33,6 +33,8 @@ export const Model = Schema.Struct({
   loading: Schema.Boolean,
   loadingOlder: Schema.Boolean,
   initialized: Schema.Boolean,
+  /** Refresh was clicked: the next first page replaces the list instead of merging. */
+  replacing: Schema.Boolean,
   error: Schema.NullOr(Schema.String),
   /** Fences responses from an earlier repository or activation. */
   generation: Schema.Int,
@@ -58,6 +60,7 @@ export const init = (): Model => ({
   loading: false,
   loadingOlder: false,
   initialized: false,
+  replacing: false,
   error: null,
   generation: 0,
 })
@@ -134,12 +137,15 @@ export const update = (model: Model, message: Message): Return =>
       return active ? fetchPage(fenced) : { model: fenced }
     },
     Polled: () => fetchPage(model),
-    ClickedRefresh: () => fetchPage(model),
+    ClickedRefresh: () => {
+      const step = fetchPage(model)
+      return step.model === model ? step : { ...step, model: { ...step.model, replacing: true } }
+    },
     ClickedMore: () => fetchPage(model, true),
     ClickedRetry: () => fetchPage(model, model.loadingOlder),
     Loaded: ({ generation, older, page }) => {
       if (generation !== model.generation || !model.active) return { model }
-      const next = { ...model, loading: false, initialized: true, error: null }
+      const next = { ...model, loading: false, initialized: true, replacing: false, error: null }
       if (older) {
         const known = new Set(model.runs.map((run) => run.runId))
         return {
@@ -151,9 +157,10 @@ export const update = (model: Model, message: Message): Return =>
         }
       }
       return {
-        model: model.initialized
-          ? refreshed(next, page)
-          : { ...next, runs: page.runs, cursor: page.cursor },
+        model:
+          model.initialized && !model.replacing
+            ? refreshed(next, page)
+            : { ...next, runs: page.runs, cursor: page.cursor },
       }
     },
     Failed: ({ generation, reason }) =>
