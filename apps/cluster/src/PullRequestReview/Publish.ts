@@ -155,9 +155,11 @@ const ThreadAdded = Schema.Union([
   Schema.TaggedStruct("Unresolvable", {}),
 ])
 const ReplyAdded = Schema.Struct({ commentId: Schema.String })
+/** What submit saw just before it sent the review: the event and whether the head had moved. */
+const Observed = Schema.TaggedStruct("Submitted", { event: Verdict, headMoved: Schema.Boolean })
+const ObservedJson = Schema.fromJsonString(Observed)
 const Submitted = Schema.Union([
-  /** `headMoved` when the head had moved since the reviewed SHA by the time it was submitted. */
-  Schema.TaggedStruct("Submitted", { event: Verdict, headMoved: Schema.Boolean }),
+  Observed,
   /** An unexpected 422. */
   Schema.TaggedStruct("Refused", { message: Schema.String }),
 ])
@@ -666,36 +668,52 @@ const makePublisher = Effect.gen(function* () {
         event: Verdict,
         pending: typeof Created.Type,
         options: { readonly inBody: boolean; readonly unresolvable: ReadonlySet<number> },
-      ) =>
-        create(
+      ) => {
+        const observedStep = `${prefix}/submit:observed`
+        return create(
           `${prefix}/submit`,
           Submitted,
           Effect.gen(function* () {
             const found = yield* client.findReview(runId)
             if (Option.isNone(found)) return Option.none()
-            // Cut off before the result was saved: how the head stands now is the best record.
-            const pull = yield* client.pullRequest
+            // Cut off after it was sent: keep what submit saw then, never the head as it is now.
+            const observed = yield* storage.publishStep(observedStep).pipe(Effect.orDie)
+            if (Option.isSome(observed))
+              return Option.some(
+                yield* Schema.decodeEffect(ObservedJson)(observed.value).pipe(Effect.orDie),
+              )
+            // Unreachable while the observation is journalled before every send.
+            const submitted = SUBMITTED[found.value.state] ?? event
             return Option.some({
               _tag: "Submitted" as const,
-              event: SUBMITTED[found.value.state] ?? event,
-              headMoved: pull.headSha !== state.headSha,
+              event: submitted,
+              headMoved: submitted !== event,
             })
           }),
           Effect.gen(function* () {
             const pull = yield* client.pullRequest
             const headMoved = pull.headSha !== state.headSha
             const submitted = headMoved && event === "approve" ? "comment" : event
+            const observed = { _tag: "Submitted" as const, event: submitted, headMoved }
+            // Journalled before the request, so a submit cut off mid-request keeps what it saw.
+            yield* storage
+              .recordPublishStep(
+                observedStep,
+                yield* Schema.encodeEffect(ObservedJson)(observed).pipe(Effect.orDie),
+              )
+              .pipe(Effect.orDie)
             yield* client.submitPendingReview(pending.id, {
               event: EVENTS[submitted],
               body: renderBody(review, submitted, { ...options, headMoved }),
             })
-            return { _tag: "Submitted" as const, event: submitted, headMoved }
+            return observed
           }).pipe(
             Effect.catchTag("PullRequestGitHubUnprocessable", (error) =>
               Effect.succeed({ _tag: "Refused" as const, message: error.message }),
             ),
           ),
         )
+      }
 
       /** Adds the planned replies to earlier threads to a pending review. */
       const addReplies = (prefix: string, review: ReviewPlan, pending: typeof Created.Type) =>
@@ -913,20 +931,17 @@ const makePublisher = Effect.gen(function* () {
                     state: { status: "completed", conclusion: "failure" } as const,
                     output: checkRunOutput({ _tag: "Errored", error: "publish_failed" }),
                   }
-                : plan.conclusion === "neutral"
-                  ? {
-                      state: { status: "completed", conclusion: "neutral" } as const,
-                      output: checkRunOutput({ _tag: "Errored", error: "incomplete" }),
-                    }
-                  : {
-                      state: { status: "completed", conclusion: plan.conclusion } as const,
-                      output: checkRunOutput({
-                        _tag: "Reviewed",
-                        threads: [...newFindings, ...plan.threadLinks],
-                        gateFailures,
-                        dismissalFailures,
-                      }),
+                : {
+                    // A partial review stays neutral, and still lists what it found and why it can't approve.
+                    state: { status: "completed", conclusion: plan.conclusion } as const,
+                    output: checkRunOutput({
+                      _tag: "Reviewed",
+                      threads: [...newFindings, ...plan.threadLinks],
+                      gateFailures,
+                      dismissalFailures,
+                      incomplete: plan.conclusion === "neutral",
                     }),
+                  }),
             ...(state.checkRun === null ? {} : { checkRunId: state.checkRun.id }),
           }),
         ).pipe(

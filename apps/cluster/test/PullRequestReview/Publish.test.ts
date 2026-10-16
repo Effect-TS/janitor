@@ -510,6 +510,67 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
       ),
     )
 
+  it.effect(
+    "a submit cut off and replayed after a push records the head as it stood when it was submitted",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          // The approval lands on the reviewed head, then its response is lost.
+          const crashed = yield* cutOff(harness, "submitPullRequestReview")
+          const runId = newRunId()
+          yield* harness.start(runId)
+          yield* harness.agent.last.complete("Reviewed.")
+          yield* harness.waitFor(crashed, "the crash while submitting the review")
+          // A push before the replay doesn't change what was submitted.
+          putPullRequest(harness, MOVED)
+          yield* harness.restart
+          yield* harness.until(
+            Effect.sync(() => harness.finishedCount(runId) > 0),
+            "RunFinished",
+          )
+
+          assert.deepStrictEqual(
+            submitted(harness).map((review) => [review.state, review.commitOID]),
+            [["APPROVED", HEAD]],
+          )
+          const row = yield* harness.row(runId)
+          assert.strictEqual(row?.verdict, "approve")
+          assert.deepStrictEqual(row?.failedGates, [])
+          assert.strictEqual(harness.github.checkRuns[0]?.output.title, "No blocking findings")
+        }),
+      ),
+  )
+
+  it.effect(
+    "a partial run's neutral check run still lists its findings and the late head move",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          harness.github.intercept = (request: GitHubRequest) => {
+            if (harness.github.writeName(request) !== "addPullRequestReview")
+              return Effect.succeed(undefined)
+            harness.github.intercept = () => Effect.succeed(undefined)
+            const response = harness.github.respond(request)
+            putPullRequest(harness, MOVED)
+            return Effect.succeed(response)
+          }
+          const runId = yield* review(harness, [blocking], "partial")
+
+          assert.deepStrictEqual(
+            submitted(harness).map((review) => review.state),
+            ["CHANGES_REQUESTED"],
+          )
+          assert.include((yield* harness.row(runId))?.failedGates ?? [], "HeadMoved")
+          const [check] = harness.github.checkRuns
+          assert.deepStrictEqual([check?.status, check?.conclusion], ["completed", "neutral"])
+          // The incomplete explanation, with the finding and the gates the check run owes.
+          assert.include(check?.output.summary, "The review ended before it finished")
+          assert.include(check?.output.summary, "https://github.com/effect/one/pull/7/files")
+          assert.include(check?.output.summary, "the head moved during the review")
+        }),
+      ),
+  )
+
   it.effect("a quiet partial run never approves and only updates the check run", () =>
     run((harness) =>
       Effect.gen(function* () {

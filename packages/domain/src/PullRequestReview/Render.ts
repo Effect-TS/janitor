@@ -414,6 +414,8 @@ export type CheckRunReport =
       readonly gateFailures: ReadonlyArray<GateFailure>
       /** Links to janitor's earlier `REQUEST_CHANGES` reviews it failed to dismiss. */
       readonly dismissalFailures: ReadonlyArray<string>
+      /** A partial review: the incomplete explanation comes first. */
+      readonly incomplete?: boolean
     }
   | { readonly _tag: "Reviewing" }
   | { readonly _tag: "Skipped"; readonly reason: SkipReason }
@@ -457,6 +459,11 @@ const reviewedOutput = (
       ? `No blocking findings.${reason === undefined ? "" : ` ${reason}`}`
       : reason,
   ].filter((section) => section !== undefined)
+  if (report.incomplete === true)
+    return {
+      title: erroredOutput.incomplete.title,
+      summary: [erroredOutput.incomplete.summary, ...sections].join("\n\n"),
+    }
   return {
     title:
       open > 0
