@@ -531,3 +531,15 @@ through the new decision version. Every `labeling_ai_consent` row is rewritten
 to `openrouter` / `typesafe/jev-1.13`, so repositories keep their AI access
 without enabling it again. A deployment whose `LABELING_AI_MODEL` names another
 model evaluates AI rules as unknown until consent is enabled for that model.
+
+## PR review
+
+`0056_pr_review.sql` adds PR review's Postgres record. `pr_review_repository`
+holds the per-repository enable flag, off by default and stored apart from the
+other repository settings. `pr_review_runs` holds one row per run: written as
+`running` when the run starts, as `skipped` for oversized and run-cap skips,
+and upserted with the final record when the run ends. `pr_review_findings`
+holds one row per finding with its outcome (`new`, `carried_over`, `addressed`
+or `withdrawn`). Run and finding rows are kept indefinitely; disconnecting a
+repository clears only its enable flag, so a reconnected repository starts with
+PR review off. Existing repositories start with PR review off.
