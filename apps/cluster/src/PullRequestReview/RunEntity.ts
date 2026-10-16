@@ -28,7 +28,7 @@ import { checkRunOutput, type RunError } from "@janitor/domain/PullRequestReview
 import { RunId, SkipReason, Trigger } from "@janitor/domain/PullRequestReview/Run"
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import { RepositoryEligibility } from "../RepositoryEligibility.ts"
-import { type LoopOutcome, ReviewAgent, type ReviewSession } from "./Agent.ts"
+import { type LoopOutcome, ReviewAgent, ReviewInputError, type ReviewSession } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import * as ReviewGitHub from "./GitHub.ts"
 import { loadRunRecord, writeRunRecord } from "./RunRecord.ts"
@@ -206,6 +206,20 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
     let startingUp = false
     /** The loop this entity started, while it runs. */
     let session: ReviewSession | undefined
+    /**
+     * Whether this entity holds the run's workspace: from an acquire until it
+     * is released. Releasing is terminal, so closing the resource to resume
+     * after a lost sandbox keeps the workspace, and the next acquire resets it.
+     */
+    let workspaceHeld = false
+    let resuming = false
+
+    /** Releases the run's workspace if this entity still holds it. */
+    const releaseWorkspace = Effect.suspend(() => {
+      if (!workspaceHeld) return Effect.void
+      workspaceHeld = false
+      return workspaces.release(entityId)
+    })
 
     const github = (target: NonNullable<RunState["target"]>, number: number) =>
       ReviewGitHub.make({
@@ -422,6 +436,28 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         )
         const result = yield* live.result
         yield* Fiber.interrupt(timers)
+        if (result._tag === "SandboxLost") {
+          // Not a failed run: a fresh sandbox and checkout, and the loop resumes
+          // from its history. The re-acquire counts as a resume.
+          yield* Effect.logWarning("PR review sandbox lost; resuming in a new one").pipe(
+            Effect.annotateLogs({ runId }),
+          )
+          // Not from this fiber: closing the resource interrupts it.
+          yield* Effect.forkIn(
+            Effect.gen(function* () {
+              resuming = true
+              yield* Effect.ensuring(
+                resource.close,
+                Effect.sync(() => {
+                  resuming = false
+                }),
+              )
+              yield* ensureAcquired
+            }),
+            entityScope,
+          )
+          return
+        }
         const records = yield* storage.records
         const saved = yield* storage.update((state) =>
           state.phase !== "running"
@@ -474,20 +510,44 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       const deadline = state.startedAt + Duration.toMillis(config.runDeadline)
       const wrapUpAt = state.startedAt + Duration.toMillis(config.wrapUpAfter)
 
-      // Closing the resource stops the loop first, then destroys the container.
-      yield* Scope.addFinalizer(closeScope, workspaces.release(entityId))
+      // Closing the resource stops the loop first, then destroys the container,
+      // unless it closes to resume in the same workspace.
+      workspaceHeld = true
+      yield* Scope.addFinalizer(
+        closeScope,
+        Effect.suspend(() => (resuming ? Effect.void : releaseWorkspace)),
+      )
       const executor = yield* provision(state, deadline)
       if (cancelling) return yield* new RunStopped({ reason: "cancelled" })
       const history = yield* storage.resumeHistory
+      const records = yield* storage.records
       const live = yield* agent
         .start({
           runId,
+          github: yield* github(state.target!, state.number),
+          pullRequest: { headSha: state.headSha, baseSha: state.baseSha, trigger: state.trigger },
           executor,
           history,
           prompt: state.acquires > 1 ? resumeMessage : undefined,
+          records,
           onStep: (step) => storage.commitStep(step.history, step.records).pipe(Effect.orDie),
         })
-        .pipe(Effect.provideService(Scope.Scope, closeScope))
+        .pipe(
+          Effect.provideService(Scope.Scope, closeScope),
+          // Reading the loop's inputs is bounded by the run's deadline, like provisioning.
+          Effect.timeoutOrElse({
+            duration: Duration.millis(Math.max(0, deadline - (yield* Clock.currentTimeMillis))),
+            orElse: () => Effect.fail(new ReviewInputError({ operation: "deadline" })),
+          }),
+          Effect.catchTag("ReviewInputError", (error) =>
+            Effect.andThen(
+              Effect.logWarning("Couldn't read the PR review run's inputs").pipe(
+                Effect.annotateLogs({ runId, operation: error.operation }),
+              ),
+              Effect.fail(new RunStopped({ reason: "incomplete" })),
+            ),
+          ),
+        )
       // Cancelled while the agent started: closing the scope stops it, then releases.
       if (cancelling) return yield* new RunStopped({ reason: "cancelled" })
       session = live
@@ -536,7 +596,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       )
     }).pipe(
       Effect.catchTag("RunStopped", (stopped) =>
-        stopped.reason === "cancelled" ? Effect.void : fail(stopped.reason),
+        // An acquire that stopped before taking the workspace over, after a
+        // resume kept it, releases it here.
+        Effect.andThen(
+          releaseWorkspace,
+          stopped.reason === "cancelled" ? Effect.void : fail(stopped.reason),
+        ),
       ),
     )
 
@@ -681,6 +746,8 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           if (session !== undefined) yield* session.interrupt
           yield* Effect.forEach(acquiring, Deferred.await, { discard: true })
           yield* resource.close
+          // Kept by a resume that hadn't acquired again yet.
+          yield* releaseWorkspace
           yield* finalize
         }).pipe(Effect.orDie),
 

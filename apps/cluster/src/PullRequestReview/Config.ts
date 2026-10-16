@@ -103,6 +103,16 @@ export const sandboxMaxInstances: Config.Config<number> = count(
 )
 
 /**
+ * `PR_REVIEW_COMMAND_TIMEOUT_SECONDS` alone, for the sandbox container: it
+ * caps each command and script in the executor it serves. The container's
+ * image carries it from the deploy.
+ */
+export const sandboxCommandTimeout: Config.Config<Duration.Duration> = seconds(
+  "PR_REVIEW_COMMAND_TIMEOUT_SECONDS",
+  180,
+)
+
+/**
  * The deployment-wide gate alone: PR review is on while
  * `PR_REVIEW_OPENROUTER_API_KEY` is set. The webhook hooks read just this, so
  * a bad PR review setting can't fail the projection labeling shares.
@@ -119,7 +129,7 @@ export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = C
   ),
   runDeadline: seconds("PR_REVIEW_RUN_DEADLINE_SECONDS", 600),
   wrapUpAfter: seconds("PR_REVIEW_WRAP_UP_AFTER_SECONDS", 420),
-  commandTimeout: seconds("PR_REVIEW_COMMAND_TIMEOUT_SECONDS", 180),
+  commandTimeout: sandboxCommandTimeout,
   maxChangedLines: count("PR_REVIEW_MAX_CHANGED_LINES", 10000),
   maxChangedFiles: count("PR_REVIEW_MAX_CHANGED_FILES", 100),
   maxInlineComments: count("PR_REVIEW_MAX_INLINE_COMMENTS", 25),

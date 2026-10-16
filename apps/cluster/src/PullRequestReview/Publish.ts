@@ -18,19 +18,12 @@ import {
   checkRunOutput,
   inlineComment,
   type ListedFinding,
-  parseReplyMarker,
-  parseSeverityMarker,
   replyMarker,
   reviewBody,
   threadReplyBody,
 } from "@janitor/domain/PullRequestReview/Render"
 import { FinalStatus, RunId, Verdict } from "@janitor/domain/PullRequestReview/Run"
-import {
-  type Actor,
-  type EarlierThread,
-  judgeThread,
-  planReply,
-} from "@janitor/domain/PullRequestReview/Threads"
+import { judgeThread, planReply } from "@janitor/domain/PullRequestReview/Threads"
 import {
   allocateInline,
   checkRun as reviewCheckRun,
@@ -41,6 +34,7 @@ import {
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import type { LoopOutcome } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
+import { earlierThread, makeActors, rootComment } from "./EarlierThreads.ts"
 import * as ReviewGitHub from "./GitHub.ts"
 import { RunPublisher } from "./RunEntity.ts"
 import { type RunRecord, saveRunRecord, writeRunRecord } from "./RunRecord.ts"
@@ -202,12 +196,6 @@ const STATUS: Record<Verdict, FinalStatus> = {
   comment: "commented",
 }
 
-const WRITE_ACCESS: ReadonlyArray<ReviewGitHub.RepositoryPermission> = [
-  "admin",
-  "maintain",
-  "write",
-]
-
 /** How many times a step meets a transient GitHub failure before it fails for good. */
 const ATTEMPTS = 3
 
@@ -246,19 +234,6 @@ const toRunOutcome = (outcome: LoopOutcome): RunOutcome =>
       : outcome.steered
         ? "steered"
         : "completed"
-
-/** The judgement in one of janitor's replies written before replies carried a marker. */
-const statedJudgement = (body: string, isRoot: boolean) =>
-  isRoot || body.startsWith("Still applies")
-    ? ("still_applies" as const)
-    : body.startsWith("Addressed in")
-      ? ("addressed" as const)
-      : body.startsWith("Withdrawn")
-        ? ("withdrawn" as const)
-        : ("still_applies" as const)
-
-/** The comment text of a janitor thread's root, without its hidden marker. */
-const rootComment = (body: string) => body.replace(/\s*<!-- janitor:finding [^>]*-->\s*$/, "")
 
 const makePublisher = Effect.gen(function* () {
   const transport = yield* GitHubTransport
@@ -350,16 +325,8 @@ const makePublisher = Effect.gen(function* () {
         })
         const diff = parseTrustedDiff(changed.files)
         const history = yield* client.janitorHistory
-        const authorLogin = Option.map(pull.author, (author) => author.login)
-        const canWrite = (login: string) =>
-          Effect.map(client.permission(login), (permission) => WRITE_ACCESS.includes(permission))
-        const authorCanWrite = Option.isSome(authorLogin)
-          ? yield* canWrite(authorLogin.value)
-          : false
-        const actor = (login: string) =>
-          Option.getOrUndefined(authorLogin) === login
-            ? Effect.succeed<Actor>("author")
-            : Effect.map(canWrite(login), (write): Actor => (write ? "maintainer" : "other"))
+        const { authorCanWrite: readAuthorCanWrite, actor } = makeActors(client, pull)
+        const authorCanWrite = yield* readAuthorCanWrite
 
         const blobs = new Map<string, HeadBlob>()
         const headBlob = (path: string) =>
@@ -400,43 +367,8 @@ const makePublisher = Effect.gen(function* () {
           if (record._tag === "ThreadUpdated") judgements.set(record.threadId, record.judgement)
         const threads = yield* Effect.forEach(history.threads, (thread) =>
           Effect.gen(function* () {
-            const root = thread.comments[0]!
-            const own = thread.comments.filter((comment) => comment.byJanitor)
-            const last = own.at(-1) ?? root
-            const end = thread.line ?? thread.startLine ?? 1
-            const anchor = { startLine: Math.min(thread.startLine ?? end, end), endLine: end }
-            const replies = yield* Effect.forEach(
-              thread.comments.filter((comment) => !comment.byJanitor),
-              (comment) =>
-                Effect.map(actor(comment.author), (by) => ({ by, at: comment.createdAt })),
-            )
-            const resolvedBy = Option.isSome(thread.resolvedBy)
-              ? yield* actor(thread.resolvedBy.value)
-              : undefined
-            const earlier: EarlierThread = {
-              id: thread.id,
-              path: thread.path,
-              anchor,
-              // A marker from before severities were recorded is taken as blocking.
-              severity: Option.getOrElse(parseSeverityMarker(root.body), () => "blocking" as const),
-              fingerprint: thread.fingerprint,
-              outdated: thread.isOutdated,
-              ...(resolvedBy === undefined ? {} : { resolvedBy }),
-              replies,
-              janitor: {
-                at: last.createdAt,
-                // What janitor stated, and saw, when it last spoke; a reply from
-                // before markers is read from its text and never saw a resolution.
-                ...Option.getOrElse(
-                  last === root ? Option.none() : parseReplyMarker(last.body),
-                  () => ({
-                    judgement: statedJudgement(last.body, last === root),
-                    outdated: last !== root && last.body.startsWith("Still applies at"),
-                    resolved: false,
-                  }),
-                ),
-              },
-            }
+            const earlier = yield* earlierThread(thread, actor)
+            const anchor = earlier.anchor
             const headMatch: HeadMatch =
               thread.line === null
                 ? { _tag: "Unknown" }

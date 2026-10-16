@@ -1,12 +1,14 @@
 import type * as AgentExecutor from "clanka/AgentExecutor"
 import type * as Prompt from "effect/ai/Prompt"
 import * as Context from "effect/Context"
+import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { Finding, ThreadJudgement } from "@janitor/domain/PullRequestReview/Finding"
-import type { RunId } from "@janitor/domain/PullRequestReview/Run"
+import type { RunId, Trigger } from "@janitor/domain/PullRequestReview/Run"
+import type { PullRequestGitHub } from "./GitHub.ts"
 
 /**
  * The part of a PR review run's agent loop the run entity talks to
@@ -40,11 +42,15 @@ export interface AgentStep {
   readonly records: ReadonlyArray<LoopRecord>
 }
 
-/** How the loop ended. */
+/**
+ * How the loop ended. `SandboxLost` means the executor's transport or its
+ * container went away: the run re-acquires a sandbox and resumes.
+ */
 export type LoopEnd =
   | { readonly _tag: "Completed"; readonly summary: string }
   | { readonly _tag: "Interrupted" }
   | { readonly _tag: "Failed"; readonly message: string }
+  | { readonly _tag: "SandboxLost" }
 
 /**
  * What a finished loop hands to `Publish`: the `taskComplete` summary, whether
@@ -80,6 +86,14 @@ export interface ReviewSession {
 
 export interface StartOptions {
   readonly runId: RunId
+  /** The pull request, read through the run's GitHub client. */
+  readonly github: PullRequestGitHub
+  /** What the run reviews: the pinned head, the base it started from and what started it. */
+  readonly pullRequest: {
+    readonly headSha: string
+    readonly baseSha: string
+    readonly trigger: Trigger
+  }
   /** The run's sandbox, provisioned at the pinned head SHA. */
   readonly executor: Layer.Layer<AgentExecutor.AgentExecutor>
   /**
@@ -90,6 +104,8 @@ export interface StartOptions {
   readonly history: ReadonlyArray<Prompt.Message>
   /** The message a resumed loop continues from; absent on the first acquire. */
   readonly prompt: string | undefined
+  /** The records earlier steps committed, so a resumed loop knows what it already reported. */
+  readonly records: ReadonlyArray<LoopRecord>
   /**
    * Commits a step. The loop waits for it before its next step, so a step
    * the entity hasn't committed is one a resume redoes.
@@ -97,10 +113,17 @@ export interface StartOptions {
   readonly onStep: (step: AgentStep) => Effect.Effect<void>
 }
 
+/** The loop's inputs couldn't be read from GitHub, so it never started. */
+export class ReviewInputError extends Data.TaggedError("ReviewInputError")<{
+  readonly operation: string
+}> {}
+
 export class ReviewAgent extends Context.Service<
   ReviewAgent,
   {
     /** Starts a loop that runs until it ends or `scope` closes. */
-    readonly start: (options: StartOptions) => Effect.Effect<ReviewSession, never, Scope.Scope>
+    readonly start: (
+      options: StartOptions,
+    ) => Effect.Effect<ReviewSession, ReviewInputError, Scope.Scope>
   }
 >()("@janitor/cluster/PullRequestReview/Agent/ReviewAgent") {}
