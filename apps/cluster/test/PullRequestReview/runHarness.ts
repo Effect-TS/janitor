@@ -53,7 +53,7 @@ import {
   PullRequestReviewStoreError,
 } from "../../src/PullRequestReview/Store.ts"
 import { FakeReviewGitHub } from "./fakeGitHub.ts"
-import { drain, repositoryId, settle } from "./support.ts"
+import { drain, failNextSend, repositoryId, settle } from "./support.ts"
 
 /**
  * The run entity under test, the way the cluster runs it: an in-memory runner
@@ -137,6 +137,10 @@ export class FakeSession {
 /** The agent behind the run entity: every acquire starts one `FakeSession`. */
 export class FakeReviewAgent {
   readonly sessions: Array<FakeSession> = []
+  /** While set, a starting loop waits for it, as a slow agent start would. */
+  held: Deferred.Deferred<void> | undefined
+  /** How many starts were asked for, including ones still held. */
+  starts = 0
 
   constructor(private readonly events: Array<string>) {}
 
@@ -151,6 +155,8 @@ export class FakeReviewAgent {
     return Layer.succeed(ReviewAgent, {
       start: (options) =>
         Effect.gen({ self: this }, function* () {
+          this.starts += 1
+          if (this.held !== undefined) yield* Deferred.await(this.held)
           const session = new FakeSession(options, this.events)
           yield* Effect.addFinalizer(() => Effect.sync(() => session.stop()))
           this.sessions.push(session)
@@ -263,8 +269,8 @@ export const makeRunHarness = Effect.gen(function* () {
   const published: Array<{ readonly runId: RunId; readonly outcome: LoopOutcome }> = []
   /** The `RunFinished` messages the per-PR scheduler received, in order. */
   const finished: Array<{ readonly runId: RunId; readonly finishedAt: DateTime.Utc }> = []
-  /** While set, writing a run's start row fails, as when Postgres is down. */
-  const postgres = { failStartRow: false }
+  /** While set, writing a run's start row, or its final row, fails, as when Postgres is down. */
+  const postgres = { failStartRow: false, failFinalRow: false }
 
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -282,6 +288,12 @@ export const makeRunHarness = Effect.gen(function* () {
               new PullRequestReviewStoreError({ operation: "start", message: "Postgres is down" }),
             )
           : live.start(run),
+      finish: (run: Parameters<typeof live.finish>[0]) =>
+        postgres.failFinalRow
+          ? Effect.fail(
+              new PullRequestReviewStoreError({ operation: "finish", message: "Postgres is down" }),
+            )
+          : live.finish(run),
     })),
   )
   const publisher = Layer.succeed(RunPublisher, {
@@ -397,6 +409,22 @@ export const makeRunHarness = Effect.gen(function* () {
 
     cancel: (runId: RunId) =>
       Effect.flatMap(client(runId), (run) => use(settle(run.Cancel({ runId })))),
+
+    /** Sends `Cancel` and waits for its reply, without waiting for a `Start` still in flight. */
+    cancelNow: (runId: RunId) =>
+      Effect.flatMap(client(runId), (run) => stepping(run.Cancel({ runId }), "Cancel")),
+
+    /** Moves the clock in small steps until `done` holds, without draining. */
+    waitFor: (done: Effect.Effect<boolean>, what: string) =>
+      stepping(
+        Effect.gen(function* () {
+          while (!(yield* done)) yield* Effect.sleep(Duration.millis(100))
+        }),
+        what,
+      ),
+
+    /** Loses the next message with RPC tag `tag`, as a crash before it was stored would. */
+    failNextSend: (tag: string) => use(failNextSend(tag)),
 
     /** Waits until the runner handled everything that's due, including what that sent on. */
     drain: use(drain),

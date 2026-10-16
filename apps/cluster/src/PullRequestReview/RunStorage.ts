@@ -67,6 +67,8 @@ export const RunState = Schema.Struct({
   finishedAt: Schema.NullOr(Schema.Finite),
   /** A run that ends before `Publish` writes its final Postgres row once. */
   finalRowWritten: Schema.Boolean,
+  /** Failed attempts at the final row, each followed by a retry. */
+  finalRowAttempts: Schema.Int,
   /** The run entity is the only sender of `RunFinished`, once per run. */
   runFinishedSent: Schema.Boolean,
 })
@@ -190,6 +192,7 @@ export const makeRunStorage = (sql: SqlClient.SqlClient, runId: string) => {
       sql`CREATE TABLE IF NOT EXISTS pr_review_run_records (
         run_id TEXT NOT NULL, seq INTEGER NOT NULL, record TEXT NOT NULL,
         PRIMARY KEY (run_id, seq))`,
+      sql`CREATE TABLE IF NOT EXISTS pr_review_run_cancel_requests (run_id TEXT PRIMARY KEY)`,
       sql`CREATE TABLE IF NOT EXISTS publish_steps (
         run_id TEXT NOT NULL, step TEXT NOT NULL, output TEXT NOT NULL,
         PRIMARY KEY (run_id, step))`,
@@ -227,6 +230,46 @@ export const makeRunStorage = (sql: SqlClient.SqlClient, runId: string) => {
         if (next === undefined) return Option.none<RunState>()
         yield* save(next)
         return Option.some(next)
+      }),
+    )
+
+  /**
+   * Cancels the run in one transaction. A running run becomes `cancelled`
+   * (`Cancelled`). A run with no state yet, because its `Start` hasn't saved
+   * it, keeps the request for `Start` to find (`Requested`). Anything else
+   * has already ended (`Ended`).
+   */
+  const cancel = (finishedAt: number) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        const current = yield* load
+        if (Option.isNone(current)) {
+          yield* sql`INSERT INTO pr_review_run_cancel_requests (run_id) VALUES (${runId})
+            ON CONFLICT DO NOTHING`
+          return "Requested" as const
+        }
+        if (current.value.phase !== "running") return "Ended" as const
+        yield* save({ ...current.value, phase: "cancelled", finishedAt })
+        return "Cancelled" as const
+      }),
+    )
+
+  /**
+   * Saves a started run as `running`, in one transaction with the check for a
+   * `Cancel` that arrived first; then it is saved as `cancelled` instead.
+   * The result is the saved state.
+   */
+  const begin = (state: RunState) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        const [requested] = yield* sql`
+          SELECT run_id FROM pr_review_run_cancel_requests WHERE run_id = ${runId}`
+        const saved: RunState =
+          requested === undefined
+            ? { ...state, phase: "running" }
+            : { ...state, phase: "cancelled", finishedAt: state.startedAt }
+        yield* save(saved)
+        return saved
       }),
     )
 
@@ -290,13 +333,25 @@ export const makeRunStorage = (sql: SqlClient.SqlClient, runId: string) => {
         sql`DROP TABLE IF EXISTS pr_review_run_state`,
         sql`DROP TABLE IF EXISTS pr_review_run_history`,
         sql`DROP TABLE IF EXISTS pr_review_run_records`,
+        sql`DROP TABLE IF EXISTS pr_review_run_cancel_requests`,
         sql`DROP TABLE IF EXISTS publish_steps`,
       ],
       { discard: true },
     ),
   )
 
-  return { ensureTables, load, save, update, commitStep, resumeHistory, records, drop }
+  return {
+    ensureTables,
+    load,
+    save,
+    update,
+    cancel,
+    begin,
+    commitStep,
+    resumeHistory,
+    records,
+    drop,
+  }
 }
 
 export type RunStorage = ReturnType<typeof makeRunStorage>

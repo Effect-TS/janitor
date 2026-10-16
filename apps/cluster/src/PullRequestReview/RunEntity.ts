@@ -7,6 +7,7 @@ import * as EntityResource from "effect/cluster/EntityResource"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
+import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -15,6 +16,7 @@ import * as PrimaryKey from "effect/PrimaryKey"
 import * as Rpc from "effect/rpc/Rpc"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
+import * as Semaphore from "effect/Semaphore"
 import {
   GitHubCommitSha,
   GitHubInstallationId,
@@ -84,16 +86,21 @@ export const Publish = Rpc.make("Publish", {
   primaryKey: ({ runId }) => `publish/${runId}`,
 })
 
-/** Sent to itself when the run is final, for when its debugging data goes (EFF-1848). */
+/**
+ * Sent to itself when the run is final, for when its debugging data goes
+ * (EFF-1848). While a run's final Postgres row is still unwritten, `retry`
+ * numbers an earlier delivery that retries the row instead.
+ */
 export class ExpirePayload extends Schema.Class<ExpirePayload>("PullRequestReviewRun/Expire")({
   runId: RunId,
   at: Schema.DateTimeUtc,
+  retry: Schema.NullOr(Schema.Int),
 }) {
   [DeliverAt.symbol](): DateTime.DateTime {
     return this.at
   }
   [PrimaryKey.symbol](): string {
-    return `expire/${this.runId}`
+    return this.retry === null ? `expire/${this.runId}` : `expire/${this.runId}/retry/${this.retry}`
   }
 }
 export const Expire = Rpc.make("Expire", { payload: ExpirePayload })
@@ -127,6 +134,10 @@ class RunStopped extends Data.TaggedError("RunStopped")<{
 
 /** The longest wait between attempts at a container. */
 const MAX_CONTAINER_BACKOFF = Duration.seconds(30)
+
+/** The first and longest waits before retrying a final Postgres row that failed. */
+const FINAL_ROW_RETRY = Duration.minutes(1)
+const MAX_FINAL_ROW_RETRY = Duration.minutes(30)
 
 const isEnded = (phase: RunState["phase"]) =>
   phase === "skipped" || phase === "cancelled" || phase === "failed"
@@ -172,6 +183,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
     let expired = false
     /** Set by `Cancel`, so an acquire still waiting for a container gives up. */
     let cancelling = false
+    /** Completed by `Cancel`; interrupts an acquire still in flight. */
+    const stop = Deferred.makeUnsafe<void>()
+    /** One per acquire in flight, completed once it has finished, release included. */
+    const acquiring = new Set<Deferred.Deferred<void>>()
+    /** `finalize` runs one pass at a time. */
+    const finalizing = yield* Semaphore.make(1)
     /** The loop this entity started, while it runs. */
     let session: ReviewSession | undefined
 
@@ -196,16 +213,6 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         const client = yield* github(target, number)
         return { target, client, pull: yield* client.pullRequest }
       })
-
-    /** Moves a running run to a final phase; `None` when it had already moved on. */
-    const end = (phase: "cancelled" | "failed", errorCategory: RunError | null) =>
-      Effect.flatMap(DateTime.now, (now) =>
-        storage.update((state) =>
-          state.phase === "running"
-            ? { ...state, phase, errorCategory, finishedAt: DateTime.toEpochMillis(now) }
-            : undefined,
-        ),
-      )
 
     /** The `janitor/review` check run on a run that ended before `Publish`. */
     const concludeCheckRun = (state: RunState, target: NonNullable<RunState["target"]>) =>
@@ -243,9 +250,13 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       if (Option.isNone(loaded) || !isEnded(loaded.value.phase)) return
       const state = loaded.value
       const finishedAt = DateTime.makeUnsafe(state.finishedAt ?? (yield* Clock.currentTimeMillis))
-      if (!state.finalRowWritten && state.target !== null && state.phase !== "skipped") {
-        yield* concludeCheckRun(state, state.target)
-        const written = yield* store
+      const rowDue = state.target !== null && state.phase !== "skipped"
+      let rowWritten = state.finalRowWritten || !rowDue
+      if (!rowWritten && state.target !== null) {
+        // A run cancelled before it started has no check run to conclude.
+        if (state.checkRun !== null || state.phase === "failed")
+          yield* concludeCheckRun(state, state.target)
+        rowWritten = yield* store
           .finish({
             runId,
             repositoryId: state.repositoryId,
@@ -271,7 +282,11 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
               Effect.as(Effect.logWarning("Couldn't record the PR review run", error), false),
             ),
           )
-        if (written) yield* storage.update((current) => ({ ...current, finalRowWritten: true }))
+        yield* storage.update((current) =>
+          rowWritten
+            ? { ...current, finalRowWritten: true }
+            : { ...current, finalRowAttempts: current.finalRowAttempts + 1 },
+        )
       }
       if (!state.runFinishedSent) {
         yield* schedulers(schedulerEntityId(state.repositoryId, state.number)).RunFinished(
@@ -280,19 +295,41 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         )
         yield* storage.update((current) => ({ ...current, runFinishedSent: true }))
       }
-      // A run cancelled before publishing has nothing worth keeping.
       const config = yield* pullRequestReviewConfig
-      const at =
-        state.phase === "cancelled"
-          ? finishedAt
-          : DateTime.addDuration(finishedAt, config.runRetention)
-      yield* self.Expire(new ExpirePayload({ runId, at }), { discard: true })
-    })
+      const retention = DateTime.addDuration(finishedAt, config.runRetention)
+      if (!rowWritten) {
+        // The row is retried before anything expires, for as long as the run is kept.
+        const now = yield* DateTime.now
+        const retry = state.finalRowAttempts + 1
+        const wait = Duration.min(
+          Duration.times(FINAL_ROW_RETRY, 2 ** (retry - 1)),
+          MAX_FINAL_ROW_RETRY,
+        )
+        if (DateTime.isLessThan(now, retention))
+          return yield* self.Expire(
+            new ExpirePayload({ runId, at: DateTime.addDuration(now, wait), retry }),
+            { discard: true },
+          )
+        yield* Effect.logError("Gave up recording a PR review run").pipe(
+          Effect.annotateLogs({ runId }),
+        )
+      }
+      // A run cancelled before publishing has nothing worth keeping.
+      const at = state.phase === "cancelled" ? finishedAt : retention
+      yield* self.Expire(new ExpirePayload({ runId, at, retry: null }), { discard: true })
+    }).pipe(Semaphore.withPermits(finalizing, 1))
 
-    const fail = (error: RunError) =>
-      Effect.flatMap(end("failed", error), (ended) =>
-        Option.isSome(ended) ? finalize : Effect.void,
-      )
+    /** Ends a running run as `failed`; a run that already ended is left as it is. */
+    const fail = (errorCategory: RunError) =>
+      Effect.gen(function* () {
+        const finishedAt = yield* Clock.currentTimeMillis
+        const ended = yield* storage.update((state) =>
+          state.phase === "running"
+            ? { ...state, phase: "failed", errorCategory, finishedAt }
+            : undefined,
+        )
+        if (Option.isSome(ended)) yield* finalize
+      })
 
     /**
      * Provisions the sandbox at the pinned head. With no container to be had,
@@ -422,6 +459,8 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           onStep: (step) => storage.commitStep(step.history, step.records).pipe(Effect.orDie),
         })
         .pipe(Effect.provideService(Scope.Scope, closeScope))
+      // Cancelled while the agent started: closing the scope stops it, then releases.
+      if (cancelling) return yield* new RunStopped({ reason: "cancelled" })
       session = live
       // A resume past wrap-up time goes straight to wrap-up.
       if ((yield* Clock.currentTimeMillis) >= wrapUpAt) yield* wrapUp(live)
@@ -432,15 +471,37 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         }),
       )
       yield* Effect.forkIn(drive(live, wrapUpAt, deadline), closeScope)
-    }).pipe(Effect.catchIf((error) => !(error instanceof RunStopped), Effect.die))
+    }).pipe(
+      Effect.catchIf((error) => !(error instanceof RunStopped), Effect.die),
+      // `Cancel` interrupts an acquire wherever it is, agent start included.
+      Effect.raceFirst(
+        Effect.andThen(Deferred.await(stop), Effect.fail(new RunStopped({ reason: "cancelled" }))),
+      ),
+    )
 
     // Never acquired eagerly, so making it can't fail.
     const resource: EntityResource.EntityResource<void, RunStopped> = yield* EntityResource.make({
       acquire,
     }).pipe(Effect.orDie)
 
-    /** Holds the loop; an acquire that stopped ends the run, unless it was cancelled. */
-    const ensureAcquired = Effect.scoped(resource.get).pipe(
+    /**
+     * Holds the loop; an acquire that stopped ends the run, unless it was
+     * cancelled. `Cancel` waits for it to finish, workspace release included.
+     */
+    const ensureAcquired = Effect.gen(function* () {
+      const done = yield* Deferred.make<void>()
+      acquiring.add(done)
+      yield* Effect.scoped(resource.get).pipe(
+        Effect.ensuring(
+          Effect.andThen(
+            Deferred.succeed(done, undefined),
+            Effect.sync(() => {
+              acquiring.delete(done)
+            }),
+          ),
+        ),
+      )
+    }).pipe(
       Effect.catchTag("RunStopped", (stopped) =>
         stopped.reason === "cancelled" ? Effect.void : fail(stopped.reason),
       ),
@@ -453,6 +514,15 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         yield* Effect.forkIn(Effect.orDie(ensureAcquired), entityScope)
       else if (isEnded(initial.value.phase))
         yield* Effect.forkIn(Effect.orDie(finalize), entityScope)
+      // Rebuilt after the outcome was saved, maybe before `Publish` went out:
+      // send it again, keyed so a duplicate is dropped, and let the entity go.
+      else if (initial.value.phase === "publishing")
+        yield* Effect.forkIn(
+          Effect.andThen(self.Publish({ runId }, { discard: true }), Entity.keepAlive(false)).pipe(
+            Effect.orDie,
+          ),
+          entityScope,
+        )
     }
 
     return PullRequestReviewRun.of({
@@ -479,6 +549,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             outcome: null,
             finishedAt: null,
             finalRowWritten: false,
+            finalRowAttempts: 0,
             runFinishedSent: false,
           } satisfies Omit<RunState, "phase">
           const opened = yield* openPullRequest(payload.repositoryId, payload.number).pipe(
@@ -504,7 +575,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             yield* storage.save({ ...known, phase: "skipped", finishedAt: startedAt })
             return yield* finalize
           }
-          yield* storage.save({ ...known, phase: "running" })
+          const begun = yield* storage.begin({ ...known, phase: "running" })
+          // Cancelled while the pull request was read: it never starts.
+          if (begun.phase === "cancelled") return yield* finalize
           yield* store
             .start({
               ...payload,
@@ -537,12 +610,16 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       Cancel: () =>
         Effect.gen(function* () {
           if (expired) return
-          const ended = yield* end("cancelled", null)
-          if (Option.isNone(ended)) return
+          const cancelled = yield* storage.cancel(yield* Clock.currentTimeMillis)
+          if (cancelled === "Ended") return
           cancelling = true
+          yield* Deferred.succeed(stop, undefined)
+          // Before `Start` saved the run: `Start` finds the request and finishes it.
+          if (cancelled === "Requested") return
           // Interrupt the loop before destroying its container, so the loop
           // can't fail on a missing sandbox and overwrite `cancelled`.
           if (session !== undefined) yield* session.interrupt
+          yield* Effect.forEach(acquiring, Deferred.await, { discard: true })
           yield* resource.close
           yield* finalize
         }).pipe(Effect.orDie),
@@ -571,8 +648,11 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           yield* publisher.publish({ runId: payload.runId, outcome: state.value.outcome })
         }).pipe(Effect.orDie),
 
-      Expire: () =>
+      Expire: ({ payload }) =>
         Effect.gen(function* () {
+          if (expired) return
+          // A retry of the final row: `finalize` tries it again, then sends the next `Expire`.
+          if (payload.retry !== null) return yield* finalize
           expired = true
           yield* storage.drop
         }).pipe(Effect.orDie),

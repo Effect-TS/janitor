@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import { assert, layer } from "@effect/vitest"
 import * as Prompt from "effect/ai/Prompt"
 import * as Clock from "effect/Clock"
+import * as Deferred from "effect/Deferred"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -384,6 +385,104 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
           harness.github.checkRuns.map((check) => [check.headSha, check.status]),
           [[HEAD, "in_progress"]],
         )
+      }),
+    ),
+  )
+
+  it.effect(
+    "a Cancel that arrives while Start reads the pull request keeps the run from starting",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          const read = yield* Deferred.make<void>()
+          harness.github.intercept = (request) =>
+            request.method === "GET" && request.url.endsWith("/pulls/7")
+              ? Effect.as(Deferred.await(read), undefined)
+              : Effect.succeed(undefined)
+          const runId = newRunId()
+          yield* harness.send(runId)
+          yield* harness.waitFor(
+            Effect.sync(() => harness.github.requests.length > 0),
+            "Start to read the pull request",
+          )
+
+          yield* harness.cancelNow(runId)
+          yield* Deferred.succeed(read, undefined)
+          yield* harness.drain
+
+          assert.deepStrictEqual(harness.workspaces.acquires, [])
+          assert.deepStrictEqual(harness.agent.sessions, [])
+          assert.strictEqual(harness.finishedCount(runId), 1)
+        }),
+      ),
+  )
+
+  it.effect("a Cancel that arrives while the agent starts leaves no loop running", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        harness.agent.held = yield* Deferred.make<void>()
+        const runId = newRunId()
+        yield* harness.send(runId)
+        yield* harness.waitFor(
+          Effect.sync(() => harness.agent.starts > 0),
+          "the agent to start",
+        )
+
+        yield* harness.cancelNow(runId)
+        yield* Deferred.succeed(harness.agent.held, undefined)
+        yield* harness.drain
+
+        // Any loop that started was stopped, and before its workspace was released.
+        assert.isTrue(harness.agent.sessions.every((session) => session.stopped))
+        assert.deepStrictEqual(harness.workspaces.releases, [runId])
+        assert.strictEqual(harness.events.at(-1), "workspace released")
+        assert.strictEqual(harness.finishedCount(runId), 1)
+        assert.isFalse(yield* harness.keptAlive(runId))
+      }),
+    ),
+  )
+
+  it.effect("a restart after the outcome is saved but before Publish is sent still publishes", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        const runId = newRunId()
+        yield* harness.start(runId)
+        yield* harness.failNextSend("Publish")
+        yield* harness.agent.last.complete("Done.")
+        yield* harness.drain
+        assert.deepStrictEqual(harness.published, [])
+
+        yield* harness.restart
+        yield* harness.until(
+          Effect.sync(() => harness.published.length > 0),
+          "Publish",
+        )
+        assert.strictEqual(harness.published[0]!.outcome.summary, "Done.")
+        yield* harness.until(
+          Effect.map(harness.keptAlive(runId), (kept) => !kept),
+          "keep-alive to be released",
+        )
+      }),
+    ),
+  )
+
+  it.effect("a final row that couldn't be written is retried before the run's data goes", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        harness.postgres.failFinalRow = true
+        const runId = newRunId()
+        yield* harness.start(runId)
+        yield* harness.cancel(runId)
+        assert.strictEqual((yield* harness.row(runId))?.status, "running")
+        assert.isNotEmpty(yield* harness.tables)
+
+        // Postgres comes back, across a restart; the retry lands within the hour.
+        yield* harness.restart
+        harness.postgres.failFinalRow = false
+        yield* harness.wait("1 hour", "1 minute")
+        assert.strictEqual((yield* harness.row(runId))?.status, "cancelled")
+        assert.deepStrictEqual(yield* harness.tables, [])
+        assert.strictEqual(harness.finishedCount(runId), 1)
       }),
     ),
   )
