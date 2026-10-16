@@ -1,8 +1,7 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { RepositorySettings } from "@janitor/domain/PullRequestReview/Settings"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -11,7 +10,7 @@ import type * as Update from "foldkit/update"
 import * as Button from "@/components/ui/button"
 import { chip } from "@/components/ui/chip"
 import { panel, panelHeader } from "@/components/ui/panel"
-import { readFailure, reasonOf, request } from "@/lib/api"
+import { ApiClient } from "@/lib/api-client.prototype"
 
 /**
  * The "PR review" panel on a repository's Settings page (EFF-1930), next to
@@ -19,9 +18,6 @@ import { readFailure, reasonOf, request } from "@/lib/api"
  * off. Without the deployment's OpenRouter key the panel still shows, says
  * so, and only lets someone turn an enabled repository off.
  */
-
-export const endpoint = (repositoryId: string) =>
-  `/api/v1/repositories/${encodeURIComponent(repositoryId)}/pull-request-review`
 
 export const Model = Schema.Struct({
   repositoryId: Schema.String,
@@ -59,20 +55,25 @@ export const init = (): Model => ({
   saving: false,
 })
 
+const UNAVAILABLE = "This repository is unavailable."
+
 export const FetchSettings = Command.define("FetchPullRequestReviewSettings", {
   args: { repositoryId: Schema.String },
   messages: [Message.Loaded, Message.Failed],
   execute: ({ repositoryId }) =>
     Effect.gen(function* () {
-      const response = yield* HttpClient.get(endpoint(repositoryId))
-      if (response.status !== 200)
-        return yield* readFailure(response, "PR review settings could not be loaded.")
-      const settings = yield* HttpIncomingMessage.schemaBodyJson(RepositorySettings)(response)
+      const api = yield* ApiClient
+      const settings = yield* api.pullRequestReview.getSettings({
+        params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+      })
       return Message.Loaded({ settings })
     }).pipe(
       Effect.timeout("15 seconds"),
-      Effect.catch((error) =>
-        Effect.succeed(Message.Failed({ repositoryId, reason: reasonOf(error) })),
+      Effect.catchTag("RepositoryNotFound", () =>
+        Effect.succeed(Message.Failed({ repositoryId, reason: UNAVAILABLE })),
+      ),
+      Effect.orElseSucceed(() =>
+        Message.Failed({ repositoryId, reason: "PR review settings could not be loaded." }),
       ),
     ),
 })
@@ -81,16 +82,32 @@ export const SetSettings = Command.define("SetPullRequestReviewSettings", {
   args: { repositoryId: Schema.String, enabled: Schema.Boolean },
   messages: [Message.Saved, Message.FailedSave],
   execute: ({ repositoryId, enabled }) =>
-    request("PUT", endpoint(repositoryId), { enabled }).pipe(
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(RepositorySettings)),
-      Effect.map((settings) => Message.Saved({ settings })),
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedSave({ repositoryId, reason: reasonOf(error) })),
+    Effect.gen(function* () {
+      const api = yield* ApiClient
+      const settings = yield* api.pullRequestReview.setSettings({
+        params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+        payload: { enabled },
+      })
+      return Message.Saved({ settings })
+    }).pipe(
+      Effect.catchTags({
+        RepositoryNotFound: () =>
+          Effect.succeed(Message.FailedSave({ repositoryId, reason: UNAVAILABLE })),
+        PrivateRepository: () =>
+          Effect.succeed(
+            Message.FailedSave({
+              repositoryId,
+              reason: "PR review can't be enabled for a private repository.",
+            }),
+          ),
+      }),
+      Effect.orElseSucceed(() =>
+        Message.FailedSave({ repositoryId, reason: "The request failed. Please retry." }),
       ),
     ),
 })
 
-type Return = Update.Return<Model, Message, HttpClient.HttpClient>
+type Return = Update.Return<Model, Message, ApiClient>
 
 const fetch = (model: Model): Return =>
   model.loading

@@ -2,6 +2,7 @@ import * as BrowserKeyValueStore from "@effect/platform-browser/BrowserKeyValueS
 import * as Layer from "effect/Layer"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Runtime from "foldkit/runtime"
+import { ApiClient } from "./lib/api-client.prototype"
 import * as Navigation from "./navigation"
 
 import { Flags, Message, Model, flags, init, subscriptions, update, view } from "./main"
@@ -20,7 +21,12 @@ const application = Runtime.makeApplication({
       Message.GotNavigationMessage({ message: Navigation.Message.ChangedUrl({ url }) }),
   },
   container: document.getElementById("root"),
-  resources: Layer.mergeAll(BrowserKeyValueStore.layerLocalStorage, FetchHttpClient.layer),
+  // PROTOTYPE (EFF-2304): the derived client shares the app's fetch client.
+  resources: ApiClient.layer.pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(BrowserKeyValueStore.layerLocalStorage, FetchHttpClient.layer),
+    ),
+  ),
   devTools: {
     Message,
   },

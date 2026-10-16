@@ -3,6 +3,7 @@ import * as Live from "./live"
 import * as Activity from "@/components/activity"
 import * as PullRequestReviewSettings from "@/components/pull-request-review-settings"
 import * as PullRequestReviews from "@/components/pull-request-reviews"
+import { ApiClient } from "@/lib/api-client.prototype"
 import * as Menu from "@foldkit/ui/menu"
 import * as Effect from "effect/Effect"
 import * as Clock from "effect/Clock"
@@ -403,7 +404,7 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
   Model,
   Message,
   OutMessage,
-  HttpClient.HttpClient
+  HttpClient.HttpClient | ApiClient
 >
 
 export const init = (): UpdateReturn => ({
@@ -440,7 +441,7 @@ export const init = (): UpdateReturn => ({
 
 // UPDATE
 
-type Step = Update.Return<Model, Message, HttpClient.HttpClient>
+type Step = Update.Return<Model, Message, HttpClient.HttpClient | ApiClient>
 
 const closed = (model: Model): Model =>
   modifyFields(model, {
