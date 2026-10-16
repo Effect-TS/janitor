@@ -1,6 +1,7 @@
 import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
 import * as OpenRouterLanguageModel from "@effect/ai-openrouter/OpenRouterLanguageModel"
 import * as Agent from "clanka/Agent"
+import * as AgentExecutor from "clanka/AgentExecutor"
 import type * as AgentOutput from "clanka/AgentOutput"
 import * as AgentSkills from "clanka/AgentSkills"
 import type * as AiError from "effect/ai/AiError"
@@ -160,17 +161,20 @@ const readSkills = (client: ReviewGitHub.PullRequestGitHub, baseSha: string) =>
     ),
   )
 
-/** A comparison's changes as one diff, for the "changed since your last review" section. */
-const comparisonDiff = (comparison: ReviewGitHub.Comparison) =>
+/** Changed files as one diff, for the trusted diff and the "changed since your last review" section. */
+const renderDiff = (changes: {
+  readonly files: ReadonlyArray<ReviewGitHub.ChangedFile>
+  readonly truncated: boolean
+}) =>
   [
-    ...comparison.files.map((file) =>
+    ...changes.files.map((file) =>
       [
         `--- a/${file.previous_filename ?? file.filename}`,
         `+++ b/${file.filename}`,
         file.patch ?? "(no textual diff)",
       ].join("\n"),
     ),
-    ...(comparison.truncated ? ["(more files changed than the compare API lists)"] : []),
+    ...(changes.truncated ? ["(more files changed than GitHub lists)"] : []),
   ].join("\n")
 
 /** What the loop is given at start, read from GitHub and rendered. */
@@ -223,7 +227,7 @@ const readInputs = (options: StartOptions) =>
     if (lastReviewed !== undefined && lastReviewed !== run.headSha) {
       const comparison = yield* client.compare(lastReviewed, run.headSha)
       if (comparison.ancestor)
-        sinceLastReview = { reviewedSha: lastReviewed, diff: comparisonDiff(comparison) }
+        sinceLastReview = { reviewedSha: lastReviewed, diff: renderDiff(comparison) }
     }
 
     const contexts = yield* Effect.forEach(
@@ -263,6 +267,7 @@ const readInputs = (options: StartOptions) =>
           baseSha: run.baseSha,
           headSha: run.headSha,
         },
+        diff: renderDiff(changed),
         ...(sinceLastReview === undefined ? {} : { sinceLastReview }),
         threads: contexts,
       }),
@@ -350,6 +355,21 @@ const makeTools = (options: StartOptions, inputs: Inputs) => {
 
 const isRpcClientError = Schema.is(RpcClientError)
 
+/**
+ * The executor without its environment updates. Those come from the head
+ * checkout, which the pull request controls: its `AGENTS.md` files and skills
+ * are evidence, and the loop's instructions and skills come from the base
+ * branch only.
+ */
+const baseOnly = (executor: Layer.Layer<AgentExecutor.AgentExecutor>) =>
+  Layer.effect(
+    AgentExecutor.AgentExecutor,
+    Effect.gen(function* () {
+      const sandbox = yield* AgentExecutor.AgentExecutor
+      return AgentExecutor.AgentExecutor.of({ ...sandbox, renderEnvironment: undefined })
+    }),
+  ).pipe(Layer.provide(executor))
+
 /** A defect from the executor's transport: its container or the connection to it is gone. */
 const isSandboxLoss = (cause: Cause.Cause<unknown>) =>
   cause.reasons.some((reason) => Cause.isDieReason(reason) && isRpcClientError(reason.defect))
@@ -392,9 +412,60 @@ const make = Effect.gen(function* () {
     const ready = yield* Deferred.make<Agent.Agent>()
     const ended = yield* Deferred.make<LoopEnd>()
 
+    /**
+     * How many history messages the run entity holds, and a signal for each
+     * commit. A resumed loop starts from the rows it was given.
+     */
+    let committed = options.history.length
+    let commitDone = Deferred.makeUnsafe<void>()
+
     /** Commits a history event with the records made since the last one. */
     const commit = (history: HistoryChange) =>
-      Effect.suspend(() => options.onStep({ history, records: tools.takePending() }))
+      Effect.suspend(() => options.onStep({ history, records: tools.takePending() })).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            committed =
+              history._tag === "Appended"
+                ? committed + history.messages.length
+                : history.messages.length
+            const done = commitDone
+            commitDone = Deferred.makeUnsafe<void>()
+            Deferred.doneUnsafe(done, Effect.void)
+          }),
+        ),
+      )
+
+    /**
+     * Waits until every change to the loop's history is committed. clanka
+     * doesn't wait for its history events, so the model calls do: a step the
+     * run entity hasn't committed never has a next step, and records made in
+     * a script belong to the commit of that script's step.
+     */
+    const caughtUp = (agent: Agent.Agent) =>
+      Effect.suspend(function wait(): Effect.Effect<void> {
+        const pending = agent.history.current.content.filter(
+          (message) => message.role !== "system",
+        ).length
+        return pending === committed
+          ? Effect.void
+          : Effect.andThen(Deferred.await(commitDone), Effect.suspend(wait))
+      })
+
+    /** The model, behind the commit boundary. */
+    const committedModel = (agent: Agent.Agent) =>
+      Effect.gen(function* () {
+        const ai = yield* LanguageModel.LanguageModel
+        // The service's methods are generic over the toolkit; these only add the wait.
+        const generateText = (options: Parameters<typeof ai.generateText>[0]) =>
+          Effect.andThen(caughtUp(agent), ai.generateText(options))
+        const streamText = (options: Parameters<typeof ai.streamText>[0]) =>
+          Stream.unwrap(Effect.as(caughtUp(agent), ai.streamText(options)))
+        return LanguageModel.LanguageModel.of({
+          ...ai,
+          generateText: generateText as typeof ai.generateText,
+          streamText: streamText as typeof ai.streamText,
+        })
+      })
 
     const loop = Effect.gen(function* () {
       const agent = yield* Agent.makeWith({
@@ -405,7 +476,9 @@ const make = Effect.gen(function* () {
       if (options.history.length > 0)
         MutableRef.set(agent.history, Prompt.fromMessages(options.history))
       yield* Deferred.succeed(ready, agent)
-      const output = yield* agent.send({ prompt: options.prompt ?? inputs.firstMessage })
+      const output = yield* agent
+        .send({ prompt: options.prompt ?? inputs.firstMessage })
+        .pipe(Effect.provideServiceEffect(LanguageModel.LanguageModel, committedModel(agent)))
       yield* Stream.runForEach(output, (part) =>
         part._tag === "HistoryAppended"
           ? commit({ _tag: "Appended", messages: part.messages })
@@ -424,7 +497,7 @@ const make = Effect.gen(function* () {
         }),
       ),
       Effect.scoped,
-      Effect.provide(Layer.mergeAll(tools.handlers, options.executor)),
+      Effect.provide(Layer.mergeAll(tools.handlers, baseOnly(options.executor))),
       Effect.provideContext(model),
       Effect.provideService(Agent.MaxRetries, MAX_RETRIES),
     )

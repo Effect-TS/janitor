@@ -64,6 +64,9 @@ Not worth blocking:
 
 The repository's review standards, when present, win over this rubric where they conflict.`
 
+/** The most characters of the trusted diff the first message carries; the checkout has the rest. */
+export const diffCap = 200_000
+
 /** A repository standards file read from the base branch: `AGENTS.md` or `.github/janitor/review.md`. */
 export interface StandardsFile {
   readonly path: string
@@ -186,6 +189,8 @@ export interface FirstMessageInput {
     readonly baseSha: string
     readonly headSha: string
   }
+  /** The trusted diff: the pull request's changes at the pinned head, capped at `diffCap`. */
+  readonly diff?: string
   /** The diff since the last reviewed SHA, when there is one. */
   readonly sinceLastReview?: { readonly reviewedSha: string; readonly diff: string }
   readonly threads: ReadonlyArray<ThreadContext>
@@ -231,9 +236,11 @@ const threadSection = (thread: ThreadContext, fenced: (text: string) => string) 
  */
 export const firstMessage = (input: FirstMessageInput): string => {
   const { pullRequest } = input
+  const diff = input.diff === undefined ? undefined : capChars(input.diff, diffCap).text
   const fenced = fenceFor([
     pullRequest.title,
     pullRequest.body,
+    diff ?? "",
     input.sinceLastReview?.diff ?? "",
     ...input.threads.flatMap((thread) => [
       thread.comment,
@@ -246,6 +253,7 @@ export const firstMessage = (input: FirstMessageInput): string => {
     `Base SHA: \`${pullRequest.baseSha}\`\nHead SHA: \`${pullRequest.headSha}\``,
     `Title:\n\n${fenced(pullRequest.title)}`,
     `Body:\n\n${fenced(pullRequest.body)}`,
+    ...(diff === undefined ? [] : ["## Diff", fenced(diff, "diff")]),
     ...(since === undefined
       ? []
       : [

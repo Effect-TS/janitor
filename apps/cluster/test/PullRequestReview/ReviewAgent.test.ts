@@ -7,6 +7,7 @@ import * as Model from "effect/ai/Model"
 import type * as Prompt from "effect/ai/Prompt"
 import type * as Response from "effect/ai/Response"
 import * as ConfigProvider from "effect/ConfigProvider"
+import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -15,21 +16,26 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpEffect from "effect/http/HttpEffect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
+import * as Path from "effect/Path"
 import * as RpcClient from "effect/rpc/RpcClient"
 import * as RpcSerialization from "effect/rpc/RpcSerialization"
 import * as RpcServer from "effect/rpc/RpcServer"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+import * as TestClock from "effect/testing/TestClock"
+import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { parseTrustedDiff, validateAnchor } from "@janitor/domain/PullRequestReview/Diff"
 import type { Finding } from "@janitor/domain/PullRequestReview/Finding"
 import { fingerprint } from "@janitor/domain/PullRequestReview/Fingerprint"
 import { resumeMessage, wrapUpMessage } from "@janitor/domain/PullRequestReview/Prompt"
 import { inlineComment } from "@janitor/domain/PullRequestReview/Render"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
+import { ReviewAgent } from "../../src/PullRequestReview/Agent.ts"
+import * as ReviewGitHub from "../../src/PullRequestReview/GitHub.ts"
 import { executorOptions, ReviewAgentLayer } from "../../src/PullRequestReview/ReviewAgent.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
-import { APP_LOGIN } from "./fakeGitHub.ts"
+import { APP_LOGIN, FakeReviewGitHub } from "./fakeGitHub.ts"
 import { HEAD, makeRunHarnessWith, type RunHarness } from "./runHarness.ts"
 import { repositoryId, seedRepositories } from "./support.ts"
 
@@ -84,16 +90,16 @@ const notInDiff = (line: number) => {
 }
 
 /** Pull request 7 changing `src/a.ts`, with janitor's open thread `PRRT_open` on line 2 from an earlier run. */
-const putPullRequest = (harness: RunHarness) =>
+const putPullRequest = (github: FakeReviewGitHub) =>
   Effect.gen(function* () {
-    harness.github.put({
+    github.put({
       number: 7,
       title: "Change",
       state: "open",
       labels: [],
       pullRequest: { headSha: HEAD, files },
     })
-    harness.github.threads.push({
+    github.threads.push({
       id: "PRRT_open",
       path: "src/a.ts",
       line: 2,
@@ -204,12 +210,17 @@ const systemText = (prompt: Prompt.Prompt) =>
     .flatMap((message) => (message.role === "system" ? [message.content] : []))
     .join("\n")
 
-/** The executor janitor's sandbox runs, in a scratch checkout of its own. */
-const localExecutor = () =>
+/** The executor janitor's sandbox runs, in a scratch checkout of its own holding `files`. */
+const localExecutor = (files: Record<string, string> = {}) =>
   Layer.unwrap(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "janitor-review-checkout-" })
+      for (const [name, content] of Object.entries(files)) {
+        yield* fs.makeDirectory(path.dirname(path.join(directory, name)), { recursive: true })
+        yield* fs.writeFileString(path.join(directory, name), content)
+      }
       return AgentExecutor.layerLocal({ directory, ...executorOptions(Duration.minutes(3)) })
     }),
   ).pipe(Layer.orDie, Layer.provide(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)))
@@ -256,7 +267,7 @@ const rpcExecutor = (connection: { lost: boolean }) =>
 const run = <A, E, R>(
   model: ScriptedModel,
   test: (harness: RunHarness) => Effect.Effect<A, E, R>,
-  executor: (acquire: number) => Layer.Layer<AgentExecutor.AgentExecutor> = localExecutor,
+  executor: (acquire: number) => Layer.Layer<AgentExecutor.AgentExecutor> = () => localExecutor(),
 ) =>
   Effect.gen(function* () {
     yield* seedRepositories(repositoryId)
@@ -264,7 +275,7 @@ const run = <A, E, R>(
       agent: ReviewAgentLayer.pipe(Layer.provide(model.layer)),
       executor,
     })
-    yield* putPullRequest(harness)
+    yield* putPullRequest(harness.github)
     return yield* test(harness)
   }).pipe(Effect.scoped)
 
@@ -507,4 +518,117 @@ await taskComplete(JSON.stringify([
       }),
     )
   })
+
+  it.effect("the first message carries the trusted diff", () => {
+    const model = new ScriptedModel([execute(`await taskComplete("Read the diff.")`)])
+    return run(model, (harness) =>
+      Effect.gen(function* () {
+        yield* review(harness)
+
+        const first = seen(model.prompts[0]!.content.filter((message) => message.role === "user"))
+        assert.include(first, files[0]!.patch)
+      }),
+    )
+  })
+
+  it.effect("never sends the model AGENTS.md files or skills from the head checkout", () => {
+    // The checkout is the pull request's head: its instructions and skills are
+    // evidence, not standards, wherever the agent moves to.
+    const checkout = {
+      "AGENTS.md": "HEAD-ROOT-INSTRUCTIONS",
+      "pkg/AGENTS.md": "HEAD-NESTED-INSTRUCTIONS",
+      "pkg/.agents/skills/head-skill/SKILL.md":
+        "---\nname: head-skill\ndescription: HEAD-SKILL-DESCRIPTION\n---\nHEAD-SKILL-CONTENT",
+    }
+    const model = new ScriptedModel([
+      execute(`await changeDirectory("pkg"); console.log("moved")`),
+      execute(`await taskComplete("Done.")`),
+    ])
+    return run(
+      model,
+      (harness) =>
+        Effect.gen(function* () {
+          yield* review(harness)
+
+          const everything = model.prompts.map((prompt) => seen(prompt.content)).join("\n")
+          assert.include(everything, "moved")
+          assert.notMatch(everything, /HEAD-(ROOT|NESTED)-INSTRUCTIONS|HEAD-SKILL|head-skill/)
+        }),
+      () => localExecutor(checkout),
+    )
+  })
+
+  it.effect("a history event is committed before the loop takes its next step", () =>
+    Effect.gen(function* () {
+      const github = new FakeReviewGitHub(7)
+      yield* putPullRequest(github)
+      const client = yield* ReviewGitHub.make({
+        installationId: GitHubInstallationId.make("77"),
+        owner: "effect",
+        repo: "one",
+        number: 7,
+      }).pipe(Effect.provide(github.layer))
+      const pull = yield* client.pullRequest
+      const model = new ScriptedModel([execute(`await taskComplete("Done.")`)])
+      const agent = yield* Effect.gen(function* () {
+        return yield* ReviewAgent
+      }).pipe(Effect.provide(ReviewAgentLayer.pipe(Layer.provide(model.layer))))
+      // The run entity's commit of the first step, the opening message, never finishes.
+      const commits: Array<string> = []
+      const session = yield* agent.start({
+        runId: newRunId(),
+        github: client,
+        pullRequest: { headSha: HEAD, baseSha: pull.baseSha, trigger: { _tag: "Automatic" } },
+        executor: localExecutor(),
+        history: [],
+        prompt: undefined,
+        records: [],
+        onStep: (step) =>
+          Effect.suspend(() => {
+            commits.push(step.history._tag)
+            return Effect.never
+          }),
+      })
+      yield* TestClock.withLive(Effect.sleep("500 millis"))
+
+      assert.deepStrictEqual(commits, ["Appended"])
+      assert.strictEqual(model.prompts.length, 0)
+      yield* session.interrupt
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect(
+    "a GitHub read that never answers can't keep the run past its deadline",
+    () => {
+      const model = new ScriptedModel([])
+      return run(model, (harness) =>
+        Effect.gen(function* () {
+          // The base branch's AGENTS.md, one of the loop's inputs, doesn't
+          // arrive until the test ends.
+          const stalled = yield* Deferred.make<void>()
+          yield* Effect.addFinalizer(() => Deferred.succeed(stalled, undefined))
+          harness.github.intercept = (request) =>
+            request.url.includes("/contents/AGENTS.md")
+              ? Effect.as(Deferred.await(stalled), undefined)
+              : Effect.succeed(undefined)
+          const runId = newRunId()
+          yield* harness.send(runId)
+          // Past the deadline, without draining: the stalled read leaves work pending.
+          for (let elapsed = 0; elapsed < 11 * 60; elapsed += 10) {
+            yield* TestClock.adjust("10 seconds")
+            yield* TestClock.withLive(Effect.sleep("1 millis"))
+          }
+          yield* harness.waitFor(
+            Effect.sync(() => harness.finishedCount(runId) > 0),
+            "RunFinished after the deadline",
+          )
+
+          assert.strictEqual(harness.finishedCount(runId), 1)
+          assert.include(harness.workspaces.releases, runId)
+          assert.strictEqual(model.prompts.length, 0)
+        }),
+      )
+    },
+    60_000,
+  )
 })

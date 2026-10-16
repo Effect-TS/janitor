@@ -46,6 +46,7 @@ import {
 import {
   ContainerUnavailable,
   type AcquireInput,
+  WorkspaceReleased,
 } from "../../src/PullRequestReview/Sandbox/Workspace.ts"
 import { SandboxWorkspaces } from "../../src/PullRequestReview/Sandbox/WorkspaceClient.ts"
 import { PullRequestScheduler } from "../../src/PullRequestReview/Scheduler.ts"
@@ -175,7 +176,8 @@ export class FakeReviewAgent {
 /**
  * The sandbox workspaces: every acquire succeeds unless `unavailable` says
  * otherwise. Releasing a workspace destroys its container, so a loop still
- * running on it fails, as a real one would.
+ * running on it fails, as a real one would. Like the workspace DO, a released
+ * workspace stays released: a later acquire for the run fails.
  */
 export class FakeWorkspaces {
   readonly acquires: Array<AcquireInput & { readonly at: number }> = []
@@ -194,12 +196,17 @@ export class FakeWorkspaces {
   get layer() {
     return Layer.succeed(SandboxWorkspaces, {
       acquire: (input) =>
-        Effect.flatMap(Clock.currentTimeMillis, (at) => {
-          this.acquires.push({ ...input, at })
-          if (this.unavailable <= 0) return Effect.succeed(this.executor(this.acquires.length - 1))
-          this.unavailable -= 1
-          return Effect.fail(new ContainerUnavailable({ reason: "max_instances reached" }))
-        }),
+        Effect.flatMap(
+          Clock.currentTimeMillis,
+          (at): ReturnType<SandboxWorkspaces["Service"]["acquire"]> => {
+            this.acquires.push({ ...input, at })
+            if (this.releases.includes(input.runId)) return Effect.fail(new WorkspaceReleased())
+            if (this.unavailable <= 0)
+              return Effect.succeed(this.executor(this.acquires.length - 1))
+            this.unavailable -= 1
+            return Effect.fail(new ContainerUnavailable({ reason: "max_instances reached" }))
+          },
+        ),
       release: (runId) =>
         Effect.gen({ self: this }, function* () {
           this.releases.push(runId)
