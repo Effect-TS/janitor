@@ -873,7 +873,7 @@ const makePublisher = Effect.gen(function* () {
                 }
               : failed || plan._tag !== "Review"
                 ? {
-                    state: { status: "completed", conclusion: "failure" } as const,
+                    state: { status: "completed", conclusion: "neutral" } as const,
                     output: checkRunOutput({ _tag: "Errored", error: "publish_failed" }),
                   }
                 : {

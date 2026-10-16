@@ -44,6 +44,7 @@ import {
   RunPublisher,
 } from "../../src/PullRequestReview/RunEntity.ts"
 import {
+  ContainerNotAttached,
   ContainerUnavailable,
   type AcquireInput,
   WorkspaceReleased,
@@ -184,6 +185,8 @@ export class FakeWorkspaces {
   readonly releases: Array<string> = []
   /** How many more acquires find no container, as at `max_instances`. */
   unavailable = 0
+  /** Every acquire finds a namespace with no container application, as after a failed deploy. */
+  notAttached = false
 
   constructor(
     private readonly events: Array<string>,
@@ -201,6 +204,7 @@ export class FakeWorkspaces {
           (at): ReturnType<SandboxWorkspaces["Service"]["acquire"]> => {
             this.acquires.push({ ...input, at })
             if (this.releases.includes(input.runId)) return Effect.fail(new WorkspaceReleased())
+            if (this.notAttached) return Effect.fail(new ContainerNotAttached())
             if (this.unavailable <= 0)
               return Effect.succeed(this.executor(this.acquires.length - 1))
             this.unavailable -= 1
