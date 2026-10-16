@@ -130,6 +130,18 @@ The agent calls an OpenAI-compatible chat completions endpoint. Set `PR_REVIEW_A
 
 The Settings panel shows the model and effort the deployment runs with.
 
+### A private endpoint on the tailnet
+
+An endpoint that is only on the Tailscale tailnet, such as the CLI proxy at `https://cliproxy.service.prod.ops.effectful.co/v1`, is reached through the tailnet egress. That's a small container (`apps/cluster/containers/tailnet-egress`) that joins the tailnet as an ephemeral node and forwards the model's requests to the origin of `PR_REVIEW_AI_API_URL`, and nowhere else. One container serves every run. It starts on the first model call, takes a few seconds to join, and stops after 15 idle minutes. The sandbox never sees the Tailscale credential.
+
+| Setting                    | Default            | Meaning                                                                                                   |
+| -------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------- |
+| `PR_REVIEW_AI_VIA_TAILNET` | `false`            | Send model calls through the tailnet egress instead of the open internet                                  |
+| `TAILSCALE_AUTH_KEY`       | none               | A Tailscale OAuth client secret with only the Auth Keys write scope and only the tags in `TAILSCALE_TAGS` |
+| `TAILSCALE_TAGS`           | `tag:janitor-prod` | The tags the egress node joins with; the tailnet policy grants these the endpoint                         |
+
+The container reads `TAILSCALE_AUTH_KEY`, `TAILSCALE_TAGS` and `PR_REVIEW_AI_API_URL` when it deploys, so changing any of them needs a deploy. To switch to a tailnet endpoint, deploy with `TAILSCALE_AUTH_KEY` set, then set `PR_REVIEW_AI_API_URL`, `PR_REVIEW_AI_API_KEY`, `PR_REVIEW_AI_MODEL` and `PR_REVIEW_AI_VIA_TAILNET=true` together and deploy again. To switch back, restore the previous endpoint settings, set `PR_REVIEW_AI_VIA_TAILNET=false` and deploy.
+
 ### Limits and sandbox capacity
 
 The limit settings in [Limits](#limits) are optional and deployment-wide. `PR_REVIEW_WRAP_UP_AFTER_SECONDS` must be less than the deadline, and the command timeout must fit in the time between wrap-up and the deadline. An invalid combination fails the review model's calls, not labeling.
@@ -166,6 +178,7 @@ The log messages that mark a run's progress:
 | `PR review run published`                                                               | The review went out, with `status`, `verdict` and `failedGates`.                                                       |
 | `PR review run skipped`, `PR review run cancelled`, `PR review run failed`              | The run ended without a review. A failed run has an `errorCategory`.                                                   |
 | `PR review scheduler will wipe itself after the close`, `Wiped the PR review scheduler` | A closed pull request's scheduler state is going, or gone.                                                             |
+| `Tailnet egress started`, `The tailnet egress did not start`                            | The tailnet egress container joined the tailnet, or didn't, with a `reason`.                                           |
 
 ## Troubleshooting
 
@@ -189,7 +202,7 @@ If the run failed within seconds and the logs say "PR review sandbox has no cont
 
 ### Provider errors
 
-The check run says "Incomplete review" and "the review stopped on a provider error", and the logs say "The PR review model failed", with the error category and the endpoint's HTTP status. `InternalProviderError` is a 5xx from the endpoint. HTTP 530 is Cloudflare's own error for a host the Worker can't resolve or reach, so check that `PR_REVIEW_AI_API_URL` resolves in public DNS. `AuthenticationError` points at `PR_REVIEW_AI_API_KEY`, `QuotaExhaustedError` at the key's credit limit, and `InvalidRequestError` at `PR_REVIEW_AI_MODEL` or `PR_REVIEW_AI_REASONING_EFFORT`.
+The check run says "Incomplete review" and "the review stopped on a provider error", and the logs say "The PR review model failed", with the error category and the endpoint's HTTP status. `InternalProviderError` is a 5xx from the endpoint. HTTP 530 is Cloudflare's own error for a host the Worker can't resolve or reach: check that `PR_REVIEW_AI_API_URL` resolves in public DNS, or set `PR_REVIEW_AI_VIA_TAILNET` if it's a tailnet endpoint. With the tailnet egress, HTTP 503 means the egress container didn't start, and the logs say "The tailnet egress did not start" with a `reason`. HTTP 502 means it started but couldn't reach the endpoint: check the tailnet policy grants `TAILSCALE_TAGS` the endpoint, and that the endpoint is up. `AuthenticationError` points at `PR_REVIEW_AI_API_KEY`, `QuotaExhaustedError` at the key's credit limit, and `InvalidRequestError` at `PR_REVIEW_AI_MODEL` or `PR_REVIEW_AI_REASONING_EFFORT`.
 
 ### Unavailable deployment
 

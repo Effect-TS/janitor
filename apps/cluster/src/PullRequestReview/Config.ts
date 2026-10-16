@@ -34,6 +34,8 @@ export interface PullRequestReviewConfig {
   readonly model: string
   /** `PR_REVIEW_AI_REASONING_EFFORT`: the model's reasoning effort. */
   readonly reasoningEffort: ReasoningEffort
+  /** `PR_REVIEW_AI_VIA_TAILNET`: reach the endpoint through the tailnet egress container. */
+  readonly viaTailnet: boolean
   /** `PR_REVIEW_RUN_DEADLINE_SECONDS`: when a run is interrupted, counted from its first start and across resumes. */
   readonly runDeadline: Duration.Duration
   /** `PR_REVIEW_WRAP_UP_AFTER_SECONDS`: when the agent is told to wrap up, counted the same way. */
@@ -134,6 +136,25 @@ const reasoningEffort = Config.schema(ReasoningEffort, "PR_REVIEW_AI_REASONING_E
   Config.withDefault("medium" as const),
 )
 
+const viaTailnet = Config.Boolean("PR_REVIEW_AI_VIA_TAILNET").pipe(Config.withDefault(false))
+
+/**
+ * What the tailnet egress container is deployed with (docs/pr-review.md):
+ * the Tailscale credential and tags it joins with, and the one origin it
+ * forwards to, the endpoint's. Read when the container application deploys.
+ * Without `TAILSCALE_AUTH_KEY` the container has no credential and never
+ * starts; `PR_REVIEW_AI_VIA_TAILNET` stays off then.
+ */
+export const tailnetEgressConfig = Config.all({
+  /** `TAILSCALE_AUTH_KEY`: an OAuth client secret limited to minting keys for the tags. */
+  authKey: Config.option(Config.Redacted("TAILSCALE_AUTH_KEY")),
+  /** `TAILSCALE_TAGS`: comma-separated tags the node advertises. */
+  tags: names("TAILSCALE_TAGS", ["tag:janitor-prod"]),
+  upstreamOrigin: apiUrl.pipe(
+    Config.map(Option.flatMap((url) => Option.liftThrowable(() => new URL(url).origin)())),
+  ),
+})
+
 /**
  * What the web app shows about the deployment: whether PR review is
  * available, and the model and effort it runs on.
@@ -149,6 +170,7 @@ export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = C
   apiKey,
   model,
   reasoningEffort,
+  viaTailnet,
   runDeadline: seconds("PR_REVIEW_RUN_DEADLINE_SECONDS", 600),
   wrapUpAfter: seconds("PR_REVIEW_WRAP_UP_AFTER_SECONDS", 420),
   commandTimeout: sandboxCommandTimeout,
