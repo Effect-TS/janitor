@@ -30,7 +30,7 @@ import { fingerprint } from "@janitor/domain/PullRequestReview/Fingerprint"
 import { resumeMessage, wrapUpMessage } from "@janitor/domain/PullRequestReview/Prompt"
 import { inlineComment } from "@janitor/domain/PullRequestReview/Render"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
-import { ReviewAgent } from "../../src/PullRequestReview/Agent.ts"
+import { ReviewAgent, type StartOptions } from "../../src/PullRequestReview/Agent.ts"
 import * as ReviewGitHub from "../../src/PullRequestReview/GitHub.ts"
 import { executorOptions, ReviewAgentLayer } from "../../src/PullRequestReview/ReviewAgent.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
@@ -294,6 +294,41 @@ const review = (harness: RunHarness) =>
 /** What a script passed to `taskComplete` as a JSON list of strings. */
 const answers = (summary: string | null) =>
   Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.String)))(summary)
+
+/**
+ * Starts the agent straight on the fake GitHub's pull request, outside the run
+ * entity, so a test controls how the run entity commits each step.
+ */
+const startAgent = (
+  model: ScriptedModel,
+  onStep: StartOptions["onStep"],
+  options: { readonly body?: string } = {},
+) =>
+  Effect.gen(function* () {
+    const github = new FakeReviewGitHub(7)
+    yield* putPullRequest(github)
+    if (options.body !== undefined) github.issues.get(7)!.body = options.body
+    const client = yield* ReviewGitHub.make({
+      installationId: GitHubInstallationId.make("77"),
+      owner: "effect",
+      repo: "one",
+      number: 7,
+    }).pipe(Effect.provide(github.layer))
+    const pull = yield* client.pullRequest
+    const agent = yield* Effect.gen(function* () {
+      return yield* ReviewAgent
+    }).pipe(Effect.provide(ReviewAgentLayer.pipe(Layer.provide(model.layer))))
+    return yield* agent.start({
+      runId: newRunId(),
+      github: client,
+      pullRequest: { headSha: HEAD, baseSha: pull.baseSha, trigger: { _tag: "Automatic" } },
+      executor: localExecutor(),
+      history: [],
+      prompt: undefined,
+      records: [],
+      onStep,
+    })
+  })
 
 /** Script lines that report how a loop-side call ended: `stored`, or its error message. */
 const outcomeOf = `const outcome = (call) => call.then(() => "stored", (error) => error.message)`
@@ -560,39 +595,49 @@ await taskComplete(JSON.stringify([
 
   it.effect("a history event is committed before the loop takes its next step", () =>
     Effect.gen(function* () {
-      const github = new FakeReviewGitHub(7)
-      yield* putPullRequest(github)
-      const client = yield* ReviewGitHub.make({
-        installationId: GitHubInstallationId.make("77"),
-        owner: "effect",
-        repo: "one",
-        number: 7,
-      }).pipe(Effect.provide(github.layer))
-      const pull = yield* client.pullRequest
       const model = new ScriptedModel([execute(`await taskComplete("Done.")`)])
-      const agent = yield* Effect.gen(function* () {
-        return yield* ReviewAgent
-      }).pipe(Effect.provide(ReviewAgentLayer.pipe(Layer.provide(model.layer))))
       // The run entity's commit of the first step, the opening message, never finishes.
       const commits: Array<string> = []
-      const session = yield* agent.start({
-        runId: newRunId(),
-        github: client,
-        pullRequest: { headSha: HEAD, baseSha: pull.baseSha, trigger: { _tag: "Automatic" } },
-        executor: localExecutor(),
-        history: [],
-        prompt: undefined,
-        records: [],
-        onStep: (step) =>
-          Effect.suspend(() => {
-            commits.push(step.history._tag)
-            return Effect.never
-          }),
-      })
+      const session = yield* startAgent(model, (step) =>
+        Effect.suspend(() => {
+          commits.push(step.history._tag)
+          return Effect.never
+        }),
+      )
       yield* TestClock.withLive(Effect.sleep("500 millis"))
 
       assert.deepStrictEqual(commits, ["Appended"])
       assert.strictEqual(model.prompts.length, 0)
+      yield* session.interrupt
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a compaction that keeps the history's length is committed before the next step", () =>
+    Effect.gen(function* () {
+      // A large opening message and a context over the threshold: the compaction
+      // summarizes the opening message alone, so [opening, script, result]
+      // becomes [summary, script, result].
+      const model = new ScriptedModel([
+        execute(`console.log("read")`, { contextTokens: 230_000 }),
+        say("Summary of the review so far."),
+        execute(`await taskComplete("Done.")`),
+      ])
+      // The run entity's commit of the replacement never finishes.
+      const commits: Array<string> = []
+      const session = yield* startAgent(
+        model,
+        (step) =>
+          Effect.suspend(() => {
+            commits.push(step.history._tag)
+            return step.history._tag === "Replaced" ? Effect.never : Effect.void
+          }),
+        { body: "x".repeat(120_000) },
+      )
+      yield* TestClock.withLive(Effect.sleep("500 millis"))
+
+      assert.deepStrictEqual(commits, ["Appended", "Appended", "Replaced"])
+      // The script's call and the summarizer's; the next step waits for the replacement.
+      assert.strictEqual(model.prompts.length, 2)
       yield* session.interrupt
     }).pipe(Effect.scoped),
   )

@@ -13,6 +13,7 @@ import * as Toolkit from "effect/ai/Toolkit"
 import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Equal from "effect/Equal"
 import type * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
@@ -413,10 +414,10 @@ const make = Effect.gen(function* () {
     const ended = yield* Deferred.make<LoopEnd>()
 
     /**
-     * How many history messages the run entity holds, and a signal for each
-     * commit. A resumed loop starts from the rows it was given.
+     * The history messages the run entity holds, and a signal for each commit.
+     * A resumed loop starts from the rows it was given.
      */
-    let committed = options.history.length
+    let committed: ReadonlyArray<Prompt.Message> = options.history
     let commitDone = Deferred.makeUnsafe<void>()
 
     /** Commits a history event with the records made since the last one. */
@@ -425,9 +426,7 @@ const make = Effect.gen(function* () {
         Effect.andThen(
           Effect.sync(() => {
             committed =
-              history._tag === "Appended"
-                ? committed + history.messages.length
-                : history.messages.length
+              history._tag === "Appended" ? [...committed, ...history.messages] : history.messages
             const done = commitDone
             commitDone = Deferred.makeUnsafe<void>()
             Deferred.doneUnsafe(done, Effect.void)
@@ -443,10 +442,11 @@ const make = Effect.gen(function* () {
      */
     const caughtUp = (agent: Agent.Agent) =>
       Effect.suspend(function wait(): Effect.Effect<void> {
-        const pending = agent.history.current.content.filter(
-          (message) => message.role !== "system",
-        ).length
-        return pending === committed
+        // Compared by content: a compaction can keep the length, and clanka's
+        // events carry copies of its history's messages.
+        const current = agent.history.current.content.filter((message) => message.role !== "system")
+        return current.length === committed.length &&
+          current.every((message, index) => Equal.equals(message, committed[index]))
           ? Effect.void
           : Effect.andThen(Deferred.await(commitDone), Effect.suspend(wait))
       })
