@@ -84,6 +84,10 @@ export default SandboxContainer.make(
         FROM node:24-bookworm-slim
         RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl g++ git make python3 ripgrep && rm -rf /var/lib/apt/lists/*
         RUN git config --system core.hooksPath /dev/null
+        # pnpm and yarn through corepack, at the version a repository's
+        # packageManager pins. Downloads without asking: no one can answer.
+        RUN corepack enable
+        ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
         RUN mkdir -p /app /workspace
         RUN cd /app && npm install --no-save --no-audit --no-fund @silvia-odwyer/photon-node@0.3.4
         ENV PR_REVIEW_COMMAND_TIMEOUT_SECONDS=${String(Duration.toSeconds(commandTimeout))}

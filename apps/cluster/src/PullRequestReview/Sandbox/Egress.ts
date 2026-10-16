@@ -18,6 +18,8 @@ export interface EgressProps {
 export const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
   "registry.npmjs.org",
   "registry.yarnpkg.com",
+  // JSR's npm compatibility registry, for `@jsr/*` packages.
+  "npm.jsr.io",
   "pypi.org",
   "files.pythonhosted.org",
   "github.com",

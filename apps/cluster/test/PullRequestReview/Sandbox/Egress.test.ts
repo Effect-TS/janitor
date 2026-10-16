@@ -22,6 +22,7 @@ const table: ReadonlyArray<readonly [method: string, url: string, expected: Outc
   ["GET", "https://github.com.evil.example/Effect-TS/effect/info/refs", "denied"],
   ["GET", "https://registry.npmjs.org/effect", "anonymous"],
   ["GET", "https://registry.yarnpkg.com/effect", "anonymous"],
+  ["GET", "https://npm.jsr.io/~/11/@jsr/std__assert/1.0.19.tgz", "anonymous"],
   ["GET", "https://pypi.org/simple/requests/", "anonymous"],
   ["GET", "https://files.pythonhosted.org/packages/requests.whl", "anonymous"],
   ["GET", "https://github.com/Effect-TS/effect", "anonymous"],
