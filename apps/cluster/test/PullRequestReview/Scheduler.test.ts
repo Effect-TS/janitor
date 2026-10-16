@@ -453,4 +453,44 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
       assert.deepStrictEqual(received.at(-1), { _tag: "Cancel", runId: lastStart(26).runId })
     }),
   )
+
+  it.effect(
+    "a newer event that shows the pull request is open cancels the wipe a delayed reopen would have",
+    () =>
+      Effect.gen(function* () {
+        yield* seed
+        env["PR_REVIEW_SCHEDULER_WIPE_DAYS"] = "1"
+        type Pr = Effect.Success<ReturnType<typeof scheduler>>
+        const overtakers: ReadonlyArray<readonly [number, (pr: Pr) => ReturnType<Pr["push"]>]> = [
+          [27, (pr) => pr.push(head(2))],
+          [28, (pr) => pr.push(head(2), { oversized: true })],
+          [29, (pr) => pr.convertToDraft],
+          [30, (pr) => pr.rerun(head(2), "503")],
+        ]
+        const reopens = new Map<number, GitHubWebhookJournalSequence>()
+        for (const [number, overtake] of overtakers) {
+          const pr = yield* scheduler(number)
+          yield* pr.close
+          // Reopened, but that admission finishes after a later event's.
+          const reopen = nextSequence()
+          reopens.set(number, reopen)
+          yield* overtake(pr)
+          yield* pr.reopen(head(1), { sequence: reopen })
+        }
+
+        // Past the close's wipe. Had it run, the scheduler would have forgotten the
+        // newest event it handled, along with its run count and any active run, and
+        // would now take an older event as new.
+        yield* wait(Duration.sum(Duration.days(1), Duration.minutes(1)))
+        const restarted: Record<number, number> = {}
+        for (const [number] of overtakers) {
+          const started = starts(number).length
+          yield* (yield* scheduler(number)).push(head(3), { sequence: reopens.get(number)! })
+          restarted[number] = starts(number).length - started
+        }
+        assert.deepStrictEqual(restarted, { 27: 0, 28: 0, 29: 0, 30: 0 })
+      }).pipe(Effect.ensuring(Effect.sync(() => delete env["PR_REVIEW_SCHEDULER_WIPE_DAYS"]))),
+    // Stepping the clock through a day takes a few seconds.
+    60_000,
+  )
 })

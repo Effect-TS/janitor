@@ -304,7 +304,9 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
     const inOrder = (current: Step, sequence: GitHubWebhookJournalSequence) => {
       const last = current.state.lastSequence
       if (last !== null && BigInt(sequence) <= BigInt(last)) return false
-      current.state = { ...current.state, lastSequence: sequence }
+      // A newer open-PR event supersedes the old close, even if reopen arrives late.
+      // Closed sets its own fresh wipe after accepting its sequence.
+      current.state = { ...current.state, lastSequence: sequence, wipeAt: null }
       return true
     }
 
@@ -426,7 +428,6 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
       Reopened: ({ payload }) =>
         step((current, now) => {
           if (!inOrder(current, payload.sequence)) return Effect.void
-          current.state = { ...current.state, wipeAt: null }
           return headChanged(current, now, payload)
         }),
       Closed: ({ payload }) =>
