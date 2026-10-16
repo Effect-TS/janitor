@@ -1,7 +1,7 @@
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { matchesGlob } from "../Labeling/Policy/Evaluate.ts"
-import type { PullRequestFile } from "./Diff.ts"
+import { fileName, type PullRequestFile } from "./Diff.ts"
 import type { Severity } from "./Finding.ts"
 import type { SkipReason, Verdict } from "./Run.ts"
 import type { ThreadState } from "./Threads.ts"
@@ -68,8 +68,6 @@ const DEPENDENCY_SECTIONS = [
   "peerDependencies",
   "optionalDependencies",
 ] as const
-
-const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1)
 
 const Manifest = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown))
 const decodeManifest = Schema.decodeUnknownOption(Manifest)

@@ -77,6 +77,9 @@ const parseFile = (file: PullRequestFile): DiffFile => {
     : { _tag: "Anchorable", path: file.filename, previousPath: file.previous_filename, hunks }
 }
 
+/** The last segment of a repository path. */
+export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1)
+
 export const parseTrustedDiff = (files: ReadonlyArray<PullRequestFile>): TrustedDiff => ({
   files: files.map(parseFile),
 })

@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -21,7 +22,13 @@ export interface FakePullRequest {
   headSha?: string
   /** The `changed_files` count GitHub reports; defaults to the listed files. */
   changedFiles?: number
-  files?: Array<{ filename: string; status: string }>
+  files?: Array<{
+    filename: string
+    status: string
+    patch?: string
+    additions?: number
+    deletions?: number
+  }>
   checks?: Array<{ name: string; status: string; conclusion: string | null }>
   reviews?: Array<{ id: number; user: string | null; state: string }>
 }
@@ -72,6 +79,8 @@ export class FakeGitHub {
   defaultBranch = "main"
   defaultBranchSha = "c".repeat(40)
   readonly requests: Array<GitHubRequest> = []
+  /** When each request arrived, by the effect clock, in `requests` order. */
+  readonly requestTimes: Array<number> = []
   /** Runs before every request; fail it to simulate throttling or outages. */
   intercept: (
     request: GitHubRequest,
@@ -138,7 +147,7 @@ export class FakeGitHub {
     }
   }
 
-  private ok(body: unknown, link: Option.Option<string> = Option.none()): GitHubResponse {
+  protected ok(body: unknown, link: Option.Option<string> = Option.none()): GitHubResponse {
     return {
       _tag: "Ok",
       status: 200,
@@ -149,12 +158,12 @@ export class FakeGitHub {
     }
   }
 
-  private failed(status: number): GitHubResponse {
+  protected failed(status: number): GitHubResponse {
     return { _tag: "Failed", status, body: {}, requestId: Option.none() }
   }
 
   /** One page of a listing, with GitHub's `Link` header when more follows. */
-  private page<A>(
+  protected page<A>(
     pathname: string,
     search: URLSearchParams,
     items: ReadonlyArray<A>,
@@ -342,6 +351,7 @@ export class FakeGitHub {
       request: (request) =>
         Effect.gen(function* () {
           self.requests.push(request)
+          self.requestTimes.push(yield* Clock.currentTimeMillis)
           const intercepted = yield* self.intercept(request)
           return intercepted ?? self.respond(request)
         }),

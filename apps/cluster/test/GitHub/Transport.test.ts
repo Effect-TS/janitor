@@ -72,6 +72,7 @@ const run = <A, E>(
                     }),
                   )
                 : Effect.sync(() => Redacted.make(`ghs_${++tokenIssue}`)),
+            revokeInstallationToken: () => Effect.void,
             invalidateInstallationToken: (id) =>
               Effect.sync(() => {
                 assert.deepStrictEqual(recorder.released, recorder.leases)

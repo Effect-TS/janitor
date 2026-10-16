@@ -16,6 +16,13 @@ export const GITHUB_API_VERSION = "2022-11-28"
 /** GitHub rejects requests without a User-Agent with 403. Workers do not add one. */
 export const GITHUB_USER_AGENT = "janitor"
 
+/** The headers every GitHub REST request carries, besides its credential. */
+export const GITHUB_REQUEST_HEADERS = {
+  accept: "application/vnd.github+json",
+  "x-github-api-version": GITHUB_API_VERSION,
+  "user-agent": GITHUB_USER_AGENT,
+} as const
+
 /** Which credential a request uses. Cache keys and rate budgets are scoped by it. */
 export const GitHubApiScope = Schema.Union([
   Schema.TaggedStruct("App", {}),
