@@ -3,6 +3,8 @@ import * as LanguageModel from "effect/ai/LanguageModel"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as HttpClient from "effect/http/HttpClient"
 import * as Layer from "effect/Layer"
 import { ReviewModelLayer } from "../../src/PullRequestReview/ReviewAgent.ts"
 import {
@@ -223,28 +225,26 @@ describe("the review model's transport", () => {
           },
         }),
       }
-      const globalFetch = globalThis.fetch
-      yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          globalThis.fetch = async (input, init) => {
-            viaGlobal.push(new Request(input, init))
-            return Response.json(completion)
-          }
-        }),
-        () =>
-          Effect.sync(() => {
-            globalThis.fetch = globalFetch
-          }),
+      // As in the Worker, other layers in the same build use the shared
+      // `FetchHttpClient.layer` too, so its client is built once and reused.
+      const elsewhere = Layer.effectDiscard(Effect.asVoid(HttpClient.HttpClient)).pipe(
+        Layer.provide(FetchHttpClient.layer),
       )
+      // The Worker's own fetch, for everything that doesn't go through the egress.
+      const globalFetch: typeof globalThis.fetch = async (input, init) => {
+        viaGlobal.push(new Request(input, init))
+        return Response.json(completion)
+      }
       const response = yield* LanguageModel.generateText({ prompt: "Say ok" }).pipe(
         Effect.provide(
-          ReviewModelLayer(namespace).pipe(
+          Layer.mergeAll(elsewhere, ReviewModelLayer(namespace)).pipe(
             Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(values))),
+            Layer.provide(Layer.succeed(FetchHttpClient.Fetch, globalFetch)),
           ),
         ),
       )
       return { text: response.text, viaEgress, viaGlobal }
-    }).pipe(Effect.scoped)
+    })
 
   const endpoint = {
     PR_REVIEW_AI_API_URL: "https://proxy.example.ts.net/v1",

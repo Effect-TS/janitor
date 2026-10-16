@@ -17,6 +17,7 @@ import * as Equal from "effect/Equal"
 import type * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as HttpClient from "effect/http/HttpClient"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
@@ -99,15 +100,27 @@ export const ReviewModelLayer = (
               apiKey: Option.getOrUndefined(config.apiKey),
             }),
           ),
-          Layer.provide(FetchHttpClient.layer),
-          Layer.provide(
-            config.viaTailnet
-              ? Layer.succeed(FetchHttpClient.Fetch, tailnetFetch(egress))
-              : Layer.empty,
-          ),
+          Layer.provide(config.viaTailnet ? tailnetHttpClient(egress) : FetchHttpClient.layer),
         ),
     }),
   )
+
+/**
+ * The fetch client with each request's `fetch` pinned to the tailnet egress
+ * DO, as `WorkspaceClient` pins the executor's. Providing `FetchHttpClient.Fetch`
+ * to the layer instead isn't enough: the Worker shares `FetchHttpClient.layer`
+ * across its layers, so its client is built once with the global fetch.
+ */
+const tailnetHttpClient = (egress: TailnetEgressNamespace): Layer.Layer<HttpClient.HttpClient> =>
+  Layer.effect(
+    HttpClient.HttpClient,
+    Effect.map(
+      HttpClient.HttpClient,
+      HttpClient.transform((effect) =>
+        Effect.provideService(effect, FetchHttpClient.Fetch, tailnetFetch(egress)),
+      ),
+    ),
+  ).pipe(Layer.provide(FetchHttpClient.layer))
 
 const ReportFinding = Tool.make("reportFinding", {
   description:
