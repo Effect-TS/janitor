@@ -28,7 +28,7 @@ import { checkRunOutput, type RunError } from "@janitor/domain/PullRequestReview
 import { RunId, SkipReason, Trigger } from "@janitor/domain/PullRequestReview/Run"
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import { RepositoryEligibility } from "../RepositoryEligibility.ts"
-import { type LoopOutcome, ReviewAgent, type ReviewSession } from "./Agent.ts"
+import { type LoopOutcome, ReviewAgent, ReviewInputError, type ReviewSession } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import * as ReviewGitHub from "./GitHub.ts"
 import { loadRunRecord, writeRunRecord } from "./RunRecord.ts"
@@ -537,13 +537,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           // Reading the loop's inputs is bounded by the run's deadline, like provisioning.
           Effect.timeoutOrElse({
             duration: Duration.millis(Math.max(0, deadline - (yield* Clock.currentTimeMillis))),
-            orElse: () =>
-              Effect.andThen(
-                Effect.logWarning("PR review inputs weren't read before the deadline").pipe(
-                  Effect.annotateLogs({ runId }),
-                ),
-                Effect.fail(new RunStopped({ reason: "incomplete" })),
-              ),
+            orElse: () => Effect.fail(new ReviewInputError({ operation: "deadline" })),
           }),
           Effect.catchTag("ReviewInputError", (error) =>
             Effect.andThen(

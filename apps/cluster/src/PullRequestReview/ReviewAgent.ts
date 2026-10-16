@@ -60,7 +60,7 @@ import type * as ReviewGitHub from "./GitHub.ts"
  */
 
 /** Model calls retried in a row before the run ends unfinished. */
-export const MAX_RETRIES = 3
+const MAX_RETRIES = 3
 
 export { executorOptions } from "./Sandbox/ExecutorOptions.ts"
 
@@ -231,26 +231,19 @@ const readInputs = (options: StartOptions) =>
         sinceLastReview = { reviewedSha: lastReviewed, diff: renderDiff(comparison) }
     }
 
-    const contexts = yield* Effect.forEach(
-      threads,
-      ({ thread, earlier }): Effect.Effect<ThreadContext, ReviewGitHub.PullRequestGitHubFailure> =>
-        Effect.map(
-          Effect.forEach(
-            thread.comments.filter((comment) => !comment.byJanitor),
-            (comment) => Effect.map(actor(comment.author), (by) => ({ by, body: comment.body })),
-          ),
-          (replies) => ({
-            id: earlier.id,
-            path: earlier.path,
-            anchor: earlier.anchor,
-            severity: earlier.severity,
-            comment: rootComment(thread.comments[0]!.body),
-            outdated: earlier.outdated,
-            ...(earlier.resolvedBy === undefined ? {} : { resolvedBy: earlier.resolvedBy }),
-            replies,
-          }),
-        ),
-    )
+    // `earlier.replies` attributes the same human comments, in order.
+    const contexts = threads.map(({ thread, earlier }): ThreadContext => ({
+      id: earlier.id,
+      path: earlier.path,
+      anchor: earlier.anchor,
+      severity: earlier.severity,
+      comment: rootComment(thread.comments[0]!.body),
+      outdated: earlier.outdated,
+      ...(earlier.resolvedBy === undefined ? {} : { resolvedBy: earlier.resolvedBy }),
+      replies: thread.comments
+        .filter((comment) => !comment.byJanitor)
+        .map((comment, index) => ({ by: earlier.replies[index]!.by, body: comment.body })),
+    }))
 
     return {
       instructions: system.prompt,
@@ -354,8 +347,6 @@ const makeTools = (options: StartOptions, inputs: Inputs) => {
   return { handlers, takePending: () => pending.splice(0) }
 }
 
-const isRpcClientError = Schema.is(RpcClientError)
-
 /**
  * The executor without its environment updates. Those come from the head
  * checkout, which the pull request controls: its `AGENTS.md` files and skills
@@ -373,7 +364,9 @@ const baseOnly = (executor: Layer.Layer<AgentExecutor.AgentExecutor>) =>
 
 /** A defect from the executor's transport: its container or the connection to it is gone. */
 const isSandboxLoss = (cause: Cause.Cause<unknown>) =>
-  cause.reasons.some((reason) => Cause.isDieReason(reason) && isRpcClientError(reason.defect))
+  cause.reasons.some(
+    (reason) => Cause.isDieReason(reason) && Schema.is(RpcClientError)(reason.defect),
+  )
 
 /** How a loop's exit ends it. Provider failures are logged by category only, never with a body. */
 const loopEnd = (
@@ -386,12 +379,8 @@ const loopEnd = (
     const failure = error.value
     if (failure._tag === "AgentFinished")
       return Effect.succeed({ _tag: "Completed", summary: failure.summary })
-    const category =
-      failure._tag === "RetriesExhausted" ? failure.error.reason._tag : failure.reason._tag
-    const message =
-      failure._tag === "RetriesExhausted"
-        ? `The PR review model failed after ${failure.retries} retries: ${category}`
-        : `The PR review model failed: ${category}`
+    const reason = failure._tag === "RetriesExhausted" ? failure.error.reason : failure.reason
+    const message = `The PR review model failed: ${reason._tag}`
     return Effect.as(Effect.logWarning(message), { _tag: "Failed", message })
   }
   if (isSandboxLoss(exit.cause)) return Effect.succeed({ _tag: "SandboxLost" })
@@ -451,18 +440,15 @@ const make = Effect.gen(function* () {
           : Effect.andThen(Deferred.await(commitDone), Effect.suspend(wait))
       })
 
-    /** The model, behind the commit boundary. */
+    /** The model behind the commit boundary. clanka only streams, for its steps and compaction alike. */
     const committedModel = (agent: Agent.Agent) =>
       Effect.gen(function* () {
         const ai = yield* LanguageModel.LanguageModel
-        // The service's methods are generic over the toolkit; these only add the wait.
-        const generateText = (options: Parameters<typeof ai.generateText>[0]) =>
-          Effect.andThen(caughtUp(agent), ai.generateText(options))
+        // The method is generic over the toolkit; this only adds the wait.
         const streamText = (options: Parameters<typeof ai.streamText>[0]) =>
           Stream.unwrap(Effect.as(caughtUp(agent), ai.streamText(options)))
         return LanguageModel.LanguageModel.of({
           ...ai,
-          generateText: generateText as typeof ai.generateText,
           streamText: streamText as typeof ai.streamText,
         })
       })
