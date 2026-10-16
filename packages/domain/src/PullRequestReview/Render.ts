@@ -308,16 +308,29 @@ export const parseReviewMarker = (body: string): Option.Option<ReviewMarker> =>
     ),
   )
 
-/** The finding's sanitised comment plus a hidden fingerprint marker. */
+/**
+ * The finding's sanitised comment plus a hidden marker with its fingerprint
+ * and, when given, its severity, so a later run knows whether the thread
+ * blocks.
+ */
 export const inlineComment = (finding: {
   readonly comment: string
   readonly fingerprint: Fingerprint
+  readonly severity?: Severity
 }): string =>
-  `${sanitise(finding.comment.trim())}\n\n<!-- janitor:finding fingerprint=${finding.fingerprint} -->`
+  `${sanitise(finding.comment.trim())}\n\n<!-- janitor:finding fingerprint=${finding.fingerprint}${
+    finding.severity === undefined ? "" : ` severity=${finding.severity}`
+  } -->`
+
+const findingMarker = /<!-- janitor:finding fingerprint=(\S+?)(?: severity=(blocking|nit))? -->/g
 
 export const parseFingerprintMarker = (comment: string): Option.Option<Fingerprint> =>
-  lastMatch(/<!-- janitor:finding fingerprint=(\S+) -->/g, comment).pipe(
-    Option.flatMap((match) => decodeFingerprint(match[1])),
+  lastMatch(findingMarker, comment).pipe(Option.flatMap((match) => decodeFingerprint(match[1])))
+
+/** The severity in a finding marker; absent from markers written before it was added. */
+export const parseSeverityMarker = (comment: string): Option.Option<Severity> =>
+  lastMatch(findingMarker, comment).pipe(
+    Option.flatMap((match) => Option.fromNullishOr(match[2] as Severity | undefined)),
   )
 
 /** Characters of the agent's `note` kept in a thread reply. */
@@ -357,9 +370,14 @@ export interface ThreadLink {
 
 /**
  * Why a run ended without a review: checkout, no sandbox before the deadline,
- * too many lost sandboxes, or an unfinished run.
+ * too many lost sandboxes, an unfinished run, or GitHub refusing the review.
  */
-export type RunError = "checkout_failed" | "sandbox_unavailable" | "resume_limit" | "incomplete"
+export type RunError =
+  | "checkout_failed"
+  | "sandbox_unavailable"
+  | "resume_limit"
+  | "incomplete"
+  | "publish_failed"
 
 /** What the `janitor/review` check run reports (EFF-1649 rule 18). */
 export type CheckRunReport =
@@ -455,6 +473,11 @@ const erroredOutput: Record<RunError, CheckRunOutput> = {
     title: "Incomplete review",
     summary:
       "The review ended before it finished. Findings reported so far were posted as a partial review, which never approves. Comment `/janitor` to re-run.",
+  },
+  publish_failed: {
+    title: "Couldn't post the review",
+    summary:
+      "The review finished, but GitHub refused it, so nothing was posted. Comment `/janitor` to re-run.",
   },
 }
 

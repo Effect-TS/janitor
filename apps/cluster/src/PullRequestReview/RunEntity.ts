@@ -31,7 +31,7 @@ import { RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { type LoopOutcome, ReviewAgent, type ReviewSession } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import * as ReviewGitHub from "./GitHub.ts"
-import { makeRunStorage, type RunState } from "./RunStorage.ts"
+import { makeRunStorage, type RunState, type RunStorage } from "./RunStorage.ts"
 import { SandboxWorkspaces } from "./Sandbox/WorkspaceClient.ts"
 import { PullRequestScheduler, schedulerEntityId } from "./Scheduler.ts"
 import { recordSkip } from "./Skip.ts"
@@ -116,7 +116,11 @@ export const PullRequestReviewRun = Entity.make("PullRequestReviewRun", [
 
 /**
  * What the `Publish` handler does with a finished loop's outcome: the review
- * batch from "PR review: the Publish batch and run record" (EFF-1964).
+ * batch from "PR review: the Publish batch and run record" (EFF-1964),
+ * `RunPublisherLayer` in `Publish.ts`. It journals its steps in the run's
+ * storage and, once done, saves the run as `published`, or as `cancelled`
+ * when a push superseded it, with its final row written and `RunFinished`
+ * sent.
  */
 export class RunPublisher extends Context.Service<
   RunPublisher,
@@ -124,6 +128,8 @@ export class RunPublisher extends Context.Service<
     readonly publish: (run: {
       readonly runId: RunId
       readonly outcome: LoopOutcome
+      readonly state: RunState
+      readonly storage: RunStorage
     }) => Effect.Effect<void>
   }
 >()("@janitor/cluster/PullRequestReview/RunEntity/RunPublisher") {}
@@ -581,7 +587,13 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             return yield* finalize
           }
           const { target, client, pull } = opened.success
-          const known = { ...fresh, target, title: pull.title, baseSha: pull.baseSha }
+          const known = {
+            ...fresh,
+            target,
+            title: pull.title,
+            baseSha: pull.baseSha,
+            baseRef: pull.baseRef,
+          }
           // Closed or turned draft since it was queued: skipped, like the other draft skips.
           if (pull.state === "closed" || pull.draft) {
             yield* storage.save({ ...known, phase: "skipped", finishedAt: startedAt })
@@ -677,7 +689,31 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           if (expired) return
           const state = yield* storage.load
           if (Option.isNone(state) || state.value.outcome === null) return
-          yield* publisher.publish({ runId: payload.runId, outcome: state.value.outcome })
+          // A replay after the batch finished goes straight to `Expire`.
+          if (state.value.phase === "publishing")
+            yield* publisher.publish({
+              runId: payload.runId,
+              outcome: state.value.outcome,
+              state: state.value,
+              storage,
+            })
+          const published = yield* storage.load
+          if (Option.isNone(published)) return
+          // Superseded by a push: nothing reached GitHub, so its data goes at once.
+          if (published.value.phase === "cancelled") return yield* finalize
+          if (published.value.phase !== "published") return
+          const config = yield* pullRequestReviewConfig
+          const finishedAt = DateTime.makeUnsafe(
+            published.value.finishedAt ?? (yield* Clock.currentTimeMillis),
+          )
+          yield* self.Expire(
+            new ExpirePayload({
+              runId,
+              at: DateTime.addDuration(finishedAt, config.runRetention),
+              retry: null,
+            }),
+            { discard: true },
+          )
         }).pipe(Effect.orDie),
 
       Expire: ({ payload }) =>

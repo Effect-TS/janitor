@@ -40,6 +40,7 @@ const ErrorCategory = Schema.Literals([
   "sandbox_unavailable",
   "resume_limit",
   "incomplete",
+  "publish_failed",
 ] satisfies ReadonlyArray<RunError>)
 
 export const RunState = Schema.Struct({
@@ -51,6 +52,8 @@ export const RunState = Schema.Struct({
   target: Schema.NullOr(Target),
   title: Schema.String,
   baseSha: Schema.String,
+  /** The base branch at start, for the base-changed approval gate; absent before it was saved. */
+  baseRef: Schema.optionalKey(Schema.String),
   phase: RunPhase,
   /** Epoch millis of the first start; the deadline and wrap-up count from it. */
   startedAt: Schema.Finite,
@@ -327,6 +330,19 @@ export const makeRunStorage = (sql: SqlClient.SqlClient, runId: string) => {
     return messages.slice(0, -1)
   })
 
+  /** A `Publish` step's recorded output, if the step was recorded. */
+  const publishStep = (step: string) =>
+    sql<{ output: string }>`
+      SELECT output FROM publish_steps WHERE run_id = ${runId} AND step = ${step}`.pipe(
+      Effect.map(([row]) => Option.fromNullishOr(row?.output)),
+    )
+
+  /** Records a `Publish` step in its own short transaction. */
+  const recordPublishStep = (step: string, output: string) =>
+    sql`
+      INSERT INTO publish_steps (run_id, step, output) VALUES (${runId}, ${step}, ${output})
+      ON CONFLICT (run_id, step) DO UPDATE SET output = excluded.output`.pipe(Effect.asVoid)
+
   const records = sql<{ record: string }>`
     SELECT record FROM pr_review_run_records WHERE run_id = ${runId} ORDER BY seq`.pipe(
     Effect.flatMap(Effect.forEach((row) => Schema.decodeEffect(RecordJson)(row.record))),
@@ -356,6 +372,8 @@ export const makeRunStorage = (sql: SqlClient.SqlClient, runId: string) => {
     commitStep,
     resumeHistory,
     records,
+    publishStep,
+    recordPublishStep,
     drop,
   }
 }

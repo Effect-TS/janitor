@@ -109,6 +109,39 @@ export class FakeReviewGitHub extends FakeGitHub {
     )
   }
 
+  /**
+   * What a write request does: the GraphQL mutation's field, or the REST
+   * operation as `GitHub.ts` names it. Reads have no name.
+   */
+  writeName(request: GitHubRequest): string | undefined {
+    if (request.method === "GET") return undefined
+    if (request.url === "/graphql") {
+      const { query } = this.graphql(request)
+      return /^\s*mutation\b/.test(query)
+        ? MUTATIONS.find((field) => new RegExp(`\\b${field}\\s*\\(`).test(query))
+        : undefined
+    }
+    if (request.url.endsWith("/check-runs")) return "createCheckRun"
+    if (/\/check-runs\/\d+$/.test(request.url)) return "updateCheckRun"
+    if (request.url.endsWith("/dismissals")) return "dismissReview"
+    return `${request.method} ${request.url}`
+  }
+
+  /** Every write so far, in order, by `writeName`. */
+  get writeNames() {
+    return this.requests.flatMap((request) => this.writeName(request) ?? [])
+  }
+
+  /** A GraphQL mutation's `variables.input`; other requests have none. */
+  mutationInput(request: GitHubRequest): Record<string, any> | undefined {
+    return request.url === "/graphql" ? this.graphql(request).variables?.input : undefined
+  }
+
+  /** GitHub's answer refusing a GraphQL mutation, as for a 422 (`UNPROCESSABLE`) or a 403 (`FORBIDDEN`). */
+  refusal(request: GitHubRequest, type: string, message: string): GitHubResponse {
+    return this.error(this.writeName(request) ?? "unknown", type, message)
+  }
+
   private nextId(prefix: string) {
     return `${prefix}_${++this.ids}`
   }

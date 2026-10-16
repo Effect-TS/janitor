@@ -219,7 +219,7 @@ const makeRunner = (options: {
     | RepositoryEligibility
     | GitHubTransport,
     never,
-    SqlClient.SqlClient
+    SqlClient.SqlClient | Sharding.Sharding
   >
   readonly scheduler: Layer.Layer<never, never, Sharding.Sharding>
 }) => {
@@ -249,11 +249,27 @@ const makeRunner = (options: {
 /** Lets the event loop run, so real I/O such as a Postgres reply can land; the test clock stays put. */
 const yieldToIo = TestClock.withLive(Effect.sleep(Duration.millis(1)))
 
+/** What a `RunPublisher` layer handed to the harness may use. */
+export type PublisherServices =
+  | PullRequestReviewStore
+  | RepositoryEligibility
+  | GitHubTransport
+  | Sharding.Sharding
+  | SqlClient.SqlClient
+
+export interface RunHarnessOptions {
+  /**
+   * The `Publish` batch to run. Without one, a fake records what it was
+   * handed in `published` and does nothing else.
+   */
+  readonly publisher?: Layer.Layer<RunPublisher, never, PublisherServices>
+}
+
 /**
  * Builds the harness for one test. Each test gets its own Durable Object
  * storage, so a run's tables are its own, as on Cloudflare.
  */
-export const makeRunHarness = Effect.gen(function* () {
+export const makeRunHarnessWith = Effect.fnUntraced(function* (options: RunHarnessOptions) {
   const github = new FakeReviewGitHub(7).put({
     number: 7,
     title: "Change",
@@ -269,8 +285,13 @@ export const makeRunHarness = Effect.gen(function* () {
   const published: Array<{ readonly runId: RunId; readonly outcome: LoopOutcome }> = []
   /** The `RunFinished` messages the per-PR scheduler received, in order. */
   const finished: Array<{ readonly runId: RunId; readonly finishedAt: DateTime.Utc }> = []
-  /** While set, writing a run's start row, or its final row, fails, as when Postgres is down. */
-  const postgres = { failStartRow: false, failFinalRow: false }
+  /**
+   * While set, writing a run's start row, or its final row, fails, as when
+   * Postgres is down. `cutOffFindings` lets the next findings insert land,
+   * then never answers, as when the runner stops mid-request; it clears
+   * itself once it has.
+   */
+  const postgres = { failStartRow: false, failFinalRow: false, cutOffFindings: false }
 
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -285,23 +306,45 @@ export const makeRunHarness = Effect.gen(function* () {
       start: (run: Parameters<typeof live.start>[0]) =>
         postgres.failStartRow
           ? Effect.fail(
-              new PullRequestReviewStoreError({ operation: "start", message: "Postgres is down" }),
+              new PullRequestReviewStoreError({
+                operation: "start",
+                message: "Postgres is down",
+              }),
             )
           : live.start(run),
       finish: (run: Parameters<typeof live.finish>[0]) =>
         postgres.failFinalRow
           ? Effect.fail(
-              new PullRequestReviewStoreError({ operation: "finish", message: "Postgres is down" }),
+              new PullRequestReviewStoreError({
+                operation: "finish",
+                message: "Postgres is down",
+              }),
             )
           : live.finish(run),
+      addFindings: (...args: Parameters<typeof live.addFindings>) =>
+        postgres.cutOffFindings
+          ? Effect.andThen(
+              live.addFindings(...args),
+              Effect.suspend(() => {
+                postgres.cutOffFindings = false
+                return Effect.never
+              }),
+            )
+          : live.addFindings(...args),
     })),
   )
-  const publisher = Layer.succeed(RunPublisher, {
+  const fakePublisher = Layer.succeed(RunPublisher, {
     publish: (run) =>
       Effect.sync(() => {
         published.push({ runId: run.runId, outcome: run.outcome })
       }),
   })
+  const publisher =
+    options.publisher === undefined
+      ? fakePublisher
+      : options.publisher.pipe(
+          Layer.provide(Layer.mergeAll(store, RepositoryEligibility.layer, github.layer)),
+        )
   const ignore = () => Effect.void
   const scheduler = PullRequestScheduler.toLayer(
     PullRequestScheduler.of({
@@ -474,7 +517,7 @@ export const makeRunHarness = Effect.gen(function* () {
       Effect.gen(function* () {
         const sql = yield* CloudflareCluster.DurableObjectSqlClient
         const rows = yield* sql<{ name: string }>`
-          SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`
+        SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`
         return rows.map((row) => row.name)
       }).pipe(Effect.orDie),
     ),
@@ -487,9 +530,19 @@ export const makeRunHarness = Effect.gen(function* () {
         return page.runs.find((run) => run.runId === runId)
       }).pipe(use),
 
+    /** The findings recorded for the run in Postgres. */
+    findings: (runId: RunId) =>
+      Effect.gen(function* () {
+        const store = yield* PullRequestReviewStore
+        return yield* store.findings(runId)
+      }).pipe(use),
+
     /** How many `RunFinished` messages the scheduler received for the run. */
     finishedCount: (runId: RunId) => finished.filter((message) => message.runId === runId).length,
   }
 })
+
+/** The harness with the fake `Publish` batch. */
+export const makeRunHarness = makeRunHarnessWith({})
 
 export type RunHarness = Effect.Success<typeof makeRunHarness>
