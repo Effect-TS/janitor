@@ -486,4 +486,37 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
       }),
     ),
   )
+
+  it.effect(
+    "a Cancel that arrives during Start's GitHub writes leaves the check run concluded",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          const created = yield* Deferred.make<void>()
+          harness.github.intercept = (request) =>
+            request.method === "POST" && request.url.endsWith("/check-runs")
+              ? Effect.as(Deferred.await(created), undefined)
+              : Effect.succeed(undefined)
+          const runId = newRunId()
+          yield* harness.send(runId)
+          yield* harness.waitFor(
+            Effect.sync(() => harness.github.requests.some((request) => request.method === "POST")),
+            "Start to create the check run",
+          )
+
+          yield* harness.cancelNow(runId)
+          yield* Deferred.succeed(created, undefined)
+          yield* harness.drain
+
+          // The check run Start created is concluded, not left in progress.
+          assert.deepStrictEqual(
+            harness.github.checkRuns.map((check) => [check.status, check.conclusion]),
+            [["completed", "cancelled"]],
+          )
+          assert.deepStrictEqual(harness.agent.sessions, [])
+          assert.strictEqual(harness.finishedCount(runId), 1)
+          assert.deepStrictEqual(yield* harness.tables, [])
+        }),
+      ),
+  )
 })

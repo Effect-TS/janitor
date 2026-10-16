@@ -10,6 +10,7 @@ import * as DateTime from "effect/DateTime"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
 import * as PrimaryKey from "effect/PrimaryKey"
@@ -189,6 +190,13 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
     const acquiring = new Set<Deferred.Deferred<void>>()
     /** `finalize` runs one pass at a time. */
     const finalizing = yield* Semaphore.make(1)
+    /**
+     * Set while `Start` makes its startup writes, the start row and the check
+     * run. A `Cancel` meanwhile leaves finishing the run to `Start`, which
+     * finalizes once those writes are done, so the check run is concluded and
+     * nothing writes after `Expire`.
+     */
+    let startingUp = false
     /** The loop this entity started, while it runs. */
     let session: ReviewSession | undefined
 
@@ -424,6 +432,8 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       }).pipe(Effect.orDie)
 
     const acquire = Effect.gen(function* () {
+      // Cancelled before this acquire was registered: stop before any SQL, as `Expire` may follow.
+      if (cancelling) return yield* new RunStopped({ reason: "cancelled" })
       const closeScope = yield* EntityResource.CloseScope
       const config = yield* pullRequestReviewConfig
       // Every acquire after the first is a resume; past the allowed resumes the run errors.
@@ -489,7 +499,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
      * cancelled. `Cancel` waits for it to finish, workspace release included.
      */
     const ensureAcquired = Effect.gen(function* () {
-      const done = yield* Deferred.make<void>()
+      const done = Deferred.makeUnsafe<void>()
       acquiring.add(done)
       yield* Effect.scoped(resource.get).pipe(
         Effect.ensuring(
@@ -575,36 +585,50 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             yield* storage.save({ ...known, phase: "skipped", finishedAt: startedAt })
             return yield* finalize
           }
-          const begun = yield* storage.begin({ ...known, phase: "running" })
-          // Cancelled while the pull request was read: it never starts.
-          if (begun.phase === "cancelled") return yield* finalize
-          yield* store
-            .start({
-              ...payload,
-              title: pull.title,
-              baseSha: pull.baseSha,
-              startedAt: DateTime.makeUnsafe(startedAt),
-            })
-            .pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Couldn't write the PR review start row", error),
-              ),
-            )
-          const checkRun = yield* client
-            .upsertCheckRun({
-              headSha: payload.headSha,
-              state: { status: "in_progress" },
-              output: checkRunOutput({ _tag: "Reviewing" }),
-            })
-            .pipe(
-              Effect.tapError((error) =>
-                Effect.logWarning("Couldn't start the PR review check run", error),
-              ),
-              Effect.option,
-            )
-          if (Option.isSome(checkRun))
-            yield* storage.update((state) => ({ ...state, checkRun: checkRun.value }))
-          yield* ensureAcquired
+          startingUp = true
+          // `false` when the run was cancelled before it could start.
+          const started = yield* Effect.gen(function* () {
+            const begun = yield* storage.begin({ ...known, phase: "running" })
+            // Cancelled while the pull request was read: it never starts.
+            if (begun.phase === "cancelled" || cancelling) return false
+            yield* store
+              .start({
+                ...payload,
+                title: pull.title,
+                baseSha: pull.baseSha,
+                startedAt: DateTime.makeUnsafe(startedAt),
+              })
+              .pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Couldn't write the PR review start row", error),
+                ),
+              )
+            if (cancelling) return false
+            const checkRun = yield* client
+              .upsertCheckRun({
+                headSha: payload.headSha,
+                state: { status: "in_progress" },
+                output: checkRunOutput({ _tag: "Reviewing" }),
+              })
+              .pipe(
+                Effect.tapError((error) =>
+                  Effect.logWarning("Couldn't start the PR review check run", error),
+                ),
+                Effect.option,
+              )
+            if (Option.isSome(checkRun))
+              yield* storage.update((state) => ({ ...state, checkRun: checkRun.value }))
+            return !cancelling
+          }).pipe(
+            // On every exit: a `Cancel` during startup left finishing the run to this.
+            Effect.onExit((exit) =>
+              Effect.suspend(() => {
+                startingUp = false
+                return cancelling || (Exit.isSuccess(exit) && !exit.value) ? finalize : Effect.void
+              }),
+            ),
+          )
+          if (started && !cancelling) yield* ensureAcquired
         }).pipe(Effect.orDie),
 
       Cancel: () =>
@@ -613,9 +637,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           const cancelled = yield* storage.cancel(yield* Clock.currentTimeMillis)
           if (cancelled === "Ended") return
           cancelling = true
+          // Read in the same step that set `cancelling`, so exactly one of
+          // `Start` and `Cancel` finishes the run.
+          const handedOff = startingUp
           yield* Deferred.succeed(stop, undefined)
-          // Before `Start` saved the run: `Start` finds the request and finishes it.
-          if (cancelled === "Requested") return
+          // Before `Start` saved the run, or during its startup writes: `Start` finishes it.
+          if (cancelled === "Requested" || handedOff) return
           // Interrupt the loop before destroying its container, so the loop
           // can't fail on a missing sandbox and overwrite `cancelled`.
           if (session !== undefined) yield* session.interrupt
