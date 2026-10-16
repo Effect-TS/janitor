@@ -238,6 +238,7 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
         GitHubIssueApi,
       )
       if (issue._tag === "Failed") {
+        if (issue.status === 410) return { _tag: "Deleted" as const }
         return issue.status === 403 || issue.status === 404
           ? { _tag: "Ambiguous" as const, status: issue.status }
           : yield* failure(issue.message)
@@ -250,6 +251,7 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
         GitHubPullRequestApi,
       )
       if (pull._tag === "Failed") {
+        if (pull.status === 410) return { _tag: "Deleted" as const }
         return pull.status === 403 || pull.status === 404
           ? { _tag: "Ambiguous" as const, status: pull.status }
           : yield* failure(pull.message)
@@ -306,6 +308,32 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
         reason: `entity-http-${fetched.success.status}`,
       })
       return result(generation, "blocked")
+    }
+    // 410 is GitHub's unambiguous signal that the item was deleted, unlike a 404.
+    if (fetched.success._tag === "Deleted") {
+      yield* Activity.make({
+        name: "RefreshEntity/Remove",
+        error: SyncActivityError,
+        execute: Effect.gen(function* () {
+          const readModel = yield* GitHubReadModel
+          const targets = yield* SyncTargets
+          yield* targets
+            .withRun(
+              scope,
+              generation,
+              Effect.gen(function* () {
+                yield* readModel.removeEntity(repositoryId, number)
+                yield* targets.complete({
+                  scope,
+                  generation,
+                  outcome: { _tag: "Verified", watermark: Option.none() },
+                })
+              }),
+            )
+            .pipe(Effect.mapError((error) => failure(error.message)))
+        }),
+      })
+      return result(generation, "verified")
     }
     const found = fetched.success
 
