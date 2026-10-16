@@ -355,8 +355,11 @@ export interface ThreadLink {
   readonly resolvedBy?: Actor
 }
 
-/** Why a run ended without a review: checkout, too many lost sandboxes, or an unfinished run. */
-export type RunError = "checkout_failed" | "resume_limit" | "incomplete"
+/**
+ * Why a run ended without a review: checkout, no sandbox before the deadline,
+ * too many lost sandboxes, or an unfinished run.
+ */
+export type RunError = "checkout_failed" | "sandbox_unavailable" | "resume_limit" | "incomplete"
 
 /** What the `janitor/review` check run reports (EFF-1649 rule 18). */
 export type CheckRunReport =
@@ -367,7 +370,9 @@ export type CheckRunReport =
       /** Links to janitor's earlier `REQUEST_CHANGES` reviews it failed to dismiss. */
       readonly dismissalFailures: ReadonlyArray<string>
     }
+  | { readonly _tag: "Reviewing" }
   | { readonly _tag: "Skipped"; readonly reason: SkipReason }
+  | { readonly _tag: "Cancelled" }
   | { readonly _tag: "Errored"; readonly error: RunError }
 
 export interface CheckRunOutput {
@@ -436,6 +441,11 @@ const erroredOutput: Record<RunError, CheckRunOutput> = {
     summary:
       "Checkout failed, so janitor couldn't review this head. Comment `/janitor` to try again.",
   },
+  sandbox_unavailable: {
+    title: "No sandbox available",
+    summary:
+      "Janitor couldn't get a sandbox for this review before its deadline. Comment `/janitor` to try again.",
+  },
   resume_limit: {
     title: "Review stopped",
     summary:
@@ -448,12 +458,27 @@ const erroredOutput: Record<RunError, CheckRunOutput> = {
   },
 }
 
+const reviewingOutput: CheckRunOutput = {
+  title: "Reviewing",
+  summary: "Janitor is reviewing this head.",
+}
+
+const cancelledOutput: CheckRunOutput = {
+  title: "Review cancelled",
+  summary:
+    "This review was cancelled, by a newer push, the pull request closing or turning draft, or PR review being disabled.",
+}
+
 export const checkRunOutput = (report: CheckRunReport): CheckRunOutput => {
   switch (report._tag) {
     case "Reviewed":
       return reviewedOutput(report)
+    case "Reviewing":
+      return reviewingOutput
     case "Skipped":
       return skippedOutput[report.reason]
+    case "Cancelled":
+      return cancelledOutput
     case "Errored":
       return erroredOutput[report.error]
   }
