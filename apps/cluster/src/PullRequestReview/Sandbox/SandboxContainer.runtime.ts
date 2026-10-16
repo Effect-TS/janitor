@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
+import * as References from "effect/References"
 import * as Path from "effect/Path"
 import * as ChildProcess from "effect/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/process/ChildProcessSpawner"
@@ -14,6 +15,7 @@ import * as RpcServer from "effect/rpc/RpcServer"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import { sandboxCommandTimeout, sandboxMaxInstances } from "../Config.ts"
+import { errorFields } from "../Log.ts"
 import { executorOptions } from "./ExecutorOptions.ts"
 import { GitCommandFailed, type Git } from "./Checkout.ts"
 import { makeContainerApp, WORKSPACE_DIRECTORY } from "./ContainerApp.ts"
@@ -109,6 +111,9 @@ export default SandboxContainer.make(
         Layer.provide(Layer.succeed(RpcServer.Protocol, http.protocol)),
         Layer.provide(Layer.succeedContext(services)),
         Layer.provide(FetchHttpClient.layer),
+        // clanka logs each tool call's arguments at Info: commands, paths and
+        // search text from the pull request, which never go in logs.
+        Layer.provide(Layer.succeed(References.MinimumLogLevel, "Warn")),
       ),
     ).pipe(Scope.provide(scope))
 
@@ -145,7 +150,11 @@ export default SandboxContainer.make(
         rpc: http.httpEffect,
         git,
         reset: node(prepareCheckout).pipe(
-          Effect.catch((error) => Effect.logWarning("Could not prepare the workspace", error)),
+          Effect.catch((error) =>
+            Effect.logWarning("Could not prepare the workspace").pipe(
+              Effect.annotateLogs(errorFields(error)),
+            ),
+          ),
         ),
       }),
     })

@@ -101,10 +101,15 @@ import {
   AdmitPullRequestReviewRegistration,
   PullRequestReviewAutomationIntegrationLayer,
 } from "./PullRequestReview/Admission.ts"
+import { pullRequestReviewInit } from "./PullRequestReview/Config.ts"
 import { RunPublisherLayer } from "./PullRequestReview/Publish.ts"
 import { ReviewAgentLayer, ReviewModelLayer } from "./PullRequestReview/ReviewAgent.ts"
 import { PullRequestReviewRun, PullRequestReviewRunLayer } from "./PullRequestReview/RunEntity.ts"
-import { PullRequestScheduler, PullRequestSchedulerLayer } from "./PullRequestReview/Scheduler.ts"
+import {
+  PullRequestScheduler,
+  PullRequestSchedulerLayer,
+  RepositoryDisabler,
+} from "./PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "./PullRequestReview/Store.ts"
 import { AutomationIntegration } from "./AutomationIntegration.ts"
 import {
@@ -217,6 +222,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // The classifier provider is optional: without a key every classifier
     // policy evaluates unknown, which preserves labels.
     const ai = yield* Config.unwrap(providerConfig)
+    // PR review reads its settings later, in the cluster layer; reading them
+    // here is what binds them.
+    yield* pullRequestReviewInit
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
@@ -296,6 +304,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       SyncRepairCronLayer,
       AdmitPullRequestReviewLayer,
       PullRequestSchedulerLayer,
+      RepositoryDisabler.layer,
       PullRequestReviewRunLayer.pipe(
         Layer.provide(RunPublisherLayer),
         Layer.provide(ReviewAgentLayer.pipe(Layer.provide(ReviewModelLayer))),

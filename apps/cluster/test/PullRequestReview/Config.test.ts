@@ -4,7 +4,10 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
-import { pullRequestReviewConfig } from "../../src/PullRequestReview/Config.ts"
+import {
+  pullRequestReviewConfig,
+  pullRequestReviewInit,
+} from "../../src/PullRequestReview/Config.ts"
 
 const read = (values: Record<string, string>) =>
   pullRequestReviewConfig.pipe(
@@ -100,6 +103,41 @@ describe("PR review configuration", () => {
         const error = yield* Effect.flip(read(values))
         assert.strictEqual(error._tag, "ConfigError", Object.keys(values).join())
       }
+    }),
+  )
+
+  it.effect("reads every setting at Worker init, so the deploy binds it, even an invalid one", () =>
+    Effect.gen(function* () {
+      // Every setting the cluster Worker reads, as the operator doc lists them. The
+      // reasoning effort is invalid and comes early, so the rest must still be read.
+      const values: Record<string, string> = {
+        PR_REVIEW_OPENROUTER_API_KEY: "test-key",
+        PR_REVIEW_AI_MODEL: "openai/gpt-6.1-sol",
+        PR_REVIEW_AI_REASONING_EFFORT: "loud",
+        PR_REVIEW_RUN_DEADLINE_SECONDS: "600",
+        PR_REVIEW_WRAP_UP_AFTER_SECONDS: "420",
+        PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "180",
+        PR_REVIEW_MAX_CHANGED_LINES: "10000",
+        PR_REVIEW_MAX_CHANGED_FILES: "100",
+        PR_REVIEW_MAX_INLINE_COMMENTS: "25",
+        PR_REVIEW_MAX_AUTOMATIC_RUNS: "10",
+        PR_REVIEW_MAX_RESUMES: "3",
+        PR_REVIEW_RUN_RETENTION_DAYS: "14",
+        PR_REVIEW_SCHEDULER_WIPE_DAYS: "30",
+        PR_REVIEW_SENSITIVE_PATHS: ".github/**",
+        PR_REVIEW_LOCKFILES: "pnpm-lock.yaml",
+        PR_REVIEW_MANIFESTS: "package.json",
+      }
+      const source = ConfigProvider.fromUnknown(values)
+      const read = new Set<string>()
+      const recording = ConfigProvider.make((path) => {
+        read.add(String(path[0]))
+        return source.load(path)
+      })
+
+      yield* pullRequestReviewInit.pipe(Effect.provide(ConfigProvider.layer(recording)))
+
+      assert.includeMembers([...read], Object.keys(values))
     }),
   )
 })

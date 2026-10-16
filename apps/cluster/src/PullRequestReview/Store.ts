@@ -115,7 +115,7 @@ export type RunSummary = typeof RunSummary.Type
 export interface RunPage {
   readonly runs: ReadonlyArray<RunSummary>
   /** Pass back as `cursor` for the next, older page. */
-  readonly next: Option.Option<string>
+  readonly next: Option.Option<RunId>
 }
 
 const FailedGatesJson = Schema.fromJsonString(Schema.Array(Schema.String))

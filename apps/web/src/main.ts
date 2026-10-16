@@ -23,7 +23,7 @@ import * as Page from "@/components/ui/page"
 import { labelName, type RepositoryOverview } from "@/components/labeling-wire"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
-import { House, FileCode2, Tags, Activity, Settings, UserRound } from "lucide"
+import { House, FileCode2, Tags, Activity, GitPullRequest, Settings, UserRound } from "lucide"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
@@ -1078,6 +1078,7 @@ const navMain = (h: HtmlBuilder<Message>, model: Model): Html => {
                           Policies: FileCode2,
                           Rules: Tags,
                           Activity,
+                          "PR reviews": GitPullRequest,
                           Settings,
                         }[section],
                         "size-4 shrink-0 text-ink-subtle",
@@ -1474,12 +1475,12 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
         title: "Settings",
         lede:
           repository === undefined
-            ? "Connection, automation and AI classification."
+            ? "Connection, automation, AI classification and PR review."
             : h.span(
                 [],
                 [
                   h.span([h.Class("font-mono")], [`${repository.owner}/${repository.repo}`]),
-                  " · connection, automation and AI classification.",
+                  " · connection, automation, AI classification and PR review.",
                 ],
               ),
       }),

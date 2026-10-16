@@ -5,6 +5,7 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
+import { errorFields } from "../Log.ts"
 import { checkout, CheckoutOutcome, CheckoutRequest, type Git } from "./Checkout.ts"
 
 /** The port the container serves on, and the workspace DO forwards to. */
@@ -81,7 +82,8 @@ export const makeContainerApp = (options: {
     }
   }).pipe(
     Effect.catchCause((cause) =>
-      Effect.logError("Sandbox container request failed", cause).pipe(
+      Effect.logError("Sandbox container request failed").pipe(
+        Effect.annotateLogs(errorFields(Cause.squash(cause))),
         Effect.as(HttpServerResponse.empty({ status: 500 })),
       ),
     ),

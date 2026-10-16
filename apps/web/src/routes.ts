@@ -27,6 +27,7 @@ export const AppRoute = Route.defineRouteUnion({
   NewRule: repository,
   Rule: { ...repository, ruleId: Schema.String },
   Activity: repository,
+  PullRequestReviews: repository,
   Settings: repository,
   DesignSystem: {},
   Account: { section: AccountSection },
@@ -104,6 +105,11 @@ export const activity = pipe(
   Route.slash(Route.literal("activity")),
   Route.mapTo(AppRoute.Activity),
 )
+export const pullRequestReviews = pipe(
+  base,
+  Route.slash(Route.literal("pull-request-reviews")),
+  Route.mapTo(AppRoute.PullRequestReviews),
+)
 export const settings = pipe(
   base,
   Route.slash(Route.literal("settings")),
@@ -164,6 +170,7 @@ export const parse = Route.parseUrlWithFallback(
     legacyRuleTest,
     rule,
     activity,
+    pullRequestReviews,
     settings,
     designSystem,
     accountReturn,
@@ -184,6 +191,7 @@ export const path = (route: AppRoute): string =>
     NewRule: newRule,
     Rule: rule,
     Activity: activity,
+    PullRequestReviews: pullRequestReviews,
     Settings: settings,
     DesignSystem: designSystem,
     Account: account,
@@ -191,7 +199,14 @@ export const path = (route: AppRoute): string =>
     NotFound: ({ path }) => path,
   })
 /** The repository sections in navigation order. */
-export const sections = ["Overview", "Policies", "Rules", "Activity", "Settings"] as const
+export const sections = [
+  "Overview",
+  "Policies",
+  "Rules",
+  "Activity",
+  "PR reviews",
+  "Settings",
+] as const
 export type Section = (typeof sections)[number]
 export const section = (route: AppRoute): Section =>
   AppRoute.matchOrElse(
@@ -202,6 +217,7 @@ export const section = (route: AppRoute): Section =>
       NewRule: (): Section => "Rules",
       Rule: (): Section => "Rules",
       Activity: (): Section => "Activity",
+      PullRequestReviews: (): Section => "PR reviews",
       Settings: (): Section => "Settings",
     },
     (): Section => "Policies",
@@ -212,6 +228,7 @@ export const sectionPath = (repositoryId: string, section: Section): string =>
     Policies: policies,
     Rules: rules,
     Activity: activity,
+    "PR reviews": pullRequestReviews,
     Settings: settings,
   })[section]({
     repositoryId,

@@ -22,7 +22,6 @@ import { RunId, type Trigger } from "@janitor/domain/PullRequestReview/Run"
 import { AutomationIntegration } from "../AutomationIntegration.ts"
 import { logWorkflowFailure } from "../GitHub/SyncSupport.ts"
 import { RepositoryEligibility } from "../RepositoryEligibility.ts"
-import { describeError } from "../SqlErrors.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import { effectivePermission } from "./Authority.ts"
@@ -205,8 +204,8 @@ export const PullRequestReviewAutomationIntegrationLayer = Layer.effect(
 
 // WORKFLOW
 
-const failure = (error: { readonly _tag: string; readonly message: string }) =>
-  new AdmissionError({ message: describeError(error) || error._tag })
+/** The category only: the workflow failure log prints it, and messages can carry GitHub text. */
+const failure = (error: { readonly _tag: string }) => new AdmissionError({ message: error._tag })
 
 /**
  * Admits one event: what needs GitHub happens here, after the webhook's
@@ -247,7 +246,7 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
       const permission = yield* effectivePermission(target, event.authorLogin, event.authorId)
       if (permission._tag === "Insufficient") {
         yield* Effect.logInfo("PR review invocation denied").pipe(
-          Effect.annotateLogs({ repositoryId, number, reason: permission.reason }),
+          Effect.annotateLogs({ reason: permission.reason }),
         )
         return "denied"
       }
@@ -293,8 +292,8 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
   })
 
 /** The admission workflow; registered with the dispatcher under `PR_REVIEW_ADMISSION_TAG`. */
-export const AdmitPullRequestReviewLayer = AdmitPullRequestReview.toLayer(
-  Effect.fnUntraced(function* (payload) {
+export const AdmitPullRequestReviewLayer = AdmitPullRequestReview.toLayer((payload) =>
+  Effect.gen(function* () {
     // Journaled, so a retried admission records the same skipped run.
     const runId = yield* Activity.make({
       name: "PullRequestReviewAdmission/RunId",
@@ -310,15 +309,20 @@ export const AdmitPullRequestReviewLayer = AdmitPullRequestReview.toLayer(
         Effect.mapError(failure),
       ),
     })
+    const event = payload.event
     yield* Effect.logInfo("Admitted PR review event").pipe(
       Effect.annotateLogs({
-        repositoryId: payload.repositoryId,
-        number: payload.number,
-        event: payload.event._tag,
+        event: event._tag,
         outcome,
+        ...("headSha" in event ? { headSha: event.headSha } : {}),
+        // The `skipped` row an oversized head got.
+        ...(outcome === "oversized" ? { runId } : {}),
       }),
     )
-  }, logWorkflowFailure("AdmitPullRequestReview")),
+  }).pipe(
+    logWorkflowFailure("AdmitPullRequestReview"),
+    Effect.annotateLogs({ repositoryId: payload.repositoryId, number: payload.number }),
+  ),
 )
 
 const decodePayload = Schema.decodeUnknownEffect(AdmissionPayload)

@@ -13,6 +13,8 @@ import * as Workspace from "@/components/workspace"
 import * as Dialog from "@foldkit/ui/dialog"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import * as PullRequestReviewSettings from "@/components/pull-request-review-settings"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
 const one: Workspace.RepositoryOverview = {
@@ -883,6 +885,33 @@ describe("settings", () => {
       Scene.expect(Scene.text("openrouter · typesafe/jev-1.13")).toExist(),
       Scene.expect(Scene.text("Disabled")).toExist(),
       Scene.expect(Scene.role("button", { name: "Enable" })).toExist(),
+    )
+  })
+
+  it("shows the PR review panel next to AI classification", () => {
+    const opened = PullRequestReviewSettings.update(
+      PullRequestReviewSettings.init(),
+      PullRequestReviewSettings.Message.Opened({ repositoryId: "701" }),
+    ).model
+    const pullRequestReview = PullRequestReviewSettings.update(
+      opened,
+      PullRequestReviewSettings.Message.Loaded({
+        settings: {
+          repositoryId: GitHubRepositoryDatabaseId.make("701"),
+          enabled: false,
+          deployment: { available: false, model: "openai/gpt-6.1-sol", reasoningEffort: "medium" },
+        },
+      }),
+    ).model
+    Scene.scene(
+      {
+        update: Workspace.update,
+        view: Scene.withViewInputs(Workspace.view, { section: "Settings" })(),
+      },
+      Scene.given({ ...ready(), pullRequestReview }),
+      Scene.expect(Scene.text("AI classification")).toExist(),
+      Scene.expect(Scene.text("PR review")).toExist(),
+      Scene.expect(Scene.text("Unavailable in this deployment")).toExist(),
     )
   })
 })

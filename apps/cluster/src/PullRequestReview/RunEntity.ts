@@ -31,6 +31,7 @@ import { RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { type LoopOutcome, ReviewAgent, ReviewInputError, type ReviewSession } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import * as ReviewGitHub from "./GitHub.ts"
+import { errorFields } from "./Log.ts"
 import { loadRunRecord, writeRunRecord } from "./RunRecord.ts"
 import { makeRunStorage, type RunState, type RunStorage } from "./RunStorage.ts"
 import { SandboxWorkspaces } from "./Sandbox/WorkspaceClient.ts"
@@ -214,6 +215,18 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
     let workspaceHeld = false
     let resuming = false
 
+    /** What every log of this run is annotated with, once `Start` or the saved run names it. */
+    let logIds: Record<string, string | number> = { runId }
+    const remember = (run: {
+      readonly repositoryId: GitHubRepositoryDatabaseId
+      readonly number: number
+      readonly headSha: string
+    }) => {
+      logIds = { runId, repositoryId: run.repositoryId, number: run.number, headSha: run.headSha }
+    }
+    const withRunLogs = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => Effect.annotateLogs(effect, logIds))
+
     /** Releases the run's workspace if this entity still holds it. */
     const releaseWorkspace = Effect.suspend(() => {
       if (!workspaceHeld) return Effect.void
@@ -265,7 +278,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         })
       }).pipe(
         Effect.catch((error) =>
-          Effect.logWarning("Couldn't conclude the PR review check run", error),
+          Effect.logWarning("Couldn't conclude the PR review check run").pipe(
+            Effect.annotateLogs(errorFields(error)),
+          ),
         ),
       )
 
@@ -287,6 +302,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       if (!rowWritten && Option.isSome(journalled)) {
         // `Publish` already did the GitHub writes; only the record is left.
         rowWritten = yield* writeRunRecord(store, storage, journalled.value)
+        if (rowWritten) yield* Effect.logInfo("Recorded the PR review run")
         yield* storage.update((current) =>
           rowWritten
             ? { ...current, finalRowWritten: true }
@@ -320,9 +336,15 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           .pipe(
             Effect.as(true),
             Effect.catch((error) =>
-              Effect.as(Effect.logWarning("Couldn't record the PR review run", error), false),
+              Effect.as(
+                Effect.logWarning("Couldn't record the PR review run").pipe(
+                  Effect.annotateLogs(errorFields(error)),
+                ),
+                false,
+              ),
             ),
           )
+        if (rowWritten) yield* Effect.logInfo("Recorded the PR review run")
         yield* storage.update((current) =>
           rowWritten
             ? { ...current, finalRowWritten: true }
@@ -330,6 +352,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         )
       }
       if (!state.runFinishedSent) {
+        // `Publish` logs the runs it finishes; these ended before it.
+        yield* Effect.logInfo(`PR review run ${state.phase}`).pipe(
+          Effect.annotateLogs(
+            state.errorCategory === null ? {} : { errorCategory: state.errorCategory },
+          ),
+        )
         yield* schedulers(schedulerEntityId(state.repositoryId, state.number)).RunFinished(
           { runId, finishedAt },
           { discard: true },
@@ -351,14 +379,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             new ExpirePayload({ runId, at: DateTime.addDuration(now, wait), retry }),
             { discard: true },
           )
-        yield* Effect.logError("Gave up recording a PR review run").pipe(
-          Effect.annotateLogs({ runId }),
-        )
+        yield* Effect.logError("Gave up recording a PR review run")
       }
       // A run cancelled before publishing has nothing worth keeping.
       const at = state.phase === "cancelled" ? finishedAt : retention
       yield* self.Expire(new ExpirePayload({ runId, at, retry: null }), { discard: true })
-    }).pipe(Semaphore.withPermits(finalizing, 1))
+    }).pipe(Semaphore.withPermits(finalizing, 1), withRunLogs)
 
     /** Ends a running run as `failed`; a run that already ended is left as it is. */
     const fail = (errorCategory: RunError) =>
@@ -403,7 +429,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           if (error._tag !== "ContainerUnavailable")
             return yield* new RunStopped({ reason: "checkout_failed" })
           yield* Effect.logInfo("No PR review sandbox container available; retrying").pipe(
-            Effect.annotateLogs({ runId, reason: error.reason }),
+            Effect.annotateLogs({ reason: error.reason }),
           )
           const backoff = Math.min(1_000 * 2 ** attempt, Duration.toMillis(MAX_CONTAINER_BACKOFF))
           yield* sleepUntil(Math.min((yield* Clock.currentTimeMillis) + backoff, deadline))
@@ -414,7 +440,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
     const wrapUp = (live: ReviewSession) =>
       Effect.flatMap(live.steer(wrapUpMessage), () =>
         storage.update((state) => ({ ...state, steered: true })),
-      )
+      ).pipe(Effect.tap(() => Effect.logInfo("PR review run told to wrap up")))
 
     /**
      * Drives a running loop: the wrap-up message at minute 7 and the
@@ -430,6 +456,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
               yield* wrapUp(live)
             }
             yield* sleepUntil(deadline)
+            yield* Effect.logInfo("PR review run hit its deadline")
             yield* storage.update((state) => ({ ...state, interrupted: true }))
             yield* live.interrupt
           }),
@@ -439,9 +466,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         if (result._tag === "SandboxLost") {
           // Not a failed run: a fresh sandbox and checkout, and the loop resumes
           // from its history. The re-acquire counts as a resume.
-          yield* Effect.logWarning("PR review sandbox lost; resuming in a new one").pipe(
-            Effect.annotateLogs({ runId }),
-          )
+          yield* Effect.logWarning("PR review sandbox lost; resuming in a new one")
           // Not from this fiber: closing the resource interrupts it.
           yield* Effect.forkIn(
             Effect.gen(function* () {
@@ -481,6 +506,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         )
         // Cancelled meanwhile: `Cancel` finishes the run.
         if (Option.isNone(saved)) return
+        yield* Effect.logInfo("PR review run publishing").pipe(
+          Effect.annotateLogs({ unfinished: saved.value.outcome?.unfinished ?? "none" }),
+        )
         yield* self.Publish({ runId }, { discard: true })
         // Not from this fiber: closing the resource interrupts it.
         yield* Effect.forkIn(resource.close, entityScope)
@@ -507,6 +535,10 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
         })
       }
       const state = counted.value
+      if (state.acquires > 1)
+        yield* Effect.logInfo("PR review run resuming").pipe(
+          Effect.annotateLogs({ resumeCount: state.acquires - 1 }),
+        )
       const deadline = state.startedAt + Duration.toMillis(config.runDeadline)
       const wrapUpAt = state.startedAt + Duration.toMillis(config.wrapUpAfter)
 
@@ -542,7 +574,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           Effect.catchTag("ReviewInputError", (error) =>
             Effect.andThen(
               Effect.logWarning("Couldn't read the PR review run's inputs").pipe(
-                Effect.annotateLogs({ runId, operation: error.operation }),
+                Effect.annotateLogs({ operation: error.operation }),
               ),
               Effect.fail(new RunStopped({ reason: "incomplete" })),
             ),
@@ -608,8 +640,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
     // A rebuilt entity picks up where it was: an active run resumes at once.
     const initial = yield* storage.load.pipe(Effect.orDie)
     if (Option.isSome(initial)) {
+      remember(initial.value)
       if (initial.value.phase === "running")
-        yield* Effect.forkIn(Effect.orDie(ensureAcquired), entityScope)
+        yield* Effect.forkIn(withRunLogs(Effect.orDie(ensureAcquired)), entityScope)
       else if (isEnded(initial.value.phase))
         yield* Effect.forkIn(Effect.orDie(finalize), entityScope)
       // Rebuilt after the outcome was saved, maybe before `Publish` went out:
@@ -624,8 +657,10 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
     }
 
     return PullRequestReviewRun.of({
-      Start: ({ payload }) =>
-        Effect.gen(function* () {
+      Start: ({ payload }) => {
+        // Before `withRunLogs` reads the ids.
+        remember(payload)
+        return Effect.gen(function* () {
           if (expired) return
           const existing = yield* storage.load
           if (Option.isSome(existing)) {
@@ -656,7 +691,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           )
           if (opened._tag === "Failure") {
             yield* Effect.logWarning("Couldn't read the pull request for a PR review run").pipe(
-              Effect.annotateLogs({ runId, error: opened.failure }),
+              Effect.annotateLogs(errorFields(opened.failure)),
             )
             // With no pull request to report on, there's no check run or row either.
             yield* storage.save({
@@ -695,7 +730,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
               })
               .pipe(
                 Effect.catch((error) =>
-                  Effect.logWarning("Couldn't write the PR review start row", error),
+                  Effect.logWarning("Couldn't write the PR review start row").pipe(
+                    Effect.annotateLogs(errorFields(error)),
+                  ),
                 ),
               )
             if (cancelling) return false
@@ -710,7 +747,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
               })
               .pipe(
                 Effect.tapError((error) =>
-                  Effect.logWarning("Couldn't start the PR review check run", error),
+                  Effect.logWarning("Couldn't start the PR review check run").pipe(
+                    Effect.annotateLogs(errorFields(error)),
+                  ),
                 ),
                 Effect.option,
               )
@@ -726,8 +765,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
               }),
             ),
           )
-          if (started && !cancelling) yield* ensureAcquired
-        }).pipe(Effect.orDie),
+          if (started && !cancelling) {
+            yield* Effect.logInfo("PR review run started")
+            yield* ensureAcquired
+          }
+        }).pipe(withRunLogs, Effect.orDie)
+      },
 
       Cancel: () =>
         Effect.gen(function* () {
@@ -749,10 +792,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           // Kept by a resume that hadn't acquired again yet.
           yield* releaseWorkspace
           yield* finalize
-        }).pipe(Effect.orDie),
+        }).pipe(withRunLogs, Effect.orDie),
 
-      Skip: ({ payload }) =>
-        Effect.gen(function* () {
+      Skip: ({ payload }) => {
+        // Before `withRunLogs` reads the ids.
+        remember(payload)
+        return Effect.gen(function* () {
           const { client, pull } = yield* openPullRequest(payload.repositoryId, payload.number)
           yield* recordSkip(client, {
             ...payload,
@@ -760,12 +805,19 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             baseSha: pull.baseSha,
             startedAt: yield* DateTime.now,
           })
+          yield* Effect.logInfo("PR review run skipped").pipe(
+            Effect.annotateLogs({ reason: payload.reason }),
+          )
         }).pipe(
           Effect.provideService(PullRequestReviewStore, store),
           Effect.catch((error) =>
-            Effect.logWarning("Couldn't record a skipped PR review run", error),
+            Effect.logWarning("Couldn't record a skipped PR review run").pipe(
+              Effect.annotateLogs(errorFields(error)),
+            ),
           ),
-        ),
+          withRunLogs,
+        )
+      },
 
       Publish: ({ payload }) =>
         Effect.gen(function* () {
@@ -783,7 +835,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           // Retries a record Postgres refused, then expires the run: after the
           // retention period, or at once when a push superseded it.
           yield* finalize
-        }).pipe(Effect.orDie),
+        }).pipe(withRunLogs, Effect.orDie),
 
       Expire: ({ payload }) =>
         Effect.gen(function* () {
@@ -792,7 +844,8 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           if (payload.retry !== null) return yield* finalize
           expired = true
           yield* storage.drop
-        }).pipe(Effect.orDie),
+          yield* Effect.logInfo("Dropped the PR review run's data")
+        }).pipe(withRunLogs, Effect.orDie),
     })
   }),
   { concurrency: "unbounded" },

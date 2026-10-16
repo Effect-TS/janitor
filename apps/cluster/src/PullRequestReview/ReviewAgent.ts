@@ -20,6 +20,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
+import * as References from "effect/References"
 import { RpcClientError } from "effect/rpc/RpcClientError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
@@ -486,6 +487,9 @@ const make = Effect.gen(function* () {
       Effect.provide(Layer.mergeAll(tools.handlers, baseOnly(options.executor))),
       Effect.provideContext(model),
       Effect.provideService(Agent.MaxRetries, MAX_RETRIES),
+      // clanka's compaction warning logs the raw provider error, body included.
+      // `loopEnd` logs the loop's own failures, by category.
+      Effect.provideService(References.MinimumLogLevel, "Error"),
     )
 
     const fiber = yield* Effect.forkScoped(

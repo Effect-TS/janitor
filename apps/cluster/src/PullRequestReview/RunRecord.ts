@@ -3,6 +3,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { FinalStatus, RunId, Trigger, Verdict } from "@janitor/domain/PullRequestReview/Run"
+import { errorFields } from "./Log.ts"
 import type { RunStorage } from "./RunStorage.ts"
 import { GitHubLink, type PullRequestReviewStore, RecordedFinding } from "./Store.ts"
 
@@ -80,6 +81,11 @@ export const writeRunRecord = (
     return true
   }).pipe(
     Effect.catchTag("PullRequestReviewStoreError", (error) =>
-      Effect.as(Effect.logWarning("Couldn't record the PR review run", error), false),
+      Effect.as(
+        Effect.logWarning("Couldn't record the PR review run").pipe(
+          Effect.annotateLogs(errorFields(error)),
+        ),
+        false,
+      ),
     ),
   )

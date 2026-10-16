@@ -586,6 +586,42 @@ describe("PR review GitHub", () => {
     }),
   )
 
+  it.effect("keeps GitHub's response text out of its errors, which carry only a category", () =>
+    Effect.gen(function* () {
+      // GitHub's messages can quote what the request carried, such as review or PR text.
+      const canary = "canary-response-text-that-must-not-be-logged"
+      const fake = makeFake()
+      const github = yield* client(fake)
+
+      fake.intercept = () =>
+        Effect.succeed({
+          _tag: "Failed",
+          status: 500,
+          body: { message: canary },
+          requestId: Option.none(),
+        })
+      const rest = yield* github.pullRequest.pipe(Effect.flip)
+      fake.intercept = (request) =>
+        Effect.succeed(
+          fake.writeName(request) === undefined
+            ? undefined
+            : fake.refusal(request, "UNPROCESSABLE", canary),
+        )
+      const graphql = yield* withElapsingClock(
+        github.createPendingReview(HEAD).pipe(Effect.flip),
+        Duration.millis(100),
+      )
+
+      assert.deepInclude(rest, { _tag: "PullRequestGitHubError", status: 500 })
+      assert.strictEqual(graphql._tag, "PullRequestGitHubUnprocessable")
+      for (const error of [rest, graphql]) {
+        assert.isString(error.operation)
+        assert.notInclude(String(error), canary)
+        assert.notInclude(JSON.stringify(error), canary)
+      }
+    }),
+  )
+
   it.effect("retries a rate-limited request once the stated time has passed", () =>
     Effect.gen(function* () {
       const fake = makeFake()
