@@ -8,6 +8,7 @@ import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as HttpRouter from "effect/http/HttpRouter"
 import {
   type GitHubWebhookEnvelopeV1,
@@ -51,7 +52,10 @@ const makeHandler = (
   store: StoreStub = {},
   paused = false,
   journaled: string[] = [],
-  journalFails = false,
+  /** Fails the journal write, with this message when it is a string. */
+  journalFails: boolean | string = false,
+  /** Receives every log line the handler writes, as structured JSON. */
+  logs?: Array<string>,
 ) =>
   Effect.acquireRelease(
     Effect.sync(() =>
@@ -83,7 +87,8 @@ const makeHandler = (
                     ? Effect.fail(
                         new GitHubWebhookJournalError({
                           deliveryId: "delivery-1",
-                          message: "Journal unavailable",
+                          message:
+                            typeof journalFails === "string" ? journalFails : "Journal unavailable",
                         }),
                       )
                     : Effect.sync(() => {
@@ -98,6 +103,15 @@ const makeHandler = (
               }),
               Effect.orDie,
               Effect.provideService(RuntimeContext.RuntimeContext, runtimeContext),
+              logs === undefined
+                ? (effect) => effect
+                : Effect.provide(
+                    Logger.layer([
+                      Logger.make((options) => {
+                        logs.push(Logger.formatJson.log(options))
+                      }),
+                    ]),
+                  ),
             ),
         },
       ),
@@ -140,6 +154,31 @@ describe("GitHubWebhookRoutes", () => {
       assert.deepStrictEqual(received, [])
     }),
   )
+  it.effect("logs a failed fence by category and ids, never the failure's text", () =>
+    Effect.gen(function* () {
+      // Stands in for a driver or binding message quoting what the request carried.
+      const canary = "canary-failure-text-that-must-not-be-logged"
+      const logs: Array<string> = []
+      const handler = yield* makeHandler(() => Effect.void, {}, false, [], canary, logs)
+      const response = yield* post(handler, {
+        headers: headers(),
+        body: JSON.stringify({ repository: { id: 456 } }),
+      })
+
+      assert.strictEqual(response.status, 503)
+      const failed = logs
+        .map((line) => JSON.parse(line))
+        .find((entry) => entry.message === "Repository webhook fence failed")
+      assert.isDefined(failed)
+      assert.deepInclude(failed.annotations, {
+        deliveryId: "delivery-1",
+        repositoryId: "456",
+        error: "@janitor/cluster/GitHub/WebhookJournal/GitHubWebhookJournalError",
+      })
+      for (const line of logs) assert.notInclude(line, canary)
+    }),
+  )
+
   it.effect(
     "journals review and comment events only after signature verification and repository fencing",
     () =>

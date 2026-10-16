@@ -28,11 +28,25 @@ import {
 import * as Hex from "effect/encoding/Hex"
 import * as Redacted from "effect/Redacted"
 import * as DateTime from "effect/DateTime"
+import * as Cause from "effect/Cause"
 
 export const MAX_GITHUB_WEBHOOK_BODY_BYTES = 1024 * 1024
 
 // Queue messages cap at 128 KB and base64 adds a third; keep headroom for the envelope.
 export const MAX_INLINE_WEBHOOK_BODY_BYTES = 64 * 1024
+
+/** A failure's tag, which code defines; a defect or interruption gets a fixed category. */
+const failureCategory = (cause: Cause.Cause<unknown>): string => {
+  const failure = Cause.findErrorOption(cause)
+  if (failure._tag === "None") return Cause.hasInterruptsOnly(cause) ? "interrupted" : "defect"
+  const error = failure.value
+  return typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    typeof error._tag === "string"
+    ? error._tag
+    : "unknown"
+}
 
 const GitHubHeaders = Schema.Struct({
   "content-length": Schema.optional(Schema.FiniteFromString.check(Schema.isInt())),
@@ -282,8 +296,15 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           .admit(String(repository.value.repository.id), accept, DateTime.toDateUtc(receivedAt))
           .pipe(
             Effect.map(Option.getOrElse(() => acceptedResponse)),
+            // The admission and the journal write: errors here can quote the
+            // delivery, so only their category is logged.
             Effect.catchCause((cause) =>
-              Effect.logError("Repository webhook fence failed", cause).pipe(
+              Effect.logError("Repository webhook fence failed").pipe(
+                Effect.annotateLogs({
+                  deliveryId,
+                  repositoryId: String(repository.value.repository.id),
+                  error: failureCategory(cause),
+                }),
                 Effect.as(serviceUnavailableResponse),
               ),
             ),
