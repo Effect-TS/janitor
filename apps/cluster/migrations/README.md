@@ -543,3 +543,7 @@ holds one row per finding with its outcome (`new`, `carried_over`, `addressed`
 or `withdrawn`). Run and finding rows are kept indefinitely; disconnecting a
 repository clears only its enable flag, so a reconnected repository starts with
 PR review off. Existing repositories start with PR review off.
+
+`0057_pr_review_live.sql` notifies the `review` live topic when a repository's
+PR review flag or one of its runs changes, so the Settings panel and the
+"PR reviews" list refresh without a reload.

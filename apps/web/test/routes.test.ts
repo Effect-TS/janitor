@@ -19,6 +19,7 @@ describe("SPA routes", () => {
     ["/repositories/701/rules/new", "NewRule"],
     ["/repositories/701/rules/r1", "Rule"],
     ["/repositories/701/activity", "Activity"],
+    ["/repositories/701/pull-request-reviews", "PullRequestReviews"],
     ["/repositories/701/settings", "Settings"],
     ["/account", "Account"],
     ["/account/you", "Account"],
@@ -87,4 +88,6 @@ it("uses the repository root for Overview and preserves section deep links", () 
   expect(Routes.section(parse("/repositories/701"))).toBe("Overview")
   expect(Routes.sectionPath("701", "Overview")).toBe("/repositories/701")
   expect(Routes.section(parse("/repositories/701/policies/p1"))).toBe("Policies")
+  expect(Routes.sections).toContain("PR reviews")
+  expect(Routes.section(parse("/repositories/701/pull-request-reviews"))).toBe("PR reviews")
 })

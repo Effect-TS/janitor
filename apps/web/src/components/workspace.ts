@@ -1,6 +1,8 @@
 import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Live from "./live"
 import * as Activity from "@/components/activity"
+import * as PullRequestReviewSettings from "@/components/pull-request-review-settings"
+import * as PullRequestReviews from "@/components/pull-request-reviews"
 import * as Menu from "@foldkit/ui/menu"
 import * as Effect from "effect/Effect"
 import * as Clock from "effect/Clock"
@@ -84,7 +86,14 @@ export const Panel = Schema.Union([
 ])
 export type Panel = typeof Panel.Type
 
-export const Section = Schema.Literals(["Overview", "Policies", "Rules", "Activity", "Settings"])
+export const Section = Schema.Literals([
+  "Overview",
+  "Policies",
+  "Rules",
+  "Activity",
+  "PR reviews",
+  "Settings",
+])
 export type Section = typeof Section.Type
 
 const Mutation = Schema.Struct({
@@ -100,6 +109,7 @@ const ResponseContext = { repositoryId: Schema.String, operationId: Schema.Int }
 
 export const Model = Schema.Struct({
   activity: Activity.Model,
+  pullRequestReviews: PullRequestReviews.Model,
   liveTopics: Schema.Array(Live.Topic),
   nextOperationId: Schema.Int,
   pendingMutations: Schema.Array(Mutation),
@@ -121,6 +131,8 @@ export const Model = Schema.Struct({
   detail: Schema.Option(RepositoryDetail),
   detailError: Schema.Option(Schema.String),
   maybeConsent: Schema.Option(AiConsent),
+  /** The "PR review" panel on the Settings page. */
+  pullRequestReview: PullRequestReviewSettings.Model,
 
   panel: Panel,
 })
@@ -130,6 +142,8 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   GotActivityMessage: { message: Activity.Message },
+  GotPullRequestReviewsMessage: { message: PullRequestReviews.Message },
+  GotPullRequestReviewMessage: { message: PullRequestReviewSettings.Message },
   UpdatedPolicySearch: { value: Schema.String },
   GotRepositories: { repositories: Schema.Array(RepositoryOverview), requestId: Schema.Int },
   FailedRepositories: { reason: Schema.String, requestId: Schema.Int },
@@ -396,6 +410,7 @@ export const init = (): UpdateReturn => ({
   model: Model.make(
     {
       activity: Activity.init(),
+      pullRequestReviews: PullRequestReviews.init(),
       liveTopics: [],
       nextOperationId: 1,
       pendingMutations: [],
@@ -415,6 +430,7 @@ export const init = (): UpdateReturn => ({
       detail: Option.none(),
       detailError: Option.none(),
       maybeConsent: Option.none(),
+      pullRequestReview: PullRequestReviewSettings.init(),
       panel: { _tag: "Closed" },
     },
     { disableChecks: true },
@@ -729,6 +745,32 @@ const deleteSubject = (
   }
 }
 
+const foldPullRequestReviews = (
+  model: Model,
+  message: PullRequestReviews.Message,
+): UpdateReturn => {
+  const result = PullRequestReviews.update(model.pullRequestReviews, message)
+  return {
+    model: { ...model, pullRequestReviews: result.model },
+    commands: FoldkitCommand.mapMessages(result.commands ?? [], (message) =>
+      Message.GotPullRequestReviewsMessage({ message }),
+    ),
+  }
+}
+
+const foldPullRequestReview = (
+  model: Model,
+  message: PullRequestReviewSettings.Message,
+): UpdateReturn => {
+  const result = PullRequestReviewSettings.update(model.pullRequestReview, message)
+  return {
+    model: { ...model, pullRequestReview: result.model },
+    commands: FoldkitCommand.mapMessages(result.commands ?? [], (message) =>
+      Message.GotPullRequestReviewMessage({ message }),
+    ),
+  }
+}
+
 export const update = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     UpdatedPolicySearch: ({ value }) => ({
@@ -792,6 +834,33 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ),
       }
     },
+    GotPullRequestReviewsMessage: ({ message }) => foldPullRequestReviews(model, message),
+    GotPullRequestReviewMessage: ({ message }) => {
+      const result = foldPullRequestReview(model, message)
+      const changed =
+        message._tag === "Saved" &&
+        message.settings.repositoryId === model.pullRequestReview.repositoryId
+      return message._tag === "FailedSave" &&
+        message.repositoryId === model.pullRequestReview.repositoryId
+        ? {
+            ...result,
+            outMessage: OutMessage.Failed({
+              title: "PR review was not changed",
+              reason: message.reason,
+            }),
+          }
+        : changed
+          ? {
+              ...result,
+              outMessage: OutMessage.Notified({
+                title: message.settings.enabled ? "PR review enabled" : "PR review disabled",
+                description: message.settings.enabled
+                  ? "The Janitor reviews pull requests when they open or change."
+                  : "Reviews in progress were cancelled and no new ones start.",
+              }),
+            }
+          : result
+    },
     Selected: ({ repositoryId }) =>
       Option.contains(model.dataRepositoryId, repositoryId)
         ? { model }
@@ -821,6 +890,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                   "consent",
                   "test",
                   "repository",
+                  "review",
                 ] as const)
               : topics),
           ]),
@@ -847,6 +917,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         }
       } else if (topics.some((topic) => ["configuration", "candidates", "consent"].includes(topic)))
         append(refresh(next.model, false))
+      if (topics.includes("review")) {
+        if (model.pullRequestReviews.active)
+          append(foldPullRequestReviews(next.model, PullRequestReviews.Message.Polled()))
+        append(foldPullRequestReview(next.model, PullRequestReviewSettings.Message.Polled()))
+      }
       if (topics.includes("test") && next.model.panel._tag === "RuleEditor")
         append(foldRuleEditor(next.model, RuleEditor.Message.RefreshTest()))
       return next
@@ -2491,7 +2566,20 @@ const detailPanel = (h: HtmlBuilder<Message>, model: Model, section: Section): H
           ],
         )
       // The shell wraps Settings in its own page layout, so these are the cards alone.
-      return section === "Settings" ? consentSection(h, model) : h.empty
+      return section === "Settings"
+        ? h.div(
+            [h.Class("flex flex-col gap-4")],
+            [
+              consentSection(h, model),
+              h.submodel({
+                slotId: "pull-request-review",
+                model: model.pullRequestReview,
+                view: PullRequestReviewSettings.view,
+                toParentMessage: (message) => Message.GotPullRequestReviewMessage({ message }),
+              }),
+            ],
+          )
+        : h.empty
     },
   })
 
@@ -2517,7 +2605,20 @@ export const view = Submodel.defineView<Model, Message, { section: Section }>(
                 },
                 toParentMessage: (message) => Message.GotActivityMessage({ message }),
               })
-            : detailPanel(h, model, section),
+            : section === "PR reviews"
+              ? h.submodel({
+                  slotId: "pull-request-reviews",
+                  model: model.pullRequestReviews,
+                  view: PullRequestReviews.view,
+                  viewInputs: {
+                    repository: Option.getOrElse(model.repositories, () => []).find(
+                      (repository) =>
+                        repository.repositoryId === model.pullRequestReviews.repositoryId,
+                    ),
+                  },
+                  toParentMessage: (message) => Message.GotPullRequestReviewsMessage({ message }),
+                })
+              : detailPanel(h, model, section),
       ],
     ),
 )
@@ -2566,6 +2667,8 @@ export const openRoute = (
       model: {
         ...closed(model),
         activity: { ...model.activity, active: false },
+        pullRequestReviews: { ...model.pullRequestReviews, active: false },
+        pullRequestReview: { ...model.pullRequestReview, active: false },
       },
     }
   const selected = update(model, Message.Selected({ repositoryId: route.repositoryId }))
@@ -2581,8 +2684,26 @@ export const openRoute = (
       }),
     }),
   )
-  next = activity.model
-  const routeCommands = [...(selected.commands ?? []), ...(activity.commands ?? [])]
+  const reviews = foldPullRequestReviews(
+    activity.model,
+    PullRequestReviews.Message.Activated({
+      repositoryId: route.repositoryId,
+      active: route._tag === "PullRequestReviews",
+    }),
+  )
+  const reviewSettings = foldPullRequestReview(
+    reviews.model,
+    route._tag === "Settings"
+      ? PullRequestReviewSettings.Message.Opened({ repositoryId: route.repositoryId })
+      : PullRequestReviewSettings.Message.Closed(),
+  )
+  next = reviewSettings.model
+  const routeCommands = [
+    ...(selected.commands ?? []),
+    ...(activity.commands ?? []),
+    ...(reviews.commands ?? []),
+    ...(reviewSettings.commands ?? []),
+  ]
   if (Option.isNone(next.detail)) return { model: next, commands: routeCommands }
   let result: UpdateReturn = { model: next }
   if (next.panel._tag === "Closed") {
