@@ -18,7 +18,9 @@ import {
   checkRunOutput,
   inlineComment,
   type ListedFinding,
+  parseReplyMarker,
   parseSeverityMarker,
+  replyMarker,
   reviewBody,
   threadReplyBody,
 } from "@janitor/domain/PullRequestReview/Render"
@@ -41,6 +43,7 @@ import type { LoopOutcome } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import * as ReviewGitHub from "./GitHub.ts"
 import { RunPublisher } from "./RunEntity.ts"
+import { type RunRecord, saveRunRecord, writeRunRecord } from "./RunRecord.ts"
 import type { RunState, RunStorage } from "./RunStorage.ts"
 import { PullRequestScheduler, schedulerEntityId } from "./Scheduler.ts"
 import { GitHubLink, PullRequestReviewStore, RecordedFinding } from "./Store.ts"
@@ -103,7 +106,10 @@ const Plan = Schema.Union([
   /** The pull request couldn't be read, so nothing could be decided. */
   Schema.TaggedStruct("Failed", { message: Schema.String }),
   Schema.TaggedStruct("Review", {
-    /** `null` for a quiet run, which posts no review. */
+    /**
+     * The verdict; `null` when it posts no review of its own. Replies and
+     * dismissals still go out then, in a `COMMENT` review.
+     */
     event: Schema.NullOr(Verdict),
     summary: Schema.String,
     partial: Schema.Boolean,
@@ -150,13 +156,19 @@ const ThreadAdded = Schema.Union([
 ])
 const ReplyAdded = Schema.Struct({ commentId: Schema.String })
 const Submitted = Schema.Union([
-  Schema.TaggedStruct("Submitted", { event: Verdict }),
+  /** `headMoved` when the head had moved since the reviewed SHA by the time it was submitted. */
+  Schema.TaggedStruct("Submitted", { event: Verdict, headMoved: Schema.Boolean }),
   /** An unexpected 422. */
   Schema.TaggedStruct("Refused", { message: Schema.String }),
 ])
 const Posted = Schema.Union([
   Schema.TaggedStruct("None", {}),
-  Schema.TaggedStruct("Posted", { id: Schema.String, databaseId: Schema.Int, event: Verdict }),
+  Schema.TaggedStruct("Posted", {
+    id: Schema.String,
+    databaseId: Schema.Int,
+    event: Verdict,
+    headMoved: Schema.Boolean,
+  }),
   Schema.TaggedStruct("Failed", { message: Schema.String }),
 ])
 type Posted = typeof Posted.Type
@@ -164,7 +176,6 @@ const Dismissal = Schema.Union([
   Schema.TaggedStruct("Dismissed", {}),
   Schema.TaggedStruct("Failed", { forbidden: Schema.Boolean }),
 ])
-const Recorded = Schema.Struct({ written: Schema.Boolean })
 
 type Journalled = Schema.Top & {
   readonly DecodingServices: never
@@ -234,7 +245,7 @@ const toRunOutcome = (outcome: LoopOutcome): RunOutcome =>
         ? "steered"
         : "completed"
 
-/** The judgement janitor last stated in a thread, read from its own last comment there. */
+/** The judgement in one of janitor's replies written before replies carried a marker. */
 const statedJudgement = (body: string, isRoot: boolean) =>
   isRoot || body.startsWith("Still applies")
     ? ("still_applies" as const)
@@ -412,9 +423,16 @@ const makePublisher = Effect.gen(function* () {
               replies,
               janitor: {
                 at: last.createdAt,
-                judgement: statedJudgement(last.body, last === root),
-                outdated: last !== root && last.body.startsWith("Still applies at"),
-                resolved: thread.isResolved && last !== root,
+                // What janitor stated, and saw, when it last spoke; a reply from
+                // before markers is read from its text and never saw a resolution.
+                ...Option.getOrElse(
+                  last === root ? Option.none() : parseReplyMarker(last.body),
+                  () => ({
+                    judgement: statedJudgement(last.body, last === root),
+                    outdated: last !== root && last.body.startsWith("Still applies at"),
+                    resolved: false,
+                  }),
+                ),
               },
             }
             const headMatch: HeadMatch =
@@ -518,12 +536,18 @@ const makePublisher = Effect.gen(function* () {
             listed: listed(finding),
           })),
           listed: body.map(listed),
-          replies: threads.flatMap(({ reply }) =>
+          replies: threads.flatMap(({ thread, reply }) =>
             Option.isSome(reply)
               ? [
                   {
                     threadId: reply.value.threadId,
-                    body: threadReplyBody(reply.value, { headSha: state.headSha }),
+                    body: `${threadReplyBody(reply.value, { headSha: state.headSha })}\n\n${replyMarker(
+                      {
+                        judgement: reply.value.judgement,
+                        outdated: thread.isOutdated,
+                        resolved: thread.isResolved,
+                      },
+                    )}`,
                   },
                 ]
               : [],
@@ -646,12 +670,17 @@ const makePublisher = Effect.gen(function* () {
         create(
           `${prefix}/submit`,
           Submitted,
-          Effect.map(client.findReview(runId), (found) =>
-            Option.map(found, (review) => ({
+          Effect.gen(function* () {
+            const found = yield* client.findReview(runId)
+            if (Option.isNone(found)) return Option.none()
+            // Cut off before the result was saved: how the head stands now is the best record.
+            const pull = yield* client.pullRequest
+            return Option.some({
               _tag: "Submitted" as const,
-              event: SUBMITTED[review.state] ?? event,
-            })),
-          ),
+              event: SUBMITTED[found.value.state] ?? event,
+              headMoved: pull.headSha !== state.headSha,
+            })
+          }),
           Effect.gen(function* () {
             const pull = yield* client.pullRequest
             const headMoved = pull.headSha !== state.headSha
@@ -660,12 +689,32 @@ const makePublisher = Effect.gen(function* () {
               event: EVENTS[submitted],
               body: renderBody(review, submitted, { ...options, headMoved }),
             })
-            return { _tag: "Submitted" as const, event: submitted }
+            return { _tag: "Submitted" as const, event: submitted, headMoved }
           }).pipe(
             Effect.catchTag("PullRequestGitHubUnprocessable", (error) =>
               Effect.succeed({ _tag: "Refused" as const, message: error.message }),
             ),
           ),
+        )
+
+      /** Adds the planned replies to earlier threads to a pending review. */
+      const addReplies = (prefix: string, review: ReviewPlan, pending: typeof Created.Type) =>
+        Effect.forEach(
+          review.replies,
+          (reply) =>
+            create(
+              `${prefix}/reply/${reply.threadId}`,
+              ReplyAdded,
+              Effect.map(client.pendingReview, (found) =>
+                Option.flatMap(found, (pending) =>
+                  Option.fromNullishOr(
+                    pending.replies.find((added) => added.threadId === reply.threadId),
+                  ),
+                ),
+              ),
+              client.addReply(pending.id, reply),
+            ),
+          { discard: true },
         )
 
       /** Steps 1 to 4, with the 422 fallback (EFF-1648 point 8). */
@@ -678,19 +727,7 @@ const makePublisher = Effect.gen(function* () {
             pendingCreated,
             client.createPendingReview(state.headSha),
           )
-          for (const reply of review.replies)
-            yield* create(
-              `review/reply/${reply.threadId}`,
-              ReplyAdded,
-              Effect.map(client.pendingReview, (found) =>
-                Option.flatMap(found, (pending) =>
-                  Option.fromNullishOr(
-                    pending.replies.find((added) => added.threadId === reply.threadId),
-                  ),
-                ),
-              ),
-              client.addReply(pending.id, reply),
-            )
+          yield* addReplies("review", review, pending)
           const unresolvable = new Set<number>()
           for (const [index, thread] of review.threads.entries()) {
             const added = yield* create(
@@ -726,7 +763,12 @@ const makePublisher = Effect.gen(function* () {
             unresolvable,
           })
           if (first._tag === "Submitted")
-            return { _tag: "Posted" as const, ...pending, event: first.event }
+            return {
+              _tag: "Posted" as const,
+              ...pending,
+              event: first.event,
+              headMoved: first.headMoved,
+            }
 
           // An unexpected 422: once more with every inline comment in the body.
           yield* Effect.logWarning("GitHub refused a PR review; retrying with the body only").pipe(
@@ -739,23 +781,37 @@ const makePublisher = Effect.gen(function* () {
             pendingCreated,
             client.createPendingReview(state.headSha),
           )
+          // Replies can't move into the body, so they go on the new pending review.
+          yield* addReplies("fallback", review, fallback)
           const second = yield* submit("fallback", review, event, fallback, {
             inBody: true,
             unresolvable: new Set(),
           })
           if (second._tag === "Submitted")
-            return { _tag: "Posted" as const, ...fallback, event: second.event }
+            return {
+              _tag: "Posted" as const,
+              ...fallback,
+              event: second.event,
+              headMoved: second.headMoved,
+            }
           return { _tag: "Failed" as const, message: second.message }
         })
 
+      // Replies and dismissals go out even when the verdict alone would post
+      // nothing, in a `COMMENT` review that leaves the review state as it is.
+      const event =
+        plan._tag !== "Review"
+          ? null
+          : (plan.event ??
+            (plan.replies.length > 0 || plan.dismiss.length > 0 ? ("comment" as const) : null))
       const posted: Posted = yield* once(
         "review",
         Posted,
         plan._tag === "Failed"
           ? Effect.succeed({ _tag: "Failed" as const, message: plan.message })
-          : plan._tag === "Superseded" || plan.event === null
+          : plan._tag === "Superseded" || event === null
             ? Effect.succeed({ _tag: "None" as const })
-            : postReview(plan, plan.event).pipe(
+            : postReview(plan, event).pipe(
                 Effect.catch((error) =>
                   Effect.as(Effect.logWarning("Couldn't post a PR review", error), {
                     _tag: "Failed" as const,
@@ -782,7 +838,18 @@ const makePublisher = Effect.gen(function* () {
                 review,
                 `Dismissed by janitor: no blocking finding stands at ${state.headSha}.`,
               )
-              .pipe(Effect.as({ _tag: "Dismissed" as const })),
+              .pipe(
+                Effect.as({ _tag: "Dismissed" as const }),
+                // A permanent failure is journalled with the step, so a replay doesn't send it again.
+                Effect.catchIf(
+                  (error) => !isTransient(error),
+                  (error) =>
+                    Effect.as(Effect.logWarning("Couldn't dismiss a PR review", error), {
+                      _tag: "Failed" as const,
+                      forbidden: error._tag === "NotOnDismissalAllowList",
+                    }),
+                ),
+              ),
           ).pipe(
             Effect.catch((error) =>
               Effect.as(Effect.logWarning("Couldn't dismiss a PR review", error), {
@@ -796,6 +863,38 @@ const makePublisher = Effect.gen(function* () {
 
       const finishedAt = yield* once("finishedAt", Schema.Finite, Clock.currentTimeMillis)
       const failed = plan._tag === "Failed" || posted._tag === "Failed"
+      // A head that moved before submit fails the gate, whatever the event posted.
+      const gateFailures =
+        plan._tag !== "Review"
+          ? []
+          : posted._tag === "Posted" && posted.headMoved
+            ? [{ _tag: "HeadMoved" } as const, ...plan.gateFailures]
+            : plan.gateFailures
+      // This run's findings stand: inline ones link to the files view, listed
+      // ones to the review that lists them.
+      const newFindings =
+        plan._tag !== "Review"
+          ? []
+          : [
+              ...plan.threads.map((thread) => ({
+                finding: thread.listed,
+                url: `${pullUrl}/files`,
+              })),
+              ...plan.listed.map((finding) => ({
+                finding,
+                url: posted._tag === "Posted" ? reviewUrl(posted.databaseId) : pullUrl,
+              })),
+            ].map(({ finding, url }, index) => ({
+              url,
+              state: {
+                threadId: `new/${index}`,
+                severity: finding.severity,
+                judgement: { judgement: "still_applies" as const },
+                clearing: "standing" as const,
+                changed: true,
+              },
+              outdated: false,
+            }))
 
       // Step 6: the check run on the reviewed head.
       const checkRun = yield* once(
@@ -823,13 +922,8 @@ const makePublisher = Effect.gen(function* () {
                       state: { status: "completed", conclusion: plan.conclusion } as const,
                       output: checkRunOutput({
                         _tag: "Reviewed",
-                        threads: plan.threadLinks,
-                        gateFailures:
-                          posted._tag === "Posted" &&
-                          plan.event === "approve" &&
-                          posted.event !== "approve"
-                            ? [{ _tag: "HeadMoved" }, ...plan.gateFailures]
-                            : plan.gateFailures,
+                        threads: [...newFindings, ...plan.threadLinks],
+                        gateFailures,
                         dismissalFailures,
                       }),
                     }),
@@ -844,6 +938,8 @@ const makePublisher = Effect.gen(function* () {
       )
 
       // Step 7: the run record, upserted onto the start row, with its findings.
+      // It's journalled first, so the run entity can write it again until
+      // Postgres takes it, without holding up `RunFinished`.
       const status: FinalStatus =
         plan._tag === "Superseded"
           ? "cancelled"
@@ -851,7 +947,7 @@ const makePublisher = Effect.gen(function* () {
             ? "failed"
             : plan.partial
               ? "partial"
-              : posted._tag === "Posted"
+              : posted._tag === "Posted" && plan.event !== null
                 ? STATUS[posted.event]
                 : plan.status
       const errorCategory = failed
@@ -859,48 +955,29 @@ const makePublisher = Effect.gen(function* () {
         : plan._tag === "Review" && plan.partial
           ? ("incomplete" as const)
           : null
-      const findings = plan._tag === "Review" ? plan.findings : []
-      yield* once(
-        "record",
-        Recorded,
-        Effect.gen(function* () {
-          const attempt = "record:attempt"
-          const attempted = Option.isSome(yield* storage.publishStep(attempt).pipe(Effect.orDie))
-          yield* storage.recordPublishStep(attempt, "").pipe(Effect.orDie)
-          yield* store.finish({
-            runId,
-            repositoryId: state.repositoryId,
-            number: state.number,
-            title: state.title,
-            headSha: state.headSha,
-            baseSha: state.baseSha,
-            trigger: state.trigger,
-            startedAt: DateTime.makeUnsafe(state.startedAt),
-            status,
-            verdict: posted._tag === "Posted" ? posted.event : null,
-            failedGates: plan._tag === "Review" ? plan.gateFailures.map((gate) => gate._tag) : [],
-            standardsSources: null,
-            resumeCount: Math.max(0, state.acquires - 1),
-            errorCategory,
-            finishedAt: DateTime.makeUnsafe(finishedAt),
-            review:
-              posted._tag === "Posted"
-                ? { id: posted.id, url: reviewUrl(posted.databaseId) }
-                : null,
-            checkRun: checkRun ?? state.checkRun,
-          })
-          // A cut-off insert may have landed; it is one statement, so all or nothing.
-          if (!attempted || (yield* store.findings(runId)).length === 0)
-            yield* store.addFindings(runId, findings)
-          return { written: true }
-        }).pipe(
-          Effect.catchTag("PullRequestReviewStoreError", (error) =>
-            Effect.as(Effect.logWarning("Couldn't record the PR review run", error), {
-              written: false,
-            }),
-          ),
-        ),
-      )
+      const record: RunRecord = {
+        runId,
+        repositoryId: state.repositoryId,
+        number: state.number,
+        title: state.title,
+        headSha: state.headSha,
+        baseSha: state.baseSha,
+        trigger: state.trigger,
+        startedAt: DateTime.makeUnsafe(state.startedAt),
+        status,
+        verdict: posted._tag === "Posted" ? posted.event : null,
+        failedGates: gateFailures.map((gate) => gate._tag),
+        standardsSources: state.standardsSources ?? null,
+        resumeCount: Math.max(0, state.acquires - 1),
+        errorCategory,
+        finishedAt: DateTime.makeUnsafe(finishedAt),
+        review:
+          posted._tag === "Posted" ? { id: posted.id, url: reviewUrl(posted.databaseId) } : null,
+        checkRun: checkRun ?? state.checkRun,
+        findings: plan._tag === "Review" ? plan.findings : [],
+      }
+      yield* saveRunRecord(storage, record)
+      const written = state.finalRowWritten || (yield* writeRunRecord(store, storage, record))
 
       // Step 8: the per-PR scheduler hears the run is final, once.
       yield* once(
@@ -920,7 +997,7 @@ const makePublisher = Effect.gen(function* () {
                 phase: plan._tag === "Superseded" ? "cancelled" : "published",
                 finishedAt,
                 errorCategory,
-                finalRowWritten: true,
+                finalRowWritten: written,
                 runFinishedSent: true,
               },
         )

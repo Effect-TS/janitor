@@ -90,6 +90,8 @@ export class FakeSession {
   constructor(
     private readonly options: StartOptions,
     private readonly events: Array<string>,
+    /** The review standards sources the loop reports it applied. */
+    private readonly standardsSources: ReadonlyArray<string> = [],
   ) {
     this.history = options.history
     if (options.prompt !== undefined) this.sent.push(options.prompt)
@@ -120,6 +122,7 @@ export class FakeSession {
 
   get handle(): ReviewSession {
     return {
+      standardsSources: this.standardsSources,
       steer: (message) =>
         Effect.sync(() => {
           if (!this.lost) this.sent.push(message)
@@ -141,6 +144,8 @@ export class FakeReviewAgent {
   held: Deferred.Deferred<void> | undefined
   /** How many starts were asked for, including ones still held. */
   starts = 0
+  /** The review standards sources every loop started from now on applies. */
+  standardsSources: ReadonlyArray<string> = []
 
   constructor(private readonly events: Array<string>) {}
 
@@ -157,7 +162,7 @@ export class FakeReviewAgent {
         Effect.gen({ self: this }, function* () {
           this.starts += 1
           if (this.held !== undefined) yield* Deferred.await(this.held)
-          const session = new FakeSession(options, this.events)
+          const session = new FakeSession(options, this.events, this.standardsSources)
           yield* Effect.addFinalizer(() => Effect.sync(() => session.stop()))
           this.sessions.push(session)
           return session.handle

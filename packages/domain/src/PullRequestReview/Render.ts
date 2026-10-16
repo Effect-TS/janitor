@@ -333,6 +333,33 @@ export const parseSeverityMarker = (comment: string): Option.Option<Severity> =>
     Option.flatMap((match) => Option.fromNullishOr(match[2] as Severity | undefined)),
   )
 
+/**
+ * What janitor stated in one of its thread replies, and the thread's state
+ * when it did, so a later run can tell what has happened since.
+ */
+export interface ReplyMarker {
+  readonly judgement: Judgement
+  readonly outdated: boolean
+  readonly resolved: boolean
+}
+
+/** The hidden marker trusted code ends each thread reply with. */
+export const replyMarker = (marker: ReplyMarker): string =>
+  `<!-- janitor:reply judgement=${marker.judgement} outdated=${marker.outdated} resolved=${marker.resolved} -->`
+
+/** The last reply marker in a comment; replies written before markers have none. */
+export const parseReplyMarker = (comment: string): Option.Option<ReplyMarker> =>
+  lastMatch(
+    /<!-- janitor:reply judgement=(still_applies|addressed|withdrawn) outdated=(true|false) resolved=(true|false) -->/g,
+    comment,
+  ).pipe(
+    Option.map((match) => ({
+      judgement: match[1] as Judgement,
+      outdated: match[2] === "true",
+      resolved: match[3] === "true",
+    })),
+  )
+
 /** Characters of the agent's `note` kept in a thread reply. */
 export const replyNoteCap = 1_000
 

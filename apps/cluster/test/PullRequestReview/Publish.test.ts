@@ -3,15 +3,18 @@ import { assert, layer } from "@effect/vitest"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubCommitSha } from "@janitor/domain/GitHub/Id"
-import type { Finding } from "@janitor/domain/PullRequestReview/Finding"
+import type { Finding, Severity } from "@janitor/domain/PullRequestReview/Finding"
 import { fingerprint } from "@janitor/domain/PullRequestReview/Fingerprint"
+import { inlineComment } from "@janitor/domain/PullRequestReview/Render"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import type { GitHubRequest } from "../../src/GitHub/Transport.ts"
+import type { LoopRecord } from "../../src/PullRequestReview/Agent.ts"
 import { RunPublisherLayer } from "../../src/PullRequestReview/Publish.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
-import { APP_LOGIN } from "./fakeGitHub.ts"
+import { APP_LOGIN, type FakeThreadComment } from "./fakeGitHub.ts"
 import { HEAD, makeRunHarnessWith, type RunHarness } from "./runHarness.ts"
 import { repositoryId, seedRepositories } from "./support.ts"
 
@@ -60,27 +63,107 @@ const putPullRequest = (harness: RunHarness, headSha: string) =>
   })
 
 /**
- * Starts a run, reports `findings` in one step and ends the loop: completed,
+ * Starts a run, commits `records` in one step and ends the loop: completed,
  * or failed on the provider so the review is partial. Returns once `Publish`
  * has been handled.
  */
-const review = (
+const reviewWith = (
   harness: RunHarness,
-  findings: ReadonlyArray<Finding>,
+  records: ReadonlyArray<LoopRecord>,
   end: "completed" | "partial" = "completed",
 ) =>
   Effect.gen(function* () {
     const runId = newRunId()
     yield* harness.start(runId)
     const session = harness.agent.last
-    yield* session.step({
-      history: { _tag: "Appended", messages: [] },
-      records: findings.map((finding) => ({ _tag: "FindingReported", finding })),
-    })
+    yield* session.step({ history: { _tag: "Appended", messages: [] }, records })
     yield* end === "completed" ? session.complete("Reviewed.") : session.fail("provider down")
     yield* harness.drain
     return runId
   })
+
+/** `reviewWith` for a run that reports `findings` only. */
+const review = (
+  harness: RunHarness,
+  findings: ReadonlyArray<Finding>,
+  end: "completed" | "partial" = "completed",
+) =>
+  reviewWith(
+    harness,
+    findings.map((finding) => ({ _tag: "FindingReported", finding })),
+    end,
+  )
+
+/** The SHA an earlier run reviewed. */
+const EARLIER_SHA = "e".repeat(40)
+
+/** Janitor's review from an earlier run, as `PRR_earlier`. */
+const putEarlierReview = (harness: RunHarness, state: "CHANGES_REQUESTED" | "COMMENTED") =>
+  harness.github.reviews.push({
+    id: "PRR_earlier",
+    databaseId: 800,
+    author: APP_LOGIN,
+    byApp: true,
+    state,
+    body: `Earlier.\n\n<!-- janitor:review run=${newRunId()} sha=${EARLIER_SHA} -->`,
+    commitOID: EARLIER_SHA,
+  })
+
+/**
+ * One of janitor's threads from an earlier run, on line 2 of `src/a.ts`,
+ * whose code is unchanged at the head. `after` follows janitor's root comment.
+ */
+const putEarlierThread = (
+  harness: RunHarness,
+  options: {
+    readonly id: string
+    readonly severity: Severity
+    readonly after?: ReadonlyArray<Omit<FakeThreadComment, "id">>
+    /** The login that resolved it, if anyone did. */
+    readonly resolvedBy?: string
+  },
+) =>
+  Effect.gen(function* () {
+    const marked = yield* fingerprint("src/a.ts", [lines[1]!])
+    harness.github.threads.push({
+      id: options.id,
+      path: "src/a.ts",
+      line: 2,
+      startLine: null,
+      side: "RIGHT",
+      isResolved: options.resolvedBy !== undefined,
+      isOutdated: false,
+      resolvedBy: options.resolvedBy ?? null,
+      comments: [
+        {
+          id: `${options.id}_root`,
+          author: APP_LOGIN,
+          byApp: true,
+          body: inlineComment({
+            comment: blocking.comment,
+            fingerprint: marked,
+            severity: options.severity,
+          }),
+          createdAt: "2026-10-13T10:00:00Z",
+          reviewId: "PRR_earlier",
+        },
+        ...(options.after ?? []).map((comment, index) => ({
+          ...comment,
+          id: `${options.id}_${index}`,
+        })),
+      ],
+    })
+  })
+
+/** The comments janitor added to a thread after its first `before`. */
+const janitorAdded = (harness: RunHarness, threadId: string, before: number) =>
+  harness.github.threads
+    .find((thread) => thread.id === threadId)!
+    .comments.slice(before)
+    .filter((comment) => comment.byApp)
+
+/** The pull request author, without write access in the fake. */
+const AUTHOR = "octocat"
 
 /** Janitor's submitted reviews, leaving out any still pending. */
 const submitted = (harness: RunHarness) =>
@@ -122,6 +205,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
     () =>
       run((harness) =>
         Effect.gen(function* () {
+          harness.agent.standardsSources = ["protocol", "rubric", "AGENTS.md"]
           const runId = newRunId()
           yield* harness.start(runId)
           const started = yield* harness.row(runId)
@@ -159,6 +243,8 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
             ]),
             [[HEAD, "completed", "failure"]],
           )
+          // The new blocking thread is what the check run reports.
+          assert.strictEqual(harness.github.checkRuns[0]?.output.title, "1 blocking finding")
 
           // The final record lands on the start row.
           const row = yield* harness.row(runId)
@@ -178,6 +264,11 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
               outcome: "new",
             },
           ])
+          // The review standards sources the loop applied are kept with the record.
+          const sql = yield* SqlClient.SqlClient
+          const [record] = yield* sql<{ sources: unknown }>`
+            SELECT standards_sources AS sources FROM pr_review_runs WHERE run_id = ${runId}`
+          assert.deepStrictEqual(record?.sources, ["protocol", "rubric", "AGENTS.md"])
           assert.strictEqual(harness.finishedCount(runId), 1)
         }),
       ),
@@ -323,39 +414,45 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
       ),
   )
 
-  it.effect("a forbidden dismissal is noted in the check run and the batch goes on", () =>
-    run((harness) =>
-      Effect.gen(function* () {
-        harness.github.dismissalForbidden = true
-        harness.github.reviews.push({
-          id: "PRR_earlier",
-          databaseId: 800,
-          author: APP_LOGIN,
-          byApp: true,
-          state: "CHANGES_REQUESTED",
-          body: `Earlier.\n\n<!-- janitor:review run=${newRunId()} sha=${"e".repeat(40)} -->`,
-          commitOID: "e".repeat(40),
-        })
-        const runId = yield* review(harness, [])
+  it.effect(
+    "a forbidden dismissal is noted in the check run, the batch goes on, and a replay doesn't retry it",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          harness.github.dismissalForbidden = true
+          putEarlierReview(harness, "CHANGES_REQUESTED")
+          // The runner stops after the dismissal failed, before the check run is saved.
+          const crashed = yield* cutOff(harness, "updateCheckRun")
+          const runId = newRunId()
+          yield* harness.start(runId)
+          yield* harness.agent.last.complete("Reviewed.")
+          yield* harness.waitFor(crashed, "the crash while updating the check run")
+          yield* harness.restart
+          yield* harness.until(
+            Effect.sync(() => harness.finishedCount(runId) > 0),
+            "RunFinished",
+          )
 
-        assert.deepStrictEqual(harness.github.writeNames, [
-          "createCheckRun",
-          "addPullRequestReview",
-          "submitPullRequestReview",
-          "dismissReview",
-          "updateCheckRun",
-        ])
-        assert.deepStrictEqual(
-          harness.github.reviews.map((review) => review.state),
-          ["CHANGES_REQUESTED", "APPROVED"],
-        )
-        const [check] = harness.github.checkRuns
-        assert.deepStrictEqual([check?.status, check?.conclusion], ["completed", "success"])
-        assert.include(check?.output.summary, "Couldn't dismiss janitor's earlier review")
-        assert.strictEqual((yield* harness.row(runId))?.status, "approved")
-        assert.strictEqual(harness.finishedCount(runId), 1)
-      }),
-    ),
+          // The permanent failure was journalled, so the replay only redoes the check run.
+          assert.deepStrictEqual(harness.github.writeNames, [
+            "createCheckRun",
+            "addPullRequestReview",
+            "submitPullRequestReview",
+            "dismissReview",
+            "updateCheckRun",
+            "updateCheckRun",
+          ])
+          assert.deepStrictEqual(
+            harness.github.reviews.map((review) => review.state),
+            ["CHANGES_REQUESTED", "APPROVED"],
+          )
+          const [check] = harness.github.checkRuns
+          assert.deepStrictEqual([check?.status, check?.conclusion], ["completed", "success"])
+          assert.include(check?.output.summary, "Couldn't dismiss janitor's earlier review")
+          assert.strictEqual((yield* harness.row(runId))?.status, "approved")
+          assert.strictEqual(harness.finishedCount(runId), 1)
+        }),
+      ),
   )
 
   it.effect("a head that moved before publishing posts no review and cancels the check run", () =>
@@ -382,9 +479,9 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
     ),
   )
 
-  for (const [findings, from, to] of [
-    [[], "APPROVE", "COMMENTED"],
-    [[blocking], "REQUEST_CHANGES", "CHANGES_REQUESTED"],
+  for (const [findings, from, to, verdict] of [
+    [[], "APPROVE", "COMMENTED", "comment"],
+    [[blocking], "REQUEST_CHANGES", "CHANGES_REQUESTED", "request_changes"],
   ] as const)
     it.effect(`a head that moves before submit turns ${from} into ${to}`, () =>
       run((harness) =>
@@ -404,6 +501,10 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
             submitted(harness).map((review) => [review.state, review.commitOID]),
             [[to, HEAD]],
           )
+          // The record keeps the verdict posted and the late head move among its gates.
+          const row = yield* harness.row(runId)
+          assert.strictEqual(row?.verdict, verdict)
+          assert.include(row?.failedGates ?? [], "HeadMoved")
           assert.strictEqual(harness.finishedCount(runId), 1)
         }),
       ),
@@ -420,6 +521,167 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
         const row = yield* harness.row(runId)
         assert.strictEqual(row?.status, "partial")
         assert.isNull(row?.verdict)
+        assert.strictEqual(harness.finishedCount(runId), 1)
+      }),
+    ),
+  )
+
+  it.effect(
+    "a run record that fails to write is retried until Postgres comes back, without posting again",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          harness.postgres.failFinalRow = true
+          const runId = yield* review(harness, [blocking])
+          // RunFinished doesn't wait for Postgres.
+          assert.strictEqual(harness.finishedCount(runId), 1)
+          assert.strictEqual((yield* harness.row(runId))?.status, "running")
+
+          // Postgres comes back, across a restart; the retry lands within the hour.
+          yield* harness.restart
+          harness.postgres.failFinalRow = false
+          yield* harness.wait("1 hour", "1 minute")
+          assert.strictEqual((yield* harness.row(runId))?.status, "changes_requested")
+          assert.strictEqual((yield* harness.findings(runId)).length, 1)
+          for (const create of [
+            "addPullRequestReview",
+            "addPullRequestReviewThread",
+            "submitPullRequestReview",
+          ])
+            assert.strictEqual(count(harness, create), 1, create)
+          assert.strictEqual(harness.finishedCount(runId), 1)
+        }),
+      ),
+  )
+
+  it.effect(
+    "replies when a human replied or an outside author resolved since janitor last spoke, even with nothing else to say",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          // The author disputes the finding after janitor's root comment.
+          yield* putEarlierThread(harness, {
+            id: "PRRT_disputed",
+            severity: "blocking",
+            after: [
+              {
+                author: AUTHOR,
+                byApp: false,
+                body: "This is intended.",
+                createdAt: "2026-10-13T11:00:00Z",
+              },
+            ],
+          })
+          // Janitor replied while the thread was open; the author resolved it later, saying nothing.
+          yield* putEarlierThread(harness, {
+            id: "PRRT_resolved",
+            severity: "blocking",
+            after: [
+              {
+                author: APP_LOGIN,
+                byApp: true,
+                body: "Still applies.",
+                createdAt: "2026-10-13T11:00:00Z",
+              },
+            ],
+            resolvedBy: AUTHOR,
+          })
+          const runId = yield* reviewWith(harness, [
+            {
+              _tag: "ThreadUpdated",
+              threadId: "PRRT_disputed",
+              judgement: { judgement: "still_applies", note: "`b` is still off by one." },
+            },
+            {
+              _tag: "ThreadUpdated",
+              threadId: "PRRT_resolved",
+              judgement: { judgement: "still_applies" },
+            },
+          ])
+
+          const [posted] = submitted(harness)
+          assert.strictEqual(posted?.state, "COMMENTED")
+          const disputed = janitorAdded(harness, "PRRT_disputed", 2)
+          assert.deepStrictEqual(
+            disputed.map((comment) => comment.reviewId),
+            [posted?.id],
+          )
+          assert.include(disputed[0]?.body, "`b` is still off by one.")
+          assert.deepStrictEqual(
+            janitorAdded(harness, "PRRT_resolved", 2).map((comment) => comment.reviewId),
+            [posted?.id],
+          )
+          assert.strictEqual(harness.finishedCount(runId), 1)
+        }),
+      ),
+  )
+
+  it.effect(
+    "a withdrawn blocker gets its reply and the earlier REQUEST_CHANGES dismissed, though it can't approve",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          putEarlierReview(harness, "CHANGES_REQUESTED")
+          yield* putEarlierThread(harness, { id: "PRRT_withdrawn", severity: "blocking" })
+          const runId = yield* reviewWith(harness, [
+            {
+              _tag: "ThreadUpdated",
+              threadId: "PRRT_withdrawn",
+              judgement: { judgement: "withdrawn", note: "`b` is meant to be one more." },
+            },
+          ])
+
+          // Withdrawn, the finding stops requesting changes but still withholds approval.
+          assert.deepStrictEqual(
+            harness.github.reviews.map((review) => review.state),
+            ["DISMISSED", "COMMENTED"],
+          )
+          const [reply] = janitorAdded(harness, "PRRT_withdrawn", 1)
+          assert.match(reply?.body ?? "", /^Withdrawn:/)
+          assert.strictEqual(harness.finishedCount(runId), 1)
+        }),
+      ),
+  )
+
+  it.effect("the body-only fallback after a 422 keeps the replies to earlier threads", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        yield* putEarlierThread(harness, {
+          id: "PRRT_nit",
+          severity: "nit",
+          after: [
+            {
+              author: AUTHOR,
+              byApp: false,
+              body: "Why does this matter?",
+              createdAt: "2026-10-13T11:00:00Z",
+            },
+          ],
+        })
+        // GitHub refuses the first submission only.
+        let refused = 0
+        harness.github.intercept = (request) =>
+          Effect.sync(() => {
+            if (harness.github.writeName(request) !== "submitPullRequestReview" || refused > 0)
+              return undefined
+            refused += 1
+            return harness.github.refusal(request, "UNPROCESSABLE", "Unprocessable Entity")
+          })
+        const runId = yield* reviewWith(harness, [
+          { _tag: "FindingReported", finding: blocking },
+          {
+            _tag: "ThreadUpdated",
+            threadId: "PRRT_nit",
+            judgement: { judgement: "still_applies", note: "It hides the real value." },
+          },
+        ])
+
+        const [posted] = submitted(harness)
+        assert.strictEqual(posted?.state, "CHANGES_REQUESTED")
+        assert.include(posted?.body, "src/a.ts:2")
+        const [reply] = janitorAdded(harness, "PRRT_nit", 2)
+        assert.strictEqual(reply?.reviewId, posted?.id)
+        assert.include(reply?.body, "It hides the real value.")
         assert.strictEqual(harness.finishedCount(runId), 1)
       }),
     ),

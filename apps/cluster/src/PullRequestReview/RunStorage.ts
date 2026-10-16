@@ -72,6 +72,8 @@ export const RunState = Schema.Struct({
   checkRunAttempted: Schema.Boolean,
   /** Saved when the loop finishes, for `Publish`. */
   outcome: Schema.NullOr(LoopOutcome),
+  /** The review standards sources the latest loop applied, for the run record. */
+  standardsSources: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Epoch millis the run became final. */
   finishedAt: Schema.NullOr(Schema.Finite),
   /** A run that ends before `Publish` writes its final Postgres row once. */
