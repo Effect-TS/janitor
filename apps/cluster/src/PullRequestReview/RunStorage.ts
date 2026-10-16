@@ -61,6 +61,12 @@ export const RunState = Schema.Struct({
   /** Why a `failed` run failed. */
   errorCategory: Schema.NullOr(ErrorCategory),
   checkRun: Schema.NullOr(GitHubLink),
+  /**
+   * Saved before `Start` asks GitHub for the check run, so a check run whose
+   * id was never saved, because the response was lost or the runner stopped,
+   * is still concluded.
+   */
+  checkRunAttempted: Schema.Boolean,
   /** Saved when the loop finishes, for `Publish`. */
   outcome: Schema.NullOr(LoopOutcome),
   /** Epoch millis the run became final. */

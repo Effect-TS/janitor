@@ -379,6 +379,18 @@ export class FakeReviewGitHub extends FakeGitHub {
     const url = new URL(request.url, "https://api.github.com")
     const rest = url.pathname.startsWith(this.path) ? url.pathname.slice(this.path.length) : null
     if (url.pathname === "/app" && request.method === "GET") return this.ok({ id: APP_ID })
+    // Janitor's check runs on a commit, newest first, as `filter=latest` lists them.
+    const listed = rest === null ? null : /^\/commits\/([0-9a-f]+)\/check-runs$/.exec(rest)
+    if (listed && request.method === "GET")
+      return this.ok({
+        check_runs: this.checkRuns
+          .filter((checkRun) => checkRun.headSha === listed[1])
+          .reverse()
+          .map((checkRun) => ({
+            id: checkRun.id,
+            html_url: `https://github.com/checks/${checkRun.id}`,
+          })),
+      })
     // The REST pull request adds what the base fake leaves out: the author's
     // account type and the base repository's visibility.
     if (rest === `/pulls/${this.number}` && request.method === "GET") {

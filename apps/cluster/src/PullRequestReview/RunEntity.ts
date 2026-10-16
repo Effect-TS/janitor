@@ -261,8 +261,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
       const rowDue = state.target !== null && state.phase !== "skipped"
       let rowWritten = state.finalRowWritten || !rowDue
       if (!rowWritten && state.target !== null) {
-        // A run cancelled before it started has no check run to conclude.
-        if (state.checkRun !== null || state.phase === "failed")
+        // A run cancelled before asking for a check run has none to conclude. One
+        // asked for but without a saved id is found by its head SHA.
+        if (state.checkRun !== null || state.checkRunAttempted || state.phase === "failed")
           yield* concludeCheckRun(state, state.target)
         rowWritten = yield* store
           .finish({
@@ -556,6 +557,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
             interrupted: false,
             errorCategory: null,
             checkRun: null,
+            checkRunAttempted: false,
             outcome: null,
             finishedAt: null,
             finalRowWritten: false,
@@ -604,6 +606,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
                 ),
               )
             if (cancelling) return false
+            // Recorded first, in its own transaction: the request may create a
+            // check run whose id never gets saved.
+            yield* storage.update((state) => ({ ...state, checkRunAttempted: true }))
             const checkRun = yield* client
               .upsertCheckRun({
                 headSha: payload.headSha,

@@ -12,6 +12,7 @@ import { resumeMessage, wrapUpMessage } from "@janitor/domain/PullRequestReview/
 import { checkRunOutput } from "@janitor/domain/PullRequestReview/Render"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import type { LoopRecord } from "../../src/PullRequestReview/Agent.ts"
+import { GitHubTransportError } from "../../src/GitHub/Transport.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
 import { HEAD, makeRunHarness, type RunHarness } from "./runHarness.ts"
@@ -516,6 +517,75 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
           assert.deepStrictEqual(harness.agent.sessions, [])
           assert.strictEqual(harness.finishedCount(runId), 1)
           assert.deepStrictEqual(yield* harness.tables, [])
+        }),
+      ),
+  )
+
+  it.effect("a check run created during a Cancel is concluded even when its response is lost", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        const answered = yield* Deferred.make<void>()
+        harness.github.intercept = (request) =>
+          request.method === "POST" && request.url.endsWith("/check-runs")
+            ? Effect.gen(function* () {
+                // GitHub creates the check run, but its response never arrives.
+                harness.github.intercept = () => Effect.succeed(undefined)
+                harness.github.respond(request)
+                yield* Deferred.await(answered)
+                return yield* new GitHubTransportError({ message: "connection reset" })
+              })
+            : Effect.succeed(undefined)
+        const runId = newRunId()
+        yield* harness.send(runId)
+        yield* harness.waitFor(
+          Effect.sync(() => harness.github.checkRuns.length > 0),
+          "the check run to be created",
+        )
+
+        yield* harness.cancelNow(runId)
+        yield* Deferred.succeed(answered, undefined)
+        yield* harness.drain
+
+        assert.deepStrictEqual(
+          harness.github.checkRuns.map((check) => [check.status, check.conclusion]),
+          [["completed", "cancelled"]],
+        )
+        assert.strictEqual(harness.finishedCount(runId), 1)
+      }),
+    ),
+  )
+
+  it.effect(
+    "a check run created before a restart lost its id is concluded when the run is cancelled",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          harness.github.intercept = (request) =>
+            request.method === "POST" && request.url.endsWith("/check-runs")
+              ? Effect.gen(function* () {
+                  // GitHub creates the check run; the runner stops before its id is saved.
+                  harness.github.intercept = () => Effect.succeed(undefined)
+                  harness.github.respond(request)
+                  return yield* Effect.never
+                })
+              : Effect.succeed(undefined)
+          const runId = newRunId()
+          yield* harness.send(runId)
+          yield* harness.waitFor(
+            Effect.sync(() => harness.github.checkRuns.length > 0),
+            "the check run to be created",
+          )
+          yield* harness.cancelNow(runId)
+
+          yield* harness.restart
+          yield* harness.until(
+            Effect.sync(() => harness.finishedCount(runId) > 0),
+            "the cancelled run to finish",
+          )
+          assert.deepStrictEqual(
+            harness.github.checkRuns.map((check) => [check.status, check.conclusion]),
+            [["completed", "cancelled"]],
+          )
         }),
       ),
   )
