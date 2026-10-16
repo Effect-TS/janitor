@@ -7,6 +7,7 @@ import * as HttpEffect from "effect/http/HttpEffect"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import * as Latch from "effect/Latch"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
@@ -60,6 +61,8 @@ class FakeContainer {
   running: boolean
   private unavailableStarts: number
   private failedStart = false
+  private readonly startFailure: string
+  private egressFailure: string | undefined
   private readonly handler: (request: Request) => Promise<Response>
   private readonly now: () => number
 
@@ -68,10 +71,16 @@ class FakeContainer {
     /** The clock `start` events are stamped with. */
     readonly now?: () => number
     readonly unavailableStarts?: number
+    /** What `monitor()` rejects with when a start fails; "no instance" by default. */
+    readonly startFailure?: string
+    /** Rejects the next egress registration with this message. */
+    readonly egressFailure?: string
     readonly git?: (args: ReadonlyArray<string>) => Effect.Effect<string, GitCommandFailed>
   }) {
     this.running = options.running ?? false
     this.unavailableStarts = options.unavailableStarts ?? 0
+    this.startFailure = options.startFailure ?? NO_INSTANCE
+    this.egressFailure = options.egressFailure
     this.now = options.now ?? (() => 0)
     const git = options.git ?? (() => Effect.succeed(""))
     const app = HttpEffect.toWebHandler(
@@ -105,7 +114,7 @@ class FakeContainer {
   }
 
   monitor(): Promise<void> {
-    return this.failedStart ? Promise.reject(new Error(NO_INSTANCE)) : new Promise(() => {})
+    return this.failedStart ? Promise.reject(new Error(this.startFailure)) : new Promise(() => {})
   }
 
   async destroy() {
@@ -127,6 +136,9 @@ class FakeContainer {
   }
 
   async interceptAllOutboundHttp(binding: FakeEgress) {
+    const failure = this.egressFailure
+    this.egressFailure = undefined
+    if (failure !== undefined) throw new Error(failure)
     this.events.push({ _tag: "interceptAllOutboundHttp", token: binding.props.token })
   }
 
@@ -341,6 +353,40 @@ describe("PR review sandbox workspace", () => {
             if (event._tag === "start") assert.isBelow(event.at, deadline)
           }
           assert.isAtMost(now(), deadline)
+        }),
+      ),
+  )
+
+  it.effect(
+    "logs and reports failed checkouts and starts by category, never the platform's text",
+    () =>
+      withAuth(() =>
+        Effect.gen(function* () {
+          // Platform and git messages are free text from outside janitor: they never reach a log.
+          const canary = "canary-platform-text-that-must-not-be-logged"
+          const logs: Array<string> = []
+          const capture = Logger.make((options) => {
+            logs.push(Logger.formatJson.log(options))
+          })
+
+          const retried = new FakeContainer({ egressFailure: canary, git: scriptedGit(HEAD) })
+          yield* elapsing(
+            Effect.flatMap(makeWorkspace(makeState(retried)), (workspace) =>
+              workspace.acquire(acquireInput),
+            ),
+          ).pipe(Effect.provide(Logger.layer([capture])))
+          const exited = new FakeContainer({ unavailableStarts: Infinity, startFailure: canary })
+          const error = yield* elapsing(
+            Effect.flatMap(makeWorkspace(makeState(exited)), (workspace) =>
+              Effect.flip(workspace.acquire(acquireInput)),
+            ),
+          ).pipe(Effect.provide(Logger.layer([capture])))
+
+          // The checkout was retried, and the start failure is still typed.
+          assert.include(significant(retried), "provision")
+          assert.isTrue(logs.some((line) => line.includes("Sandbox checkout failed; retrying")))
+          assert.strictEqual(error._tag, "ContainerUnavailable")
+          for (const line of [...logs, JSON.stringify(error)]) assert.notInclude(line, canary)
         }),
       ),
   )

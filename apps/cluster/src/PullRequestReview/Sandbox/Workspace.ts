@@ -9,6 +9,7 @@ import * as Semaphore from "effect/Semaphore"
 import type { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { GitHubAppAuth } from "../../GitHub/AppAuth.ts"
 import { mintSandboxToken } from "../GitHub.ts"
+import { errorFields } from "../Log.ts"
 import { CheckoutOutcome, HeadShaMismatch, type CheckoutRequest } from "./Checkout.ts"
 import { CONTAINER_PORT } from "./ContainerApp.ts"
 import type { EgressProps } from "./Egress.ts"
@@ -122,9 +123,7 @@ const PROVISION_TIMEOUT = Duration.minutes(3)
 /** Bounds a token request, so `release` never waits on GitHub for long. */
 const MINT_TIMEOUT = Duration.seconds(30)
 
-const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
-
-/** A checkout attempt that may succeed if tried again. */
+/** A checkout attempt that may succeed if tried again. Its reason is a fixed category, logged as is. */
 class AttemptFailed extends Schema.TaggedError<AttemptFailed>()("AttemptFailed", {
   reason: Schema.String,
 }) {}
@@ -140,16 +139,13 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
   /** The acquire in flight, which `release` stops before cleaning up. */
   let acquiring: Fiber.Fiber<void, AcquireError> | undefined
 
+  /** workerd's rejections are free text from outside janitor, so they're dropped, never logged. */
   const promise = <A>(evaluate: () => Promise<A>) =>
-    Effect.tryPromise({ try: evaluate, catch: message })
+    Effect.tryPromise({ try: evaluate, catch: () => "rejected" as const })
 
   const hold = promise(() =>
     container.setInactivityTimeout(Duration.toMillis(INACTIVITY_TIMEOUT)),
-  ).pipe(
-    Effect.catch((reason) =>
-      Effect.logWarning("Could not set the sandbox inactivity timeout", reason),
-    ),
-  )
+  ).pipe(Effect.catch(() => Effect.logWarning("Could not set the sandbox inactivity timeout")))
 
   // The runtime doesn't keep the timeout across object restarts.
   if (container.running) yield* hold
@@ -159,7 +155,11 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
     token = undefined
     return current === undefined ? Effect.void : auth.revokeInstallationToken(current)
   }).pipe(
-    Effect.catch((error) => Effect.logWarning("Could not revoke the sandbox token", error.message)),
+    Effect.catch((error) =>
+      Effect.logWarning("Could not revoke the sandbox token").pipe(
+        Effect.annotateLogs(errorFields(error)),
+      ),
+    ),
   )
 
   const health = promise(() =>
@@ -181,11 +181,15 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
             exit = "the container exited"
           },
           (error: unknown) => {
-            exit = message(error)
+            // The one rejection janitor acts on; any other is just a failed start.
+            exit =
+              error instanceof Error && error.message.includes(NO_INSTANCE)
+                ? NO_INSTANCE
+                : "the container failed"
           },
         )
       },
-      catch: message,
+      catch: () => "the container did not start",
     }).pipe(Effect.match({ onFailure: (reason) => reason, onSuccess: () => undefined }))
     if (thrown !== undefined) return thrown
     while (true) {
@@ -235,7 +239,7 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
         Effect.provideService(GitHubAppAuth, auth),
         Effect.timeoutOrElse({
           duration: MINT_TIMEOUT,
-          orElse: () => Effect.fail({ message: "minting the sandbox token timed out" }),
+          orElse: () => Effect.fail({ _tag: "TimeoutError" }),
         }),
         Effect.tap((minted) =>
           Effect.sync(() => {
@@ -243,7 +247,15 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
           }),
         ),
         Effect.uninterruptible,
-        Effect.mapError((error) => new AttemptFailed({ reason: error.message })),
+        Effect.mapError(
+          (error) =>
+            new AttemptFailed({
+              reason:
+                error._tag === "TimeoutError"
+                  ? "minting the sandbox token timed out"
+                  : "minting the sandbox token failed",
+            }),
+        ),
       )
       const egress = state.exports.GitEgress({
         props: {
@@ -258,7 +270,7 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
         await container.interceptOutboundHttps("*", egress)
       })
       yield* register.pipe(
-        Effect.mapError((reason) => new AttemptFailed({ reason: `egress: ${reason}` })),
+        Effect.mapError(() => new AttemptFailed({ reason: "registering the egress failed" })),
       )
       const request: CheckoutRequest = {
         owner: input.owner,
@@ -275,13 +287,18 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
             headers: { "content-type": "application/json" },
             body: JSON.stringify(request),
           })
-        if (!response.ok) throw new Error(`provisioning answered ${response.status}`)
-        return response.text()
+        return { status: response.status, text: response.ok ? await response.text() : "" }
       }).pipe(
+        Effect.mapError(() => "provisioning failed"),
         Effect.timeoutOrElse({
           duration: PROVISION_TIMEOUT,
           orElse: () => Effect.fail("provisioning timed out"),
         }),
+        Effect.filterOrFail(
+          (answer) => answer.status >= 200 && answer.status < 300,
+          (answer) => `provisioning answered ${answer.status}`,
+        ),
+        Effect.map((answer) => answer.text),
         Effect.mapError((reason) => new AttemptFailed({ reason })),
       )
       const outcome = yield* decodeOutcome(body).pipe(
@@ -375,9 +392,7 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
     yield* promise(() => storage.put(RELEASED_KEY, true)).pipe(Effect.orDie)
     if (container.running) {
       yield* promise(() => container.destroy()).pipe(
-        Effect.catch((reason) =>
-          Effect.logWarning("Could not destroy the sandbox container", reason),
-        ),
+        Effect.catch(() => Effect.logWarning("Could not destroy the sandbox container")),
       )
     }
     yield* revoke
