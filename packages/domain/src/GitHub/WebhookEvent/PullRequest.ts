@@ -19,6 +19,8 @@ const PositiveInteger = Schema.Int.check(Schema.isGreaterThan(0)).annotate({
 const PullRequestUser = Schema.Struct({
   id: Schema.optionalKey(GitHubUserDatabaseIdFromStringOrNumber),
   login: Schema.NonEmptyString,
+  /** `User` or `Bot`; PR review skips bot authors. */
+  type: Schema.optionalKey(Schema.String),
 }).annotate({ identifier: "PullRequestUser" })
 
 const PullRequestHead = Schema.Struct({
@@ -67,6 +69,8 @@ export const PullRequestRepository = Schema.Struct({
   id: GitHubRepositoryDatabaseIdFromStringOrNumber,
   nodeId: Schema.optionalKey(GitHubRepositoryNodeId),
   fullName: GitHubRepositoryFullNameFromString,
+  /** PR review runs on public repositories only; a missing flag counts as private. */
+  private: Schema.optionalKey(Schema.Boolean),
 })
   .pipe(Schema.encodeKeys({ nodeId: "node_id", fullName: "full_name" }))
   .annotate({ identifier: "PullRequestRepository" })

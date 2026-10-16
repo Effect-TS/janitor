@@ -42,6 +42,17 @@ export interface FakeReview {
 
 type FakeFile = string | { readonly size: number }
 
+export interface FakeCheckRun {
+  readonly id: number
+  readonly headSha: string
+  status: string
+  conclusion: string | null
+  output: { readonly title: string; readonly summary: string }
+}
+
+/** The id `/app` answers for janitor's App. */
+export const APP_ID = 4242
+
 const MUTATIONS = [
   "addPullRequestReviewThreadReply",
   "addPullRequestReviewThread",
@@ -69,6 +80,8 @@ export class FakeReviewGitHub extends FakeGitHub {
   readonly files = new Map<string, Map<string, FakeFile>>()
   threads: Array<FakeThread> = []
   reviews: Array<FakeReview> = []
+  /** Janitor's `janitor/review` check runs, as created and updated. */
+  checkRuns: Array<FakeCheckRun> = []
   /** Refuse dismissals, as for an App missing from the dismissal allow-list. */
   dismissalForbidden = false
   /** Answer a recursive tree listing the way GitHub does for a large repository: top level only, `truncated`. */
@@ -365,6 +378,56 @@ export class FakeReviewGitHub extends FakeGitHub {
         : this.query()
     const url = new URL(request.url, "https://api.github.com")
     const rest = url.pathname.startsWith(this.path) ? url.pathname.slice(this.path.length) : null
+    if (url.pathname === "/app" && request.method === "GET") return this.ok({ id: APP_ID })
+    // The REST pull request adds what the base fake leaves out: the author's
+    // account type and the base repository's visibility.
+    if (rest === `/pulls/${this.number}` && request.method === "GET") {
+      const response = super.respond(request)
+      if (response._tag !== "Ok") return response
+      const body = response.body as {
+        user: { login: string } | null
+        base: Record<string, unknown>
+      }
+      return this.ok({
+        ...body,
+        user:
+          body.user === null
+            ? null
+            : { ...body.user, type: body.user.login.endsWith("[bot]") ? "Bot" : "User" },
+        base: { ...body.base, repo: { private: false, visibility: "public" } },
+      })
+    }
+    if (rest === "/check-runs" && request.method === "POST") {
+      const body = request.body as {
+        head_sha: string
+        status: string
+        conclusion?: string
+        output: { title: string; summary: string }
+      }
+      const checkRun: FakeCheckRun = {
+        id: 9000 + this.checkRuns.length,
+        headSha: body.head_sha,
+        status: body.status,
+        conclusion: body.conclusion ?? null,
+        output: body.output,
+      }
+      this.checkRuns.push(checkRun)
+      return this.ok({ id: checkRun.id, html_url: `https://github.com/checks/${checkRun.id}` })
+    }
+    const checkRun = rest === null ? null : /^\/check-runs\/(\d+)$/.exec(rest)
+    if (checkRun && request.method === "PATCH") {
+      const found = this.checkRuns.find((run) => run.id === Number(checkRun[1]))
+      if (found === undefined) return this.failed(404)
+      const body = request.body as {
+        status: string
+        conclusion?: string
+        output: { title: string; summary: string }
+      }
+      found.status = body.status
+      found.conclusion = body.conclusion ?? null
+      found.output = body.output
+      return this.ok({ id: found.id, html_url: `https://github.com/checks/${found.id}` })
+    }
     const contents = rest === null ? null : /^\/contents\/?(.*)$/.exec(rest)
     if (contents && request.method === "GET")
       return this.contents(url.searchParams.get("ref"), decodeURIComponent(contents[1]!))

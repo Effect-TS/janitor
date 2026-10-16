@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema"
 
-/** Identifies one PR review run; the run entity assigns it before the run starts. */
+/** Identifies one PR review run; the per-PR scheduler assigns it when it starts or skips the run. */
 export const RunId = Schema.String.check(Schema.isUUID())
   .pipe(Schema.brand("PullRequestReviewRunId"))
   .annotate({ identifier: "PullRequestReviewRunId" })
