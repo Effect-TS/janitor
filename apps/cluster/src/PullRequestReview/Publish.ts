@@ -36,6 +36,7 @@ import type { LoopOutcome } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import { earlierThread, makeActors, rootComment } from "./EarlierThreads.ts"
 import * as ReviewGitHub from "./GitHub.ts"
+import { errorFields } from "./Log.ts"
 import { RunPublisher } from "./RunEntity.ts"
 import { type RunRecord, saveRunRecord, writeRunRecord } from "./RunRecord.ts"
 import type { RunState, RunStorage } from "./RunStorage.ts"
@@ -542,10 +543,15 @@ const makePublisher = Effect.gen(function* () {
         Plan,
         persist(decide).pipe(
           Effect.catch((error) =>
-            Effect.as(Effect.logWarning("Couldn't decide what a PR review run posts", error), {
-              _tag: "Failed",
-              message: describe(error),
-            } as const),
+            Effect.as(
+              Effect.logWarning("Couldn't decide what a PR review run posts").pipe(
+                Effect.annotateLogs(errorFields(error)),
+              ),
+              {
+                _tag: "Failed",
+                message: describe(error),
+              } as const,
+            ),
           ),
         ),
       )
@@ -721,9 +727,7 @@ const makePublisher = Effect.gen(function* () {
             }
 
           // An unexpected 422: once more with every inline comment in the body.
-          yield* Effect.logWarning("GitHub refused a PR review; retrying with the body only").pipe(
-            Effect.annotateLogs({ runId, message: first.message }),
-          )
+          yield* Effect.logWarning("GitHub refused a PR review; retrying with the body only")
           yield* once("fallback/delete", Done, Effect.as(persist(client.deletePendingReview), {}))
           const fallback = yield* create(
             "fallback/create",
@@ -763,10 +767,12 @@ const makePublisher = Effect.gen(function* () {
             ? Effect.succeed({ _tag: "None" as const })
             : postReview(plan, event).pipe(
                 Effect.catch((error) =>
-                  Effect.as(Effect.logWarning("Couldn't post a PR review", error), {
-                    _tag: "Failed" as const,
-                    message: describe(error),
-                  }),
+                  Effect.as(
+                    Effect.logWarning("Couldn't post a PR review").pipe(
+                      Effect.annotateLogs(errorFields(error)),
+                    ),
+                    { _tag: "Failed" as const, message: describe(error) },
+                  ),
                 ),
               ),
       )
@@ -794,18 +800,25 @@ const makePublisher = Effect.gen(function* () {
                 Effect.catchIf(
                   (error) => !isTransient(error),
                   (error) =>
-                    Effect.as(Effect.logWarning("Couldn't dismiss a PR review", error), {
-                      _tag: "Failed" as const,
-                      forbidden: error._tag === "NotOnDismissalAllowList",
-                    }),
+                    Effect.as(
+                      Effect.logWarning("Couldn't dismiss a PR review").pipe(
+                        Effect.annotateLogs(errorFields(error)),
+                      ),
+                      {
+                        _tag: "Failed" as const,
+                        forbidden: error._tag === "NotOnDismissalAllowList",
+                      },
+                    ),
                 ),
               ),
           ).pipe(
             Effect.catch((error) =>
-              Effect.as(Effect.logWarning("Couldn't dismiss a PR review", error), {
-                _tag: "Failed" as const,
-                forbidden: error._tag === "NotOnDismissalAllowList",
-              }),
+              Effect.as(
+                Effect.logWarning("Couldn't dismiss a PR review").pipe(
+                  Effect.annotateLogs(errorFields(error)),
+                ),
+                { _tag: "Failed" as const, forbidden: error._tag === "NotOnDismissalAllowList" },
+              ),
             ),
           )
           if (dismissed._tag === "Failed") dismissalFailures.push(reviewUrl(review.databaseId))
@@ -879,7 +892,12 @@ const makePublisher = Effect.gen(function* () {
         ).pipe(
           Effect.map((link): GitHubLink | null => link),
           Effect.catch((error) =>
-            Effect.as(Effect.logWarning("Couldn't update the PR review check run", error), null),
+            Effect.as(
+              Effect.logWarning("Couldn't update the PR review check run").pipe(
+                Effect.annotateLogs(errorFields(error)),
+              ),
+              null,
+            ),
           ),
         ),
       )
@@ -949,7 +967,25 @@ const makePublisher = Effect.gen(function* () {
               },
         )
         .pipe(Effect.orDie)
-    })
+      yield* Effect.logInfo(
+        plan._tag === "Superseded" ? "PR review run cancelled" : "PR review run published",
+      ).pipe(
+        Effect.annotateLogs({
+          status,
+          verdict: record.verdict ?? "none",
+          failedGates: record.failedGates.join(",") || "none",
+          ...(errorCategory === null ? {} : { errorCategory }),
+          ...(written ? {} : { recorded: false }),
+        }),
+      )
+    }).pipe(
+      Effect.annotateLogs({
+        runId: run.runId,
+        repositoryId: run.state.repositoryId,
+        number: run.state.number,
+        headSha: run.state.headSha,
+      }),
+    )
 
   return RunPublisher.of({ publish: (run) => publish(run).pipe(Effect.orDie) })
 })

@@ -170,3 +170,12 @@ export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = C
     ),
   ),
 )
+
+/**
+ * Reads every PR review setting the cluster Worker uses, for the Worker's
+ * init. Alchemy binds only the config a Worker reads during init into its
+ * deployed environment, and the cluster reads these later, so without this
+ * read the deployed Worker never sees them. Never fails: an invalid setting
+ * still fails the review model's calls, as `ReviewModelLayer` does.
+ */
+export const pullRequestReviewInit: Effect.Effect<void> = Effect.ignore(pullRequestReviewConfig)

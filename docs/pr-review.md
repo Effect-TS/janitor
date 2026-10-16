@@ -97,7 +97,7 @@ The agent reviews against these standards, read at the pull request's base branc
 - skills under `.agents/skills`;
 - `.github/janitor/review.md`.
 
-Repository standards add to the rubric and win where they conflict with it. They can't override janitor's protocol. The runs list records which sources applied.
+Repository standards add to the rubric and win where they conflict with it. They can't override janitor's protocol. Each run's record stores which sources applied, though the PR reviews page doesn't show them yet.
 
 ## Deployment setup
 
@@ -147,8 +147,23 @@ The limit settings in [Limits](#limits) are optional and deployment-wide. `PR_RE
 
 - **PR reviews page:** each repository's runs, newest first, with outcome, blocker and nit counts, failed gates, trigger, timing, and links to the review and check run. Running and skipped runs appear too.
 - **Check runs:** `janitor/review` on each pull request is the canonical state of its review.
-- **Logs:** Worker logs in Cloudflare observability. PR review logs carry the run id, repository, pull request and head SHA where they apply. They never include provider error bodies, pull request content or tokens. Errors log only their category.
+- **Logs:** Worker logs in Cloudflare observability. PR review logs carry `runId`, `repositoryId`, `number` (the pull request) and `headSha` where they apply, so filtering on one run's id shows its whole history. They never include provider error bodies, pull request content or tokens: an error logs only its category (`error`), and the `operation` and `status` when it has them.
 - **OpenRouter spend:** the key's usage and remaining credit in OpenRouter. A key near its limit will start failing runs.
+
+The log messages that mark a run's progress:
+
+| Message                                                                                 | When                                                                                                                   |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `Admitted PR review event`                                                              | A webhook passed admission. `outcome` says what happened to it, such as `scheduled`, `oversized`, `rerun` or `denied`. |
+| `PR review run scheduled`                                                               | The per-pull-request scheduler started a run, with its `trigger`.                                                      |
+| `PR review run waiting for the cooldown`, `PR review run dropped: PR review is off`     | The scheduler held or dropped a queued head.                                                                           |
+| `PR review run started`                                                                 | The run wrote its start row and check run, and is getting a sandbox.                                                   |
+| `PR review run resuming`, `PR review sandbox lost; resuming in a new one`               | The run restarted or lost its sandbox. `resumeCount` counts toward `PR_REVIEW_MAX_RESUMES`.                            |
+| `PR review run told to wrap up`, `PR review run hit its deadline`                       | The run reached minute 7 or minute 10.                                                                                 |
+| `PR review run publishing`                                                              | The agent finished, with `unfinished` set when it didn't complete.                                                     |
+| `PR review run published`                                                               | The review went out, with `status`, `verdict` and `failedGates`.                                                       |
+| `PR review run skipped`, `PR review run cancelled`, `PR review run failed`              | The run ended without a review. A failed run has an `errorCategory`.                                                   |
+| `PR review scheduler will wipe itself after the close`, `Wiped the PR review scheduler` | A closed pull request's scheduler state is going, or gone.                                                             |
 
 ## Troubleshooting
 

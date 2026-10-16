@@ -294,7 +294,8 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
           return yield* outcome
         case "GitCommandFailed":
           return yield* new AttemptFailed({
-            reason: `git ${outcome.args[0] ?? ""} exited ${outcome.exitCode}: ${outcome.stderr.trim()}`,
+            // Not git's output: it can name the pull request's refs and paths, and this is logged.
+            reason: `git ${outcome.args[0] ?? ""} exited ${outcome.exitCode}`,
           })
       }
     })
@@ -328,7 +329,14 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
           yield* start(Duration.fromInputUnsafe(input.startBudget))
           yield* hold
           yield* provision(input)
-        }),
+        }).pipe(
+          Effect.annotateLogs({
+            runId: input.runId,
+            repositoryId: input.repositoryId,
+            number: input.prNumber,
+            headSha: input.headSha,
+          }),
+        ),
       )
       acquiring = fiber
       const exit = yield* Fiber.await(fiber)

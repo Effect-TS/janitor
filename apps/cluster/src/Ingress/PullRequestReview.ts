@@ -1,3 +1,4 @@
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -14,6 +15,7 @@ import {
 } from "@janitor/domain/PullRequestReview/Settings"
 import { GitHubReadModel } from "../GitHub/ReadModel.ts"
 import { pullRequestReviewDeployment } from "../PullRequestReview/Config.ts"
+import { errorFields } from "../PullRequestReview/Log.ts"
 import { RepositoryDisabler } from "../PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../PullRequestReview/Store.ts"
 import { SameOriginMiddleware } from "./Sync.ts"
@@ -49,11 +51,11 @@ const handled =
   <E, R>(route: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
     route.pipe(
       Effect.catchIf(isBadRequest, () => Effect.succeed(badRequest)),
-      Effect.catchCause(
-        Effect.fnUntraced(function* (cause) {
-          yield* Effect.logError(`PR review ${operation} failed`, cause)
-          return unavailableResponse
-        }),
+      Effect.catchCause((cause) =>
+        Effect.logError(`PR review ${operation} failed`).pipe(
+          Effect.annotateLogs(errorFields(Cause.squash(cause))),
+          Effect.as(unavailableResponse),
+        ),
       ),
     )
 

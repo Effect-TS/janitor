@@ -7,6 +7,7 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Schema from "effect/Schema"
 import { resumeMessage, wrapUpMessage } from "@janitor/domain/PullRequestReview/Prompt"
 import { checkRunOutput } from "@janitor/domain/PullRequestReview/Render"
@@ -589,4 +590,32 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
         }),
       ),
   )
+
+  it.effect("logs the run's start and cancellation with its run, repository, PR and head", () => {
+    const logs: Array<{
+      readonly message: unknown
+      readonly annotations: Record<string, unknown>
+    }> = []
+    const capture = Logger.make((options) => {
+      logs.push(Logger.formatStructured.log(options))
+    })
+    return run((harness) =>
+      Effect.gen(function* () {
+        const runId = newRunId()
+        yield* harness.start(runId)
+        yield* harness.cancel(runId)
+        yield* harness.until(
+          Effect.sync(() => harness.finishedCount(runId) > 0),
+          "the cancelled run to finish",
+        )
+
+        const ids = { runId, repositoryId, number: 7, headSha: HEAD }
+        for (const message of ["PR review run started", "PR review run cancelled"]) {
+          const entry = logs.find((log) => log.message === message)
+          assert.isDefined(entry, message)
+          assert.deepInclude(entry!.annotations, ids)
+        }
+      }),
+    ).pipe(Effect.provide(Logger.layer([capture], { mergeWithExisting: true })))
+  })
 })

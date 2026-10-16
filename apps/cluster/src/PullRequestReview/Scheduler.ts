@@ -248,6 +248,8 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
     interface Step {
       state: State
       readonly sends: Array<Outgoing>
+      /** Logs for decisions that send nothing, written once the step is decided. */
+      readonly logs: Array<Effect.Effect<void>>
     }
 
     const send = (outgoing: Outgoing): Effect.Effect<void, SendError> => {
@@ -283,6 +285,34 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
     const dispatch = (outbox: ReadonlyArray<Outgoing>) =>
       Effect.forEach(outbox, send, { discard: true })
 
+    /** Logs what a message decided; resends after a crash aren't logged again. */
+    const logDecision = (outgoing: Outgoing): Effect.Effect<void> => {
+      switch (outgoing._tag) {
+        case "Start":
+          return Effect.logInfo("PR review run scheduled").pipe(
+            Effect.annotateLogs({
+              runId: outgoing.run.runId,
+              headSha: outgoing.run.headSha,
+              trigger: outgoing.run.trigger._tag,
+            }),
+          )
+        case "Skip":
+          return Effect.logInfo("PR review run skipped: automatic run cap reached").pipe(
+            Effect.annotateLogs({ runId: outgoing.run.runId, headSha: outgoing.run.headSha }),
+          )
+        case "Cancel":
+          return Effect.logInfo("Cancelling the active PR review run").pipe(
+            Effect.annotateLogs({ runId: outgoing.runId }),
+          )
+        case "CooldownElapsed":
+          return Effect.logInfo("PR review run waiting for the cooldown")
+        case "Wipe":
+          return Effect.logInfo("PR review scheduler will wipe itself after the close")
+        case "RunOverdue":
+          return Effect.void
+      }
+    }
+
     const step = (
       move: (
         step: Step,
@@ -298,18 +328,27 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
           state = { ...state, outbox: [] }
           yield* save(state)
         }
-        const current: Step = { state, sends: [] }
+        const current: Step = { state, sends: [], logs: [] }
         yield* move(current, now)
+        yield* Effect.all(current.logs, { discard: true })
+        yield* Effect.forEach(current.sends, logDecision, { discard: true })
         if (current.sends.length === 0) return yield* save(current.state)
         yield* save({ ...current.state, outbox: current.sends })
         yield* dispatch(current.sends)
         yield* save(current.state)
-      }).pipe(Effect.orDie)
+      }).pipe(Effect.annotateLogs({ repositoryId, number }), Effect.orDie)
 
     /** Whether the event is newer than every one handled so far; it becomes the newest if so. */
     const inOrder = (current: Step, sequence: GitHubWebhookJournalSequence) => {
       const last = current.state.lastSequence
-      if (last !== null && BigInt(sequence) <= BigInt(last)) return false
+      if (last !== null && BigInt(sequence) <= BigInt(last)) {
+        current.logs.push(
+          Effect.logDebug("Ignored an older PR review event").pipe(
+            Effect.annotateLogs({ sequence }),
+          ),
+        )
+        return false
+      }
       // A newer open-PR event supersedes the old close, even if reopen arrives late.
       // Closed sets its own fresh wipe after accepting its sequence.
       current.state = { ...current.state, lastSequence: sequence, wipeAt: null }
@@ -343,7 +382,12 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
           return
         }
         current.state = { ...current.state, pending: null }
-        if (!(yield* reviewing)) return
+        if (!(yield* reviewing)) {
+          yield* Effect.logInfo("PR review run dropped: PR review is off").pipe(
+            Effect.annotateLogs({ headSha: pending.headSha }),
+          )
+          return
+        }
         const config = yield* pullRequestReviewConfig
         const run = {
           runId: RunId.make(crypto.randomUUID()),
@@ -390,9 +434,20 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
     }
 
     /** The active run ended, by its `RunFinished` or by running past its deadline. */
-    const finished = (current: Step, now: DateTime.Utc, runId: RunId, finishedAt: DateTime.Utc) => {
+    const finished = (
+      current: Step,
+      now: DateTime.Utc,
+      runId: RunId,
+      finishedAt: DateTime.Utc,
+      overdue = false,
+    ) => {
       const active = current.state.active
       if (active === null || active.runId !== runId) return Effect.void
+      current.logs.push(
+        Effect.logInfo(
+          overdue ? "PR review run overdue; no longer waiting for it" : "PR review run finished",
+        ).pipe(Effect.annotateLogs({ runId })),
+      )
       current.state = {
         ...current.state,
         active: null,
@@ -466,7 +521,7 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
       RunFinished: ({ payload }) =>
         step((current, now) => finished(current, now, payload.runId, payload.finishedAt)),
       RunOverdue: ({ payload }) =>
-        step((current, now) => finished(current, now, payload.runId, now)),
+        step((current, now) => finished(current, now, payload.runId, now, true)),
       CooldownElapsed: () => step((current, now) => release(current, now)),
       Wipe: ({ payload }) =>
         Effect.gen(function* () {
@@ -477,10 +532,14 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
               wiped = current.state.wipeAt === DateTime.toEpochMillis(payload.at)
             }),
           )
-          if (wiped)
+          if (wiped) {
             yield* sql`DELETE FROM pr_review_scheduler WHERE entity_id = ${entityId}`.pipe(
               Effect.orDie,
             )
+            yield* Effect.logInfo("Wiped the PR review scheduler").pipe(
+              Effect.annotateLogs({ repositoryId, number }),
+            )
+          }
         }),
     })
   }),

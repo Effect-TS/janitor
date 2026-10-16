@@ -579,28 +579,28 @@ const blobOf = (contents: Contents): HeadBlob => {
   return Result.isSuccess(text) ? { _tag: "Read", text: text.success } : UNREADABLE
 }
 
-const githubMessage = (body: unknown) =>
-  typeof body === "object" && body !== null && "message" in body && typeof body.message === "string"
-    ? `: ${body.message}`
-    : ""
-
-/** A non-2xx answer as a typed failure. GitHub's message never carries our token. */
+/**
+ * A non-2xx answer as a typed failure. The message names the operation and
+ * the status only: GitHub's own message can quote what the request carried,
+ * such as review or pull request text, and errors get logged.
+ */
 const failed = (
   operation: string,
   response: Extract<GitHubResponse, { _tag: "Failed" }>,
 ): PullRequestGitHubError | Forbidden | NotFound | Unprocessable => {
-  const message = `${operation}: GitHub responded ${response.status}${githubMessage(response.body)}`
+  const message = `${operation}: GitHub responded ${response.status}`
   if (response.status === 403) return new Forbidden({ operation, message })
   if (response.status === 404) return new NotFound({ operation, message })
   if (response.status === 422) return new Unprocessable({ operation, message })
   return new PullRequestGitHubError({ operation, message, status: response.status })
 }
 
+/** A GraphQL error as a typed failure; like `failed`, its message leaves out GitHub's text. */
 const graphQLFailure = (
   operation: string,
   error: { readonly type?: string; readonly message: string },
 ): PullRequestGitHubError | Forbidden | NotFound | Unprocessable => {
-  const message = `${operation}: ${error.message}`
+  const message = `${operation}: GitHub refused it (${error.type ?? "error"})`
   if (error.type === "FORBIDDEN") return new Forbidden({ operation, message })
   if (error.type === "NOT_FOUND") return new NotFound({ operation, message })
   if (error.type === "UNPROCESSABLE") return new Unprocessable({ operation, message })
@@ -635,11 +635,8 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     (body: unknown) =>
       Schema.decodeUnknownEffect(schema)(body).pipe(
         Effect.mapError(
-          (error) =>
-            new PullRequestGitHubError({
-              operation,
-              message: `${operation}: unexpected response: ${error.message}`,
-            }),
+          () =>
+            new PullRequestGitHubError({ operation, message: `${operation}: unexpected response` }),
         ),
       )
 
@@ -701,7 +698,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
         if (error._tag !== "GitHubRateLimited") {
           return yield* new PullRequestGitHubError({
             operation,
-            message: `${operation}: ${error.message}`,
+            message: `${operation}: ${error._tag}`,
           })
         }
         yield* waitOut(operation, error.until, waits)
