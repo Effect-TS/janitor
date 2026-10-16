@@ -401,7 +401,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
           assert.deepStrictEqual(submitted(harness), [])
           assert.deepStrictEqual(
             harness.github.checkRuns.map((check) => [check.status, check.conclusion]),
-            [["completed", "failure"]],
+            [["completed", "neutral"]],
           )
           const row = yield* harness.row(runId)
           assert.strictEqual(row?.status, "failed")

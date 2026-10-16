@@ -268,7 +268,7 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
                 output: checkRunOutput({ _tag: "Cancelled" }),
               }
             : {
-                state: { status: "completed", conclusion: "failure" } as const,
+                state: { status: "completed", conclusion: "neutral" } as const,
                 output: checkRunOutput({
                   _tag: "Errored",
                   error: state.errorCategory ?? "incomplete",
@@ -400,7 +400,9 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
 
     /**
      * Provisions the sandbox at the pinned head. With no container to be had,
-     * as at `max_instances`, it retries with backoff until the deadline.
+     * as at `max_instances`, it retries with backoff until the deadline. A
+     * namespace with no container application can't recover without a deploy,
+     * so that stops at once.
      */
     const provision = (state: RunState, deadline: number) =>
       Effect.gen(function* () {
@@ -426,6 +428,12 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           const error = acquired.failure
           if (error._tag === "WorkspaceReleased" && cancelling)
             return yield* new RunStopped({ reason: "cancelled" })
+          if (error._tag === "ContainerNotAttached") {
+            yield* Effect.logError(
+              "PR review sandbox has no container application; the deployment needs a redeploy",
+            )
+            return yield* new RunStopped({ reason: "sandbox_unavailable" })
+          }
           if (error._tag !== "ContainerUnavailable")
             return yield* new RunStopped({ reason: "checkout_failed" })
           yield* Effect.logInfo("No PR review sandbox container available; retrying").pipe(

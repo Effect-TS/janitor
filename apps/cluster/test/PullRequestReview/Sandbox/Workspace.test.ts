@@ -22,6 +22,7 @@ const BASE = "b".repeat(40)
 const HEAD = "a".repeat(40)
 const NO_INSTANCE =
   "There is no container instance that can be provided to this Durable Object, try again later"
+const NOT_ATTACHED = "There is no container application assigned to this Durable Object namespace"
 
 const acquireInput = {
   runId: "3f9b6c1e-2d4a-4e8b-9c7d-1a2b3c4d5e6f",
@@ -355,6 +356,25 @@ describe("PR review sandbox workspace", () => {
           assert.isAtMost(now(), deadline)
         }),
       ),
+  )
+
+  it.effect("fails at once when the namespace has no container application", () =>
+    withAuth(() =>
+      Effect.gen(function* () {
+        const container = new FakeContainer({
+          unavailableStarts: Infinity,
+          startFailure: NOT_ATTACHED,
+        })
+        const workspace = yield* makeWorkspace(makeState(container))
+        const error = yield* elapsing(Effect.flip(workspace.acquire(acquireInput)))
+
+        assert.strictEqual(error._tag, "ContainerNotAttached")
+        assert.strictEqual(
+          significant(container).filter((event) => event.startsWith("start")).length,
+          1,
+        )
+      }),
+    ),
   )
 
   it.effect(

@@ -375,6 +375,26 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
     ),
   )
 
+  it.effect("fails at once, neutral, when the sandbox has no container application", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        harness.workspaces.notAttached = true
+        const runId = newRunId()
+        yield* harness.send(runId)
+        yield* harness.until(
+          Effect.sync(() => harness.finishedCount(runId) > 0),
+          "the run to fail",
+        )
+        assert.strictEqual(harness.workspaces.acquires.length, 1)
+        assert.strictEqual((yield* harness.row(runId))?.status, "failed")
+        assert.deepStrictEqual(
+          harness.github.checkRuns.map((check) => [check.status, check.conclusion]),
+          [["completed", "neutral"]],
+        )
+      }),
+    ),
+  )
+
   it.effect("a run starts even when its start row can't be written", () =>
     run((harness) =>
       Effect.gen(function* () {

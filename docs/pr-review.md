@@ -183,6 +183,8 @@ The run lost its sandbox or restarted more than `PR_REVIEW_MAX_RESUMES` times, a
 
 No container started before the deadline, and the check run says "No sandbox available". All `max_instances` sandboxes may be busy, or Cloudflare may be failing to start the image. Look for "No PR review sandbox container available" and "Sandbox container request failed" in the logs. Raise `PR_REVIEW_SANDBOX_MAX_INSTANCES` and deploy if the cap is the cause.
 
+If the run failed within seconds and the logs say "PR review sandbox has no container application", the workspace Durable Object namespace has no container application attached. A deploy that failed partway leaves it like this: alchemy pre-creates the container application, then fails with "has an unresolved Durable Object namespace and no recorded attachment" before the Worker creates the namespace. Every run fails this way until a deploy succeeds. Re-run the Deploy workflow, then check that the container application lists the namespace under `durable_objects`.
+
 ### Unavailable deployment
 
 The Settings panel says "Unavailable in this deployment" and the **Enable** button is disabled. `PR_REVIEW_OPENROUTER_API_KEY` isn't set for the deployed Worker. Set it in Infisical's production environment and deploy. Repositories keep their enable flag while the deployment is unavailable, and they start reviewing again once it's available.

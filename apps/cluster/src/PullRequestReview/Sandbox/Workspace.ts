@@ -87,6 +87,15 @@ export class ContainerUnavailable extends Schema.TaggedError<ContainerUnavailabl
   { reason: Schema.String },
 ) {}
 
+/**
+ * The workspace's Durable Object namespace has no container application, as
+ * after a deploy that failed partway. No retry can help, only a deploy.
+ */
+export class ContainerNotAttached extends Schema.TaggedError<ContainerNotAttached>()(
+  "ContainerNotAttached",
+  {},
+) {}
+
 /** Every checkout attempt failed. The run ends without posting; the check run gives `reason`. */
 export class CheckoutFailed extends Schema.TaggedError<CheckoutFailed>()("CheckoutFailed", {
   reason: Schema.String,
@@ -103,6 +112,7 @@ export { HeadShaMismatch }
 
 export const AcquireError = Schema.Union([
   ContainerUnavailable,
+  ContainerNotAttached,
   CheckoutFailed,
   HeadShaMismatch,
   WorkspaceReleased,
@@ -116,6 +126,7 @@ export const INACTIVITY_TIMEOUT = Duration.minutes(15)
 const CHECKOUT_RETRY_DELAYS = [Duration.seconds(5), Duration.seconds(15), Duration.seconds(30)]
 
 const NO_INSTANCE = "no container instance"
+const NOT_ATTACHED = "no container application assigned"
 const RELEASED_KEY = "released"
 const HEALTH_POLL = Duration.millis(250)
 const HEALTH_TIMEOUT = Duration.seconds(5)
@@ -127,6 +138,14 @@ const MINT_TIMEOUT = Duration.seconds(30)
 class AttemptFailed extends Schema.TaggedError<AttemptFailed>()("AttemptFailed", {
   reason: Schema.String,
 }) {}
+
+/** The two start rejections janitor acts on, as fixed categories; any other is just a failed start. */
+const startFailure = (error: unknown): string | undefined => {
+  if (!(error instanceof Error)) return undefined
+  if (error.message.includes(NO_INSTANCE)) return NO_INSTANCE
+  if (error.message.includes(NOT_ATTACHED)) return NOT_ATTACHED
+  return undefined
+}
 
 const decodeOutcome = Schema.decodeUnknownEffect(Schema.fromJsonString(CheckoutOutcome))
 
@@ -181,15 +200,11 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
             exit = "the container exited"
           },
           (error: unknown) => {
-            // The one rejection janitor acts on; any other is just a failed start.
-            exit =
-              error instanceof Error && error.message.includes(NO_INSTANCE)
-                ? NO_INSTANCE
-                : "the container failed"
+            exit = startFailure(error) ?? "the container failed"
           },
         )
       },
-      catch: () => "the container did not start",
+      catch: (error) => startFailure(error) ?? "the container did not start",
     }).pipe(Effect.match({ onFailure: (reason) => reason, onSuccess: () => undefined }))
     if (thrown !== undefined) return thrown
     while (true) {
@@ -208,7 +223,8 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
         for (let retry = 0; ; retry++) {
           const exit = yield* startOnce
           if (exit === undefined) return
-          if (!exit.includes(NO_INSTANCE)) return yield* new ContainerUnavailable({ reason: exit })
+          if (exit === NOT_ATTACHED) return yield* new ContainerNotAttached()
+          if (exit !== NO_INSTANCE) return yield* new ContainerUnavailable({ reason: exit })
           reason = exit
           yield* Effect.logInfo("No sandbox container instance yet; retrying")
           yield* Effect.sleep(Duration.min(Duration.seconds(2 ** retry), Duration.seconds(5)))
