@@ -93,6 +93,15 @@ const ReviewTiming = Schema.Struct({
   ),
 )
 
+/**
+ * `PR_REVIEW_SANDBOX_MAX_INSTANCES`: how many sandbox containers may run at
+ * once, one per active run. Read when the container application deploys.
+ */
+export const sandboxMaxInstances: Config.Config<number> = count(
+  "PR_REVIEW_SANDBOX_MAX_INSTANCES",
+  20,
+)
+
 export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = Config.all({
   apiKey: Config.option(Config.Redacted("PR_REVIEW_OPENROUTER_API_KEY")),
   model: Config.NonEmptyString("PR_REVIEW_AI_MODEL").pipe(Config.withDefault(DEFAULT_MODEL)),

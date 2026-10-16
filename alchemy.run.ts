@@ -14,6 +14,7 @@ import * as Option from "effect/Option"
 
 import { JanitorDatabase } from "@janitor/cluster/Database"
 import ClusterWorker from "@janitor/cluster/Worker"
+import SandboxContainerLive from "@janitor/cluster/PullRequestReview/Sandbox/SandboxContainer.runtime"
 import { deployment } from "@janitor/cluster/Deployment"
 
 const DockerProviders = Layer.effect(
@@ -89,5 +90,9 @@ export default Alchemy.Stack(
       apiUrl: cluster.url,
       url: website.url,
     }
-  }),
+  }).pipe(
+    // Builds the PR review sandbox image and its container application,
+    // which the cluster Worker's workspace Durable Object binds.
+    Effect.provide(SandboxContainerLive),
+  ),
 )

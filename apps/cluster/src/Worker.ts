@@ -92,6 +92,15 @@ import { WorkflowOutbox, OutboxWake } from "./WorkflowOutbox.ts"
 import { WorkflowOutboxCronLayer, WorkflowOutboxCronName } from "./WorkflowOutboxCron.ts"
 import * as AccountLinking from "./AccountLinking.ts"
 import { Teammates } from "./Teammates.ts"
+import {
+  SandboxWorkspaces,
+  type WorkspaceNamespace,
+} from "./PullRequestReview/Sandbox/WorkspaceClient.ts"
+import {
+  exportGitEgress,
+  ReviewWorkspace,
+  ReviewWorkspaceLive,
+} from "./PullRequestReview/Sandbox/WorkspaceObject.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
 const ZONE = "effectful.co"
@@ -126,7 +135,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     return {
       main: import.meta.url,
       // The pinned local workerd is 1.20260704.1; newer dates fail at startup.
-      compatibility: { date: dev ? "2026-07-04" : "2026-09-05", flags: ["nodejs_compat"] },
+      // `enable_ctx_exports` gives the PR review workspace DO
+      // `ctx.exports.GitEgress` to route its sandbox's egress to.
+      compatibility: {
+        date: dev ? "2026-07-04" : "2026-09-05",
+        flags: ["nodejs_compat", "enable_ctx_exports"],
+      },
       // The website Worker holds the custom domain for this hostname. A route
       // is more specific than a custom domain, so the API paths land here and
       // everything else falls through to the website. Access protects the
@@ -231,6 +245,17 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           invalidateInstallationToken: () => Effect.void,
         }),
     })
+    // PR review sandboxes: one workspace DO per run, each owning a container
+    // whose egress goes through the `GitEgress` entrypoint.
+    yield* exportGitEgress
+    const workspaces = yield* ReviewWorkspace.pipe(
+      Effect.provide(
+        ReviewWorkspaceLive.pipe(
+          Layer.provide(GitHubAuthLayer),
+          Layer.provide(FetchHttpClient.layer),
+        ),
+      ),
+    )
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
       Layer.provideMerge(GitHubAuthLayer),
       Layer.provideMerge(GitHubBudget.layer),
@@ -308,6 +333,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           GitHubPayloadReader.fromBucket(githubPayloadsBucket),
           GitHubEventsDeadLetter.fromQueue(githubDeadLetterQueue),
           RulesetActivation.layer,
+          SandboxWorkspaces.layer({
+            stubs: workspaces,
+            namespace: liveEnvironment.PullRequestReviewWorkspace as WorkspaceNamespace,
+          }),
         ),
       ),
       Layer.provideMerge(WorkflowOutbox.layer),
