@@ -484,7 +484,7 @@ await taskComplete(JSON.stringify([
   })
 
   it.effect(
-    "exhausted retries end the run unfinished, keeping its findings and logging only the category",
+    "exhausted retries end the run unfinished, keeping its findings and logging only the category and status",
     () => {
       const logs: Array<string> = []
       const providerDown: Turn = () =>
@@ -494,6 +494,16 @@ await taskComplete(JSON.stringify([
             method: "streamText",
             reason: new AiError.InternalProviderError({
               description: "upstream said: secret-body",
+              http: {
+                request: {
+                  method: "POST",
+                  url: "https://proxy.test/v1/chat/completions",
+                  urlParams: [],
+                  headers: {},
+                },
+                response: { status: 530, headers: {} },
+                body: "secret-body",
+              },
             }),
           }),
         )
@@ -512,7 +522,7 @@ await taskComplete(JSON.stringify([
           ])
           // A small bound: the model was called once, then retried a few times.
           assert.isBelow(model.prompts.length, 10)
-          assert.isTrue(logs.some((line) => line.includes("InternalProviderError")))
+          assert.isTrue(logs.some((line) => line.includes("InternalProviderError (HTTP 530)")))
           assert.isFalse(logs.some((line) => line.includes("secret-body")))
         }),
       ).pipe(

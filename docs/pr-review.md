@@ -187,6 +187,10 @@ No container started before the deadline, and the check run says "No sandbox ava
 
 If the run failed within seconds and the logs say "PR review sandbox has no container application", the workspace Durable Object namespace has no container application attached. A deploy that failed partway leaves it like this: alchemy pre-creates the container application, then fails with "has an unresolved Durable Object namespace and no recorded attachment" before the Worker creates the namespace. Every run fails this way until a deploy succeeds. Re-run the Deploy workflow, then check that the container application lists the namespace under `durable_objects`.
 
+### Provider errors
+
+The check run says "Incomplete review" and "the review stopped on a provider error", and the logs say "The PR review model failed", with the error category and the endpoint's HTTP status. `InternalProviderError` is a 5xx from the endpoint. HTTP 530 is Cloudflare's own error for a host the Worker can't resolve or reach, so check that `PR_REVIEW_AI_API_URL` resolves in public DNS. `AuthenticationError` points at `PR_REVIEW_AI_API_KEY`, `QuotaExhaustedError` at the key's credit limit, and `InvalidRequestError` at `PR_REVIEW_AI_MODEL` or `PR_REVIEW_AI_REASONING_EFFORT`.
+
 ### Unavailable deployment
 
 The Settings panel says "Unavailable in this deployment" and the **Enable** button is disabled. `PR_REVIEW_AI_API_URL` or `PR_REVIEW_AI_API_KEY` isn't set for the deployed Worker. Set both in Infisical's production environment and deploy. Repositories keep their enable flag while the deployment is unavailable, and they start reviewing again once it's available.

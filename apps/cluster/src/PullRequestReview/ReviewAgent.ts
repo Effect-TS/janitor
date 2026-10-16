@@ -373,7 +373,7 @@ const isSandboxLoss = (cause: Cause.Cause<unknown>) =>
     (reason) => Cause.isDieReason(reason) && Schema.is(RpcClientError)(reason.defect),
   )
 
-/** How a loop's exit ends it. Provider failures are logged by category only, never with a body. */
+/** How a loop's exit ends it. Provider failures are logged by category and HTTP status only, never with a body. */
 const loopEnd = (
   exit: Exit.Exit<void, AgentOutput.AgentFinished | AgentOutput.RetriesExhausted | AiError.AiError>,
 ): Effect.Effect<LoopEnd> => {
@@ -385,7 +385,8 @@ const loopEnd = (
     if (failure._tag === "AgentFinished")
       return Effect.succeed({ _tag: "Completed", summary: failure.summary })
     const reason = failure._tag === "RetriesExhausted" ? failure.error.reason : failure.reason
-    const message = `The PR review model failed: ${reason._tag}`
+    const status = "http" in reason ? reason.http?.response?.status : undefined
+    const message = `The PR review model failed: ${reason._tag}${status === undefined ? "" : ` (HTTP ${status})`}`
     return Effect.as(Effect.logWarning(message), { _tag: "Failed", message })
   }
   if (isSandboxLoss(exit.cause)) return Effect.succeed({ _tag: "SandboxLost" })
