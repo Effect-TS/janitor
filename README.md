@@ -82,3 +82,11 @@ CF_ACCESS_TOKEN=<the token>
 
 The token expires with the Access session. Anything you save in that mode
 changes the deployed configuration.
+
+## PR review
+
+Janitor can review pull requests in connected public repositories with an AI
+agent. It's off until the deployment sets `PR_REVIEW_OPENROUTER_API_KEY` and a
+teammate enables it on the repository's Settings page. Read
+[`docs/pr-review.md`](docs/pr-review.md) before enabling it: the repository
+needs branch protection changes for janitor's reviews to work as intended.
