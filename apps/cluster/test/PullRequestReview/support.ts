@@ -1,5 +1,6 @@
 import * as Clock from "effect/Clock"
 import { PersistenceError } from "effect/cluster/ClusterError"
+import * as Entity from "effect/cluster/Entity"
 import * as MessageStorage from "effect/cluster/MessageStorage"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -35,12 +36,14 @@ const yieldToIo = TestClock.withLive(Effect.sleep(Duration.millis(1)))
  * Whether the in-memory runner holds a message that is due but has no final
  * reply yet: one waiting for the runner to pick it up, or one whose handler
  * is still running. A message leaves that set only once its handler finished.
+ * An entity's keep-alive stays unanswered for as long as it is held, so it
+ * isn't work to wait for.
  */
 const pendingWork = Effect.gen(function* () {
   const driver = yield* MessageStorage.MemoryDriver
   const now = yield* Clock.currentTimeMillis
   for (const envelope of driver.unprocessed) {
-    if (envelope._tag !== "Request") continue
+    if (envelope._tag !== "Request" || envelope.tag === Entity.KeepAliveRpc._tag) continue
     const deliverAt = driver.requests.get(envelope.requestId)?.deliverAt ?? null
     if (deliverAt === null || deliverAt <= now) return true
   }

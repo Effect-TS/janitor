@@ -63,6 +63,9 @@ const FakeRunEntity = PullRequestReviewRun.toLayer(
         Effect.sync(() => {
           received.push({ _tag: "Skip", ...payload })
         }),
+      // The run entity sends these to itself; the scheduler never does.
+      Publish: () => Effect.void,
+      Expire: () => Effect.void,
     })
   }),
 )

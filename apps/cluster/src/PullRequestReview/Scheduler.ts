@@ -73,9 +73,13 @@ export const Rerun = Rpc.make("Rerun", {
   payload: { ...delivery, headSha: GitHubCommitSha, trigger: Trigger },
 })
 
-/** The run entity reached a final state. Ignored unless `runId` is the active run. */
+/**
+ * The run entity reached a final state. Ignored unless `runId` is the active
+ * run. Keyed by the run, so a send repeated after a crash is delivered once.
+ */
 export const RunFinished = Rpc.make("RunFinished", {
   payload: { runId: RunId, finishedAt: Schema.DateTimeUtc },
+  primaryKey: ({ runId }) => `finished:${runId}`,
 })
 
 /** The repository's PR review was disabled: cancels the active run. Not ordered with webhooks. */
