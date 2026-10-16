@@ -178,7 +178,8 @@ The log messages that mark a run's progress:
 | `PR review run published`                                                               | The review went out, with `status`, `verdict` and `failedGates`.                                                       |
 | `PR review run skipped`, `PR review run cancelled`, `PR review run failed`              | The run ended without a review. A failed run has an `errorCategory`.                                                   |
 | `PR review scheduler will wipe itself after the close`, `Wiped the PR review scheduler` | A closed pull request's scheduler state is going, or gone.                                                             |
-| `Tailnet egress started`, `The tailnet egress did not start`                            | The tailnet egress container joined the tailnet, or didn't, with a `reason`.                                           |
+| `Tailnet egress started`, `The tailnet egress did not start: <reason>`                  | The tailnet egress container joined the tailnet, or didn't.                                                            |
+| `The tailnet egress container did not answer (...)`                                     | A started container's port rejected a request; the message gives workerd's error.                                      |
 
 ## Troubleshooting
 
@@ -202,7 +203,7 @@ If the run failed within seconds and the logs say "PR review sandbox has no cont
 
 ### Provider errors
 
-The check run says "Incomplete review" and "the review stopped on a provider error", and the logs say "The PR review model failed", with the error category and the endpoint's HTTP status. `InternalProviderError` is a 5xx from the endpoint. HTTP 530 is Cloudflare's own error for a host the Worker can't resolve or reach: check that `PR_REVIEW_AI_API_URL` resolves in public DNS, or set `PR_REVIEW_AI_VIA_TAILNET` if it's a tailnet endpoint. With the tailnet egress, HTTP 503 means the egress container didn't start, and the logs say "The tailnet egress did not start" with a `reason`. HTTP 502 means it started but couldn't reach the endpoint: check the tailnet policy grants `TAILSCALE_TAGS` the endpoint, and that the endpoint is up. `AuthenticationError` points at `PR_REVIEW_AI_API_KEY`, `QuotaExhaustedError` at the key's credit limit, and `InvalidRequestError` at `PR_REVIEW_AI_MODEL` or `PR_REVIEW_AI_REASONING_EFFORT`.
+The check run says "Incomplete review" and "the review stopped on a provider error", and the logs say "The PR review model failed", with the error category and the endpoint's HTTP status. `InternalProviderError` is a 5xx from the endpoint. HTTP 530 is Cloudflare's own error for a host the Worker can't resolve or reach: check that `PR_REVIEW_AI_API_URL` resolves in public DNS, or set `PR_REVIEW_AI_VIA_TAILNET` if it's a tailnet endpoint. With the tailnet egress, HTTP 503 means the egress container didn't start or didn't answer, and the logs say "The tailnet egress did not start" or "The tailnet egress container did not answer", with the reason. HTTP 502 means it started but couldn't reach the endpoint: check the tailnet policy grants `TAILSCALE_TAGS` the endpoint, and that the endpoint is up. `AuthenticationError` points at `PR_REVIEW_AI_API_KEY`, `QuotaExhaustedError` at the key's credit limit, and `InvalidRequestError` at `PR_REVIEW_AI_MODEL` or `PR_REVIEW_AI_REASONING_EFFORT`.
 
 ### Unavailable deployment
 
