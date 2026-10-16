@@ -74,6 +74,15 @@ export const makeTailnetEgress = Effect.fnUntraced(function* (
   const promise = <A>(evaluate: () => Promise<A>) =>
     Effect.tryPromise({ try: evaluate, catch: () => "rejected" as const })
 
+  /**
+   * A container port rejection, for the log: workerd's error name and the
+   * start of its message, which describe the connection, never the request.
+   */
+  const rejection = (error: unknown) =>
+    error instanceof Error
+      ? { error: error.name, detail: error.message.slice(0, 160) }
+      : { error: typeof error }
+
   const health = promise(() =>
     container.getTcpPort(EGRESS_PORT).fetch("http://container/healthz"),
   ).pipe(
@@ -128,10 +137,17 @@ export const makeTailnetEgress = Effect.fnUntraced(function* (
     Effect.timeoutOrElse({ duration: startBudget, orElse: () => Effect.succeed("timed out") }),
   )
 
+  /** How the last request found the container, for the "did not answer" log. */
+  let readiness: "already running" | "started" = "started"
+
   /** Undefined once the container answers; one caller starts it while the others wait. */
   const ready = lock.withPermits(1)(
     Effect.gen(function* () {
-      if (container.running && (yield* health)) return undefined
+      if (container.running && (yield* health)) {
+        readiness = "already running"
+        return undefined
+      }
+      readiness = "started"
       return yield* start
     }),
   )
@@ -140,17 +156,19 @@ export const makeTailnetEgress = Effect.fnUntraced(function* (
     Effect.gen(function* () {
       const failure = yield* ready
       if (failure !== undefined) {
-        yield* Effect.logWarning("The tailnet egress did not start").pipe(
-          Effect.annotateLogs({ reason: failure }),
-        )
+        // The details go in the message: the Worker's logs keep only its text.
+        yield* Effect.logWarning(`The tailnet egress did not start: ${failure}`)
         return unavailable(failure)
       }
-      return yield* promise(() =>
-        container.getTcpPort(EGRESS_PORT).fetch(toContainer(request)),
-      ).pipe(
-        Effect.catch(() =>
+      return yield* Effect.tryPromise({
+        try: () => container.getTcpPort(EGRESS_PORT).fetch(toContainer(request)),
+        catch: rejection,
+      }).pipe(
+        Effect.catch((cause) =>
           Effect.as(
-            Effect.logWarning("The tailnet egress container did not answer"),
+            Effect.logWarning(
+              `The tailnet egress container did not answer (${readiness}, ${container.running ? "running" : "not running"}): ${cause.error}${"detail" in cause ? `: ${cause.detail}` : ""}`,
+            ),
             unavailable("the container did not answer"),
           ),
         ),
