@@ -107,16 +107,17 @@ const fetchPage = (model: Model, older = false): Return => {
 
 /**
  * A refreshed first page replaces the rows it covers, where running runs
- * change state. Older pages already loaded stay below it, and so does the
- * cursor past them.
+ * change state. When it reaches a row already loaded, the older rows below
+ * it stay, and so does the cursor past them. When it doesn't, runs may sit
+ * between the two, so the list starts again from the page.
  */
 const refreshed = (model: Model, page: RunPage): Model => {
   const fresh = new Set(page.runs.map((run) => run.runId))
-  const older = model.runs.filter((run) => !fresh.has(run.runId))
+  if (!model.runs.some((run) => fresh.has(run.runId)))
+    return { ...model, runs: page.runs, cursor: page.cursor }
   return {
     ...model,
-    runs: [...page.runs, ...older],
-    cursor: older.length === 0 ? page.cursor : model.cursor,
+    runs: [...page.runs, ...model.runs.filter((run) => !fresh.has(run.runId))],
   }
 }
 

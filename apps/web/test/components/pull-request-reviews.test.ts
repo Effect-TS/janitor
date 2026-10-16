@@ -173,4 +173,41 @@ describe("PR reviews", () => {
       }),
     )
   })
+
+  it("refreshes without skipping runs when more than a page arrived meanwhile", () => {
+    const left = Reviews.update(
+      loaded([run(1)]),
+      Reviews.Message.Activated({ repositoryId: "701", active: false }),
+    ).model
+    const back = Reviews.update(
+      left,
+      Reviews.Message.Activated({ repositoryId: "701", active: true }),
+    ).model
+    const newest = Array.from({ length: 50 }, (_, index) => run(52 - index))
+    const refreshed = Reviews.update(
+      back,
+      Reviews.Message.Loaded({
+        generation: back.generation,
+        older: false,
+        page: { runs: newest, cursor: id(3) },
+      }),
+    ).model
+    const more = Reviews.update(refreshed, Reviews.Message.ClickedMore())
+    expect(more.commands?.map((command) => command.args)).toEqual([
+      { repositoryId: "701", generation: refreshed.generation, cursor: id(3) },
+    ])
+    const last = Reviews.update(
+      more.model,
+      Reviews.Message.Loaded({
+        generation: refreshed.generation,
+        older: true,
+        page: { runs: [run(2), run(1)], cursor: null },
+      }),
+    ).model
+    expect(last.runs.map((entry) => entry.runId)).toEqual([
+      ...newest.map((entry) => entry.runId),
+      id(2),
+      id(1),
+    ])
+  })
 })
