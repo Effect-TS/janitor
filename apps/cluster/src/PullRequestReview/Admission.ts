@@ -230,7 +230,8 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
       repo: found.success.name.slice(owner!.length + 1),
     }
     const scheduler = (yield* PullRequestScheduler.client)(schedulerEntityId(repositoryId, number))
-    const ids = { repositoryId, number }
+    // The journal sequence lets the scheduler ignore an event whose admission finished late.
+    const ids = { repositoryId, number, sequence: payload.sequence }
 
     if (event._tag === "Closed") {
       yield* scheduler.Closed(ids)
@@ -272,7 +273,7 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
       yield* scheduler.Rerun({ ...ids, headSha: GitHubCommitSha.make(pull.headSha), trigger })
       return trigger._tag === "Forced" ? "forced" : "rerun"
     }
-    if (oversized) {
+    if (oversized)
       yield* recordSkip(github, {
         runId,
         repositoryId,
@@ -284,12 +285,11 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
         startedAt: yield* DateTime.now,
         reason: "oversized",
       })
-      return "oversized"
-    }
-    yield* event._tag === "Reopened"
-      ? scheduler.Reopened({ ...ids, headSha: event.headSha })
-      : scheduler.HeadChanged({ ...ids, headSha: event.headSha })
-    return "scheduled"
+    // An oversized head still reaches the scheduler: it cancels the active run,
+    // drops the queued head and, on a reopen, the pending wipe.
+    const head = { ...ids, headSha: event.headSha, oversized }
+    yield* event._tag === "Reopened" ? scheduler.Reopened(head) : scheduler.HeadChanged(head)
+    return oversized ? "oversized" : "scheduled"
   })
 
 /** The admission workflow; registered with the dispatcher under `PR_REVIEW_ADMISSION_TAG`. */

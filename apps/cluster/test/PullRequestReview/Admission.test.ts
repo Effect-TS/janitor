@@ -190,7 +190,13 @@ const takeQueued = Effect.gen(function* () {
 })
 
 /** Runs the admission workflow for one event to completion. */
-const admit = (event: AdmissionEvent) => settle(AdmitPullRequestReview.execute(admission(event)))
+/** Runs the admission workflow for one event to completion; returns the event's journal sequence. */
+const admit = (event: AdmissionEvent) =>
+  Effect.gen(function* () {
+    const payload = admission(event)
+    yield* settle(AdmitPullRequestReview.execute(payload))
+    return payload.sequence
+  })
 
 const admission = (event: AdmissionEvent) =>
   Schema.decodeSync(AdmissionPayload)({
@@ -355,13 +361,14 @@ layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
       yield* invoked("stranger", "34")
       assert.deepStrictEqual(told, [])
 
-      yield* invoked("maintainer", "31")
-      yield* invoked("owner", "32")
+      const maintainer = yield* invoked("maintainer", "31")
+      const owner = yield* invoked("owner", "32")
       assert.deepStrictEqual(told, [
         {
           _tag: "Rerun",
           repositoryId: "701",
           number: 7,
+          sequence: maintainer,
           headSha: HEAD,
           trigger: { _tag: "Rerun", invoker: "maintainer", commentId: "501" },
         },
@@ -369,6 +376,7 @@ layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
           _tag: "Rerun",
           repositoryId: "701",
           number: 7,
+          sequence: owner,
           headSha: HEAD,
           trigger: { _tag: "Rerun", invoker: "owner", commentId: "501" },
         },
@@ -376,36 +384,48 @@ layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
     }),
   )
 
-  it.effect("passes pull request events on to the scheduler with ids only", () =>
+  it.effect("passes pull request events on to the scheduler with ids and their order", () =>
     Effect.gen(function* () {
       yield* reset
-      yield* admit({ _tag: "HeadChanged", headSha: HEAD })
-      yield* admit({ _tag: "Reopened", headSha: HEAD })
-      yield* admit({ _tag: "Closed" })
-      yield* admit({ _tag: "ConvertedToDraft" })
+      const pushed = yield* admit({ _tag: "HeadChanged", headSha: HEAD })
+      const reopened = yield* admit({ _tag: "Reopened", headSha: HEAD })
+      const closed = yield* admit({ _tag: "Closed" })
+      const drafted = yield* admit({ _tag: "ConvertedToDraft" })
       const ids = { repositoryId: "701", number: 7 }
+      // The journal sequence lets the scheduler drop an event whose admission finished late.
       assert.deepStrictEqual(told, [
-        { _tag: "HeadChanged", ...ids, headSha: HEAD },
-        { _tag: "Reopened", ...ids, headSha: HEAD },
-        { _tag: "Closed", ...ids },
-        { _tag: "ConvertedToDraft", ...ids },
+        { _tag: "HeadChanged", ...ids, sequence: pushed, headSha: HEAD, oversized: false },
+        { _tag: "Reopened", ...ids, sequence: reopened, headSha: HEAD, oversized: false },
+        { _tag: "Closed", ...ids, sequence: closed },
+        { _tag: "ConvertedToDraft", ...ids, sequence: drafted },
       ])
     }),
   )
 
   it.effect(
-    "skips an oversized pull request with a row and a neutral check run, unless /janitor forces it",
+    "skips an oversized head with a row and a neutral check run, still tells the scheduler, and /janitor forces it",
     () =>
       Effect.gen(function* () {
         yield* reset
         const store = yield* PullRequestReviewStore
         const pull = github.pull(7)!
-        const outcome = (files: NonNullable<typeof pull.files>) =>
+        /** Admits a push of `files` and checks what the scheduler hears. */
+        const pushed = (files: NonNullable<typeof pull.files>, oversized: boolean) =>
           Effect.gen(function* () {
             pull.files = files
             told.length = 0
-            yield* admit({ _tag: "HeadChanged", headSha: HEAD })
-            return told.length === 1 ? "runs" : "skipped"
+            const sequence = yield* admit({ _tag: "HeadChanged", headSha: HEAD })
+            // The scheduler hears of every head, so an oversized push still cancels the run.
+            assert.deepStrictEqual(told, [
+              {
+                _tag: "HeadChanged",
+                repositoryId: "701",
+                number: 7,
+                sequence,
+                headSha: HEAD,
+                oversized,
+              },
+            ])
           })
 
         // Lockfiles and changesets don't count toward the limits.
@@ -419,12 +439,26 @@ layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
           ...file,
           filename: file.filename.replace(/\.ts$/, ".md"),
         }))
-        assert.strictEqual(yield* outcome([...changed(1, 9999), lockfile]), "runs")
-        assert.strictEqual(yield* outcome([...changed(1, 10000), lockfile]), "runs")
-        assert.strictEqual(yield* outcome(changed(1, 10001)), "skipped")
-        assert.strictEqual(yield* outcome([...changed(99, 1), ...changesets]), "runs")
-        assert.strictEqual(yield* outcome([...changed(100, 1), ...changesets]), "runs")
-        assert.strictEqual(yield* outcome(changed(101, 1)), "skipped")
+        yield* pushed([...changed(1, 9999), lockfile], false)
+        yield* pushed([...changed(1, 10000), lockfile], false)
+        yield* pushed(changed(1, 10001), true)
+        yield* pushed([...changed(99, 1), ...changesets], false)
+        yield* pushed([...changed(100, 1), ...changesets], false)
+        yield* pushed(changed(101, 1), true)
+
+        // An oversized reopen still reaches the scheduler, which cancels the pending wipe.
+        told.length = 0
+        const reopened = yield* admit({ _tag: "Reopened", headSha: HEAD })
+        assert.deepStrictEqual(told, [
+          {
+            _tag: "Reopened",
+            repositoryId: "701",
+            number: 7,
+            sequence: reopened,
+            headSha: HEAD,
+            oversized: true,
+          },
+        ])
 
         const { runs } = yield* store.runs(repositoryId, { limit: 10, cursor: Option.none() })
         assert.deepStrictEqual(
@@ -434,6 +468,7 @@ layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
             run.trigger,
           ]),
           [
+            ["skipped", "oversized", { _tag: "Automatic" }],
             ["skipped", "oversized", { _tag: "Automatic" }],
             ["skipped", "oversized", { _tag: "Automatic" }],
           ],
@@ -449,7 +484,7 @@ layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
         // A write-access /janitor forces the review, with the same limits.
         github.permissions.set("maintainer", { id: 31, permission: "write" })
         told.length = 0
-        yield* admit({
+        const forced = yield* admit({
           _tag: "Invoked",
           commentId: comment("502"),
           authorId: user("31"),
@@ -460,6 +495,7 @@ layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
             _tag: "Rerun",
             repositoryId: "701",
             number: 7,
+            sequence: forced,
             headSha: HEAD,
             trigger: { _tag: "Forced", invoker: "maintainer", commentId: "502" },
           },

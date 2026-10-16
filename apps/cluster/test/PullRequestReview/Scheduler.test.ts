@@ -10,6 +10,7 @@ import * as Layer from "effect/Layer"
 import * as Reactivity from "effect/reactivity/Reactivity"
 import * as TestClock from "effect/testing/TestClock"
 import { GitHubCommitSha, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import { PullRequestReviewRun } from "../../src/PullRequestReview/RunEntity.ts"
 import {
@@ -20,7 +21,7 @@ import {
 } from "../../src/PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
-import { repositoryId, seedRepositories, settle } from "./support.ts"
+import { drain, failNextSend, repositoryId, seedRepositories, settle } from "./support.ts"
 
 /** The deployment's environment; the gate is on while the API key is set. */
 const env: Record<string, string> = { PR_REVIEW_OPENROUTER_API_KEY: "test-key" }
@@ -87,34 +88,54 @@ const seed = seedRepositories(repositoryId, otherRepositoryId, thirdRepositoryId
 
 const head = (n: number) => GitHubCommitSha.make(n.toString(16).padStart(40, "0"))
 
-/** Moves the clock, in steps the runner's storage polling can follow. */
+/**
+ * Moves the clock, in steps the runner's storage polling can follow, then
+ * waits until the messages it released have been handled.
+ */
 const wait = (duration: Duration.Input) =>
   Effect.gen(function* () {
     const total = Duration.toMillis(Duration.fromInputUnsafe(duration))
     for (let elapsed = 0; elapsed < total; elapsed += 5_000)
       yield* TestClock.adjust(Duration.millis(Math.min(5_000, total - elapsed)))
-    // A message the clock delivered may be waiting on Postgres, in real time,
-    // before it sends anything on.
-    for (let turn = 0; turn < 10; turn++) {
-      yield* TestClock.withLive(Effect.sleep(Duration.millis(10)))
-      yield* TestClock.adjust(Duration.millis(100))
-    }
-    yield* settle(Effect.void)
+    yield* drain
   })
+
+/** Journal sequences, as admission forwards them: later deliveries get larger ones. */
+let journal = 1_000
+const nextSequence = () => GitHubWebhookJournalSequence.make(String(++journal))
 
 const scheduler = (number: number, repository = repositoryId) =>
   Effect.gen(function* () {
     const client = (yield* PullRequestScheduler.client)(schedulerEntityId(repository, number))
     const ids = { repositoryId: repository, number }
+    const delivery = (options: { readonly sequence?: GitHubWebhookJournalSequence } = {}) => ({
+      ...ids,
+      sequence: options.sequence ?? nextSequence(),
+    })
+    type Head = { readonly sequence?: GitHubWebhookJournalSequence; readonly oversized?: boolean }
     return {
-      push: (sha: GitHubCommitSha) => settle(client.HeadChanged({ ...ids, headSha: sha })),
-      reopen: (sha: GitHubCommitSha) => settle(client.Reopened({ ...ids, headSha: sha })),
-      close: settle(client.Closed(ids)),
-      convertToDraft: settle(client.ConvertedToDraft(ids)),
+      push: (sha: GitHubCommitSha, options: Head = {}) =>
+        settle(
+          client.HeadChanged({
+            ...delivery(options),
+            headSha: sha,
+            oversized: options.oversized ?? false,
+          }),
+        ),
+      reopen: (sha: GitHubCommitSha, options: Head = {}) =>
+        settle(
+          client.Reopened({
+            ...delivery(options),
+            headSha: sha,
+            oversized: options.oversized ?? false,
+          }),
+        ),
+      close: Effect.suspend(() => settle(client.Closed(delivery()))),
+      convertToDraft: Effect.suspend(() => settle(client.ConvertedToDraft(delivery()))),
       rerun: (sha: GitHubCommitSha, commentId: string) =>
         settle(
           client.Rerun({
-            ...ids,
+            ...delivery(),
             headSha: sha,
             trigger: { _tag: "Rerun", invoker: "maintainer", commentId },
           }),
@@ -372,6 +393,64 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
       )
       assert.includeMembers(cancelled, [lastStart(21).runId, lastStart(22).runId])
       assert.notInclude(cancelled, lastStart(23).runId)
+    }),
+  )
+
+  it.effect("ignores an event older than one it already handled", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const pr = yield* scheduler(24)
+      const older = nextSequence()
+      // Admission of the later push finished first.
+      yield* pr.push(head(2))
+      yield* pr.push(head(1), { sequence: older })
+      assert.deepStrictEqual(
+        messages(24).map((message) => [
+          message._tag,
+          message._tag === "Start" ? message.headSha : null,
+        ]),
+        [["Start", head(2)]],
+      )
+    }),
+  )
+
+  it.effect("an oversized push cancels the active run and drops the queued head", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const pr = yield* scheduler(25)
+      yield* pr.push(head(1))
+      const first = lastStart(25)
+      yield* pr.push(head(2))
+      yield* pr.push(head(3), { oversized: true })
+      yield* pr.finish(first.runId)
+      // Neither the queued head nor the oversized one runs.
+      assert.deepStrictEqual(
+        messages(25).map((message) => message._tag),
+        ["Start", "Cancel"],
+      )
+
+      // An oversized push mid-run cancels it too.
+      yield* wait("3 minutes")
+      yield* pr.push(head(4))
+      yield* pr.push(head(5), { oversized: true })
+      assert.deepStrictEqual(received.at(-1), { _tag: "Cancel", runId: lastStart(25).runId })
+    }),
+  )
+
+  it.effect("sends what a crash lost between saving its state and sending", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const pr = yield* scheduler(26)
+
+      // The run is saved as active, but its Start never leaves.
+      yield* failNextSend("Start")
+      yield* pr.push(head(1))
+      assert.strictEqual(lastStart(26).headSha, head(1))
+
+      // The run is saved as cancelled, but its Cancel never leaves.
+      yield* failNextSend("Cancel")
+      yield* pr.push(head(2))
+      assert.deepStrictEqual(received.at(-1), { _tag: "Cancel", runId: lastStart(26).runId })
     }),
   )
 })

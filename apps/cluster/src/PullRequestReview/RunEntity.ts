@@ -22,11 +22,21 @@ const run = {
   trigger: Trigger,
 }
 
-/** Reviews the pull request at `headSha`. The handler checks it is still open and not a draft. */
-export const Start = Rpc.make("Start", { payload: run })
+/**
+ * Reviews the pull request at `headSha`. The handler checks it is still open
+ * and not a draft. Each message is keyed by its run, so the scheduler can
+ * send it again after a crash without the run entity seeing it twice.
+ */
+export const Start = Rpc.make("Start", {
+  payload: run,
+  primaryKey: ({ runId }) => `start:${runId}`,
+})
 
 /** Stops the run. A run that is publishing finishes its batch first. */
-export const Cancel = Rpc.make("Cancel", { payload: { runId: RunId } })
+export const Cancel = Rpc.make("Cancel", {
+  payload: { runId: RunId },
+  primaryKey: ({ runId }) => `cancel:${runId}`,
+})
 
 /**
  * Records a run the scheduler won't start: the `skipped` row and the neutral
@@ -34,7 +44,10 @@ export const Cancel = Rpc.make("Cancel", { payload: { runId: RunId } })
  * entity writes both. It sends no `RunFinished`: a skipped run never became
  * the active run.
  */
-export const Skip = Rpc.make("Skip", { payload: { ...run, reason: SkipReason } })
+export const Skip = Rpc.make("Skip", {
+  payload: { ...run, reason: SkipReason },
+  primaryKey: ({ runId }) => `skip:${runId}`,
+})
 
 export const PullRequestReviewRun = Entity.make("PullRequestReviewRun", [
   Start,
