@@ -78,7 +78,10 @@ const reviewWith = (
     const session = harness.agent.last
     yield* session.step({ history: { _tag: "Appended", messages: [] }, records })
     yield* end === "completed" ? session.complete("Reviewed.") : session.fail("provider down")
-    yield* harness.drain
+    yield* harness.until(
+      Effect.sync(() => harness.finishedCount(runId) > 0),
+      "RunFinished",
+    )
     return runId
   })
 
@@ -466,7 +469,10 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
           records: [{ _tag: "FindingReported", finding: blocking }],
         })
         yield* harness.agent.last.complete("Reviewed.")
-        yield* harness.drain
+        yield* harness.until(
+          Effect.sync(() => harness.finishedCount(runId) > 0),
+          "RunFinished",
+        )
 
         assert.deepStrictEqual(harness.github.writeNames, ["createCheckRun", "updateCheckRun"])
         assert.deepStrictEqual(
