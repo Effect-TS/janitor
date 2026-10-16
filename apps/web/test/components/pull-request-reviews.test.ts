@@ -94,7 +94,7 @@ describe("PR reviews", () => {
         update: Reviews.update,
         view: Scene.withViewInputs(Reviews.view, { repository })(),
       },
-      Scene.given(loaded(runs)),
+      Scene.given({ ...loaded(runs), mode: "all" }),
       Scene.expect(Scene.text("Running")).toExist(),
       Scene.expect(Scene.text("Approved")).toExist(),
       Scene.expect(Scene.text("Changes requested")).toExist(),
@@ -131,12 +131,12 @@ describe("PR reviews", () => {
   it("loads the newest page, then older pages by cursor until the last", async () => {
     const first = activated()
     expect(first.commands?.map((command) => command.args)).toEqual([
-      { repositoryId: "701", generation: first.model.generation, cursor: null },
+      { repositoryId: "701", generation: first.model.generation, search: "", cursor: null },
     ])
     const page = loaded([run(3), run(2)], id(2))
     const more = Reviews.update(page, Reviews.Message.ClickedMore())
     expect(more.commands?.map((command) => command.args)).toEqual([
-      { repositoryId: "701", generation: page.generation, cursor: id(2) },
+      { repositoryId: "701", generation: page.generation, search: "", cursor: id(2) },
     ])
     const last = Reviews.update(
       more.model,
@@ -160,9 +160,12 @@ describe("PR reviews", () => {
       )
     })
     const message = await Effect.runPromise(
-      Reviews.FetchRuns({ repositoryId: "701", generation: 4, cursor: id(2) }).effect.pipe(
-        Effect.provideService(HttpClient.HttpClient, client),
-      ),
+      Reviews.FetchRuns({
+        repositoryId: "701",
+        generation: 4,
+        search: "",
+        cursor: id(2),
+      }).effect.pipe(Effect.provideService(HttpClient.HttpClient, client)),
     )
     expect(requested).toEqual([`/api/v1/repositories/701/pull-request-review/runs?cursor=${id(2)}`])
     expect(message).toEqual(
@@ -194,7 +197,7 @@ describe("PR reviews", () => {
     ).model
     const more = Reviews.update(refreshed, Reviews.Message.ClickedMore())
     expect(more.commands?.map((command) => command.args)).toEqual([
-      { repositoryId: "701", generation: refreshed.generation, cursor: id(3) },
+      { repositoryId: "701", generation: refreshed.generation, search: "", cursor: id(3) },
     ])
     const last = Reviews.update(
       more.model,
@@ -229,7 +232,7 @@ describe("PR reviews", () => {
 
     const polled = Reviews.update(history, Reviews.Message.Polled())
     expect(fetched(polled)).toEqual([
-      { repositoryId: "701", generation: history.generation, cursor: null },
+      { repositoryId: "701", generation: history.generation, search: "", cursor: null },
     ])
     const live = Reviews.update(
       polled.model,
@@ -244,7 +247,7 @@ describe("PR reviews", () => {
 
     const clicked = Reviews.update(live, Reviews.Message.ClickedRefresh())
     expect(fetched(clicked)).toEqual([
-      { repositoryId: "701", generation: live.generation, cursor: null },
+      { repositoryId: "701", generation: live.generation, search: "", cursor: null },
     ])
     const refreshed = Reviews.update(
       clicked.model,
@@ -259,7 +262,7 @@ describe("PR reviews", () => {
 
     const again = Reviews.update(refreshed, Reviews.Message.ClickedMore())
     expect(fetched(again)).toEqual([
-      { repositoryId: "701", generation: refreshed.generation, cursor: id(51) },
+      { repositoryId: "701", generation: refreshed.generation, search: "", cursor: id(51) },
     ])
     const last = Reviews.update(
       again.model,
@@ -271,5 +274,89 @@ describe("PR reviews", () => {
     ).model
     expect(last.runs).toHaveLength(100)
     expect(last.runs.at(-1)).toMatchObject({ runId: id(1), status: "commented" })
+  })
+
+  it("groups runs by pull request, newest first, and shows a pull request's runs when opened", () => {
+    const runs = [
+      run(1, { number: 12, title: "Fix flaky retry", status: "approved" }),
+      run(2, { number: 7, title: "Add cache" }),
+      run(3, { number: 12, title: "Fix retry", status: "changes_requested" }),
+    ]
+    const model = loaded(runs)
+    expect(model.mode).toBe("grouped")
+    expect(Reviews.groups(model.runs).map((group) => [group.number, group.runs.length])).toEqual([
+      [12, 2],
+      [7, 1],
+    ])
+    Scene.scene(
+      {
+        update: Reviews.update,
+        view: Scene.withViewInputs(Reviews.view, { repository })(),
+      },
+      Scene.given(model),
+      Scene.expect(Scene.text("2 reviews")).toExist(),
+      Scene.expect(Scene.text("1 review")).toExist(),
+      Scene.expect(Scene.text("Approved")).toExist(),
+      Scene.expect(Scene.text("Changes requested")).not.toExist(),
+      Scene.click(Scene.role("button", { name: "#12 Fix flaky retry" })),
+      Scene.expect(Scene.role("button", { name: "#12 Fix flaky retry" })).toHaveAttr(
+        "aria-expanded",
+        "true",
+      ),
+      Scene.expect(Scene.text("Changes requested")).toExist(),
+      Scene.expect(Scene.role("link", { name: "#12 Fix retry" })).toExist(),
+      Scene.click(Scene.role("button", { name: "All reviews" })),
+      Scene.expect(Scene.role("link", { name: "#7 Add cache" })).toExist(),
+    )
+  })
+
+  it("searches after the input settles and fences the earlier search", async () => {
+    const page = loaded([run(1)])
+    const typed = Reviews.update(page, Reviews.Message.ChangedSearch({ value: " #12 " })).model
+    expect(typed.runs).toEqual([])
+    expect(typed.searchPending).toBe(true)
+    expect(Reviews.update(typed, Reviews.Message.Polled()).commands ?? []).toEqual([])
+    expect(
+      Reviews.update(typed, Reviews.Message.SettledSearch({ generation: page.generation }))
+        .commands ?? [],
+    ).toEqual([])
+    const settled = Reviews.update(
+      typed,
+      Reviews.Message.SettledSearch({ generation: typed.generation }),
+    )
+    expect(settled.commands?.map((command) => command.args)).toEqual([
+      { repositoryId: "701", generation: typed.generation, search: "#12", cursor: null },
+    ])
+    expect(
+      Reviews.update(
+        settled.model,
+        Reviews.Message.Loaded({
+          generation: page.generation,
+          older: false,
+          page: { runs: [run(1)], cursor: null },
+        }),
+      ).model.runs,
+    ).toEqual([])
+
+    const requested: Array<string> = []
+    const client = HttpClient.make((request) => {
+      const url = new URL(request.url, "https://janitor.test")
+      requested.push(url.pathname + url.search)
+      const body = Schema.encodeSync(Schema.toCodecJson(RunPage))({ runs: [], cursor: null })
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body), { status: 200 })),
+      )
+    })
+    await Effect.runPromise(
+      Reviews.FetchRuns({
+        repositoryId: "701",
+        generation: 4,
+        search: "#12",
+        cursor: id(2),
+      }).effect.pipe(Effect.provideService(HttpClient.HttpClient, client)),
+    )
+    expect(requested).toEqual([
+      `/api/v1/repositories/701/pull-request-review/runs?search=%2312&cursor=${id(2)}`,
+    ])
   })
 })

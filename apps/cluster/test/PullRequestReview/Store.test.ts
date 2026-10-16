@@ -159,6 +159,28 @@ layer(Services, { timeout: "2 minutes" })("PR review store", (it) => {
     }),
   )
 
+  it.effect("finds runs by pull request title or number", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const store = yield* PullRequestReviewStore
+      const runs = [
+        started(20, { repositoryId: thirdRepositoryId }),
+        { ...started(21, { repositoryId: thirdRepositoryId }), title: "Fix Flaky retry" },
+        { ...started(22, { repositoryId: thirdRepositoryId }), number: 7 },
+      ]
+      for (const run of runs) yield* store.start(run)
+      const found = (search: string) =>
+        store
+          .runs(thirdRepositoryId, { limit: 10, cursor: Option.none(), search })
+          .pipe(Effect.map((page) => page.runs.map((run) => run.runId)))
+
+      assert.deepStrictEqual(yield* found("flaky"), [runs[1]!.runId])
+      assert.deepStrictEqual(yield* found("#7"), [runs[2]!.runId])
+      assert.deepStrictEqual(yield* found("120"), [runs[0]!.runId])
+      assert.deepStrictEqual(yield* found("nothing like it"), [])
+    }),
+  )
+
   it.effect("lists a repository's runs newest first across cursor pages", () =>
     Effect.gen(function* () {
       yield* seed

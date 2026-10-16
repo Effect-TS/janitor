@@ -1339,6 +1339,10 @@ export const subscriptions = Subscription.aggregate<Model, Message>()(
     toChildModel: (model) => model.activity,
     toParentMessage: (message) => Message.GotActivityMessage({ message }),
   }),
+  Subscription.lift(PullRequestReviews.subscriptions)<Model, Message>({
+    toChildModel: (model) => model.pullRequestReviews,
+    toParentMessage: (message) => Message.GotPullRequestReviewsMessage({ message }),
+  }),
 )
 
 // VIEW

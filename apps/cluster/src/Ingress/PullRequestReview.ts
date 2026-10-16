@@ -93,13 +93,17 @@ const reads = HttpRouter.addAll([
     "/repositories/:repositoryId/pull-request-review/runs",
     Effect.gen(function* () {
       const { repositoryId } = yield* repositoryPath
-      const { cursor } = yield* HttpRouter.schemaParams(
-        Schema.Struct({ cursor: Schema.optionalKey(RunId) }),
+      const { cursor, search } = yield* HttpRouter.schemaParams(
+        Schema.Struct({
+          cursor: Schema.optionalKey(RunId),
+          search: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
+        }),
       )
       if (Option.isNone(yield* repository(repositoryId))) return notFound
       const page = yield* (yield* PullRequestReviewStore).runs(repositoryId, {
         limit: RUN_PAGE_SIZE,
         cursor: Option.fromNullishOr(cursor),
+        search: search ?? "",
       })
       // Encoding drops the store columns the runs list doesn't show.
       return yield* HttpServerResponse.schemaJson(RunPage)({
