@@ -86,7 +86,7 @@ changes the deployed configuration.
 ## PR review
 
 Janitor can review pull requests in connected public repositories with an AI
-agent. It's off until the deployment sets `PR_REVIEW_OPENROUTER_API_KEY` and a
-teammate enables it on the repository's Settings page. Read
+agent. It's off until the deployment sets `PR_REVIEW_AI_API_URL` and
+`PR_REVIEW_AI_API_KEY` and a teammate enables it on the repository's Settings page. Read
 [`docs/pr-review.md`](docs/pr-review.md) before enabling it: the repository
 needs branch protection changes for janitor's reviews to work as intended.

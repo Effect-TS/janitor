@@ -41,10 +41,10 @@ const user = (id: string) => GitHubUserDatabaseId.make(id)
 /** Pull request and comment text that must never reach a payload. */
 const CANARY = "canary-text-that-must-not-leak"
 
-/** The deployment's environment; the gate is on while the API key is set. */
-const env: Record<string, string> = {}
-const gateOn = () => (env["PR_REVIEW_OPENROUTER_API_KEY"] = "test-key")
-const gateOff = () => delete env["PR_REVIEW_OPENROUTER_API_KEY"]
+/** The deployment's environment; the gate is on while the API URL and key are set. */
+const env: Record<string, string> = { PR_REVIEW_AI_API_URL: "https://ai.test/v1" }
+const gateOn = () => (env["PR_REVIEW_AI_API_KEY"] = "test-key")
+const gateOff = () => delete env["PR_REVIEW_AI_API_KEY"]
 
 const github = new FakeReviewGitHub(7)
 

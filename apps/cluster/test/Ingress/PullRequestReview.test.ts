@@ -35,8 +35,11 @@ const identity = {
   expiresAt: DateTime.makeUnsafe("2026-10-14T12:00:00.000Z"),
 }
 
-/** The deployment's environment; PR review is available while the API key is set. */
-const withKey = { PR_REVIEW_OPENROUTER_API_KEY: "test-key" }
+/** The deployment's environment; PR review is available while the API URL and key are set. */
+const withKey = {
+  PR_REVIEW_AI_API_URL: "https://ai.test/v1",
+  PR_REVIEW_AI_API_KEY: "test-key",
+}
 
 /** The repositories the disable operation was called for, in order. */
 const disabled: Array<GitHubRepositoryDatabaseId> = []

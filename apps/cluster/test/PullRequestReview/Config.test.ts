@@ -6,6 +6,7 @@ import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import {
   pullRequestReviewConfig,
+  pullRequestReviewGate,
   pullRequestReviewInit,
 } from "../../src/PullRequestReview/Config.ts"
 
@@ -26,9 +27,10 @@ const plain = (config: Effect.Success<ReturnType<typeof read>>) => ({
 })
 
 describe("PR review configuration", () => {
-  it.effect("is off without an API key and applies the planned defaults", () =>
+  it.effect("is off without an API URL and key and applies the planned defaults", () =>
     Effect.gen(function* () {
       const config = plain(yield* read({}))
+      assert.isTrue(Option.isNone(config.apiUrl))
       assert.isTrue(Option.isNone(config.apiKey))
       assert.deepInclude(config, {
         model: "openai/gpt-6.1-sol",
@@ -54,7 +56,8 @@ describe("PR review configuration", () => {
     Effect.gen(function* () {
       const config = plain(
         yield* read({
-          PR_REVIEW_OPENROUTER_API_KEY: "sk-or-test",
+          PR_REVIEW_AI_API_URL: "https://ai.example.com/v1",
+          PR_REVIEW_AI_API_KEY: "sk-test",
           PR_REVIEW_AI_MODEL: "anthropic/claude-opus-5-5",
           PR_REVIEW_AI_REASONING_EFFORT: "high",
           PR_REVIEW_RUN_DEADLINE_SECONDS: "900",
@@ -73,7 +76,8 @@ describe("PR review configuration", () => {
         }),
       )
       assert.deepStrictEqual(config, {
-        apiKey: Option.some("sk-or-test"),
+        apiUrl: Option.some("https://ai.example.com/v1"),
+        apiKey: Option.some("sk-test"),
         model: "anthropic/claude-opus-5-5",
         reasoningEffort: "high",
         runDeadline: 900,
@@ -90,6 +94,21 @@ describe("PR review configuration", () => {
         lockfiles: ["pnpm-lock.yaml", "Cargo.lock"],
         manifests: ["package.json", "Cargo.toml"],
       })
+    }),
+  )
+
+  it.effect("gates PR review on both the API URL and the API key", () =>
+    Effect.gen(function* () {
+      const gate = (values: Record<string, string>) =>
+        pullRequestReviewGate.pipe(
+          Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(values))),
+        )
+      const url = { PR_REVIEW_AI_API_URL: "https://ai.test/v1" }
+      const key = { PR_REVIEW_AI_API_KEY: "test-key" }
+      assert.isFalse(yield* gate({}))
+      assert.isFalse(yield* gate(url))
+      assert.isFalse(yield* gate(key))
+      assert.isTrue(yield* gate({ ...url, ...key }))
     }),
   )
 
@@ -111,7 +130,8 @@ describe("PR review configuration", () => {
       // Every setting the cluster Worker reads, as the operator doc lists them. The
       // reasoning effort is invalid and comes early, so the rest must still be read.
       const values: Record<string, string> = {
-        PR_REVIEW_OPENROUTER_API_KEY: "test-key",
+        PR_REVIEW_AI_API_URL: "https://ai.test/v1",
+        PR_REVIEW_AI_API_KEY: "test-key",
         PR_REVIEW_AI_MODEL: "openai/gpt-6.1-sol",
         PR_REVIEW_AI_REASONING_EFFORT: "loud",
         PR_REVIEW_RUN_DEADLINE_SECONDS: "600",

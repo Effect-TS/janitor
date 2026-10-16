@@ -167,7 +167,7 @@ One AI review of one pull request at a pinned head SHA. It starts automatically 
 _Avoid_: Review job, review session
 
 **PR review enable flag**:
-The per-repository switch that turns PR review on. It is off by default, stored apart from every other repository setting, and enabling it makes reviews live: there is no dry run. PR review also needs the deployment-wide gate, `PR_REVIEW_OPENROUTER_API_KEY`; without it PR review is off for the whole deployment.
+The per-repository switch that turns PR review on. It is off by default, stored apart from every other repository setting, and enabling it makes reviews live: there is no dry run. PR review also needs the deployment-wide gate, `PR_REVIEW_AI_API_URL` and `PR_REVIEW_AI_API_KEY`; without both PR review is off for the whole deployment.
 
 **Review verdict**:
 The GitHub review event a run posts: `REQUEST_CHANGES` when any blocking finding stands, otherwise `APPROVE` when every approval gate passes, otherwise `COMMENT` when there are nits. A run with nothing new to say posts no review and only updates the `janitor/review` check run.

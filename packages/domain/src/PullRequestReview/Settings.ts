@@ -9,7 +9,7 @@ import { FinalStatus, RunId, SkipReason, Trigger, Verdict } from "./Run.ts"
 
 /** The deployment's PR review settings (EFF-1929 point 3). */
 export const DeploymentStatus = Schema.Struct({
-  /** Whether `PR_REVIEW_OPENROUTER_API_KEY` is set; without it PR review is unavailable. */
+  /** Whether `PR_REVIEW_AI_API_URL` and `PR_REVIEW_AI_API_KEY` are set; without them PR review is unavailable. */
   available: Schema.Boolean,
   model: Schema.String,
   reasoningEffort: Schema.String,

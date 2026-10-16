@@ -16,7 +16,7 @@ import { readFailure, reasonOf, request } from "@/lib/api"
 /**
  * The "PR review" panel on a repository's Settings page (EFF-1930), next to
  * AI classification. Any teammate who can open the page can turn it on or
- * off. Without the deployment's OpenRouter key the panel still shows, says
+ * off. Without the deployment's model endpoint the panel still shows, says
  * so, and only lets someone turn an enabled repository off.
  */
 
