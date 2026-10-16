@@ -8,6 +8,7 @@ import {
   pullRequestReviewConfig,
   pullRequestReviewGate,
   pullRequestReviewInit,
+  tailnetEgressConfig,
 } from "../../src/PullRequestReview/Config.ts"
 
 const read = (values: Record<string, string>) =>
@@ -35,6 +36,7 @@ describe("PR review configuration", () => {
       assert.deepInclude(config, {
         model: "openai/gpt-6.1-sol",
         reasoningEffort: "medium",
+        viaTailnet: false,
         runDeadline: 600,
         wrapUpAfter: 420,
         commandTimeout: 180,
@@ -60,6 +62,7 @@ describe("PR review configuration", () => {
           PR_REVIEW_AI_API_KEY: "sk-test",
           PR_REVIEW_AI_MODEL: "anthropic/claude-opus-5-5",
           PR_REVIEW_AI_REASONING_EFFORT: "high",
+          PR_REVIEW_AI_VIA_TAILNET: "true",
           PR_REVIEW_RUN_DEADLINE_SECONDS: "900",
           PR_REVIEW_WRAP_UP_AFTER_SECONDS: "600",
           PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "120",
@@ -80,6 +83,7 @@ describe("PR review configuration", () => {
         apiKey: Option.some("sk-test"),
         model: "anthropic/claude-opus-5-5",
         reasoningEffort: "high",
+        viaTailnet: true,
         runDeadline: 900,
         wrapUpAfter: 600,
         commandTimeout: 120,
@@ -134,6 +138,7 @@ describe("PR review configuration", () => {
         PR_REVIEW_AI_API_KEY: "test-key",
         PR_REVIEW_AI_MODEL: "openai/gpt-6.1-sol",
         PR_REVIEW_AI_REASONING_EFFORT: "loud",
+        PR_REVIEW_AI_VIA_TAILNET: "false",
         PR_REVIEW_RUN_DEADLINE_SECONDS: "600",
         PR_REVIEW_WRAP_UP_AFTER_SECONDS: "420",
         PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "180",
@@ -158,6 +163,36 @@ describe("PR review configuration", () => {
       yield* pullRequestReviewInit.pipe(Effect.provide(ConfigProvider.layer(recording)))
 
       assert.includeMembers([...read], Object.keys(values))
+    }),
+  )
+
+  it.effect("deploys the tailnet egress with the credential, tags and the endpoint's origin", () =>
+    Effect.gen(function* () {
+      const egress = (values: Record<string, string>) =>
+        tailnetEgressConfig.pipe(
+          Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(values))),
+        )
+
+      const unset = yield* egress({})
+      assert.isTrue(Option.isNone(unset.authKey))
+      assert.isTrue(Option.isNone(unset.upstreamOrigin))
+      assert.deepStrictEqual(unset.tags, ["tag:janitor-prod"])
+
+      const set = yield* egress({
+        TAILSCALE_AUTH_KEY: "tskey-client-test",
+        TAILSCALE_TAGS: "tag:janitor-dev,tag:ci",
+        PR_REVIEW_AI_API_URL: "https://proxy.example.ts.net/v1",
+      })
+      assert.deepStrictEqual(
+        Option.map(set.authKey, Redacted.value),
+        Option.some("tskey-client-test"),
+      )
+      assert.deepStrictEqual(set.tags, ["tag:janitor-dev", "tag:ci"])
+      // The container forwards to the origin only; the client keeps the path.
+      assert.deepStrictEqual(set.upstreamOrigin, Option.some("https://proxy.example.ts.net"))
+
+      const invalid = yield* egress({ PR_REVIEW_AI_API_URL: "not a url" })
+      assert.isTrue(Option.isNone(invalid.upstreamOrigin))
     }),
   )
 })

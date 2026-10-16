@@ -50,6 +50,7 @@ import {
 } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import { earlierThread, makeActors, rootComment } from "./EarlierThreads.ts"
+import { type TailnetEgressNamespace, tailnetFetch } from "./TailnetEgress/TailnetEgressClient.ts"
 import type * as ReviewGitHub from "./GitHub.ts"
 
 /**
@@ -68,38 +69,45 @@ export { executorOptions } from "./Sandbox/ExecutorOptions.ts"
 /**
  * The PR review model through an OpenAI-compatible chat completions endpoint
  * (EFF-1929), with its own HTTP client: the executor's is pinned to the
- * sandbox. Without the endpoint's URL and key PR review is off, so no run ever
- * calls it. Invalid PR review settings fail the model's calls,
- * never the cluster labeling shares.
+ * sandbox. With `PR_REVIEW_AI_VIA_TAILNET` its requests go through the
+ * tailnet egress DO instead of the open internet. Without the endpoint's URL
+ * and key PR review is off, so no run ever calls it. Invalid PR review
+ * settings fail the model's calls, never the cluster labeling shares.
  */
-export const ReviewModelLayer: Layer.Layer<
-  LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName
-> = Layer.unwrap(
-  Effect.match(pullRequestReviewConfig, {
-    onFailure: (error) =>
-      Layer.mergeAll(
-        Layer.effect(
-          LanguageModel.LanguageModel,
-          LanguageModel.make({
-            generateText: () => Effect.die(error),
-            streamText: () => Stream.die(error),
-          }),
+export const ReviewModelLayer = (
+  egress: TailnetEgressNamespace,
+): Layer.Layer<LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName> =>
+  Layer.unwrap(
+    Effect.match(pullRequestReviewConfig, {
+      onFailure: (error) =>
+        Layer.mergeAll(
+          Layer.effect(
+            LanguageModel.LanguageModel,
+            LanguageModel.make({
+              generateText: () => Effect.die(error),
+              streamText: () => Stream.die(error),
+            }),
+          ),
+          Layer.succeed(Model.ProviderName, "openai"),
+          Layer.succeed(Model.ModelName, "invalid PR review settings"),
         ),
-        Layer.succeed(Model.ProviderName, "openai"),
-        Layer.succeed(Model.ModelName, "invalid PR review settings"),
-      ),
-    onSuccess: (config) =>
-      OpenAiLanguageModel.model(config.model, { reasoning_effort: config.reasoningEffort }).pipe(
-        Layer.provide(
-          OpenAiClient.layer({
-            apiUrl: Option.getOrUndefined(config.apiUrl),
-            apiKey: Option.getOrUndefined(config.apiKey),
-          }),
+      onSuccess: (config) =>
+        OpenAiLanguageModel.model(config.model, { reasoning_effort: config.reasoningEffort }).pipe(
+          Layer.provide(
+            OpenAiClient.layer({
+              apiUrl: Option.getOrUndefined(config.apiUrl),
+              apiKey: Option.getOrUndefined(config.apiKey),
+            }),
+          ),
+          Layer.provide(FetchHttpClient.layer),
+          Layer.provide(
+            config.viaTailnet
+              ? Layer.succeed(FetchHttpClient.Fetch, tailnetFetch(egress))
+              : Layer.empty,
+          ),
         ),
-        Layer.provide(FetchHttpClient.layer),
-      ),
-  }),
-)
+    }),
+  )
 
 const ReportFinding = Tool.make("reportFinding", {
   description:

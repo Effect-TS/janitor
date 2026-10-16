@@ -117,6 +117,11 @@ import {
   ReviewWorkspace,
   ReviewWorkspaceLive,
 } from "./PullRequestReview/Sandbox/WorkspaceObject.ts"
+import type { TailnetEgressNamespace } from "./PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
+import {
+  TailnetEgress,
+  TailnetEgressLive,
+} from "./PullRequestReview/TailnetEgress/TailnetEgressObject.ts"
 
 /** The hostname both Workers serve. The website Worker owns the domain. */
 const ZONE = "effectful.co"
@@ -275,6 +280,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ),
       ),
     )
+    // The PR review model's way onto the tailnet, when PR_REVIEW_AI_VIA_TAILNET is on.
+    yield* TailnetEgress.pipe(Effect.provide(TailnetEgressLive))
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
       Layer.provideMerge(GitHubAuthLayer),
       Layer.provideMerge(GitHubBudget.layer),
@@ -307,7 +314,15 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       RepositoryDisabler.layer,
       PullRequestReviewRunLayer.pipe(
         Layer.provide(RunPublisherLayer),
-        Layer.provide(ReviewAgentLayer.pipe(Layer.provide(ReviewModelLayer))),
+        Layer.provide(
+          ReviewAgentLayer.pipe(
+            Layer.provide(
+              ReviewModelLayer(
+                liveEnvironment.PullRequestReviewTailnetEgress as TailnetEgressNamespace,
+              ),
+            ),
+          ),
+        ),
       ),
     ).pipe(
       Layer.provideMerge(
