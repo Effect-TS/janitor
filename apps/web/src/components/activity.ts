@@ -964,7 +964,7 @@ export const view = Submodel.defineView<
           h.Role("group"),
           h.AriaLabel("Activity view"),
         ],
-        [segment(h, model, "journal", "Journal"), segment(h, model, "grouped", "By subject")],
+        [segment(h, model, "grouped", "By subject"), segment(h, model, "journal", "Journal")],
       ),
       Select.view(h, {
         id: "activity-target",

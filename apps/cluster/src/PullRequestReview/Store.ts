@@ -167,10 +167,15 @@ export class PullRequestReviewStore extends Context.Service<
     readonly findings: (
       runId: RunId,
     ) => Effect.Effect<ReadonlyArray<RecordedFinding>, PullRequestReviewStoreError>
-    /** A repository's runs, newest first, one page at a time. */
+    /** A repository's runs, newest first, one page at a time. `search` matches the
+     *  pull request's title or number, as Activity's search does. */
     readonly runs: (
       repositoryId: GitHubRepositoryDatabaseId,
-      query: { readonly limit: number; readonly cursor: Option.Option<string> },
+      query: {
+        readonly limit: number
+        readonly cursor: Option.Option<string>
+        readonly search?: string
+      },
     ) => Effect.Effect<RunPage, PullRequestReviewStoreError>
     /** A repository's runs that are still running, newest first. */
     readonly running: (
@@ -293,14 +298,19 @@ export class PullRequestReviewStore extends Context.Service<
             onNone: () => Effect.succeed(null),
             onSome: Schema.decodeUnknownEffect(RunId),
           })
+          const search = query.search?.trim() ?? ""
           // The cursor is the last run on the previous page; its start time is read back
           // from the row so no precision is lost.
           const rows = yield* summaries(
             repositoryId,
-            cursor === null
-              ? sql`TRUE`
-              : sql`(r.started_at, r.run_id) < (
-                  SELECT started_at, run_id FROM pr_review_runs WHERE run_id = ${cursor}::uuid)`,
+            sql`(${search} = '' OR strpos(lower(r.pull_request_title), lower(${search})) > 0
+                OR strpos(r.pull_request_number::text, ${search.replace(/^#/, "")}) > 0)
+              AND ${
+                cursor === null
+                  ? sql`TRUE`
+                  : sql`(r.started_at, r.run_id) < (
+                  SELECT started_at, run_id FROM pr_review_runs WHERE run_id = ${cursor}::uuid)`
+              }`,
             query.limit + 1,
           )
           const runs = rows.slice(0, query.limit)

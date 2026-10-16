@@ -3,30 +3,44 @@ import { RunEntry, RunPage } from "@janitor/domain/PullRequestReview/Settings"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
+import * as Subscription from "foldkit/subscription"
 import type * as Update from "foldkit/update"
-import { RotateCw } from "lucide"
+import { ChevronDown, ChevronRight, GitPullRequest, RotateCw, Search } from "lucide"
 import type { RepositoryOverview } from "./labeling-wire"
 import * as Button from "./ui/button"
 import { chip, type ChipVariant } from "./ui/chip"
+import { inputGroup, inputGroupAddon, inputGroupInput } from "./ui/input-group"
 import * as Page from "./ui/page"
 import * as Table from "./ui/table"
 import * as Icon from "@/lib/icons"
+import { cn } from "@/lib/utils"
 
 /**
  * The repository's "PR reviews" section (EFF-1930): a read-only runs list,
  * newest first, paged by cursor and refreshed like Activity. Running and
  * skipped runs are listed too. There is no detail view and no run control.
+ * Like Activity, runs are grouped by pull request unless "All reviews" is
+ * chosen, and the search matches a pull request's title or number.
  */
+
+const Mode = Schema.Literals(["grouped", "all"])
 
 export const Model = Schema.Struct({
   repositoryId: Schema.String,
   active: Schema.Boolean,
+  mode: Mode,
+  search: Schema.String,
+  /** The search changed and its debounce hasn't settled yet. */
+  searchPending: Schema.Boolean,
+  /** Pull request numbers whose runs are shown in the grouped view. */
+  expanded: Schema.Array(Schema.Int),
   runs: Schema.Array(RunEntry),
   /** Fetches the next, older page; null once the last page is loaded. */
   cursor: Schema.NullOr(RunId),
@@ -43,6 +57,10 @@ export type Model = typeof Model.Type
 
 export const Message = defineMessageUnion({
   Activated: { repositoryId: Schema.String, active: Schema.Boolean },
+  ChangedMode: { mode: Mode },
+  ChangedSearch: { value: Schema.String },
+  SettledSearch: { generation: Schema.Int },
+  ToggledPullRequest: { number: Schema.Int },
   Polled: {},
   ClickedRefresh: {},
   ClickedMore: {},
@@ -55,6 +73,10 @@ export type Message = typeof Message.Type
 export const init = (): Model => ({
   repositoryId: "",
   active: false,
+  mode: "grouped",
+  search: "",
+  searchPending: false,
+  expanded: [],
   runs: [],
   cursor: null,
   loading: false,
@@ -68,11 +90,19 @@ export const init = (): Model => ({
 const UNREACHABLE = "PR reviews could not be loaded. Check your connection and try again."
 
 export const FetchRuns = Command.define("FetchPullRequestReviews", {
-  args: { repositoryId: Schema.String, generation: Schema.Int, cursor: Schema.NullOr(RunId) },
+  args: {
+    repositoryId: Schema.String,
+    generation: Schema.Int,
+    search: Schema.String,
+    cursor: Schema.NullOr(RunId),
+  },
   messages: [Message.Loaded, Message.Failed],
-  execute: ({ repositoryId, generation, cursor }) =>
+  execute: ({ repositoryId, generation, search, cursor }) =>
     Effect.gen(function* () {
-      const query = cursor === null ? "" : `?${new URLSearchParams({ cursor })}`
+      const params = new URLSearchParams()
+      if (search !== "") params.set("search", search)
+      if (cursor !== null) params.set("cursor", cursor)
+      const query = params.size === 0 ? "" : `?${params}`
       const response = yield* HttpClient.get(
         `/api/v1/repositories/${encodeURIComponent(repositoryId)}/pull-request-review/runs${query}`,
       )
@@ -102,11 +132,26 @@ const fetchPage = (model: Model, older = false): Return => {
       FetchRuns({
         repositoryId: model.repositoryId,
         generation: model.generation,
+        search: model.search.trim(),
         cursor: older ? model.cursor : null,
       }),
     ],
   }
 }
+
+/** Drops the loaded runs and fences responses for the previous search. */
+const reset = (model: Model): Model => ({
+  ...model,
+  runs: [],
+  cursor: null,
+  expanded: [],
+  searchPending: false,
+  loading: false,
+  initialized: false,
+  replacing: false,
+  error: null,
+  generation: model.generation + 1,
+})
 
 /**
  * A refreshed first page replaces the rows it covers, where running runs
@@ -131,12 +176,26 @@ export const update = (model: Model, message: Message): Return =>
       const next =
         repositoryId === model.repositoryId
           ? { ...model, active }
-          : { ...init(), generation: model.generation, repositoryId, active }
+          : { ...init(), mode: model.mode, generation: model.generation, repositoryId, active }
       // Fence responses when leaving and refresh on return.
       const fenced = { ...next, loading: false, generation: next.generation + 1 }
       return active ? fetchPage(fenced) : { model: fenced }
     },
-    Polled: () => fetchPage(model),
+    ChangedMode: ({ mode }) => ({ model: { ...model, mode } }),
+    ChangedSearch: ({ value }) => ({
+      model: { ...reset({ ...model, search: value.slice(0, 200) }), searchPending: true },
+    }),
+    SettledSearch: ({ generation }) =>
+      generation === model.generation ? fetchPage({ ...model, searchPending: false }) : { model },
+    ToggledPullRequest: ({ number }) => ({
+      model: {
+        ...model,
+        expanded: model.expanded.includes(number)
+          ? model.expanded.filter((value) => value !== number)
+          : [...model.expanded, number],
+      },
+    }),
+    Polled: () => (model.searchPending ? { model } : fetchPage(model)),
     ClickedRefresh: () => {
       const step = fetchPage(model)
       return step.model === model ? step : { ...step, model: { ...step.model, replacing: true } }
@@ -168,6 +227,40 @@ export const update = (model: Model, message: Message): Return =>
         ? { model }
         : { model: { ...model, loading: false, error: reason } },
   })
+
+export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
+  reviewSearchDebounce: entry(
+    { pending: Schema.Boolean, generation: Schema.Int },
+    {
+      modelToDependencies: (model) => ({
+        pending: model.active && model.searchPending,
+        generation: model.generation,
+      }),
+      dependenciesToStream: ({ pending, generation }) =>
+        pending
+          ? Stream.fromEffect(
+              Effect.sleep("300 millis").pipe(Effect.as(Message.SettledSearch({ generation }))),
+            )
+          : Stream.empty,
+    },
+  ),
+}))
+
+export type Group = {
+  readonly number: number
+  readonly runs: ReadonlyArray<RunEntry>
+}
+
+/** Runs grouped by pull request, the one reviewed most recently first. */
+export const groups = (runs: ReadonlyArray<RunEntry>): ReadonlyArray<Group> => {
+  const byNumber = new Map<number, Array<RunEntry>>()
+  for (const run of runs) {
+    const group = byNumber.get(run.number)
+    if (group) group.push(run)
+    else byNumber.set(run.number, [run])
+  }
+  return [...byNumber].map(([number, runs]) => ({ number, runs }))
+}
 
 // VIEW
 
@@ -277,6 +370,7 @@ const runRow = (
   h: HtmlBuilder<Message>,
   run: RunEntry,
   repository: RepositoryOverview | undefined,
+  nested = false,
 ) => {
   const { label, variant } = outcome(run)
   const links = [
@@ -287,7 +381,7 @@ const runRow = (
     attributes: [h.DataAttribute("status", run.status)],
     children: [
       Table.cell(h, {
-        className: "max-w-80 py-2",
+        className: cn("max-w-80 py-2", nested && "pl-11"),
         children: [pullRequestView(h, run, repository)],
       }),
       Table.cell(h, {
@@ -347,11 +441,85 @@ const runRow = (
   })
 }
 
-const table = (
+const COLUMNS = 7
+
+/** A pull request's heading row in the grouped view; clicking it shows its runs. */
+const groupRow = (
   h: HtmlBuilder<Message>,
-  runs: ReadonlyArray<RunEntry>,
+  group: Group,
+  expanded: boolean,
   repository: RepositoryOverview | undefined,
-) =>
+) => {
+  const latest = group.runs[0]!
+  const { label, variant } = outcome(latest)
+  const number = `#${group.number}`
+  return Table.row(h, {
+    className: cn(expanded && "bg-primary-wash hover:bg-primary-wash"),
+    attributes: [h.DataAttribute("pull-request", String(group.number))],
+    children: [
+      Table.cell(h, {
+        className: "relative py-0",
+        attributes: [h.Colspan(COLUMNS)],
+        children: [
+          h.div(
+            [h.Class("flex h-11 min-w-0 items-center gap-3")],
+            [
+              Icon.view(
+                h,
+                expanded ? ChevronDown : ChevronRight,
+                "size-4 shrink-0 text-ink-subtle",
+              ),
+              Icon.view(h, GitPullRequest, "size-4 shrink-0 text-ink-subtle"),
+              repository === undefined
+                ? h.span([h.Class("shrink-0 font-mono text-mono-sm text-primary")], [number])
+                : external(
+                    h,
+                    `${repositoryUrl(repository)}/pull/${group.number}`,
+                    [number],
+                    "relative z-10 shrink-0 font-mono text-mono-sm text-primary hover:underline",
+                  ),
+              h.span([h.Class("min-w-0 truncate font-medium")], [latest.title]),
+              chip(h, { variant, children: [label] }),
+              h.span(
+                [h.Class("ml-auto shrink-0 font-mono text-mono-sm text-ink-subtle tabular-nums")],
+                [plural(group.runs.length, "review")],
+              ),
+            ],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.Class(
+                "absolute inset-0 cursor-pointer rounded-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+              ),
+              h.AriaLabel(`${number} ${latest.title}`),
+              h.AriaExpanded(expanded),
+              h.OnClick(Message.ToggledPullRequest({ number: group.number })),
+            ],
+            [],
+          ),
+        ],
+      }),
+    ],
+  })
+}
+
+const rows = (
+  h: HtmlBuilder<Message>,
+  model: Model,
+  repository: RepositoryOverview | undefined,
+): ReadonlyArray<Html> =>
+  model.mode === "all"
+    ? model.runs.map((run) => runRow(h, run, repository))
+    : groups(model.runs).flatMap((group) => {
+        const expanded = model.expanded.includes(group.number)
+        return [
+          groupRow(h, group, expanded, repository),
+          ...(expanded ? group.runs.map((run) => runRow(h, run, repository, true)) : []),
+        ]
+      })
+
+const table = (h: HtmlBuilder<Message>, model: Model, repository: RepositoryOverview | undefined) =>
   h.div(
     [h.Class("overflow-x-auto")],
     [
@@ -371,10 +539,7 @@ const table = (
               ],
             }),
           ]),
-          Table.body(
-            h,
-            runs.map((run) => runRow(h, run, repository)),
-          ),
+          Table.body(h, rows(h, model, repository)),
         ],
       }),
     ],
@@ -386,6 +551,58 @@ export const view = Submodel.defineView<
   { repository: RepositoryOverview | undefined }
 >((model, { repository }, h) => {
   const count = `${model.runs.length} ${model.runs.length === 1 ? "run" : "runs"}`
+  const segment = (mode: typeof Mode.Type, label: string) =>
+    h.button(
+      [
+        h.Type("button"),
+        h.Class(
+          cn(
+            "inline-flex h-[30px] cursor-pointer items-center whitespace-nowrap px-3 text-body-md transition-colors duration-120 ease-ui",
+            model.mode === mode
+              ? "bg-primary-wash font-medium"
+              : "text-ink-muted hover:bg-surface-muted",
+          ),
+        ),
+        h.AriaPressed(String(model.mode === mode)),
+        h.OnClick(Message.ChangedMode({ mode })),
+      ],
+      [label],
+    )
+  const toolbar = h.div(
+    [h.Class("flex shrink-0 flex-wrap items-center gap-3 lg:flex-nowrap")],
+    [
+      h.form(
+        [
+          h.Class("w-full max-w-80 min-w-40 shrink lg:w-80"),
+          h.OnSubmit(Message.ChangedSearch({ value: model.search })),
+        ],
+        [
+          inputGroup(h, {
+            className: "h-8 rounded-md",
+            children: [
+              inputGroupAddon(h, { children: [Icon.view(h, Search, "size-4")] }),
+              inputGroupInput(h, {
+                id: "pull-request-review-search",
+                type: "search",
+                value: model.search,
+                placeholder: "Find a pull request",
+                ariaLabel: "Search PR reviews",
+                onInput: (value) => Message.ChangedSearch({ value }),
+              }),
+            ],
+          }),
+        ],
+      ),
+      h.div(
+        [
+          h.Class("flex shrink-0 overflow-hidden rounded-md border border-border"),
+          h.Role("group"),
+          h.AriaLabel("PR reviews view"),
+        ],
+        [segment("grouped", "By pull request"), segment("all", "All reviews")],
+      ),
+    ],
+  )
   const card = h.section(
     [
       h.Class("flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card"),
@@ -396,12 +613,14 @@ export const view = Submodel.defineView<
         ? h.p(
             [h.Role("status"), h.Class("px-4 py-3 text-body-sm text-ink-muted")],
             [
-              !model.initialized && model.loading
+              !model.initialized && (model.loading || model.searchPending)
                 ? "Loading PR reviews…"
-                : "No PR reviews yet. Runs appear here once PR review is enabled in Settings and a pull request opens or changes.",
+                : model.search.trim() !== ""
+                  ? "No matching PR reviews; try another pull request or clear the search."
+                  : "No PR reviews yet. Runs appear here once PR review is enabled in Settings and a pull request opens or changes.",
             ],
           )
-        : table(h, model.runs, repository),
+        : table(h, model, repository),
       Page.footerStrip(
         h,
         [
@@ -429,7 +648,7 @@ export const view = Submodel.defineView<
     main: [
       Page.header(h, {
         title: "PR reviews",
-        lede: "Every pull request review The Janitor ran or skipped for this repository, newest first.",
+        lede: "Every pull request review The Janitor ran or skipped for this repository, newest first. Expand a pull request to see each review.",
         actions: [
           Button.view(h, {
             variant: "secondary",
@@ -439,6 +658,7 @@ export const view = Submodel.defineView<
           }),
         ],
       }),
+      toolbar,
       model.error === null
         ? h.empty
         : h.div(
