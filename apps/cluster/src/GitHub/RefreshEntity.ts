@@ -288,9 +288,10 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
           verified.body.changedFiles !== pull.body.changedFiles ||
           !DateTime.Equivalence(verified.body.updatedAt, pull.body.updatedAt)
         )
-          return yield* failure(
-            "Pull request changed during collection refresh; refresh must retry",
-          )
+          return {
+            _tag: "Changed" as const,
+            reason: "Pull request changed during collection refresh",
+          }
       }
       return { _tag: "Found" as const, issue: issue.body, pullRequest: pull.body, collections }
     }).pipe(Effect.result)
@@ -301,6 +302,12 @@ export const RefreshEntityLayer = RefreshEntity.toLayer(
         error: fetched.failure.message,
       })
       return result(generation, "failed")
+    }
+    // An active pull request can move between the first and verifying read.
+    // That is not a failure; the follow-up run reads the new snapshot.
+    if (fetched.success._tag === "Changed") {
+      yield* completeRun("RefreshEntity", scope, generation, fetched.success)
+      return result(generation, "changed")
     }
     if (fetched.success._tag === "Ambiguous") {
       yield* completeRun("RefreshEntity", scope, generation, {

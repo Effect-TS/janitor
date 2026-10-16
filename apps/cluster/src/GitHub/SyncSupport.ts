@@ -22,7 +22,13 @@ import {
   type GitHubTransportFailure,
 } from "./Transport.ts"
 
-export const SyncRunOutcome = Schema.Literals(["verified", "blocked", "failed", "superseded"])
+export const SyncRunOutcome = Schema.Literals([
+  "verified",
+  "blocked",
+  "failed",
+  "changed",
+  "superseded",
+])
 export type SyncRunOutcome = typeof SyncRunOutcome.Type
 
 /** GitHub asked us to wait. The workflow sleeps durably and retries the activity. */
@@ -341,12 +347,11 @@ export const completeRun = (
       const detail =
         outcome._tag === "Failed"
           ? outcome.error
-          : outcome._tag === "Blocked"
+          : outcome._tag === "Blocked" || outcome._tag === "Changed"
             ? outcome.reason
             : undefined
-      yield* Effect.logWithLevel(outcome._tag === "Verified" ? "Info" : "Warn")(
-        "Completed GitHub sync run",
-      ).pipe(
+      const level = outcome._tag === "Verified" || outcome._tag === "Changed" ? "Info" : "Warn"
+      yield* Effect.logWithLevel(level)("Completed GitHub sync run").pipe(
         Effect.annotateLogs({
           workflow: name,
           scope: syncScopeKey(scope),

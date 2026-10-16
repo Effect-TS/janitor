@@ -194,6 +194,37 @@ layer(TargetsLayer, { timeout: "2 minutes" })("SyncTargets against Postgres", (i
       assert.strictEqual(target.completedGeneration, "2")
     }),
   )
+  it.effect("a changed outcome schedules a follow-up instead of failing", () =>
+    Effect.gen(function* () {
+      const targets = yield* SyncTargets
+      const sql = yield* SqlClient.SqlClient
+      const s = scope("6")
+      yield* targets.invalidate({ scope: s, sequence: Option.none() })
+      yield* targets.begin(s, gen(1))
+
+      const accepted = yield* targets.complete({
+        scope: s,
+        generation: gen(1),
+        outcome: { _tag: "Changed", reason: "moved" },
+      })
+
+      assert.isTrue(accepted)
+      const target = Option.getOrThrow(yield* targets.get(s))
+      assert.isNull(target.lastError)
+      const [row] = yield* sql<{ retry_at: Date | null }>`
+        SELECT retry_at FROM sync_target WHERE scope_key = 'installation:6'`
+      assert.isNull(row?.retry_at)
+      assert.strictEqual(target.health, "ok")
+      assert.strictEqual(target.verifiedGeneration, "0")
+      assert.strictEqual(target.completedGeneration, "1")
+      assert.strictEqual(target.requestedGeneration, "2")
+      assert.strictEqual(target.dispatchedGeneration, "2")
+      assert.deepStrictEqual(
+        (yield* outboxRows("installation:6")).map((row) => row.execution_key),
+        ["installation:6:1", "installation:6:2"],
+      )
+    }),
+  )
   it.effect("serializes simultaneous first invalidations into one dispatch", () =>
     Effect.gen(function* () {
       const targets = yield* SyncTargets

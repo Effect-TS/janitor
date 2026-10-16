@@ -46,7 +46,7 @@ export const PullRequestState = Schema.Literals(["open", "closed"]).annotate({
 })
 export type PullRequestState = typeof PullRequestState.Type
 
-export const PullRequest = Schema.Struct({
+const pullRequestFields = {
   id: GitHubPullRequestDatabaseIdFromStringOrNumber,
   number: PositiveInteger,
   nodeId: GitHubPullRequestNodeId,
@@ -60,10 +60,21 @@ export const PullRequest = Schema.Struct({
   user: PullRequestUser,
   head: PullRequestHead,
   base: PullRequestBase,
-})
+}
+
+export const PullRequest = Schema.Struct(pullRequestFields)
   .pipe(Schema.encodeKeys({ nodeId: "node_id", updatedAt: "updated_at" }))
   .annotate({ identifier: "PullRequest" })
 export type PullRequest = typeof PullRequest.Type
+
+/** Review payloads carry GitHub's simple pull request, which has no `merged`. */
+export const ReviewedPullRequest = Schema.Struct({
+  ...pullRequestFields,
+  merged: Schema.optionalKey(Schema.Boolean),
+})
+  .pipe(Schema.encodeKeys({ nodeId: "node_id", updatedAt: "updated_at" }))
+  .annotate({ identifier: "ReviewedPullRequest" })
+export type ReviewedPullRequest = typeof ReviewedPullRequest.Type
 
 export const PullRequestRepository = Schema.Struct({
   id: GitHubRepositoryDatabaseIdFromStringOrNumber,
