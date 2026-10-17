@@ -52,8 +52,8 @@ const blocking: Finding = {
   comment: "`b` is off by one.",
 }
 
-/** Pull request 7 at `headSha`, changing `src/a.ts`. */
-const putPullRequest = (harness: RunHarness, headSha: string) =>
+/** Pull request 7 at `headSha`, changing `src/a.ts` and any `extra` paths. */
+const putPullRequest = (harness: RunHarness, headSha: string, extra: ReadonlyArray<string> = []) =>
   harness.github.put({
     number: 7,
     title: "Change",
@@ -61,7 +61,16 @@ const putPullRequest = (harness: RunHarness, headSha: string) =>
     labels: [],
     pullRequest: {
       headSha,
-      files: [{ filename: "src/a.ts", status: "modified", patch, additions: 1, deletions: 0 }],
+      files: [
+        { filename: "src/a.ts", status: "modified", patch, additions: 1, deletions: 0 },
+        ...extra.map((filename) => ({
+          filename,
+          status: "added",
+          patch: "@@ -0,0 +1 @@\n+x",
+          additions: 1,
+          deletions: 0,
+        })),
+      ],
     },
   })
 
@@ -446,6 +455,9 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
       run((harness) =>
         Effect.gen(function* () {
           harness.github.dismissalForbidden = true
+          // A sensitive path from an author without write access withholds the approval that
+          // would otherwise replace the earlier review, so janitor dismisses it instead.
+          putPullRequest(harness, HEAD, [".github/workflows/ci.yml"])
           putEarlierReview(harness, "CHANGES_REQUESTED")
           // The runner stops after the dismissal failed, before the check run is saved.
           const crashed = yield* cutOff(harness, "updateCheckRun")
@@ -470,12 +482,12 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
           ])
           assert.deepStrictEqual(
             harness.github.reviews.map((review) => review.state),
-            ["CHANGES_REQUESTED", "APPROVED"],
+            ["CHANGES_REQUESTED", "COMMENTED"],
           )
           const [check] = harness.github.checkRuns
           assert.deepStrictEqual([check?.status, check?.conclusion], ["completed", "success"])
           assert.include(check?.output.summary, "Couldn't dismiss janitor's earlier review")
-          assert.strictEqual((yield* harness.row(runId))?.status, "approved")
+          assert.strictEqual((yield* harness.row(runId))?.status, "commented")
           assert.strictEqual(harness.finishedCount(runId), 1)
         }),
       ),
@@ -773,7 +785,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
   )
 
   it.effect(
-    "a withdrawn blocker gets its reply and the earlier REQUEST_CHANGES dismissed, though it can't approve",
+    "a withdrawn blocker gets its reply in a silent approval that replaces the earlier REQUEST_CHANGES",
     () =>
       run((harness) =>
         Effect.gen(function* () {
@@ -787,11 +799,13 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
             },
           ])
 
-          // Withdrawn, the finding stops requesting changes but still withholds approval.
+          // The approval supersedes the earlier review, so nothing is dismissed with a message.
           assert.deepStrictEqual(
             harness.github.reviews.map((review) => review.state),
-            ["DISMISSED", "COMMENTED"],
+            ["CHANGES_REQUESTED", "APPROVED"],
           )
+          assert.strictEqual(submitted(harness)[1]?.body, "")
+          assert.strictEqual(count(harness, "dismissReview"), 0)
           const [reply] = janitorAdded(harness, "PRRT_withdrawn", 1)
           assert.match(reply?.body ?? "", /^Withdrawn:/)
           assert.strictEqual(harness.finishedCount(runId), 1)

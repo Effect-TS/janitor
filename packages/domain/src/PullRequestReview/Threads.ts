@@ -90,16 +90,13 @@ const weighedIn = (thread: EarlierThread, actor: Actor) =>
 const clearing = (
   thread: EarlierThread,
   judgement: Judgement,
-  headMatch: HeadMatch,
   authorCanWrite: boolean,
 ): Clearing => {
-  if ((judgement === "addressed" && headMatch._tag === "Gone") || weighedIn(thread, "maintainer")) {
-    return "approval"
-  }
+  // The agent's judgement is trusted as far as its new findings are: an approval
+  // already rests on it reporting none, so a fix away from the anchored lines counts.
+  if (judgement !== "still_applies" || weighedIn(thread, "maintainer")) return "approval"
   // The PR author never clears for approval, even with write access (EFF-1650 point 3).
-  if (judgement !== "still_applies" || (authorCanWrite && weighedIn(thread, "author"))) {
-    return "dismissal"
-  }
+  if (authorCanWrite && weighedIn(thread, "author")) return "dismissal"
   return "standing"
 }
 
@@ -108,7 +105,6 @@ export const judgeThread = (
   context: {
     readonly diff: TrustedDiff
     readonly judgement?: ThreadJudgement
-    readonly headMatch: HeadMatch
     readonly authorCanWrite: boolean
   },
 ): ThreadState => {
@@ -122,7 +118,7 @@ export const judgeThread = (
     threadId: thread.id,
     severity: thread.severity,
     judgement,
-    clearing: clearing(thread, judgement.judgement, context.headMatch, context.authorCanWrite),
+    clearing: clearing(thread, judgement.judgement, context.authorCanWrite),
     changed:
       judgement.judgement !== thread.janitor.judgement ||
       (judgement.judgement === "still_applies" && thread.outdated && !thread.janitor.outdated),

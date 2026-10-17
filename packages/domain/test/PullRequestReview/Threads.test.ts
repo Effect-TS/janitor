@@ -116,7 +116,6 @@ describe("judgeThread", () => {
         Partial<EarlierThread>,
         {
           readonly judgement?: ThreadJudgement
-          readonly headMatch?: HeadMatch
           readonly authorCanWrite?: boolean
         },
         Judgement,
@@ -130,27 +129,13 @@ describe("judgeThread", () => {
         "still_applies",
         "standing",
       ],
-      ["withdrawn", {}, { judgement: { judgement: "withdrawn" } }, "withdrawn", "dismissal"],
+      ["withdrawn", {}, { judgement: { judgement: "withdrawn" } }, "withdrawn", "approval"],
       [
         "addressed with the anchored lines unchanged",
         {},
         { judgement: { judgement: "addressed" } },
         "addressed",
-        "dismissal",
-      ],
-      [
-        "addressed and the fingerprint is gone at the head",
-        {},
-        { judgement: { judgement: "addressed" }, headMatch: { _tag: "Gone" } },
-        "addressed",
         "approval",
-      ],
-      [
-        "addressed but the head blob is unknown",
-        {},
-        { judgement: { judgement: "addressed" }, headMatch: { _tag: "Unknown" } },
-        "addressed",
-        "dismissal",
       ],
       [
         "a maintainer replied",
@@ -197,7 +182,7 @@ describe("judgeThread", () => {
       [
         "its path left the diff, without asking the agent",
         { path: "src/gone.ts" },
-        { headMatch: { _tag: "Gone" } },
+        {},
         "addressed",
         "approval",
       ],
@@ -205,7 +190,6 @@ describe("judgeThread", () => {
     for (const [name, overrides, context, judgement, clearing] of cases) {
       const state = judgeThread(thread(overrides), {
         diff,
-        headMatch: matches,
         authorCanWrite: false,
         ...context,
       })
@@ -282,7 +266,7 @@ describe("planReply", () => {
     ]
     for (const [name, overrides, judgement, headMatch, expected] of cases) {
       const earlier = thread(overrides)
-      const state = judgeThread(earlier, { diff, judgement, headMatch, authorCanWrite: false })
+      const state = judgeThread(earlier, { diff, judgement, authorCanWrite: false })
       assert.deepStrictEqual(
         planReply(earlier, state, {
           repository: "Effect-TS/janitor",
