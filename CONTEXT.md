@@ -188,7 +188,7 @@ The pull request diff janitor fetches from GitHub for the pinned head SHA, never
 A hash of a finding's path and a normalised snippet of the anchored code, without the comment text. It is hidden in each inline comment, and janitor matches it at the head to tell whether anchored lines changed and to avoid repeating a finding.
 
 **Thread judgement**:
-The agent's verdict on one of janitor's earlier review threads in a later run: `still_applies` (optionally with a new anchor), `addressed` or `withdrawn`, with an optional note. Janitor replies to threads but never resolves them.
+The agent's verdict on one of janitor's earlier review threads in a later run: `still_applies` (optionally with a new anchor), `addressed` or `withdrawn`, with an optional note. Janitor silently resolves open `addressed` threads and replies to `still_applies` or `withdrawn` threads when there is something new to say.
 _Avoid_: Resolved (for a finding outcome)
 
 **Cleared for dismissal**:
