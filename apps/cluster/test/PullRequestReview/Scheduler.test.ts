@@ -234,8 +234,8 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
         yield* pr.push(head(2))
         assert.strictEqual(starts(12).length, 1)
 
-        // The deadline is 10 minutes from the start, and the margin 2 more.
-        yield* wait("11 minutes")
+        // The deadline is 15 minutes from the start, and the margin 2 more.
+        yield* wait("16 minutes")
         assert.strictEqual(starts(12).length, 1)
         yield* wait("90 seconds")
         assert.strictEqual(lastStart(12).headSha, head(2))

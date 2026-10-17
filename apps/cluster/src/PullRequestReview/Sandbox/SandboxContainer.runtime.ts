@@ -74,7 +74,9 @@ export default SandboxContainer.make(
     return {
       main: import.meta.url,
       runtime: "node" as const,
-      instanceType: "standard-1" as const,
+      // 2 vCPU: a cold `pnpm install` of Effect-TS/effect takes over two
+      // minutes on standard-1's half vCPU, and about 50 seconds here.
+      instanceType: "standard-3" as const,
       maxInstances: yield* sandboxMaxInstances,
       // photon-node loads its wasm from its own directory, so it can't be
       // bundled; clanka imports it only to attach images.

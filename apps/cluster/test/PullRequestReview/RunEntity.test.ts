@@ -306,7 +306,7 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
   )
 
   it.effect(
-    "steers at minute 7 and interrupts at minute 10, both counted from the first start",
+    "steers at minute 10 and interrupts at minute 15, both counted from the first start",
     () =>
       run((harness) =>
         Effect.gen(function* () {
@@ -314,21 +314,21 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
           const startedAt = yield* Clock.currentTimeMillis
           yield* harness.start(runId)
 
-          yield* at(harness, startedAt, time(5))
+          yield* at(harness, startedAt, time(8))
           const early = yield* resume(harness)
-          yield* at(harness, startedAt, time(6, 50))
+          yield* at(harness, startedAt, time(9, 50))
           assert.deepStrictEqual(early.sent, [resumeMessage])
-          yield* at(harness, startedAt, time(7, 10))
+          yield* at(harness, startedAt, time(10, 10))
           assert.deepStrictEqual(early.sent, [resumeMessage, wrapUpMessage])
 
-          // Resumed past minute 7: straight to wrap-up.
-          yield* at(harness, startedAt, time(8))
+          // Resumed past minute 10: straight to wrap-up.
+          yield* at(harness, startedAt, time(11))
           const late = yield* resume(harness)
           assert.deepStrictEqual(late.sent, [resumeMessage, wrapUpMessage])
 
-          yield* at(harness, startedAt, time(9, 50))
+          yield* at(harness, startedAt, time(14, 50))
           assert.isFalse(late.stopped)
-          yield* at(harness, startedAt, time(10, 10))
+          yield* at(harness, startedAt, time(15, 10))
           assert.isTrue(late.stopped)
           yield* harness.until(
             Effect.sync(() => harness.published.length > 0),
@@ -360,11 +360,11 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
         const starved = newRunId()
         const startedAt = yield* Clock.currentTimeMillis
         yield* harness.send(starved)
-        yield* harness.wait("11 minutes")
+        yield* harness.wait("16 minutes")
         const attempts = harness.workspaces.acquires.filter((input) => input.runId === starved)
         assert.isAbove(attempts.length, 1)
         assert.isTrue(
-          attempts.every((input) => input.at - startedAt < Duration.toMillis("10 minutes")),
+          attempts.every((input) => input.at - startedAt < Duration.toMillis("15 minutes")),
         )
         assert.strictEqual((yield* harness.row(starved))?.status, "failed")
         assert.strictEqual(harness.finishedCount(starved), 1)
