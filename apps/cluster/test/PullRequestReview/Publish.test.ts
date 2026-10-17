@@ -206,19 +206,6 @@ const run = <A, E, R>(test: (harness: RunHarness) => Effect.Effect<A, E, R>) =>
   }).pipe(Effect.scoped)
 
 layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
-  it.effect("a clean run approves without a visible review body", () =>
-    run((harness) =>
-      Effect.gen(function* () {
-        yield* review(harness, [])
-
-        assert.deepStrictEqual(
-          submitted(harness).map((review) => [review.state, review.body]),
-          [["APPROVED", ""]],
-        )
-      }),
-    ),
-  )
-
   it.effect(
     "posts a review pinned to the reviewed head, then the check run, the run record and RunFinished",
     () =>
@@ -433,7 +420,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
       ),
   )
 
-  it.effect("a nit-only approval leaves its finding inline without a visible review body", () =>
+  it.effect("an approval has no review body and leaves its nits inline", () =>
     run((harness) =>
       Effect.gen(function* () {
         const nit: Finding = { ...blocking, severity: "nit", comment: "Prefer a clearer name." }

@@ -126,13 +126,7 @@ const Plan = Schema.Union([
     resolutions: Schema.optionalKey(Schema.Array(Schema.String)),
     /** Janitor's earlier `REQUEST_CHANGES` reviews to dismiss. */
     dismiss: Schema.Array(
-      Schema.Struct({
-        id: Schema.String,
-        databaseId: Schema.Int,
-        state: Schema.String,
-        /** Only in older journalled plans, which still replay. */
-        marker: Schema.optionalKey(Schema.Struct({ runId: RunId, reviewedSha: Schema.String })),
-      }),
+      Schema.Struct({ id: Schema.String, databaseId: Schema.Int, state: Schema.String }),
     ),
     gateFailures: Schema.Array(GateFailureSchema),
     conclusion: Schema.Literals(["success", "failure", "neutral"]),
@@ -419,6 +413,10 @@ const makePublisher = Effect.gen(function* () {
           }
 
         const states = threads.map(({ judged }) => judged)
+        // The plan is journalled before this run creates a review, so none of these is this run's.
+        const changesRequested = history.reviews.filter(
+          (review) => review.state === "CHANGES_REQUESTED",
+        )
         const decision = decideReview({
           reviewedSha: state.headSha,
           baseRefAtStart: state.baseRef ?? pull.baseRef,
@@ -440,10 +438,7 @@ const makePublisher = Effect.gen(function* () {
             lockfiles: config.lockfiles,
             manifests: config.manifests,
           },
-          // The plan is journalled before this run creates a review, so none here is this run's.
-          earlierChangesRequested: history.reviews.some(
-            (review) => review.state === "CHANGES_REQUESTED",
-          ),
+          earlierChangesRequested: changesRequested.length > 0,
           approvedAtHead: history.reviews.some(
             (review) =>
               review.state === "APPROVED" && Option.contains(review.reviewedSha, state.headSha),
@@ -496,9 +491,7 @@ const makePublisher = Effect.gen(function* () {
               : [],
           ),
           dismiss: decision.dismissEarlier
-            ? history.reviews.flatMap(({ id, databaseId, state }) =>
-                state === "CHANGES_REQUESTED" ? [{ id, databaseId, state }] : [],
-              )
+            ? changesRequested.map(({ id, databaseId, state }) => ({ id, databaseId, state }))
             : [],
           gateFailures: decision.gateFailures,
           conclusion:
