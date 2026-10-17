@@ -172,6 +172,9 @@ The per-repository switch that turns PR review on. It is off by default, stored 
 **Review verdict**:
 The GitHub review event a run posts: `REQUEST_CHANGES` when any blocking finding stands, otherwise `APPROVE` when every approval gate passes, otherwise `COMMENT` when there are nits. A run with nothing new to say posts no review and only updates the `janitor/review` check run.
 
+**Outstanding change request**:
+A janitor `CHANGES_REQUESTED` review not superseded by a later janitor approval or dismissed review. Dismissal does not count as approval or revive earlier change requests, including when GitHub dismisses a stale approval after a push.
+
 **Finding**:
 One problem the agent reports, anchored to a line range on the pull request's side of the diff (GitHub's `RIGHT` side): a path, a start and end line, a severity and a comment. A single line has equal start and end lines.
 
@@ -192,10 +195,10 @@ The agent's verdict on one of janitor's earlier review threads in a later run: `
 _Avoid_: Resolved (for a finding outcome)
 
 **Cleared for dismissal**:
-A finding judged `addressed` or `withdrawn`. It stops counting toward `REQUEST_CHANGES`, so janitor dismisses its own earlier `REQUEST_CHANGES` review once no blocking finding stands.
+A blocking finding that stops counting toward `REQUEST_CHANGES` but still withholds approval: the pull request author with write access replied in its thread or resolved it. Once no blocking finding stands, janitor approves, which replaces its earlier `REQUEST_CHANGES` review, or dismisses that review when a gate withholds approval.
 
 **Cleared for approval**:
-A blocking finding that no longer stops approval: it was judged `addressed` and its fingerprint no longer matches at the head, or a write-access human other than the pull request author replied in its thread or resolved it.
+A blocking finding that no longer stops approval: it was judged `addressed` or `withdrawn`, or a write-access human other than the pull request author replied in its thread or resolved it.
 
 **Approval gate**:
 A hard check in trusted code that must pass before janitor posts `APPROVE`: the head and base are unchanged, the run finished with `taskComplete` and was not steered to wrap up, no blocking finding stands that isn't cleared for approval, the pull request is open and not a draft, the run was not a forced review, and an author without write access did not touch a sensitive path. A failed gate is reported in the check run.

@@ -155,7 +155,7 @@ export const approvalGates = (input: ReviewInput): ReadonlyArray<GateFailure> =>
 export interface ReviewDecision {
   /** The review to post, or `null` for no review. */
   readonly event: Verdict | null
-  /** Dismiss janitor's earlier `REQUEST_CHANGES` reviews. */
+  /** Dismiss janitor's earlier `REQUEST_CHANGES` reviews; an approval supersedes them instead. */
   readonly dismissEarlier: boolean
   readonly gateFailures: ReadonlyArray<GateFailure>
 }
@@ -164,14 +164,15 @@ export interface ReviewDecision {
  * An unfinished run fails the gates, so it requests changes or comments and
  * never approves. A run with nothing new, no thread state change and no
  * dismissal or new approval posts no review (EFF-1649 rule 17). An effective
- * approval at the reviewed head suppresses only unchanged re-runs.
+ * approval at the reviewed head suppresses only unchanged re-runs. An approval
+ * replaces janitor's earlier `REQUEST_CHANGES` on GitHub, so it dismisses none.
  */
 export const decideReview = (input: ReviewInput): ReviewDecision => {
   const gateFailures = approvalGates(input)
   const blocking = blockingStands(input.findings, input.threads, "dismissal")
-  const dismissEarlier = input.earlierChangesRequested && !blocking
+  const lifted = input.earlierChangesRequested && !blocking
   const changed =
-    input.findings.length > 0 || input.threads.some((thread) => thread.changed) || dismissEarlier
+    input.findings.length > 0 || input.threads.some((thread) => thread.changed) || lifted
   const nits =
     input.findings.some((finding) => finding.severity === "nit") ||
     input.threads.some((thread) => thread.severity === "nit" && thread.clearing === "standing")
@@ -180,7 +181,8 @@ export const decideReview = (input: ReviewInput): ReviewDecision => {
     if (gateFailures.length === 0) return changed || !input.approvedAtHead ? "approve" : null
     return nits && changed ? "comment" : null
   }
-  return { event: event(), dismissEarlier, gateFailures }
+  const decided = event()
+  return { event: decided, dismissEarlier: lifted && decided !== "approve", gateFailures }
 }
 
 export type CheckRunInput =

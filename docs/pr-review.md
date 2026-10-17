@@ -45,10 +45,12 @@ The size count leaves out lockfiles, files the base branch's `.gitattributes` ma
 ### Verdicts
 
 - `REQUEST_CHANGES` when any blocking finding stands.
-- `APPROVE` when no blocking finding stands and every approval gate passes. An approval has no body; any nits stay inline.
+- `APPROVE` when no blocking finding stands and every approval gate passes. An approval has no body; any nits stay inline. It replaces janitor's earlier `REQUEST_CHANGES` on GitHub, so janitor doesn't dismiss those.
 - `COMMENT` when there are only nits, or no blocking findings but a gate failed.
 
 A run with nothing new to say posts no review and only updates the check run. A run that ends before the agent finishes, at the deadline or after a provider failure, posts a partial review from the findings it already has. A partial review never approves.
+
+Only janitor's `CHANGES_REQUESTED` reviews after its latest `APPROVED` or `DISMISSED` review count as outstanding (`earlierChangesRequested` at publish time). `COMMENTED` and `PENDING` reviews do not change that cutoff. A dismissed review supersedes earlier change requests without counting as approval, even when it was a stale approval dismissed after a push. Newer change requests remain outstanding.
 
 The approval gates are checked in trusted code at publish time:
 
@@ -78,14 +80,14 @@ The summary also lists janitor's earlier `REQUEST_CHANGES` reviews it couldn't d
 
 ### Disputing a finding
 
-Reply in the finding's thread. The next run reads the thread and judges each earlier finding `still_applies`, `addressed` or `withdrawn`, and replies with its judgement. Janitor never resolves threads.
+Reply in the finding's thread. The next run reads the thread and judges each earlier finding `still_applies`, `addressed` or `withdrawn`. It resolves an `addressed` thread without a reply, and replies in the others when it has something new to say.
 
-The author's own reply or resolution lifts `REQUEST_CHANGES`, but it never clears a blocking finding for approval. Approval needs either the anchored lines to change and the agent to judge the finding addressed, or a reply or resolution from a human with write access other than the author. A maintainer can also comment `/janitor` to re-run, or dismiss janitor's review on GitHub.
+The author's own reply or resolution lifts `REQUEST_CHANGES`, but it never clears a blocking finding for approval. Approval needs either the agent to judge the finding `addressed` or `withdrawn`, or a reply or resolution from a human with write access other than the author. A maintainer can also comment `/janitor` to re-run, or dismiss janitor's review on GitHub.
 
 ## Per-repository setup
 
 1. Open the repository's Settings page in janitor and select **Enable** under **PR review**. Janitor refuses to enable a private repository, or one whose visibility it hasn't seen yet. Any teammate can enable or disable it. Disabling cancels the repository's running reviews straight away.
-2. On each protected branch, add janitor to the list of people and apps allowed to dismiss pull request reviews. Without it, janitor can't dismiss its own `REQUEST_CHANGES` once nothing blocks, and the check run lists the review it couldn't dismiss.
+2. On each protected branch, add janitor to the list of people and apps allowed to dismiss pull request reviews. Without it, janitor can't dismiss its own `REQUEST_CHANGES` once nothing blocks but a gate still withholds approval, and the check run lists the review it couldn't dismiss.
 3. Turn on **Dismiss stale pull request approvals when new commits are pushed**. This is required. Janitor doesn't dismiss its own approval after a push. It relies on GitHub, and re-approves on the next run when the gates pass.
 4. Making `janitor/review` a required status check is optional. Required checks treat `neutral` as passing, so oversized, deadline-hit and errored runs don't block the merge.
 5. Janitor's approval counts toward required approvals. To keep it advisory, require two approvals, or require review from code owners. An App can't be a code owner, so a human always has to approve.

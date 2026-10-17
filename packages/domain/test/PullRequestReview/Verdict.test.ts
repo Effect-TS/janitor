@@ -19,14 +19,8 @@ const nit = { severity: "nit" } as const
 const threadState = (severity: Severity, clearing: Clearing, changed = false): ThreadState => ({
   threadId: "T1",
   severity,
-  judgement: {
-    judgement:
-      clearing === "standing"
-        ? "still_applies"
-        : clearing === "approval"
-          ? "addressed"
-          : "withdrawn",
-  },
+  // Only a human weighing in clears a still-applying thread, and only an author for dismissal alone.
+  judgement: { judgement: clearing === "approval" ? "addressed" : "still_applies" },
   clearing,
   changed,
 })
@@ -235,14 +229,14 @@ describe("decideReview", () => {
       ],
       ["no findings and a gate fails", draft, { event: null, dismissEarlier: false }],
       [
-        "an earlier blocker withdrawn, not cleared for approval",
+        "an earlier blocker cleared only for dismissal",
         { threads: [threadState("blocking", "dismissal", true)], earlierChangesRequested: true },
         { event: null, dismissEarlier: true },
       ],
       [
         "an earlier blocker cleared for approval",
         { threads: [threadState("blocking", "approval", true)], earlierChangesRequested: true },
-        { event: "approve", dismissEarlier: true },
+        { event: "approve", dismissEarlier: false },
       ],
       [
         "a quiet run with a standing blocker",
