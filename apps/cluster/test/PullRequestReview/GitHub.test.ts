@@ -8,7 +8,6 @@ import * as TestClock from "effect/testing/TestClock"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { Fingerprint } from "@janitor/domain/PullRequestReview/Fingerprint"
 import { inlineComment } from "@janitor/domain/PullRequestReview/Render"
-import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import { GitHubRateLimited } from "../../src/GitHub/Transport.ts"
 import * as ReviewGitHub from "../../src/PullRequestReview/GitHub.ts"
 import type { FakePullRequest } from "../Labeling/fakeGitHub.ts"
@@ -51,7 +50,6 @@ const comment = (
 })
 
 const fingerprint = Fingerprint.make("f".repeat(64))
-const runId = RunId.make("3f9b6c1e-2d4a-4e8b-9c7d-1a2b3c4d5e6f")
 
 describe("PR review GitHub", () => {
   it.effect(
@@ -207,7 +205,7 @@ describe("PR review GitHub", () => {
     }),
   )
 
-  it.effect("keeps only the App's threads and reviews that carry valid markers", () =>
+  it.effect("keeps only the App's marked threads and its submitted reviews", () =>
     Effect.gen(function* () {
       const fake = makeFake()
       const marked = inlineComment({ comment: "Missing null check.", fingerprint })
@@ -251,7 +249,6 @@ describe("PR review GitHub", () => {
           comments: [comment("PRRC_5", APP_LOGIN, marked, 5, false)],
         },
       ]
-      const reviewMarker = `<!-- janitor:review run=${runId} sha=${HEAD} -->`
       fake.reviews = [
         {
           id: "PRR_1",
@@ -259,7 +256,7 @@ describe("PR review GitHub", () => {
           author: APP_LOGIN,
           byApp: true,
           state: "CHANGES_REQUESTED",
-          body: `Two blocking findings.\n\n${reviewMarker}`,
+          body: "Two blocking findings.",
           commitOID: HEAD,
         },
         {
@@ -267,8 +264,8 @@ describe("PR review GitHub", () => {
           databaseId: 902,
           author: APP_LOGIN,
           byApp: true,
-          state: "COMMENTED",
-          body: "No marker.",
+          state: "PENDING",
+          body: "",
           commitOID: HEAD,
         },
         {
@@ -277,7 +274,7 @@ describe("PR review GitHub", () => {
           author: "mallory",
           byApp: false,
           state: "APPROVED",
-          body: reviewMarker,
+          body: "",
           commitOID: HEAD,
         },
       ]
@@ -328,7 +325,7 @@ describe("PR review GitHub", () => {
           id: "PRR_1",
           databaseId: 901,
           state: "CHANGES_REQUESTED",
-          marker: { runId, reviewedSha: HEAD },
+          reviewedSha: Option.some(HEAD),
         },
       ])
     }),
@@ -561,15 +558,7 @@ describe("PR review GitHub", () => {
       const github = yield* client(fake)
 
       const dismissal = yield* github
-        .dismissReview(
-          {
-            id: "PRR_1",
-            databaseId: 901,
-            state: "CHANGES_REQUESTED",
-            marker: { runId, reviewedSha: HEAD },
-          },
-          "No blocking findings remain.",
-        )
+        .dismissReview({ id: "PRR_1", databaseId: 901 }, "No blocking findings remain.")
         .pipe(Effect.flip)
       const unresolvable = yield* withElapsingClock(
         github.createPendingReview(HEAD).pipe(

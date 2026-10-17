@@ -53,8 +53,8 @@ import { GitHubLink, PullRequestReviewStore, RecordedFinding } from "./Store.ts"
  *
  * Every step is journalled in `publish_steps` once it is done, so a replayed
  * `Publish` skips it. A create records its attempt first: a replay that finds
- * the attempt but no result looks for the run's marker on GitHub before it
- * writes again. A step that fails for good is recorded, never thrown.
+ * the attempt but no result looks for what it would have written on GitHub
+ * before it writes again. A step that fails for good is recorded, never thrown.
  */
 
 const Actor = Schema.Literals(["maintainer", "author", "other"])
@@ -130,7 +130,8 @@ const Plan = Schema.Union([
         id: Schema.String,
         databaseId: Schema.Int,
         state: Schema.String,
-        marker: Schema.Struct({ runId: RunId, reviewedSha: Schema.String }),
+        /** Only in older journalled plans, which still replay. */
+        marker: Schema.optionalKey(Schema.Struct({ runId: RunId, reviewedSha: Schema.String })),
       }),
     ),
     gateFailures: Schema.Array(GateFailureSchema),
@@ -439,11 +440,13 @@ const makePublisher = Effect.gen(function* () {
             lockfiles: config.lockfiles,
             manifests: config.manifests,
           },
+          // The plan is journalled before this run creates a review, so none here is this run's.
           earlierChangesRequested: history.reviews.some(
-            (review) => review.state === "CHANGES_REQUESTED" && review.marker.runId !== runId,
+            (review) => review.state === "CHANGES_REQUESTED",
           ),
           approvedAtHead: history.reviews.some(
-            (review) => review.state === "APPROVED" && review.marker.reviewedSha === state.headSha,
+            (review) =>
+              review.state === "APPROVED" && Option.contains(review.reviewedSha, state.headSha),
           ),
         })
         const { inline, body } = allocateInline(findings, config.maxInlineComments)
@@ -493,8 +496,8 @@ const makePublisher = Effect.gen(function* () {
               : [],
           ),
           dismiss: decision.dismissEarlier
-            ? history.reviews.filter(
-                (review) => review.state === "CHANGES_REQUESTED" && review.marker.runId !== runId,
+            ? history.reviews.flatMap(({ id, databaseId, state }) =>
+                state === "CHANGES_REQUESTED" ? [{ id, databaseId, state }] : [],
               )
             : [],
           gateFailures: decision.gateFailures,
@@ -576,7 +579,6 @@ const makePublisher = Effect.gen(function* () {
       ) => {
         const listedInBody = (index: number) => options.inBody || options.unresolvable.has(index)
         return reviewBody({
-          runId,
           reviewedSha: state.headSha,
           event,
           summary: review.summary,
@@ -617,7 +619,8 @@ const makePublisher = Effect.gen(function* () {
           `${prefix}/submit`,
           Submitted,
           Effect.gen(function* () {
-            const found = yield* client.findReview(runId)
+            // The pending review keeps its id once submitted.
+            const found = yield* client.findReview(pending.id)
             if (Option.isNone(found)) return Option.none()
             // Cut off after it was sent: keep what submit saw then, never the head as it is now.
             const observed = yield* storage.publishStep(observedStep).pipe(Effect.orDie)

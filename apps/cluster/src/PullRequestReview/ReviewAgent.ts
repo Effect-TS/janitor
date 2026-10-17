@@ -249,7 +249,7 @@ const readInputs = (options: StartOptions) =>
     })
 
     // What changed since janitor last reviewed, when that SHA is still in the head's history.
-    const lastReviewed = history.reviews.at(-1)?.marker.reviewedSha
+    const lastReviewed = history.reviews.at(-1)?.reviewedSha.pipe(Option.getOrUndefined)
     let sinceLastReview: { readonly reviewedSha: string; readonly diff: string } | undefined
     if (lastReviewed !== undefined && lastReviewed !== run.headSha) {
       const comparison = yield* client.compare(lastReviewed, run.headSha)

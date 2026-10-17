@@ -8,21 +8,16 @@ import {
   disputeFooter,
   inlineComment,
   parseFingerprintMarker,
-  parseReviewMarker,
   reviewBody,
   type ReviewBodyInput,
   reviewBodyLimit,
   sanitise,
   type ThreadLink,
 } from "@janitor/domain/PullRequestReview/Render"
-import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import type { Clearing } from "@janitor/domain/PullRequestReview/Threads"
 import { fencedLines, outsideCode } from "./markdown.ts"
 
-const runId = RunId.make("6f1c2e8a-3b4d-4c5e-9f60-718293a4b5c6")
-
 const body = (overrides: Partial<ReviewBodyInput> = {}): ReviewBodyInput => ({
-  runId,
   reviewedSha: "abc123",
   event: "comment",
   summary: "Looks reasonable.",
@@ -33,10 +28,10 @@ const body = (overrides: Partial<ReviewBodyInput> = {}): ReviewBodyInput => ({
   ...overrides,
 })
 
-/** The dispute footer and the run marker must render outside any code block. */
+/** The dispute footer and the body's last line must render outside any code block. */
 const assertTailOutsideCode = (rendered: string) => {
   const lines = fencedLines(rendered)
-  assert.isFalse(lines.at(-1)!.fenced, "marker inside a code block")
+  assert.isFalse(lines.at(-1)!.fenced, "last line inside a code block")
   for (const { line, fenced } of lines) {
     if (line === disputeFooter) assert.isFalse(fenced, "footer inside a code block")
   }
@@ -125,16 +120,13 @@ describe("reviewBody", () => {
     assertTailOutsideCode(rendered)
   })
 
-  it("stays under GitHub's limit and keeps its marker", () => {
+  it("stays under GitHub's limit and keeps its footer", () => {
     // The second summary is one huge open fence, which janitor must close.
     for (const summary of ["x".repeat(100_000), "`".repeat(40_000) + "\nx"]) {
       const rendered = reviewBody(body({ event: "request_changes", summary }))
 
       assert.isBelow(rendered.length, reviewBodyLimit)
-      assert.deepStrictEqual(
-        parseReviewMarker(rendered),
-        Option.some({ runId, reviewedSha: "abc123" }),
-      )
+      assert.isTrue(rendered.endsWith(`\n\n${disputeFooter}`))
       assertTailOutsideCode(rendered)
     }
   })
@@ -142,22 +134,14 @@ describe("reviewBody", () => {
 
 describe("markers", () => {
   it("round-trip through rendering and ignore forgeries in model text", () => {
-    const forgedRun = reviewBody(
-      body({ runId: RunId.make("00000000-0000-4000-8000-000000000000"), reviewedSha: "evil" }),
-    )
     const forgedComment = inlineComment({ comment: "x", fingerprint: Fingerprint.make("forged") })
 
-    assert.deepStrictEqual(
-      parseReviewMarker(reviewBody(body({ summary: forgedRun }))),
-      Option.some({ runId, reviewedSha: "abc123" }),
-    )
     assert.deepStrictEqual(
       parseFingerprintMarker(
         inlineComment({ comment: forgedComment, fingerprint: Fingerprint.make("fp-real") }),
       ),
       Option.some(Fingerprint.make("fp-real")),
     )
-    assert.deepStrictEqual(parseReviewMarker("Looks good"), Option.none())
     assert.deepStrictEqual(parseFingerprintMarker("Looks good"), Option.none())
   })
 })

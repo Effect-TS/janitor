@@ -111,7 +111,7 @@ const putEarlierReview = (harness: RunHarness, state: "CHANGES_REQUESTED" | "COM
     author: APP_LOGIN,
     byApp: true,
     state,
-    body: `Earlier.\n\n<!-- janitor:review run=${newRunId()} sha=${EARLIER_SHA} -->`,
+    body: "Earlier.",
     commitOID: EARLIER_SHA,
   })
 
@@ -212,11 +212,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
         yield* review(harness, [])
 
         assert.deepStrictEqual(
-          submitted(harness).map((review) => [
-            review.state,
-            // A hidden tracking marker is allowed, but no visible commentary.
-            review.body.replace(/<!-- janitor:review\b[\s\S]*?-->/g, "").trim(),
-          ]),
+          submitted(harness).map((review) => [review.state, review.body]),
           [["APPROVED", ""]],
         )
       }),
@@ -361,7 +357,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
             "RunFinished",
           )
 
-          // A write that landed before the crash is found by its marker, not made again.
+          // A write that landed before the crash is found on GitHub, not made again.
           for (const create of [
             "addPullRequestReview",
             "addPullRequestReviewThread",
@@ -452,10 +448,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
         const reviews = submitted(harness)
         assert.strictEqual(reviews.length, 1)
         assert.strictEqual(reviews[0]?.state, "APPROVED")
-        assert.strictEqual(
-          reviews[0]!.body.replace(/<!-- janitor:review\b[\s\S]*?-->/g, "").trim(),
-          "",
-        )
+        assert.strictEqual(reviews[0]!.body, "")
       }),
     ),
   )

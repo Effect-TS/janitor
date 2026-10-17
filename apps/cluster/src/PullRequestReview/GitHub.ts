@@ -3,11 +3,8 @@ import type { PullRequestFile } from "@janitor/domain/PullRequestReview/Diff"
 import type { Fingerprint, HeadBlob } from "@janitor/domain/PullRequestReview/Fingerprint"
 import {
   parseFingerprintMarker,
-  parseReviewMarker,
   type CheckRunOutput,
-  type ReviewMarker,
 } from "@janitor/domain/PullRequestReview/Render"
-import type { RunId } from "@janitor/domain/PullRequestReview/Run"
 import {
   ancestorDirectories,
   countedSize,
@@ -163,12 +160,13 @@ export interface JanitorThread {
   readonly comments: ReadonlyArray<ThreadComment>
 }
 
-/** A review janitor's App submitted, recognised by its review marker. */
+/** A review janitor's App submitted. */
 export interface JanitorReview {
   readonly id: string
   readonly databaseId: number
   readonly state: string
-  readonly marker: ReviewMarker
+  /** The commit the review was pinned to; none once a force push removed it. */
+  readonly reviewedSha: Option.Option<string>
 }
 
 export type RepositoryPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none"
@@ -261,9 +259,9 @@ export interface PullRequestGitHub {
     },
     PullRequestGitHubFailure
   >
-  /** Janitor's submitted review carrying this run's marker, so a retry doesn't post twice. */
+  /** Janitor's review `reviewId` once submitted, so a retry doesn't post twice. */
   readonly findReview: (
-    runId: RunId,
+    reviewId: string,
   ) => Effect.Effect<Option.Option<JanitorReview>, PullRequestGitHubFailure>
   /** A login's repository permission, cached for the run. */
   readonly permission: (
@@ -304,7 +302,7 @@ export interface PullRequestGitHub {
   /** Resolves an earlier review thread without adding a comment. */
   readonly resolveThread: (threadId: string) => Effect.Effect<void, PullRequestGitHubFailure>
   readonly dismissReview: (
-    review: JanitorReview,
+    review: { readonly id: string; readonly databaseId: number },
     message: string,
   ) => Effect.Effect<void, PullRequestGitHubFailure | NotOnDismissalAllowList>
 }
@@ -447,7 +445,7 @@ const ReviewNode = Schema.Struct({
   id: Schema.String,
   databaseId: Schema.Int,
   state: Schema.String,
-  body: Schema.String,
+  commit: Schema.NullOr(Schema.Struct({ oid: Schema.String })),
   viewerDidAuthor: Schema.Boolean,
 })
 
@@ -466,7 +464,7 @@ const PendingData = pullRequestData({ id: Schema.String, reviews: connection(Rev
 const PAGE_INFO = "pageInfo { hasNextPage endCursor }"
 const COMMENT_FIELDS =
   "id url body createdAt viewerDidAuthor author { login } pullRequestReview { id state }"
-const REVIEW_FIELDS = "id databaseId state body viewerDidAuthor"
+const REVIEW_FIELDS = "id databaseId state commit { oid } viewerDidAuthor"
 
 /** A query on this pull request; `selection` goes inside `pullRequest`. */
 const pullRequestQuery = (selection: string, after = true) =>
@@ -961,20 +959,20 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       Effect.map((pull) => pull.reviews),
     ),
   ).pipe(
+    // The App submits reviews only through Publish, so every submitted one it authored is janitor's.
     Effect.map((nodes) =>
-      nodes.flatMap((review): ReadonlyArray<JanitorReview> => {
-        const marker = review.viewerDidAuthor ? parseReviewMarker(review.body) : Option.none()
-        return Option.isNone(marker)
-          ? []
-          : [
+      nodes.flatMap((review): ReadonlyArray<JanitorReview> =>
+        review.viewerDidAuthor && review.state !== "PENDING"
+          ? [
               {
                 id: review.id,
                 databaseId: review.databaseId,
                 state: review.state,
-                marker: marker.value,
+                reviewedSha: Option.fromNullishOr(review.commit?.oid),
               },
             ]
-      }),
+          : [],
+      ),
     ),
   )
 
@@ -1032,10 +1030,10 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     { concurrency: 2 },
   )
 
-  const findReview = (runId: RunId) =>
+  const findReview = (reviewId: string) =>
     janitorReviews.pipe(
       Effect.map((reviews) =>
-        Option.fromNullishOr(reviews.find((review) => review.marker.runId === runId)),
+        Option.fromNullishOr(reviews.find((review) => review.id === reviewId)),
       ),
     )
 
@@ -1290,7 +1288,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       ),
     )
 
-  const dismissReview = (review: JanitorReview, message: string) =>
+  const dismissReview: PullRequestGitHub["dismissReview"] = (review, message) =>
     send("dismissReview", {
       method: "PUT",
       url: `${pullPath}/reviews/${review.databaseId}/dismissals`,
