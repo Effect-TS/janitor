@@ -437,6 +437,29 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
       ),
   )
 
+  it.effect("a nit-only approval leaves its finding inline without a visible review body", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        const nit: Finding = { ...blocking, severity: "nit", comment: "Prefer a clearer name." }
+        yield* review(harness, [nit])
+
+        assert.deepStrictEqual(
+          harness.github.threads.map((thread) => [thread.path, thread.line]),
+          [["src/a.ts", 2]],
+        )
+        assert.strictEqual(harness.github.threads[0]!.comments.length, 1)
+        assert.include(harness.github.threads[0]!.comments[0]!.body, nit.comment)
+        const reviews = submitted(harness)
+        assert.strictEqual(reviews.length, 1)
+        assert.strictEqual(reviews[0]?.state, "APPROVED")
+        assert.strictEqual(
+          reviews[0]!.body.replace(/<!-- janitor:review\b[\s\S]*?-->/g, "").trim(),
+          "",
+        )
+      }),
+    ),
+  )
+
   it.effect(
     "a forbidden dismissal is noted in the check run, the batch goes on, and a replay doesn't retry it",
     () =>
