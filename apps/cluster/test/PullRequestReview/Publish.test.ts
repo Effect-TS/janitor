@@ -664,6 +664,29 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
       ),
   )
 
+  it.effect("an addressed finding resolves its earlier thread without a resolution reply", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        yield* putEarlierThread(harness, { id: "PRRT_addressed", severity: "blocking" })
+        harness.github.file(HEAD, "src/a.ts", lines.join("\n").replace("a + 1", "a"))
+
+        yield* reviewWith(harness, [
+          {
+            _tag: "ThreadUpdated",
+            threadId: "PRRT_addressed",
+            judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+          },
+        ])
+
+        const thread = harness.github.threads.find((thread) => thread.id === "PRRT_addressed")
+        assert.deepStrictEqual(
+          { resolved: thread?.isResolved, replies: janitorAdded(harness, "PRRT_addressed", 1) },
+          { resolved: true, replies: [] },
+        )
+      }),
+    ),
+  )
+
   it.effect(
     "replies when a human replied or an outside author resolved since janitor last spoke, even with nothing else to say",
     () =>

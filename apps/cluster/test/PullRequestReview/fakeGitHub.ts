@@ -60,6 +60,7 @@ const MUTATIONS = [
   "submitPullRequestReview",
   "deletePullRequestReview",
   "dismissPullRequestReview",
+  "resolveReviewThread",
 ] as const
 
 const SUBMITTED = {
@@ -392,6 +393,13 @@ export class FakeReviewGitHub extends FakeGitHub {
           thread.comments = thread.comments.filter((comment) => comment.reviewId !== pending.id)
         this.threads = this.threads.filter((thread) => thread.comments.length > 0)
         return this.data({ [field]: { pullRequestReview: { id: pending.id } } })
+      }
+      case "resolveReviewThread": {
+        const thread = this.threads.find((thread) => thread.id === input.threadId)
+        if (thread === undefined) return this.error(field, "NOT_FOUND", "No such thread")
+        thread.isResolved = true
+        thread.resolvedBy = APP_LOGIN
+        return this.data({ [field]: { thread: { id: thread.id, isResolved: true } } })
       }
       case "dismissPullRequestReview": {
         const review = this.reviews.find((review) => review.id === input.pullRequestReviewId)
