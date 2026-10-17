@@ -206,6 +206,23 @@ const run = <A, E, R>(test: (harness: RunHarness) => Effect.Effect<A, E, R>) =>
   }).pipe(Effect.scoped)
 
 layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
+  it.effect("a clean run approves without a visible review body", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        yield* review(harness, [])
+
+        assert.deepStrictEqual(
+          submitted(harness).map((review) => [
+            review.state,
+            // A hidden tracking marker is allowed, but no visible commentary.
+            review.body.replace(/<!-- janitor:review\b[\s\S]*?-->/g, "").trim(),
+          ]),
+          [["APPROVED", ""]],
+        )
+      }),
+    ),
+  )
+
   it.effect(
     "posts a review pinned to the reviewed head, then the check run, the run record and RunFinished",
     () =>
