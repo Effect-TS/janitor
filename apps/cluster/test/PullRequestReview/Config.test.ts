@@ -37,9 +37,9 @@ describe("PR review configuration", () => {
         model: "openai/gpt-6.1-sol",
         reasoningEffort: "medium",
         viaTailnet: false,
-        runDeadline: 600,
-        wrapUpAfter: 420,
-        commandTimeout: 180,
+        runDeadline: 900,
+        wrapUpAfter: 600,
+        commandTimeout: 300,
         maxChangedLines: 10000,
         maxChangedFiles: 100,
         maxInlineComments: 25,
@@ -119,9 +119,9 @@ describe("PR review configuration", () => {
   it.effect("rejects limits that leave no wrap-up window for the last command", () =>
     Effect.gen(function* () {
       for (const values of [
-        { PR_REVIEW_WRAP_UP_AFTER_SECONDS: "600" },
-        { PR_REVIEW_RUN_DEADLINE_SECONDS: "300" },
-        { PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "181" },
+        { PR_REVIEW_WRAP_UP_AFTER_SECONDS: "900" },
+        { PR_REVIEW_RUN_DEADLINE_SECONDS: "600" },
+        { PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "301" },
       ]) {
         const error = yield* Effect.flip(read(values))
         assert.strictEqual(error._tag, "ConfigError", Object.keys(values).join())
@@ -139,9 +139,9 @@ describe("PR review configuration", () => {
         PR_REVIEW_AI_MODEL: "openai/gpt-6.1-sol",
         PR_REVIEW_AI_REASONING_EFFORT: "loud",
         PR_REVIEW_AI_VIA_TAILNET: "false",
-        PR_REVIEW_RUN_DEADLINE_SECONDS: "600",
-        PR_REVIEW_WRAP_UP_AFTER_SECONDS: "420",
-        PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "180",
+        PR_REVIEW_RUN_DEADLINE_SECONDS: "900",
+        PR_REVIEW_WRAP_UP_AFTER_SECONDS: "600",
+        PR_REVIEW_COMMAND_TIMEOUT_SECONDS: "300",
         PR_REVIEW_MAX_CHANGED_LINES: "10000",
         PR_REVIEW_MAX_CHANGED_FILES: "100",
         PR_REVIEW_MAX_INLINE_COMMENTS: "25",

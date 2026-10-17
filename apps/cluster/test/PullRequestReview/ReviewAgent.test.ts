@@ -538,7 +538,7 @@ await taskComplete(JSON.stringify([
   )
 
   it.effect("the wrap-up message reaches the agent between its steps", () => {
-    // Two slow model calls take the run past minute 7, when the run entity steers.
+    // Three slow model calls take the run past minute 10, when the run entity steers.
     const slow =
       (script: string): Turn =>
       (prompt) =>
@@ -546,13 +546,14 @@ await taskComplete(JSON.stringify([
     const model = new ScriptedModel([
       slow(`console.log("reading")`),
       slow(`console.log("still reading")`),
+      slow(`console.log("reading on")`),
       execute(`await taskComplete("Wrapped up.")`),
     ])
     return run(model, (harness) =>
       Effect.gen(function* () {
         const runId = newRunId()
         yield* harness.start(runId)
-        yield* harness.wait("8 minutes", "1 second")
+        yield* harness.wait("13 minutes", "1 second")
         yield* harness.until(
           Effect.sync(() => harness.published.length > 0),
           "Publish",
@@ -562,7 +563,7 @@ await taskComplete(JSON.stringify([
         assert.strictEqual(outcome.summary, "Wrapped up.")
         assert.isTrue(outcome.steered)
         assert.isFalse(outcome.interrupted)
-        assert.include(seen(model.prompts[2]!.content), wrapUpMessage)
+        assert.include(seen(model.prompts[3]!.content), wrapUpMessage)
       }),
     )
   })
@@ -672,7 +673,7 @@ await taskComplete(JSON.stringify([
           const runId = newRunId()
           yield* harness.send(runId)
           // Past the deadline, without draining: the stalled read leaves work pending.
-          for (let elapsed = 0; elapsed < 11 * 60; elapsed += 10) {
+          for (let elapsed = 0; elapsed < 16 * 60; elapsed += 10) {
             yield* TestClock.adjust("10 seconds")
             yield* TestClock.withLive(Effect.sleep("1 millis"))
           }

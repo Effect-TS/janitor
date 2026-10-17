@@ -30,9 +30,9 @@ A `/janitor` re-run also resets the pull request's automatic run count. On an ov
 
 | Limit                                                         | Default                                             | Setting                                                      |
 | ------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
-| Run deadline, counted from the first start and across resumes | 10 minutes                                          | `PR_REVIEW_RUN_DEADLINE_SECONDS`                             |
-| Agent told to wrap up                                         | at 7 minutes                                        | `PR_REVIEW_WRAP_UP_AFTER_SECONDS`                            |
-| One `bash` command or `execute` script                        | 3 minutes                                           | `PR_REVIEW_COMMAND_TIMEOUT_SECONDS`                          |
+| Run deadline, counted from the first start and across resumes | 15 minutes                                          | `PR_REVIEW_RUN_DEADLINE_SECONDS`                             |
+| Agent told to wrap up                                         | at 10 minutes                                       | `PR_REVIEW_WRAP_UP_AFTER_SECONDS`                            |
+| One `bash` command or `execute` script                        | 5 minutes                                           | `PR_REVIEW_COMMAND_TIMEOUT_SECONDS`                          |
 | Oversized pull request                                        | more than 10,000 changed lines or 100 changed files | `PR_REVIEW_MAX_CHANGED_LINES`, `PR_REVIEW_MAX_CHANGED_FILES` |
 | Inline comments per review, the rest go in the body           | 25                                                  | `PR_REVIEW_MAX_INLINE_COMMENTS`                              |
 | Automatic runs per pull request before `/janitor` is needed   | 10                                                  | `PR_REVIEW_MAX_AUTOMATIC_RUNS`                               |

@@ -113,7 +113,7 @@ export const sandboxMaxInstances: Config.Config<number> = count(
  */
 export const sandboxCommandTimeout: Config.Config<Duration.Duration> = seconds(
   "PR_REVIEW_COMMAND_TIMEOUT_SECONDS",
-  180,
+  300,
 )
 
 const apiUrl = Config.option(Config.NonEmptyString("PR_REVIEW_AI_API_URL"))
@@ -171,8 +171,8 @@ export const pullRequestReviewConfig: Config.Config<PullRequestReviewConfig> = C
   model,
   reasoningEffort,
   viaTailnet,
-  runDeadline: seconds("PR_REVIEW_RUN_DEADLINE_SECONDS", 600),
-  wrapUpAfter: seconds("PR_REVIEW_WRAP_UP_AFTER_SECONDS", 420),
+  runDeadline: seconds("PR_REVIEW_RUN_DEADLINE_SECONDS", 900),
+  wrapUpAfter: seconds("PR_REVIEW_WRAP_UP_AFTER_SECONDS", 600),
   commandTimeout: sandboxCommandTimeout,
   maxChangedLines: count("PR_REVIEW_MAX_CHANGED_LINES", 10000),
   maxChangedFiles: count("PR_REVIEW_MAX_CHANGED_FILES", 100),
