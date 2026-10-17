@@ -260,6 +260,9 @@ const reviewMarker = (marker: ReviewMarker) =>
 
 /** Ends with a hidden marker holding the run id and reviewed SHA; always under `reviewBodyLimit`. */
 export const reviewBody = (input: ReviewBodyInput): string => {
+  // Approvals stay silent, but recovery still needs the run marker.
+  if (input.event === "approve")
+    return reviewMarker({ runId: input.runId, reviewedSha: input.reviewedSha })
   const summary = sanitise(input.summary.trim())
   const tail = [
     ...(input.event === "request_changes" ? [disputeFooter] : []),
