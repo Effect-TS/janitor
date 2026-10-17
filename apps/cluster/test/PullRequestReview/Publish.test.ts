@@ -687,6 +687,49 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
     ),
   )
 
+  it.effect("a resolution with a lost response replays without another mutation or reply", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        yield* putEarlierThread(harness, { id: "PRRT_addressed", severity: "blocking" })
+        harness.github.file(HEAD, "src/a.ts", lines.join("\n").replace("a + 1", "a"))
+        const crashed = yield* cutOff(harness, "resolveReviewThread")
+        const runId = newRunId()
+        yield* harness.start(runId)
+        yield* harness.agent.last.step({
+          history: { _tag: "Appended", messages: [] },
+          records: [
+            {
+              _tag: "ThreadUpdated",
+              threadId: "PRRT_addressed",
+              judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+            },
+          ],
+        })
+        yield* harness.agent.last.complete("Reviewed.")
+        yield* harness.waitFor(crashed, "the lost response while resolving the thread")
+        assert.strictEqual(
+          harness.github.threads.find((thread) => thread.id === "PRRT_addressed")?.isResolved,
+          true,
+        )
+
+        yield* harness.restart
+        yield* harness.until(
+          Effect.sync(() => harness.finishedCount(runId) > 0),
+          "RunFinished",
+        )
+
+        assert.strictEqual(count(harness, "resolveReviewThread"), 1)
+        assert.deepStrictEqual(janitorAdded(harness, "PRRT_addressed", 1), [])
+        assert.strictEqual(
+          harness.github.threads.find((thread) => thread.id === "PRRT_addressed")?.isResolved,
+          true,
+        )
+        assert.strictEqual((yield* harness.row(runId))?.status, "approved")
+        assert.strictEqual(harness.finishedCount(runId), 1)
+      }),
+    ),
+  )
+
   it.effect(
     "replies when a human replied or an outside author resolved since janitor last spoke, even with nothing else to say",
     () =>
