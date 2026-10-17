@@ -7,7 +7,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type { Judgement, Severity } from "./Finding.ts"
 import { Fingerprint } from "./Fingerprint.ts"
-import { RunId, type SkipReason, type Verdict } from "./Run.ts"
+import type { SkipReason, Verdict } from "./Run.ts"
 import type { Actor, ThreadReply, ThreadState } from "./Threads.ts"
 import type { GateFailure } from "./Verdict.ts"
 
@@ -198,7 +198,6 @@ export interface ListedFinding {
 }
 
 export interface ReviewBodyInput {
-  readonly runId: RunId
   readonly reviewedSha: string
   readonly event: Verdict
   /** From `taskComplete`; empty on a partial review that never got there. */
@@ -255,16 +254,11 @@ const listed = (input: ReviewBodyInput, severity: Severity, heading: string) => 
       ]
 }
 
-const reviewMarker = (marker: ReviewMarker) =>
-  `<!-- janitor:review run=${marker.runId} sha=${marker.reviewedSha} -->`
-
-/** Ends with a hidden marker holding the run id and reviewed SHA; always under `reviewBodyLimit`. */
+/** Empty for an approval, which stays silent; always under `reviewBodyLimit`. */
 export const reviewBody = (input: ReviewBodyInput): string => {
+  if (input.event === "approve") return ""
   const summary = sanitise(input.summary.trim())
-  const tail = [
-    ...(input.event === "request_changes" ? [disputeFooter] : []),
-    reviewMarker({ runId: input.runId, reviewedSha: input.reviewedSha }),
-  ].join("\n\n")
+  const tail = input.event === "request_changes" ? `\n\n${disputeFooter}` : ""
   const head = (summary: string) =>
     [
       ...(input.partial ? [partialNotice] : []),
@@ -276,7 +270,7 @@ export const reviewBody = (input: ReviewBodyInput): string => {
     ]
       .filter((section) => section !== undefined)
       .join("\n\n")
-  const budget = reviewBodyLimit - 1 - tail.length - 2
+  const budget = reviewBodyLimit - 1 - tail.length
   let body = head(summary)
   if (body.length > budget) {
     // Shorten the summary first so the listed findings and gate reasons survive.
@@ -286,27 +280,14 @@ export const reviewBody = (input: ReviewBodyInput): string => {
         ? head(truncate(summary, room))
         : truncate(head(""), budget)
   }
-  return `${body}\n\n${tail}`
-}
-
-export interface ReviewMarker {
-  readonly runId: RunId
-  readonly reviewedSha: string
+  return `${body}${tail}`
 }
 
 /** The last marker wins: janitor's own ends the text, after anything quoted in model output. */
 const lastMatch = (pattern: RegExp, text: string) =>
   Option.fromNullishOr([...text.matchAll(pattern)].at(-1))
 
-const decodeRunId = Schema.decodeUnknownOption(RunId)
 const decodeFingerprint = Schema.decodeUnknownOption(Fingerprint)
-
-export const parseReviewMarker = (body: string): Option.Option<ReviewMarker> =>
-  lastMatch(/<!-- janitor:review run=(\S+) sha=([0-9A-Za-z]+) -->/g, body).pipe(
-    Option.flatMap((match) =>
-      decodeRunId(match[1]).pipe(Option.map((runId) => ({ runId, reviewedSha: match[2]! }))),
-    ),
-  )
 
 /**
  * The finding's sanitised comment plus a hidden marker with its fingerprint

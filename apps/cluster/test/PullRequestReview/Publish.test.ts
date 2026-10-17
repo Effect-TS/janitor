@@ -111,7 +111,7 @@ const putEarlierReview = (harness: RunHarness, state: "CHANGES_REQUESTED" | "COM
     author: APP_LOGIN,
     byApp: true,
     state,
-    body: `Earlier.\n\n<!-- janitor:review run=${newRunId()} sha=${EARLIER_SHA} -->`,
+    body: "Earlier.",
     commitOID: EARLIER_SHA,
   })
 
@@ -344,7 +344,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
             "RunFinished",
           )
 
-          // A write that landed before the crash is found by its marker, not made again.
+          // A write that landed before the crash is found on GitHub, not made again.
           for (const create of [
             "addPullRequestReview",
             "addPullRequestReviewThread",
@@ -418,6 +418,26 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
           assert.strictEqual(harness.finishedCount(runId), 1)
         }),
       ),
+  )
+
+  it.effect("an approval has no review body and leaves its nits inline", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        const nit: Finding = { ...blocking, severity: "nit", comment: "Prefer a clearer name." }
+        yield* review(harness, [nit])
+
+        assert.deepStrictEqual(
+          harness.github.threads.map((thread) => [thread.path, thread.line]),
+          [["src/a.ts", 2]],
+        )
+        assert.strictEqual(harness.github.threads[0]!.comments.length, 1)
+        assert.include(harness.github.threads[0]!.comments[0]!.body, nit.comment)
+        const reviews = submitted(harness)
+        assert.strictEqual(reviews.length, 1)
+        assert.strictEqual(reviews[0]?.state, "APPROVED")
+        assert.strictEqual(reviews[0]!.body, "")
+      }),
+    ),
   )
 
   it.effect(
@@ -622,6 +642,72 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
           assert.strictEqual(harness.finishedCount(runId), 1)
         }),
       ),
+  )
+
+  it.effect("an addressed finding resolves its earlier thread without a resolution reply", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        yield* putEarlierThread(harness, { id: "PRRT_addressed", severity: "blocking" })
+        harness.github.file(HEAD, "src/a.ts", lines.join("\n").replace("a + 1", "a"))
+
+        yield* reviewWith(harness, [
+          {
+            _tag: "ThreadUpdated",
+            threadId: "PRRT_addressed",
+            judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+          },
+        ])
+
+        const thread = harness.github.threads.find((thread) => thread.id === "PRRT_addressed")
+        assert.deepStrictEqual(
+          { resolved: thread?.isResolved, replies: janitorAdded(harness, "PRRT_addressed", 1) },
+          { resolved: true, replies: [] },
+        )
+      }),
+    ),
+  )
+
+  it.effect("a resolution with a lost response replays without another mutation or reply", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        yield* putEarlierThread(harness, { id: "PRRT_addressed", severity: "blocking" })
+        harness.github.file(HEAD, "src/a.ts", lines.join("\n").replace("a + 1", "a"))
+        const crashed = yield* cutOff(harness, "resolveReviewThread")
+        const runId = newRunId()
+        yield* harness.start(runId)
+        yield* harness.agent.last.step({
+          history: { _tag: "Appended", messages: [] },
+          records: [
+            {
+              _tag: "ThreadUpdated",
+              threadId: "PRRT_addressed",
+              judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+            },
+          ],
+        })
+        yield* harness.agent.last.complete("Reviewed.")
+        yield* harness.waitFor(crashed, "the lost response while resolving the thread")
+        assert.strictEqual(
+          harness.github.threads.find((thread) => thread.id === "PRRT_addressed")?.isResolved,
+          true,
+        )
+
+        yield* harness.restart
+        yield* harness.until(
+          Effect.sync(() => harness.finishedCount(runId) > 0),
+          "RunFinished",
+        )
+
+        assert.strictEqual(count(harness, "resolveReviewThread"), 1)
+        assert.deepStrictEqual(janitorAdded(harness, "PRRT_addressed", 1), [])
+        assert.strictEqual(
+          harness.github.threads.find((thread) => thread.id === "PRRT_addressed")?.isResolved,
+          true,
+        )
+        assert.strictEqual((yield* harness.row(runId))?.status, "approved")
+        assert.strictEqual(harness.finishedCount(runId), 1)
+      }),
+    ),
   )
 
   it.effect(

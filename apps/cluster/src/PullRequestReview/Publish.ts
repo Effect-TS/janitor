@@ -53,8 +53,8 @@ import { GitHubLink, PullRequestReviewStore, RecordedFinding } from "./Store.ts"
  *
  * Every step is journalled in `publish_steps` once it is done, so a replayed
  * `Publish` skips it. A create records its attempt first: a replay that finds
- * the attempt but no result looks for the run's marker on GitHub before it
- * writes again. A step that fails for good is recorded, never thrown.
+ * the attempt but no result looks for what it would have written on GitHub
+ * before it writes again. A step that fails for good is recorded, never thrown.
  */
 
 const Actor = Schema.Literals(["maintainer", "author", "other"])
@@ -122,14 +122,11 @@ const Plan = Schema.Union([
     /** Findings listed in the body: unanchorable, or past the inline limit. */
     listed: Schema.Array(ListedFindingSchema),
     replies: Schema.Array(Schema.Struct({ threadId: Schema.String, body: Schema.String })),
+    /** Optional so older journalled plans can still replay. */
+    resolutions: Schema.optionalKey(Schema.Array(Schema.String)),
     /** Janitor's earlier `REQUEST_CHANGES` reviews to dismiss. */
     dismiss: Schema.Array(
-      Schema.Struct({
-        id: Schema.String,
-        databaseId: Schema.Int,
-        state: Schema.String,
-        marker: Schema.Struct({ runId: RunId, reviewedSha: Schema.String }),
-      }),
+      Schema.Struct({ id: Schema.String, databaseId: Schema.Int, state: Schema.String }),
     ),
     gateFailures: Schema.Array(GateFailureSchema),
     conclusion: Schema.Literals(["success", "failure", "neutral"]),
@@ -416,6 +413,10 @@ const makePublisher = Effect.gen(function* () {
           }
 
         const states = threads.map(({ judged }) => judged)
+        // The plan is journalled before this run creates a review, so none of these is this run's.
+        const changesRequested = history.reviews.filter(
+          (review) => review.state === "CHANGES_REQUESTED",
+        )
         const decision = decideReview({
           reviewedSha: state.headSha,
           baseRefAtStart: state.baseRef ?? pull.baseRef,
@@ -437,11 +438,10 @@ const makePublisher = Effect.gen(function* () {
             lockfiles: config.lockfiles,
             manifests: config.manifests,
           },
-          earlierChangesRequested: history.reviews.some(
-            (review) => review.state === "CHANGES_REQUESTED" && review.marker.runId !== runId,
-          ),
+          earlierChangesRequested: changesRequested.length > 0,
           approvedAtHead: history.reviews.some(
-            (review) => review.state === "APPROVED" && review.marker.reviewedSha === state.headSha,
+            (review) =>
+              review.state === "APPROVED" && Option.contains(review.reviewedSha, state.headSha),
           ),
         })
         const { inline, body } = allocateInline(findings, config.maxInlineComments)
@@ -471,8 +471,11 @@ const makePublisher = Effect.gen(function* () {
             listed: listed(finding),
           })),
           listed: body.map(listed),
-          replies: threads.flatMap(({ thread, reply }) =>
-            Option.isSome(reply)
+          resolutions: threads.flatMap(({ thread, judged }) =>
+            !thread.isResolved && judged.judgement.judgement === "addressed" ? [thread.id] : [],
+          ),
+          replies: threads.flatMap(({ thread, judged, reply }) =>
+            judged.judgement.judgement !== "addressed" && Option.isSome(reply)
               ? [
                   {
                     threadId: reply.value.threadId,
@@ -488,9 +491,7 @@ const makePublisher = Effect.gen(function* () {
               : [],
           ),
           dismiss: decision.dismissEarlier
-            ? history.reviews.filter(
-                (review) => review.state === "CHANGES_REQUESTED" && review.marker.runId !== runId,
-              )
+            ? changesRequested.map(({ id, databaseId, state }) => ({ id, databaseId, state }))
             : [],
           gateFailures: decision.gateFailures,
           conclusion:
@@ -571,7 +572,6 @@ const makePublisher = Effect.gen(function* () {
       ) => {
         const listedInBody = (index: number) => options.inBody || options.unresolvable.has(index)
         return reviewBody({
-          runId,
           reviewedSha: state.headSha,
           event,
           summary: review.summary,
@@ -612,7 +612,8 @@ const makePublisher = Effect.gen(function* () {
           `${prefix}/submit`,
           Submitted,
           Effect.gen(function* () {
-            const found = yield* client.findReview(runId)
+            // The pending review keeps its id once submitted.
+            const found = yield* client.findReview(pending.id)
             if (Option.isNone(found)) return Option.none()
             // Cut off after it was sent: keep what submit saw then, never the head as it is now.
             const observed = yield* storage.publishStep(observedStep).pipe(Effect.orDie)
@@ -776,6 +777,29 @@ const makePublisher = Effect.gen(function* () {
                 ),
               ),
       )
+
+      // Resolution needs no new review. Re-read on each attempt to reconcile a lost response.
+      if (plan._tag === "Review")
+        for (const threadId of plan.resolutions ?? [])
+          yield* once(
+            `resolve/${threadId}`,
+            Done,
+            persist(
+              Effect.gen(function* () {
+                const history = yield* client.janitorHistory
+                const thread = history.threads.find((thread) => thread.id === threadId)
+                if (thread?.isResolved) return
+                yield* client.resolveThread(threadId)
+              }),
+            ).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Couldn't resolve a PR review thread").pipe(
+                  Effect.annotateLogs({ ...errorFields(error), threadId }),
+                ),
+              ),
+              Effect.as({}),
+            ),
+          )
 
       // Step 5: janitor's earlier `REQUEST_CHANGES` reviews, once no blocking finding stands.
       const dismissalFailures: Array<string> = []

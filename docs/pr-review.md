@@ -45,7 +45,7 @@ The size count leaves out lockfiles, files the base branch's `.gitattributes` ma
 ### Verdicts
 
 - `REQUEST_CHANGES` when any blocking finding stands.
-- `APPROVE` when no blocking finding stands and every approval gate passes.
+- `APPROVE` when no blocking finding stands and every approval gate passes. An approval has no body; any nits stay inline.
 - `COMMENT` when there are only nits, or no blocking findings but a gate failed.
 
 A run with nothing new to say posts no review and only updates the check run. A run that ends before the agent finishes, at the deadline or after a provider failure, posts a partial review from the findings it already has. A partial review never approves.
