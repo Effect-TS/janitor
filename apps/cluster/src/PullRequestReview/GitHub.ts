@@ -301,6 +301,8 @@ export interface PullRequestGitHub {
     reviewId: string,
     submission: { readonly event: ReviewEvent; readonly body: string },
   ) => Effect.Effect<void, PullRequestGitHubFailure>
+  /** Resolves an earlier review thread without adding a comment. */
+  readonly resolveThread: (threadId: string) => Effect.Effect<void, PullRequestGitHubFailure>
   readonly dismissReview: (
     review: JanitorReview,
     message: string,
@@ -526,6 +528,11 @@ const SUBMIT_REVIEW = mutationDocument(
   "submitPullRequestReview",
   "SubmitPullRequestReviewInput",
   "pullRequestReview { id }",
+)
+const RESOLVE_THREAD = mutationDocument(
+  "resolveReviewThread",
+  "ResolveReviewThreadInput",
+  "thread { id isResolved }",
 )
 
 const GraphQLErrors = Schema.optionalKey(
@@ -1258,6 +1265,31 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       Schema.Unknown,
     ).pipe(Effect.asVoid)
 
+  const resolveThread: PullRequestGitHub["resolveThread"] = (threadId) =>
+    graphqlData(
+      "resolveThread",
+      RESOLVE_THREAD,
+      { input: { threadId } },
+      Schema.Struct({
+        resolveReviewThread: Schema.NullOr(
+          Schema.Struct({
+            thread: Schema.Struct({ id: Schema.String, isResolved: Schema.Boolean }),
+          }),
+        ),
+      }),
+    ).pipe(
+      Effect.flatMap((data) =>
+        data.resolveReviewThread?.thread.isResolved === true
+          ? Effect.void
+          : Effect.fail(
+              new PullRequestGitHubError({
+                operation: "resolveThread",
+                message: "resolveThread: GitHub did not resolve the thread",
+              }),
+            ),
+      ),
+    )
+
   const dismissReview = (review: JanitorReview, message: string) =>
     send("dismissReview", {
       method: "PUT",
@@ -1295,6 +1327,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     createPendingReview,
     addThread,
     addReply,
+    resolveThread,
     submitPendingReview,
     dismissReview,
   } satisfies PullRequestGitHub

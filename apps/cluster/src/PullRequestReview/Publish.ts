@@ -122,6 +122,8 @@ const Plan = Schema.Union([
     /** Findings listed in the body: unanchorable, or past the inline limit. */
     listed: Schema.Array(ListedFindingSchema),
     replies: Schema.Array(Schema.Struct({ threadId: Schema.String, body: Schema.String })),
+    /** Optional so older journalled plans can still replay. */
+    resolutions: Schema.optionalKey(Schema.Array(Schema.String)),
     /** Janitor's earlier `REQUEST_CHANGES` reviews to dismiss. */
     dismiss: Schema.Array(
       Schema.Struct({
@@ -471,8 +473,11 @@ const makePublisher = Effect.gen(function* () {
             listed: listed(finding),
           })),
           listed: body.map(listed),
-          replies: threads.flatMap(({ thread, reply }) =>
-            Option.isSome(reply)
+          resolutions: threads.flatMap(({ thread, judged }) =>
+            !thread.isResolved && judged.judgement.judgement === "addressed" ? [thread.id] : [],
+          ),
+          replies: threads.flatMap(({ thread, judged, reply }) =>
+            judged.judgement.judgement !== "addressed" && Option.isSome(reply)
               ? [
                   {
                     threadId: reply.value.threadId,
@@ -776,6 +781,29 @@ const makePublisher = Effect.gen(function* () {
                 ),
               ),
       )
+
+      // Resolution needs no new review. Re-read on each attempt to reconcile a lost response.
+      if (plan._tag === "Review")
+        for (const threadId of plan.resolutions ?? [])
+          yield* once(
+            `resolve/${threadId}`,
+            Done,
+            persist(
+              Effect.gen(function* () {
+                const history = yield* client.janitorHistory
+                const thread = history.threads.find((thread) => thread.id === threadId)
+                if (thread?.isResolved) return
+                yield* client.resolveThread(threadId)
+              }),
+            ).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Couldn't resolve a PR review thread").pipe(
+                  Effect.annotateLogs({ ...errorFields(error), threadId }),
+                ),
+              ),
+              Effect.as({}),
+            ),
+          )
 
       // Step 5: janitor's earlier `REQUEST_CHANGES` reviews, once no blocking finding stands.
       const dismissalFailures: Array<string> = []
