@@ -493,6 +493,45 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
       ),
   )
 
+  // GitHub counts a reviewer's latest review that isn't a comment: an approval dismissed as stale
+  // after a push still supersedes the change request before it.
+  for (const [name, earlier, after] of [
+    [
+      "a change request superseded by an approval later dismissed as stale stays superseded",
+      ["CHANGES_REQUESTED", "DISMISSED"],
+      ["CHANGES_REQUESTED", "DISMISSED"],
+    ],
+    [
+      "a change request after an approval is dismissed",
+      ["APPROVED", "CHANGES_REQUESTED"],
+      ["APPROVED", "DISMISSED", "COMMENTED"],
+    ],
+  ] as const)
+    it.effect(name, () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          // A sensitive path from an author without write access withholds approval.
+          putPullRequest(harness, HEAD, [".github/workflows/ci.yml"])
+          for (const [index, state] of earlier.entries())
+            harness.github.reviews.push({
+              id: `PRR_earlier_${index}`,
+              databaseId: 800 + index,
+              author: APP_LOGIN,
+              byApp: true,
+              state,
+              body: state === "CHANGES_REQUESTED" ? "Earlier." : "",
+              commitOID: EARLIER_SHA,
+            })
+          yield* review(harness, [])
+
+          assert.deepStrictEqual(
+            submitted(harness).map((review) => review.state),
+            [...after],
+          )
+        }),
+      ),
+    )
+
   it.effect("a head that moved before publishing posts no review and cancels the check run", () =>
     run((harness) =>
       Effect.gen(function* () {
