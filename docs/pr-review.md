@@ -50,6 +50,8 @@ The size count leaves out lockfiles, files the base branch's `.gitattributes` ma
 
 A run with nothing new to say posts no review and only updates the check run. A run that ends before the agent finishes, at the deadline or after a provider failure, posts a partial review from the findings it already has. A partial review never approves.
 
+Only janitor's `CHANGES_REQUESTED` reviews after its latest `APPROVED` or `DISMISSED` review count as outstanding (`earlierChangesRequested` at publish time). `COMMENTED` and `PENDING` reviews do not change that cutoff. A dismissed review supersedes earlier change requests without counting as approval, even when it was a stale approval dismissed after a push. Newer change requests remain outstanding.
+
 The approval gates are checked in trusted code at publish time:
 
 - the head and base are unchanged since the run started;

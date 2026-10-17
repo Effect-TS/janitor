@@ -413,10 +413,13 @@ const makePublisher = Effect.gen(function* () {
 
         const states = threads.map(({ judged }) => judged)
         // The plan is journalled before this run creates a review, so none of these is this run's.
-        // Reviews come oldest first, and a later approval already replaced the ones before it.
-        const lastApproval = history.reviews.map((review) => review.state).lastIndexOf("APPROVED")
+        // Reviews come oldest first. Approval or dismissal supersedes earlier change requests;
+        // dismissal is a boundary, not an approval (including when a stale approval is dismissed).
+        const lastSupersession = history.reviews
+          .map((review) => review.state === "APPROVED" || review.state === "DISMISSED")
+          .lastIndexOf(true)
         const changesRequested = history.reviews
-          .slice(lastApproval + 1)
+          .slice(lastSupersession + 1)
           .filter((review) => review.state === "CHANGES_REQUESTED")
         const decision = decideReview({
           reviewedSha: state.headSha,

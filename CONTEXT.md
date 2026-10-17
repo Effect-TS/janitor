@@ -172,6 +172,9 @@ The per-repository switch that turns PR review on. It is off by default, stored 
 **Review verdict**:
 The GitHub review event a run posts: `REQUEST_CHANGES` when any blocking finding stands, otherwise `APPROVE` when every approval gate passes, otherwise `COMMENT` when there are nits. A run with nothing new to say posts no review and only updates the `janitor/review` check run.
 
+**Outstanding change request**:
+A janitor `CHANGES_REQUESTED` review not superseded by a later janitor approval or dismissed review. Dismissal does not count as approval or revive earlier change requests, including when GitHub dismisses a stale approval after a push.
+
 **Finding**:
 One problem the agent reports, anchored to a line range on the pull request's side of the diff (GitHub's `RIGHT` side): a path, a start and end line, a severity and a comment. A single line has equal start and end lines.
 
