@@ -139,6 +139,8 @@ export interface ThreadComment {
   readonly author: string
   /** Written by janitor's App rather than a human. */
   readonly byJanitor: boolean
+  readonly viewerCanMinimize: boolean
+  readonly isMinimized: boolean
   readonly body: string
   readonly createdAt: DateTime.Utc
   /** The comment's page on GitHub, when GitHub sent it. */
@@ -301,6 +303,8 @@ export interface PullRequestGitHub {
   ) => Effect.Effect<void, PullRequestGitHubFailure>
   /** Resolves an earlier review thread without adding a comment. */
   readonly resolveThread: (threadId: string) => Effect.Effect<void, PullRequestGitHubFailure>
+  /** Hides an addressed comment with GitHub's RESOLVED classifier. */
+  readonly minimizeComment: (commentId: string) => Effect.Effect<void, PullRequestGitHubFailure>
   readonly dismissReview: (
     review: { readonly id: string; readonly databaseId: number },
     message: string,
@@ -418,6 +422,8 @@ const ThreadCommentNode = Schema.Struct({
   body: Schema.String,
   createdAt: Schema.DateTimeUtcFromString,
   viewerDidAuthor: Schema.Boolean,
+  viewerCanMinimize: Schema.Boolean,
+  isMinimized: Schema.Boolean,
   author: Schema.NullOr(Schema.Struct({ login: Schema.String })),
   pullRequestReview: Schema.optionalKey(
     Schema.NullOr(
@@ -463,7 +469,7 @@ const PendingData = pullRequestData({ id: Schema.String, reviews: connection(Rev
 
 const PAGE_INFO = "pageInfo { hasNextPage endCursor }"
 const COMMENT_FIELDS =
-  "id url body createdAt viewerDidAuthor author { login } pullRequestReview { id state }"
+  "id url body createdAt viewerDidAuthor viewerCanMinimize isMinimized author { login } pullRequestReview { id state }"
 const REVIEW_FIELDS = "id databaseId state commit { oid } viewerDidAuthor"
 
 /** A query on this pull request; `selection` goes inside `pullRequest`. */
@@ -531,6 +537,11 @@ const RESOLVE_THREAD = mutationDocument(
   "resolveReviewThread",
   "ResolveReviewThreadInput",
   "thread { id isResolved }",
+)
+const MINIMIZE_COMMENT = mutationDocument(
+  "minimizeComment",
+  "MinimizeCommentInput",
+  "minimizedComment { isMinimized }",
 )
 
 const GraphQLErrors = Schema.optionalKey(
@@ -1016,6 +1027,8 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
             id: comment.id,
             author: comment.author?.login ?? "ghost",
             byJanitor: comment.viewerDidAuthor,
+            viewerCanMinimize: comment.viewerCanMinimize,
+            isMinimized: comment.isMinimized,
             body: comment.body,
             createdAt: comment.createdAt,
             ...(comment.url === undefined ? {} : { url: comment.url }),
@@ -1288,6 +1301,29 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       ),
     )
 
+  const minimizeComment: PullRequestGitHub["minimizeComment"] = (commentId) =>
+    graphqlData(
+      "minimizeComment",
+      MINIMIZE_COMMENT,
+      { input: { subjectId: commentId, classifier: "RESOLVED" } },
+      Schema.Struct({
+        minimizeComment: Schema.NullOr(
+          Schema.Struct({ minimizedComment: Schema.Struct({ isMinimized: Schema.Boolean }) }),
+        ),
+      }),
+    ).pipe(
+      Effect.flatMap((data) =>
+        data.minimizeComment?.minimizedComment.isMinimized === true
+          ? Effect.void
+          : Effect.fail(
+              new PullRequestGitHubError({
+                operation: "minimizeComment",
+                message: "minimizeComment: GitHub did not minimize the comment",
+              }),
+            ),
+      ),
+    )
+
   const dismissReview: PullRequestGitHub["dismissReview"] = (review, message) =>
     send("dismissReview", {
       method: "PUT",
@@ -1326,6 +1362,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     addThread,
     addReply,
     resolveThread,
+    minimizeComment,
     submitPendingReview,
     dismissReview,
   } satisfies PullRequestGitHub
