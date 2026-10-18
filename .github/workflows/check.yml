@@ -28,6 +28,8 @@ jobs:
           cache: true
       - run: vp install --frozen-lockfile
       - run: vp check
+      # Fails when a `.graphql` document or GitHub's schema changed without regenerating.
+      - run: vp run --no-cache @janitor/cluster#graphql:check
 
   test:
     name: test (${{ matrix.shard }}/2)

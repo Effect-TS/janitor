@@ -7,8 +7,11 @@ export default defineConfig({
   },
   fmt: {
     semi: false,
+    // graphqlgen writes these in one fixed style, and `graphqlgen --check` compares them byte for byte.
+    ignorePatterns: ["**/*.graphql.ts", "apps/cluster/src/GitHub/graphql/github.graphql"],
   },
   lint: {
+    ignorePatterns: ["**/*.graphql.ts"],
     extends: [recommended],
     plugins: ["typescript"],
     jsPlugins: [

@@ -29,6 +29,7 @@ catalog:
   "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@667feb75dcf5259c4d9eafe51476487b18b8de01
+  "@effect/graphql-generator": https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/sql-pg": https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/sql-d1": https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@667feb75dcf5259c4d9eafe51476487b18b8de01
   "@effect/sql-sqlite-do": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@667feb75dcf5259c4d9eafe51476487b18b8de01

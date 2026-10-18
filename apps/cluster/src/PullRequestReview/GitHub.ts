@@ -17,12 +17,15 @@ import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Base64 from "effect/encoding/Base64"
+import { GraphQLClient, GraphQLClientError, GraphQLProtocol } from "effect/graphql"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import { GitHubAppAuth } from "../GitHub/AppAuth.ts"
 import { nextLink } from "../GitHub/Link.ts"
-import { GitHubTransport, type GitHubRequest, type GitHubResponse } from "../GitHub/Transport.ts"
+import { GitHubTransport, type GitHubRequest } from "../GitHub/Transport.ts"
+import * as ReviewGraphQL from "./GitHub.graphql.ts"
 
 /**
  * The GitHub reads and writes of one PR review run, through the shared
@@ -417,175 +420,17 @@ const AppApi = Schema.Struct({ id: Schema.Int })
 /** A response schema that decodes without services. */
 type Plain = Schema.Top & { readonly DecodingServices: never }
 
-const PageInfo = Schema.Struct({
-  hasNextPage: Schema.Boolean,
-  endCursor: Schema.NullOr(Schema.String),
-})
-
-const connection = <S extends Schema.Top>(node: S) =>
-  Schema.Struct({ pageInfo: PageInfo, nodes: Schema.Array(node) })
-
 interface Page<A> {
-  readonly pageInfo: typeof PageInfo.Type
+  readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null }
   readonly nodes: ReadonlyArray<A>
 }
 
-const ThreadCommentNode = Schema.Struct({
-  id: Schema.String,
-  url: Schema.optionalKey(Schema.String),
-  body: Schema.String,
-  createdAt: Schema.DateTimeUtcFromString,
-  viewerDidAuthor: Schema.Boolean,
-  viewerCanMinimize: Schema.Boolean,
-  isMinimized: Schema.Boolean,
-  author: Schema.NullOr(Schema.Struct({ login: Schema.String })),
-  pullRequestReview: Schema.optionalKey(
-    Schema.NullOr(
-      Schema.Struct({
-        id: Schema.optionalKey(Schema.String),
-        state: Schema.optionalKey(Schema.String),
-      }),
-    ),
-  ),
-})
-type ThreadCommentNode = typeof ThreadCommentNode.Type
+type ThreadCommentNode = ReviewGraphQL.ThreadComment
 
-const ThreadNode = Schema.Struct({
-  id: Schema.String,
-  path: Schema.String,
-  line: Schema.NullOr(Schema.Int),
-  startLine: Schema.NullOr(Schema.Int),
-  isResolved: Schema.Boolean,
-  isOutdated: Schema.Boolean,
-  resolvedBy: Schema.NullOr(Schema.Struct({ login: Schema.String })),
-  comments: connection(ThreadCommentNode),
-})
-
-const ReviewNode = Schema.Struct({
-  id: Schema.String,
-  databaseId: Schema.Int,
-  state: Schema.String,
-  commit: Schema.NullOr(Schema.Struct({ oid: Schema.String })),
-  viewerDidAuthor: Schema.Boolean,
-  viewerCanMinimize: Schema.Boolean,
-  isMinimized: Schema.Boolean,
-  body: Schema.String,
-})
-
-const pullRequestData = <S extends Schema.Struct.Fields>(fields: S) =>
-  Schema.Struct({
-    repository: Schema.NullOr(Schema.Struct({ pullRequest: Schema.NullOr(Schema.Struct(fields)) })),
-  })
-
-const ThreadsData = pullRequestData({ reviewThreads: connection(ThreadNode) })
-const ThreadCommentsData = Schema.Struct({
-  node: Schema.NullOr(Schema.Struct({ comments: connection(ThreadCommentNode) })),
-})
-const ReviewsData = pullRequestData({ reviews: connection(ReviewNode) })
-const PendingData = pullRequestData({ id: Schema.String, reviews: connection(ReviewNode) })
-
-const PAGE_INFO = "pageInfo { hasNextPage endCursor }"
-const COMMENT_FIELDS =
-  "id url body createdAt viewerDidAuthor viewerCanMinimize isMinimized author { login } pullRequestReview { id state }"
-const REVIEW_FIELDS =
-  "id databaseId state commit { oid } viewerDidAuthor viewerCanMinimize isMinimized body"
-
-/** A query on this pull request; `selection` goes inside `pullRequest`. */
-const pullRequestQuery = (selection: string, after = true) =>
-  `query($owner: String!, $repo: String!, $number: Int!${after ? ", $after: String" : ""}) {
-  repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${selection} } }
-}`
-
-const THREADS_QUERY = pullRequestQuery(`reviewThreads(first: 50, after: $after) {
-  ${PAGE_INFO}
-  nodes {
-    id path line startLine isResolved isOutdated
-    resolvedBy { login }
-    comments(first: 100) { ${PAGE_INFO} nodes { ${COMMENT_FIELDS} } }
-  }
-}`)
-
-const THREAD_COMMENTS_QUERY = `query($id: ID!, $after: String) {
-  node(id: $id) {
-    ... on PullRequestReviewThread {
-      comments(first: 100, after: $after) { ${PAGE_INFO} nodes { ${COMMENT_FIELDS} } }
-    }
-  }
-}`
-
-const REVIEWS_QUERY = pullRequestQuery(
-  `reviews(first: 100, after: $after) { ${PAGE_INFO} nodes { ${REVIEW_FIELDS} } }`,
-)
-
-// Pending reviews are only visible to their author, so the viewer's are janitor's.
-const PENDING_QUERY = pullRequestQuery(
-  `id reviews(first: 10, states: [PENDING]) { ${PAGE_INFO} nodes { ${REVIEW_FIELDS} } }`,
-  false,
-)
-
-const mutationDocument = (field: string, input: string, selection: string) =>
-  `mutation($input: ${input}!) { ${field}(input: $input) { ${selection} } }`
-
-const DELETE_REVIEW = mutationDocument(
-  "deletePullRequestReview",
-  "DeletePullRequestReviewInput",
-  "pullRequestReview { id }",
-)
-const ADD_REVIEW = mutationDocument(
-  "addPullRequestReview",
-  "AddPullRequestReviewInput",
-  "pullRequestReview { id databaseId }",
-)
-const ADD_THREAD = mutationDocument(
-  "addPullRequestReviewThread",
-  "AddPullRequestReviewThreadInput",
-  "thread { id }",
-)
-const ADD_REPLY = mutationDocument(
-  "addPullRequestReviewThreadReply",
-  "AddPullRequestReviewThreadReplyInput",
-  "comment { id }",
-)
-const SUBMIT_REVIEW = mutationDocument(
-  "submitPullRequestReview",
-  "SubmitPullRequestReviewInput",
-  "pullRequestReview { id }",
-)
-const RESOLVE_THREAD = mutationDocument(
-  "resolveReviewThread",
-  "ResolveReviewThreadInput",
-  "thread { id isResolved }",
-)
-const MINIMIZE_COMMENT = mutationDocument(
-  "minimizeComment",
-  "MinimizeCommentInput",
-  "minimizedComment { isMinimized }",
-)
-
-const GraphQLErrors = Schema.optionalKey(
-  Schema.Array(Schema.Struct({ type: Schema.optionalKey(Schema.String), message: Schema.String })),
-)
-
-const graphQLResponse = <S extends Plain>(data: S) =>
-  Schema.Struct({ data: Schema.optionalKey(Schema.NullOr(data)), errors: GraphQLErrors })
-
-const AddReviewData = Schema.Struct({
-  addPullRequestReview: Schema.NullOr(
-    Schema.Struct({
-      pullRequestReview: Schema.Struct({ id: Schema.String, databaseId: Schema.Int }),
-    }),
-  ),
-})
-const AddThreadData = Schema.Struct({
-  addPullRequestReviewThread: Schema.NullOr(
-    Schema.Struct({ thread: Schema.NullOr(Schema.Struct({ id: Schema.String })) }),
-  ),
-})
-const AddReplyData = Schema.Struct({
-  addPullRequestReviewThreadReply: Schema.NullOr(
-    Schema.Struct({ comment: Schema.NullOr(Schema.Struct({ id: Schema.String })) }),
-  ),
-})
+/** A review thread with the first page of its comments. */
+type Thread = Omit<ReviewGraphQL.NodesPullRequestReviewThread, "comments"> & {
+  readonly comments: Page<ThreadCommentNode>
+}
 
 const TreeApi = Schema.Struct({
   truncated: Schema.Boolean,
@@ -620,26 +465,45 @@ const blobOf = (contents: Contents): HeadBlob => {
  */
 const failed = (
   operation: string,
-  response: Extract<GitHubResponse, { _tag: "Failed" }>,
+  status: number,
 ): PullRequestGitHubError | Forbidden | NotFound | Unprocessable => {
-  const message = `${operation}: GitHub responded ${response.status}`
-  if (response.status === 403) return new Forbidden({ operation, message })
-  if (response.status === 404) return new NotFound({ operation, message })
-  if (response.status === 422) return new Unprocessable({ operation, message })
-  return new PullRequestGitHubError({ operation, message, status: response.status })
+  const message = `${operation}: GitHub responded ${status}`
+  if (status === 403) return new Forbidden({ operation, message })
+  if (status === 404) return new NotFound({ operation, message })
+  if (status === 422) return new Unprocessable({ operation, message })
+  return new PullRequestGitHubError({ operation, message, status })
 }
+
+/** GitHub's category for a GraphQL error, such as `NOT_FOUND`, beside the spec's fields. */
+const errorType = (error: GraphQLClientError.GraphQLError) =>
+  typeof error["type"] === "string" ? error["type"] : undefined
 
 /** A GraphQL error as a typed failure; like `failed`, its message leaves out GitHub's text. */
 const graphQLFailure = (
   operation: string,
-  error: { readonly type?: string; readonly message: string },
+  error: GraphQLClientError.GraphQLError | undefined,
 ): PullRequestGitHubError | Forbidden | NotFound | Unprocessable => {
-  const message = `${operation}: GitHub refused it (${error.type ?? "error"})`
-  if (error.type === "FORBIDDEN") return new Forbidden({ operation, message })
-  if (error.type === "NOT_FOUND") return new NotFound({ operation, message })
-  if (error.type === "UNPROCESSABLE") return new Unprocessable({ operation, message })
+  const type = error === undefined ? undefined : errorType(error)
+  const message = `${operation}: GitHub refused it (${type ?? "error"})`
+  if (type === "FORBIDDEN") return new Forbidden({ operation, message })
+  if (type === "NOT_FOUND") return new NotFound({ operation, message })
+  if (type === "UNPROCESSABLE") return new Unprocessable({ operation, message })
   return new PullRequestGitHubError({ operation, message })
 }
+
+const unexpected = (operation: string) =>
+  new PullRequestGitHubError({ operation, message: `${operation}: unexpected response` })
+
+/** A review the App submitted or holds pending; GitHub's schema allows no database id, which it always sends. */
+const janitorReview = (operation: string, review: ReviewGraphQL.Review) =>
+  review.databaseId === null
+    ? Effect.fail(unexpected(operation))
+    : Effect.succeed<JanitorReview>({
+        id: review.id,
+        databaseId: review.databaseId,
+        state: review.state,
+        reviewedSha: Option.fromNullishOr(review.commit?.oid),
+      })
 
 const isPending = (comment: ThreadCommentNode) => comment.pullRequestReview?.state === "PENDING"
 
@@ -667,12 +531,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   const decode =
     <S extends Plain>(operation: string, schema: S) =>
     (body: unknown) =>
-      Schema.decodeUnknownEffect(schema)(body).pipe(
-        Effect.mapError(
-          () =>
-            new PullRequestGitHubError({ operation, message: `${operation}: unexpected response` }),
-        ),
-      )
+      Schema.decodeUnknownEffect(schema)(body).pipe(Effect.mapError(() => unexpected(operation)))
 
   /** Waits out a rate limit inline, or hands it back when it is too long or too frequent. */
   const waitOut = (operation: string, until: DateTime.Utc, waits: number) =>
@@ -753,7 +612,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     send(operation, { ...request, method: request.method ?? "GET" }).pipe(
       Effect.flatMap((response) =>
         response._tag === "Failed"
-          ? Effect.fail(failed(operation, response))
+          ? Effect.fail(failed(operation, response.status))
           : decode(
               operation,
               request.schema,
@@ -777,52 +636,134 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     `${repository}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`
 
   /**
-   * One GraphQL operation. Errors come back with the data so a caller can
-   * read a specific one; a rate-limited answer is waited out.
+   * GraphQL through `send`, so the transport's authentication, rate budget
+   * and limits, and the spacing between mutations, apply as they do for REST.
+   * GitHub serves no GraphQL subscriptions.
    */
-  const graphql = <S extends Plain>(
+  const protocol = GraphQLProtocol.GraphQLProtocol.of({
+    execute: (request) =>
+      send(request.operationName, {
+        method: "POST",
+        url: "/graphql",
+        body: {
+          query: request.query,
+          operationName: request.operationName,
+          variables: request.variables,
+        },
+        resource: "graphql",
+        mutation: request.kind === "mutation",
+      }).pipe(
+        Effect.mapError(
+          (cause) => new GraphQLClientError.TransportError({ description: cause._tag, cause }),
+        ),
+        Effect.flatMap((response) =>
+          response._tag === "Failed"
+            ? Effect.fail(
+                new GraphQLClientError.TransportError({
+                  description: `GitHub responded ${response.status}`,
+                  status: response.status,
+                }),
+              )
+            : Effect.succeed({ body: response.body, status: response.status }),
+        ),
+      ),
+    subscribe: () =>
+      Stream.fail(
+        new GraphQLClientError.TransportError({
+          description: "GitHub serves no GraphQL subscriptions",
+          fatal: true,
+        }),
+      ),
+  })
+
+  const client = yield* GraphQLClient.make(ReviewGraphQL.GitHubGraphQLGroup).pipe(
+    Effect.provideService(GraphQLProtocol.GraphQLProtocol, protocol),
+  )
+
+  /** A client failure as a typed one; a GraphQL `errors` answer is read by the caller instead. */
+  const clientFailure = (
     operation: string,
-    query: string,
-    variables: Record<string, unknown>,
-    data: S,
+    error: GraphQLClientError.GraphQLClientError,
+  ): PullRequestGitHubFailure => {
+    const reason = error.reason
+    if (reason._tag !== "TransportError") return unexpected(operation)
+    // `send` already turned the transport's own failures into typed ones.
+    if (reason.cause instanceof PullRequestGitHubError || reason.cause instanceof RateLimited) {
+      return reason.cause
+    }
+    return reason.status === undefined
+      ? new PullRequestGitHubError({ operation, message: `${operation}: ${reason.description}` })
+      : failed(operation, reason.status)
+  }
+
+  /**
+   * One GraphQL call. Errors come back with the data so a caller can read a
+   * specific one; a rate-limited answer is waited out.
+   */
+  const graphql = <A>(
+    operation: string,
+    call: Effect.Effect<GraphQLClient.PartialResult<A>, GraphQLClientError.GraphQLClientError>,
   ) =>
     Effect.gen(function* () {
-      const mutation = query.startsWith("mutation")
       for (let waits = 0; ; waits++) {
-        const response = yield* send(operation, {
-          method: "POST",
-          url: "/graphql",
-          body: { query, variables },
-          resource: "graphql",
-          mutation,
-        })
-        if (response._tag === "Failed") return yield* failed(operation, response)
-        const decoded = yield* decode(operation, graphQLResponse(data))(response.body)
-        if (decoded.errors?.some((error) => error.type === "RATE_LIMITED")) {
+        const result: {
+          readonly data: A | null
+          readonly errors: ReadonlyArray<GraphQLClientError.GraphQLError>
+        } = yield* call.pipe(
+          // Without any data GitHub's errors come as a `ResponseError`.
+          Effect.catch((error) =>
+            error.reason._tag === "ResponseError"
+              ? Effect.succeed({ data: null, errors: error.reason.errors })
+              : Effect.fail(clientFailure(operation, error)),
+          ),
+        )
+        if (result.errors.some((error) => errorType(error) === "RATE_LIMITED")) {
           const now = yield* DateTime.now
           yield* waitOut(operation, DateTime.addDuration(now, GRAPHQL_RATE_LIMIT_WAIT), waits)
           continue
         }
-        return { data: decoded.data ?? null, errors: decoded.errors ?? [] }
+        return result
       }
     })
 
   /** GraphQL data, failing on any error. */
-  const graphqlData = <S extends Plain>(
+  const graphqlData = <A>(
     operation: string,
-    query: string,
-    variables: Record<string, unknown>,
-    data: S,
+    call: Effect.Effect<GraphQLClient.PartialResult<A>, GraphQLClientError.GraphQLClientError>,
   ) =>
-    graphql(operation, query, variables, data).pipe(
+    graphql(operation, call).pipe(
       Effect.flatMap(({ data, errors }) =>
         errors.length > 0 || data === null
-          ? Effect.fail(
-              graphQLFailure(operation, errors[0] ?? { message: "GitHub returned no data" }),
-            )
+          ? Effect.fail(graphQLFailure(operation, errors[0]))
           : Effect.succeed(data),
       ),
     )
+
+  /** A connection's nodes. GitHub's schema allows `null` for them, which it doesn't send. */
+  const nodesOf = <A>(
+    operation: string,
+    connection: { readonly nodes: ReadonlyArray<A | null> | null } | null,
+  ): Effect.Effect<ReadonlyArray<A>, PullRequestGitHubError> =>
+    connection !== null &&
+    connection.nodes !== null &&
+    connection.nodes.every((node): node is A => node !== null)
+      ? Effect.succeed(connection.nodes)
+      : Effect.fail(unexpected(operation))
+
+  /** One page of a connection, for `walk`. */
+  const pageOf = <A>(
+    operation: string,
+    connection: {
+      readonly pageInfo: Page<A>["pageInfo"]
+      readonly nodes: ReadonlyArray<A | null> | null
+    } | null,
+  ): Effect.Effect<Page<A>, PullRequestGitHubError> =>
+    connection === null
+      ? Effect.fail(unexpected(operation))
+      : Effect.map(nodesOf(operation, connection), (nodes) => ({
+          pageInfo: connection.pageInfo,
+          nodes,
+        }))
 
   const pullRequestOf = <P>(
     operation: string,
@@ -965,51 +906,69 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     walk((cursor) =>
       graphqlData(
         "threadComments",
-        THREAD_COMMENTS_QUERY,
-        { id: threadId, after: cursor ?? after },
-        ThreadCommentsData,
+        client.threadComments({ id: threadId, after: cursor ?? after }, { partial: true }),
       ).pipe(
-        Effect.flatMap((data) =>
-          data.node === null
-            ? Effect.fail(
+        Effect.flatMap(
+          ({ node }): Effect.Effect<Page<ThreadCommentNode>, PullRequestGitHubFailure> => {
+            if (node === null) {
+              return Effect.fail(
                 new NotFound({
                   operation: "threadComments",
                   message: "threadComments: thread not found",
                 }),
               )
-            : Effect.succeed(data.node.comments),
+            }
+            return node.__typename === "PullRequestReviewThread"
+              ? pageOf("threadComments", node.comments)
+              : Effect.fail(unexpected("threadComments"))
+          },
         ),
       ),
     )
 
   const reviewNodes = walk((after) =>
-    graphqlData("janitorReviews", REVIEWS_QUERY, { ...pullVariables, after }, ReviewsData).pipe(
+    graphqlData(
+      "janitorReviews",
+      client.janitorReviews({ ...pullVariables, after }, { partial: true }),
+    ).pipe(
       Effect.flatMap((data) => pullRequestOf("janitorReviews", data)),
-      Effect.map((pull) => pull.reviews),
+      Effect.flatMap((pull) => pageOf("janitorReviews", pull.reviews)),
     ),
   )
   const janitorReviews = reviewNodes.pipe(
     // The App submits reviews only through Publish, so every submitted one it authored is janitor's.
-    Effect.map((nodes) =>
-      nodes.flatMap((review): ReadonlyArray<JanitorReview> =>
-        review.viewerDidAuthor && review.state !== "PENDING"
-          ? [
-              {
-                id: review.id,
-                databaseId: review.databaseId,
-                state: review.state,
-                reviewedSha: Option.fromNullishOr(review.commit?.oid),
-              },
-            ]
-          : [],
+    Effect.flatMap((nodes) =>
+      Effect.forEach(
+        nodes.filter((review) => review.viewerDidAuthor && review.state !== "PENDING"),
+        (review) => janitorReview("janitorReviews", review),
       ),
     ),
   )
 
   const reviewThreads = walk((after) =>
-    graphqlData("reviewThreads", THREADS_QUERY, { ...pullVariables, after }, ThreadsData).pipe(
+    graphqlData(
+      "reviewThreads",
+      client.reviewThreads({ ...pullVariables, after }, { partial: true }),
+    ).pipe(
       Effect.flatMap((data) => pullRequestOf("reviewThreads", data)),
-      Effect.map((pull) => pull.reviewThreads),
+      Effect.flatMap((pull) => pageOf("reviewThreads", pull.reviewThreads)),
+    ),
+  ).pipe(
+    Effect.flatMap((threads) =>
+      Effect.forEach(threads, (thread) =>
+        pageOf("reviewThreads", thread.comments).pipe(
+          Effect.map((comments): Thread => ({
+            id: thread.id,
+            path: thread.path,
+            line: thread.line,
+            startLine: thread.startLine,
+            isResolved: thread.isResolved,
+            isOutdated: thread.isOutdated,
+            resolvedBy: thread.resolvedBy,
+            comments,
+          })),
+        ),
+      ),
     ),
   )
 
@@ -1045,7 +1004,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   })
 
   /** Every comment on a thread; later pages are fetched only when there are any. */
-  const allComments = (thread: typeof ThreadNode.Type) =>
+  const allComments = (thread: Thread) =>
     thread.comments.pageInfo.hasNextPage && thread.comments.pageInfo.endCursor !== null
       ? threadComments(thread.id, thread.comments.pageInfo.endCursor).pipe(
           Effect.map((rest) => [...thread.comments.nodes, ...rest]),
@@ -1183,19 +1142,24 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
 
   const pendingReviews = graphqlData(
     "pendingReviews",
-    PENDING_QUERY,
-    pullVariables,
-    PendingData,
-  ).pipe(Effect.flatMap((data) => pullRequestOf("pendingReviews", data)))
-
-  /** A user has at most one pending review per pull request. */
-  const ownPending = (pull: {
-    readonly reviews: { readonly nodes: ReadonlyArray<typeof ReviewNode.Type> }
-  }) => pull.reviews.nodes.find((review) => review.viewerDidAuthor && review.state === "PENDING")
+    client.pendingReviews(pullVariables, { partial: true }),
+  ).pipe(
+    Effect.flatMap((data) => pullRequestOf("pendingReviews", data)),
+    Effect.flatMap((pull) =>
+      nodesOf("pendingReviews", pull.reviews).pipe(
+        // A user has at most one pending review per pull request.
+        Effect.map((reviews) => ({
+          id: pull.id,
+          own: reviews.find((review) => review.viewerDidAuthor && review.state === "PENDING"),
+        })),
+      ),
+    ),
+  )
 
   const pendingReview = Effect.gen(function* () {
-    const review = ownPending(yield* pendingReviews)
-    if (review === undefined) return Option.none<PendingReview>()
+    const { own } = yield* pendingReviews
+    if (own === undefined) return Option.none<PendingReview>()
+    const review = yield* janitorReview("pendingReviews", own)
     const inReview = (comment: ThreadCommentNode) => comment.pullRequestReview?.id === review.id
     const threads: Array<PendingReview["threads"][number]> = []
     const replies: Array<PendingReview["replies"][number]> = []
@@ -1228,13 +1192,11 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   })
 
   const deletePendingReview = Effect.gen(function* () {
-    const leftover = ownPending(yield* pendingReviews)
-    if (leftover === undefined) return
+    const { own } = yield* pendingReviews
+    if (own === undefined) return
     yield* graphqlData(
       "deletePendingReview",
-      DELETE_REVIEW,
-      { input: { pullRequestReviewId: leftover.id } },
-      Schema.Unknown,
+      client.deletePendingReview({ input: { pullRequestReviewId: own.id } }, { partial: true }),
     )
   })
 
@@ -1243,39 +1205,42 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       const pull = yield* pendingReviews
       const added = yield* graphqlData(
         "addReview",
-        ADD_REVIEW,
-        { input: { pullRequestId: pull.id, commitOID: commitId } },
-        AddReviewData,
+        client.addReview(
+          { input: { pullRequestId: pull.id, commitOID: commitId } },
+          { partial: true },
+        ),
       )
-      if (added.addPullRequestReview === null) {
+      const review = added.addPullRequestReview?.pullRequestReview ?? null
+      if (review === null || review.databaseId === null) {
         return yield* new PullRequestGitHubError({
           operation: "addReview",
           message: "addReview: GitHub returned no review",
         })
       }
-      return added.addPullRequestReview.pullRequestReview
+      return { id: review.id, databaseId: review.databaseId }
     })
 
   const addThread = (reviewId: string, thread: NewThread) =>
     Effect.gen(function* () {
       const result = yield* graphql(
         "addThread",
-        ADD_THREAD,
-        {
-          input: {
-            pullRequestReviewId: reviewId,
-            path: thread.path,
-            line: thread.line,
-            side: "RIGHT",
-            ...(thread.startLine === undefined || thread.startLine === thread.line
-              ? {}
-              : { startLine: thread.startLine, startSide: "RIGHT" }),
-            body: thread.body,
+        client.addThread(
+          {
+            input: {
+              pullRequestReviewId: reviewId,
+              path: thread.path,
+              line: thread.line,
+              side: "RIGHT",
+              ...(thread.startLine === undefined || thread.startLine === thread.line
+                ? {}
+                : { startLine: thread.startLine, startSide: "RIGHT" as const }),
+              body: thread.body,
+            },
           },
-        },
-        AddThreadData,
+          { partial: true },
+        ),
       )
-      const unprocessable = result.errors.find((error) => error.type === "UNPROCESSABLE")
+      const unprocessable = result.errors.find((error) => errorType(error) === "UNPROCESSABLE")
       const created = result.data?.addPullRequestReviewThread?.thread ?? null
       // GitHub may refuse a line outside the diff with an error or with no thread at all.
       if (unprocessable !== undefined || (result.errors.length === 0 && created === null)) {
@@ -1286,10 +1251,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
         })
       }
       if (result.errors.length > 0 || created === null) {
-        return yield* graphQLFailure(
-          "addThread",
-          result.errors[0] ?? { message: "GitHub returned no thread" },
-        )
+        return yield* graphQLFailure("addThread", result.errors[0])
       }
       return { threadId: created.id }
     })
@@ -1298,15 +1260,16 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     Effect.gen(function* () {
       const added = yield* graphqlData(
         "addReply",
-        ADD_REPLY,
-        {
-          input: {
-            pullRequestReviewId: reviewId,
-            pullRequestReviewThreadId: reply.threadId,
-            body: reply.body,
+        client.addReply(
+          {
+            input: {
+              pullRequestReviewId: reviewId,
+              pullRequestReviewThreadId: reply.threadId,
+              body: reply.body,
+            },
           },
-        },
-        AddReplyData,
+          { partial: true },
+        ),
       )
       const comment = added.addPullRequestReviewThreadReply?.comment ?? null
       if (comment === null) {
@@ -1321,26 +1284,21 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   const submitPendingReview: PullRequestGitHub["submitPendingReview"] = (reviewId, submission) =>
     graphqlData(
       "submitReview",
-      SUBMIT_REVIEW,
-      { input: { pullRequestReviewId: reviewId, event: submission.event, body: submission.body } },
-      Schema.Unknown,
+      client.submitReview(
+        {
+          input: { pullRequestReviewId: reviewId, event: submission.event, body: submission.body },
+        },
+        { partial: true },
+      ),
     ).pipe(Effect.asVoid)
 
   const resolveThread: PullRequestGitHub["resolveThread"] = (threadId) =>
     graphqlData(
       "resolveThread",
-      RESOLVE_THREAD,
-      { input: { threadId } },
-      Schema.Struct({
-        resolveReviewThread: Schema.NullOr(
-          Schema.Struct({
-            thread: Schema.Struct({ id: Schema.String, isResolved: Schema.Boolean }),
-          }),
-        ),
-      }),
+      client.resolveThread({ input: { threadId } }, { partial: true }),
     ).pipe(
       Effect.flatMap((data) =>
-        data.resolveReviewThread?.thread.isResolved === true
+        data.resolveReviewThread?.thread?.isResolved === true
           ? Effect.void
           : Effect.fail(
               new PullRequestGitHubError({
@@ -1354,16 +1312,13 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
   const minimizeComment: PullRequestGitHub["minimizeComment"] = (commentId) =>
     graphqlData(
       "minimizeComment",
-      MINIMIZE_COMMENT,
-      { input: { subjectId: commentId, classifier: "RESOLVED" } },
-      Schema.Struct({
-        minimizeComment: Schema.NullOr(
-          Schema.Struct({ minimizedComment: Schema.Struct({ isMinimized: Schema.Boolean }) }),
-        ),
-      }),
+      client.minimizeComment(
+        { input: { subjectId: commentId, classifier: "RESOLVED" } },
+        { partial: true },
+      ),
     ).pipe(
       Effect.flatMap((data) =>
-        data.minimizeComment?.minimizedComment.isMinimized === true
+        data.minimizeComment?.minimizedComment?.isMinimized === true
           ? Effect.void
           : Effect.fail(
               new PullRequestGitHubError({
@@ -1391,7 +1346,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
             ? Effect.void
             : response.status === 403
               ? Effect.fail(new NotOnDismissalAllowList({ reviewId: review.id }))
-              : Effect.fail(failed("dismissReview", response)),
+              : Effect.fail(failed("dismissReview", response.status)),
       ),
     )
 
