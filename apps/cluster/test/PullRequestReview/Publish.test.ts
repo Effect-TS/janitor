@@ -780,89 +780,128 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
     ),
   )
 
-  it.effect(
-    "only a superseded Janitor review with no standing findings is minimized, including on replay",
-    () =>
-      run((harness) =>
-        Effect.gen(function* () {
-          putEarlierReview(harness, "COMMENTED")
-          const earlier = harness.github.reviews[0]!
-          harness.github.reviews.push(
-            { ...earlier, id: "PRR_standing", databaseId: 801 },
-            {
-              ...earlier,
-              id: "PRR_human",
-              databaseId: 802,
-              author: AUTHOR,
-              byApp: false,
-              viewerCanMinimize: true,
-            },
-          )
-          yield* putEarlierThread(harness, { id: "PRRT_addressed", severity: "blocking" })
-          yield* putEarlierThread(harness, { id: "PRRT_standing", severity: "blocking" })
-          const standing = harness.github.threads.find((thread) => thread.id === "PRRT_standing")!
-          standing.comments = standing.comments.map((comment) => ({
-            ...comment,
-            reviewId: "PRR_standing",
-          }))
-          harness.github.file(HEAD, "src/a.ts", lines.join("\n").replace("a + 1", "a"))
-
-          // Lose a later response so cleanup must remain safe when Publish replays.
-          const crashed = yield* cutOff(harness, "updateCheckRun")
-          const runId = newRunId()
-          yield* harness.start(runId)
-          yield* harness.agent.last.step({
-            history: { _tag: "Appended", messages: [] },
-            records: [
+  for (const unknownOwnership of [false, true])
+    it.effect(
+      unknownOwnership
+        ? "unknown thread ownership preserves earlier reviews, including on replay"
+        : "only an eligible superseded Janitor review is minimized once after its response is lost",
+      () =>
+        run((harness) =>
+          Effect.gen(function* () {
+            putEarlierReview(harness, "COMMENTED")
+            const earlier = harness.github.reviews[0]!
+            harness.github.reviews.push(
+              { ...earlier, id: "PRR_standing", databaseId: 801 },
               {
-                _tag: "ThreadUpdated",
-                threadId: "PRRT_addressed",
-                judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+                ...earlier,
+                id: "PRR_human",
+                databaseId: 802,
+                author: AUTHOR,
+                byApp: false,
+                viewerCanMinimize: true,
               },
+              { ...earlier, id: "PRR_denied", databaseId: 803, viewerCanMinimize: false },
               {
-                _tag: "ThreadUpdated",
-                threadId: "PRRT_standing",
-                judgement: { judgement: "still_applies" },
+                ...earlier,
+                id: "PRR_listed",
+                databaseId: 804,
+                body: "Blocking findings that couldn't go inline:\n\nUnanchorable finding remains unsafe.",
               },
-            ],
-          })
-          yield* harness.agent.last.complete("Reviewed.")
-          yield* harness.waitFor(crashed, "the lost check-run response after review cleanup")
-          yield* harness.restart
-          yield* harness.until(
-            Effect.sync(() => harness.finishedCount(runId) > 0),
-            "RunFinished",
-          )
+            )
+            yield* putEarlierThread(harness, { id: "PRRT_addressed", severity: "blocking" })
+            yield* putEarlierThread(harness, { id: "PRRT_standing", severity: "blocking" })
+            const standing = harness.github.threads.find((thread) => thread.id === "PRRT_standing")!
+            standing.comments = standing.comments.map((comment) => ({
+              ...comment,
+              reviewId: "PRR_standing",
+            }))
+            for (const name of ["denied", "listed"]) {
+              yield* putEarlierThread(harness, { id: "PRRT_" + name, severity: "blocking" })
+              const thread = harness.github.threads.find((thread) => thread.id === "PRRT_" + name)!
+              thread.comments = thread.comments.map((comment) => ({
+                ...comment,
+                reviewId: "PRR_" + name,
+              }))
+            }
+            if (unknownOwnership) {
+              yield* putEarlierThread(harness, { id: "PRRT_unknown", severity: "blocking" })
+              const thread = harness.github.threads.find((thread) => thread.id === "PRRT_unknown")!
+              thread.comments = thread.comments.map(({ reviewId: _, ...comment }) => comment)
+            }
+            harness.github.file(HEAD, "src/a.ts", lines.join("\n").replace("a + 1", "a"))
 
-          const current = harness.github.reviews.find((review) => review.commitOID === HEAD)!
-          assert.isDefined(current)
-          assert.deepStrictEqual(
-            harness.github.reviews.map((review) => ({
-              id: review.id,
-              minimized: review.isMinimized ?? false,
-            })),
-            [
-              { id: "PRR_earlier", minimized: true },
-              { id: "PRR_standing", minimized: false },
-              { id: "PRR_human", minimized: false },
-              { id: current.id, minimized: false },
-            ],
-          )
-          assert.strictEqual(
-            harness.github.reviews.find((review) => review.id === "PRR_human")?.body,
-            "Earlier.",
-          )
-          assert.deepStrictEqual(
-            harness.github.requests
-              .filter((request) => harness.github.writeName(request) === "minimizeComment")
-              .map((request) => harness.github.mutationInput(request)?.subjectId),
-            ["PRR_earlier"],
-          )
-          assert.strictEqual(count(harness, "submitPullRequestReview"), 1)
-          assert.strictEqual(harness.finishedCount(runId), 1)
-        }),
-      ),
-  )
+            // GitHub commits the write but never answers, so restart happens before journalling.
+            const crashed = yield* cutOff(
+              harness,
+              unknownOwnership ? "updateCheckRun" : "minimizeComment",
+            )
+            const runId = newRunId()
+            yield* harness.start(runId)
+            yield* harness.agent.last.step({
+              history: { _tag: "Appended", messages: [] },
+              records: [
+                {
+                  _tag: "ThreadUpdated",
+                  threadId: "PRRT_addressed",
+                  judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+                },
+                {
+                  _tag: "ThreadUpdated",
+                  threadId: "PRRT_standing",
+                  judgement: { judgement: "still_applies" },
+                },
+                ...["denied", "listed"].map((name): LoopRecord => ({
+                  _tag: "ThreadUpdated",
+                  threadId: "PRRT_" + name,
+                  judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+                })),
+              ],
+            })
+            yield* harness.agent.last.complete("Reviewed.")
+            yield* harness.waitFor(crashed, "the lost response during review cleanup")
+            assert.strictEqual(earlier.isMinimized ?? false, !unknownOwnership)
+            assert.strictEqual(harness.finishedCount(runId), 0)
+            if (!unknownOwnership) {
+              assert.strictEqual(count(harness, "minimizeComment"), 1)
+              assert.strictEqual(count(harness, "updateCheckRun"), 0)
+            }
+            yield* harness.restart
+            yield* harness.until(
+              Effect.sync(() => harness.finishedCount(runId) > 0),
+              "RunFinished",
+            )
+
+            const current = harness.github.reviews.find((review) => review.commitOID === HEAD)!
+            assert.isDefined(current)
+            assert.deepStrictEqual(
+              harness.github.reviews.map((review) => ({
+                id: review.id,
+                minimized: review.isMinimized ?? false,
+              })),
+              [
+                { id: "PRR_earlier", minimized: !unknownOwnership },
+                { id: "PRR_standing", minimized: false },
+                { id: "PRR_human", minimized: false },
+                { id: "PRR_denied", minimized: false },
+                { id: "PRR_listed", minimized: false },
+                { id: current.id, minimized: false },
+              ],
+            )
+            assert.strictEqual(
+              harness.github.reviews.find((review) => review.id === "PRR_human")?.body,
+              "Earlier.",
+            )
+            assert.deepStrictEqual(
+              harness.github.requests
+                .filter((request) => harness.github.writeName(request) === "minimizeComment")
+                .map((request) => harness.github.mutationInput(request)?.subjectId),
+              unknownOwnership ? [] : ["PRR_earlier"],
+            )
+            assert.strictEqual(count(harness, "submitPullRequestReview"), 1)
+            assert.strictEqual(harness.finishedCount(runId), 1)
+          }),
+        ),
+    )
 
   it.effect("a resolution with a lost response replays without another mutation or reply", () =>
     run((harness) =>
