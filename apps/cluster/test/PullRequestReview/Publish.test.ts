@@ -718,6 +718,68 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
     ),
   )
 
+  it.effect("an addressed finding hides only its eligible Janitor comment as resolved", () =>
+    run((harness) =>
+      Effect.gen(function* () {
+        yield* putEarlierThread(harness, {
+          id: "PRRT_addressed",
+          severity: "blocking",
+          after: [
+            {
+              author: AUTHOR,
+              byApp: false,
+              body: "Fixed in the latest push.",
+              createdAt: "2026-10-13T11:00:00Z",
+              viewerCanMinimize: true,
+            },
+          ],
+        })
+        yield* putEarlierThread(harness, { id: "PRRT_active", severity: "blocking" })
+        harness.github.file(HEAD, "src/a.ts", lines.join("\n").replace("a + 1", "a"))
+
+        yield* reviewWith(harness, [
+          {
+            _tag: "ThreadUpdated",
+            threadId: "PRRT_addressed",
+            judgement: { judgement: "addressed", note: "The off-by-one is fixed." },
+          },
+          {
+            _tag: "ThreadUpdated",
+            threadId: "PRRT_active",
+            judgement: { judgement: "still_applies" },
+          },
+        ])
+
+        assert.deepStrictEqual(
+          harness.github.threads.map((thread) => ({
+            id: thread.id,
+            resolved: thread.isResolved,
+            comments: thread.comments.map((comment) => ({
+              id: comment.id,
+              minimized: comment.isMinimized ?? false,
+              reason: comment.minimizedReason ?? null,
+            })),
+          })),
+          [
+            {
+              id: "PRRT_addressed",
+              resolved: true,
+              comments: [
+                { id: "PRRT_addressed_root", minimized: true, reason: "resolved" },
+                { id: "PRRT_addressed_0", minimized: false, reason: null },
+              ],
+            },
+            {
+              id: "PRRT_active",
+              resolved: false,
+              comments: [{ id: "PRRT_active_root", minimized: false, reason: null }],
+            },
+          ],
+        )
+      }),
+    ),
+  )
+
   it.effect("a resolution with a lost response replays without another mutation or reply", () =>
     run((harness) =>
       Effect.gen(function* () {

@@ -476,7 +476,7 @@ const makePublisher = Effect.gen(function* () {
           })),
           listed: body.map(listed),
           resolutions: threads.flatMap(({ thread, judged }) =>
-            !thread.isResolved && judged.judgement.judgement === "addressed" ? [thread.id] : [],
+            judged.judgement.judgement === "addressed" ? [thread.id] : [],
           ),
           replies: threads.flatMap(({ thread, judged, reply }) =>
             judged.judgement.judgement !== "addressed" && Option.isSome(reply)
@@ -782,7 +782,7 @@ const makePublisher = Effect.gen(function* () {
               ),
       )
 
-      // Resolution needs no new review. Re-read on each attempt to reconcile a lost response.
+      // Resolution and minimization need no new review. Re-read to reconcile lost responses.
       if (plan._tag === "Review")
         for (const threadId of plan.resolutions ?? [])
           yield* once(
@@ -792,16 +792,19 @@ const makePublisher = Effect.gen(function* () {
               Effect.gen(function* () {
                 const history = yield* client.janitorHistory
                 const thread = history.threads.find((thread) => thread.id === threadId)
-                if (thread?.isResolved) return
-                yield* client.resolveThread(threadId)
+                if (thread === undefined) return
+                if (!thread.isResolved) yield* client.resolveThread(threadId)
+                const root = thread.comments[0]
+                if (root?.byJanitor && root.viewerCanMinimize && !root.isMinimized)
+                  yield* client.minimizeComment(root.id)
               }),
-            ).pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Couldn't resolve a PR review thread").pipe(
-                  Effect.annotateLogs({ ...errorFields(error), threadId }),
-                ),
+            ).pipe(Effect.as({})),
+          ).pipe(
+            // Don't journal a failed attempt: replay reconciles each mutation from live state.
+            Effect.catch((error) =>
+              Effect.logWarning("Couldn't resolve or minimize a PR review thread").pipe(
+                Effect.annotateLogs({ ...errorFields(error), threadId }),
               ),
-              Effect.as({}),
             ),
           )
 
