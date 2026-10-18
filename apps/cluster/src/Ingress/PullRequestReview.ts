@@ -11,18 +11,21 @@ import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import {
   RepositorySettings,
   RunPage,
+  RunTranscript,
   SetRepositorySettingsRequest,
 } from "@janitor/domain/PullRequestReview/Settings"
 import { GitHubReadModel } from "../GitHub/ReadModel.ts"
 import { pullRequestReviewDeployment } from "../PullRequestReview/Config.ts"
 import { errorFields } from "../PullRequestReview/Log.ts"
+import { RunTranscripts } from "../PullRequestReview/RunEntity.ts"
 import { RepositoryDisabler } from "../PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../PullRequestReview/Store.ts"
 import { SameOriginMiddleware } from "./Sync.ts"
 
 /**
- * PR review's repository settings and runs list (EFF-1930). Every route sits
- * behind the Access assertion; the write also requires same origin.
+ * PR review's repository settings and runs list (EFF-1930), and a run's
+ * transcript (EFF-2445). Every route sits behind the Access assertion; the
+ * write also requires same origin. A transcript is never logged.
  */
 
 /** Runs per page, as on Activity. */
@@ -31,6 +34,12 @@ const RUN_PAGE_SIZE = 50
 const repositoryPath = HttpRouter.schemaPathParams(
   Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId }),
 )
+
+const runPath = HttpRouter.schemaPathParams(
+  Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId, runId: RunId }),
+)
+
+const Message = Schema.Struct({ message: Schema.String })
 
 const badRequest = HttpServerResponse.text("Bad Request", { status: 400 })
 const notFound = HttpServerResponse.empty({ status: 404 })
@@ -112,6 +121,28 @@ const reads = HttpRouter.addAll([
       })
     }).pipe(handled("runs")),
   ),
+  HttpRouter.route(
+    "GET",
+    "/repositories/:repositoryId/pull-request-review/runs/:runId/transcript",
+    Effect.gen(function* () {
+      const { repositoryId, runId } = yield* runPath
+      if (Option.isNone(yield* repository(repositoryId))) return notFound
+      // Found in the repository first, so a run id from another one is never read.
+      const run = yield* (yield* PullRequestReviewStore).run(repositoryId, runId)
+      if (Option.isNone(run)) return notFound
+      const transcript = yield* (yield* RunTranscripts).get(runId)
+      if (transcript._tag === "Expired")
+        return yield* HttpServerResponse.schemaJson(Message)(
+          {
+            message:
+              "This run's transcript is no longer kept. It is dropped once the retention period after the run ended has passed, or at once for a cancelled run.",
+          },
+          { status: 410 },
+        )
+      const { _tag, ...kept } = transcript
+      return yield* HttpServerResponse.schemaJson(RunTranscript)({ run: run.value, ...kept })
+    }).pipe(handled("transcript")),
+  ),
 ])
 
 const writes = HttpRouter.add(
@@ -125,7 +156,7 @@ const writes = HttpRouter.add(
     if (enabled) {
       // Unknown visibility counts as private, as in admission (EFF-1645 point 3).
       if (found.value.isPrivate !== false)
-        return yield* HttpServerResponse.schemaJson(Schema.Struct({ message: Schema.String }))(
+        return yield* HttpServerResponse.schemaJson(Message)(
           { message: "PR review can't be enabled for a private repository." },
           { status: 409 },
         )

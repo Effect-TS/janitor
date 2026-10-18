@@ -64,3 +64,15 @@ export const FindingOutcome = Schema.Literals([
   "withdrawn",
 ]).annotate({ identifier: "FindingOutcome" })
 export type FindingOutcome = typeof FindingOutcome.Type
+
+/**
+ * What a loop-side tool decided in a step, kept with the step's history:
+ * the run entity hands it to `Publish`, and its transcript shows it.
+ */
+export const LoopRecord = Schema.TaggedUnion({
+  /** A `reportFinding` call the loop accepted. */
+  FindingReported: { finding: Finding },
+  /** An `updateThread` call: the agent's judgement on one of janitor's earlier threads. */
+  ThreadUpdated: { threadId: Schema.String, judgement: ThreadJudgement },
+}).annotate({ identifier: "PullRequestReviewLoopRecord" })
+export type LoopRecord = typeof LoopRecord.Type

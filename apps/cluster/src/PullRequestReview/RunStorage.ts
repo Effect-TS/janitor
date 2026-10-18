@@ -350,6 +350,22 @@ export const makeRunStorage = (sql: SqlClient.SqlClient, runId: string) => {
     Effect.flatMap(Effect.forEach((row) => Schema.decodeEffect(RecordJson)(row.record))),
   )
 
+  /**
+   * What the run's transcript shows: its state, history and records as
+   * committed, read in one transaction. Unlike `resumeHistory` it changes
+   * nothing, so a trailing reply stays.
+   */
+  const transcript = sql.withTransaction(
+    Effect.all({
+      state: load,
+      messages: sql<{ message: string }>`
+        SELECT message FROM pr_review_run_history WHERE run_id = ${runId} ORDER BY seq`.pipe(
+        Effect.flatMap(Effect.forEach((row) => Schema.decodeEffect(MessageJson)(row.message))),
+      ),
+      records,
+    }),
+  )
+
   /** Deletes janitor's tables, in one transaction, when the run expires. */
   const drop = sql.withTransaction(
     Effect.all(
@@ -374,6 +390,7 @@ export const makeRunStorage = (sql: SqlClient.SqlClient, runId: string) => {
     commitStep,
     resumeHistory,
     records,
+    transcript,
     publishStep,
     recordPublishStep,
     drop,

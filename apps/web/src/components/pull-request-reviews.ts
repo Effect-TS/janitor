@@ -21,11 +21,13 @@ import * as Page from "./ui/page"
 import * as Table from "./ui/table"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
+import * as Routes from "@/routes"
 
 /**
  * The repository's "PR reviews" section (EFF-1930): a read-only runs list,
  * newest first, paged by cursor and refreshed like Activity. Running and
- * skipped runs are listed too. There is no detail view and no run control.
+ * skipped runs are listed too, and every run that wasn't skipped links to its
+ * transcript. There is no run control.
  * Like Activity, runs are grouped by pull request unless "All reviews" is
  * chosen, and the search matches a pull request's title or number.
  */
@@ -264,7 +266,7 @@ export const groups = (runs: ReadonlyArray<RunEntry>): ReadonlyArray<Group> => {
 
 // VIEW
 
-const outcome = (run: RunEntry): { label: string; variant: ChipVariant } => {
+export const outcome = (run: RunEntry): { label: string; variant: ChipVariant } => {
   switch (run.status) {
     case "running":
       return { label: "Running", variant: "agent" }
@@ -302,7 +304,7 @@ export const describeDuration = (millis: number): string => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-const timestamp = (at: DateTime.Utc) => DateTime.formatIso(at).slice(0, 16).replace("T", " ")
+export const timestamp = (at: DateTime.Utc) => DateTime.formatIso(at).slice(0, 16).replace("T", " ")
 
 const repositoryUrl = (repository: RepositoryOverview) =>
   `https://github.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}`
@@ -318,7 +320,7 @@ const external = (
     children,
   )
 
-const triggerLabel = (trigger: Trigger) =>
+export const triggerLabel = (trigger: Trigger) =>
   trigger._tag === "Automatic"
     ? "Automatic"
     : `/janitor by @${trigger.invoker}${trigger._tag === "Forced" ? " · forced" : ""}`
@@ -376,6 +378,23 @@ const runRow = (
   const links = [
     ...(run.review === null ? [] : [external(h, run.review.url, ["GitHub review"])]),
     ...(run.checkRun === null ? [] : [external(h, run.checkRun.url, ["janitor/review"])]),
+    // A skipped run never started, so it has no transcript.
+    ...(run.status === "skipped" || repository === undefined
+      ? []
+      : [
+          h.a(
+            [
+              h.Href(
+                Routes.pullRequestReviewTranscript({
+                  repositoryId: repository.repositoryId,
+                  runId: run.runId,
+                }),
+              ),
+              h.Class("text-primary hover:underline"),
+            ],
+            ["Transcript"],
+          ),
+        ]),
   ]
   return Table.row(h, {
     attributes: [h.DataAttribute("status", run.status)],

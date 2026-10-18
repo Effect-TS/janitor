@@ -1,4 +1,5 @@
 import * as CloudflareCluster from "@effect/platform-cloudflare/CloudflareCluster"
+import * as Prompt from "effect/ai/Prompt"
 import * as Clock from "effect/Clock"
 import * as ClusterSchema from "effect/cluster/ClusterSchema"
 import * as DeliverAt from "effect/cluster/DeliverAt"
@@ -12,9 +13,11 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as PrimaryKey from "effect/PrimaryKey"
 import * as Rpc from "effect/rpc/Rpc"
+import * as RpcGroup from "effect/rpc/RpcGroup"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
@@ -28,7 +31,13 @@ import { checkRunOutput, type RunError } from "@janitor/domain/PullRequestReview
 import { RunId, SkipReason, Trigger } from "@janitor/domain/PullRequestReview/Run"
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import { RepositoryEligibility } from "../RepositoryEligibility.ts"
-import { type LoopOutcome, ReviewAgent, ReviewInputError, type ReviewSession } from "./Agent.ts"
+import {
+  type LoopOutcome,
+  LoopRecord,
+  ReviewAgent,
+  ReviewInputError,
+  type ReviewSession,
+} from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import * as ReviewGitHub from "./GitHub.ts"
 import { errorFields } from "./Log.ts"
@@ -45,7 +54,8 @@ import { PullRequestReviewStore } from "./Store.ts"
  * the run id, sends `Start` and `Cancel`, and hears back through its own
  * `RunFinished` whenever the run reaches a final state: published, quiet,
  * skipped, cancelled or errored. Payloads carry ids only, never pull request
- * or invoker text (EFF-1848 point 10).
+ * or invoker text (EFF-1848 point 10). `Transcript` is the one read: the web
+ * app's, through `RunTranscripts`.
  */
 
 const run = {
@@ -108,13 +118,60 @@ export class ExpirePayload extends Schema.Class<ExpirePayload>("PullRequestRevie
 }
 export const Expire = Rpc.make("Expire", { payload: ExpirePayload })
 
-export const PullRequestReviewRun = Entity.make("PullRequestReviewRun", [
-  Start,
-  Cancel,
-  Skip,
-  Publish,
-  Expire,
-]).annotateRpcs(ClusterSchema.Persisted, true)
+/**
+ * What the run's storage holds for its transcript (EFF-2445): nothing once
+ * the run's data is dropped, or before `Start` saved the run.
+ */
+export const TranscriptResult = Schema.TaggedUnion({
+  Expired: {},
+  Available: {
+    resumeCount: Schema.Int,
+    steered: Schema.Boolean,
+    interrupted: Schema.Boolean,
+    errorCategory: Schema.NullOr(Schema.String),
+    /** When `Expire` drops the run's data; null until the run is final. */
+    expiresAt: Schema.NullOr(Schema.DateTimeUtc),
+    messages: Schema.Array(Prompt.Message),
+    records: Schema.Array(LoopRecord),
+  },
+})
+export type TranscriptResult = typeof TranscriptResult.Type
+
+/** Reads the run's transcript as committed so far. Mid-run, that is every finished step. */
+export const Transcript = Rpc.make("Transcript", {
+  payload: { runId: RunId },
+  success: TranscriptResult,
+})
+
+export const PullRequestReviewRun = Entity.fromRpcGroup(
+  "PullRequestReviewRun",
+  RpcGroup.make(Start, Cancel, Skip, Publish, Expire)
+    .annotateRpcs(ClusterSchema.Persisted, true)
+    // A read changes nothing, so it isn't stored and replayed like the rest.
+    .add(Transcript),
+)
+
+const readTranscript = (runId: RunId) =>
+  Effect.flatMap(PullRequestReviewRun.client, (runs) => runs(runId).Transcript({ runId }))
+
+/** `Transcript` as a service, so the web routes read it without reaching the cluster themselves. */
+export class RunTranscripts extends Context.Service<
+  RunTranscripts,
+  {
+    readonly get: (
+      runId: RunId,
+    ) => Effect.Effect<TranscriptResult, Effect.Error<ReturnType<typeof readTranscript>>>
+  }
+>()("@janitor/cluster/PullRequestReview/RunEntity/RunTranscripts", {
+  make: Effect.gen(function* () {
+    const context = yield* Effect.context<Effect.Services<ReturnType<typeof readTranscript>>>()
+    return {
+      get: (runId: RunId) => readTranscript(runId).pipe(Effect.provideContext(context)),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 /**
  * What the `Publish` handler does with a finished loop's outcome: the review
@@ -843,6 +900,32 @@ export const PullRequestReviewRunLayer = PullRequestReviewRun.toLayer(
           // Retries a record Postgres refused, then expires the run: after the
           // retention period, or at once when a push superseded it.
           yield* finalize
+        }).pipe(withRunLogs, Effect.orDie),
+
+      Transcript: () =>
+        Effect.gen(function* () {
+          if (expired) return { _tag: "Expired" } as const
+          const { state, messages, records } = yield* storage.transcript
+          if (Option.isNone(state)) return { _tag: "Expired" } as const
+          const run = state.value
+          const config = yield* pullRequestReviewConfig
+          // As `finalize` schedules `Expire`: at once for a cancelled run.
+          const expiresAt =
+            !isEnded(run.phase) || run.finishedAt === null
+              ? null
+              : run.phase === "cancelled"
+                ? DateTime.makeUnsafe(run.finishedAt)
+                : DateTime.addDuration(DateTime.makeUnsafe(run.finishedAt), config.runRetention)
+          return {
+            _tag: "Available",
+            resumeCount: Math.max(0, run.acquires - 1),
+            steered: run.steered,
+            interrupted: run.interrupted,
+            errorCategory: run.errorCategory,
+            expiresAt,
+            messages,
+            records,
+          } as const
         }).pipe(withRunLogs, Effect.orDie),
 
       Expire: ({ payload }) =>
