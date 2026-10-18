@@ -5,6 +5,7 @@ export default defineConfig({
   schema: "./src/GitHub/graphql/github.graphql",
   documents: ["src/**/*.graphql"],
   scalars: {
+    Int: "effect/Schema#Int",
     GitObjectID: "effect/Schema#String",
   },
 })
