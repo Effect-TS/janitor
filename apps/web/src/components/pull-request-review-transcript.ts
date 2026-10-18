@@ -35,6 +35,8 @@ export const Model = Schema.Struct({
   /** The run's entity no longer keeps it. */
   expired: Schema.Boolean,
   loading: Schema.Boolean,
+  /** A live update arrived during the fetch in flight, which may have read the run before it. */
+  stale: Schema.Boolean,
   error: Schema.NullOr(Schema.String),
   /** Fences responses from an earlier run or activation. */
   generation: Schema.Int,
@@ -58,6 +60,7 @@ export const init = (): Model => ({
   transcript: null,
   expired: false,
   loading: false,
+  stale: false,
   error: null,
   generation: 0,
 })
@@ -96,7 +99,7 @@ type Return = Update.Return<Model, Message, HttpClient.HttpClient>
 const fetch = (model: Model): Return => {
   if (!model.active || model.loading) return { model }
   return {
-    model: { ...model, loading: true, error: null },
+    model: { ...model, loading: true, stale: false, error: null },
     commands: [
       FetchTranscript({
         repositoryId: model.repositoryId,
@@ -106,6 +109,10 @@ const fetch = (model: Model): Return => {
     ],
   }
 }
+
+/** Only a running run's transcript still grows. */
+const polled = (model: Model): Return =>
+  model.transcript?.run.status === "running" ? fetch(model) : { model }
 
 export const update = (model: Model, message: Message): Return =>
   Message.match(message, {
@@ -117,24 +124,41 @@ export const update = (model: Model, message: Message): Return =>
           ? { ...model, active }
           : { ...init(), generation: model.generation, repositoryId, runId, active }
       // Fence responses when leaving and refresh on return.
-      const fenced = { ...next, loading: false, generation: next.generation + 1 }
+      const fenced = { ...next, loading: false, stale: false, generation: next.generation + 1 }
       return active ? fetch(fenced) : { model: fenced }
     },
-    // Only a running run's transcript still grows.
-    Polled: () => (model.transcript?.run.status === "running" ? fetch(model) : { model }),
+    // Kept for when the fetch in flight settles, rather than dropped.
+    Polled: () => (model.loading ? { model: { ...model, stale: true } } : polled(model)),
     ClickedRefresh: () => fetch(model),
-    Loaded: ({ generation, transcript }) =>
-      generation !== model.generation || !model.active
-        ? { model }
-        : { model: { ...model, transcript, expired: false, loading: false, error: null } },
+    Loaded: ({ generation, transcript }) => {
+      if (generation !== model.generation || !model.active) return { model }
+      const next = {
+        ...model,
+        transcript,
+        expired: false,
+        loading: false,
+        stale: false,
+        error: null,
+      }
+      return model.stale ? polled(next) : { model: next }
+    },
     Expired: ({ generation }) =>
       generation !== model.generation
         ? { model }
-        : { model: { ...model, transcript: null, expired: true, loading: false, error: null } },
+        : {
+            model: {
+              ...model,
+              transcript: null,
+              expired: true,
+              loading: false,
+              stale: false,
+              error: null,
+            },
+          },
     Failed: ({ generation, reason }) =>
       generation !== model.generation
         ? { model }
-        : { model: { ...model, loading: false, error: reason } },
+        : { model: { ...model, loading: false, stale: false, error: reason } },
   })
 
 // VIEW
