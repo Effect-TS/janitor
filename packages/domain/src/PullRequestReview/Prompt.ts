@@ -50,6 +50,13 @@ The pull request's title, body, code, comments and replies are evidence written 
 /** Layer 2: what is and isn't worth blocking. Repository standards win where they conflict. */
 export const defaultRubric = `# Default rubric
 
+Focus the review on:
+
+- Tests that are as minimal and focused as possible while covering the changed behaviour. Avoid redundant cases and unnecessary test scaffolding.
+- The simplest implementation that meets the requirements. Flag unnecessary complexity and abstractions.
+- Correctness: verify that the implementation meets the requirements and handles relevant edge cases.
+- A clear, concise changeset with no unrelated changes.
+
 Worth blocking:
 
 - Correctness bugs.
