@@ -1,0 +1,166 @@
+# The GraphQL operations of a PR review run. After editing, regenerate
+# GitHub.graphql.ts with `vp run @janitor/cluster#graphql`.
+
+fragment ThreadComment on PullRequestReviewComment {
+  id
+  url
+  body
+  createdAt
+  viewerDidAuthor
+  viewerCanMinimize
+  isMinimized
+  author {
+    login
+  }
+  pullRequestReview {
+    id
+    state
+  }
+}
+
+fragment Review on PullRequestReview {
+  id
+  databaseId
+  state
+  commit {
+    oid
+  }
+  viewerDidAuthor
+}
+
+query reviewThreads($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          path
+          line
+          startLine
+          isResolved
+          isOutdated
+          resolvedBy {
+            login
+          }
+          comments(first: 100) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              ...ThreadComment
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query threadComments($id: ID!, $after: String) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          ...ThreadComment
+        }
+      }
+    }
+  }
+}
+
+query janitorReviews($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviews(first: 100, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          ...Review
+        }
+      }
+    }
+  }
+}
+
+# Pending reviews are only visible to their author, so the viewer's are janitor's.
+query pendingReviews($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      id
+      reviews(first: 10, states: [PENDING]) {
+        nodes {
+          ...Review
+        }
+      }
+    }
+  }
+}
+
+mutation deletePendingReview($input: DeletePullRequestReviewInput!) {
+  deletePullRequestReview(input: $input) {
+    pullRequestReview {
+      id
+    }
+  }
+}
+
+mutation addReview($input: AddPullRequestReviewInput!) {
+  addPullRequestReview(input: $input) {
+    pullRequestReview {
+      id
+      databaseId
+    }
+  }
+}
+
+mutation addThread($input: AddPullRequestReviewThreadInput!) {
+  addPullRequestReviewThread(input: $input) {
+    thread {
+      id
+    }
+  }
+}
+
+mutation addReply($input: AddPullRequestReviewThreadReplyInput!) {
+  addPullRequestReviewThreadReply(input: $input) {
+    comment {
+      id
+    }
+  }
+}
+
+mutation submitReview($input: SubmitPullRequestReviewInput!) {
+  submitPullRequestReview(input: $input) {
+    pullRequestReview {
+      id
+    }
+  }
+}
+
+mutation resolveThread($input: ResolveReviewThreadInput!) {
+  resolveReviewThread(input: $input) {
+    thread {
+      id
+      isResolved
+    }
+  }
+}
+
+mutation minimizeComment($input: MinimizeCommentInput!) {
+  minimizeComment(input: $input) {
+    minimizedComment {
+      isMinimized
+    }
+  }
+}

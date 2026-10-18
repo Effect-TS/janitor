@@ -257,6 +257,7 @@ export class FakeReviewGitHub extends FakeGitHub {
   private commentNode(comment: FakeThreadComment) {
     return {
       id: comment.id,
+      url: `https://github.com/${this.path.slice("/repos/".length)}/pull/${this.number}#discussion_r${comment.id}`,
       body: comment.body,
       createdAt: comment.createdAt,
       author: { __typename: comment.byApp ? "Bot" : "User", login: comment.author },
@@ -286,7 +287,10 @@ export class FakeReviewGitHub extends FakeGitHub {
         node:
           thread === undefined
             ? null
-            : { comments: this.connection(thread.comments, after, (c) => this.commentNode(c)) },
+            : {
+                __typename: "PullRequestReviewThread",
+                comments: this.connection(thread.comments, after, (c) => this.commentNode(c)),
+              },
       })
     }
     // Each query pages one connection, so `$after` applies to whichever it asked for.
@@ -438,7 +442,11 @@ export class FakeReviewGitHub extends FakeGitHub {
         comment.minimizedReason = "resolved"
         return this.data({
           [field]: {
-            minimizedComment: { isMinimized: true, minimizedReason: "resolved" },
+            minimizedComment: {
+              __typename: "PullRequestReviewComment",
+              isMinimized: true,
+              minimizedReason: "resolved",
+            },
           },
         })
       }

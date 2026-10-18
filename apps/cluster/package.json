@@ -6,6 +6,10 @@
     ".": null,
     "./*": "./src/*.ts"
   },
+  "scripts": {
+    "graphql": "graphqlgen",
+    "graphql:check": "graphqlgen --check"
+  },
   "dependencies": {
     "@effect/ai-openai-compat": "catalog:",
     "@effect/ai-openrouter": "catalog:",
@@ -18,6 +22,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/graphql-generator": "catalog:",
     "@effect/sql-sqlite-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@testcontainers/postgresql": "catalog:",

@@ -229,6 +229,9 @@ catalogs:
     '@codemirror/view':
       specifier: 6.43.8
       version: 6.43.8
+    '@effect/graphql-generator':
+      specifier: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@667feb75dcf5259c4d9eafe51476487b18b8de01
+      version: 4.0.4
     '@effect/tsgo':
       specifier: ^0.38.0
       version: 0.38.0
@@ -396,6 +399,9 @@ importers:
         specifier: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
         version: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
     devDependencies:
+      '@effect/graphql-generator':
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@667feb75dcf5259c4d9eafe51476487b18b8de01(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)(redis@6.2.1(@opentelemetry/api@1.9.1)))(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)
       '@effect/sql-sqlite-node':
         specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@667feb75dcf5259c4d9eafe51476487b18b8de01
         version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)
@@ -757,6 +763,14 @@ packages:
     resolution: {integrity: sha512-LdmWuZX/tXgJbHUaVj5zcbACbbjUO/z/VEvbvt6KBwLkLLfm9V/v/8Ukr5gUnNtQXKCIxfwg86MI2V6yk5bAvw==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01}
     version: 4.0.4
     peerDependencies:
+      effect: ^4.0.4
+
+  '@effect/graphql-generator@https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@667feb75dcf5259c4d9eafe51476487b18b8de01':
+    resolution: {integrity: sha512-RNiLG80mEWEXOWy0mJjXBjyuMNIGItkJj91ZldSLGv4xZ3lCmxOrpzOO4z3StwEdewUNdHjKUdTTEsVmRwcmQg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@667feb75dcf5259c4d9eafe51476487b18b8de01}
+    version: 4.0.4
+    hasBin: true
+    peerDependencies:
+      '@effect/platform-node': ^4.0.4
       effect: ^4.0.4
 
   '@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@667feb75dcf5259c4d9eafe51476487b18b8de01':
@@ -4666,6 +4680,11 @@ snapshots:
 
   '@effect/ai-openrouter@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)':
     dependencies:
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
+
+  '@effect/graphql-generator@https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@667feb75dcf5259c4d9eafe51476487b18b8de01(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)(redis@6.2.1(@opentelemetry/api@1.9.1)))(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)':
+    dependencies:
+      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)(redis@6.2.1(@opentelemetry/api@1.9.1))
       effect: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
 
   '@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)':
