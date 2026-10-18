@@ -124,6 +124,8 @@ const Plan = Schema.Union([
     replies: Schema.Array(Schema.Struct({ threadId: Schema.String, body: Schema.String })),
     /** Optional so older journalled plans can still replay. */
     resolutions: Schema.optionalKey(Schema.Array(Schema.String)),
+    /** Earlier reviews whose known findings are all addressed. Absent in older plans. */
+    minimize: Schema.optionalKey(Schema.Array(Schema.String)),
     /** Janitor's earlier `REQUEST_CHANGES` reviews to dismiss. */
     dismiss: Schema.Array(
       Schema.Struct({ id: Schema.String, databaseId: Schema.Int, state: Schema.String }),
@@ -203,6 +205,12 @@ const describe = (error: { readonly _tag: string }) =>
 
 const isTransient = (error: { readonly _tag: string }) =>
   error._tag === "PullRequestGitHubError" || error._tag === "PullRequestGitHubRateLimited"
+
+// These findings have no thread judgement proving them cleared. False positives
+// (for example, a heading quoted in the summary) deliberately preserve the review.
+const hasListedFindings = (body: string) =>
+  body.includes("findings that couldn't go inline:") ||
+  body.includes("Nits that couldn't go inline:")
 
 /** Waits before the next attempt: until a rate limit resets, or a short backoff. */
 const backoff = (error: { readonly _tag: string }, attempt: number) =>
@@ -461,6 +469,21 @@ const makePublisher = Effect.gen(function* () {
           findings,
           threads: states,
         })
+        const addressed = new Set(
+          threads.flatMap(({ thread, judged }) =>
+            judged.judgement.judgement === "addressed" ? [thread.id] : [],
+          ),
+        )
+        const minimization = yield* client.reviewMinimization.pipe(
+          Effect.catch((error) =>
+            Effect.as(
+              Effect.logWarning("Couldn't read earlier PR reviews for minimization").pipe(
+                Effect.annotateLogs(errorFields(error)),
+              ),
+              [],
+            ),
+          ),
+        )
         const plan: ReviewPlan = {
           _tag: "Review",
           event: decision.event,
@@ -475,6 +498,15 @@ const makePublisher = Effect.gen(function* () {
             listed: listed(finding),
           })),
           listed: body.map(listed),
+          // Body-only findings cannot be reconciled to thread judgements. Preserve those
+          // reviews, and reviews without any known findings, rather than guessing.
+          minimize: minimization.flatMap((review) =>
+            review.threads.length > 0 &&
+            !hasListedFindings(review.body) &&
+            review.threads.every((thread) => addressed.has(thread.id))
+              ? [review.id]
+              : [],
+          ),
           resolutions: threads.flatMap(({ thread, judged }) =>
             judged.judgement.judgement === "addressed" ? [thread.id] : [],
           ),
@@ -782,7 +814,7 @@ const makePublisher = Effect.gen(function* () {
               ),
       )
 
-      // Resolution and minimization need no new review. Re-read to reconcile lost responses.
+      // Thread resolution needs no new review. Never minimize comments inside a thread.
       if (plan._tag === "Review")
         for (const threadId of plan.resolutions ?? [])
           yield* once(
@@ -794,19 +826,58 @@ const makePublisher = Effect.gen(function* () {
                 const thread = history.threads.find((thread) => thread.id === threadId)
                 if (thread === undefined) return
                 if (!thread.isResolved) yield* client.resolveThread(threadId)
-                const root = thread.comments[0]
-                if (root?.byJanitor && root.viewerCanMinimize && !root.isMinimized)
-                  yield* client.minimizeComment(root.id)
               }),
             ).pipe(Effect.as({})),
           ).pipe(
             // Don't journal a failed attempt: replay reconciles each mutation from live state.
             Effect.catch((error) =>
-              Effect.logWarning("Couldn't resolve or minimize a PR review thread").pipe(
+              Effect.logWarning("Couldn't resolve a PR review thread").pipe(
                 Effect.annotateLogs({ ...errorFields(error), threadId }),
               ),
             ),
           )
+
+      // Only a successfully submitted, complete review supersedes the planned older ones.
+      if (
+        plan._tag === "Review" &&
+        runOutcome === "completed" &&
+        posted._tag === "Posted" &&
+        !posted.headMoved
+      )
+        for (const reviewId of plan.minimize ?? []) {
+          if (reviewId === posted.id) continue
+          yield* once(
+            `minimize/${reviewId}`,
+            Done,
+            persist(
+              Effect.gen(function* () {
+                // A mutation may have succeeded even when its response was lost. The
+                // retry (and a restarted publisher) must read live review-level state.
+                const reviews = yield* client.reviewMinimization
+                const review = reviews.find((review) => review.id === reviewId)
+                if (
+                  review === undefined ||
+                  review.isMinimized ||
+                  !review.viewerCanMinimize ||
+                  review.threads.length === 0 ||
+                  !review.threads.every(
+                    (thread) => thread.isResolved && (plan.resolutions ?? []).includes(thread.id),
+                  ) ||
+                  hasListedFindings(review.body)
+                )
+                  return
+                yield* client.minimizeComment(review.id)
+              }),
+            ).pipe(Effect.as({})),
+          ).pipe(
+            // Failed cleanup is not journalled; replay reconciles it from live state.
+            Effect.catch((error) =>
+              Effect.logWarning("Couldn't minimize an earlier PR review").pipe(
+                Effect.annotateLogs({ ...errorFields(error), reviewId }),
+              ),
+            ),
+          )
+        }
 
       // Step 5: janitor's earlier `REQUEST_CHANGES` reviews, once no blocking finding stands.
       const dismissalFailures: Array<string> = []

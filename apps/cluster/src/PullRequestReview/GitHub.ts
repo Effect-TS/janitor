@@ -171,6 +171,15 @@ export interface JanitorReview {
   readonly reviewedSha: Option.Option<string>
 }
 
+/** Live cleanup facts, kept separate from review submission/replay identity. */
+export interface ReviewMinimization {
+  readonly id: string
+  readonly viewerCanMinimize: boolean
+  readonly isMinimized: boolean
+  readonly body: string
+  readonly threads: ReadonlyArray<{ readonly id: string; readonly isResolved: boolean }>
+}
+
 export type RepositoryPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none"
 
 /** An issue comment, such as a `/janitor` command. */
@@ -259,6 +268,11 @@ export interface PullRequestGitHub {
       readonly threads: ReadonlyArray<JanitorThread>
       readonly reviews: ReadonlyArray<JanitorReview>
     },
+    PullRequestGitHubFailure
+  >
+  /** Submitted App reviews with known root-thread ownership; fetched anew on every read. */
+  readonly reviewMinimization: Effect.Effect<
+    ReadonlyArray<ReviewMinimization>,
     PullRequestGitHubFailure
   >
   /** Janitor's review `reviewId` once submitted, so a retry doesn't post twice. */
@@ -453,6 +467,9 @@ const ReviewNode = Schema.Struct({
   state: Schema.String,
   commit: Schema.NullOr(Schema.Struct({ oid: Schema.String })),
   viewerDidAuthor: Schema.Boolean,
+  viewerCanMinimize: Schema.Boolean,
+  isMinimized: Schema.Boolean,
+  body: Schema.String,
 })
 
 const pullRequestData = <S extends Schema.Struct.Fields>(fields: S) =>
@@ -470,7 +487,8 @@ const PendingData = pullRequestData({ id: Schema.String, reviews: connection(Rev
 const PAGE_INFO = "pageInfo { hasNextPage endCursor }"
 const COMMENT_FIELDS =
   "id url body createdAt viewerDidAuthor viewerCanMinimize isMinimized author { login } pullRequestReview { id state }"
-const REVIEW_FIELDS = "id databaseId state commit { oid } viewerDidAuthor"
+const REVIEW_FIELDS =
+  "id databaseId state commit { oid } viewerDidAuthor viewerCanMinimize isMinimized body"
 
 /** A query on this pull request; `selection` goes inside `pullRequest`. */
 const pullRequestQuery = (selection: string, after = true) =>
@@ -964,12 +982,13 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       ),
     )
 
-  const janitorReviews = walk((after) =>
+  const reviewNodes = walk((after) =>
     graphqlData("janitorReviews", REVIEWS_QUERY, { ...pullVariables, after }, ReviewsData).pipe(
       Effect.flatMap((data) => pullRequestOf("janitorReviews", data)),
       Effect.map((pull) => pull.reviews),
     ),
-  ).pipe(
+  )
+  const janitorReviews = reviewNodes.pipe(
     // The App submits reviews only through Publish, so every submitted one it authored is janitor's.
     Effect.map((nodes) =>
       nodes.flatMap((review): ReadonlyArray<JanitorReview> =>
@@ -993,6 +1012,37 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
       Effect.map((pull) => pull.reviewThreads),
     ),
   )
+
+  const reviewMinimization = Effect.gen(function* () {
+    const reviews = yield* reviewNodes
+    const threads = yield* reviewThreads
+    // Without root ownership we cannot prove that a review has no standing findings.
+    if (
+      threads.some((thread) => {
+        const root = thread.comments.nodes[0]
+        return root?.viewerDidAuthor && !isPending(root) && !root.pullRequestReview?.id
+      })
+    )
+      return []
+    return reviews.flatMap((review): ReadonlyArray<ReviewMinimization> =>
+      review.viewerDidAuthor && review.state !== "PENDING"
+        ? [
+            {
+              id: review.id,
+              viewerCanMinimize: review.viewerCanMinimize,
+              isMinimized: review.isMinimized,
+              body: review.body,
+              threads: threads
+                .filter((thread) => {
+                  const root = thread.comments.nodes[0]
+                  return root?.viewerDidAuthor && root.pullRequestReview?.id === review.id
+                })
+                .map(({ id, isResolved }) => ({ id, isResolved })),
+            },
+          ]
+        : [],
+    )
+  })
 
   /** Every comment on a thread; later pages are fetched only when there are any. */
   const allComments = (thread: typeof ThreadNode.Type) =>
@@ -1352,6 +1402,7 @@ export const make = Effect.fnUntraced(function* (target: PullRequestTarget) {
     readDirectory,
     compare,
     janitorHistory,
+    reviewMinimization,
     findReview,
     permission,
     issueComment,
