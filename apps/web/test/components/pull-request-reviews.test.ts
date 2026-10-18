@@ -128,6 +128,24 @@ describe("PR reviews", () => {
     )
   })
 
+  it("links a run to its transcript; a skipped run has none", () => {
+    Scene.scene(
+      {
+        update: Reviews.update,
+        view: Scene.withViewInputs(Reviews.view, { repository })(),
+      },
+      Scene.given({
+        ...loaded([run(1), run(2, { status: "skipped", reason: "oversized", finishedAt: null })]),
+        mode: "all",
+      }),
+      Scene.expect(Scene.role("link", { name: "Transcript" })).toHaveAttr(
+        "href",
+        `/repositories/701/pull-request-reviews/${id(1)}`,
+      ),
+      Scene.expectAll(Scene.all.role("link", { name: "Transcript" })).toHaveCount(1),
+    )
+  })
+
   it("loads the newest page, then older pages by cursor until the last", async () => {
     const first = activated()
     expect(first.commands?.map((command) => command.args)).toEqual([

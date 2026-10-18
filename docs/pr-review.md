@@ -37,7 +37,7 @@ A `/janitor` re-run also resets the pull request's automatic run count. On an ov
 | Inline comments per review, the rest go in the body           | 25                                                  | `PR_REVIEW_MAX_INLINE_COMMENTS`                              |
 | Automatic runs per pull request before `/janitor` is needed   | 10                                                  | `PR_REVIEW_MAX_AUTOMATIC_RUNS`                               |
 | Resumes after a restart or lost sandbox                       | 3                                                   | `PR_REVIEW_MAX_RESUMES`                                      |
-| Debugging data kept for a finished run                        | 14 days                                             | `PR_REVIEW_RUN_RETENTION_DAYS`                               |
+| A finished run's transcript and debugging data kept           | 14 days                                             | `PR_REVIEW_RUN_RETENTION_DAYS`                               |
 | Per-pull-request scheduler state kept after close             | 30 days                                             | `PR_REVIEW_SCHEDULER_WIPE_DAYS`                              |
 
 The size count leaves out lockfiles, files the base branch's `.gitattributes` marks `linguist-generated`, and `.changeset/*`. An oversized pull request's automatic runs are skipped, and so are automatic runs past the cap. Both get a `skipped` row and a neutral check run that says why.
@@ -162,6 +162,10 @@ The limit settings in [Limits](#limits) are optional and deployment-wide. `PR_RE
 ## Monitoring
 
 - **PR reviews page:** each repository's runs, newest first, with outcome, blocker and nit counts, failed gates, trigger, timing, and links to the review and check run. Running and skipped runs appear too.
+- **Transcripts:** every run except a skipped one links to its transcript, the agent session as the run committed it. It shows each prompt message in order (the system prompt isn't stored), with tool calls and results collapsed, plus every finding and thread judgement the agent recorded, whether the run resumed, was told to wrap up or hit its deadline, and when the transcript goes. A running run shows the steps it has finished so far. **Download JSON** saves the same data, which `GET /api/v1/repositories/:repositoryId/pull-request-review/runs/:runId/transcript` serves.
+  - A transcript lives only in the run's own storage, so it lasts as long as `PR_REVIEW_RUN_RETENTION_DAYS` after the run ends, and a cancelled run's goes at once. After that the page says it's no longer kept and the endpoint answers `410`. There is no other copy. A repository that goes private keeps its transcripts until they expire.
+  - Messages over the 2 MB row limit are stored with placeholders, so an image or a huge tool result may show as `[image omitted, re-read the file if needed]`.
+  - Anyone with Access can read a transcript, as with the rest of the app. It holds the diff, repository files, sandbox command output, earlier review comments with GitHub logins, and `/janitor` guidance, all from public repositories. The pull request controls much of it, so the page shows every message as plain text, never as HTML or Markdown. A reasoning block is the model's working, not the review's conclusion.
 - **Check runs:** `janitor/review` on each pull request is the canonical state of its review.
 - **Logs:** Worker logs in Cloudflare observability. PR review logs carry `runId`, `repositoryId`, `number` (the pull request) and `headSha` where they apply, so filtering on one run's id shows its whole history. They never include provider error bodies, pull request content or tokens: an error logs only its category (`error`), and the `operation` and `status` when it has them.
 - **Model spend:** the key's usage and remaining credit at the provider. A key near its limit will start failing runs.

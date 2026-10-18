@@ -1218,7 +1218,9 @@ const breadcrumb = (h: HtmlBuilder<Message>, model: Model): Html => {
                       ])
                     : route._tag === "NewPolicy"
                       ? sectionCrumbs("Policies", [leaf("New policy")])
-                      : [leaf(Routes.section(route))]
+                      : route._tag === "PullRequestReviewTranscript"
+                        ? sectionCrumbs("PR reviews", [leaf("Transcript")])
+                        : [leaf(Routes.section(route))]
   const crumbs =
     route._tag === "Home" || route._tag === "NotFound" || route._tag === "DesignSystem"
       ? tail

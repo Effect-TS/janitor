@@ -4,6 +4,7 @@ import * as Prompt from "effect/ai/Prompt"
 import * as Clock from "effect/Clock"
 import * as Deferred from "effect/Deferred"
 import * as ConfigProvider from "effect/ConfigProvider"
+import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -396,6 +397,74 @@ layer(Services, { timeout: "2 minutes" })("PR review run entity", (it) => {
         )
       }),
     ),
+  )
+
+  it.effect(
+    "a transcript shows the committed history and records, and is gone once a run is cancelled",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          const runId = newRunId()
+          yield* harness.start(runId)
+          yield* harness.agent.last.step({
+            history: {
+              _tag: "Appended",
+              messages: [system, user("Review this."), assistant("Reading a.ts.")],
+            },
+            records: [finding("src/a.ts", 3)],
+          })
+
+          // Mid-run: the committed step, its trailing reply included, without the system message.
+          const running = yield* harness.transcript(runId)
+          assert(running._tag === "Available")
+          assert.deepStrictEqual(
+            encode(running.messages),
+            encode([user("Review this."), assistant("Reading a.ts.")]),
+          )
+          assert.deepInclude(running, {
+            records: [finding("src/a.ts", 3)],
+            resumeCount: 0,
+            steered: false,
+            interrupted: false,
+            errorCategory: null,
+            expiresAt: null,
+          })
+
+          yield* harness.cancel(runId)
+          assert.deepStrictEqual(yield* harness.transcript(runId), { _tag: "Expired" })
+        }),
+      ),
+  )
+
+  it.effect(
+    "an ended run's transcript says why it ended and is kept for the retention period",
+    () =>
+      run((harness) =>
+        Effect.gen(function* () {
+          harness.workspaces.notAttached = true
+          const runId = newRunId()
+          yield* harness.send(runId)
+          yield* harness.until(
+            Effect.sync(() => harness.finishedCount(runId) > 0),
+            "the run to fail",
+          )
+          const finishedAt = (yield* harness.row(runId))!.finishedAt!
+
+          const ended = yield* harness.transcript(runId)
+          assert(ended._tag === "Available")
+          assert.deepInclude(ended, {
+            errorCategory: "sandbox_unavailable",
+            resumeCount: 0,
+            messages: [],
+            records: [],
+          })
+          // The 14-day default.
+          assert.strictEqual(
+            DateTime.toEpochMillis(ended.expiresAt!),
+            DateTime.toEpochMillis(finishedAt) + Duration.toMillis(Duration.days(14)),
+          )
+        }),
+      ),
   )
 
   it.effect("a run starts even when its start row can't be written", () =>
