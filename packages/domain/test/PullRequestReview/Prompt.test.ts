@@ -73,6 +73,57 @@ describe("systemPrompt", () => {
 })
 
 describe("firstMessage", () => {
+  it("omits full and incremental diffs while keeping pull request and earlier thread context", () => {
+    const message = firstMessage({
+      pullRequest: {
+        title: "Fix parser bounds",
+        body: "Handle empty input.",
+        baseSha: "base123",
+        headSha: "head456",
+      },
+      diff: "@@ -1 +1 @@\n-full-diff-before\n+full-diff-after",
+      sinceLastReview: {
+        reviewedSha: "review789",
+        diff: "@@ -2 +2 @@\n-incremental-diff-before\n+incremental-diff-after",
+      },
+      threads: [
+        {
+          id: "T1",
+          path: "src/parser.ts",
+          anchor: { startLine: 10, endLine: 12 },
+          severity: "blocking",
+          comment: "Empty input reads past the end.",
+          outdated: false,
+          replies: [{ by: "author", body: "Added a bounds check." }],
+        },
+      ],
+    })
+
+    for (const context of [
+      "Fix parser bounds",
+      "Handle empty input.",
+      "base123",
+      "head456",
+      "T1",
+      "src/parser.ts:10-12",
+      "blocking",
+      "current, unresolved",
+      "Empty input reads past the end.",
+      "Added a bounds check.",
+    ]) {
+      assert.include(message, context)
+    }
+    assert.deepStrictEqual(
+      [
+        "full-diff-before",
+        "full-diff-after",
+        "incremental-diff-before",
+        "incremental-diff-after",
+      ].filter((diffText) => message.includes(diffText)),
+      [],
+    )
+  })
+
   it("keeps pull request text and human replies inside the evidence fence", () => {
     const body = [
       "Fixes the parser.",
