@@ -796,25 +796,15 @@ const makePublisher = Effect.gen(function* () {
                 if (!thread.isResolved) yield* client.resolveThread(threadId)
                 const root = thread.comments[0]
                 if (root?.byJanitor && root.viewerCanMinimize && !root.isMinimized)
-                  yield* client.minimizeComment(root.id).pipe(
-                    Effect.catch((error) =>
-                      Effect.logWarning("Couldn't minimize a resolved PR review comment").pipe(
-                        Effect.annotateLogs({
-                          ...errorFields(error),
-                          threadId,
-                          commentId: root.id,
-                        }),
-                      ),
-                    ),
-                  )
+                  yield* client.minimizeComment(root.id)
               }),
-            ).pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Couldn't resolve a PR review thread").pipe(
-                  Effect.annotateLogs({ ...errorFields(error), threadId }),
-                ),
+            ).pipe(Effect.as({})),
+          ).pipe(
+            // Don't journal a failed attempt: replay reconciles each mutation from live state.
+            Effect.catch((error) =>
+              Effect.logWarning("Couldn't resolve or minimize a PR review thread").pipe(
+                Effect.annotateLogs({ ...errorFields(error), threadId }),
               ),
-              Effect.as({}),
             ),
           )
 
