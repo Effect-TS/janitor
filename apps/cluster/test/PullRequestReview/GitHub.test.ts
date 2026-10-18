@@ -8,7 +8,7 @@ import * as TestClock from "effect/testing/TestClock"
 import { GitHubInstallationId } from "@janitor/domain/GitHub/Id"
 import { Fingerprint } from "@janitor/domain/PullRequestReview/Fingerprint"
 import { inlineComment } from "@janitor/domain/PullRequestReview/Render"
-import { GitHubRateLimited } from "../../src/GitHub/Transport.ts"
+import { GitHubRateLimited, type GitHubResponse } from "../../src/GitHub/Transport.ts"
 import * as ReviewGitHub from "../../src/PullRequestReview/GitHub.ts"
 import type { FakePullRequest } from "../Labeling/fakeGitHub.ts"
 import { withElapsingClock } from "../support/TestTime.ts"
@@ -637,6 +637,173 @@ describe("PR review GitHub", () => {
 
       assert.strictEqual(yield* Fiber.join(fiber), "write")
       assert.strictEqual(fake.requests.length, 2)
+    }),
+  )
+
+  it.effect("follows review threads, thread comments and reviews past their first page", () =>
+    Effect.gen(function* () {
+      const fake = makeFake()
+      fake.graphqlPageSize = 2
+      const marked = inlineComment({ comment: "Missing null check.", fingerprint })
+      const thread = (id: string, comments: Array<FakeThreadComment>) => ({
+        id,
+        path: "src/a.ts",
+        line: 1,
+        startLine: null,
+        side: "RIGHT",
+        isResolved: false,
+        isOutdated: false,
+        resolvedBy: null,
+        comments,
+      })
+      fake.threads = [
+        thread("PRRT_1", [
+          comment("PRRC_1", APP_LOGIN, marked, 1),
+          comment("PRRC_2", "maintainer", "Why?", 2),
+          comment("PRRC_3", APP_LOGIN, "See the docs.", 3),
+        ]),
+        thread("PRRT_2", [comment("PRRC_4", APP_LOGIN, marked, 4)]),
+        thread("PRRT_3", [comment("PRRC_5", APP_LOGIN, marked, 5)]),
+      ]
+      fake.reviews = [901, 902, 903].map((databaseId) => ({
+        id: `PRR_${databaseId}`,
+        databaseId,
+        author: APP_LOGIN,
+        byApp: true,
+        state: "COMMENTED" as const,
+        body: "",
+        commitOID: HEAD,
+      }))
+      const github = yield* client(fake)
+
+      const history = yield* github.janitorHistory
+
+      assert.deepStrictEqual(
+        history.threads.map((thread) => [thread.id, thread.comments.map((comment) => comment.id)]),
+        [
+          ["PRRT_1", ["PRRC_1", "PRRC_2", "PRRC_3"]],
+          ["PRRT_2", ["PRRC_4"]],
+          ["PRRT_3", ["PRRC_5"]],
+        ],
+      )
+      assert.deepStrictEqual(
+        history.reviews.map((review) => review.id),
+        ["PRR_901", "PRR_902", "PRR_903"],
+      )
+    }),
+  )
+
+  it.effect(
+    "waits a minute out on a GraphQL rate limit, through the transport's graphql budget",
+    () =>
+      Effect.gen(function* () {
+        const fake = makeFake()
+        fake.reviews = [
+          {
+            id: "PRR_1",
+            databaseId: 901,
+            author: APP_LOGIN,
+            byApp: true,
+            state: "COMMENTED",
+            body: "",
+            commitOID: HEAD,
+          },
+        ]
+        let limited = false
+        fake.intercept = () =>
+          Effect.sync(() => {
+            if (limited) return undefined
+            limited = true
+            return {
+              _tag: "Ok",
+              status: 200,
+              body: { errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] },
+              etag: Option.none(),
+              link: Option.none(),
+              requestId: Option.none(),
+            }
+          })
+        const github = yield* client(fake)
+
+        const fiber = yield* Effect.forkChild(github.findReview("PRR_1"))
+        yield* Effect.yieldNow
+        yield* TestClock.adjust(Duration.seconds(59))
+        assert.strictEqual(fake.requests.length, 1)
+        yield* TestClock.adjust(Duration.seconds(1))
+
+        assert.isTrue(Option.isSome(yield* Fiber.join(fiber)))
+        assert.deepStrictEqual(
+          fake.requests.map(({ scope, priority, method, url, resource }) => ({
+            scope,
+            priority,
+            method,
+            url,
+            resource,
+          })),
+          Array.from({ length: 2 }, () => ({
+            scope: { _tag: "Installation" as const, installationId: target.installationId },
+            priority: "foreground" as const,
+            method: "POST" as const,
+            url: "/graphql",
+            resource: "graphql",
+          })),
+        )
+      }),
+  )
+
+  it.effect("maps GraphQL answers without the requested data to typed errors", () =>
+    Effect.gen(function* () {
+      const fake = makeFake([
+        { filename: "src/a.ts", status: "modified", patch: "@@ -1 +1,2 @@\n+one\n+two" },
+      ])
+      const github = yield* client(fake)
+      const answer = (body: unknown): GitHubResponse => ({
+        _tag: "Ok",
+        status: 200,
+        body,
+        etag: Option.none(),
+        link: Option.none(),
+        requestId: Option.none(),
+      })
+      const refused = (type: string) =>
+        answer({ data: null, errors: [{ type, message: "Refused." }] })
+      const findWith = (response: GitHubResponse) =>
+        Effect.gen(function* () {
+          fake.intercept = () => Effect.succeed(response)
+          return yield* github.findReview("PRR_1").pipe(Effect.flip)
+        })
+
+      const forbidden = yield* findWith(refused("FORBIDDEN"))
+      const notFound = yield* findWith(refused("NOT_FOUND"))
+      const noPullRequest = yield* findWith(answer({ data: { repository: null } }))
+      const timedOut = yield* findWith({
+        _tag: "Failed",
+        status: 502,
+        body: {},
+        requestId: Option.none(),
+      })
+      // GitHub can also refuse a line outside the diff by creating no thread, without an error.
+      fake.intercept = (request) =>
+        Effect.succeed(
+          fake.writeName(request) === "addPullRequestReviewThread"
+            ? answer({ data: { addPullRequestReviewThread: { thread: null } } })
+            : undefined,
+        )
+      const noThread = yield* withElapsingClock(
+        github.createPendingReview(HEAD).pipe(
+          Effect.flatMap((review) =>
+            github.addThread(review.id, { path: "src/a.ts", line: 1, body: "Finding." }),
+          ),
+          Effect.flip,
+        ),
+        Duration.millis(100),
+      )
+
+      assert.strictEqual(forbidden._tag, "PullRequestGitHubForbidden")
+      assert.strictEqual(notFound._tag, "PullRequestGitHubNotFound")
+      assert.strictEqual(noPullRequest._tag, "PullRequestGitHubNotFound")
+      assert.deepInclude(timedOut, { _tag: "PullRequestGitHubError", status: 502 })
+      assert.deepInclude(noThread, { _tag: "UnresolvableLine", path: "src/a.ts", line: 1 })
     }),
   )
 })

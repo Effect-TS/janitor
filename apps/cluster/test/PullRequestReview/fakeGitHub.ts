@@ -91,6 +91,8 @@ export class FakeReviewGitHub extends FakeGitHub {
   dismissalForbidden = false
   /** Answer a recursive tree listing the way GitHub does for a large repository: top level only, `truncated`. */
   treeTruncated = false
+  /** Page GraphQL connections this many nodes at a time; unset answers each on one page. */
+  graphqlPageSize: number | undefined = undefined
   private ids = 0
 
   constructor(readonly number = 7) {
@@ -241,63 +243,78 @@ export class FakeReviewGitHub extends FakeGitHub {
     )
   }
 
-  private query(): GitHubResponse {
-    const page = { hasNextPage: false, endCursor: null }
+  /** A connection page starting after cursor `after`, at most `graphqlPageSize` nodes long. */
+  private connection<A, B>(nodes: ReadonlyArray<A>, after: string | null, node: (a: A) => B) {
+    const start = after === null ? 0 : Number(after)
+    const end = Math.min(nodes.length, start + (this.graphqlPageSize ?? nodes.length))
+    return {
+      totalCount: nodes.length,
+      pageInfo: { hasNextPage: end < nodes.length, endCursor: end > start ? String(end) : null },
+      nodes: nodes.slice(start, end).map(node),
+    }
+  }
+
+  private commentNode(comment: FakeThreadComment) {
+    return {
+      id: comment.id,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      author: { __typename: comment.byApp ? "Bot" : "User", login: comment.author },
+      viewerDidAuthor: comment.byApp,
+      viewerCanMinimize: comment.viewerCanMinimize ?? comment.byApp,
+      isMinimized: comment.isMinimized ?? false,
+      minimizedReason: comment.minimizedReason ?? null,
+      pullRequestReview:
+        comment.reviewId === undefined
+          ? null
+          : {
+              id: comment.reviewId,
+              state:
+                this.reviews.find((review) => review.id === comment.reviewId)?.state ?? "COMMENTED",
+            },
+    }
+  }
+
+  private query(request: GitHubRequest): GitHubResponse {
+    const { query, variables } = this.graphql(request)
+    const after = (variables as { after?: string | null } | undefined)?.after ?? null
+    // A thread's later comments, looked up by the thread's node id.
+    if (/\bnode\s*\(/.test(query)) {
+      const id = (variables as { id?: string } | undefined)?.id
+      const thread = this.threads.find((thread) => thread.id === id)
+      return this.data({
+        node:
+          thread === undefined
+            ? null
+            : { comments: this.connection(thread.comments, after, (c) => this.commentNode(c)) },
+      })
+    }
+    // Each query pages one connection, so `$after` applies to whichever it asked for.
     return this.data({
       repository: {
         pullRequest: {
           id: `PR_${this.number}`,
           number: this.number,
-          reviewThreads: {
-            totalCount: this.threads.length,
-            pageInfo: page,
-            nodes: this.threads.map((thread) => ({
-              id: thread.id,
-              path: thread.path,
-              line: thread.line,
-              startLine: thread.startLine,
-              diffSide: thread.side,
-              isResolved: thread.isResolved,
-              isOutdated: thread.isOutdated,
-              resolvedBy: thread.resolvedBy === null ? null : { login: thread.resolvedBy },
-              comments: {
-                totalCount: thread.comments.length,
-                pageInfo: page,
-                nodes: thread.comments.map((comment) => ({
-                  id: comment.id,
-                  body: comment.body,
-                  createdAt: comment.createdAt,
-                  author: { __typename: comment.byApp ? "Bot" : "User", login: comment.author },
-                  viewerDidAuthor: comment.byApp,
-                  viewerCanMinimize: comment.viewerCanMinimize ?? comment.byApp,
-                  isMinimized: comment.isMinimized ?? false,
-                  minimizedReason: comment.minimizedReason ?? null,
-                  pullRequestReview:
-                    comment.reviewId === undefined
-                      ? null
-                      : {
-                          id: comment.reviewId,
-                          state:
-                            this.reviews.find((review) => review.id === comment.reviewId)?.state ??
-                            "COMMENTED",
-                        },
-                })),
-              },
-            })),
-          },
-          reviews: {
-            totalCount: this.reviews.length,
-            pageInfo: page,
-            nodes: this.reviews.map((review) => ({
-              id: review.id,
-              databaseId: review.databaseId,
-              state: review.state,
-              body: review.body,
-              commit: { oid: review.commitOID },
-              author: { __typename: review.byApp ? "Bot" : "User", login: review.author },
-              viewerDidAuthor: review.byApp,
-            })),
-          },
+          reviewThreads: this.connection(this.threads, after, (thread) => ({
+            id: thread.id,
+            path: thread.path,
+            line: thread.line,
+            startLine: thread.startLine,
+            diffSide: thread.side,
+            isResolved: thread.isResolved,
+            isOutdated: thread.isOutdated,
+            resolvedBy: thread.resolvedBy === null ? null : { login: thread.resolvedBy },
+            comments: this.connection(thread.comments, null, (c) => this.commentNode(c)),
+          })),
+          reviews: this.connection(this.reviews, after, (review) => ({
+            id: review.id,
+            databaseId: review.databaseId,
+            state: review.state,
+            body: review.body,
+            commit: { oid: review.commitOID },
+            author: { __typename: review.byApp ? "Bot" : "User", login: review.author },
+            viewerDidAuthor: review.byApp,
+          })),
         },
       },
     })
@@ -440,7 +457,7 @@ export class FakeReviewGitHub extends FakeGitHub {
     if (request.method === "POST" && request.url === "/graphql")
       return /^\s*mutation\b/.test(this.graphql(request).query)
         ? this.mutation(request)
-        : this.query()
+        : this.query(request)
     const url = new URL(request.url, "https://api.github.com")
     const rest = url.pathname.startsWith(this.path) ? url.pathname.slice(this.path.length) : null
     if (url.pathname === "/app" && request.method === "GET") return this.ok({ id: APP_ID })
