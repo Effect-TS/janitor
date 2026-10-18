@@ -331,6 +331,40 @@ describe("PR review GitHub", () => {
     }),
   )
 
+  it.effect("keeps review database ids past 32 bits in history, pending reviews and creation", () =>
+    Effect.gen(function* () {
+      // GitHub already hands out review database ids above 2,147,483,647.
+      const large = 5_565_169_354
+      const fake = makeFake()
+      fake.reviewDatabaseIdBase = large
+      fake.reviews = [
+        {
+          id: "PRR_submitted",
+          databaseId: large,
+          author: APP_LOGIN,
+          byApp: true,
+          state: "CHANGES_REQUESTED",
+          body: "",
+          commitOID: HEAD,
+        },
+      ]
+      const github = yield* client(fake)
+
+      const history = yield* github.janitorHistory
+      const created = yield* github.createPendingReview(HEAD)
+      const pending = yield* github.pendingReview
+
+      assert.deepStrictEqual(
+        history.reviews.map((review) => review.databaseId),
+        [large],
+      )
+      const stored = fake.reviews.find((review) => review.id === created.id)?.databaseId
+      assert.isAbove(stored!, 2_147_483_647)
+      assert.strictEqual(created.databaseId, stored)
+      assert.strictEqual(Option.getOrUndefined(pending)?.databaseId, stored)
+    }),
+  )
+
   it.effect("looks up each login's permission once per run", () =>
     Effect.gen(function* () {
       const fake = makeFake()

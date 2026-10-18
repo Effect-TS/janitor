@@ -91,6 +91,8 @@ export class FakeReviewGitHub extends FakeGitHub {
   dismissalForbidden = false
   /** Answer a recursive tree listing the way GitHub does for a large repository: top level only, `truncated`. */
   treeTruncated = false
+  /** Where the database ids of reviews created through GraphQL start. */
+  reviewDatabaseIdBase = 900
   /** Page GraphQL connections this many nodes at a time; unset answers each on one page. */
   graphqlPageSize: number | undefined = undefined
   private ids = 0
@@ -341,7 +343,7 @@ export class FakeReviewGitHub extends FakeGitHub {
           return this.error(field, "UNPROCESSABLE", "One pending review per pull request")
         const review: FakeReview = {
           id: this.nextId("PRR"),
-          databaseId: 900 + this.ids,
+          databaseId: this.reviewDatabaseIdBase + this.ids,
           author: APP_LOGIN,
           byApp: true,
           state:
