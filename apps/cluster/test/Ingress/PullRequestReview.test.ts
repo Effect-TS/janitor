@@ -1,16 +1,21 @@
 import { assert, layer } from "@effect/vitest"
+import * as Prompt from "effect/ai/Prompt"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Schema from "effect/Schema"
 import * as HttpRouter from "effect/http/HttpRouter"
 import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
+import { RunTranscript } from "@janitor/domain/PullRequestReview/Settings"
 import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
 import { CurrentAccessIdentity } from "../../src/Ingress/Middleware.ts"
 import { PullRequestReviewRoutesLayer } from "../../src/Ingress/PullRequestReview.ts"
+import type { LoopRecord } from "../../src/PullRequestReview/Agent.ts"
+import { RunTranscripts, type TranscriptResult } from "../../src/PullRequestReview/RunEntity.ts"
 import { RepositoryDisabler } from "../../src/PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
@@ -44,6 +49,17 @@ const withKey = {
 /** The repositories the disable operation was called for, in order. */
 const disabled: Array<GitHubRepositoryDatabaseId> = []
 
+/** What each run's entity answers; a run not listed can't be reached, as when its runner is down. */
+const transcripts = new Map<RunId, TranscriptResult>()
+const transcriptReader = RunTranscripts.of({
+  get: (runId) => {
+    const found = transcripts.get(runId)
+    return found === undefined
+      ? Effect.die(new Error("The run's runner is unreachable"))
+      : Effect.succeed(found)
+  },
+})
+
 const withHandler = <A, E, R>(
   env: Record<string, string>,
   use: (handler: (request: Request) => Promise<Response>) => Effect.Effect<A, E, R>,
@@ -71,6 +87,7 @@ const withHandler = <A, E, R>(
             request,
             services.pipe(
               Context.add(RepositoryDisabler, disabler),
+              Context.add(RunTranscripts, transcriptReader),
               Context.add(CurrentAccessIdentity, identity),
               Context.add(ConfigProvider.ConfigProvider, ConfigProvider.fromUnknown(env)),
             ),
@@ -89,6 +106,9 @@ const request = (method: string, path: string, body?: unknown, site = "same-orig
 
 const settings = (repositoryId: GitHubRepositoryDatabaseId) =>
   `/repositories/${repositoryId}/pull-request-review`
+
+const transcriptPath = (repositoryId: GitHubRepositoryDatabaseId, runId: string) =>
+  `${settings(repositoryId)}/runs/${runId}/transcript`
 
 const send = (handler: (request: Request) => Promise<Response>, request: Request) =>
   Effect.promise(async () => {
@@ -110,6 +130,26 @@ const started = (minute: number) => ({
   trigger: { _tag: "Automatic" } as const,
   startedAt: at(minute),
 })
+
+const encodeMessages = Schema.encodeSync(Schema.Array(Prompt.Message))
+
+const text = (text: string) => Prompt.makePart("text", { text })
+const messages = [
+  Prompt.makeMessage("user", { content: [text("Review this.")] }),
+  Prompt.makeMessage("assistant", { content: [text("Reading a.ts.")] }),
+]
+const records: Array<LoopRecord> = [
+  {
+    _tag: "FindingReported",
+    finding: {
+      path: "src/a.ts",
+      startLine: 3,
+      endLine: 3,
+      severity: "blocking",
+      comment: "Off by one.",
+    },
+  },
+]
 
 const Services = Layer.mergeAll(PullRequestReviewStore.layer, GitHubReadModel.layer).pipe(
   Layer.provideMerge(MigratedPostgresLayer),
@@ -300,6 +340,80 @@ layer(Services, { timeout: "2 minutes" })("PullRequestReviewRoutes", (it) => {
           (yield* send(handler, request("GET", `${runsPath}?cursor=invalid`))).status,
           400,
         )
+      }),
+    ),
+  )
+
+  it.effect("serves a run's transcript, as far as it has been committed", () =>
+    withHandler(withKey, (handler) =>
+      Effect.gen(function* () {
+        const run = { ...started(40), repositoryId: publicRepositoryId }
+        yield* (yield* PullRequestReviewStore).start(run)
+        transcripts.set(run.runId, {
+          _tag: "Available",
+          resumeCount: 1,
+          steered: true,
+          interrupted: false,
+          errorCategory: null,
+          expiresAt: null,
+          messages,
+          records,
+        })
+
+        const response = yield* send(
+          handler,
+          request("GET", transcriptPath(publicRepositoryId, run.runId)),
+        )
+        assert.strictEqual(response.status, 200)
+        const body = Schema.decodeUnknownSync(Schema.toCodecJson(RunTranscript))(response.body)
+        assert.deepInclude(body.run, {
+          runId: run.runId,
+          number: run.number,
+          title: run.title,
+          status: "running",
+        })
+        assert.deepInclude(body, {
+          resumeCount: 1,
+          steered: true,
+          interrupted: false,
+          errorCategory: null,
+          expiresAt: null,
+          records,
+        })
+        assert.deepStrictEqual(encodeMessages(body.messages), encodeMessages(messages))
+      }),
+    ),
+  )
+
+  it.effect("has no transcript for unknown, foreign, malformed, expired or unreachable runs", () =>
+    withHandler(withKey, (handler) =>
+      Effect.gen(function* () {
+        const store = yield* PullRequestReviewStore
+        const expired = { ...started(41), repositoryId: publicRepositoryId }
+        const unreachable = { ...started(42), repositoryId: publicRepositoryId }
+        yield* store.start(expired)
+        yield* store.start(unreachable)
+        transcripts.set(expired.runId, { _tag: "Expired" })
+        const status = (repositoryId: GitHubRepositoryDatabaseId, runId: string) =>
+          Effect.map(
+            send(handler, request("GET", transcriptPath(repositoryId, runId))),
+            (response) => response.status,
+          )
+
+        assert.strictEqual(yield* status(unknownRepositoryId, expired.runId), 404)
+        // Looked up in the repository first, so its entity is never asked.
+        assert.strictEqual(yield* status(publicRepositoryId, crypto.randomUUID()), 404)
+        assert.strictEqual(yield* status(listedRepositoryId, expired.runId), 404)
+        assert.strictEqual(yield* status(publicRepositoryId, "not-a-run"), 400)
+
+        const gone = yield* send(
+          handler,
+          request("GET", transcriptPath(publicRepositoryId, expired.runId)),
+        )
+        assert.strictEqual(gone.status, 410)
+        assert.isString(gone.body.message)
+
+        assert.strictEqual(yield* status(publicRepositoryId, unreachable.runId), 503)
       }),
     ),
   )

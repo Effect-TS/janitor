@@ -177,6 +177,11 @@ export class PullRequestReviewStore extends Context.Service<
         readonly search?: string
       },
     ) => Effect.Effect<RunPage, PullRequestReviewStoreError>
+    /** One of the repository's runs; a run of another repository is none. */
+    readonly run: (
+      repositoryId: GitHubRepositoryDatabaseId,
+      runId: RunId,
+    ) => Effect.Effect<Option.Option<RunSummary>, PullRequestReviewStoreError>
     /** A repository's runs that are still running, newest first. */
     readonly running: (
       repositoryId: GitHubRepositoryDatabaseId,
@@ -320,6 +325,11 @@ export class PullRequestReviewStore extends Context.Service<
             next: rows.length > query.limit && last ? Option.some(last.runId) : Option.none(),
           } satisfies RunPage
         }).pipe(wrap("runs")),
+      run: (repositoryId, runId) =>
+        summaries(repositoryId, sql`r.run_id = ${runId}::uuid`, 1).pipe(
+          Effect.map((rows) => Option.fromNullishOr(rows[0])),
+          wrap("run"),
+        ),
       running: (repositoryId) =>
         summaries(repositoryId, sql`r.status = 'running'`, null).pipe(wrap("running")),
     }

@@ -1,10 +1,13 @@
+import * as Prompt from "effect/ai/Prompt"
 import * as Schema from "effect/Schema"
 import { GitHubRepositoryDatabaseId } from "../GitHub/Id.ts"
+import { LoopRecord } from "./Finding.ts"
 import { FinalStatus, RunId, SkipReason, Trigger, Verdict } from "./Run.ts"
 
 /**
  * What the web app reads and writes for PR review (EFF-1930): the repository
- * flag with the deployment's status, and the repository's runs list.
+ * flag with the deployment's status, the repository's runs list, and a run's
+ * transcript.
  */
 
 /** The deployment's PR review settings (EFF-1929 point 3). */
@@ -63,3 +66,28 @@ export const RunPage = Schema.Struct({
   cursor: Schema.NullOr(RunId),
 }).annotate({ identifier: "PullRequestReviewRunPage" })
 export type RunPage = typeof RunPage.Type
+
+/**
+ * A run's transcript (EFF-2445): its runs-list row, what its entity kept of
+ * the run, and the agent session as committed so far. The run entity drops
+ * all of it at `expiresAt`. Messages and records hold text the pull request
+ * controls; show them as plain text, never as HTML or Markdown.
+ */
+export const RunTranscript = Schema.Struct({
+  run: RunEntry,
+  /** Acquires after the first. */
+  resumeCount: Schema.Int,
+  /** Told to wrap up. */
+  steered: Schema.Boolean,
+  /** Interrupted at its deadline. */
+  interrupted: Schema.Boolean,
+  /** Why a run that ended without a review ended. */
+  errorCategory: Schema.NullOr(Schema.String),
+  /** When the transcript is dropped; null while the run is still going. */
+  expiresAt: Schema.NullOr(Schema.DateTimeUtc),
+  /** The prompt messages in order, without the system message. */
+  messages: Schema.Array(Prompt.Message),
+  /** Every finding and thread judgement the loop recorded, in order. */
+  records: Schema.Array(LoopRecord),
+}).annotate({ identifier: "PullRequestReviewRunTranscript" })
+export type RunTranscript = typeof RunTranscript.Type

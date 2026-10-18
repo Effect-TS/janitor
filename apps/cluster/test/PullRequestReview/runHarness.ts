@@ -477,6 +477,10 @@ export const makeRunHarnessWith = Effect.fnUntraced(function* (options: RunHarne
     cancel: (runId: RunId) =>
       Effect.flatMap(client(runId), (run) => use(settle(run.Cancel({ runId })))),
 
+    /** Reads the run's transcript from its entity, as the web app's route does. */
+    transcript: (runId: RunId) =>
+      Effect.flatMap(client(runId), (run) => use(run.Transcript({ runId }))),
+
     /** Sends `Cancel` and waits for its reply, without waiting for a `Start` still in flight. */
     cancelNow: (runId: RunId) =>
       Effect.flatMap(client(runId), (run) => stepping(run.Cancel({ runId }), "Cancel")),

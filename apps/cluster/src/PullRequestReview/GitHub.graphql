@@ -26,6 +26,9 @@ fragment Review on PullRequestReview {
     oid
   }
   viewerDidAuthor
+  viewerCanMinimize
+  isMinimized
+  body
 }
 
 query reviewThreads($owner: String!, $repo: String!, $number: Int!, $after: String) {

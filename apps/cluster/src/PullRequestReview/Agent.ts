@@ -6,7 +6,7 @@ import type * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
-import { Finding, ThreadJudgement } from "@janitor/domain/PullRequestReview/Finding"
+import { LoopRecord } from "@janitor/domain/PullRequestReview/Finding"
 import type { RunId, Trigger } from "@janitor/domain/PullRequestReview/Run"
 import type { PullRequestGitHub } from "./GitHub.ts"
 
@@ -18,14 +18,8 @@ import type { PullRequestGitHub } from "./GitHub.ts"
  * loop-side tools and sandbox loss" (EFF-1996) implements it with clanka.
  */
 
-/** What a loop-side tool decided in a step, kept with the step's history for `Publish`. */
-export const LoopRecord = Schema.TaggedUnion({
-  /** A `reportFinding` call the loop accepted. */
-  FindingReported: { finding: Finding },
-  /** An `updateThread` call: the agent's judgement on one of janitor's earlier threads. */
-  ThreadUpdated: { threadId: Schema.String, judgement: ThreadJudgement },
-}).annotate({ identifier: "PullRequestReviewLoopRecord" })
-export type LoopRecord = typeof LoopRecord.Type
+/** What a loop-side tool decided in a step; in the domain, as transcripts show it too. */
+export { LoopRecord }
 
 /**
  * How a step changed the loop's history: messages added to the end, or the

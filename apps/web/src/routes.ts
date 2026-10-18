@@ -28,6 +28,7 @@ export const AppRoute = Route.defineRouteUnion({
   Rule: { ...repository, ruleId: Schema.String },
   Activity: repository,
   PullRequestReviews: repository,
+  PullRequestReviewTranscript: { ...repository, runId: Schema.String },
   Settings: repository,
   DesignSystem: {},
   Account: { section: AccountSection },
@@ -110,6 +111,12 @@ export const pullRequestReviews = pipe(
   Route.slash(Route.literal("pull-request-reviews")),
   Route.mapTo(AppRoute.PullRequestReviews),
 )
+export const pullRequestReviewTranscript = pipe(
+  base,
+  Route.slash(Route.literal("pull-request-reviews")),
+  Route.slash(idSegment("runId")),
+  Route.mapTo(AppRoute.PullRequestReviewTranscript),
+)
 export const settings = pipe(
   base,
   Route.slash(Route.literal("settings")),
@@ -170,6 +177,7 @@ export const parse = Route.parseUrlWithFallback(
     legacyRuleTest,
     rule,
     activity,
+    pullRequestReviewTranscript,
     pullRequestReviews,
     settings,
     designSystem,
@@ -192,6 +200,7 @@ export const path = (route: AppRoute): string =>
     Rule: rule,
     Activity: activity,
     PullRequestReviews: pullRequestReviews,
+    PullRequestReviewTranscript: pullRequestReviewTranscript,
     Settings: settings,
     DesignSystem: designSystem,
     Account: account,
@@ -218,6 +227,7 @@ export const section = (route: AppRoute): Section =>
       Rule: (): Section => "Rules",
       Activity: (): Section => "Activity",
       PullRequestReviews: (): Section => "PR reviews",
+      PullRequestReviewTranscript: (): Section => "PR reviews",
       Settings: (): Section => "Settings",
     },
     (): Section => "Policies",

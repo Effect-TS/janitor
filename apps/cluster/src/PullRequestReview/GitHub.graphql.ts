@@ -69,7 +69,13 @@ export class Review extends Schema.Opaque<Review>()(Schema.Struct({
   /** Identifies the commit associated with this pull request review. */
   commit: Schema.NullOr(Commit),
   /** Did the viewer author this comment. */
-  viewerDidAuthor: Schema.Boolean
+  viewerDidAuthor: Schema.Boolean,
+  /** Check if the current viewer can minimize this object. */
+  viewerCanMinimize: Schema.Boolean,
+  /** Returns whether or not a comment has been minimized. */
+  isMinimized: Schema.Boolean,
+  /** Identifies the pull request review body. */
+  body: Schema.String
 })) {}
 
 /** Information about pagination in a connection. */
@@ -242,7 +248,7 @@ export const janitorReviews = GraphQL.query("janitorReviews", {
       { name: "repository", body: ["(owner:$", "owner", " name:$", "repo", "){pullRequest(number:$", "number", "){reviews(first:100 after:$", "after", "){pageInfo{hasNextPage endCursor}nodes{...Review}}}}"] }
     ],
     fragments: [
-      { name: "Review", body: ["on PullRequestReview{id databaseId state commit{oid}viewerDidAuthor}"] }
+      { name: "Review", body: ["on PullRequestReview{id databaseId state commit{oid}viewerDidAuthor viewerCanMinimize isMinimized body}"] }
     ]
   },
   variables: {
@@ -293,7 +299,7 @@ export const pendingReviews = GraphQL.query("pendingReviews", {
       { name: "repository", body: ["(owner:$", "owner", " name:$", "repo", "){pullRequest(number:$", "number", "){id reviews(first:10 states:[PENDING]){nodes{...Review}}}}"] }
     ],
     fragments: [
-      { name: "Review", body: ["on PullRequestReview{id databaseId state commit{oid}viewerDidAuthor}"] }
+      { name: "Review", body: ["on PullRequestReview{id databaseId state commit{oid}viewerDidAuthor viewerCanMinimize isMinimized body}"] }
     ]
   },
   variables: {

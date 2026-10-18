@@ -69,6 +69,8 @@ const FakeRunEntity = PullRequestReviewRun.toLayer(
       // The run entity sends these to itself; the scheduler never does.
       Publish: () => Effect.void,
       Expire: () => Effect.void,
+      // Only the web app reads transcripts.
+      Transcript: () => Effect.succeed({ _tag: "Expired" } as const),
     })
   }),
 )

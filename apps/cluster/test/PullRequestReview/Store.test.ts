@@ -159,6 +159,21 @@ layer(Services, { timeout: "2 minutes" })("PR review store", (it) => {
     }),
   )
 
+  it.effect("finds a run only within its own repository", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const store = yield* PullRequestReviewStore
+      const run = started(30)
+      yield* store.skip({ ...run, reason: "run_cap" })
+
+      assert.deepInclude(Option.getOrUndefined(yield* store.run(repositoryId, run.runId)), {
+        runId: run.runId,
+        status: "skipped",
+      })
+      assert.isTrue(Option.isNone(yield* store.run(otherRepositoryId, run.runId)))
+    }),
+  )
+
   it.effect("finds runs by pull request title or number", () =>
     Effect.gen(function* () {
       yield* seed

@@ -41,6 +41,9 @@ export interface FakeReview {
   state: "PENDING" | "COMMENTED" | "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED"
   body: string
   readonly commitOID: string
+  readonly viewerCanMinimize?: boolean
+  isMinimized?: boolean
+  minimizedReason?: string | null
 }
 
 type FakeFile = string | { readonly size: number }
@@ -320,6 +323,9 @@ export class FakeReviewGitHub extends FakeGitHub {
             commit: { oid: review.commitOID },
             author: { __typename: review.byApp ? "Bot" : "User", login: review.author },
             viewerDidAuthor: review.byApp,
+            viewerCanMinimize: review.viewerCanMinimize ?? review.byApp,
+            isMinimized: review.isMinimized ?? false,
+            minimizedReason: review.minimizedReason ?? null,
           })),
         },
       },
@@ -432,9 +438,11 @@ export class FakeReviewGitHub extends FakeGitHub {
         return this.data({ [field]: { thread: { id: thread.id, isResolved: true } } })
       }
       case "minimizeComment": {
-        const comment = this.threads
-          .flatMap((thread) => thread.comments)
-          .find((comment) => comment.id === input.subjectId)
+        const comment =
+          this.threads
+            .flatMap((thread) => thread.comments)
+            .find((comment) => comment.id === input.subjectId) ??
+          this.reviews.find((review) => review.id === input.subjectId)
         if (comment === undefined) return this.error(field, "NOT_FOUND", "No such comment")
         if (!(comment.viewerCanMinimize ?? comment.byApp))
           return this.error(field, "FORBIDDEN", "Cannot minimize this comment")
@@ -445,7 +453,9 @@ export class FakeReviewGitHub extends FakeGitHub {
         return this.data({
           [field]: {
             minimizedComment: {
-              __typename: "PullRequestReviewComment",
+              __typename: this.reviews.some((review) => review === comment)
+                ? "PullRequestReview"
+                : "PullRequestReviewComment",
               isMinimized: true,
               minimizedReason: "resolved",
             },
