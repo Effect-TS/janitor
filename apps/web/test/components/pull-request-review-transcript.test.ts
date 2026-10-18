@@ -173,6 +173,30 @@ describe("PR review transcript", () => {
     )
   })
 
+  it("fetches again when the run changed while a fetch was in flight", () => {
+    const { model } = activated()
+    const running: RunTranscript = {
+      ...transcript,
+      run: { ...transcript.run, status: "running", verdict: null, finishedAt: null },
+      expiresAt: null,
+    }
+    const shown = Transcript.update(
+      model,
+      Transcript.Message.Loaded({ generation: model.generation, transcript: running }),
+    ).model
+    const refreshing = Transcript.update(shown, Transcript.Message.ClickedRefresh()).model
+    // The run finishes after that fetch read it; its live update arrives meanwhile.
+    const polled = Transcript.update(refreshing, Transcript.Message.Polled()).model
+
+    const stale = Transcript.update(
+      polled,
+      Transcript.Message.Loaded({ generation: model.generation, transcript: running }),
+    )
+    expect(stale.commands?.map((command) => command.args)).toEqual([
+      { repositoryId: "701", runId, generation: model.generation },
+    ])
+  })
+
   it("fetches the run's transcript and tells an expired one from a failure", async () => {
     const { model, commands } = activated()
     expect(commands?.map((command) => command.args)).toEqual([
