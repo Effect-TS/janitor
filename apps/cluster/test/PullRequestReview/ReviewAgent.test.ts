@@ -568,14 +568,14 @@ await taskComplete(JSON.stringify([
     )
   })
 
-  it.effect("the first message carries the trusted diff", () => {
+  it.effect("the first message omits the trusted diff", () => {
     const model = new ScriptedModel([execute(`await taskComplete("Read the diff.")`)])
     return run(model, (harness) =>
       Effect.gen(function* () {
         yield* review(harness)
 
         const first = seen(model.prompts[0]!.content.filter((message) => message.role === "user"))
-        assert.include(first, files[0]!.patch)
+        assert.notInclude(first, files[0]!.patch)
       }),
     )
   })

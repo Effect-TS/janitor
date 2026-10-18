@@ -188,22 +188,6 @@ const readSkills = (client: ReviewGitHub.PullRequestGitHub, baseSha: string) =>
     ),
   )
 
-/** Changed files as one diff, for the trusted diff and the "changed since your last review" section. */
-const renderDiff = (changes: {
-  readonly files: ReadonlyArray<ReviewGitHub.ChangedFile>
-  readonly truncated: boolean
-}) =>
-  [
-    ...changes.files.map((file) =>
-      [
-        `--- a/${file.previous_filename ?? file.filename}`,
-        `+++ b/${file.filename}`,
-        file.patch ?? "(no textual diff)",
-      ].join("\n"),
-    ),
-    ...(changes.truncated ? ["(more files changed than GitHub lists)"] : []),
-  ].join("\n")
-
 /** What the loop is given at start, read from GitHub and rendered. */
 interface Inputs {
   readonly instructions: string
@@ -248,15 +232,6 @@ const readInputs = (options: StartOptions) =>
       ...(invokerGuidance === undefined ? {} : { invokerGuidance }),
     })
 
-    // What changed since janitor last reviewed, when that SHA is still in the head's history.
-    const lastReviewed = history.reviews.at(-1)?.reviewedSha.pipe(Option.getOrUndefined)
-    let sinceLastReview: { readonly reviewedSha: string; readonly diff: string } | undefined
-    if (lastReviewed !== undefined && lastReviewed !== run.headSha) {
-      const comparison = yield* client.compare(lastReviewed, run.headSha)
-      if (comparison.ancestor)
-        sinceLastReview = { reviewedSha: lastReviewed, diff: renderDiff(comparison) }
-    }
-
     // `earlier.replies` attributes the same human comments, in order.
     const contexts = threads.map(({ thread, earlier }): ThreadContext => ({
       id: earlier.id,
@@ -287,8 +262,6 @@ const readInputs = (options: StartOptions) =>
           baseSha: run.baseSha,
           headSha: run.headSha,
         },
-        diff: renderDiff(changed),
-        ...(sinceLastReview === undefined ? {} : { sinceLastReview }),
         threads: contexts,
       }),
       diff: parseTrustedDiff(changed.files),
