@@ -718,7 +718,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
     ),
   )
 
-  it.effect("an addressed finding hides only its eligible Janitor comment as resolved", () =>
+  it.effect("an addressed finding resolves its thread without minimizing inline comments", () =>
     run((harness) =>
       Effect.gen(function* () {
         yield* putEarlierThread(harness, {
@@ -765,7 +765,7 @@ layer(Services, { timeout: "2 minutes" })("PR review Publish batch", (it) => {
               id: "PRRT_addressed",
               resolved: true,
               comments: [
-                { id: "PRRT_addressed_root", minimized: true, reason: "resolved" },
+                { id: "PRRT_addressed_root", minimized: false, reason: null },
                 { id: "PRRT_addressed_0", minimized: false, reason: null },
               ],
             },
