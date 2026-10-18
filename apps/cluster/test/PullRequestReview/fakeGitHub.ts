@@ -16,6 +16,9 @@ export interface FakeThreadComment {
   readonly createdAt: string
   /** The review the comment belongs to. */
   readonly reviewId?: string
+  readonly viewerCanMinimize?: boolean
+  isMinimized?: boolean
+  minimizedReason?: string | null
 }
 
 export interface FakeThread {
@@ -61,6 +64,7 @@ const MUTATIONS = [
   "deletePullRequestReview",
   "dismissPullRequestReview",
   "resolveReviewThread",
+  "minimizeComment",
 ] as const
 
 const SUBMITTED = {
@@ -265,6 +269,9 @@ export class FakeReviewGitHub extends FakeGitHub {
                   createdAt: comment.createdAt,
                   author: { __typename: comment.byApp ? "Bot" : "User", login: comment.author },
                   viewerDidAuthor: comment.byApp,
+                  viewerCanMinimize: comment.viewerCanMinimize ?? comment.byApp,
+                  isMinimized: comment.isMinimized ?? false,
+                  minimizedReason: comment.minimizedReason ?? null,
                   pullRequestReview:
                     comment.reviewId === undefined
                       ? null
@@ -400,6 +407,23 @@ export class FakeReviewGitHub extends FakeGitHub {
         thread.isResolved = true
         thread.resolvedBy = APP_LOGIN
         return this.data({ [field]: { thread: { id: thread.id, isResolved: true } } })
+      }
+      case "minimizeComment": {
+        const comment = this.threads
+          .flatMap((thread) => thread.comments)
+          .find((comment) => comment.id === input.subjectId)
+        if (comment === undefined) return this.error(field, "NOT_FOUND", "No such comment")
+        if (!(comment.viewerCanMinimize ?? comment.byApp))
+          return this.error(field, "FORBIDDEN", "Cannot minimize this comment")
+        if (input.classifier !== "RESOLVED")
+          return this.error(field, "INVALID", "Expected RESOLVED classifier")
+        comment.isMinimized = true
+        comment.minimizedReason = "resolved"
+        return this.data({
+          [field]: {
+            minimizedComment: { isMinimized: true, minimizedReason: "resolved" },
+          },
+        })
       }
       case "dismissPullRequestReview": {
         const review = this.reviews.find((review) => review.id === input.pullRequestReviewId)
