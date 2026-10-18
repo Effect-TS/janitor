@@ -16,6 +16,7 @@ import {
 } from "@janitor/domain/PullRequestReview/Fingerprint"
 import {
   checkRunOutput,
+  hasListedFindings,
   inlineComment,
   type ListedFinding,
   replyMarker,
@@ -205,12 +206,6 @@ const describe = (error: { readonly _tag: string }) =>
 
 const isTransient = (error: { readonly _tag: string }) =>
   error._tag === "PullRequestGitHubError" || error._tag === "PullRequestGitHubRateLimited"
-
-// These findings have no thread judgement proving them cleared. False positives
-// (for example, a heading quoted in the summary) deliberately preserve the review.
-const hasListedFindings = (body: string) =>
-  body.includes("findings that couldn't go inline:") ||
-  body.includes("Nits that couldn't go inline:")
 
 /** Waits before the next attempt: until a rate limit resets, or a short backoff. */
 const backoff = (error: { readonly _tag: string }, attempt: number) =>
@@ -469,11 +464,10 @@ const makePublisher = Effect.gen(function* () {
           findings,
           threads: states,
         })
-        const addressed = new Set(
-          threads.flatMap(({ thread, judged }) =>
-            judged.judgement.judgement === "addressed" ? [thread.id] : [],
-          ),
+        const addressedThreadIds = threads.flatMap(({ thread, judged }) =>
+          judged.judgement.judgement === "addressed" ? [thread.id] : [],
         )
+        const addressed = new Set(addressedThreadIds)
         const minimization = yield* client.reviewMinimization.pipe(
           Effect.catch((error) =>
             Effect.as(
@@ -507,9 +501,7 @@ const makePublisher = Effect.gen(function* () {
               ? [review.id]
               : [],
           ),
-          resolutions: threads.flatMap(({ thread, judged }) =>
-            judged.judgement.judgement === "addressed" ? [thread.id] : [],
-          ),
+          resolutions: addressedThreadIds,
           replies: threads.flatMap(({ thread, judged, reply }) =>
             judged.judgement.judgement !== "addressed" && Option.isSome(reply)
               ? [

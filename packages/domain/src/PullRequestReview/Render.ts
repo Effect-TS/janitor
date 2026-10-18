@@ -254,6 +254,13 @@ const listed = (input: ReviewBodyInput, severity: Severity, heading: string) => 
       ]
 }
 
+const listedBlockingHeading = "Blocking findings that couldn't go inline:"
+const listedNitsHeading = "Nits that couldn't go inline:"
+
+/** A quoted heading also preserves the review: cleanup must err on the safe side. */
+export const hasListedFindings = (body: string): boolean =>
+  body.includes(listedBlockingHeading) || body.includes(listedNitsHeading)
+
 /** Empty for an approval, which stays silent; always under `reviewBodyLimit`. */
 export const reviewBody = (input: ReviewBodyInput): string => {
   if (input.event === "approve") return ""
@@ -264,8 +271,8 @@ export const reviewBody = (input: ReviewBodyInput): string => {
       ...(input.partial ? [partialNotice] : []),
       ...(summary === "" ? [] : [summary]),
       counts(input),
-      ...listed(input, "blocking", "Blocking findings that couldn't go inline:"),
-      ...listed(input, "nit", "Nits that couldn't go inline:"),
+      ...listed(input, "blocking", listedBlockingHeading),
+      ...listed(input, "nit", listedNitsHeading),
       ...(input.event === "approve" ? [] : [notApproved(input.gateFailures)]),
     ]
       .filter((section) => section !== undefined)
