@@ -83,12 +83,14 @@ export default SandboxContainer.make(
       external: ["@silvia-odwyer/photon-node"],
       autoInstallExternals: false,
       dockerfile: Dockerfile.inline`
-        FROM node:24-bookworm-slim
+        FROM node:26-bookworm-slim
         RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl g++ git make python3 ripgrep && rm -rf /var/lib/apt/lists/*
         RUN git config --system core.hooksPath /dev/null
         # pnpm and yarn through corepack, at the version a repository's
         # packageManager pins. Downloads without asking: no one can answer.
-        RUN corepack enable
+        # Node 26 fixes undici streaming through the HTTPS intercept; Node 25+
+        # no longer bundles corepack, so install it explicitly.
+        RUN npm install -g corepack@0.36.0 && corepack enable
         ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
         RUN mkdir -p /app /workspace
         RUN cd /app && npm install --no-save --no-audit --no-fund @silvia-odwyer/photon-node@0.3.4
