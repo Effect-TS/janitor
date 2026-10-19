@@ -298,7 +298,11 @@ layer(Services, { timeout: "2 minutes" })("Direct issue labeling", (it) => {
       const writes = github.writes.length
       const whilePaused = yield* LabelItem.execute(paused)
       assert.strictEqual(whilePaused.outcome, "not-qualified")
-      assert.include((yield* activity)[0]?.detail, "paused")
+      // Stored reason codes are shown as sentences, never as the bare code.
+      assert.strictEqual(
+        (yield* activity)[0]?.detail,
+        "This repository is paused in Janitor. Resume it to continue.",
+      )
 
       yield* sql`UPDATE github_repository SET enabled = TRUE WHERE repository_id = ${repositoryId}`
       github.put({ number: 23, title: "Hello", state: "open", labels: [] })

@@ -152,10 +152,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
             if (loss === "uninstall") installed = false
             yield* connections.refresh
             assert.strictEqual((yield* state).syncState, "access-unavailable")
-            assert.include(
-              (yield* state).blockReason!,
-              "GitHub access to this repository is unavailable",
-            )
+            assert.strictEqual((yield* state).blockReason, "access-unavailable")
             assert.strictEqual((yield* state).policyCount, 1)
             assert.isTrue(
               Option.isNone(
@@ -256,10 +253,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
         yield* repositoryEvent("transferred", "third-owner/webhook-name")
         assert.strictEqual((yield* state).owner, "third-owner")
         assert.strictEqual((yield* state).syncState, "access-unavailable")
-        assert.include(
-          (yield* state).blockReason!,
-          "GitHub access to this repository is unavailable",
-        )
+        assert.strictEqual((yield* state).blockReason, "access-unavailable")
         assert.strictEqual((yield* state).policyCount, 1)
         installationId = 99
         fullName = "third-owner/webhook-name"

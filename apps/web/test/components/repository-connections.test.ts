@@ -221,7 +221,7 @@ describe("connection result handling", () => {
       ...candidate,
       enabled: false,
       syncState: "paused" as const,
-      blockReason: "This repository is paused in Janitor. Resume it to continue.",
+      blockReason: "paused" as const,
     }
     Scene.scene(
       { update: Connections.update, view: Scene.withViewInputs(Connections.view, settings)() },
