@@ -304,7 +304,9 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
     // A reply needs another pass even at the same SHA, but is not a privileged
     // invocation: retain the automatic run cap and never force oversized PRs.
     const headSha = event._tag === "Replied" ? GitHubCommitSha.make(pull.headSha) : event.headSha
-    if (event._tag === "Replied" && !oversized) {
+    if (event._tag === "Replied") {
+      // Rejecting an automatic reply must not revoke a forced review or its check.
+      if (oversized) return "ineligible"
       yield* scheduler.Rerun({ ...ids, headSha, trigger: { _tag: "Automatic" } })
       return "scheduled"
     }

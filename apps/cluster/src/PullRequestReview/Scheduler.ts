@@ -514,13 +514,25 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
         ),
       RepoDisabled: () => step((current) => Effect.sync(() => stop(current))),
       Rerun: ({ payload }) =>
-        step((current, now) => {
-          if (!inOrder(current, payload.sequence)) return Effect.void
-          // A `/janitor` re-run resets the automatic run count.
-          if (payload.trigger._tag !== "Automatic")
-            current.state = { ...current.state, automaticRuns: 0 }
-          return queue(current, now, payload.headSha, payload.trigger, true)
-        }),
+        step((current, now) =>
+          Effect.gen(function* () {
+            if (!inOrder(current, payload.sequence)) return
+            const { active, automaticRuns } = current.state
+            // Keep the same-head review when the run cap prevents replacing it.
+            if (
+              payload.trigger._tag === "Automatic" &&
+              active !== null &&
+              !active.cancelled &&
+              active.headSha === payload.headSha &&
+              automaticRuns >= (yield* pullRequestReviewConfig).maxAutomaticRuns
+            )
+              return
+            // A `/janitor` re-run resets the automatic run count.
+            if (payload.trigger._tag !== "Automatic")
+              current.state = { ...current.state, automaticRuns: 0 }
+            yield* queue(current, now, payload.headSha, payload.trigger, true)
+          }),
+        ),
       RunFinished: ({ payload }) =>
         step((current, now) => finished(current, now, payload.runId, payload.finishedAt)),
       RunOverdue: ({ payload }) =>
