@@ -547,3 +547,10 @@ PR review off. Existing repositories start with PR review off.
 `0057_pr_review_live.sql` notifies the `review` live topic when a repository's
 PR review flag or one of its runs changes, so the Settings panel and the
 "PR reviews" list refresh without a reload.
+
+## Repository block reason codes
+
+`0058_repository_block_reason_codes.sql` makes `repository_block_reason()`
+return a code (`not-connected`, `disconnected`, `access-unavailable` or
+`paused`) instead of a sentence. The cluster and the web app own the wording.
+Labeling activity rows written earlier keep their stored sentences.

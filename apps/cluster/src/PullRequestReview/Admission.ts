@@ -141,10 +141,7 @@ export const PullRequestReviewAutomationIntegrationLayer = Layer.effect(
         if (!(yield* pullRequestReviewGate)) return false
         const repository = yield* eligibility.get(repositoryId).pipe(Effect.result)
         if (repository._tag === "Failure") {
-          if (
-            repository.failure._tag === "@janitor/cluster/RepositoryEligibility/RepositoryBlocked"
-          )
-            return false
+          if (repository.failure._tag === "RepositoryBlocked") return false
           return yield* repository.failure
         }
         return yield* store.isEnabled(repositoryId)
@@ -239,8 +236,7 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
     const eligibility = yield* RepositoryEligibility
     const found = yield* eligibility.get(repositoryId).pipe(Effect.result)
     if (found._tag === "Failure") {
-      if (found.failure._tag === "@janitor/cluster/RepositoryEligibility/RepositoryBlocked")
-        return "repository-blocked"
+      if (found.failure._tag === "RepositoryBlocked") return "repository-blocked"
       return yield* found.failure
     }
     const [owner] = found.success.name.split("/")

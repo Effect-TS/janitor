@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as SqlSchema from "effect/sql/SqlSchema"
 import type * as SqlError from "effect/sql/SqlError"
+import { RepositoryBlocked, RepositoryBlockReason } from "@janitor/domain/GitHub/Repository"
 
 /**
  * Whether repository work may run: connection, pause and current GitHub
@@ -22,23 +23,25 @@ export const Eligibility = Schema.Struct({
   connected: Schema.Boolean,
   paused: Schema.Boolean,
   accessAvailable: Schema.Boolean,
-  blockReason: Schema.NullOr(Schema.String),
+  blockReason: Schema.NullOr(RepositoryBlockReason),
 })
 export type Eligibility = typeof Eligibility.Type
 
-/** Work refused with the concrete repository block reason. */
-export class RepositoryBlocked extends Schema.TaggedError<RepositoryBlocked>()(
-  "@janitor/cluster/RepositoryEligibility/RepositoryBlocked",
-  { repositoryId: Schema.String, reason: Schema.String },
-) {
-  override get message() {
-    return this.reason
+/** The sentence stored and shown for a block reason. */
+export const blockReasonText = (reason: RepositoryBlockReason): string => {
+  switch (reason) {
+    case "not-connected":
+      return "This repository is not connected to Janitor."
+    case "disconnected":
+      return "This repository is disconnected from Janitor."
+    case "access-unavailable":
+      return "GitHub access to this repository is unavailable. Restore access on GitHub."
+    case "paused":
+      return "This repository is paused in Janitor. Resume it to continue."
+    case "changed":
+      return "This repository's connection, pause or GitHub access changed since this work was accepted. Start it again."
   }
 }
-
-export const missingReason = "This repository is not connected to Janitor."
-export const changedReason =
-  "This repository's connection, pause or GitHub access changed since this work was accepted. Start it again."
 
 /**
  * The webhook admission fence. Runs the effect for a repository Janitor does
@@ -83,7 +86,7 @@ export class RepositoryEligibility extends Context.Service<RepositoryEligibility
   {
     make: Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
-      const blocked = (repositoryId: string, reason: string | null) =>
+      const blocked = (repositoryId: string, reason: RepositoryBlockReason | null) =>
         reason === null ? Effect.void : Effect.fail(new RepositoryBlocked({ repositoryId, reason }))
       // Row shapes are fixed by the migrations; a decode failure is a defect.
       const decoded = <A, E, R>(effect: Effect.Effect<A, E | Schema.SchemaError, R>) =>
@@ -91,7 +94,7 @@ export class RepositoryEligibility extends Context.Service<RepositoryEligibility
       const found = (repositoryId: string) => (row: Option.Option<Eligibility>) =>
         Option.isSome(row)
           ? Effect.succeed(row.value)
-          : Effect.fail(new RepositoryBlocked({ repositoryId, reason: missingReason }))
+          : Effect.fail(new RepositoryBlocked({ repositoryId, reason: "not-connected" }))
       /** Every repository Janitor knows, with its current block reason. */
       const list = decoded(
         SqlSchema.findAll({
@@ -137,7 +140,7 @@ export class RepositoryEligibility extends Context.Service<RepositoryEligibility
             )
             yield* blocked(repositoryId, repository.blockReason)
             if (options?.generation !== undefined && options.generation !== repository.generation)
-              return yield* new RepositoryBlocked({ repositoryId, reason: changedReason })
+              return yield* new RepositoryBlocked({ repositoryId, reason: "changed" })
             return yield* effect
           }),
         )
