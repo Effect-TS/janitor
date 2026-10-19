@@ -390,6 +390,42 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
     }),
   )
 
+  it.effect(
+    "rapid thread replies coalesce into one follow-up without cancelling the active review",
+    () =>
+      Effect.gen(function* () {
+        yield* seed
+        const pr = yield* scheduler(33)
+        yield* pr.push(head(1))
+        const active = lastStart(33)
+        const client = (yield* PullRequestScheduler.client)(schedulerEntityId(repositoryId, 33))
+
+        // Admission forwards replies from every thread on this PR as automatic Reruns.
+        for (let reply = 0; reply < 3; reply++) {
+          yield* settle(
+            client.Rerun({
+              repositoryId,
+              number: 33,
+              sequence: nextSequence(),
+              headSha: head(1),
+              trigger: { _tag: "Automatic" },
+            }),
+          )
+          yield* wait("1 second")
+        }
+
+        assert.deepStrictEqual(messages(33), [active])
+        yield* pr.finish(active.runId)
+        assert.strictEqual(starts(33).length, 1)
+        yield* wait("3 minutes")
+        assert.deepStrictEqual(
+          messages(33).map((message) => message._tag),
+          ["Start", "Start"],
+        )
+        assert.strictEqual(lastStart(33).headSha, head(1))
+      }),
+  )
+
   it.effect("an oversized thread reply leaves a forced review and its check alone", () =>
     Effect.gen(function* () {
       yield* seed
