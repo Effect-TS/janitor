@@ -9,9 +9,19 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Reactivity from "effect/reactivity/Reactivity"
 import * as TestClock from "effect/testing/TestClock"
-import { GitHubCommitSha, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
+import {
+  GitHubCommentDatabaseId,
+  GitHubCommitSha,
+  GitHubRepositoryDatabaseId,
+  GitHubUserDatabaseId,
+} from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
+import {
+  AdmitPullRequestReview,
+  AdmitPullRequestReviewLayer,
+} from "../../src/PullRequestReview/Admission.ts"
 import { PullRequestReviewRun } from "../../src/PullRequestReview/RunEntity.ts"
 import {
   disableRepository,
@@ -20,7 +30,9 @@ import {
   schedulerEntityId,
 } from "../../src/PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
+import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
+import { FakeReviewGitHub } from "./fakeGitHub.ts"
 import { drain, failNextSend, repositoryId, seedRepositories, settle } from "./support.ts"
 
 /** The deployment's environment; the gate is on while the API URL and key are set. */
@@ -81,10 +93,18 @@ const DurableObjectStorage = Layer.effect(
   SqliteClient.make({ filename: ":memory:" }),
 ).pipe(Layer.provide(Reactivity.layer))
 
-const Services = Layer.mergeAll(PullRequestSchedulerLayer, FakeRunEntity).pipe(
+const github = new FakeReviewGitHub(32)
+
+const Services = Layer.mergeAll(
+  PullRequestSchedulerLayer,
+  FakeRunEntity,
+  AdmitPullRequestReviewLayer,
+).pipe(
   Layer.provideMerge(DurableObjectStorage),
-  Layer.provideMerge(PullRequestReviewStore.layer),
+  Layer.provideMerge(Layer.mergeAll(PullRequestReviewStore.layer, RepositoryEligibility.layer)),
+  Layer.provideMerge(github.layer),
   Layer.provideMerge(TestRunner.layer),
+  Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   Layer.provideMerge(MigratedPostgresLayer),
 )
@@ -340,6 +360,96 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
       yield* pr.push(head(2))
       assert.deepStrictEqual(lastStart(17).trigger, { _tag: "Automatic" })
       assert.strictEqual(starts(17).length, 12)
+    }),
+  )
+
+  it.effect("a same-head reply leaves the last permitted automatic review running", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const pr = yield* scheduler(31)
+      for (let run = 1; run <= 10; run++) {
+        yield* pr.push(head(run))
+        if (run < 10) {
+          yield* pr.finish(lastStart(31).runId)
+          yield* wait("3 minutes")
+        }
+      }
+      assert.strictEqual(starts(31).length, 10)
+      const client = (yield* PullRequestScheduler.client)(schedulerEntityId(repositoryId, 31))
+      yield* settle(
+        client.Rerun({
+          repositoryId,
+          number: 31,
+          sequence: nextSequence(),
+          headSha: head(10),
+          trigger: { _tag: "Automatic" },
+        }),
+      )
+
+      assert.deepStrictEqual(messages(31).slice(10), [])
+    }),
+  )
+
+  it.effect("an oversized thread reply leaves a forced review and its check alone", () =>
+    Effect.gen(function* () {
+      yield* seed
+      github.put({
+        number: 32,
+        title: "Large change",
+        state: "open",
+        labels: [],
+        pullRequest: {
+          headSha: head(1),
+          files: [{ filename: "src/large.ts", status: "modified", additions: 10001, deletions: 0 }],
+        },
+      })
+      github.permissions.set("maintainer", { id: 31, permission: "write" })
+      yield* settle(
+        AdmitPullRequestReview.execute({
+          repositoryId,
+          number: 32,
+          sequence: nextSequence(),
+          event: {
+            _tag: "Invoked",
+            commentId: GitHubCommentDatabaseId.make("601"),
+            authorId: GitHubUserDatabaseId.make("31"),
+            authorLogin: "maintainer",
+          },
+        }),
+      )
+      assert.deepStrictEqual(lastStart(32).trigger, {
+        _tag: "Forced",
+        invoker: "maintainer",
+        commentId: "601",
+      })
+      // The fake run entity records starts, but leaves GitHub check creation to the test.
+      github.checkRuns = [
+        {
+          id: 700,
+          headSha: head(1),
+          status: "in_progress",
+          conclusion: null,
+          output: { title: "Review in progress", summary: "Reviewing the large change." },
+        },
+      ]
+      github.requests.length = 0
+
+      yield* settle(
+        AdmitPullRequestReview.execute({
+          repositoryId,
+          number: 32,
+          sequence: nextSequence(),
+          event: { _tag: "Replied", commentId: GitHubCommentDatabaseId.make("602") },
+        }),
+      )
+
+      assert.deepStrictEqual(
+        {
+          messages: messages(32).slice(1),
+          writes: github.writeNames,
+        },
+        { messages: [], writes: [] },
+      )
     }),
   )
 
