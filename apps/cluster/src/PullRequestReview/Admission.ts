@@ -51,6 +51,8 @@ export const AdmissionEvent = Schema.TaggedUnion({
   /** Closed or merged. */
   Closed: {},
   ConvertedToDraft: {},
+  /** A human reply in a review thread, without requiring a command or write access. */
+  Replied: { commentId: GitHubCommentDatabaseId },
   /** A top-level `/janitor` comment from a human, whose permission is not yet checked. */
   Invoked: {
     commentId: GitHubCommentDatabaseId,
@@ -120,7 +122,7 @@ const pullRequestAdmission = (
 }
 
 /**
- * The `pull_request` and `issue_comment` hooks. They read nothing from
+ * The pull request, invocation and review-thread reply hooks. They read nothing from
  * GitHub and send no entity messages: what passes the cheap checks becomes
  * one outbox row in the projection's transaction. Bot and draft skips write
  * nothing. Production composes them with labeling's hooks.
@@ -160,6 +162,25 @@ export const PullRequestReviewAutomationIntegrationLayer = Layer.effect(
 
     return {
       issueEvent: () => Effect.void,
+      reviewCommentEvent: (request) => {
+        const { action, comment, pull_request: pull, repository } = request.payload
+        if (
+          action !== "created" ||
+          comment.in_reply_to_id == null ||
+          comment.user.type !== "User" ||
+          isBot(comment.user) ||
+          repository.private !== false ||
+          pull.state !== "open" ||
+          pull.draft !== false
+        )
+          return Effect.void
+        return enqueue({
+          repositoryId: request.repositoryId,
+          number: pull.number,
+          sequence: request.sequence,
+          event: { _tag: "Replied", commentId: comment.id },
+        })
+      },
       pullRequestEvent: (request) => {
         if (request.repository.private !== false) return Effect.void
         const event = pullRequestAdmission(request.action, request.pullRequest)
@@ -256,6 +277,14 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
     const config = yield* pullRequestReviewConfig
     const github = yield* ReviewGitHub.make({ ...target, number })
     const pull = yield* github.pullRequest
+    if (
+      event._tag === "Replied" &&
+      (pull.state !== "open" ||
+        pull.draft ||
+        pull.visibility !== "public" ||
+        (Option.isSome(pull.author) && isBot(pull.author.value)))
+    )
+      return "ineligible"
     const { size } = yield* github.changedFiles({
       baseSha: pull.baseSha,
       lockfiles: config.lockfiles,
@@ -272,13 +301,20 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
       yield* scheduler.Rerun({ ...ids, headSha: GitHubCommitSha.make(pull.headSha), trigger })
       return trigger._tag === "Forced" ? "forced" : "rerun"
     }
+    // A reply needs another pass even at the same SHA, but is not a privileged
+    // invocation: retain the automatic run cap and never force oversized PRs.
+    const headSha = event._tag === "Replied" ? GitHubCommitSha.make(pull.headSha) : event.headSha
+    if (event._tag === "Replied" && !oversized) {
+      yield* scheduler.Rerun({ ...ids, headSha, trigger: { _tag: "Automatic" } })
+      return "scheduled"
+    }
     if (oversized)
       yield* recordSkip(github, {
         runId,
         repositoryId,
         number,
         title: pull.title,
-        headSha: event.headSha,
+        headSha,
         baseSha: pull.baseSha,
         trigger: { _tag: "Automatic" },
         startedAt: yield* DateTime.now,
@@ -286,7 +322,7 @@ const admit = (payload: AdmissionPayload, runId: RunId) =>
       })
     // An oversized head still reaches the scheduler: it cancels the active run,
     // drops the queued head and, on a reopen, the pending wipe.
-    const head = { ...ids, headSha: event.headSha, oversized }
+    const head = { ...ids, headSha, oversized }
     yield* event._tag === "Reopened" ? scheduler.Reopened(head) : scheduler.HeadChanged(head)
     return oversized ? "oversized" : "scheduled"
   })

@@ -1,6 +1,9 @@
 import type { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
 import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import type { IssueCommentPayload } from "@janitor/domain/GitHub/WebhookEvent/Comment"
+import type {
+  IssueCommentPayload,
+  PullRequestReviewCommentPayload,
+} from "@janitor/domain/GitHub/WebhookEvent/Comment"
 import type {
   PullRequest,
   PullRequestRepository,
@@ -41,6 +44,12 @@ export class AutomationIntegration extends Context.Service<
       readonly payload: IssueCommentPayload
       readonly sequence: GitHubWebhookJournalSequence
     }) => Effect.Effect<void, Error>
+    /** A review-thread comment, inside the same repository fence and transaction. */
+    readonly reviewCommentEvent: (request: {
+      readonly repositoryId: GitHubRepositoryDatabaseId
+      readonly payload: PullRequestReviewCommentPayload
+      readonly sequence: GitHubWebhookJournalSequence
+    }) => Effect.Effect<void, Error>
   }
 >()("@janitor/cluster/AutomationIntegration") {
   /** Explicitly used by projection tests and deployments without labeling. */
@@ -48,6 +57,7 @@ export class AutomationIntegration extends Context.Service<
     issueEvent: () => Effect.void,
     pullRequestEvent: () => Effect.void,
     issueCommentEvent: () => Effect.void,
+    reviewCommentEvent: () => Effect.void,
   })
 
   /** Runs every automation's hooks for each event, in order. */
@@ -73,6 +83,8 @@ export class AutomationIntegration extends Context.Service<
             Effect.forEach(hooks, (hook) => hook.pullRequestEvent(request), { discard: true }),
           issueCommentEvent: (request) =>
             Effect.forEach(hooks, (hook) => hook.issueCommentEvent(request), { discard: true }),
+          reviewCommentEvent: (request) =>
+            Effect.forEach(hooks, (hook) => hook.reviewCommentEvent(request), { discard: true }),
         }
       }),
     )

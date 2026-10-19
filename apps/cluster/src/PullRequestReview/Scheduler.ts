@@ -68,8 +68,8 @@ export const Closed = Rpc.make("Closed", { payload: delivery })
 export const ConvertedToDraft = Rpc.make("ConvertedToDraft", { payload: delivery })
 
 /**
- * A write-access `/janitor`, `Rerun` or `Forced`. The trigger carries the
- * comment id, never its text, and resets the automatic run count.
+ * Re-review even at the same SHA. Human thread replies use `Automatic` and
+ * retain the cooldown and run cap; a write-access `/janitor` resets the cap.
  */
 export const Rerun = Rpc.make("Rerun", {
   payload: { ...delivery, headSha: GitHubCommitSha, trigger: Trigger },
@@ -418,10 +418,12 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
       now: DateTime.Utc,
       headSha: GitHubCommitSha,
       trigger: Trigger,
+      recheck = false,
     ) => {
       const active = current.state.active
       // A repeated event for the head under review leaves its run going.
       if (
+        !recheck &&
         trigger._tag === "Automatic" &&
         active !== null &&
         !active.cancelled &&
@@ -515,8 +517,9 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
         step((current, now) => {
           if (!inOrder(current, payload.sequence)) return Effect.void
           // A `/janitor` re-run resets the automatic run count.
-          current.state = { ...current.state, automaticRuns: 0 }
-          return queue(current, now, payload.headSha, payload.trigger)
+          if (payload.trigger._tag !== "Automatic")
+            current.state = { ...current.state, automaticRuns: 0 }
+          return queue(current, now, payload.headSha, payload.trigger, true)
         }),
       RunFinished: ({ payload }) =>
         step((current, now) => finished(current, now, payload.runId, payload.finishedAt)),

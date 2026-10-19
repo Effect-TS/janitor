@@ -21,8 +21,18 @@ const payload = {
 export const PullRequestReviewCommentWebhookEvent = Schema.Struct({
   ...BaseGitHubWebhookEvent.fields,
   name: Schema.Literal("pull_request_review_comment"),
-  payload: Schema.Struct({ ...payload, pull_request: Schema.Struct({ number: Schema.Int }) }),
+  payload: Schema.Struct({
+    ...payload,
+    repository: Schema.Struct({ id: RepositoryId, private: Schema.optionalKey(Schema.Boolean) }),
+    pull_request: Schema.Struct({
+      number: Schema.Int,
+      state: Schema.optionalKey(Schema.Literals(["open", "closed"])),
+      draft: Schema.optionalKey(Schema.Boolean),
+    }),
+  }),
 })
+export type PullRequestReviewCommentPayload =
+  typeof PullRequestReviewCommentWebhookEvent.Type.payload
 export const IssueCommentPayload = Schema.Struct({
   ...payload,
   repository: Schema.Struct({ id: RepositoryId, private: Schema.optionalKey(Schema.Boolean) }),
