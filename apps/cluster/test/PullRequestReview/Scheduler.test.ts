@@ -1,12 +1,20 @@
 import { assert, layer } from "@effect/vitest"
 import * as CloudflareCluster from "@effect/platform-cloudflare/CloudflareCluster"
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
+import * as MessageStorage from "effect/cluster/MessageStorage"
+import * as RunnerHealth from "effect/cluster/RunnerHealth"
+import * as Runners from "effect/cluster/Runners"
+import * as RunnerStorage from "effect/cluster/RunnerStorage"
+import * as Sharding from "effect/cluster/Sharding"
+import * as ShardingConfig from "effect/cluster/ShardingConfig"
 import * as TestRunner from "effect/cluster/TestRunner"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Scope from "effect/Scope"
 import * as Reactivity from "effect/reactivity/Reactivity"
 import * as TestClock from "effect/testing/TestClock"
 import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
@@ -166,6 +174,14 @@ const scheduler = (number: number, repository = repositoryId) =>
             ...delivery(),
             headSha: sha,
             trigger: { _tag: "Rerun", invoker: "maintainer", commentId },
+          }),
+        ),
+      reply: (sha: GitHubCommitSha) =>
+        settle(
+          client.Rerun({
+            ...delivery(),
+            headSha: sha,
+            trigger: { _tag: "Automatic" },
           }),
         ),
       finish: (runId: RunId) =>
@@ -424,6 +440,124 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
         )
         assert.strictEqual(lastStart(33).headSha, head(1))
       }),
+  )
+
+  it.effect("idle replies retain their trailing-edge deadline across a runner restart", () =>
+    Effect.gen(function* () {
+      yield* seed
+      // Rebuild the runner, but retain both its mailbox and Durable Object SQLite.
+      const storage = yield* Layer.build(MessageStorage.MemoryDriver.layer)
+      const Cluster = Sharding.layer.pipe(
+        Layer.provideMerge(Runners.layerNoop),
+        Layer.provideMerge(
+          Layer.effect(
+            MessageStorage.MessageStorage,
+            Effect.map(MessageStorage.MemoryDriver, (driver) => driver.storage),
+          ),
+        ),
+        Layer.provide([RunnerStorage.layerMemory, RunnerHealth.layerNoop]),
+        Layer.provide(ShardingConfig.layer()),
+        Layer.provideMerge(Layer.succeedContext(storage)),
+      )
+      const Runner = Layer.mergeAll(PullRequestSchedulerLayer, FakeRunEntity).pipe(
+        Layer.provideMerge(Cluster),
+      )
+      let scope = yield* Scope.make()
+      let runner = yield* Layer.buildWithScope(Runner, scope)
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const use = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.suspend(() => Effect.provideContext(effect, runner))
+
+      const pr = yield* use(scheduler(34))
+      yield* use(pr.reply(head(1)))
+      assert.deepStrictEqual(messages(34), [])
+      yield* use(wait("20 seconds"))
+      yield* use(pr.reply(head(1)))
+      assert.deepStrictEqual(messages(34), [])
+
+      yield* use(settle(Scope.close(scope, Exit.void)))
+      scope = yield* Scope.make()
+      runner = yield* Layer.buildWithScope(Runner, scope)
+
+      // Cross the first reply's timer, but not the extended quiet deadline.
+      yield* use(wait("15 seconds"))
+      assert.deepStrictEqual(messages(34), [])
+      yield* use(wait("10 seconds"))
+      assert.deepStrictEqual(messages(34), [])
+      yield* use(wait("10 seconds"))
+      assert.strictEqual(starts(34).length, 1)
+      assert.strictEqual(lastStart(34).headSha, head(1))
+      assert.deepStrictEqual(lastStart(34).trigger, { _tag: "Automatic" })
+      yield* use(wait("1 minute"))
+      assert.strictEqual(starts(34).length, 1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a late reply extends quiet time beyond cooldown without an early follow-up", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const pr = yield* scheduler(35)
+      yield* pr.push(head(1))
+      yield* pr.finish(lastStart(35).runId)
+      yield* pr.reply(head(1))
+      yield* wait("105 seconds")
+      yield* pr.reply(head(1))
+
+      // The original cooldown timer must not release the refreshed reply.
+      yield* wait("20 seconds")
+      assert.strictEqual(starts(35).length, 1)
+      yield* wait("5 seconds")
+      assert.strictEqual(starts(35).length, 1)
+      yield* wait("10 seconds")
+      assert.deepStrictEqual(
+        messages(35).map((message) => message._tag),
+        ["Start", "Start"],
+      )
+      assert.strictEqual(lastStart(35).headSha, head(1))
+      yield* wait("1 minute")
+      assert.strictEqual(starts(35).length, 2)
+    }),
+  )
+
+  it.effect("replies preserve queued /janitor reviews and do not delay or duplicate them", () =>
+    Effect.gen(function* () {
+      yield* seed
+      for (const [number, tag] of [
+        [36, "Rerun"],
+        [37, "Forced"],
+      ] as const) {
+        const pr = yield* scheduler(number)
+        yield* pr.push(head(1))
+        const active = lastStart(number)
+        const client = (yield* PullRequestScheduler.client)(schedulerEntityId(repositoryId, number))
+        const trigger = { _tag: tag, invoker: "maintainer", commentId: "701" } as const
+        yield* settle(
+          client.Rerun({
+            repositoryId,
+            number,
+            sequence: nextSequence(),
+            headSha: head(1),
+            trigger,
+          }),
+        )
+        yield* pr.reply(head(1))
+        yield* wait("10 seconds")
+        yield* pr.reply(head(1))
+        assert.deepStrictEqual(messages(number), [active, { _tag: "Cancel", runId: active.runId }])
+
+        // Cancellation completion releases the authorized run immediately, not after quiet time.
+        yield* pr.finish(active.runId)
+        assert.strictEqual(starts(number).length, 2)
+        assert.deepStrictEqual(lastStart(number).trigger, trigger)
+        assert.strictEqual(lastStart(number).headSha, head(1))
+        yield* pr.finish(lastStart(number).runId)
+        yield* wait("3 minutes")
+        assert.deepStrictEqual(
+          messages(number).map((message) => message._tag),
+          ["Start", "Cancel", "Start"],
+        )
+      }
+    }),
   )
 
   it.effect("an oversized thread reply leaves a forced review and its check alone", () =>
