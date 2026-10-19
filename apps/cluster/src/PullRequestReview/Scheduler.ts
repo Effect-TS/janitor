@@ -68,8 +68,8 @@ export const Closed = Rpc.make("Closed", { payload: delivery })
 export const ConvertedToDraft = Rpc.make("ConvertedToDraft", { payload: delivery })
 
 /**
- * A write-access `/janitor`, `Rerun` or `Forced`. The trigger carries the
- * comment id, never its text, and resets the automatic run count.
+ * Re-review even at the same SHA. Human thread replies use `Automatic` and
+ * retain the cooldown and run cap; a write-access `/janitor` resets the cap.
  */
 export const Rerun = Rpc.make("Rerun", {
   payload: { ...delivery, headSha: GitHubCommitSha, trigger: Trigger },
@@ -101,14 +101,14 @@ export class RunOverduePayload extends Schema.Class<RunOverduePayload>(
 }
 export const RunOverdue = Rpc.make("RunOverdue", { payload: RunOverduePayload })
 
-/** Sent to itself when a push lands within the cooldown after a completed run. */
+/** Sent to itself when a pending run must wait for cooldown or reply quiet time. */
 export class CooldownElapsedPayload extends Schema.Class<CooldownElapsedPayload>(
   "PullRequestReviewScheduler/CooldownElapsed",
 )({ at: Schema.DateTimeUtc }) {
   [DeliverAt.symbol](): DateTime.DateTime {
     return this.at
   }
-  /** Pushes within one cooldown schedule one delivery. */
+  /** Events sharing a deadline schedule one delivery. */
   [PrimaryKey.symbol](): string {
     return `cooldown:${DateTime.toEpochMillis(this.at)}`
   }
@@ -144,6 +144,8 @@ export const PullRequestScheduler = Entity.make("PullRequestReviewScheduler", [
 
 /** After a completed run, automatic runs wait this long. */
 const COOLDOWN = Duration.minutes(2)
+/** Replies across all threads on a PR share a trailing-edge quiet window. */
+const REPLY_QUIET_WINDOW = Duration.seconds(30)
 /** How long past its deadline a run's `RunFinished` may take before the next run starts anyway. */
 const OVERDUE_MARGIN = Duration.minutes(2)
 
@@ -172,7 +174,14 @@ const State = Schema.Struct({
     Schema.Struct({ runId: RunId, headSha: GitHubCommitSha, cancelled: Schema.Boolean }),
   ),
   /** The run to start next: the last head and what asked for it. */
-  pending: Schema.NullOr(Schema.Struct({ headSha: GitHubCommitSha, trigger: Trigger })),
+  pending: Schema.NullOr(
+    Schema.Struct({
+      headSha: GitHubCommitSha,
+      trigger: Trigger,
+      /** Optional so persisted pending runs from before reply coalescing still decode. */
+      quietUntil: Schema.optionalKey(Schema.Finite),
+    }),
+  ),
   /** Epoch millis before which an automatic run waits, after a completed run. */
   cooldownUntil: Schema.NullOr(Schema.Finite),
   /** Automatic runs since the last `/janitor` or wipe. */
@@ -305,7 +314,7 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
             Effect.annotateLogs({ runId: outgoing.runId }),
           )
         case "CooldownElapsed":
-          return Effect.logInfo("PR review run waiting for the cooldown")
+          return Effect.logInfo("PR review run waiting for cooldown or reply quiet time")
         case "Wipe":
           return Effect.logInfo("PR review scheduler will wipe itself after the close")
         case "RunOverdue":
@@ -370,15 +379,17 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
 
     /**
      * Starts the pending run when nothing is active and, for an automatic
-     * run, the cooldown is over; past the run cap it is skipped instead.
+     * run, cooldown and reply quiet time are over; past the cap it is skipped instead.
      */
     const release = (current: Step, now: DateTime.Utc) =>
       Effect.gen(function* () {
         const { active, pending, cooldownUntil } = current.state
         if (active !== null || pending === null) return
         const automatic = pending.trigger._tag === "Automatic"
-        if (automatic && cooldownUntil !== null && cooldownUntil > DateTime.toEpochMillis(now)) {
-          current.sends.push({ _tag: "CooldownElapsed", at: cooldownUntil })
+        const waitUntil = Math.max(cooldownUntil ?? 0, pending.quietUntil ?? 0)
+        // Recheck the durable deadline, including when an older timer arrives.
+        if (automatic && waitUntil > DateTime.toEpochMillis(now)) {
+          current.sends.push({ _tag: "CooldownElapsed", at: waitUntil })
           return
         }
         current.state = { ...current.state, pending: null }
@@ -512,12 +523,48 @@ export const PullRequestSchedulerLayer = PullRequestScheduler.toLayer(
         ),
       RepoDisabled: () => step((current) => Effect.sync(() => stop(current))),
       Rerun: ({ payload }) =>
-        step((current, now) => {
-          if (!inOrder(current, payload.sequence)) return Effect.void
-          // A `/janitor` re-run resets the automatic run count.
-          current.state = { ...current.state, automaticRuns: 0 }
-          return queue(current, now, payload.headSha, payload.trigger)
-        }),
+        step((current, now) =>
+          Effect.gen(function* () {
+            if (!inOrder(current, payload.sequence)) return
+            const { active, automaticRuns } = current.state
+            // Keep the same-head review when the run cap prevents replacing it.
+            if (
+              payload.trigger._tag === "Automatic" &&
+              active !== null &&
+              !active.cancelled &&
+              active.headSha === payload.headSha &&
+              automaticRuns >= (yield* pullRequestReviewConfig).maxAutomaticRuns
+            )
+              return
+            // A `/janitor` re-run resets the automatic run count.
+            if (payload.trigger._tag !== "Automatic")
+              current.state = { ...current.state, automaticRuns: 0 }
+            if (payload.trigger._tag !== "Automatic") {
+              yield* queue(current, now, payload.headSha, payload.trigger)
+              return
+            }
+            // A reply must not downgrade a queued privileged review of this head.
+            const pending = current.state.pending
+            if (
+              pending !== null &&
+              pending.headSha === payload.headSha &&
+              pending.trigger._tag !== "Automatic"
+            )
+              return
+            // Same-head replies queue one follow-up without interrupting the review.
+            // A changed head still supersedes an active review of older code.
+            if (active !== null && active.headSha !== payload.headSha) cancelActive(current)
+            current.state = {
+              ...current.state,
+              pending: {
+                headSha: payload.headSha,
+                trigger: payload.trigger,
+                quietUntil: DateTime.toEpochMillis(DateTime.addDuration(now, REPLY_QUIET_WINDOW)),
+              },
+            }
+            yield* release(current, now)
+          }),
+        ),
       RunFinished: ({ payload }) =>
         step((current, now) => finished(current, now, payload.runId, payload.finishedAt)),
       RunOverdue: ({ payload }) =>

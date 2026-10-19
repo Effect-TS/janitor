@@ -180,6 +180,17 @@ export const applyEvent = (
         })
         return
       }
+      case "pull_request_review_comment": {
+        const { payload } = event
+        const repository = yield* readModel.getRepository(payload.repository.id)
+        if (Option.isNone(repository)) return
+        yield* automation.reviewCommentEvent({
+          repositoryId: payload.repository.id,
+          payload,
+          sequence,
+        })
+        return
+      }
       case "issue_comment": {
         // Nothing to mirror: comments are not cached. PR review acts on `/janitor`.
         const { payload } = event
@@ -294,6 +305,7 @@ export const projectDelivery = Effect.fn("ProjectGitHubWebhook.projectDelivery")
     decoded.success.name === "pull_request" ||
     decoded.success.name === "issues" ||
     decoded.success.name === "issue_comment" ||
+    decoded.success.name === "pull_request_review_comment" ||
     decoded.success.name === "repository"
   ) {
     const eligibility = yield* RepositoryEligibility

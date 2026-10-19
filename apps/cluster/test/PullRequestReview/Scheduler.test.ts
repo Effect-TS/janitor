@@ -1,17 +1,35 @@
 import { assert, layer } from "@effect/vitest"
 import * as CloudflareCluster from "@effect/platform-cloudflare/CloudflareCluster"
 import * as SqliteClient from "@effect/sql-sqlite-node/SqliteClient"
+import * as MessageStorage from "effect/cluster/MessageStorage"
+import * as RunnerHealth from "effect/cluster/RunnerHealth"
+import * as Runners from "effect/cluster/Runners"
+import * as RunnerStorage from "effect/cluster/RunnerStorage"
+import * as Sharding from "effect/cluster/Sharding"
+import * as ShardingConfig from "effect/cluster/ShardingConfig"
 import * as TestRunner from "effect/cluster/TestRunner"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Scope from "effect/Scope"
 import * as Reactivity from "effect/reactivity/Reactivity"
 import * as TestClock from "effect/testing/TestClock"
-import { GitHubCommitSha, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
+import {
+  GitHubCommentDatabaseId,
+  GitHubCommitSha,
+  GitHubRepositoryDatabaseId,
+  GitHubUserDatabaseId,
+} from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
+import {
+  AdmitPullRequestReview,
+  AdmitPullRequestReviewLayer,
+} from "../../src/PullRequestReview/Admission.ts"
 import { PullRequestReviewRun } from "../../src/PullRequestReview/RunEntity.ts"
 import {
   disableRepository,
@@ -20,7 +38,9 @@ import {
   schedulerEntityId,
 } from "../../src/PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
+import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
 import { MigratedPostgresLayer } from "../support/Postgres.ts"
+import { FakeReviewGitHub } from "./fakeGitHub.ts"
 import { drain, failNextSend, repositoryId, seedRepositories, settle } from "./support.ts"
 
 /** The deployment's environment; the gate is on while the API URL and key are set. */
@@ -81,10 +101,18 @@ const DurableObjectStorage = Layer.effect(
   SqliteClient.make({ filename: ":memory:" }),
 ).pipe(Layer.provide(Reactivity.layer))
 
-const Services = Layer.mergeAll(PullRequestSchedulerLayer, FakeRunEntity).pipe(
+const github = new FakeReviewGitHub(32)
+
+const Services = Layer.mergeAll(
+  PullRequestSchedulerLayer,
+  FakeRunEntity,
+  AdmitPullRequestReviewLayer,
+).pipe(
   Layer.provideMerge(DurableObjectStorage),
-  Layer.provideMerge(PullRequestReviewStore.layer),
+  Layer.provideMerge(Layer.mergeAll(PullRequestReviewStore.layer, RepositoryEligibility.layer)),
+  Layer.provideMerge(github.layer),
   Layer.provideMerge(TestRunner.layer),
+  Layer.provideMerge(WorkflowEngine.layerMemory),
   Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   Layer.provideMerge(MigratedPostgresLayer),
 )
@@ -146,6 +174,14 @@ const scheduler = (number: number, repository = repositoryId) =>
             ...delivery(),
             headSha: sha,
             trigger: { _tag: "Rerun", invoker: "maintainer", commentId },
+          }),
+        ),
+      reply: (sha: GitHubCommitSha) =>
+        settle(
+          client.Rerun({
+            ...delivery(),
+            headSha: sha,
+            trigger: { _tag: "Automatic" },
           }),
         ),
       finish: (runId: RunId) =>
@@ -340,6 +376,250 @@ layer(Services, { timeout: "2 minutes" })("PR review scheduler", (it) => {
       yield* pr.push(head(2))
       assert.deepStrictEqual(lastStart(17).trigger, { _tag: "Automatic" })
       assert.strictEqual(starts(17).length, 12)
+    }),
+  )
+
+  it.effect("a same-head reply leaves the last permitted automatic review running", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const pr = yield* scheduler(31)
+      for (let run = 1; run <= 10; run++) {
+        yield* pr.push(head(run))
+        if (run < 10) {
+          yield* pr.finish(lastStart(31).runId)
+          yield* wait("3 minutes")
+        }
+      }
+      assert.strictEqual(starts(31).length, 10)
+      const client = (yield* PullRequestScheduler.client)(schedulerEntityId(repositoryId, 31))
+      yield* settle(
+        client.Rerun({
+          repositoryId,
+          number: 31,
+          sequence: nextSequence(),
+          headSha: head(10),
+          trigger: { _tag: "Automatic" },
+        }),
+      )
+
+      assert.deepStrictEqual(messages(31).slice(10), [])
+    }),
+  )
+
+  it.effect(
+    "rapid thread replies coalesce into one follow-up without cancelling the active review",
+    () =>
+      Effect.gen(function* () {
+        yield* seed
+        const pr = yield* scheduler(33)
+        yield* pr.push(head(1))
+        const active = lastStart(33)
+        const client = (yield* PullRequestScheduler.client)(schedulerEntityId(repositoryId, 33))
+
+        // Admission forwards replies from every thread on this PR as automatic Reruns.
+        for (let reply = 0; reply < 3; reply++) {
+          yield* settle(
+            client.Rerun({
+              repositoryId,
+              number: 33,
+              sequence: nextSequence(),
+              headSha: head(1),
+              trigger: { _tag: "Automatic" },
+            }),
+          )
+          yield* wait("1 second")
+        }
+
+        assert.deepStrictEqual(messages(33), [active])
+        yield* pr.finish(active.runId)
+        assert.strictEqual(starts(33).length, 1)
+        yield* wait("3 minutes")
+        assert.deepStrictEqual(
+          messages(33).map((message) => message._tag),
+          ["Start", "Start"],
+        )
+        assert.strictEqual(lastStart(33).headSha, head(1))
+      }),
+  )
+
+  it.effect("idle replies retain their trailing-edge deadline across a runner restart", () =>
+    Effect.gen(function* () {
+      yield* seed
+      // Rebuild the runner, but retain both its mailbox and Durable Object SQLite.
+      const storage = yield* Layer.build(MessageStorage.MemoryDriver.layer)
+      const Cluster = Sharding.layer.pipe(
+        Layer.provideMerge(Runners.layerNoop),
+        Layer.provideMerge(
+          Layer.effect(
+            MessageStorage.MessageStorage,
+            Effect.map(MessageStorage.MemoryDriver, (driver) => driver.storage),
+          ),
+        ),
+        Layer.provide([RunnerStorage.layerMemory, RunnerHealth.layerNoop]),
+        Layer.provide(ShardingConfig.layer()),
+        Layer.provideMerge(Layer.succeedContext(storage)),
+      )
+      const Runner = Layer.mergeAll(PullRequestSchedulerLayer, FakeRunEntity).pipe(
+        Layer.provideMerge(Cluster),
+      )
+      let scope = yield* Scope.make()
+      let runner = yield* Layer.buildWithScope(Runner, scope)
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const use = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.suspend(() => Effect.provideContext(effect, runner))
+
+      const pr = yield* use(scheduler(34))
+      yield* use(pr.reply(head(1)))
+      assert.deepStrictEqual(messages(34), [])
+      yield* use(wait("20 seconds"))
+      yield* use(pr.reply(head(1)))
+      assert.deepStrictEqual(messages(34), [])
+
+      yield* use(settle(Scope.close(scope, Exit.void)))
+      scope = yield* Scope.make()
+      runner = yield* Layer.buildWithScope(Runner, scope)
+
+      // Cross the first reply's timer, but not the extended quiet deadline.
+      yield* use(wait("15 seconds"))
+      assert.deepStrictEqual(messages(34), [])
+      yield* use(wait("10 seconds"))
+      assert.deepStrictEqual(messages(34), [])
+      yield* use(wait("10 seconds"))
+      assert.strictEqual(starts(34).length, 1)
+      assert.strictEqual(lastStart(34).headSha, head(1))
+      assert.deepStrictEqual(lastStart(34).trigger, { _tag: "Automatic" })
+      yield* use(wait("1 minute"))
+      assert.strictEqual(starts(34).length, 1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect("a late reply extends quiet time beyond cooldown without an early follow-up", () =>
+    Effect.gen(function* () {
+      yield* seed
+      const pr = yield* scheduler(35)
+      yield* pr.push(head(1))
+      yield* pr.finish(lastStart(35).runId)
+      yield* pr.reply(head(1))
+      yield* wait("105 seconds")
+      yield* pr.reply(head(1))
+
+      // The original cooldown timer must not release the refreshed reply.
+      yield* wait("20 seconds")
+      assert.strictEqual(starts(35).length, 1)
+      yield* wait("5 seconds")
+      assert.strictEqual(starts(35).length, 1)
+      yield* wait("10 seconds")
+      assert.deepStrictEqual(
+        messages(35).map((message) => message._tag),
+        ["Start", "Start"],
+      )
+      assert.strictEqual(lastStart(35).headSha, head(1))
+      yield* wait("1 minute")
+      assert.strictEqual(starts(35).length, 2)
+    }),
+  )
+
+  it.effect("replies preserve queued /janitor reviews and do not delay or duplicate them", () =>
+    Effect.gen(function* () {
+      yield* seed
+      for (const [number, tag] of [
+        [36, "Rerun"],
+        [37, "Forced"],
+      ] as const) {
+        const pr = yield* scheduler(number)
+        yield* pr.push(head(1))
+        const active = lastStart(number)
+        const client = (yield* PullRequestScheduler.client)(schedulerEntityId(repositoryId, number))
+        const trigger = { _tag: tag, invoker: "maintainer", commentId: "701" } as const
+        yield* settle(
+          client.Rerun({
+            repositoryId,
+            number,
+            sequence: nextSequence(),
+            headSha: head(1),
+            trigger,
+          }),
+        )
+        yield* pr.reply(head(1))
+        yield* wait("10 seconds")
+        yield* pr.reply(head(1))
+        assert.deepStrictEqual(messages(number), [active, { _tag: "Cancel", runId: active.runId }])
+
+        // Cancellation completion releases the authorized run immediately, not after quiet time.
+        yield* pr.finish(active.runId)
+        assert.strictEqual(starts(number).length, 2)
+        assert.deepStrictEqual(lastStart(number).trigger, trigger)
+        assert.strictEqual(lastStart(number).headSha, head(1))
+        yield* pr.finish(lastStart(number).runId)
+        yield* wait("3 minutes")
+        assert.deepStrictEqual(
+          messages(number).map((message) => message._tag),
+          ["Start", "Cancel", "Start"],
+        )
+      }
+    }),
+  )
+
+  it.effect("an oversized thread reply leaves a forced review and its check alone", () =>
+    Effect.gen(function* () {
+      yield* seed
+      github.put({
+        number: 32,
+        title: "Large change",
+        state: "open",
+        labels: [],
+        pullRequest: {
+          headSha: head(1),
+          files: [{ filename: "src/large.ts", status: "modified", additions: 10001, deletions: 0 }],
+        },
+      })
+      github.permissions.set("maintainer", { id: 31, permission: "write" })
+      yield* settle(
+        AdmitPullRequestReview.execute({
+          repositoryId,
+          number: 32,
+          sequence: nextSequence(),
+          event: {
+            _tag: "Invoked",
+            commentId: GitHubCommentDatabaseId.make("601"),
+            authorId: GitHubUserDatabaseId.make("31"),
+            authorLogin: "maintainer",
+          },
+        }),
+      )
+      assert.deepStrictEqual(lastStart(32).trigger, {
+        _tag: "Forced",
+        invoker: "maintainer",
+        commentId: "601",
+      })
+      // The fake run entity records starts, but leaves GitHub check creation to the test.
+      github.checkRuns = [
+        {
+          id: 700,
+          headSha: head(1),
+          status: "in_progress",
+          conclusion: null,
+          output: { title: "Review in progress", summary: "Reviewing the large change." },
+        },
+      ]
+      github.requests.length = 0
+
+      yield* settle(
+        AdmitPullRequestReview.execute({
+          repositoryId,
+          number: 32,
+          sequence: nextSequence(),
+          event: { _tag: "Replied", commentId: GitHubCommentDatabaseId.make("602") },
+        }),
+      )
+
+      assert.deepStrictEqual(
+        {
+          messages: messages(32).slice(1),
+          writes: github.writeNames,
+        },
+        { messages: [], writes: [] },
+      )
     }),
   )
 

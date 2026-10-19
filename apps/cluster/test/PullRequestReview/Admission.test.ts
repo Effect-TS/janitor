@@ -169,7 +169,10 @@ let sequence = 500
 const nextSequence = () => GitHubWebhookJournalSequence.make(String(++sequence))
 
 /** Projects one webhook delivery and returns its journal sequence. */
-const deliver = (name: "pull_request" | "issue_comment", payload: unknown) =>
+const deliver = (
+  name: "pull_request" | "issue_comment" | "pull_request_review_comment",
+  payload: unknown,
+) =>
   Effect.gen(function* () {
     const event = yield* Schema.decodeUnknownEffect(GitHubWebhookEvent)({
       id: crypto.randomUUID(),
@@ -235,6 +238,52 @@ const changed = (count: number, lines: number, prefix = "src/f") =>
   }))
 
 layer(Services, { timeout: "2 minutes" })("PR review admission", (it) => {
+  it.effect("enqueues re-review when a human replies in an existing review thread", () =>
+    Effect.gen(function* () {
+      yield* reset
+      yield* deliver("pull_request", pullRequestEvent("opened"))
+      yield* takeQueued
+      github.threads = [
+        {
+          id: "PRRT_1",
+          path: "src/cache.ts",
+          line: 10,
+          startLine: null,
+          side: "RIGHT",
+          isResolved: false,
+          isOutdated: false,
+          resolvedBy: null,
+          comments: [
+            {
+              id: "PRRC_500",
+              author: "effect-janitor",
+              byApp: true,
+              body: "Could this return a stale cache entry?",
+              createdAt: "2026-10-15T12:00:00Z",
+            },
+          ],
+        },
+      ]
+
+      yield* deliver("pull_request_review_comment", {
+        action: "created",
+        repository: { id: 701, full_name: "effect/one", private: false },
+        pull_request: pullRequestEvent("opened").pull_request,
+        comment: {
+          id: 501,
+          in_reply_to_id: 500,
+          pull_request_review_id: 900,
+          body: "The caller invalidates the cache first. Please check that path.",
+          user: human,
+        },
+        installation: { id: 77 },
+        sender: human,
+      })
+
+      assert.lengthOf(yield* takeQueued, 1)
+    }),
+  )
+
   it.effect(
     "enqueues one ids-only row per admitted event inside the projection, without GitHub I/O",
     () =>

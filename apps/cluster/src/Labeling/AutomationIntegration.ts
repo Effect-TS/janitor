@@ -40,6 +40,7 @@ export const LabelingAutomationIntegrationLayer = Layer.effect(
       pullRequestEvent: (request) =>
         admit(request.repositoryId, observedPullRequest(request.pullRequest), request.sequence),
       issueCommentEvent: () => Effect.void,
+      reviewCommentEvent: () => Effect.void,
     }
   }),
 ).pipe(Layer.provide(DirectLabelingAdmission.layer))
