@@ -87,7 +87,12 @@ const draft = {
   _tag: "Draft" as const,
   source: {
     target: "pull_request" as const,
-    matchesWhen: { fact: "baseRef" as const, operator: "equals" as const, value: "main" },
+    matchesWhen: {
+      fact: "baseRef" as const,
+      operator: "equals" as const,
+      value: "main",
+      caseSensitive: false,
+    },
   },
 }
 const policy = { _tag: "Policy" as const, policyId: PolicyId.make("policy-1") }
