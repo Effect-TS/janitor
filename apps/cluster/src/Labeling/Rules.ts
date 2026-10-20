@@ -13,25 +13,26 @@ import {
   type Actor,
   type AuditEntry,
   type CreateRuleRequest,
+  GroupConflict,
   type PatchRuleRequest,
   type ReorderGroupRequest,
+  RuleConflict,
+  RuleInvalid,
   type RuleIssue,
+  RuleNotFound,
   type RuleRecord,
 } from "@janitor/domain/Labeling/Policy/Configuration"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
-import { describeError } from "../SqlErrors.ts"
 import { listAudit, recordAudit } from "./Audit.ts"
 import { groupIssues } from "./Groups.ts"
 import { labelOwnershipConflict } from "./Ownership.ts"
 import {
   LabelingConfiguration,
-  LabelingConfigurationError,
   policyColumns,
   PolicyRow,
   RuleRow,
@@ -39,36 +40,9 @@ import {
   withRepositoryMutation,
 } from "./Configuration.ts"
 
-export class RulesError extends Data.TaggedError("RulesError")<{
-  readonly operation: string
-  readonly message: string
-}> {}
-
-export class RuleNotFound extends Data.TaggedError("RuleNotFound")<{
-  readonly ruleId: RuleId
-}> {}
-
-export class RuleConflict extends Data.TaggedError("RuleConflict")<{
-  readonly current: RuleRecord
-}> {}
-
-export class GroupConflict extends Data.TaggedError("GroupConflict")<{
-  readonly message: string
-}> {}
-
-export class RuleInvalid extends Data.TaggedError("RuleInvalid")<{
-  readonly issues: ReadonlyArray<RuleIssue>
-}> {}
-
-export type RulesFailure =
-  | RepositoryNotFound
-  | RepositoryBlocked
-  | RuleNotFound
-  | RuleConflict
-  | GroupConflict
-  | RuleInvalid
-  | RulesError
-  | LabelingConfigurationError
+/** A create request with each omitted key's legacy default applied. */
+export type NewRule = CreateRuleRequest &
+  Required<Pick<CreateRuleRequest, "onMatch" | "onNoMatch" | "group" | "priority" | "enabled">>
 
 const ruleColumns = (sql: SqlClient.SqlClient) => sql`
   rule_id, repository_id, label_id, policy_id, on_match, on_no_match, rule_group, priority,
@@ -79,38 +53,49 @@ const ruleColumns = (sql: SqlClient.SqlClient) => sql`
  * Rules (plan: "Rules"). A rule binds one synchronized label to one
  * published policy. Every write is audited and advances the repository
  * revision, so subsequent evaluations use the change without scheduling a backfill.
+ * Each method fails with the domain errors a caller can act on; SQL, decode
+ * and configuration failures die.
  */
 export class LabelingRules extends Context.Service<
   LabelingRules,
   {
     readonly list: (
       repositoryId: GitHubRepositoryDatabaseId,
-    ) => Effect.Effect<ReadonlyArray<RuleRecord>, RulesFailure>
+    ) => Effect.Effect<ReadonlyArray<RuleRecord>, RepositoryNotFound>
     readonly create: (
       repositoryId: GitHubRepositoryDatabaseId,
-      request: CreateRuleRequest,
+      request: NewRule,
       actor: Actor,
-    ) => Effect.Effect<RuleRecord, RulesFailure>
+    ) => Effect.Effect<
+      RuleRecord,
+      RepositoryNotFound | RepositoryBlocked | RuleConflict | RuleInvalid
+    >
     readonly patch: (
       repositoryId: GitHubRepositoryDatabaseId,
       ruleId: RuleId,
       request: PatchRuleRequest,
       actor: Actor,
-    ) => Effect.Effect<RuleRecord, RulesFailure>
+    ) => Effect.Effect<
+      RuleRecord,
+      RepositoryNotFound | RepositoryBlocked | RuleNotFound | RuleConflict | RuleInvalid
+    >
     readonly reorder: (
       repositoryId: GitHubRepositoryDatabaseId,
       request: ReorderGroupRequest,
       actor: Actor,
-    ) => Effect.Effect<ReadonlyArray<RuleRecord>, RulesFailure>
+    ) => Effect.Effect<
+      ReadonlyArray<RuleRecord>,
+      RepositoryNotFound | RepositoryBlocked | RuleInvalid | GroupConflict
+    >
     readonly remove: (
       repositoryId: GitHubRepositoryDatabaseId,
       ruleId: RuleId,
       version: number,
       actor: Actor,
-    ) => Effect.Effect<void, RulesFailure>
+    ) => Effect.Effect<void, RepositoryNotFound | RepositoryBlocked | RuleNotFound | RuleConflict>
     readonly audit: (
       repositoryId: GitHubRepositoryDatabaseId,
-    ) => Effect.Effect<ReadonlyArray<AuditEntry>, RulesFailure>
+    ) => Effect.Effect<ReadonlyArray<AuditEntry>, RepositoryNotFound>
   }
 >()("@janitor/cluster/Labeling/Rules/LabelingRules", {
   make: Effect.gen(function* () {
@@ -119,13 +104,11 @@ export class LabelingRules extends Context.Service<
     const decodeRules = Schema.decodeUnknownEffect(Schema.Array(RuleRow))
     const decodePolicies = Schema.decodeUnknownEffect(Schema.Array(PolicyRow))
 
-    const wrap =
-      (operation: string) =>
-      <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
-        Effect.mapError(
-          effect,
-          (error) => new RulesError({ operation, message: describeError(error) }),
-        )
+    /** Configuration infrastructure failures die; an unknown repository doesn't. */
+    const requireRepository = (repositoryId: GitHubRepositoryDatabaseId) =>
+      configuration
+        .requireRepository(repositoryId)
+        .pipe(Effect.catchTag("LabelingConfigurationError", Effect.die))
 
     const find = (repositoryId: GitHubRepositoryDatabaseId, ruleId: RuleId) =>
       sql`
@@ -133,13 +116,17 @@ export class LabelingRules extends Context.Service<
         WHERE repository_id = ${repositoryId} AND rule_id = ${ruleId}
       `.pipe(
         Effect.flatMap(decodeRules),
-        wrap("find"),
+        Effect.orDie,
         Effect.flatMap((rows) =>
           rows[0] === undefined
             ? Effect.fail(new RuleNotFound({ ruleId }))
             : Effect.succeed(toRuleRecord(rows[0])),
         ),
       )
+
+    /** A rule this transaction created or found by its creation key exists. */
+    const findCreated = (repositoryId: GitHubRepositoryDatabaseId, ruleId: RuleId) =>
+      find(repositoryId, ruleId).pipe(Effect.catchTag("RuleNotFound", Effect.die))
 
     /** The label must be synchronized and present; the policy must be published. */
     const validate = Effect.fn("LabelingRules.validate")(function* (
@@ -151,7 +138,7 @@ export class LabelingRules extends Context.Service<
       ownerRuleId?: RuleId,
     ) {
       const issues: Array<RuleIssue> = []
-      const { labels } = yield* configuration.labels(repositoryId)
+      const { labels } = yield* configuration.labels(repositoryId).pipe(Effect.orDie)
       const label = labels.find((candidate) => candidate.labelId === labelId)
       if (label === undefined) {
         issues.push({
@@ -169,7 +156,7 @@ export class LabelingRules extends Context.Service<
         LEFT JOIN labeling_policy_version v ON v.version_id = p.published_version_id
         WHERE p.repository_id = ${repositoryId} AND p.policy_id = ${policyId}
           AND (p.owner_rule_id IS NULL OR p.owner_rule_id = ${ownerRuleId ?? null})
-      `.pipe(Effect.flatMap(decodePolicies), wrap("validate"))
+      `.pipe(Effect.flatMap(decodePolicies), Effect.orDie)
       const policy = policies[0]
       if (policy === undefined || policy.published_version_id === null) {
         issues.push({
@@ -184,7 +171,7 @@ export class LabelingRules extends Context.Service<
           labelId,
           policy.published_program.target,
           ownerRuleId,
-        ).pipe(wrap("ownership"))
+        ).pipe(Effect.orDie)
         if (conflict) issues.push({ code: "duplicate-label", message: conflict })
         issues.push(
           ...(yield* groupIssues(
@@ -194,7 +181,7 @@ export class LabelingRules extends Context.Service<
             policy.published_program.target,
             priority,
             ownerRuleId,
-          ).pipe(wrap("group"))),
+          ).pipe(Effect.orDie)),
         )
       }
       if (issues.length > 0) return yield* new RuleInvalid({ issues })
@@ -221,7 +208,7 @@ export class LabelingRules extends Context.Service<
               Schema.Array(Schema.Struct({ policy_id: PolicyId, program: Program })),
             ),
           ),
-          wrap("gate"),
+          Effect.orDie,
         )
         const compiled = compile({
           program,
@@ -257,36 +244,32 @@ export class LabelingRules extends Context.Service<
             yield* sql`INSERT INTO labeling_policy_dependency (version_id,dependency_policy_id) VALUES (${versionId},${dependency}) ON CONFLICT DO NOTHING`
           }
           yield* sql`UPDATE labeling_policy SET published_version_id=${versionId} WHERE policy_id=${policyId}`
-        }).pipe(wrap("classifier"))
+        }).pipe(Effect.orDie)
         return policyId
       })
 
     const list = Effect.fn("LabelingRules.list")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
     ) {
-      yield* configuration.requireRepository(repositoryId)
+      yield* requireRepository(repositoryId)
       const rows = yield* sql`
         SELECT ${ruleColumns(sql)} FROM labeling_rule
         WHERE repository_id = ${repositoryId} ORDER BY created_at, rule_id
-      `.pipe(Effect.flatMap(decodeRules), wrap("list"))
+      `.pipe(Effect.flatMap(decodeRules), Effect.orDie)
       return rows.map(toRuleRecord)
     })
 
     const create = Effect.fn("LabelingRules.create")(
-      function* (
-        repositoryId: GitHubRepositoryDatabaseId,
-        request: CreateRuleRequest,
-        actor: Actor,
-      ) {
-        yield* configuration.requireRepository(repositoryId)
+      function* (repositoryId: GitHubRepositoryDatabaseId, request: NewRule, actor: Actor) {
+        yield* requireRepository(repositoryId)
         if (request.requestId) {
           const prior = yield* sql<{
             rule_id: string
           }>`SELECT rule_id FROM labeling_rule WHERE repository_id=${repositoryId} AND creation_key=${request.requestId}`.pipe(
-            wrap("idempotency"),
+            Effect.orDie,
           )
           if (prior[0]) {
-            const current = yield* find(repositoryId, RuleId.make(prior[0].rule_id))
+            const current = yield* findCreated(repositoryId, RuleId.make(prior[0].rule_id))
             if (
               current.labelId !== request.labelId ||
               current.onMatch !== request.onMatch ||
@@ -333,8 +316,8 @@ export class LabelingRules extends Context.Service<
             after: request,
           })
           yield* configuration.advance(repositoryId, actor)
-        }).pipe(wrap("create"))
-        return yield* find(repositoryId, ruleId)
+        }).pipe(Effect.orDie)
+        return yield* findCreated(repositoryId, ruleId)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
     )
@@ -346,7 +329,7 @@ export class LabelingRules extends Context.Service<
         request: PatchRuleRequest,
         actor: Actor,
       ) {
-        yield* configuration.requireRepository(repositoryId)
+        yield* requireRepository(repositoryId)
         const current = yield* find(repositoryId, ruleId)
         if (current.version !== request.version) return yield* new RuleConflict({ current })
         if (request.ai && !current.ai)
@@ -395,7 +378,7 @@ export class LabelingRules extends Context.Service<
             after: next,
           })
           yield* configuration.advance(repositoryId, actor)
-        }).pipe(wrap("patch"))
+        }).pipe(Effect.orDie)
         return yield* find(repositoryId, ruleId)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
@@ -431,9 +414,7 @@ export class LabelingRules extends Context.Service<
               ),
           )
         )
-          return yield* new GroupConflict({
-            message: "This labeling group changed. Reload its members before reordering.",
-          })
+          return yield* new GroupConflict()
         yield* Effect.gen(function* () {
           for (const member of members) {
             const next = request.rules.find((rule) => rule.id === member.id)!
@@ -449,7 +430,7 @@ export class LabelingRules extends Context.Service<
             })
           }
           yield* configuration.advance(repositoryId, actor)
-        }).pipe(wrap("reorder"))
+        }).pipe(Effect.orDie)
         return (yield* list(repositoryId)).filter((rule) => rule.group === request.group)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
@@ -462,7 +443,7 @@ export class LabelingRules extends Context.Service<
         version: number,
         actor: Actor,
       ) {
-        yield* configuration.requireRepository(repositoryId)
+        yield* requireRepository(repositoryId)
         const current = yield* find(repositoryId, ruleId)
         if (current.version !== version) return yield* new RuleConflict({ current })
         yield* Effect.gen(function* () {
@@ -476,7 +457,7 @@ export class LabelingRules extends Context.Service<
             after: null,
           })
           yield* configuration.advance(repositoryId, actor)
-        }).pipe(wrap("remove"))
+        }).pipe(Effect.orDie)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
     )
@@ -484,8 +465,8 @@ export class LabelingRules extends Context.Service<
     const audit = Effect.fn("LabelingRules.audit")(function* (
       repositoryId: GitHubRepositoryDatabaseId,
     ) {
-      yield* configuration.requireRepository(repositoryId)
-      return yield* listAudit(sql, repositoryId).pipe(wrap("audit"))
+      yield* requireRepository(repositoryId)
+      return yield* listAudit(sql, repositoryId).pipe(Effect.orDie)
     })
 
     return {

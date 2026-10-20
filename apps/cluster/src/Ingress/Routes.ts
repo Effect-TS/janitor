@@ -19,6 +19,7 @@ import { SyncGroupLayer } from "./Sync.ts"
 import { ReadinessRoutesLayer } from "./Readiness.ts"
 import { PullRequestReviewGroupLayer } from "./PullRequestReview.ts"
 import { PoliciesGroupLayer } from "./Policies.ts"
+import { RulesGroupLayer } from "./Rules.ts"
 
 const ApiRouterLayer = Layer.effect(
   HttpRouter.HttpRouter,
@@ -40,6 +41,7 @@ const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
         ConnectionsGroupLayer,
         PullRequestReviewGroupLayer,
         PoliciesGroupLayer,
+        RulesGroupLayer,
       ),
     ),
     Layer.provide(makeApiMiddlewareLayer(middleware)),

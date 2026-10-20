@@ -2,22 +2,15 @@ import { ActivityCursor, ActivityPage } from "@janitor/domain/Labeling/Activity"
 import { ActivityReader } from "../Labeling/Activity.ts"
 import { AiInputDetails } from "@janitor/domain/Labeling/Policy/AiInput"
 import { RuleTestJobs, RuleTestJob } from "../Labeling/RuleTestJob.ts"
-import { AiRuleDefinition, inspectAiRule } from "@janitor/domain/Labeling/Policy/AiRule"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { ReconciliationRecord, RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import {
   AiConsent,
   AuditEntry,
   ConfigurationView,
-  CreateRuleRequest,
-  PatchRuleRequest,
-  ReorderGroupRequest,
-  RuleIssue,
   SetAiConsentRequest,
-  RuleRecord,
 } from "@janitor/domain/Labeling/Policy/Configuration"
 import { describeCatalog, FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
-import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { TestEntity, TestRequest, TestResponse } from "@janitor/domain/Labeling/Policy/Test"
 import { RepositoryBlocked, type RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import * as Effect from "effect/Effect"
@@ -33,23 +26,13 @@ import { AiConsentService } from "../Labeling/Classifier.ts"
 import { LabelingConfiguration } from "../Labeling/Configuration.ts"
 import { LabelingOverview } from "../Labeling/Overview.ts"
 import { Policies } from "../Labeling/Policies.ts"
-import {
-  LabelingRules,
-  type RuleConflict,
-  type GroupConflict,
-  type RuleInvalid,
-  type RuleNotFound,
-} from "../Labeling/Rules.ts"
+import { LabelingRules } from "../Labeling/Rules.ts"
 import { LabelingTest } from "../Labeling/Test.ts"
 import { CurrentAccessIdentity, SameOriginMiddleware } from "./Middleware.ts"
 
 const RepositoryPath = Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId })
-const RulePath = Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId, ruleId: RuleId })
-const VersionQuery = Schema.Struct({ version: Schema.FiniteFromString })
 
 const repositoryPath = HttpRouter.schemaPathParams(RepositoryPath)
-const rulePath = HttpRouter.schemaPathParams(RulePath)
-const versionQuery = HttpRouter.schemaParams(VersionQuery)
 
 const json = HttpServerResponse.schemaJson
 const body = HttpServerRequest.schemaBodyJson
@@ -72,7 +55,6 @@ const actor = Effect.map(CurrentAccessIdentity, (identity) => ({
   subject: identity.subject,
 }))
 
-const respondIssues = json(Schema.Struct({ issues: Schema.Array(RuleIssue) }))
 const respondMessage = json(Schema.Struct({ message: Schema.String }))
 
 /**
@@ -84,20 +66,12 @@ type Handled =
   | HttpServerError.HttpServerError
   | RepositoryNotFound
   | RepositoryBlocked
-  | RuleNotFound
-  | RuleConflict
-  | GroupConflict
-  | RuleInvalid
 
 const handledTags: ReadonlySet<string> = new Set([
   "SchemaError",
   "HttpServerError",
   "RepositoryNotFound",
   "RepositoryBlocked",
-  "RuleNotFound",
-  "RuleConflict",
-  "GroupConflict",
-  "RuleInvalid",
 ])
 
 const isHandled = (error: unknown): error is Handled =>
@@ -113,16 +87,9 @@ const respond = (error: Handled) => {
     case "HttpServerError":
       return Effect.succeed(badRequest)
     case "RepositoryNotFound":
-    case "RuleNotFound":
       return Effect.succeed(notFound)
     case "RepositoryBlocked":
       return json(RepositoryBlocked)(error, { status: 409 })
-    case "GroupConflict":
-      return respondMessage({ message: error.message }, { status: 409 })
-    case "RuleConflict":
-      return json(RuleRecord)(error.current, { status: 409 })
-    case "RuleInvalid":
-      return respondIssues({ issues: error.issues }, { status: 422 })
   }
 }
 
@@ -142,17 +109,6 @@ const handled =
 const catalog = describeCatalog()
 
 const reads = HttpRouter.addAll([
-  HttpRouter.route(
-    "GET",
-    "/repositories/:repositoryId/rules/:ruleId",
-    Effect.gen(function* () {
-      const { repositoryId, ruleId } = yield* rulePath
-      const rule = (yield* (yield* LabelingRules).list(repositoryId)).find(
-        (rule) => rule.id === ruleId,
-      )
-      return rule ? yield* json(RuleRecord)(rule) : notFound
-    }).pipe(handled("rule")),
-  ),
   HttpRouter.route(
     "GET",
     "/repositories/:repositoryId/rule-tests/:testId/input",
@@ -249,15 +205,6 @@ const reads = HttpRouter.addAll([
   ),
   HttpRouter.route(
     "GET",
-    "/repositories/:repositoryId/rules",
-    Effect.gen(function* () {
-      const { repositoryId } = yield* repositoryPath
-      const rules = yield* LabelingRules
-      return yield* json(Schema.Array(RuleRecord))(yield* rules.list(repositoryId))
-    }).pipe(handled("rules")),
-  ),
-  HttpRouter.route(
-    "GET",
     "/repositories/:repositoryId/ai-consent",
     Effect.gen(function* () {
       const { repositoryId } = yield* repositoryPath
@@ -281,35 +228,6 @@ const reads = HttpRouter.addAll([
 const writes = HttpRouter.addAll([
   HttpRouter.route(
     "POST",
-    "/repositories/:repositoryId/rules/reorder",
-    Effect.gen(function* () {
-      const { repositoryId } = yield* repositoryPath
-      const request = yield* body(ReorderGroupRequest)
-      return yield* json(Schema.Array(RuleRecord))(
-        yield* (yield* LabelingRules).reorder(repositoryId, request, yield* actor),
-      )
-    }).pipe(handled("reorderGroup")),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/repositories/:repositoryId/rules/validate",
-    Effect.gen(function* () {
-      const { repositoryId } = yield* repositoryPath
-      yield* (yield* LabelingConfiguration).requireRepository(repositoryId)
-      const request = yield* body(AiRuleDefinition)
-      const result = inspectAiRule(request)
-      return yield* json(
-        Schema.Struct({
-          references: Schema.Array(Schema.String),
-          diagnostics: Schema.Array(
-            Schema.Struct({ from: Schema.Int, to: Schema.Int, message: Schema.String }),
-          ),
-        }),
-      )(result)
-    }).pipe(handled("validateAiRule")),
-  ),
-  HttpRouter.route(
-    "POST",
     "/repositories/:repositoryId/rule-tests",
     Effect.gen(function* () {
       const { repositoryId } = yield* repositoryPath
@@ -330,41 +248,6 @@ const writes = HttpRouter.addAll([
         headers: { "Retry-After": "1" },
       })
     }).pipe(handled("enqueueRuleTest")),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/repositories/:repositoryId/rules",
-    Effect.gen(function* () {
-      const { repositoryId } = yield* repositoryPath
-      const request = yield* body(CreateRuleRequest)
-      const rules = yield* LabelingRules
-      return yield* json(RuleRecord)(yield* rules.create(repositoryId, request, yield* actor), {
-        status: 201,
-      })
-    }).pipe(handled("createRule")),
-  ),
-  HttpRouter.route(
-    "PATCH",
-    "/repositories/:repositoryId/rules/:ruleId",
-    Effect.gen(function* () {
-      const { repositoryId, ruleId } = yield* rulePath
-      const request = yield* body(PatchRuleRequest)
-      const rules = yield* LabelingRules
-      return yield* json(RuleRecord)(
-        yield* rules.patch(repositoryId, ruleId, request, yield* actor),
-      )
-    }).pipe(handled("patchRule")),
-  ),
-  HttpRouter.route(
-    "DELETE",
-    "/repositories/:repositoryId/rules/:ruleId",
-    Effect.gen(function* () {
-      const { repositoryId, ruleId } = yield* rulePath
-      const { version } = yield* versionQuery
-      const rules = yield* LabelingRules
-      yield* rules.remove(repositoryId, ruleId, version, yield* actor)
-      return HttpServerResponse.empty({ status: 204 })
-    }).pipe(handled("removeRule")),
   ),
   HttpRouter.route(
     "PUT",
