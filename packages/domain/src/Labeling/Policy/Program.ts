@@ -185,6 +185,21 @@ export const Outcome = Schema.Literals([
 ]).annotate({ identifier: "Outcome" })
 export type Outcome = typeof Outcome.Type
 
+export const describeOutcome = (outcome: Outcome): string => {
+  switch (outcome) {
+    case "match":
+      return "Match"
+    case "no-match":
+      return "No match"
+    case "unknown":
+      return "Unknown"
+    case "failed":
+      return "Evaluation failed"
+    case "not-applicable":
+      return "Not applicable"
+  }
+}
+
 /** A condition's outcome, before applicability is considered. */
 export type Truth = "match" | "no-match" | "unknown"
 

@@ -1,7 +1,7 @@
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { AiInputDetails } from "@janitor/domain/Labeling/Policy/AiInput"
-import type { AiInputReport } from "@/components/labeling-wire"
+import type { AiInputReport } from "@janitor/domain/Labeling/Policy/AiInput"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import * as Button from "@/components/ui/button"
 import * as Feed from "@/components/ui/feed"

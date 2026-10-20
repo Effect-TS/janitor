@@ -9,7 +9,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as UrlParams from "effect/http/UrlParams"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
-import type { RepositoryOverview } from "@/components/labeling-wire"
+import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import * as Reviews from "@/components/pull-request-reviews"
 import { ApiClient } from "@/lib/api-client"
 

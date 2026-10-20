@@ -1,6 +1,7 @@
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { parseDocument, stringify } from "yaml"
+import { PolicyTarget } from "@janitor/domain/Labeling/Policy/Program"
 
 interface SourceIssue {
   readonly message: string
@@ -51,3 +52,14 @@ export const formatDocument = (source: string): Result.Result<string, string> =>
       lineWidth: 0,
     }),
   )
+
+/** The authoring form is free JSON on the wire; the server validates it. */
+export const ProgramSource = Schema.Struct({
+  target: PolicyTarget,
+  appliesWhen: Schema.optionalKey(Schema.Unknown),
+  matchesWhen: Schema.optionalKey(Schema.Unknown),
+  classify: Schema.optionalKey(Schema.Unknown),
+})
+export type ProgramSource = typeof ProgramSource.Type
+
+export const formatSource = (source: ProgramSource): string => format(source)

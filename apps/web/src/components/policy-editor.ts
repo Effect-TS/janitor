@@ -29,14 +29,9 @@ import * as PolicySource from "@/components/policy-source"
 import * as TestBench from "@/components/test-bench"
 import * as Routes from "@/routes"
 import * as PolicyStatus from "@/components/policy-status"
-import {
-  ConfigurationView,
-  TestCandidates,
-  FactDescription,
-  labelName,
-  formatSource,
-  ProgramSource,
-} from "@/components/labeling-wire"
+import { ConfigurationView, labelName } from "@janitor/domain/Labeling/Policy/Configuration"
+import { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
+import { formatSource, ProgramSource } from "@/components/policy-source/format"
 import { ApiClient } from "@/lib/api-client"
 
 /**
@@ -105,7 +100,7 @@ export const Model = Schema.Struct({
   publishedRevision: Schema.NullOr(Schema.Int),
   publishedSource: Schema.Option(ProgramSource),
   usedByOpen: Schema.Boolean,
-  testCandidates: TestCandidates,
+  testCandidates: TestBench.TestCandidates,
   testNumber: Schema.NullOr(Schema.Int),
 })
 export type Model = typeof Model.Type
@@ -209,7 +204,7 @@ export const selectedTestItem = (model: Model) => {
   return items.find((item) => item.number === model.testNumber) ?? items[0]
 }
 
-export const withTestCandidates = (model: Model, candidates: TestCandidates): Model => {
+export const withTestCandidates = (model: Model, candidates: TestBench.TestCandidates): Model => {
   const next = modifyFields(model, { testCandidates: () => candidates })
   return selectedTestItem(model)?.number === selectedTestItem(next)?.number
     ? next
@@ -421,7 +416,7 @@ export interface InitInput {
   readonly repositoryId: string
   readonly catalog: ReadonlyArray<FactDescription>
   readonly existing: Option.Option<PolicyDetail>
-  readonly testCandidates?: TestCandidates | undefined
+  readonly testCandidates?: TestBench.TestCandidates | undefined
 }
 
 const starter: ProgramSource = {

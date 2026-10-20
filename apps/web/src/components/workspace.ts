@@ -15,9 +15,6 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import { childAttributes, type Html, type HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -40,31 +37,25 @@ import * as PolicyEditor from "@/components/policy-editor"
 import * as RuleEditor from "@/components/rule-editor"
 import {
   AiConsent,
-  TestCandidates,
-  aiConsentEndpoint,
-  CATALOG_ENDPOINT,
   ConfigurationView,
-  configurationEndpoint,
-  FactDescription,
   labelName,
   policyName,
   PolicyRecord,
-  ReconciliationRecord,
-  REPOSITORIES_ENDPOINT,
-  RepositoryOverview,
   RuleRecord,
-} from "@/components/labeling-wire"
+} from "@janitor/domain/Labeling/Policy/Configuration"
+import { TestCandidates } from "@/components/test-bench"
+import { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
+import { ReconciliationRecord, RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import { ApiClient } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
 import * as PolicyStatus from "@/components/policy-status"
 
+export type { AiConsent, ConfigurationView } from "@janitor/domain/Labeling/Policy/Configuration"
 export type {
-  AiConsent,
-  ConfigurationView,
   ReconciliationRecord,
   RepositoryOverview,
-} from "@/components/labeling-wire"
+} from "@janitor/domain/Labeling/Reconciliation"
 export type { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
 
 // MODEL
@@ -205,25 +196,21 @@ export type OutMessage = typeof OutMessage.Type
 
 // COMMANDS
 
-const describe = (error: unknown): string =>
-  typeof error === "object" && error !== null && "message" in error
-    ? String(error.message)
-    : String(error)
-
-const getJson = <A, RD>(url: string, schema: Schema.ConstraintDecoder<A, RD>) =>
-  HttpClient.get(url).pipe(
-    Effect.flatMap(HttpClientResponse.filterStatusOk),
-    Effect.flatMap(HttpIncomingMessage.schemaBodyJson(schema)),
-  )
+const repository = (repositoryId: string) => ({
+  repositoryId: GitHubRepositoryDatabaseId.make(repositoryId),
+})
 
 export const FetchRepositories = FoldkitCommand.define("FetchRepositories", {
   args: { requestId: Schema.Int },
   messages: [Message.GotRepositories, Message.FailedRepositories],
   execute: ({ requestId }) =>
-    getJson(REPOSITORIES_ENDPOINT, Schema.Array(RepositoryOverview)).pipe(
+    ApiClient.use((api) => api.labeling.listRepositories()).pipe(
       Effect.map((repositories) => Message.GotRepositories({ repositories, requestId })),
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedRepositories({ reason: describe(error), requestId })),
+      Effect.orElseSucceed(() =>
+        Message.FailedRepositories({
+          reason: "The repositories couldn't load. Please retry.",
+          requestId,
+        }),
       ),
     ),
 })
@@ -231,9 +218,9 @@ export const FetchRepositories = FoldkitCommand.define("FetchRepositories", {
 /** The catalog is static; a failure leaves completion empty rather than blocking the page. */
 export const FetchCatalog = FoldkitCommand.define("FetchCatalog", {
   messages: [Message.GotCatalog],
-  execute: getJson(CATALOG_ENDPOINT, Schema.Array(FactDescription)).pipe(
+  execute: ApiClient.use((api) => api.labeling.getCatalog()).pipe(
     Effect.map((catalog) => Message.GotCatalog({ catalog })),
-    Effect.catch(() => Effect.succeed(Message.GotCatalog({ catalog: [] }))),
+    Effect.orElseSucceed(() => Message.GotCatalog({ catalog: [] })),
   ),
 })
 
@@ -243,11 +230,11 @@ export const FetchDetail = FoldkitCommand.define("FetchDetail", {
   execute: ({ repositoryId, requestId }) =>
     Effect.all(
       {
-        configuration: getJson(configurationEndpoint(repositoryId), ConfigurationView),
+        configuration: ApiClient.use((api) =>
+          api.labeling.getConfiguration({ params: repository(repositoryId) }),
+        ),
         testCandidates: ApiClient.use((api) =>
-          api.testBench.listItems({
-            params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
-          }),
+          api.testBench.listItems({ params: repository(repositoryId) }),
         ).pipe(
           Effect.map((items): TestCandidates => ({ _tag: "Ready", items })),
           Effect.catchTag("RepositoryNotFound", () =>
@@ -263,8 +250,11 @@ export const FetchDetail = FoldkitCommand.define("FetchDetail", {
       { concurrency: 2 },
     ).pipe(
       Effect.map((detail) => Message.GotDetail({ repositoryId, detail, requestId })),
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedDetail({ repositoryId, reason: describe(error), requestId })),
+      Effect.catchTag("RepositoryNotFound", () =>
+        Effect.succeed(Message.FailedDetail({ repositoryId, reason: UNAVAILABLE, requestId })),
+      ),
+      Effect.orElseSucceed(() =>
+        Message.FailedDetail({ repositoryId, reason: "Please retry.", requestId }),
       ),
     ),
 })
@@ -274,10 +264,17 @@ export const FetchConsent = FoldkitCommand.define("FetchConsent", {
   args: { repositoryId: Schema.String, requestId: Schema.Int },
   messages: [Message.GotConsent, Message.FailedConsent],
   execute: ({ repositoryId, requestId }) =>
-    getJson(aiConsentEndpoint(repositoryId), AiConsent).pipe(
+    ApiClient.use((api) => api.labeling.getAiConsent({ params: repository(repositoryId) })).pipe(
       Effect.map((consent) => Message.GotConsent({ repositoryId, consent, requestId })),
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedConsent({ repositoryId, requestId, reason: describe(error) })),
+      Effect.catchTag("RepositoryNotFound", () =>
+        Effect.succeed(Message.FailedConsent({ repositoryId, requestId, reason: UNAVAILABLE })),
+      ),
+      Effect.orElseSucceed(() =>
+        Message.FailedConsent({
+          repositoryId,
+          requestId,
+          reason: "AI consent couldn't load. Please retry.",
+        }),
       ),
     ),
 })
@@ -286,16 +283,17 @@ export const SetConsent = FoldkitCommand.define("SetConsent", {
   args: { ...ResponseContext, enabled: Schema.Boolean },
   messages: [Message.CompletedSetConsent, Message.FailedSetConsent],
   execute: ({ repositoryId, enabled, operationId }) =>
-    HttpClientRequest.put(aiConsentEndpoint(repositoryId)).pipe(
-      HttpClientRequest.bodyJson({ enabled }),
-      Effect.flatMap(HttpClient.execute),
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(AiConsent)),
+    ApiClient.use((api) =>
+      api.labeling.updateAiConsent({ params: repository(repositoryId), payload: { enabled } }),
+    ).pipe(
       Effect.map((consent) => Message.CompletedSetConsent({ repositoryId, consent, operationId })),
-      Effect.catch((error) =>
+      Effect.catchTag("RepositoryNotFound", () =>
         Effect.succeed(
-          Message.FailedSetConsent({ repositoryId, operationId, reason: describe(error) }),
+          Message.FailedSetConsent({ repositoryId, operationId, reason: UNAVAILABLE }),
         ),
+      ),
+      Effect.orElseSucceed(() =>
+        Message.FailedSetConsent({ repositoryId, operationId, reason: "Please retry." }),
       ),
     ),
 })

@@ -4,7 +4,8 @@ import { EditorState } from "@codemirror/state"
 import { undo } from "@codemirror/commands"
 import * as Result from "effect/Result"
 import { describe, expect, it } from "vite-plus/test"
-import { formatSource, type FactDescription } from "@/components/labeling-wire"
+import { formatSource } from "@/components/policy-source/format"
+import type { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
 import {
   createPolicySourceEditor,
   policyCompletionSource,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vite-plus/test"
 import * as DateTime from "effect/DateTime"
 import * as Activity from "@/components/activity"
-import type { ActivityEntry } from "@/components/labeling-wire"
+import type { ActivityEntry } from "@janitor/domain/Labeling/Activity"
 const entry = (id: string, number = 5): ActivityEntry => ({
   id,
   number,

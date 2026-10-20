@@ -10,7 +10,7 @@ import { EditorView, keymap, ViewPlugin, Decoration, type DecorationSet } from "
 import { linter, forceLinting } from "@codemirror/lint"
 import { githubDark, githubLight } from "@uiw/codemirror-theme-github"
 import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReferences"
-import type { FactDescription } from "../labeling-wire"
+import type { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
 import { hostTheme } from "./editor"
 
 export const aiCompletion =

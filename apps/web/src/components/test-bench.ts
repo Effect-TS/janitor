@@ -17,15 +17,14 @@ import * as Select from "@/components/ui/select"
 import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
 import { Check, CircleAlert, CircleHelp, Play, X } from "lucide"
+import { ConfigurationView, labelName } from "@janitor/domain/Labeling/Policy/Configuration"
 import {
-  ConfigurationView,
-  describeLocation,
+  formatNodeLocation,
   describeOutcome,
-  describePlan,
-  labelName,
   type Outcome,
-  TestSubject,
-} from "@/components/labeling-wire"
+} from "@janitor/domain/Labeling/Policy/Program"
+import { describePlan } from "@janitor/domain/Labeling/Reconciliation"
+import { ProgramSource } from "@/components/policy-source/format"
 
 /**
  * The test bench (plan: "User interface"). Runs a subject against the most
@@ -34,6 +33,23 @@ import {
  */
 
 // MODEL
+
+/** The editor's free-JSON form; each command decodes it into a `TestRequest`. */
+export const TestSubject = Schema.Union([
+  Schema.TaggedStruct("Draft", {
+    source: ProgramSource,
+    policyId: Schema.optionalKey(Schema.String),
+  }),
+  Schema.TaggedStruct("Policy", { policyId: Schema.String }),
+  Schema.TaggedStruct("Configuration", {}),
+])
+export type TestSubject = typeof TestSubject.Type
+
+export const TestCandidates = Schema.Union([
+  Schema.TaggedStruct("Ready", { items: Schema.Array(TestEntity) }),
+  Schema.TaggedStruct("Failed", { reason: Schema.String }),
+])
+export type TestCandidates = typeof TestCandidates.Type
 
 export const Model = Schema.Struct({
   repositoryId: Schema.String,
@@ -268,7 +284,7 @@ const entityRow = (h: HtmlBuilder<Message>, model: Model, entity: TestEntity): H
               h.li(
                 [],
                 [
-                  `${describeOutcome(node.outcome)} · ${describeLocation(node.location)}: ${node.reason}`,
+                  `${describeOutcome(node.outcome)} · ${formatNodeLocation(node.location)}: ${node.reason}`,
                 ],
               ),
             ),
@@ -397,7 +413,7 @@ const draftView = (h: HtmlBuilder<Message>, model: Model): Html => {
                           h.li(
                             [
                               h.Class("flex items-start justify-between gap-3 text-body-sm"),
-                              h.Title(describeLocation(node.location)),
+                              h.Title(formatNodeLocation(node.location)),
                             ],
                             [
                               h.span([h.Class("min-w-0 text-ink-muted")], [node.reason]),

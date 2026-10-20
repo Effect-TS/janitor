@@ -9,7 +9,7 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
-import type { RepositoryOverview } from "@/components/labeling-wire"
+import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import * as Transcript from "@/components/pull-request-review-transcript"
 import { ApiClient } from "@/lib/api-client"
 

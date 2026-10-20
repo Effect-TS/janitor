@@ -1,3 +1,4 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Render from "foldkit/render"
 import * as VirtualList from "@foldkit/ui/virtualList"
@@ -5,21 +6,16 @@ import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import {
-  ActivityCursor,
-  ActivityEntry,
-  ActivityPage,
-  type RepositoryOverview,
-  type ConfigurationView,
-} from "./labeling-wire"
+import { ActivityCursor, ActivityEntry, ActivityPage } from "@janitor/domain/Labeling/Activity"
+import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
+import type { ConfigurationView } from "@janitor/domain/Labeling/Policy/Configuration"
+import { ApiClient } from "@/lib/api-client"
 import * as Button from "./ui/button"
 import { chip } from "./ui/chip"
 import * as Feed from "./ui/feed"
@@ -115,35 +111,26 @@ export const FetchPage = Command.define("FetchActivity", {
   },
   messages: [Message.Loaded, Message.Failed],
   execute: ({ repositoryId, generation, search, target, cursor }) =>
-    Effect.gen(function* () {
-      const params = new URLSearchParams({ search, target })
-      if (cursor) params.set("cursor", JSON.stringify(cursor))
-      const response = yield* HttpClient.get(
-        `/api/v1/repositories/${encodeURIComponent(repositoryId)}/activity?${params}`,
-      )
-      if (response.status !== 200)
-        return Message.Failed({
-          generation,
-          reason:
-            response.status === 404
-              ? "This repository is unavailable."
-              : "Activity could not be loaded. Try again.",
-        })
-      const page = yield* HttpIncomingMessage.schemaBodyJson(ActivityPage)(response)
-      return Message.Loaded({ generation, older: cursor !== null, page })
-    }).pipe(
+    ApiClient.use((api) =>
+      api.labeling.listActivity({
+        params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+        query: cursor === null ? { search, target } : { search, target, cursor },
+      }),
+    ).pipe(
+      Effect.map((page) => Message.Loaded({ generation, older: cursor !== null, page })),
+      Effect.catchTag("RepositoryNotFound", () =>
+        Effect.succeed(Message.Failed({ generation, reason: "This repository is unavailable." })),
+      ),
       Effect.timeout("15 seconds"),
-      Effect.catch(() =>
-        Effect.succeed(
-          Message.Failed({
-            generation,
-            reason: "Activity could not be loaded. Check your connection and try again.",
-          }),
-        ),
+      Effect.orElseSucceed(() =>
+        Message.Failed({
+          generation,
+          reason: "Activity could not be loaded. Check your connection and try again.",
+        }),
       ),
     ),
 })
-type Return = Update.Return<Model, Message, HttpClient.HttpClient>
+type Return = Update.Return<Model, Message, ApiClient>
 const fetchPage = (model: Model, older = false): Return => {
   if (
     !model.active ||

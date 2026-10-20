@@ -2,7 +2,7 @@ import * as Popover from "@foldkit/ui/popover"
 import * as Option from "effect/Option"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
-import type { RepositoryOverview } from "@/components/labeling-wire"
+import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import * as RepositorySwitcher from "@/components/repository-switcher"
 
 const repository = (
