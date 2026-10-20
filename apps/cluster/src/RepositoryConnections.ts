@@ -7,7 +7,7 @@ import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { ConnectionInventory } from "@janitor/domain/GitHub/Connection"
 import { SyncTargets } from "./SyncTargets.ts"
-import { GitHubTransport, type GitHubResponse } from "./GitHub/Transport.ts"
+import { GitHubTransport, type GitHubRequest, type GitHubResponse } from "./GitHub/Transport.ts"
 import { GitHubReadModel } from "./GitHub/ReadModel.ts"
 import { nextLink } from "./GitHub/Link.ts"
 import type { GitHubApiScope } from "@janitor/domain/GitHub/Api"
@@ -17,29 +17,31 @@ import {
   GitHubInstallationRepositoriesResponse,
 } from "@janitor/domain/GitHub/Installation"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
+import { AuthorizationExpired } from "@janitor/domain/GitHub/Authorization"
+import {
+  RepositoryBlocked,
+  RepositoryIdentityChanged,
+  RepositoryNotFound,
+} from "@janitor/domain/GitHub/Repository"
 import { repositoryOfPayload } from "./GitHub/RepositoryPayload.ts"
 
-export class ConnectionError extends Schema.TaggedError<ConnectionError>()("ConnectionError", {
-  message: Schema.String,
-}) {}
-const wrap = <A, E extends { readonly message: string }, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.mapError((error) => new ConnectionError({ message: error.message })))
 type Actor = { issuer: string; subject: string }
+/**
+ * Only a refused connection change and a spent connection return fail;
+ * database, GitHub and decoding failures die.
+ */
 export class RepositoryConnections extends Context.Service<
   RepositoryConnections,
   {
-    readonly inventory: Effect.Effect<typeof ConnectionInventory.Type, ConnectionError>
+    readonly inventory: Effect.Effect<typeof ConnectionInventory.Type>
     readonly change: (
-      id: string,
+      id: GitHubRepositoryDatabaseId,
       action: "connect" | "disconnect" | "resume" | "pause",
       actor: Actor,
-    ) => Effect.Effect<void, ConnectionError>
-    readonly refresh: Effect.Effect<void, ConnectionError>
-    readonly github: (
-      installationId: string | null,
-      actor: Actor,
-    ) => Effect.Effect<string, ConnectionError>
-    readonly returned: (state: string, actor: Actor) => Effect.Effect<void, ConnectionError>
+    ) => Effect.Effect<void, RepositoryNotFound | RepositoryBlocked | RepositoryIdentityChanged>
+    readonly refresh: Effect.Effect<void>
+    readonly github: (installationId: string | null, actor: Actor) => Effect.Effect<string>
+    readonly returned: (state: string, actor: Actor) => Effect.Effect<void, AuthorizationExpired>
   }
 >()("RepositoryConnections", {
   make: Effect.gen(function* () {
@@ -73,7 +75,7 @@ export class RepositoryConnections extends Context.Service<
       Effect.flatMap((repositories) =>
         Schema.decodeUnknownEffect(ConnectionInventory)({ repositories }),
       ),
-      wrap,
+      Effect.orDie,
     )
     // Discover access in this request; background sync only fills repository content.
     const refresh = Effect.gen(function* () {
@@ -90,9 +92,7 @@ export class RepositoryConnections extends Context.Service<
               visited.has(url) ||
               new URL(url, "https://api.github.com").origin !== "https://api.github.com"
             )
-              return yield* new ConnectionError({
-                message: "GitHub returned an invalid pagination link.",
-              })
+              return yield* Effect.die("GitHub returned an invalid pagination link")
             visited.add(url)
             const response: GitHubResponse = yield* transport.request({
               scope,
@@ -101,9 +101,7 @@ export class RepositoryConnections extends Context.Service<
               url,
             })
             if (response._tag !== "Ok")
-              return yield* new ConnectionError({
-                message: "Could not refresh GitHub access. Please retry.",
-              })
+              return yield* Effect.die(`GitHub answered ${url} with ${response._tag}`)
             bodies.push(yield* Schema.decodeUnknownEffect(schema)(response.body))
             url = Option.getOrUndefined(Option.flatMap(response.link, nextLink))
           }
@@ -150,13 +148,29 @@ export class RepositoryConnections extends Context.Service<
           }),
         )
       }
-    }).pipe(wrap)
+    }).pipe(Effect.orDie)
     const change = (
-      id: string,
+      id: GitHubRepositoryDatabaseId,
       action: "connect" | "disconnect" | "resume" | "pause",
       actor: Actor,
-    ) =>
-      sql
+    ) => {
+      const accessUnavailable = new RepositoryBlocked({
+        repositoryId: id,
+        reason: "access-unavailable",
+      })
+      // A 404 means the App can no longer see it; any other answer is a defect.
+      const verify = (request: GitHubRequest) =>
+        transport.request(request).pipe(
+          Effect.orDie,
+          Effect.flatMap((response) =>
+            response._tag === "Ok"
+              ? Effect.succeed(response.body)
+              : response._tag === "Failed" && response.status === 404
+                ? Effect.fail(accessUnavailable)
+                : Effect.die(`GitHub answered ${request.url} with ${response._tag}`),
+          ),
+        )
+      return sql
         .withTransaction(
           Effect.gen(function* () {
             const [row] = yield* sql<{
@@ -173,13 +187,11 @@ export class RepositoryConnections extends Context.Service<
             }>`
       SELECT r.*,i.status,i.access_error FROM github_repository r JOIN github_installation i USING(installation_id)
       WHERE repository_id=${id} FOR UPDATE OF r`
-            if (!row)
-              return yield* new ConnectionError({
-                message: "Repository not found. Refresh available repositories.",
-              })
+            if (!row) return yield* new RepositoryNotFound({ repositoryId: id })
             if ((action === "resume" || action === "pause") && !row.connected)
-              return yield* new ConnectionError({
-                message: "Reconnect this repository before resuming.",
+              return yield* new RepositoryBlocked({
+                repositoryId: id,
+                reason: row.disconnected_at === null ? "not-connected" : "disconnected",
               })
             if (action === "connect" && row.connected) return
             const enabling = action === "resume" || action === "connect"
@@ -189,36 +201,22 @@ export class RepositoryConnections extends Context.Service<
                 row.status !== "active" ||
                 row.access_error !== null
               )
-                return yield* new ConnectionError({
-                  message:
-                    row.access_error ?? "Restore GitHub access before connecting or resuming.",
-                })
-              const authorization = yield* transport.request({
-                scope: { _tag: "App" },
-                priority: "foreground",
-                method: "GET",
-                url: `/app/installations/${row.installation_id}`,
-              })
-              if (authorization._tag !== "Ok")
-                return yield* new ConnectionError({
-                  message:
-                    "Cannot verify GitHub installation access. Refresh repositories and retry.",
-                })
+                return yield* accessUnavailable
               const installation = yield* Schema.decodeUnknownEffect(GitHubInstallationSummary)(
-                authorization.body,
+                yield* verify({
+                  scope: { _tag: "App" },
+                  priority: "foreground",
+                  method: "GET",
+                  url: `/app/installations/${row.installation_id}`,
+                }),
               )
-              const accessError = requiredGitHubAccessError(installation)
               if (
                 installation.id !== row.installation_id ||
                 installation.suspendedAt !== null ||
-                accessError !== null
+                requiredGitHubAccessError(installation) !== null
               )
-                return yield* new ConnectionError({
-                  message:
-                    accessError ??
-                    "Restore GitHub installation access before connecting or resuming.",
-                })
-              const response = yield* transport.request({
+                return yield* accessUnavailable
+              const repository = yield* verify({
                 scope: {
                   _tag: "Installation",
                   installationId: GitHubInstallationId.make(row.installation_id),
@@ -227,18 +225,11 @@ export class RepositoryConnections extends Context.Service<
                 method: "GET",
                 url: `/repos/${encodeURIComponent(row.owner)}/${encodeURIComponent(row.repo)}`,
               })
-              if (response._tag !== "Ok")
-                return yield* new ConnectionError({
-                  message:
-                    "GitHub access could not be verified. Check installation permissions and retry.",
-                })
               const verified = yield* Schema.decodeUnknownEffect(
                 Schema.Struct({ id: Schema.Number }),
-              )(response.body)
+              )(repository)
               if (String(verified.id) !== id)
-                return yield* new ConnectionError({
-                  message: "Repository identity changed. Refresh inventory and retry.",
-                })
+                return yield* new RepositoryIdentityChanged({ repositoryId: id })
             }
             const enabled = enabling
             yield* sql`UPDATE github_repository SET connected=${action !== "disconnect"}, enabled=${enabled},
@@ -251,12 +242,7 @@ export class RepositoryConnections extends Context.Service<
                 SELECT delivery_id, payload FROM github_webhook_delivery
                 WHERE repository_id IS NULL AND event_name NOT IN ('installation','installation_repositories','ping') AND purged_at IS NULL`
               for (const delivery of legacy) {
-                if (
-                  Option.contains(
-                    repositoryOfPayload(delivery.payload),
-                    GitHubRepositoryDatabaseId.make(id),
-                  )
-                )
+                if (Option.contains(repositoryOfPayload(delivery.payload), id))
                   yield* sql`UPDATE github_webhook_delivery SET repository_id=${id} WHERE delivery_id=${delivery.delivery_id}`
               }
               yield* sql`SELECT delete_repository_data(${id})`
@@ -266,20 +252,22 @@ export class RepositoryConnections extends Context.Service<
             if (enabled) {
               for (const track of ["labels", "entities", "pull_requests"] as const)
                 yield* targets.invalidate({
-                  scope: {
-                    _tag: "RepositoryTrack",
-                    repositoryId: GitHubRepositoryDatabaseId.make(id),
-                    track,
-                  },
+                  scope: { _tag: "RepositoryTrack", repositoryId: id, track },
                   sequence: Option.none(),
                   immediate: true,
                   full: true,
                 })
-              yield* targets.retryFailedEntities(GitHubRepositoryDatabaseId.make(id))
+              yield* targets.retryFailedEntities(id)
             }
           }),
         )
-        .pipe(wrap)
+        .pipe(
+          Effect.catchTag(
+            ["SqlError", "SchemaError", "@janitor/cluster/SyncTargets/SyncTargetError"],
+            Effect.die,
+          ),
+        )
+    }
     const github = (installationId: string | null, actor: Actor) =>
       Effect.gen(function* () {
         const response = yield* transport.request({
@@ -292,9 +280,7 @@ export class RepositoryConnections extends Context.Service<
               : `/app/installations/${encodeURIComponent(installationId)}`,
         })
         if (response._tag !== "Ok")
-          return yield* new ConnectionError({
-            message: "GitHub installation settings are unavailable. Try again.",
-          })
+          return yield* Effect.die(`GitHub answered the installation lookup with ${response._tag}`)
         const data = yield* Schema.decodeUnknownEffect(
           Schema.Struct({
             slug: Schema.optionalKey(Schema.String),
@@ -302,9 +288,7 @@ export class RepositoryConnections extends Context.Service<
           }),
         )(response.body)
         if (installationId === null && !data.slug)
-          return yield* new ConnectionError({
-            message: "GitHub did not return an app installation URL. Try again.",
-          })
+          return yield* Effect.die("GitHub did not return the App's slug")
         const [attempt] = yield* sql<{
           state: string
         }>`INSERT INTO repository_connection_attempt(issuer,subject) VALUES(${actor.issuer},${actor.subject}) RETURNING state::text`
@@ -315,20 +299,17 @@ export class RepositoryConnections extends Context.Service<
             : (data.html_url ?? "https://github.com/settings/installations"),
         )
         if (url.origin !== "https://github.com")
-          return yield* new ConnectionError({ message: "Unexpected GitHub settings URL." })
+          return yield* Effect.die(`Unexpected GitHub settings URL ${url.origin}`)
         url.searchParams.set("state", attempt!.state)
         return url.toString()
-      }).pipe(wrap)
+      }).pipe(Effect.orDie)
     const returned = (state: string, actor: Actor) =>
       Effect.gen(function* () {
         const rows =
           yield* sql`DELETE FROM repository_connection_attempt WHERE state::text=${state} AND issuer=${actor.issuer} AND subject=${actor.subject} AND expires_at>now() RETURNING state`
-        if (rows.length === 0)
-          return yield* new ConnectionError({
-            message: "This connection attempt expired. Refresh repositories to continue.",
-          })
+        if (rows.length === 0) return yield* new AuthorizationExpired()
         yield* refresh
-      }).pipe(wrap)
+      }).pipe(Effect.catchTag("SqlError", Effect.die))
     return { inventory, change, refresh, github, returned }
   }),
 }) {

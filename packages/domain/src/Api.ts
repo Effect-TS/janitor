@@ -1,5 +1,6 @@
 import * as HttpApi from "effect/http-api/HttpApi"
 import { AccountGroup } from "./Api/Account.ts"
+import { ConnectionsGroup } from "./Api/Connections.ts"
 import { SyncGroup } from "./Api/Sync.ts"
 
 /**
@@ -9,4 +10,5 @@ import { SyncGroup } from "./Api/Sync.ts"
 export class JanitorApi extends HttpApi.make("janitor")
   .add(SyncGroup)
   .add(AccountGroup)
+  .add(ConnectionsGroup)
   .prefix("/api/v1") {}

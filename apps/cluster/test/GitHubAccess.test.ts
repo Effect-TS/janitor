@@ -5,7 +5,8 @@ import * as Option from "effect/Option"
 import * as DateTime from "effect/DateTime"
 import * as Schema from "effect/Schema"
 import { GitHubWebhookEvent } from "@janitor/domain/GitHub/WebhookEvent"
-import { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
+import { GitHubRepositoryDatabaseId, GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
+import { RepositoryBlocked } from "@janitor/domain/GitHub/Repository"
 import {
   GitHubWebhookName,
   GitHubWebhookPayloadSha256,
@@ -82,10 +83,18 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
       yield* connections.refresh
       assert.isFalse((yield* connections.inventory).repositories[0]!.connected)
       granted = { ...permissions, issues: "read" }
-      const denied = yield* Effect.flip(connections.change("701", "connect", actor))
-      assert.include(denied.message, "issues: write")
+      const denied = yield* Effect.flip(
+        connections.change(GitHubRepositoryDatabaseId.make("701"), "connect", actor),
+      )
+      assert.deepStrictEqual(
+        denied,
+        new RepositoryBlocked({
+          repositoryId: GitHubRepositoryDatabaseId.make("701"),
+          reason: "access-unavailable",
+        }),
+      )
       listingDenied = true
-      yield* connections.refresh.pipe(Effect.ignore)
+      yield* connections.refresh.pipe(Effect.ignoreCause)
       const unavailable = (yield* connections.inventory).repositories[0]!
       assert.strictEqual(unavailable.syncState, "access-unavailable")
       assert.include(unavailable.accessError!, "issues: write")
@@ -102,7 +111,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
         granted = { ...permissions }
         listingDenied = false
         yield* connections.refresh
-        yield* connections.change("701", "connect", actor)
+        yield* connections.change(GitHubRepositoryDatabaseId.make("701"), "connect", actor)
         yield* (yield* Policies).create(
           repositoryId,
           { name: "Retained", description: "", source: baseMain },
@@ -199,7 +208,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
             assert.strictEqual((yield* state).policyCount, 1)
           }
         }
-        yield* connections.change("701", "pause", actor)
+        yield* connections.change(GitHubRepositoryDatabaseId.make("701"), "pause", actor)
         granted = { ...permissions, checks: "none" }
         yield* connections.refresh
         granted = { ...permissions }
@@ -221,7 +230,7 @@ layer(services, { timeout: "2 minutes" })("GitHub access", (it) => {
         assert.strictEqual((yield* state).installationId, "88")
         assert.strictEqual((yield* state).syncState, "paused")
         assert.strictEqual((yield* state).policyCount, 1)
-        yield* connections.change("701", "resume", actor)
+        yield* connections.change(GitHubRepositoryDatabaseId.make("701"), "resume", actor)
         assert.strictEqual((yield* state).syncState, "syncing")
         yield* synchronize
         assert.strictEqual((yield* state).syncState, "ready")

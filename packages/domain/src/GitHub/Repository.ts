@@ -56,6 +56,13 @@ export class RepositoryNotFound extends Schema.TaggedError<RepositoryNotFound>()
   { httpApiStatus: 404 },
 ) {}
 
+/** GitHub now serves a different repository under this one's name. */
+export class RepositoryIdentityChanged extends Schema.TaggedError<RepositoryIdentityChanged>()(
+  "RepositoryIdentityChanged",
+  { repositoryId: GitHubRepositoryDatabaseId },
+  { httpApiStatus: 409 },
+) {}
+
 /** The repository can be worked on, but its installation has synchronization turned off. */
 export class SynchronizationDisabled extends Schema.TaggedError<SynchronizationDisabled>()(
   "SynchronizationDisabled",

@@ -1,96 +1,55 @@
+import { JanitorApi } from "@janitor/domain/Api"
+import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import * as Schema from "effect/Schema"
-import * as HttpRouter from "effect/http/HttpRouter"
-import * as Request from "effect/http/HttpServerRequest"
-import * as Response from "effect/http/HttpServerResponse"
-import { ConnectionInventory } from "@janitor/domain/GitHub/Connection"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import { RepositoryConnections } from "../RepositoryConnections.ts"
-import { CurrentAccessIdentity, SameOriginMiddleware } from "./Middleware.ts"
-const handled = <E, R>(effect: Effect.Effect<Response.HttpServerResponse, E, R>) =>
-  effect.pipe(
-    Effect.catch((error) => {
-      const known =
-        typeof error === "object" &&
-        error !== null &&
-        "_tag" in error &&
-        error._tag === "ConnectionError"
-      return Response.schemaJson(Schema.Struct({ message: Schema.String }))(
-        {
-          message:
-            known && "message" in error
-              ? String(error.message)
-              : "The request could not be completed. Please retry.",
-        },
-        { status: known ? 409 : 503 },
-      )
-    }),
+import { CurrentAccessIdentity } from "./Middleware.ts"
+
+const change = (
+  repositoryId: GitHubRepositoryDatabaseId,
+  action: "connect" | "disconnect" | "pause" | "resume",
+) =>
+  Effect.flatMap(CurrentAccessIdentity, (identity) =>
+    RepositoryConnections.use((connections) => connections.change(repositoryId, action, identity)),
   )
-const reads = HttpRouter.add(
-  "GET",
-  "/repository-connections/available",
-  Effect.gen(function* () {
-    return yield* Response.schemaJson(ConnectionInventory)(
-      yield* (yield* RepositoryConnections).inventory,
+
+/**
+ * The repository connections page. `RepositoryConnections` fails with the
+ * domain errors the endpoints declare, so the handlers only pick the acting
+ * identity and call through. Only connecting and resuming ask GitHub, and
+ * disconnecting passes every guard, so those refusals die where they can't
+ * happen.
+ */
+export const ConnectionsGroupLayer = HttpApiBuilder.group(JanitorApi, "connections", (handlers) =>
+  handlers
+    .handle("listAvailable", () =>
+      RepositoryConnections.use((connections) => connections.inventory),
     )
-  }).pipe(handled),
-)
-const writes = HttpRouter.addAll([
-  HttpRouter.route(
-    "POST",
-    "/repository-connections/refresh",
-    Effect.gen(function* () {
-      yield* (yield* RepositoryConnections).refresh
-      return Response.empty({ status: 204 })
-    }).pipe(handled),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/repository-connections/github",
-    Effect.gen(function* () {
-      const { installationId } = yield* Request.schemaBodyJson(
-        Schema.Struct({ installationId: Schema.NullOr(Schema.String) }),
-      )
-      const url = yield* (yield* RepositoryConnections).github(
-        installationId,
-        yield* CurrentAccessIdentity,
-      )
-      return yield* Response.schemaJson(Schema.Struct({ url: Schema.String }))({ url })
-    }).pipe(handled),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/repository-connections/return",
-    Effect.gen(function* () {
-      const { state } = yield* Request.schemaBodyJson(Schema.Struct({ state: Schema.String }))
-      yield* (yield* RepositoryConnections).returned(state, yield* CurrentAccessIdentity)
-      return Response.empty({ status: 204 })
-    }).pipe(handled),
-  ),
-  ...(["PUT", "DELETE", "PATCH"] as const).map((method) =>
-    HttpRouter.route(
-      method,
-      "/repositories/:repositoryId/connection",
+    .handle("refresh", () => RepositoryConnections.use((connections) => connections.refresh))
+    .handle("startAuthorization", ({ payload }) =>
       Effect.gen(function* () {
-        const { repositoryId } = yield* HttpRouter.schemaPathParams(
-          Schema.Struct({ repositoryId: Schema.String }),
+        const identity = yield* CurrentAccessIdentity
+        const url = yield* RepositoryConnections.use((connections) =>
+          connections.github(payload.installationId, identity),
         )
-        const action =
-          method === "DELETE"
-            ? "disconnect"
-            : method === "PUT"
-              ? "connect"
-              : (yield* Request.schemaBodyJson(Schema.Struct({ enabled: Schema.Boolean }))).enabled
-                ? "resume"
-                : "pause"
-        yield* (yield* RepositoryConnections).change(
-          repositoryId,
-          action,
-          yield* CurrentAccessIdentity,
-        )
-        return Response.empty({ status: 204 })
-      }).pipe(handled),
-    ),
-  ),
-]).pipe(Layer.provide(SameOriginMiddleware))
-export const ConnectionRoutesLayer = Layer.mergeAll(reads, writes)
+        return { url }
+      }),
+    )
+    .handle("completeAuthorization", ({ payload }) =>
+      Effect.flatMap(CurrentAccessIdentity, (identity) =>
+        RepositoryConnections.use((connections) => connections.returned(payload.state, identity)),
+      ),
+    )
+    .handle("connect", ({ params }) => change(params.repositoryId, "connect"))
+    .handle("disconnect", ({ params }) =>
+      change(params.repositoryId, "disconnect").pipe(
+        Effect.catchTag(["RepositoryBlocked", "RepositoryIdentityChanged"], Effect.die),
+      ),
+    )
+    .handle("pause", ({ params }) =>
+      change(params.repositoryId, "pause").pipe(
+        Effect.catchTag("RepositoryIdentityChanged", Effect.die),
+      ),
+    )
+    .handle("resume", ({ params }) => change(params.repositoryId, "resume")),
+)

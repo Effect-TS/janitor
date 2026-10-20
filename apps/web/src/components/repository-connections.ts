@@ -5,8 +5,6 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
 import * as Mount from "foldkit/mount"
@@ -24,7 +22,6 @@ import { panel, panelHeader } from "@/components/ui/panel"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import { CircleAlert, RotateCw, Search } from "lucide"
-import { reasonOf, request } from "@/lib/api"
 import { ApiClient } from "@/lib/api-client"
 import { syncRefusalCopy } from "@/components/sync-button"
 import * as Routes from "@/routes"
@@ -68,6 +65,8 @@ export const init = (returnPath = Routes.home()): Model => ({
 export const enter = (model: Model, returnPath = model.returnPath): Model =>
   modifyFields(model, { returnPath: () => returnPath })
 
+const ConnectionAction = Schema.Literals(["connect", "disconnect", "resume", "pause"])
+
 export const Message = defineMessageUnion({
   ClickedCancel: {},
   GotDialogMessage: { message: Dialog.Message },
@@ -78,10 +77,7 @@ export const Message = defineMessageUnion({
   Failed: { reason: Schema.String, operationId: Schema.Int },
   Searched: { value: Schema.String },
   ClickedRefresh: {},
-  ClickedChange: {
-    id: Schema.String,
-    action: Schema.Literals(["connect", "disconnect", "resume", "pause"]),
-  },
+  ClickedChange: { id: Schema.String, action: ConnectionAction },
   Changed: { id: Schema.String, action: Schema.String, operationId: Schema.Int },
   ClickedRetrySync: { id: Schema.String },
   RetriedSync: { operationId: Schema.Int },
@@ -97,19 +93,13 @@ export const OutMessage = defineMessageUnion({
   Changed: { id: Schema.String, action: Schema.String },
   OpenGithub: { url: Schema.String },
 })
-const base = "/api/v1/repository-connections"
-const failed = (error: unknown, operationId: number) =>
-  Message.Failed({ operationId, reason: reasonOf(error) })
+const failed = (reason: string, operationId: number) => Message.Failed({ operationId, reason })
+const retry = (operationId: number) => failed("The request failed. Please retry.", operationId)
 const load = (requestId: number) =>
-  HttpClient.get(`${base}/available`).pipe(
-    Effect.flatMap((response) =>
-      response.status === 200
-        ? HttpIncomingMessage.schemaBodyJson(Inventory)(response)
-        : Effect.fail(new Error("Could not load repositories. Retry to continue.")),
-    ),
+  ApiClient.use((api) => api.connections.listAvailable()).pipe(
     Effect.map((inventory) => Message.Loaded({ inventory, requestId })),
-    Effect.catch((error) =>
-      Effect.succeed(Message.LoadFailed({ reason: failed(error, 0).reason, requestId })),
+    Effect.orElseSucceed(() =>
+      Message.LoadFailed({ reason: "Could not load repositories. Retry to continue.", requestId }),
     ),
   )
 export const Load = Command.define("LoadConnectionInventory", {
@@ -117,10 +107,18 @@ export const Load = Command.define("LoadConnectionInventory", {
   messages: [Message.Loaded, Message.LoadFailed, Message.Failed],
   execute: ({ state, requestId }) =>
     state
-      ? request("POST", `${base}/return`, { state }).pipe(
+      ? ApiClient.use((api) => api.connections.completeAuthorization({ payload: { state } })).pipe(
           Effect.flatMap(() => load(requestId)),
-          Effect.catch((error) =>
-            Effect.succeed(Message.LoadFailed({ reason: failed(error, 0).reason, requestId })),
+          Effect.catchTag("AuthorizationExpired", () =>
+            Effect.succeed(
+              Message.LoadFailed({
+                reason: "This connection attempt expired. Refresh repositories to continue.",
+                requestId,
+              }),
+            ),
+          ),
+          Effect.orElseSucceed(() =>
+            Message.LoadFailed({ reason: "The request failed. Please retry.", requestId }),
           ),
         )
       : load(requestId),
@@ -135,22 +133,48 @@ const Refresh = Command.define("RefreshConnectionInventory", {
   args: { operationId: Schema.Int },
   messages: [Message.Refreshed, Message.Failed],
   execute: ({ operationId }) =>
-    request("POST", `${base}/refresh`, {}).pipe(
+    ApiClient.use((api) => api.connections.refresh()).pipe(
       Effect.as(Message.Refreshed({ operationId })),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+      Effect.orElseSucceed(() =>
+        failed("Could not refresh GitHub access. Please retry.", operationId),
+      ),
     ),
 })
+/** Why the server refused a connection change, in this page's words. */
+const blockedCopy = (reason: RepositoryBlockReason): string => {
+  switch (reason) {
+    case "not-connected":
+    case "disconnected":
+      return "Reconnect this repository first."
+    case "access-unavailable":
+      return "Restore GitHub access before connecting or resuming."
+    case "paused":
+      return "Resume this repository first."
+    case "changed":
+      return "This repository changed. Refresh repositories and retry."
+  }
+}
 const Change = Command.define("ChangeRepositoryConnection", {
-  args: { id: Schema.String, action: Schema.String, operationId: Schema.Int },
+  args: { id: Schema.String, action: ConnectionAction, operationId: Schema.Int },
   messages: [Message.Changed, Message.Failed],
   execute: ({ id, action, operationId }) =>
-    request(
-      action === "connect" ? "PUT" : action === "disconnect" ? "DELETE" : "PATCH",
-      `/api/v1/repositories/${encodeURIComponent(id)}/connection`,
-      { enabled: action === "resume" },
+    ApiClient.use((api) =>
+      // The inventory's ids are the server's GitHub database ids.
+      api.connections[action]({ params: { repositoryId: GitHubRepositoryDatabaseId.make(id) } }),
     ).pipe(
       Effect.as(Message.Changed({ id, action, operationId })),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+      Effect.catchTags({
+        RepositoryNotFound: () =>
+          Effect.succeed(
+            failed("Repository not found. Refresh available repositories.", operationId),
+          ),
+        RepositoryBlocked: ({ reason }) => Effect.succeed(failed(blockedCopy(reason), operationId)),
+        RepositoryIdentityChanged: () =>
+          Effect.succeed(
+            failed("Repository identity changed. Refresh repositories and retry.", operationId),
+          ),
+      }),
+      Effect.orElseSucceed(() => retry(operationId)),
     ),
 })
 /** A cache refresh request; it never touches the repository's connection or pause. */
@@ -168,17 +192,20 @@ const RetrySync = Command.define("RetryRepositorySync", {
         (refusal) =>
           Effect.succeed(Message.Failed({ operationId, reason: syncRefusalCopy(refusal) })),
       ),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+      Effect.orElseSucceed(() => retry(operationId)),
     ),
 })
 const Github = Command.define("OpenGitHubInstallation", {
   args: { installationId: Schema.NullOr(Schema.String), operationId: Schema.Int },
   messages: [Message.GotGithub, Message.Failed],
   execute: ({ installationId, operationId }) =>
-    request("POST", `${base}/github`, { installationId }).pipe(
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(Schema.Struct({ url: Schema.String }))),
+    ApiClient.use((api) =>
+      api.connections.startAuthorization({ payload: { installationId } }),
+    ).pipe(
       Effect.map(({ url }) => Message.GotGithub({ url, operationId })),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+      Effect.orElseSucceed(() =>
+        failed("GitHub installation settings are unavailable. Try again.", operationId),
+      ),
     ),
 })
 const mapDialog = (model: Model, result: ReturnType<typeof Dialog.open>) => ({
@@ -206,158 +233,160 @@ const reload = (model: Model, state = "") => ({
   commands: [Load({ state, requestId: model.nextRequestId })],
 })
 export const update = (model: Model, message: Message) =>
-  Message.match<
-    Update.ReturnWithOutMessage<
-      Model,
-      Message,
-      typeof OutMessage.Type,
-      HttpClient.HttpClient | ApiClient
-    >
-  >(message, {
-    ClickedCancel: () => ({ model, outMessage: OutMessage.Cancelled({ path: model.returnPath }) }),
-    GotDialogMessage: ({ message }) =>
-      isBusy(model) ? { model } : mapDialog(model, Dialog.update(model.dialog, message)),
-    LoadRequested: ({ state }) =>
-      Option.isSome(model.maybeLoadRequest) ? { model } : reload(model, state),
-    LiveChanged: () =>
-      Option.isSome(model.maybeLoadRequest)
-        ? { model: { ...model, liveRefresh: true } }
-        : reload(model),
-    Loaded: ({ inventory, requestId }) =>
-      !Option.contains(model.maybeLoadRequest, requestId)
-        ? { model }
-        : model.liveRefresh
-          ? reload({
-              ...model,
-              inventory: Option.some(inventory),
-              liveRefresh: false,
-              maybeLoadRequest: Option.none(),
-            })
-          : {
-              model: modifyFields(model, {
-                inventory: () => Option.some(inventory),
-                loadError: () => Option.none(),
-                maybeLoadRequest: () => Option.none(),
-                notice: (current) =>
-                  current === "Refreshing repository list…"
-                    ? "Available repositories are up to date."
-                    : current,
+  Message.match<Update.ReturnWithOutMessage<Model, Message, typeof OutMessage.Type, ApiClient>>(
+    message,
+    {
+      ClickedCancel: () => ({
+        model,
+        outMessage: OutMessage.Cancelled({ path: model.returnPath }),
+      }),
+      GotDialogMessage: ({ message }) =>
+        isBusy(model) ? { model } : mapDialog(model, Dialog.update(model.dialog, message)),
+      LoadRequested: ({ state }) =>
+        Option.isSome(model.maybeLoadRequest) ? { model } : reload(model, state),
+      LiveChanged: () =>
+        Option.isSome(model.maybeLoadRequest)
+          ? { model: { ...model, liveRefresh: true } }
+          : reload(model),
+      Loaded: ({ inventory, requestId }) =>
+        !Option.contains(model.maybeLoadRequest, requestId)
+          ? { model }
+          : model.liveRefresh
+            ? reload({
+                ...model,
+                inventory: Option.some(inventory),
+                liveRefresh: false,
+                maybeLoadRequest: Option.none(),
+              })
+            : {
+                model: modifyFields(model, {
+                  inventory: () => Option.some(inventory),
+                  loadError: () => Option.none(),
+                  maybeLoadRequest: () => Option.none(),
+                  notice: (current) =>
+                    current === "Refreshing repository list…"
+                      ? "Available repositories are up to date."
+                      : current,
+                }),
+              },
+      LoadFailed: ({ reason, requestId }) =>
+        !Option.contains(model.maybeLoadRequest, requestId)
+          ? { model }
+          : model.liveRefresh
+            ? reload(model)
+            : {
+                model: modifyFields(model, {
+                  loadError: () => Option.some(reason),
+                  maybeLoadRequest: () => Option.none(),
+                  notice: () => "",
+                }),
+              },
+      Failed: ({ reason, operationId }) =>
+        !matchesOperation(model, operationId)
+          ? { model }
+          : reload(
+              modifyFields(model, {
+                pending: () => Option.none(),
+                error: () => Option.some(reason),
               }),
-            },
-    LoadFailed: ({ reason, requestId }) =>
-      !Option.contains(model.maybeLoadRequest, requestId)
-        ? { model }
-        : model.liveRefresh
-          ? reload(model)
-          : {
-              model: modifyFields(model, {
-                loadError: () => Option.some(reason),
-                maybeLoadRequest: () => Option.none(),
-                notice: () => "",
-              }),
-            },
-    Failed: ({ reason, operationId }) =>
-      !matchesOperation(model, operationId)
-        ? { model }
-        : reload(
-            modifyFields(model, { pending: () => Option.none(), error: () => Option.some(reason) }),
-          ),
-    Searched: ({ value }) => ({ model: modifyFields(model, { search: () => value }) }),
-    ClickedRefresh: () =>
-      isBusy(model)
-        ? { model }
-        : {
-            model: begin(model, "refresh"),
-            commands: [Refresh({ operationId: model.nextOperationId })],
-          },
-    Refreshed: ({ operationId }) =>
-      !matchesOperation(model, operationId)
-        ? { model }
-        : reload(
-            modifyFields(model, {
-              pending: () => Option.none(),
-              notice: () => "Refreshing repository list…",
-            }),
-          ),
-    ClickedChange: ({ id, action }) =>
-      isBusy(model)
-        ? { model }
-        : {
-            model: begin(model, action, id),
-            commands: [Change({ id, action, operationId: model.nextOperationId })],
-          },
-    Changed: ({ id, action, operationId }) => {
-      if (!matchesOperation(model, operationId)) return { model }
-      const dialogClose = mapDialog(model, Dialog.close(model.dialog))
-      const next = reload(
-        modifyFields(dialogClose.model, {
-          pending: () => Option.none(),
-          inventory: Option.map((inventory) => ({
-            ...inventory,
-            repositories: inventory.repositories.map((row) =>
-              row.repositoryId !== id
-                ? row
-                : {
-                    ...row,
-                    connected: action !== "disconnect",
-                    enabled: action === "resume" || action === "connect",
-                    reconnect: row.reconnect || action === "disconnect",
-                    policyCount: action === "disconnect" ? 0 : row.policyCount,
-                    ruleCount: action === "disconnect" ? 0 : row.ruleCount,
-                    syncState: action === "connect" || action === "resume" ? "syncing" : "paused",
-                    syncError: null,
-                    blockReason:
-                      action === "disconnect"
-                        ? "disconnected"
-                        : action === "pause"
-                          ? "paused"
-                          : null,
-                  },
             ),
-          })),
-        }),
-      )
-      return {
-        model: next.model,
-        commands: [...(dialogClose.commands ?? []), ...next.commands],
-        outMessage: OutMessage.Changed({ id, action }),
-      }
+      Searched: ({ value }) => ({ model: modifyFields(model, { search: () => value }) }),
+      ClickedRefresh: () =>
+        isBusy(model)
+          ? { model }
+          : {
+              model: begin(model, "refresh"),
+              commands: [Refresh({ operationId: model.nextOperationId })],
+            },
+      Refreshed: ({ operationId }) =>
+        !matchesOperation(model, operationId)
+          ? { model }
+          : reload(
+              modifyFields(model, {
+                pending: () => Option.none(),
+                notice: () => "Refreshing repository list…",
+              }),
+            ),
+      ClickedChange: ({ id, action }) =>
+        isBusy(model)
+          ? { model }
+          : {
+              model: begin(model, action, id),
+              commands: [Change({ id, action, operationId: model.nextOperationId })],
+            },
+      Changed: ({ id, action, operationId }) => {
+        if (!matchesOperation(model, operationId)) return { model }
+        const dialogClose = mapDialog(model, Dialog.close(model.dialog))
+        const next = reload(
+          modifyFields(dialogClose.model, {
+            pending: () => Option.none(),
+            inventory: Option.map((inventory) => ({
+              ...inventory,
+              repositories: inventory.repositories.map((row) =>
+                row.repositoryId !== id
+                  ? row
+                  : {
+                      ...row,
+                      connected: action !== "disconnect",
+                      enabled: action === "resume" || action === "connect",
+                      reconnect: row.reconnect || action === "disconnect",
+                      policyCount: action === "disconnect" ? 0 : row.policyCount,
+                      ruleCount: action === "disconnect" ? 0 : row.ruleCount,
+                      syncState: action === "connect" || action === "resume" ? "syncing" : "paused",
+                      syncError: null,
+                      blockReason:
+                        action === "disconnect"
+                          ? "disconnected"
+                          : action === "pause"
+                            ? "paused"
+                            : null,
+                    },
+              ),
+            })),
+          }),
+        )
+        return {
+          model: next.model,
+          commands: [...(dialogClose.commands ?? []), ...next.commands],
+          outMessage: OutMessage.Changed({ id, action }),
+        }
+      },
+      ClickedRetrySync: ({ id }) =>
+        isBusy(model)
+          ? { model }
+          : {
+              model: begin(model, "retry-sync", id),
+              commands: [RetrySync({ id, operationId: model.nextOperationId })],
+            },
+      RetriedSync: ({ operationId }) =>
+        !matchesOperation(model, operationId)
+          ? { model }
+          : reload(
+              modifyFields(model, {
+                pending: () => Option.none(),
+                notice: () => "Synchronization requested.",
+              }),
+            ),
+      ClickedGithub: ({ installationId }) =>
+        isBusy(model)
+          ? { model }
+          : {
+              model: begin(model, "github"),
+              commands: [Github({ installationId, operationId: model.nextOperationId })],
+            },
+      GotGithub: ({ url, operationId }) =>
+        !matchesOperation(model, operationId)
+          ? { model }
+          : {
+              model: modifyFields(model, { pending: () => Option.none() }),
+              outMessage: OutMessage.OpenGithub({ url }),
+            },
+      ClickedDisconnect: () =>
+        isBusy(model) ? { model } : mapDialog(model, Dialog.open(model.dialog)),
+      CancelledDisconnect: () =>
+        isBusy(model) ? { model } : mapDialog(model, Dialog.close(model.dialog)),
     },
-    ClickedRetrySync: ({ id }) =>
-      isBusy(model)
-        ? { model }
-        : {
-            model: begin(model, "retry-sync", id),
-            commands: [RetrySync({ id, operationId: model.nextOperationId })],
-          },
-    RetriedSync: ({ operationId }) =>
-      !matchesOperation(model, operationId)
-        ? { model }
-        : reload(
-            modifyFields(model, {
-              pending: () => Option.none(),
-              notice: () => "Synchronization requested.",
-            }),
-          ),
-    ClickedGithub: ({ installationId }) =>
-      isBusy(model)
-        ? { model }
-        : {
-            model: begin(model, "github"),
-            commands: [Github({ installationId, operationId: model.nextOperationId })],
-          },
-    GotGithub: ({ url, operationId }) =>
-      !matchesOperation(model, operationId)
-        ? { model }
-        : {
-            model: modifyFields(model, { pending: () => Option.none() }),
-            outMessage: OutMessage.OpenGithub({ url }),
-          },
-    ClickedDisconnect: () =>
-      isBusy(model) ? { model } : mapDialog(model, Dialog.open(model.dialog)),
-    CancelledDisconnect: () =>
-      isBusy(model) ? { model } : mapDialog(model, Dialog.close(model.dialog)),
-  })
+  )
 /** An error panel: what happened, in destructive on the title only. */
 const alert = <M>(h: HtmlBuilder<M>, text: string): Html =>
   panel(h, {
