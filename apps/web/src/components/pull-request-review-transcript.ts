@@ -1,11 +1,11 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { LoopRecord } from "@janitor/domain/PullRequestReview/Finding"
+import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import { RunTranscript, type RunEntry } from "@janitor/domain/PullRequestReview/Settings"
 import type * as Prompt from "effect/ai/Prompt"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -17,6 +17,7 @@ import { describeDuration, outcome, timestamp, triggerLabel } from "./pull-reque
 import * as Button from "./ui/button"
 import { chip } from "./ui/chip"
 import * as Page from "./ui/page"
+import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
 
 /**
@@ -65,36 +66,39 @@ export const init = (): Model => ({
   generation: 0,
 })
 
-/** The API path, which is also the "Download JSON" link. */
+/** The "Download JSON" link: an `href`, so the path is built by hand. */
 const transcriptPath = (repositoryId: string, runId: string) =>
   `/api/v1/repositories/${encodeURIComponent(repositoryId)}/pull-request-review/runs/${encodeURIComponent(runId)}/transcript`
 
 const UNREACHABLE = "The transcript could not be loaded. Check your connection and try again."
 
+const MISSING = "This PR review run doesn't exist in this repository."
+
 export const FetchTranscript = Command.define("FetchPullRequestReviewTranscript", {
   args: { repositoryId: Schema.String, runId: Schema.String, generation: Schema.Int },
   messages: [Message.Loaded, Message.Expired, Message.Failed],
   execute: ({ repositoryId, runId, generation }) =>
-    Effect.gen(function* () {
-      const response = yield* HttpClient.get(transcriptPath(repositoryId, runId))
-      if (response.status === 410) return Message.Expired({ generation })
-      if (response.status !== 200)
-        return Message.Failed({
-          generation,
-          reason:
-            response.status === 404 || response.status === 400
-              ? "This PR review run doesn't exist in this repository."
-              : "The transcript could not be loaded. Try again.",
-        })
-      const transcript = yield* HttpIncomingMessage.schemaBodyJson(RunTranscript)(response)
-      return Message.Loaded({ generation, transcript })
-    }).pipe(
-      Effect.timeout("15 seconds"),
-      Effect.orElseSucceed(() => Message.Failed({ generation, reason: UNREACHABLE })),
-    ),
+    // The run id comes from the URL, so a malformed one is a missing run.
+    !Schema.is(RunId)(runId)
+      ? Effect.succeed(Message.Failed({ generation, reason: MISSING }))
+      : ApiClient.use((api) =>
+          api.pullRequestReview.getRunTranscript({
+            params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId), runId },
+          }),
+        ).pipe(
+          Effect.timeout("15 seconds"),
+          Effect.map((transcript) => Message.Loaded({ generation, transcript })),
+          Effect.catchTags({
+            RepositoryNotFound: () =>
+              Effect.succeed(Message.Failed({ generation, reason: MISSING })),
+            RunNotFound: () => Effect.succeed(Message.Failed({ generation, reason: MISSING })),
+            TranscriptExpired: () => Effect.succeed(Message.Expired({ generation })),
+          }),
+          Effect.orElseSucceed(() => Message.Failed({ generation, reason: UNREACHABLE })),
+        ),
 })
 
-type Return = Update.Return<Model, Message, HttpClient.HttpClient>
+type Return = Update.Return<Model, Message, ApiClient>
 
 const fetch = (model: Model): Return => {
   if (!model.active || model.loading) return { model }

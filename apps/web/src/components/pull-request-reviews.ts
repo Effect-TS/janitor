@@ -1,11 +1,10 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { RunId, type Trigger } from "@janitor/domain/PullRequestReview/Run"
 import { RunEntry, RunPage } from "@janitor/domain/PullRequestReview/Settings"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -19,6 +18,7 @@ import { chip, type ChipVariant } from "./ui/chip"
 import { inputGroup, inputGroupAddon, inputGroupInput } from "./ui/input-group"
 import * as Page from "./ui/page"
 import * as Table from "./ui/table"
+import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
@@ -100,31 +100,25 @@ export const FetchRuns = Command.define("FetchPullRequestReviews", {
   },
   messages: [Message.Loaded, Message.Failed],
   execute: ({ repositoryId, generation, search, cursor }) =>
-    Effect.gen(function* () {
-      const params = new URLSearchParams()
-      if (search !== "") params.set("search", search)
-      if (cursor !== null) params.set("cursor", cursor)
-      const query = params.size === 0 ? "" : `?${params}`
-      const response = yield* HttpClient.get(
-        `/api/v1/repositories/${encodeURIComponent(repositoryId)}/pull-request-review/runs${query}`,
-      )
-      if (response.status !== 200)
-        return Message.Failed({
-          generation,
-          reason:
-            response.status === 404
-              ? "This repository is unavailable."
-              : "PR reviews could not be loaded. Try again.",
-        })
-      const page = yield* HttpIncomingMessage.schemaBodyJson(RunPage)(response)
-      return Message.Loaded({ generation, older: cursor !== null, page })
-    }).pipe(
+    ApiClient.use((api) =>
+      api.pullRequestReview.listRuns({
+        params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+        query: {
+          ...(search === "" ? {} : { search }),
+          ...(cursor === null ? {} : { cursor }),
+        },
+      }),
+    ).pipe(
       Effect.timeout("15 seconds"),
+      Effect.map((page) => Message.Loaded({ generation, older: cursor !== null, page })),
+      Effect.catchTag("RepositoryNotFound", () =>
+        Effect.succeed(Message.Failed({ generation, reason: "This repository is unavailable." })),
+      ),
       Effect.orElseSucceed(() => Message.Failed({ generation, reason: UNREACHABLE })),
     ),
 })
 
-type Return = Update.Return<Model, Message, HttpClient.HttpClient>
+type Return = Update.Return<Model, Message, ApiClient>
 
 const fetchPage = (model: Model, older = false): Return => {
   if (!model.active || model.loading || (older && model.cursor === null)) return { model }

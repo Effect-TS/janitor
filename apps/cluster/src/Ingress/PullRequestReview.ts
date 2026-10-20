@@ -1,76 +1,34 @@
-import * as Cause from "effect/Cause"
-import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
-import * as HttpRouter from "effect/http/HttpRouter"
-import * as HttpServerRequest from "effect/http/HttpServerRequest"
-import * as HttpServerResponse from "effect/http/HttpServerResponse"
-import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import { RunId } from "@janitor/domain/PullRequestReview/Run"
+import { JanitorApi } from "@janitor/domain/Api"
+import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import {
-  RepositorySettings,
-  RunPage,
-  RunTranscript,
-  SetRepositorySettingsRequest,
+  PrivateRepository,
+  RunNotFound,
+  TranscriptExpired,
 } from "@janitor/domain/PullRequestReview/Settings"
+import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import { GitHubReadModel } from "../GitHub/ReadModel.ts"
 import { pullRequestReviewDeployment } from "../PullRequestReview/Config.ts"
-import { errorFields } from "../PullRequestReview/Log.ts"
 import { RunTranscripts } from "../PullRequestReview/RunEntity.ts"
 import { RepositoryDisabler } from "../PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../PullRequestReview/Store.ts"
-import { SameOriginMiddleware } from "./Middleware.ts"
-
-/**
- * PR review's repository settings and runs list (EFF-1930), and a run's
- * transcript (EFF-2445). Every route sits behind the Access assertion; the
- * write also requires same origin. A transcript is never logged.
- */
 
 /** Runs per page, as on Activity. */
 const RUN_PAGE_SIZE = 50
 
-const repositoryPath = HttpRouter.schemaPathParams(
-  Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId }),
-)
-
-const runPath = HttpRouter.schemaPathParams(
-  Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId, runId: RunId }),
-)
-
-const Message = Schema.Struct({ message: Schema.String })
-
-const badRequest = HttpServerResponse.text("Bad Request", { status: 400 })
-const notFound = HttpServerResponse.empty({ status: 404 })
-const unavailableResponse = HttpServerResponse.text("Service Unavailable", {
-  status: 503,
-  headers: { "Retry-After": "10" },
-})
-
-const isBadRequest = (error: unknown) =>
-  typeof error === "object" &&
-  error !== null &&
-  "_tag" in error &&
-  (error._tag === "SchemaError" || error._tag === "HttpServerError")
-
-/** Malformed requests are a 400; anything else is a 503. */
-const handled =
-  (operation: string) =>
-  <E, R>(route: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
-    route.pipe(
-      Effect.catchIf(isBadRequest, () => Effect.succeed(badRequest)),
-      Effect.catchCause((cause) =>
-        Effect.logError(`PR review ${operation} failed`).pipe(
-          Effect.annotateLogs(errorFields(Cause.squash(cause))),
-          Effect.as(unavailableResponse),
-        ),
-      ),
-    )
-
-/** The repository janitor knows, or none. */
+/** The repository janitor knows; database failures die. */
 const repository = (repositoryId: GitHubRepositoryDatabaseId) =>
-  Effect.flatMap(GitHubReadModel, (readModel) => readModel.getRepository(repositoryId))
+  GitHubReadModel.use((readModel) => readModel.getRepository(repositoryId)).pipe(
+    Effect.orDie,
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.fail(new RepositoryNotFound({ repositoryId })),
+        onSome: Effect.succeed,
+      }),
+    ),
+  )
 
 const settings = (repositoryId: GitHubRepositoryDatabaseId) =>
   Effect.gen(function* () {
@@ -80,95 +38,72 @@ const settings = (repositoryId: GitHubRepositoryDatabaseId) =>
       enabled: yield* store.isEnabled(repositoryId),
       deployment: yield* pullRequestReviewDeployment,
     }
-  })
+  }).pipe(Effect.orDie)
 
-const respondSettings = (repositoryId: GitHubRepositoryDatabaseId) =>
-  Effect.flatMap(settings(repositoryId), (value) =>
-    HttpServerResponse.schemaJson(RepositorySettings)(value),
-  )
-
-const reads = HttpRouter.addAll([
-  HttpRouter.route(
-    "GET",
-    "/repositories/:repositoryId/pull-request-review",
-    Effect.gen(function* () {
-      const { repositoryId } = yield* repositoryPath
-      if (Option.isNone(yield* repository(repositoryId))) return notFound
-      return yield* respondSettings(repositoryId)
-    }).pipe(handled("settings")),
-  ),
-  HttpRouter.route(
-    "GET",
-    "/repositories/:repositoryId/pull-request-review/runs",
-    Effect.gen(function* () {
-      const { repositoryId } = yield* repositoryPath
-      const { cursor, search } = yield* HttpRouter.schemaParams(
-        Schema.Struct({
-          cursor: Schema.optionalKey(RunId),
-          search: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200))),
+/**
+ * PR review's repository settings and runs list (EFF-1930), and a run's
+ * transcript (EFF-2445). Infrastructure failures die: the store, the read
+ * model, the deployment's config and a run entity that can't be reached. A
+ * transcript is never logged.
+ */
+export const PullRequestReviewGroupLayer = HttpApiBuilder.group(
+  JanitorApi,
+  "pullRequestReview",
+  (handlers) =>
+    handlers
+      .handle("getSettings", ({ params }) =>
+        repository(params.repositoryId).pipe(Effect.andThen(settings(params.repositoryId))),
+      )
+      .handle("updateSettings", ({ params, payload }) =>
+        Effect.gen(function* () {
+          const { repositoryId } = params
+          const found = yield* repository(repositoryId)
+          if (payload.enabled) {
+            // Unknown visibility counts as private, as in admission (EFF-1645 point 3).
+            if (found.isPrivate !== false) return yield* new PrivateRepository({ repositoryId })
+            yield* PullRequestReviewStore.use((store) => store.setEnabled(repositoryId, true)).pipe(
+              Effect.orDie,
+            )
+          } else {
+            yield* RepositoryDisabler.use((disabler) => disabler.disable(repositoryId)).pipe(
+              Effect.orDie,
+            )
+          }
+          yield* Effect.logInfo(payload.enabled ? "PR review enabled" : "PR review disabled").pipe(
+            Effect.annotateLogs({ repositoryId }),
+          )
+          return yield* settings(repositoryId)
         }),
       )
-      if (Option.isNone(yield* repository(repositoryId))) return notFound
-      const page = yield* (yield* PullRequestReviewStore).runs(repositoryId, {
-        limit: RUN_PAGE_SIZE,
-        cursor: Option.fromNullishOr(cursor),
-        search: search ?? "",
-      })
-      // Encoding drops the store columns the runs list doesn't show.
-      return yield* HttpServerResponse.schemaJson(RunPage)({
-        runs: page.runs,
-        cursor: Option.getOrNull(page.next),
-      })
-    }).pipe(handled("runs")),
-  ),
-  HttpRouter.route(
-    "GET",
-    "/repositories/:repositoryId/pull-request-review/runs/:runId/transcript",
-    Effect.gen(function* () {
-      const { repositoryId, runId } = yield* runPath
-      if (Option.isNone(yield* repository(repositoryId))) return notFound
-      // Found in the repository first, so a run id from another one is never read.
-      const run = yield* (yield* PullRequestReviewStore).run(repositoryId, runId)
-      if (Option.isNone(run)) return notFound
-      const transcript = yield* (yield* RunTranscripts).get(runId)
-      if (transcript._tag === "Expired")
-        return yield* HttpServerResponse.schemaJson(Message)(
-          {
-            message:
-              "This run's transcript is no longer kept. It is dropped once the retention period after the run ended has passed, or at once for a cancelled run.",
-          },
-          { status: 410 },
-        )
-      const { _tag, ...kept } = transcript
-      return yield* HttpServerResponse.schemaJson(RunTranscript)({ run: run.value, ...kept })
-    }).pipe(handled("transcript")),
-  ),
-])
-
-const writes = HttpRouter.add(
-  "PUT",
-  "/repositories/:repositoryId/pull-request-review",
-  Effect.gen(function* () {
-    const { repositoryId } = yield* repositoryPath
-    const { enabled } = yield* HttpServerRequest.schemaBodyJson(SetRepositorySettingsRequest)
-    const found = yield* repository(repositoryId)
-    if (Option.isNone(found)) return notFound
-    if (enabled) {
-      // Unknown visibility counts as private, as in admission (EFF-1645 point 3).
-      if (found.value.isPrivate !== false)
-        return yield* HttpServerResponse.schemaJson(Message)(
-          { message: "PR review can't be enabled for a private repository." },
-          { status: 409 },
-        )
-      yield* (yield* PullRequestReviewStore).setEnabled(repositoryId, true)
-    } else {
-      yield* (yield* RepositoryDisabler).disable(repositoryId)
-    }
-    yield* Effect.logInfo(enabled ? "PR review enabled" : "PR review disabled").pipe(
-      Effect.annotateLogs({ repositoryId }),
-    )
-    return yield* respondSettings(repositoryId)
-  }).pipe(handled("setSettings")),
-).pipe(Layer.provide(SameOriginMiddleware))
-
-export const PullRequestReviewRoutesLayer = Layer.mergeAll(reads, writes)
+      .handle("listRuns", ({ params, query }) =>
+        Effect.gen(function* () {
+          yield* repository(params.repositoryId)
+          const page = yield* PullRequestReviewStore.use((store) =>
+            store.runs(params.repositoryId, {
+              limit: RUN_PAGE_SIZE,
+              cursor: Option.fromNullishOr(query.cursor),
+              search: query.search ?? "",
+            }),
+          ).pipe(Effect.orDie)
+          // Encoding drops the store columns the runs list doesn't show.
+          return { runs: page.runs, cursor: Option.getOrNull(page.next) }
+        }),
+      )
+      .handle("getRunTranscript", ({ params }) =>
+        Effect.gen(function* () {
+          const { repositoryId, runId } = params
+          yield* repository(repositoryId)
+          // Found in the repository first, so a run id from another one is never read.
+          const run = yield* PullRequestReviewStore.use((store) =>
+            store.run(repositoryId, runId),
+          ).pipe(Effect.orDie)
+          if (Option.isNone(run)) return yield* new RunNotFound({ runId })
+          const transcript = yield* RunTranscripts.use((transcripts) =>
+            transcripts.get(runId),
+          ).pipe(Effect.orDie)
+          if (transcript._tag === "Expired") return yield* new TranscriptExpired({ runId })
+          const { _tag, ...kept } = transcript
+          return { run: run.value, ...kept }
+        }),
+      ),
+)
