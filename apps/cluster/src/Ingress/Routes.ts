@@ -14,7 +14,7 @@ import {
 } from "./Middleware.ts"
 import { AccountGroupLayer } from "./Account.ts"
 import { RulesRoutesLayer } from "./Rules.ts"
-import { ConnectionRoutesLayer } from "./Connections.ts"
+import { ConnectionsGroupLayer } from "./Connections.ts"
 import { SyncGroupLayer } from "./Sync.ts"
 import { ReadinessRoutesLayer } from "./Readiness.ts"
 import { PullRequestReviewRoutesLayer } from "./PullRequestReview.ts"
@@ -32,7 +32,7 @@ const ApiRouterLayer = Layer.effect(
  */
 const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
   HttpApiBuilder.layer(JanitorApi).pipe(
-    Layer.provide(Layer.mergeAll(SyncGroupLayer, AccountGroupLayer)),
+    Layer.provide(Layer.mergeAll(SyncGroupLayer, AccountGroupLayer, ConnectionsGroupLayer)),
     Layer.provide(makeApiMiddlewareLayer(middleware)),
   )
 
@@ -46,12 +46,9 @@ export const makeRoutesLayer = (secrets: IngressSecrets, middleware: AccessMiddl
   Layer.mergeAll(
     Layer.mergeAll(
       makeGitHubWebHookRoutesLayer(secrets),
-      Layer.mergeAll(
-        LiveRoutesLayer,
-        RulesRoutesLayer,
-        PullRequestReviewRoutesLayer,
-        ConnectionRoutesLayer,
-      ).pipe(Layer.provide(makeAuthenticatedMiddlewareLayer(middleware))),
+      Layer.mergeAll(LiveRoutesLayer, RulesRoutesLayer, PullRequestReviewRoutesLayer).pipe(
+        Layer.provide(makeAuthenticatedMiddlewareLayer(middleware)),
+      ),
       ReadinessRoutesLayer.pipe(Layer.provide(makeAccessMiddlewareLayer(middleware))),
     ).pipe(Layer.provide(ApiRouterLayer)),
     makeHttpApiLayer(middleware),
