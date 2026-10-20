@@ -1,16 +1,18 @@
 import { assert, layer } from "@effect/vitest"
+import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
 import * as DateTime from "effect/DateTime"
 import * as Schema from "effect/Schema"
 import * as RuntimeContext from "alchemy/RuntimeContext"
 import * as WorkflowEngine from "effect/workflow/WorkflowEngine"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubReadModel } from "../src/GitHub/ReadModel.ts"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
-import { GitHubTransport } from "../src/GitHub/Transport.ts"
+import { GitHubTransport, type GitHubResponse } from "../src/GitHub/Transport.ts"
 import { SyncTargets } from "../src/SyncTargets.ts"
 import { WorkflowOutbox } from "../src/WorkflowOutbox.ts"
 import { MigratedPostgresLayer } from "./support/Postgres.ts"
@@ -28,6 +30,8 @@ import {
   GitHubWebhookEnvelopeV1,
   GitHubWebhookR2ObjectKey,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
+// GitHub answers these repository lookups with a failure status.
+const failures: Record<string, number> = { "/repos/test/gone": 404, "/repos/test/broken": 502 }
 const Services = RepositoryConnections.layer.pipe(
   Layer.provideMerge(WorkflowDispatcher.layer([])),
   Layer.provideMerge(WorkflowEngine.layerMemory),
@@ -40,8 +44,16 @@ const Services = RepositoryConnections.layer.pipe(
     Layer.succeed(
       GitHubTransport,
       GitHubTransport.of({
-        request: (request) =>
-          Effect.succeed({
+        request: (request) => {
+          const status = failures[request.url]
+          if (status !== undefined)
+            return Effect.succeed<GitHubResponse>({
+              _tag: "Failed",
+              status,
+              body: {},
+              requestId: Option.none(),
+            })
+          return Effect.succeed({
             _tag: "Ok",
             status: 200,
             body:
@@ -86,12 +98,14 @@ const Services = RepositoryConnections.layer.pipe(
             etag: Option.none(),
             link: Option.none(),
             requestId: Option.none(),
-          }),
+          })
+        },
       }),
     ),
   ),
 )
 const actor = { issuer: "test", subject: "operator" }
+const repositoryId = GitHubRepositoryDatabaseId.make("9001")
 layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
   it.effect(
     "deletes configuration on disconnect and reconnects through fresh synchronization",
@@ -102,16 +116,16 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
         yield* sql`INSERT INTO github_installation(access_error,installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES(NULL,'77','1','test','Organization','selected','active','https://github.com/settings/installations/77',1)`
         yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,access,projected_sequence) VALUES('9001','77','test','example',FALSE,'accessible',1)`
         assert.isFalse((yield* connections.inventory).repositories[0]!.connected)
-        yield* connections.change("9001", "connect", actor)
-        yield* connections.change("9001", "connect", actor)
+        yield* connections.change(repositoryId, "connect", actor)
+        yield* connections.change(repositoryId, "connect", actor)
         assert.isTrue((yield* connections.inventory).repositories[0]!.enabled)
         const audit = yield* sql`SELECT action FROM repository_connection_audit`
         assert.deepStrictEqual(audit, [{ action: "connect" }])
         assert.strictEqual((yield* sql`SELECT scope FROM sync_target`).length, 3)
         yield* sql`INSERT INTO labeling_policy(policy_id,repository_id,name,target,version) VALUES('disconnect-policy','9001','Old policy','issue',1)`
         yield* sql`INSERT INTO labeling_policy_draft(policy_id,program) VALUES('disconnect-policy','{}')`
-        yield* connections.change("9001", "disconnect", actor)
-        yield* connections.change("9001", "disconnect", actor)
+        yield* connections.change(repositoryId, "disconnect", actor)
+        yield* connections.change(repositoryId, "disconnect", actor)
         const disconnected = (yield* connections.inventory).repositories[0]!
         assert.isFalse(disconnected.connected)
         assert.isFalse(disconnected.enabled)
@@ -125,25 +139,25 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
           }>`SELECT sync_scope_enabled('{"_tag":"RepositoryTrack","repositoryId":"9001","track":"labels"}') AS eligible`)[0]!
             .eligible,
         )
-        const denied = yield* Effect.flip(connections.change("9001", "resume", actor))
-        assert.include(denied.message, "Reconnect")
+        const denied = yield* Effect.flip(connections.change(repositoryId, "resume", actor))
+        assert.strictEqual(denied._tag, "RepositoryBlocked")
+        assert.strictEqual(denied.reason, "disconnected")
         // Older releases retained configuration even while disconnected.
         yield* sql`INSERT INTO labeling_policy(policy_id,repository_id,name,target,version) VALUES('legacy-retained','9001','Legacy retained','issue',1)`
-        yield* connections.change("9001", "disconnect", actor)
+        yield* connections.change(repositoryId, "disconnect", actor)
         assert.strictEqual((yield* connections.inventory).repositories[0]!.policyCount, 0)
         yield* sql`INSERT INTO labeling_policy(policy_id,repository_id,name,target,version) VALUES('legacy-reconnect','9001','Legacy reconnect','issue',1)`
-        yield* connections.change("9001", "connect", actor)
+        yield* connections.change(repositoryId, "connect", actor)
         assert.isTrue((yield* connections.inventory).repositories[0]!.enabled)
         assert.strictEqual((yield* connections.inventory).repositories[0]!.policyCount, 0)
         assert.strictEqual((yield* connections.inventory).repositories[0]!.syncState, "syncing")
-        yield* connections.change("9001", "resume", actor)
+        yield* connections.change(repositoryId, "resume", actor)
         assert.isTrue((yield* connections.inventory).repositories[0]!.enabled)
         yield* sql`UPDATE github_repository SET access='lost' WHERE repository_id='9001'`
-        yield* connections.change("9001", "pause", actor)
-        assert.include(
-          (yield* Effect.flip(connections.change("9001", "resume", actor))).message,
-          "Restore GitHub access",
-        )
+        yield* connections.change(repositoryId, "pause", actor)
+        const lost = yield* Effect.flip(connections.change(repositoryId, "resume", actor))
+        assert.strictEqual(lost._tag, "RepositoryBlocked")
+        assert.strictEqual(lost.reason, "access-unavailable")
       }),
   )
   it.effect("binds expiring GitHub return state to the operator and consumes it once", () =>
@@ -152,13 +166,18 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       const url = new URL(yield* connections.github(null, actor))
       assert.strictEqual(url.pathname, "/apps/janitor/installations/new")
       const state = url.searchParams.get("state")!
-      yield* Effect.flip(connections.returned(state, { ...actor, subject: "someone-else" }))
+      const foreign = yield* Effect.flip(
+        connections.returned(state, { ...actor, subject: "someone-else" }),
+      )
+      assert.strictEqual(foreign._tag, "AuthorizationExpired")
       yield* connections.returned(state, actor)
-      yield* Effect.flip(connections.returned(state, actor))
+      const replay = yield* Effect.flip(connections.returned(state, actor))
+      assert.strictEqual(replay._tag, "AuthorizationExpired")
       const expired = new URL(yield* connections.github(null, actor)).searchParams.get("state")!
       const sql = yield* SqlClient.SqlClient
       yield* sql`UPDATE repository_connection_attempt SET expires_at=now()-interval '1 minute' WHERE state::text=${expired}`
-      yield* Effect.flip(connections.returned(expired, actor))
+      const stale = yield* Effect.flip(connections.returned(expired, actor))
+      assert.strictEqual(stale._tag, "AuthorizationExpired")
     }),
   )
   it.effect("discovers repositories immediately without dispatching sync or connecting them", () =>
@@ -197,7 +216,7 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
             }),
           ),
           Deferred.await(locked).pipe(
-            Effect.flatMap(() => connections.change("9001", "disconnect", actor)),
+            Effect.flatMap(() => connections.change(repositoryId, "disconnect", actor)),
           ),
         ],
         { concurrency: 2 },
@@ -218,8 +237,7 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       const connections = yield* RepositoryConnections
       const targets = yield* SyncTargets
       const journal = yield* GitHubWebhookJournal
-      yield* connections.change("9001", "connect", actor)
-      const repositoryId = GitHubRepositoryDatabaseId.make("9001")
+      yield* connections.change(repositoryId, "connect", actor)
       const scope = { _tag: "Entity", repositoryId, number: 1 } as const
       const old = yield* targets.invalidate({ scope, sequence: Option.none() })
       yield* targets.begin(scope, old.generation)
@@ -262,8 +280,8 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       // Exercise legacy attribution as well as already-accepted outbox cleanup.
       yield* journal.record(entry)
       yield* sql`UPDATE workflow_outbox SET accepted_at=now()`
-      yield* connections.change("9001", "disconnect", actor)
-      yield* connections.change("9001", "disconnect", actor)
+      yield* connections.change(repositoryId, "disconnect", actor)
+      yield* connections.change(repositoryId, "disconnect", actor)
       const tables = yield* sql<{
         table_name: string
       }>`SELECT table_name FROM information_schema.columns WHERE table_schema='public' AND column_name='repository_id' AND table_name <> 'github_repository'`
@@ -281,7 +299,7 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       )
       assert.isFalse((yield* targets.invalidate({ scope, sequence: Option.none() })).dispatched)
       assert.isTrue(Option.isNone(yield* targets.get(scope)))
-      yield* connections.change("9001", "connect", actor)
+      yield* connections.change(repositoryId, "connect", actor)
       const fresh = yield* targets.invalidate({ scope, sequence: Option.none() })
       assert.isTrue(BigInt(fresh.generation) > BigInt(old.generation))
       assert.strictEqual((yield* targets.begin(scope, old.generation))._tag, "Superseded")
@@ -367,6 +385,34 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       assert.strictEqual(repository.syncState, "ready")
       assert.strictEqual(repository.policyCount, 0)
       assert.strictEqual(repository.ruleCount, 0)
+    }),
+  )
+  it.effect("refuses a connection GitHub cannot vouch for", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const connections = yield* RepositoryConnections
+      const unknown = GitHubRepositoryDatabaseId.make("404404")
+      const missing = yield* Effect.flip(connections.change(unknown, "connect", actor))
+      assert.strictEqual(missing._tag, "RepositoryNotFound")
+      assert.strictEqual(missing.repositoryId, unknown)
+      yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,access,projected_sequence) VALUES
+        ('9003','77','test','renamed',FALSE,'accessible',1),
+        ('9004','77','test','gone',FALSE,'accessible',1),
+        ('9005','77','test','broken',FALSE,'accessible',1)`
+      // GitHub now serves another repository under this name.
+      const renamed = GitHubRepositoryDatabaseId.make("9003")
+      const changed = yield* Effect.flip(connections.change(renamed, "connect", actor))
+      assert.strictEqual(changed._tag, "RepositoryIdentityChanged")
+      assert.strictEqual(changed.repositoryId, renamed)
+      const gone = yield* Effect.flip(
+        connections.change(GitHubRepositoryDatabaseId.make("9004"), "connect", actor),
+      )
+      assert.strictEqual(gone._tag, "RepositoryBlocked")
+      assert.strictEqual(gone.reason, "access-unavailable")
+      const broken = yield* Effect.exit(
+        connections.change(GitHubRepositoryDatabaseId.make("9005"), "connect", actor),
+      )
+      assert.isTrue(Exit.isFailure(broken) && Cause.hasDies(broken.cause))
     }),
   )
 })
