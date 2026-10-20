@@ -1,3 +1,4 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { pipe } from "effect/Function"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
@@ -52,7 +53,23 @@ const idSegment = <K extends string>(name: K) =>
       }),
     (value) => encodeURIComponent(value[name]),
   )
-const base = pipe(Route.literal("repositories"), Route.slash(idSegment("repositoryId")))
+const decodeRepositoryId = Schema.decodeUnknownEffect(GitHubRepositoryDatabaseId)
+/**
+ * A repository path segment that isn't a GitHub database id matches no route,
+ * so every routed `repositoryId` is a `GitHubRepositoryDatabaseId`. The route
+ * still types it as a string: the wire models routes are built from carry
+ * plain strings until their groups move onto the `HttpApi`.
+ */
+const repositoryIdSegment = Route.param<{ readonly repositoryId: string }>(
+  "repositoryId",
+  (segment) =>
+    decodeRepositoryId(segment).pipe(
+      Effect.map((repositoryId) => ({ repositoryId })),
+      Effect.mapError(() => new Route.ParseError({ message: "Invalid repositoryId" })),
+    ),
+  (value) => value.repositoryId,
+)
+const base = pipe(Route.literal("repositories"), Route.slash(repositoryIdSegment))
 const policyBase = pipe(base, Route.slash(Route.literal("policies")))
 const ruleBase = pipe(base, Route.slash(Route.literal("rules")))
 const query = Route.query(Schema.Struct(policyQuery))

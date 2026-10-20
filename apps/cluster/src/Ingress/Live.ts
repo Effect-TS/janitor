@@ -7,8 +7,7 @@ import * as Request from "effect/http/HttpServerRequest"
 import * as Response from "effect/http/HttpServerResponse"
 import * as Body from "effect/http/HttpBody"
 import { LiveUpdates } from "../LiveUpdates.ts"
-import { CurrentAccessIdentity } from "./Middleware.ts"
-import { SameOriginMiddleware } from "./Sync.ts"
+import { CurrentAccessIdentity, SameOriginMiddleware } from "./Middleware.ts"
 import * as Layer from "effect/Layer"
 
 /**

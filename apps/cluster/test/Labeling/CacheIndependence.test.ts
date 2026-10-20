@@ -125,7 +125,7 @@ layer(Services, { timeout: "2 minutes" })("Labeling independence from the cache"
       )
       // The cache's own controls report the cache, not the repository.
       const refused = yield* Effect.flip((yield* SyncStatus).requestRepository(repositoryId))
-      assert.include(refused.message, "turned off")
+      assert.strictEqual(refused._tag, "SynchronizationDisabled")
       yield* sql`UPDATE github_installation SET sync_enabled = TRUE WHERE installation_id = ${installationId}`
     }),
   )

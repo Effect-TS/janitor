@@ -32,6 +32,7 @@ import * as Match from "effect/Match"
 import * as Stream from "effect/Stream"
 import * as Routes from "@/routes"
 import * as Navigation from "@/navigation"
+import type { ApiClient } from "@/lib/api-client"
 
 export const ToastPayload = Schema.Struct({
   title: Schema.String,
@@ -812,7 +813,7 @@ export const update = (model: Model, message: Message): Step =>
     GotRepositorySwitcherMessage: ({ message }) => foldRepositorySwitcher(model, message),
   })
 
-export type AppServices = KeyValueStore.KeyValueStore | HttpClient.HttpClient
+export type AppServices = KeyValueStore.KeyValueStore | HttpClient.HttpClient | ApiClient
 
 export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServices> = (
   flags,

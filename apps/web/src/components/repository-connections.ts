@@ -1,4 +1,5 @@
 import { ConnectionInventory as Inventory } from "@janitor/domain/GitHub/Connection"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { RepositoryBlockReason } from "@janitor/domain/GitHub/Repository"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
@@ -24,6 +25,8 @@ import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import { CircleAlert, RotateCw, Search } from "lucide"
 import { reasonOf, request } from "@/lib/api"
+import { ApiClient } from "@/lib/api-client"
+import { syncRefusalCopy } from "@/components/sync-button"
 import * as Routes from "@/routes"
 
 export const Model = Schema.Struct({
@@ -155,8 +158,16 @@ const RetrySync = Command.define("RetryRepositorySync", {
   args: { id: Schema.String, operationId: Schema.Int },
   messages: [Message.RetriedSync, Message.Failed],
   execute: ({ id, operationId }) =>
-    request("POST", `/api/v1/repositories/${encodeURIComponent(id)}/sync`, {}).pipe(
+    ApiClient.use((api) =>
+      // The inventory's ids are the server's GitHub database ids.
+      api.sync.requestRepository({ params: { repositoryId: GitHubRepositoryDatabaseId.make(id) } }),
+    ).pipe(
       Effect.as(Message.RetriedSync({ operationId })),
+      Effect.catchTag(
+        ["RepositoryNotFound", "RepositoryBlocked", "SynchronizationDisabled"],
+        (refusal) =>
+          Effect.succeed(Message.Failed({ operationId, reason: syncRefusalCopy(refusal) })),
+      ),
       Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
@@ -196,7 +207,12 @@ const reload = (model: Model, state = "") => ({
 })
 export const update = (model: Model, message: Message) =>
   Message.match<
-    Update.ReturnWithOutMessage<Model, Message, typeof OutMessage.Type, HttpClient.HttpClient>
+    Update.ReturnWithOutMessage<
+      Model,
+      Message,
+      typeof OutMessage.Type,
+      HttpClient.HttpClient | ApiClient
+    >
   >(message, {
     ClickedCancel: () => ({ model, outMessage: OutMessage.Cancelled({ path: model.returnPath }) }),
     GotDialogMessage: ({ message }) =>

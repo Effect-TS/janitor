@@ -1,3 +1,4 @@
+import { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import { flushLive } from "../LiveUpdates.ts"
 import * as Context from "effect/Context"
 import * as Layer from "effect/Layer"
@@ -11,7 +12,7 @@ import * as Workflow from "effect/workflow/Workflow"
 import * as SqlClient from "effect/sql/SqlClient"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
-import { LabelingConfiguration, RepositoryNotFound } from "./Configuration.ts"
+import { LabelingConfiguration } from "./Configuration.ts"
 import { ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingTest } from "./Test.ts"
 

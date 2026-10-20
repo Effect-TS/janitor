@@ -114,11 +114,13 @@ const localDevIdentity = (
 
 /**
  * Admits a request only when it carries an assertion the `AccessVerifier`
- * accepts, and makes the identity available to the route. Failures answer
+ * accepts, and makes the identity available to the route. Rejections answer
  * 401 with an empty body: the browser is redirected to the Access login by
  * Cloudflare before it ever reaches here, so anything that arrives without a
- * valid assertion is not a person who needs a hint. A header, when present,
- * is always verified; the local fallback only applies when there is none.
+ * valid assertion is not a person who needs a hint. Signing keys that can't
+ * be fetched are a defect, not a rejection, so the caller sees a 500 and
+ * retries instead of being told to sign in again. A header, when present, is
+ * always verified; the local fallback only applies when there is none.
  */
 export const AccessMiddleware = HttpRouter.middleware<{ provides: CurrentAccessIdentity }>()(
   Effect.gen(function* () {
@@ -141,10 +143,7 @@ export const AccessMiddleware = HttpRouter.middleware<{ provides: CurrentAccessI
                   Effect.logWarning("Access assertion rejected", error.reason).pipe(
                     Effect.as(undefined),
                   ),
-                AccessKeysUnavailable: (error) =>
-                  Effect.logError("Access signing keys unavailable", error.cause).pipe(
-                    Effect.as(undefined),
-                  ),
+                AccessKeysUnavailable: Effect.die,
               }),
             )
       if (identity === undefined) {
@@ -169,14 +168,12 @@ export class CurrentTeammate extends Context.Service<CurrentTeammate, TeammateSu
   "@janitor/cluster/Ingress/Middleware/CurrentTeammate",
 ) {}
 
-const membershipUnavailableResponse = HttpServerResponse.empty({ status: 503 })
-
 /**
  * Access decides who may use Janitor; this resolves the verified identity to
  * its teammate, creating one on first sign-in. Runs inside `AccessMiddleware`,
  * so the identity is already verified. `Teammates` comes from the request
  * context because the routes are built before the cluster services exist; a
- * request without it answers 503 rather than admitting.
+ * request without it, or an admission that fails, dies rather than admitting.
  */
 export const MembershipMiddleware = HttpRouter.middleware<{ provides: CurrentTeammate }>()(
   // The parameter is spelled out: contextual typing through the middleware
@@ -187,19 +184,9 @@ export const MembershipMiddleware = HttpRouter.middleware<{ provides: CurrentTea
     const identity = yield* CurrentAccessIdentity
     const teammates = yield* Effect.serviceOption(Teammates)
     if (Option.isNone(teammates)) {
-      yield* Effect.logError("Teammates service missing from the request context")
-      return membershipUnavailableResponse
+      return yield* Effect.die("Teammates service missing from the request context")
     }
-    const teammate = yield* teammates.value
-      .admit(identity)
-      .pipe(
-        Effect.catchTag("TeammateError", (error) =>
-          Effect.logError("Teammate admission failed", error.message).pipe(Effect.as(undefined)),
-        ),
-      )
-    if (teammate === undefined) {
-      return membershipUnavailableResponse
-    }
+    const teammate = yield* teammates.value.admit(identity).pipe(Effect.orDie)
     return yield* app.pipe(
       Effect.provideService(CurrentTeammate, teammate),
       Effect.annotateLogs({ teammateId: teammate.teammateId }),
@@ -216,3 +203,47 @@ export const makeAuthenticatedMiddlewareLayer = (options: AccessMiddlewareOption
 export const AuthenticatedMiddlewareLayer = makeAuthenticatedMiddlewareLayer({
   localDevAudience: undefined,
 })
+
+const forbiddenResponse = HttpServerResponse.text("Forbidden", { status: 403 })
+
+/** Additional browser origin check behind the shared Access middleware. */
+const isSameOrigin = (request: HttpServerRequest.HttpServerRequest): boolean => {
+  const fetchSite = request.headers["sec-fetch-site"]
+  if (fetchSite !== undefined) {
+    return fetchSite === "same-origin"
+  }
+  const origin = request.headers["origin"]
+  if (origin === undefined) {
+    return false
+  }
+  try {
+    return new URL(origin).origin === new URL(request.originalUrl).origin
+  } catch {
+    return false
+  }
+}
+
+/** Refuses every cross-origin request, reads included: Live's GETs open WebSockets. */
+export const SameOriginMiddleware = HttpRouter.middleware((app) =>
+  Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
+    isSameOrigin(request) ? app : Effect.succeed(forbiddenResponse),
+  ),
+).layer
+
+/** Lets GET and HEAD through and refuses any other cross-origin method: the `HttpApi`'s writes. */
+export const SameOriginWritesMiddleware = HttpRouter.middleware()((app) =>
+  Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
+    request.method === "GET" || request.method === "HEAD" || isSameOrigin(request)
+      ? app
+      : Effect.succeed(forbiddenResponse),
+  ),
+)
+
+/**
+ * What every `HttpApi` route sits behind: Access, then Membership, then the
+ * method-gated origin check. One `combine` chain fixes that order.
+ */
+export const makeApiMiddlewareLayer = (options: AccessMiddlewareOptions) =>
+  SameOriginWritesMiddleware.combine(MembershipMiddleware.combine(AccessMiddleware)).layer.pipe(
+    Layer.provide(Layer.succeed(AccessMiddlewareConfig, options)),
+  )

@@ -1,3 +1,4 @@
+import type { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import type { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { LabelingRevision, PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
@@ -22,11 +23,7 @@ import { GitHubReadModel } from "../GitHub/ReadModel.ts"
 import type { SyncActivityError, SyncRateLimited } from "../GitHub/SyncSupport.ts"
 import { GitHubTransport } from "../GitHub/Transport.ts"
 import { describeError } from "../SqlErrors.ts"
-import {
-  LabelingConfiguration,
-  type LabelingConfigurationError,
-  type RepositoryNotFound,
-} from "./Configuration.ts"
+import { LabelingConfiguration, type LabelingConfigurationError } from "./Configuration.ts"
 import { classifyAi, ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { evaluateLabeling } from "./Evaluation.ts"
 import { authorLogin, isOpenPullRequest, itemFacts, itemKind, type ReadItem } from "./Facts.ts"

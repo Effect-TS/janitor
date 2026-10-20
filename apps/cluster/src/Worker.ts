@@ -25,6 +25,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
+import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Etag from "effect/http/Etag"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
@@ -34,6 +35,7 @@ import { GitHubEventsDeadLetterQueue, GitHubEventsQueue } from "./GitHub/EventQu
 import { GitHubWebhookPayloadsBucket } from "./GitHub/PayloadStore.ts"
 import { ingressSecrets } from "./Ingress/GitHubWebhook.ts"
 import * as Access from "./Ingress/Access.ts"
+import * as AccessJwt from "./Ingress/AccessJwt.ts"
 import { makeRoutesLayer } from "./Ingress/Routes.ts"
 import * as Config from "effect/Config"
 import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
@@ -457,11 +459,19 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // fails closed rather than open.
     const accessAudience = typeof env.ACCESS_AUD === "string" ? env.ACCESS_AUD : ""
     const apiRoutes = yield* HttpRouter.toHttpEffect(
-      makeRoutesLayer(
-        secrets,
-        { teamDomain: Access.TEAM_DOMAIN, audience: accessAudience },
-        { localDevAudience },
-      ).pipe(Layer.provide([Etag.layer, HttpPlatformStubLayer, Path.layer, FetchHttpClient.layer])),
+      makeRoutesLayer(secrets, { localDevAudience }).pipe(
+        Layer.provide(
+          AccessJwt.layerFrom({ teamDomain: Access.TEAM_DOMAIN, audience: accessAudience }),
+        ),
+        Layer.provide([
+          Etag.layer,
+          HttpPlatformStubLayer,
+          // `HttpApiBuilder` asks for a file system to serve file bodies; no route does.
+          FileSystem.layerNoop({}),
+          Path.layer,
+          FetchHttpClient.layer,
+        ]),
+      ),
     )
     // Route errors that know their response (400 for a malformed request,
     // 404 for no route) become that response; anything else is a 500.

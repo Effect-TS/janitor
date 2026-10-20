@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import * as SchemaGetter from "effect/SchemaGetter"
+import { GitHubRepositoryDatabaseId } from "./Id.ts"
 
 const GitHubRepositoryNameSegment = Schema.NonEmptyString.check(
   Schema.isPattern(/^[^/\s]+$/),
@@ -47,3 +48,17 @@ export class RepositoryBlocked extends Schema.TaggedError<RepositoryBlocked>()(
     return this.reason
   }
 }
+
+/** No repository with this id is known to Janitor. */
+export class RepositoryNotFound extends Schema.TaggedError<RepositoryNotFound>()(
+  "RepositoryNotFound",
+  { repositoryId: GitHubRepositoryDatabaseId },
+  { httpApiStatus: 404 },
+) {}
+
+/** The repository can be worked on, but its installation has synchronization turned off. */
+export class SynchronizationDisabled extends Schema.TaggedError<SynchronizationDisabled>()(
+  "SynchronizationDisabled",
+  {},
+  { httpApiStatus: 409 },
+) {}

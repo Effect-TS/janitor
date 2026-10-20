@@ -17,8 +17,7 @@ import {
   type TeammateErrorReason,
   Teammates,
 } from "../Teammates.ts"
-import { CurrentTeammate } from "./Middleware.ts"
-import { SameOriginMiddleware } from "./Sync.ts"
+import { CurrentTeammate, SameOriginMiddleware } from "./Middleware.ts"
 
 /**
  * Account screens: the signed-in teammate's identity and connected accounts,
