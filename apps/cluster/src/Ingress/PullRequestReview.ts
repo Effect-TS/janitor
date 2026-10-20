@@ -20,7 +20,7 @@ import { errorFields } from "../PullRequestReview/Log.ts"
 import { RunTranscripts } from "../PullRequestReview/RunEntity.ts"
 import { RepositoryDisabler } from "../PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../PullRequestReview/Store.ts"
-import { SameOriginMiddleware } from "./Sync.ts"
+import { SameOriginMiddleware } from "./Middleware.ts"
 
 /**
  * PR review's repository settings and runs list (EFF-1930), and a run's

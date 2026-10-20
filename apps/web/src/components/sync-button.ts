@@ -1,12 +1,12 @@
 import * as Tooltip from "@foldkit/ui/tooltip"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import type { RepositoryBlockReason } from "@janitor/domain/GitHub/Repository"
+import { type SyncState, SyncSummary } from "@janitor/domain/GitHub/Sync"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -15,34 +15,9 @@ import * as Submodel from "foldkit/submodel"
 import * as Update from "foldkit/update"
 import { RefreshCw } from "lucide"
 import * as Overlay from "@/components/ui/overlay"
+import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
-
-// CONSTANTS
-
-export const SYNC_ENDPOINT = "/api/v1/sync"
-
-// WIRE SCHEMA
-//
-// Mirrors the HTTP representation of `SyncSummary` in
-// `@janitor/domain/GitHub/Sync`. Keep wire changes in sync with that schema.
-
-export const SyncState = Schema.Literals(["idle", "syncing", "blocked", "failed"])
-export type SyncState = typeof SyncState.Type
-
-export const SyncSummary = Schema.Struct({
-  state: SyncState,
-  lastVerifiedAt: Schema.NullOr(Schema.DateTimeUtc),
-  pendingTargets: Schema.Int,
-  blockedTargets: Schema.Int,
-  failedTargets: Schema.Int,
-  queuedTargets: Schema.optional(Schema.Int),
-  runningTargets: Schema.optional(Schema.Int),
-  retryingTargets: Schema.optional(Schema.Int),
-  stalledTargets: Schema.optional(Schema.Int),
-  appliedItems: Schema.optional(Schema.Int),
-})
-export type SyncSummary = typeof SyncSummary.Type
 
 // MODEL
 
@@ -90,55 +65,70 @@ export type OutMessage = typeof OutMessage.Type
 
 // COMMANDS
 
-const decodeSummary = HttpIncomingMessage.schemaBodyJson(SyncSummary)
-
 const describe = (error: unknown): string =>
   typeof error === "object" && error !== null && "message" in error
     ? String(error.message)
     : String(error)
 
+/** Why a repository can't sync right now, in the button's words. */
+const blockedCopy = (reason: RepositoryBlockReason): string => {
+  switch (reason) {
+    case "not-connected":
+    case "disconnected":
+      return "Connect this repository before syncing."
+    case "access-unavailable":
+      return "Restore GitHub access before syncing this repository."
+    case "paused":
+      return "Repository paused. Resume it in repository settings before syncing."
+    case "changed":
+      return "This repository changed while syncing was requested. Try again."
+  }
+}
+
 export const FetchSyncSummary = FoldkitCommand.define("FetchSyncSummary", {
   messages: [Message.GotSummary, Message.FailedSummary],
-  execute: HttpClient.get(SYNC_ENDPOINT).pipe(
-    Effect.flatMap(HttpClientResponse.filterStatusOk),
-    Effect.flatMap(decodeSummary),
-    Effect.flatMap((summary) =>
-      Effect.map(DateTime.now, (receivedAt) => Message.GotSummary({ summary, receivedAt })),
-    ),
+  execute: Effect.gen(function* () {
+    const api = yield* ApiClient
+    const summary = yield* api.sync.getSummary()
+    const receivedAt = yield* DateTime.now
+    return Message.GotSummary({ summary, receivedAt })
+  }).pipe(
     Effect.catch((error) => Effect.succeed(Message.FailedSummary({ reason: describe(error) }))),
   ),
 })
+
+const decodeRepositoryId = Schema.decodeUnknownEffect(GitHubRepositoryDatabaseId)
+
+const failedRequest = (reason: string) => Effect.succeed(Message.FailedRequest({ reason }))
 
 export const RequestSync = FoldkitCommand.define("RequestSync", {
   args: { repositoryId: Schema.optionalKey(Schema.String) },
   messages: [Message.GotRequestResult, Message.FailedRequest],
   execute: ({ repositoryId }) =>
-    HttpClient.post(
-      repositoryId === undefined
-        ? SYNC_ENDPOINT
-        : `/api/v1/repositories/${encodeURIComponent(repositoryId)}/sync`,
-    ).pipe(
-      Effect.flatMap((response) =>
-        response.status === 409
-          ? response.text.pipe(Effect.flatMap((reason) => Effect.fail({ message: reason })))
-          : HttpClientResponse.filterStatusOk(response),
-      ),
-      Effect.flatMap(decodeSummary),
-      Effect.flatMap((summary) =>
-        Effect.map(DateTime.now, (receivedAt) => Message.GotRequestResult({ summary, receivedAt })),
-      ),
-      Effect.catch((error) => Effect.succeed(Message.FailedRequest({ reason: describe(error) }))),
+    Effect.gen(function* () {
+      const api = yield* ApiClient
+      const summary =
+        repositoryId === undefined
+          ? yield* api.sync.requestAll()
+          : yield* api.sync.requestRepository({
+              params: { repositoryId: yield* decodeRepositoryId(repositoryId) },
+            })
+      const receivedAt = yield* DateTime.now
+      return Message.GotRequestResult({ summary, receivedAt })
+    }).pipe(
+      Effect.catchTags({
+        RepositoryNotFound: () => failedRequest(blockedCopy("not-connected")),
+        RepositoryBlocked: ({ reason }) => failedRequest(blockedCopy(reason)),
+        SynchronizationDisabled: () =>
+          failedRequest("Synchronization is turned off for this installation."),
+      }),
+      Effect.catch((error) => failedRequest(describe(error))),
     ),
 })
 
 // INIT
 
-export type UpdateReturn = Update.ReturnWithOutMessage<
-  Model,
-  Message,
-  OutMessage,
-  HttpClient.HttpClient
->
+export type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage, ApiClient>
 
 export const init = (): UpdateReturn => ({
   model: Model.make(
@@ -160,7 +150,7 @@ export const init = (): UpdateReturn => ({
 
 /** Shown and Hidden carry nothing this component needs to react to. */
 const foldTooltipOutMessage = Match.type<Tooltip.OutMessage>().pipe(
-  Match.withReturnType<Update.Step<Model, Message, HttpClient.HttpClient>>(),
+  Match.withReturnType<Update.Step<Model, Message, ApiClient>>(),
   Match.tagsExhaustive({
     Shown: () => (model: Model) => ({ model }),
     Hidden: () => (model: Model) => ({ model }),

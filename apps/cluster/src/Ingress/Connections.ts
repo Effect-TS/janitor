@@ -6,8 +6,7 @@ import * as Request from "effect/http/HttpServerRequest"
 import * as Response from "effect/http/HttpServerResponse"
 import { ConnectionInventory } from "@janitor/domain/GitHub/Connection"
 import { RepositoryConnections } from "../RepositoryConnections.ts"
-import { CurrentAccessIdentity } from "./Middleware.ts"
-import { SameOriginMiddleware } from "./Sync.ts"
+import { CurrentAccessIdentity, SameOriginMiddleware } from "./Middleware.ts"
 const handled = <E, R>(effect: Effect.Effect<Response.HttpServerResponse, E, R>) =>
   effect.pipe(
     Effect.catch((error) => {

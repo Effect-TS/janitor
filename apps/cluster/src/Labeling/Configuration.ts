@@ -1,4 +1,5 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import {
   type Actor,
   ConfigurationSnapshot,
@@ -66,10 +67,6 @@ export const LABEL_MAX_AGE = Duration.hours(24)
 export class LabelingConfigurationError extends Data.TaggedError("LabelingConfigurationError")<{
   readonly operation: string
   readonly message: string
-}> {}
-
-export class RepositoryNotFound extends Data.TaggedError("RepositoryNotFound")<{
-  readonly repositoryId: GitHubRepositoryDatabaseId
 }> {}
 
 const RevisionFromText = Schema.FiniteFromString.pipe(Schema.decodeTo(LabelingRevision))

@@ -28,6 +28,7 @@ import {
 import { describeCatalog, FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { TestEntity, TestRequest, TestResponse } from "@janitor/domain/Labeling/Policy/Test"
+import type { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -38,7 +39,7 @@ import type * as HttpServerError from "effect/http/HttpServerError"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import { AiConsentService } from "../Labeling/Classifier.ts"
-import { LabelingConfiguration, type RepositoryNotFound } from "../Labeling/Configuration.ts"
+import { LabelingConfiguration } from "../Labeling/Configuration.ts"
 import { LabelingOverview } from "../Labeling/Overview.ts"
 import {
   Policies,
@@ -56,8 +57,7 @@ import {
   type RuleNotFound,
 } from "../Labeling/Rules.ts"
 import { LabelingTest } from "../Labeling/Test.ts"
-import { CurrentAccessIdentity } from "./Middleware.ts"
-import { SameOriginMiddleware } from "./Sync.ts"
+import { CurrentAccessIdentity, SameOriginMiddleware } from "./Middleware.ts"
 
 const RepositoryPath = Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId })
 const PolicyPath = Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId, policyId: PolicyId })

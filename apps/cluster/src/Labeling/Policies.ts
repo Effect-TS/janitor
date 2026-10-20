@@ -1,3 +1,4 @@
+import type { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { compile, CompileIssue } from "@janitor/domain/Labeling/Policy/Compile"
@@ -37,7 +38,6 @@ import {
   LabelingConfigurationError,
   policyColumns,
   PolicyRow,
-  type RepositoryNotFound,
   toPolicyRecord,
   toVersionRecord,
   VersionRow,

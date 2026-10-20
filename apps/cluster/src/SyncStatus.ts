@@ -11,6 +11,12 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
 import { GitHubInstallationId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import {
+  RepositoryBlocked,
+  RepositoryBlockReason,
+  RepositoryNotFound,
+  SynchronizationDisabled,
+} from "@janitor/domain/GitHub/Repository"
 import { describeError } from "./SqlErrors.ts"
 import { SyncTargets } from "./SyncTargets.ts"
 
@@ -33,6 +39,10 @@ const SummaryRow = Schema.Struct({
 
 const InstallationRow = Schema.Struct({ installation_id: GitHubInstallationId })
 const RepositoryRow = Schema.Struct({ repository_id: GitHubRepositoryDatabaseId })
+const RepositorySyncRow = Schema.Struct({
+  reason: Schema.NullOr(RepositoryBlockReason),
+  eligible: Schema.Boolean,
+})
 
 export interface RequestAllResult {
   readonly summary: SyncSummary
@@ -49,9 +59,13 @@ export interface RequestAllResult {
 export class SyncStatus extends Context.Service<
   SyncStatus,
   {
+    /** Fails only when the repository can't sync; infrastructure failures die. */
     readonly requestRepository: (
       repositoryId: GitHubRepositoryDatabaseId,
-    ) => Effect.Effect<RequestAllResult, SyncStatusError>
+    ) => Effect.Effect<
+      RequestAllResult,
+      RepositoryNotFound | RepositoryBlocked | SynchronizationDisabled
+    >
     readonly summary: Effect.Effect<SyncSummary, SyncStatusError>
     readonly requestAll: Effect.Effect<RequestAllResult, SyncStatusError>
   }
@@ -62,6 +76,7 @@ export class SyncStatus extends Context.Service<
     const decodeSummary = Schema.decodeUnknownEffect(Schema.Array(SummaryRow))
     const decodeInstallations = Schema.decodeUnknownEffect(Schema.Array(InstallationRow))
     const decodeRepositories = Schema.decodeUnknownEffect(Schema.Array(RepositoryRow))
+    const decodeRepositorySync = Schema.decodeUnknownEffect(Schema.Array(RepositorySyncRow))
 
     const wrap =
       (operation: string) =>
@@ -159,25 +174,15 @@ export class SyncStatus extends Context.Service<
       sql
         .withTransaction(
           Effect.gen(function* () {
-            const [repository] = yield* sql<{
-              enabled: boolean
-              connected: boolean
-              accessible: boolean
-              eligible: boolean
-            }>`SELECT enabled, connected, repository_access_current(repository_id) AS accessible,
+            const [repository] = yield* sql`SELECT repository_block_reason(repository_id) AS reason,
             sync_scope_enabled(jsonb_build_object('_tag','RepositoryTrack','repositoryId',repository_id)) AS eligible
-          FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
-            if (!repository?.connected || !repository.enabled || !repository.eligible)
-              return yield* new SyncStatusError({
-                operation: "repositoryUnavailable",
-                message: !repository?.connected
-                  ? "Connect this repository before syncing."
-                  : !repository.enabled
-                    ? "Repository paused. Resume it in repository settings before syncing."
-                    : !repository.accessible
-                      ? "Restore GitHub access before syncing this repository."
-                      : "Synchronization is turned off for this installation.",
-              })
+          FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`.pipe(
+              Effect.flatMap(decodeRepositorySync),
+            )
+            if (repository === undefined) return yield* new RepositoryNotFound({ repositoryId })
+            if (repository.reason !== null)
+              return yield* new RepositoryBlocked({ repositoryId, reason: repository.reason })
+            if (!repository.eligible) return yield* new SynchronizationDisabled()
             for (const track of ["labels", "entities", "pull_requests"] as const)
               yield* targets.invalidate({
                 scope: { _tag: "RepositoryTrack", repositoryId, track },
@@ -188,7 +193,15 @@ export class SyncStatus extends Context.Service<
             return { summary: yield* summary, requested: 3 + failed }
           }),
         )
-        .pipe(wrap("requestRepository"))
+        .pipe(
+          Effect.catchTags({
+            SqlError: Effect.die,
+            SchemaError: Effect.die,
+            "@janitor/cluster/SyncTargets/SyncTargetError": Effect.die,
+            SyncStatusError: Effect.die,
+          }),
+          Effect.withSpan("SyncStatus.requestRepository"),
+        )
 
     return { summary, requestAll, requestRepository }
   }),

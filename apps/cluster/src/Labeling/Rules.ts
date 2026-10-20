@@ -1,3 +1,4 @@
+import type { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import {
   aiRuleProgram,
   inspectAiRule,
@@ -33,7 +34,6 @@ import {
   LabelingConfigurationError,
   policyColumns,
   PolicyRow,
-  type RepositoryNotFound,
   RuleRow,
   toRuleRecord,
   withRepositoryMutation,
