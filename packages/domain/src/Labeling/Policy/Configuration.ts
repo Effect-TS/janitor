@@ -171,6 +171,11 @@ export const RuleRecord = Schema.Struct({
 }).annotate({ identifier: "RuleRecord" })
 export type RuleRecord = typeof RuleRecord.Type
 
+/**
+ * The rules group's create handler fills each omitted key with its legacy
+ * default: `ensure-present` on a match, `no-action` otherwise, no group,
+ * priority 0, enabled.
+ */
 export const CreateRuleRequest = Schema.Struct({
   requestId: Schema.optionalKey(
     Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100)),
@@ -178,11 +183,11 @@ export const CreateRuleRequest = Schema.Struct({
   ai: Schema.optionalKey(AiRuleDefinition),
   labelId: GitHubLabelDatabaseId,
   policyId: Schema.optionalKey(PolicyId),
-  onMatch: RuleBinding.fields.onMatch,
-  onNoMatch: ResultAction.pipe(Schema.withDecodingDefaultKey(Effect.succeed("no-action"))),
-  group: Schema.NullOr(RuleGroup).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-  priority: RuleBinding.fields.priority.pipe(Schema.withDecodingDefaultKey(Effect.succeed(0))),
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
+  onMatch: Schema.optionalKey(ResultAction),
+  onNoMatch: Schema.optionalKey(ResultAction),
+  group: Schema.optionalKey(Schema.NullOr(RuleGroup)),
+  priority: Schema.optionalKey(RuleBinding.fields.priority),
+  enabled: Schema.optionalKey(Schema.Boolean),
 }).annotate({ identifier: "CreateRuleRequest" })
 export type CreateRuleRequest = typeof CreateRuleRequest.Type
 
@@ -225,6 +230,32 @@ export const RuleIssue = Schema.Struct({ code: RuleIssueCode, message: Schema.St
   identifier: "RuleIssue",
 })
 export type RuleIssue = typeof RuleIssue.Type
+
+export class RuleNotFound extends Schema.TaggedError<RuleNotFound>()(
+  "RuleNotFound",
+  { ruleId: RuleId },
+  { httpApiStatus: 404 },
+) {}
+
+/** A version mismatch, or a `requestId` replayed with different fields. */
+export class RuleConflict extends Schema.TaggedError<RuleConflict>()(
+  "RuleConflict",
+  { current: RuleRecord },
+  { httpApiStatus: 409 },
+) {}
+
+/** The labeling group's members or their versions changed since the caller read them. */
+export class GroupConflict extends Schema.TaggedError<GroupConflict>()(
+  "GroupConflict",
+  {},
+  { httpApiStatus: 409 },
+) {}
+
+export class RuleInvalid extends Schema.TaggedError<RuleInvalid>()(
+  "RuleInvalid",
+  { issues: Schema.Array(RuleIssue) },
+  { httpApiStatus: 422 },
+) {}
 
 // CONFIGURATION
 

@@ -10,7 +10,15 @@ export const AiRuleDefinition = Schema.Struct({
   minimumConfidence: Confidence,
 })
 export type AiRuleDefinition = typeof AiRuleDefinition.Type
-export const inspectAiRule = (definition: AiRuleDefinition) =>
+/** The facts a prompt references, and what keeps it from being saved. */
+export const AiRuleInspection = Schema.Struct({
+  references: Schema.Array(Schema.String),
+  diagnostics: Schema.Array(
+    Schema.Struct({ from: Schema.Int, to: Schema.Int, message: Schema.String }),
+  ),
+}).annotate({ identifier: "AiRuleInspection" })
+export type AiRuleInspection = typeof AiRuleInspection.Type
+export const inspectAiRule = (definition: AiRuleDefinition): AiRuleInspection =>
   inspectAiPrompt(definition.prompt, definition.target, describeCatalog())
 /** Call only after inspectAiRule reports no diagnostics. */
 export const aiRuleProgram = (definition: AiRuleDefinition): Program => ({

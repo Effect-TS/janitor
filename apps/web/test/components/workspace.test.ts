@@ -1,6 +1,7 @@
 import * as RuleEditor from "@/components/rule-editor"
 import { RuleRecord } from "@/components/labeling-wire"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
@@ -17,6 +18,7 @@ import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import { PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import * as PullRequestReviewSettings from "@/components/pull-request-review-settings"
+import { ApiClient } from "@/lib/api-client"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
 const one: Workspace.RepositoryOverview = {
@@ -311,14 +313,7 @@ describe("Repositories", () => {
       Story.given(opened()),
       Story.message(Workspace.Message.ClickedDeleteRule({ ruleId: "r1", version: 1 })),
       Story.Command.resolve(
-        Workspace.DeleteSubject({
-          repositoryId: "701",
-          subjectId: "r1",
-          operationId: 1,
-          url: "/api/v1/repositories/701/rules/r1",
-          version: 1,
-          what: "rule",
-        }),
+        Workspace.DeleteRule({ repositoryId: "701", operationId: 1, ruleId: "r1", version: 1 }),
         Workspace.Message.CompletedDelete({
           what: "rule",
           repositoryId: "701",
@@ -582,46 +577,55 @@ describe("mutation reconciliation", () => {
 })
 
 describe("mutation HTTP results", () => {
-  it.each([409, 422])("preserves useful delete errors for HTTP %s", async (status) => {
-    const body =
-      status === 409
-        ? Schema.encodeSync(Schema.toCodecJson(RuleRecord))(configuration.rules[0]!)
-        : { message: "Retained configuration history uses this policy" }
-    const client = HttpClient.make((request) =>
-      Effect.succeed(
-        HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body), { status })),
+  const api = (status: number, body: unknown) =>
+    ApiClient.layer.pipe(
+      Layer.provide(
+        Layer.succeed(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body), { status })),
+            ),
+          ),
+        ),
       ),
     )
+
+  it.each([
+    {
+      status: 409,
+      body: {
+        _tag: "RuleConflict",
+        current: Schema.encodeSync(Schema.toCodecJson(RuleRecord))(configuration.rules[0]!),
+      },
+      reason: "This item changed meanwhile. Review the refreshed version and retry.",
+    },
+    {
+      status: 404,
+      body: { _tag: "RuleNotFound", ruleId: "r1" },
+      reason: "This rule no longer exists.",
+    },
+  ])("preserves useful delete errors for HTTP $status", async ({ status, body, reason }) => {
     const message = await Effect.runPromise(
-      Workspace.DeleteSubject({
+      Workspace.DeleteRule({
         repositoryId: "701",
         operationId: 1,
-        subjectId: "r1",
-        what: "rule",
+        ruleId: "r1",
         version: 1,
-        url: "/api/v1/repositories/701/rules/r1",
-      }).effect.pipe(Effect.provideService(HttpClient.HttpClient, client)),
+      }).effect.pipe(Effect.provide(api(status, body))),
     )
     expect(message).toMatchObject({
       _tag: "FailedDelete",
       repositoryId: "701",
       subjectId: "r1",
       operationId: 1,
-      reason:
-        status === 409
-          ? "This item changed meanwhile. Review the refreshed version and retry."
-          : "Retained configuration history uses this policy",
+      reason,
     })
   })
 
   it("decodes the version returned by a rule toggle", async () => {
     const returned = { ...configuration.rules[0]!, enabled: false, version: 2 }
     const encoded = Schema.encodeSync(Schema.toCodecJson(RuleRecord))(returned)
-    const client = HttpClient.make((request) =>
-      Effect.succeed(
-        HttpClientResponse.fromWeb(request, new Response(JSON.stringify(encoded), { status: 200 })),
-      ),
-    )
     const message = await Effect.runPromise(
       Workspace.ToggleRule({
         repositoryId: "701",
@@ -629,7 +633,7 @@ describe("mutation HTTP results", () => {
         ruleId: "r1",
         version: 1,
         enabled: false,
-      }).effect.pipe(Effect.provideService(HttpClient.HttpClient, client)),
+      }).effect.pipe(Effect.provide(api(200, encoded))),
     )
     expect(message).toMatchObject({
       _tag: "CompletedToggleRule",

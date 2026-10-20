@@ -20,7 +20,7 @@ import { AiConsentService } from "../../src/Labeling/Classifier.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { LabelingOverview } from "../../src/Labeling/Overview.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
-import { LabelingRules, RuleInvalid } from "../../src/Labeling/Rules.ts"
+import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
 import { unused as unusedService } from "../support/Api.ts"
 
@@ -73,18 +73,6 @@ const view: ConfigurationView = {
 
 const unused = () => Effect.die("unused")
 
-const rules: LabelingRules["Service"] = {
-  reorder: () => Effect.succeed([]),
-  list: () => Effect.succeed([rule]),
-  create: (_, request) =>
-    request.labelId === rule.labelId
-      ? Effect.succeed(rule)
-      : Effect.fail(new RuleInvalid({ issues: [{ code: "unresolved-label", message: "nope" }] })),
-  patch: () => Effect.succeed({ ...rule, version: 2 }),
-  remove: () => Effect.void,
-  audit: () => Effect.succeed([]),
-}
-
 const configuration: LabelingConfiguration["Service"] = {
   requireRepository: () => Effect.void,
   labels: unused,
@@ -134,7 +122,7 @@ const withHandler = <A, E, R>(
       use((request) =>
         handler(
           request,
-          Context.make(LabelingRules, rules).pipe(
+          Context.make(LabelingRules, unusedService(LabelingRules)).pipe(
             Context.add(Policies, unusedService(Policies)),
             Context.add(LabelingConfiguration, configuration),
             Context.add(LabelingTest, test),
@@ -170,7 +158,7 @@ const request = (method: string, path: string, body?: unknown, site = "same-orig
 const base = `/repositories/${repositoryId}`
 
 describe("LabelingRoutes", () => {
-  it.effect("serves the configuration and rules", () =>
+  it.effect("serves the activity and configuration", () =>
     withHandler((handler) =>
       Effect.gen(function* () {
         const activity = yield* Effect.promise(() =>
@@ -192,34 +180,13 @@ describe("LabelingRoutes", () => {
         const body = yield* Effect.promise(() => configured.json())
         assert.strictEqual(body.configuredRevision, 1)
         assert.strictEqual(body.rules[0].labelId, "11")
-
-        const malformed = yield* Effect.promise(() =>
-          handler(request("GET", "/repositories/x/rules")),
-        )
-        assert.strictEqual(malformed.status, 400)
       }),
     ),
   )
 
-  it.effect("writes and maps failures to statuses", () =>
+  it.effect("runs tests, sets AI consent and refuses cross-site writes", () =>
     withHandler((handler) =>
       Effect.gen(function* () {
-        const ruleInvalid = yield* Effect.promise(() =>
-          handler(
-            request("POST", `${base}/rules`, { labelId: "404", policyId, onNoMatch: "no-action" }),
-          ),
-        )
-        assert.strictEqual(ruleInvalid.status, 422)
-        const ruleCreated = yield* Effect.promise(() =>
-          handler(
-            request("POST", `${base}/rules`, { labelId: "11", policyId, onNoMatch: "no-action" }),
-          ),
-        )
-        assert.strictEqual(ruleCreated.status, 201)
-        const removed = yield* Effect.promise(() =>
-          handler(request("DELETE", `${base}/rules/rule-1?version=1`)),
-        )
-        assert.strictEqual(removed.status, 204)
         const tested = yield* Effect.promise(() =>
           handler(request("POST", `${base}/test`, { subject: { _tag: "Configuration" } })),
         )
@@ -230,14 +197,7 @@ describe("LabelingRoutes", () => {
         assert.strictEqual((yield* Effect.promise(() => consented.json())).state, "enabled")
 
         const crossOrigin = yield* Effect.promise(() =>
-          handler(
-            request(
-              "POST",
-              `${base}/rules`,
-              { labelId: "11", policyId, onNoMatch: "no-action" },
-              "cross-site",
-            ),
-          ),
+          handler(request("PUT", `${base}/ai-consent`, { enabled: true }, "cross-site")),
         )
         assert.strictEqual(crossOrigin.status, 403)
       }),

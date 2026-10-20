@@ -1,7 +1,7 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
-import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
+import { describeResultAction, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Live from "./live"
 import * as Activity from "@/components/activity"
 import * as PullRequestReviewSettings from "@/components/pull-request-review-settings"
@@ -54,7 +54,6 @@ import {
   ReconciliationRecord,
   REPOSITORIES_ENDPOINT,
   RepositoryOverview,
-  ruleEndpoint,
   RuleRecord,
 } from "@/components/labeling-wire"
 import { ApiClient } from "@/lib/api-client"
@@ -213,8 +212,6 @@ const describe = (error: unknown): string =>
     ? String(error.message)
     : String(error)
 
-const MessageBody = Schema.Struct({ message: Schema.String })
-
 const getJson = <A, RD>(url: string, schema: Schema.ConstraintDecoder<A, RD>) =>
   HttpClient.get(url).pipe(
     Effect.flatMap(HttpClientResponse.filterStatusOk),
@@ -368,56 +365,44 @@ export const DeletePolicy = FoldkitCommand.define("DeletePolicy", {
   },
 })
 
-export const DeleteSubject = FoldkitCommand.define("DeleteSubject", {
-  args: {
-    ...ResponseContext,
-    url: Schema.String,
-    version: Schema.Int,
-    subjectId: Schema.String,
-    what: Schema.Literals(["policy", "rule"]),
-  },
+const RULE_GONE = "This rule no longer exists."
+const RULE_BLOCKED = "This repository is disconnected, so its rules can't change."
+
+export const DeleteRule = FoldkitCommand.define("DeleteRule", {
+  args: { ...ResponseContext, ruleId: Schema.String, version: Schema.Int },
   messages: [Message.CompletedDelete, Message.FailedDelete],
-  execute: ({ url, version, what, repositoryId, operationId, subjectId }) =>
-    Effect.gen(function* () {
-      const response = yield* HttpClient.execute(
-        HttpClientRequest.make("DELETE")(`${url}?version=${version}`),
-      )
-      switch (response.status) {
-        case 204:
-          return Message.CompletedDelete({ what, repositoryId, operationId, subjectId })
-        case 409: {
-          const body = yield* HttpIncomingMessage.schemaBodyJson(
-            Schema.Union([MessageBody, RuleRecord]),
-          )(response)
-          return Message.FailedDelete({
-            repositoryId,
-            operationId,
-            subjectId,
-            reason:
-              "message" in body
-                ? body.message
-                : "This item changed meanwhile. Review the refreshed version and retry.",
-          })
-        }
-        case 422: {
-          const { message } = yield* HttpIncomingMessage.schemaBodyJson(MessageBody)(response)
-          return Message.FailedDelete({ repositoryId, operationId, subjectId, reason: message })
-        }
-        default:
-          return Message.FailedDelete({
-            repositoryId,
-            operationId,
-            subjectId,
-            reason: `Server answered ${response.status}`,
-          })
-      }
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.succeed(
-          Message.FailedDelete({ repositoryId, operationId, subjectId, reason: describe(error) }),
-        ),
+  execute: ({ repositoryId, operationId, ruleId, version }) => {
+    const failed = (reason: string) =>
+      Effect.succeed(Message.FailedDelete({ repositoryId, operationId, subjectId: ruleId, reason }))
+    return ApiClient.use((api) =>
+      api.rules.delete({
+        params: {
+          repositoryId: GitHubRepositoryDatabaseId.make(repositoryId),
+          ruleId: RuleId.make(ruleId),
+        },
+        query: { version },
+      }),
+    ).pipe(
+      Effect.as(
+        Message.CompletedDelete({ what: "rule", repositoryId, operationId, subjectId: ruleId }),
       ),
-    ),
+      Effect.catchTags({
+        RuleConflict: () =>
+          failed("This item changed meanwhile. Review the refreshed version and retry."),
+        RuleNotFound: () => failed(RULE_GONE),
+        RepositoryNotFound: () => failed(UNAVAILABLE),
+        RepositoryBlocked: () => failed(RULE_BLOCKED),
+      }),
+      Effect.orElseSucceed(() =>
+        Message.FailedDelete({
+          repositoryId,
+          operationId,
+          subjectId: ruleId,
+          reason: "The request failed. Please retry.",
+        }),
+      ),
+    )
+  },
 })
 
 export const ToggleRule = FoldkitCommand.define("ToggleRule", {
@@ -429,31 +414,37 @@ export const ToggleRule = FoldkitCommand.define("ToggleRule", {
     enabled: Schema.Boolean,
   },
   messages: [Message.CompletedToggleRule, Message.FailedToggleRule],
-  execute: ({ repositoryId, operationId, ruleId, version, enabled }) =>
-    HttpClientRequest.patch(ruleEndpoint(repositoryId, ruleId)).pipe(
-      HttpClientRequest.bodyJson({ version, enabled }),
-      Effect.flatMap(HttpClient.execute),
-      Effect.flatMap((response) =>
-        response.status === 409
-          ? Effect.fail("This rule changed meanwhile. Review the refreshed rule and retry.")
-          : response.status === 422
-            ? HttpIncomingMessage.schemaBodyJson(
-                Schema.Struct({ issues: Schema.Array(Schema.Struct({ message: Schema.String })) }),
-              )(response).pipe(
-                Effect.flatMap((body) =>
-                  Effect.fail(body.issues.map((issue) => issue.message).join("; ")),
-                ),
-              )
-            : HttpClientResponse.filterStatusOk(response),
-      ),
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(RuleRecord)),
+  execute: ({ repositoryId, operationId, ruleId, version, enabled }) => {
+    const failed = (reason: string) =>
+      Effect.succeed(Message.FailedToggleRule({ repositoryId, operationId, ruleId, reason }))
+    return ApiClient.use((api) =>
+      api.rules.update({
+        params: {
+          repositoryId: GitHubRepositoryDatabaseId.make(repositoryId),
+          ruleId: RuleId.make(ruleId),
+        },
+        payload: { version, enabled },
+      }),
+    ).pipe(
       Effect.map((rule) => Message.CompletedToggleRule({ repositoryId, operationId, rule })),
-      Effect.catch((error) =>
-        Effect.succeed(
-          Message.FailedToggleRule({ repositoryId, operationId, ruleId, reason: describe(error) }),
-        ),
+      Effect.catchTags({
+        RuleConflict: () =>
+          failed("This rule changed meanwhile. Review the refreshed rule and retry."),
+        RuleInvalid: ({ issues }) => failed(issues.map((issue) => issue.message).join("; ")),
+        RuleNotFound: () => failed(RULE_GONE),
+        RepositoryNotFound: () => failed(UNAVAILABLE),
+        RepositoryBlocked: () => failed(RULE_BLOCKED),
+      }),
+      Effect.orElseSucceed(() =>
+        Message.FailedToggleRule({
+          repositoryId,
+          operationId,
+          ruleId,
+          reason: "The request failed. Please retry.",
+        }),
       ),
-    ),
+    )
+  },
 })
 
 // INIT
@@ -797,13 +788,11 @@ const deleteSubject = (
             policyId: subjectId,
             version,
           })
-        : DeleteSubject({
+        : DeleteRule({
             repositoryId,
             operationId: model.nextOperationId,
-            subjectId,
+            ruleId: subjectId,
             version,
-            what,
-            url: ruleEndpoint(repositoryId, subjectId),
           }),
     ],
   }

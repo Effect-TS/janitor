@@ -1,4 +1,11 @@
-import { resultAction, describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import {
+  CreateRuleRequest,
+  PatchRuleRequest,
+  ReorderGroupRequest,
+  RuleIssue,
+} from "@janitor/domain/Labeling/Policy/Configuration"
+import { resultAction, describeResultAction, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Clock from "effect/Clock"
 import { AiInputDetails } from "@/components/labeling-wire"
 import { aiInputView, InputInspection } from "@/components/ai-input-view"
@@ -36,10 +43,7 @@ import {
   ResultAction,
   type Outcome,
   PolicyRecord,
-  RuleIssue,
   RuleRecord,
-  ruleEndpoint,
-  rulesEndpoint,
   SynchronizedLabel,
   TestCandidates,
   TestResponse,
@@ -48,6 +52,7 @@ import {
   describeOutcome,
   type Evaluation,
 } from "@/components/labeling-wire"
+import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 
@@ -278,8 +283,6 @@ const describe = (error: unknown): string =>
     ? String(error.message)
     : String(error)
 
-const IssuesBody = Schema.Struct({ issues: Schema.Array(RuleIssue) })
-
 const Payload = {
   requestId: Schema.optionalKey(Schema.String),
   ai: Schema.optionalKey(AiRuleDefinition),
@@ -295,6 +298,16 @@ const Payload = {
   enabled: Schema.Boolean,
 }
 
+const UNAVAILABLE = "This repository is unavailable."
+const BLOCKED = "This repository is disconnected, so its rules can't change."
+const MALFORMED = "The rule isn't in the expected format."
+const RETRY = "The request failed. Please retry."
+
+/** Commands carry plain strings; the API takes branded ids and checked fields. */
+const reorderRequest = Schema.decodeUnknownOption(ReorderGroupRequest)
+const createRequest = Schema.decodeUnknownOption(CreateRuleRequest)
+const patchRequest = Schema.decodeUnknownOption(PatchRuleRequest)
+
 export const ReorderGroup = FoldkitCommand.define("ReorderGroup", {
   args: {
     repositoryId: Schema.String,
@@ -305,29 +318,34 @@ export const ReorderGroup = FoldkitCommand.define("ReorderGroup", {
     ),
   },
   messages: [Message.SucceededReorderGroup, Message.FailedSaveRule],
-  execute: ({ repositoryId, group, rules, operationId }) =>
-    Effect.gen(function* () {
-      const response = yield* HttpClientRequest.post(rulesEndpoint(repositoryId) + "/reorder").pipe(
-        HttpClientRequest.bodyJson({ group, rules }),
-        Effect.flatMap(HttpClient.execute),
-      )
-      if (response.status === 200)
-        return Message.SucceededReorderGroup({
-          operationId,
-          rules: yield* HttpIncomingMessage.schemaBodyJson(Schema.Array(RuleRecord))(response),
-        })
-      return Message.FailedSaveRule({
-        operationId,
-        reason:
-          response.status === 409
-            ? "This labeling group changed. Reload the page before reordering."
-            : "Could not reorder the labeling group. Reload its members and try again.",
-      })
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedSaveRule({ operationId, reason: describe(error) })),
-      ),
-    ),
+  execute: ({ repositoryId, group, rules, operationId }) => {
+    const failed = (reason: string) =>
+      Effect.succeed(Message.FailedSaveRule({ operationId, reason }))
+    return Option.match(reorderRequest({ group, rules }), {
+      onNone: () => failed(MALFORMED),
+      onSome: (payload) =>
+        ApiClient.use((api) =>
+          api.rules.reorder({
+            params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+            payload,
+          }),
+        ).pipe(
+          Effect.map((rules) => Message.SucceededReorderGroup({ operationId, rules })),
+          Effect.catchTags({
+            GroupConflict: () =>
+              failed("This labeling group changed. Reload the page before reordering."),
+            RepositoryNotFound: () => failed(UNAVAILABLE),
+            RepositoryBlocked: () => failed(BLOCKED),
+          }),
+          Effect.orElseSucceed(() =>
+            Message.FailedSaveRule({
+              operationId,
+              reason: "Could not reorder the labeling group. Reload its members and try again.",
+            }),
+          ),
+        ),
+    })
+  },
 })
 
 export const SaveRule = FoldkitCommand.define("SaveRule", {
@@ -351,55 +369,54 @@ export const SaveRule = FoldkitCommand.define("SaveRule", {
     group,
     priority,
     enabled,
-  }) =>
-    Effect.gen(function* () {
-      const fields = {
-        requestId,
-        labelId,
-        ...(ai ? { ai } : { policyId }),
-        onMatch,
-        onNoMatch,
-        group,
-        priority,
-        enabled,
-      }
-      const request =
-        identity._tag === "New"
-          ? HttpClientRequest.post(rulesEndpoint(repositoryId)).pipe(
-              HttpClientRequest.bodyJson(fields),
-            )
-          : HttpClientRequest.patch(ruleEndpoint(repositoryId, identity.ruleId)).pipe(
-              HttpClientRequest.bodyJson({ ...fields, version: identity.version }),
-            )
-      const response = yield* Effect.flatMap(request, HttpClient.execute)
-      switch (response.status) {
-        case 200:
-        case 201:
-          return Message.SucceededSaveRule({
-            operationId,
-            rule: yield* HttpIncomingMessage.schemaBodyJson(RuleRecord)(response),
-          })
-        case 409:
-          return Message.ConflictedSaveRule({
-            operationId,
-            rule: yield* HttpIncomingMessage.schemaBodyJson(RuleRecord)(response),
-          })
-        case 422:
-          return Message.RejectedSaveRule({
-            ...(yield* HttpIncomingMessage.schemaBodyJson(IssuesBody)(response)),
-            operationId,
-          })
-        default:
-          return Message.FailedSaveRule({
-            reason: `Server answered ${response.status}`,
-            operationId,
-          })
-      }
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedSaveRule({ reason: describe(error), operationId })),
-      ),
-    ),
+  }) => {
+    const failed = (reason: string) =>
+      Effect.succeed(Message.FailedSaveRule({ operationId, reason }))
+    const fields = {
+      labelId,
+      ...(ai ? { ai } : { policyId }),
+      onMatch,
+      onNoMatch,
+      group,
+      priority,
+      enabled,
+    }
+    const repository = GitHubRepositoryDatabaseId.make(repositoryId)
+    const saved =
+      identity._tag === "New"
+        ? Option.map(
+            createRequest({ ...fields, ...(requestId === undefined ? {} : { requestId }) }),
+            (payload) =>
+              ApiClient.use((api) =>
+                api.rules.create({ params: { repositoryId: repository }, payload }),
+              ),
+          )
+        : Option.map(patchRequest({ ...fields, version: identity.version }), (payload) =>
+            ApiClient.use((api) =>
+              api.rules.update({
+                params: { repositoryId: repository, ruleId: RuleId.make(identity.ruleId) },
+                payload,
+              }),
+            ),
+          )
+    return Option.match(saved, {
+      onNone: () => failed(MALFORMED),
+      onSome: (request) =>
+        request.pipe(
+          Effect.map((rule) => Message.SucceededSaveRule({ operationId, rule })),
+          Effect.catchTags({
+            RuleConflict: ({ current }) =>
+              Effect.succeed(Message.ConflictedSaveRule({ operationId, rule: current })),
+            RuleInvalid: ({ issues }) =>
+              Effect.succeed(Message.RejectedSaveRule({ operationId, issues })),
+            RuleNotFound: () => failed("This rule no longer exists."),
+            RepositoryNotFound: () => failed(UNAVAILABLE),
+            RepositoryBlocked: () => failed(BLOCKED),
+          }),
+          Effect.orElseSucceed(() => Message.FailedSaveRule({ operationId, reason: RETRY })),
+        ),
+    })
+  },
 })
 
 export const TestRule = FoldkitCommand.define("TestRule", {
@@ -464,7 +481,7 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
   Model,
   Message,
   OutMessage,
-  HttpClient.HttpClient
+  HttpClient.HttpClient | ApiClient
 >
 
 const initialize = (input: {

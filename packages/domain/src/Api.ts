@@ -3,6 +3,7 @@ import { AccountGroup } from "./Api/Account.ts"
 import { ConnectionsGroup } from "./Api/Connections.ts"
 import { PoliciesGroup } from "./Api/Policies.ts"
 import { PullRequestReviewGroup } from "./Api/PullRequestReview.ts"
+import { RulesGroup } from "./Api/Rules.ts"
 import { SyncGroup } from "./Api/Sync.ts"
 
 /**
@@ -15,4 +16,5 @@ export class JanitorApi extends HttpApi.make("janitor")
   .add(ConnectionsGroup)
   .add(PullRequestReviewGroup)
   .add(PoliciesGroup)
+  .add(RulesGroup)
   .prefix("/api/v1") {}
