@@ -2,7 +2,12 @@ import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
-import type { PolicyDetail } from "@/components/labeling-wire"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
+import type { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
+import { ProgramSource } from "@janitor/domain/Labeling/Policy/Program"
+import * as Schema from "effect/Schema"
+import { formatSource } from "@/components/labeling-wire"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
 import * as TestBench from "@/components/test-bench"
@@ -10,8 +15,8 @@ import * as TestBench from "@/components/test-bench"
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
 const detail: PolicyDetail = {
   policy: {
-    policyId: "p1",
-    repositoryId: "701",
+    policyId: PolicyId.make("p1"),
+    repositoryId: GitHubRepositoryDatabaseId.make("701"),
     name: "Base is main",
     target: "pull_request",
     description: "",
@@ -23,7 +28,7 @@ const detail: PolicyDetail = {
   },
   draft: {
     target: "pull_request",
-    matchesWhen: { fact: "baseRef", operator: "equals", value: "main" },
+    matchesWhen: { fact: "baseRef", operator: "equals", value: "main", caseSensitive: false },
   },
   draftDiffers: true,
   published: null,
@@ -154,10 +159,13 @@ describe("PolicyEditor", () => {
   it("separates saved input from publication status, including invalid YAML and publish failures", () => {
     expect(PolicyEditor.saveStatus(fresh())).toBe("Not saved yet")
     expect(PolicyEditor.publicationStatus(fresh()).published).toBe(false)
+    // The server's draft carries its defaults, so the editor holds that text.
+    const sourceText = formatSource(detail.draft)
     let model = {
       ...fresh(),
       name: detail.policy.name,
-      savedFields: { ...fresh().savedFields, name: detail.policy.name },
+      source: { ...fresh().source, source: sourceText },
+      savedFields: { ...fresh().savedFields, name: detail.policy.name, sourceText },
       identity: { _tag: "Existing" as const, policyId: "p1", version: 1 },
       hasBeenPublished: true,
       publishedRevision: 3,
@@ -351,7 +359,9 @@ describe("PolicyEditor", () => {
     const changedDetail = {
       ...detail,
       draftDiffers: true,
-      draft: Option.getOrThrow(PolicyEditor.parsedSource(changed)),
+      draft: Schema.decodeUnknownSync(ProgramSource)(
+        Option.getOrThrow(PolicyEditor.parsedSource(changed)),
+      ),
       publishedSource: detail.draft,
     }
     const saved = PolicyEditor.update(

@@ -1,7 +1,13 @@
 import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
+import * as SqlClient from "effect/sql/SqlClient"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { RepositoryBlocked, RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
+import {
+  LabelingRevision,
+  PolicyHistoryRetained,
+} from "@janitor/domain/Labeling/Policy/Configuration"
 import type { ProgramSource } from "@janitor/domain/Labeling/Policy/Program"
 import { RulesetActivation } from "../../src/Labeling/Activation.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
@@ -404,7 +410,7 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
         policies.publish(repositoryId, base.policy.policyId, edited.policy.version, actor),
       )
       assert.strictEqual(rejected._tag, "PolicyInvalid")
-      if (rejected._tag === "PolicyInvalid") assert.include(rejected.message, "Consumer")
+      if (rejected._tag === "PolicyInvalid") assert.include(rejected.diagnostic, "Consumer")
       assert.strictEqual(
         (yield* policies.get(repositoryId, base.policy.policyId)).published?.versionId,
         published.published?.versionId,
@@ -669,8 +675,10 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       const blocked = yield* Effect.flip(
         policies.remove(repositoryId, created.policy.policyId, published.policy.version, actor),
       )
-      assert.strictEqual(blocked._tag, "PolicyInvalid")
-      if (blocked._tag === "PolicyInvalid") assert.include(blocked.message, "configuration history")
+      assert.deepStrictEqual(
+        blocked,
+        new PolicyHistoryRetained({ policyId: created.policy.policyId }),
+      )
       assert.deepStrictEqual(
         Option.getOrThrow(yield* configuration.load(repositoryId, revision)),
         before,
@@ -678,6 +686,41 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       assert.strictEqual(
         (yield* policies.get(repositoryId, created.policy.policyId)).published?.versionId,
         published.published?.versionId,
+      )
+    }),
+  )
+  it.effect("refuses writes to an unknown or disconnected repository", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      const policies = yield* Policies
+      const unknownRepositoryId = GitHubRepositoryDatabaseId.make("799")
+      assert.deepStrictEqual(
+        yield* Effect.flip(
+          policies.create(
+            unknownRepositoryId,
+            { name: "Unknown", description: "", source: baseMain },
+            actor,
+          ),
+        ),
+        new RepositoryNotFound({ repositoryId: unknownRepositoryId }),
+      )
+      yield* sql`UPDATE github_repository SET connected = FALSE WHERE repository_id = ${repositoryId}`
+      const refused = yield* Effect.flip(
+        policies.create(
+          repositoryId,
+          { name: "Disconnected", description: "", source: baseMain },
+          actor,
+        ),
+      ).pipe(
+        Effect.ensuring(
+          sql`UPDATE github_repository SET connected = TRUE WHERE repository_id = ${repositoryId}`.pipe(
+            Effect.orDie,
+          ),
+        ),
+      )
+      assert.deepStrictEqual(
+        refused,
+        new RepositoryBlocked({ repositoryId, reason: "disconnected" }),
       )
     }),
   )

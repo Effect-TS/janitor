@@ -114,6 +114,46 @@ export const ValidatePolicyResponse = Schema.Union([
 ]).annotate({ identifier: "ValidatePolicyResponse" })
 export type ValidatePolicyResponse = typeof ValidatePolicyResponse.Type
 
+export class PolicyNotFound extends Schema.TaggedError<PolicyNotFound>()(
+  "PolicyNotFound",
+  { policyId: PolicyId },
+  { httpApiStatus: 404 },
+) {}
+
+/** The caller edited a version that is no longer current. */
+export class PolicyConflict extends Schema.TaggedError<PolicyConflict>()(
+  "PolicyConflict",
+  { current: PolicyDetail },
+  { httpApiStatus: 409 },
+) {}
+
+export class PolicyNameTaken extends Schema.TaggedError<PolicyNameTaken>()(
+  "PolicyNameTaken",
+  { name: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+
+/** Rules bind it or published programs reference it. */
+export class PolicyInUse extends Schema.TaggedError<PolicyInUse>()(
+  "PolicyInUse",
+  { policyId: PolicyId, rules: Schema.Int, references: Schema.Int },
+  { httpApiStatus: 409 },
+) {}
+
+/** Retained configuration history uses its published versions, so it can't be deleted. */
+export class PolicyHistoryRetained extends Schema.TaggedError<PolicyHistoryRetained>()(
+  "PolicyHistoryRetained",
+  { policyId: PolicyId },
+  { httpApiStatus: 409 },
+) {}
+
+/** The program doesn't decode, compile or fit the rules bound to it; `diagnostic` says why. */
+export class PolicyInvalid extends Schema.TaggedError<PolicyInvalid>()(
+  "PolicyInvalid",
+  { diagnostic: Schema.String },
+  { httpApiStatus: 422 },
+) {}
+
 // RULES
 
 export const LabelStatus = Schema.Literals(["valid", "missing"]).annotate({

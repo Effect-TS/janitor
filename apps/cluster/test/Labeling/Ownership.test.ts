@@ -204,7 +204,7 @@ layer(Services, { timeout: "2 minutes" })("Label ownership", (it) => {
         ),
       )
       assert.strictEqual(error._tag, "PolicyInvalid")
-      if (error._tag === "PolicyInvalid") assert.include(error.message, issueOwner.id)
+      if (error._tag === "PolicyInvalid") assert.include(error.diagnostic, issueOwner.id)
       assert.strictEqual(
         (yield* policies.get(repositoryId, policy.policy.policyId)).policy.version,
         published.policy.version,

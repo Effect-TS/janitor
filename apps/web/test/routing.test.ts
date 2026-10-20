@@ -9,7 +9,9 @@ import * as Workspace from "@/components/workspace"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as SyncButton from "@/components/sync-button"
 import * as Connections from "@/components/repository-connections"
-import type { PolicyDetail } from "@/components/labeling-wire"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
+import type { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
 
 const url = (path: string) => Option.getOrThrow(Url.fromString(`https://janitor.test${path}`))
 const initial = (path: string) =>
@@ -31,8 +33,8 @@ const land = (model: Main.Model, path: string) =>
 const at = DateTime.makeUnsafe("2026-09-05T12:00:00Z")
 const policy: PolicyDetail = {
   policy: {
-    policyId: "p1",
-    repositoryId: "701",
+    policyId: PolicyId.make("p1"),
+    repositoryId: GitHubRepositoryDatabaseId.make("701"),
     name: "Targets main",
     description: "Main branch",
     target: "pull_request",
@@ -44,7 +46,7 @@ const policy: PolicyDetail = {
   },
   draft: {
     target: "pull_request",
-    matchesWhen: { fact: "baseRef", operator: "equals", value: "main" },
+    matchesWhen: { fact: "baseRef", operator: "equals", value: "main", caseSensitive: false },
   },
   draftDiffers: true,
   published: null,

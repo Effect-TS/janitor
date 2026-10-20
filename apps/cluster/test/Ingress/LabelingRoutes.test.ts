@@ -10,24 +10,19 @@ import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import {
   type ConfigurationView,
   LabelingRevision,
-  type PolicyDetail,
   type PolicyRecord,
   type RuleRecord,
 } from "@janitor/domain/Labeling/Policy/Configuration"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { CurrentAccessIdentity } from "../../src/Ingress/Middleware.ts"
-import { RulesRoutesLayer } from "../../src/Ingress/Rules.ts"
+import { LabelingRoutesLayer } from "../../src/Ingress/LabelingRoutes.ts"
 import { AiConsentService } from "../../src/Labeling/Classifier.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { LabelingOverview } from "../../src/Labeling/Overview.ts"
-import {
-  Policies,
-  PolicyConflict,
-  PolicyInvalid,
-  PolicyNotFound,
-} from "../../src/Labeling/Policies.ts"
+import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules, RuleInvalid } from "../../src/Labeling/Rules.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
+import { unused as unusedService } from "../support/Api.ts"
 
 const repositoryId = GitHubRepositoryDatabaseId.make("701")
 const policyId = PolicyId.make("policy-1")
@@ -50,15 +45,6 @@ const policy: PolicyRecord = {
   version: 1,
   createdAt: at,
   updatedAt: at,
-}
-const detail: PolicyDetail = {
-  policy,
-  draft: {
-    target: "pull_request",
-    matchesWhen: { fact: "baseRef", operator: "equals", value: "main", caseSensitive: false },
-  },
-  draftDiffers: true,
-  published: null,
 }
 const rule: RuleRecord = {
   id: RuleId.make("rule-1"),
@@ -86,38 +72,6 @@ const view: ConfigurationView = {
 }
 
 const unused = () => Effect.die("unused")
-
-const policies: Policies["Service"] = {
-  list: () => Effect.succeed([policy]),
-  get: (_, id) =>
-    id === policyId ? Effect.succeed(detail) : Effect.fail(new PolicyNotFound({ policyId: id })),
-  create: (_, request, actor) =>
-    Effect.succeed({
-      ...detail,
-      policy: { ...policy, name: request.name, description: actor.subject },
-    }),
-  save: (_, __, request) =>
-    request.version === 1
-      ? Effect.succeed({ ...detail, policy: { ...policy, version: 2 } })
-      : Effect.fail(new PolicyConflict({ current: detail })),
-  publish: () =>
-    Effect.fail(new PolicyInvalid({ message: "Fact 'draft' does not exist for issue" })),
-  validate: () =>
-    Effect.succeed({
-      _tag: "Valid",
-      manifest: {
-        facts: ["baseRef"],
-        tracks: ["pull_requests"],
-        references: [],
-        nodeCount: 1,
-        expandedNodeCount: 1,
-      },
-    }),
-  versions: () => Effect.succeed([]),
-  remove: unused,
-  names: unused,
-  resolver: unused,
-}
 
 const rules: LabelingRules["Service"] = {
   reorder: () => Effect.succeed([]),
@@ -175,13 +129,13 @@ const withHandler = <A, E, R>(
   use: (handler: (request: Request) => Promise<Response>) => Effect.Effect<A, E, R>,
 ) =>
   Effect.acquireUseRelease(
-    Effect.sync(() => HttpRouter.toWebHandler(RulesRoutesLayer, { disableLogger: true })),
+    Effect.sync(() => HttpRouter.toWebHandler(LabelingRoutesLayer, { disableLogger: true })),
     ({ handler }) =>
       use((request) =>
         handler(
           request,
-          Context.make(Policies, policies).pipe(
-            Context.add(LabelingRules, rules),
+          Context.make(LabelingRules, rules).pipe(
+            Context.add(Policies, unusedService(Policies)),
             Context.add(LabelingConfiguration, configuration),
             Context.add(LabelingTest, test),
             Context.add(RuleTestJobs, {
@@ -215,8 +169,8 @@ const request = (method: string, path: string, body?: unknown, site = "same-orig
 
 const base = `/repositories/${repositoryId}`
 
-describe("RulesRoutes", () => {
-  it.effect("serves the configuration, policies, and rules", () =>
+describe("LabelingRoutes", () => {
+  it.effect("serves the configuration and rules", () =>
     withHandler((handler) =>
       Effect.gen(function* () {
         const activity = yield* Effect.promise(() =>
@@ -239,14 +193,6 @@ describe("RulesRoutes", () => {
         assert.strictEqual(body.configuredRevision, 1)
         assert.strictEqual(body.rules[0].labelId, "11")
 
-        const one = yield* Effect.promise(() =>
-          handler(request("GET", `${base}/policies/${policyId}`)),
-        )
-        assert.strictEqual(one.status, 200)
-        const missing = yield* Effect.promise(() =>
-          handler(request("GET", `${base}/policies/nope`)),
-        )
-        assert.strictEqual(missing.status, 404)
         const malformed = yield* Effect.promise(() =>
           handler(request("GET", "/repositories/x/rules")),
         )
@@ -255,32 +201,9 @@ describe("RulesRoutes", () => {
     ),
   )
 
-  it.effect("writes with the Access identity and maps failures to statuses", () =>
+  it.effect("writes and maps failures to statuses", () =>
     withHandler((handler) =>
       Effect.gen(function* () {
-        const created = yield* Effect.promise(() =>
-          handler(request("POST", `${base}/policies`, { name: "Ready", source: detail.draft })),
-        )
-        assert.strictEqual(created.status, 201)
-        assert.strictEqual(
-          (yield* Effect.promise(() => created.json())).policy.description,
-          "user-1",
-        )
-
-        const conflict = yield* Effect.promise(() =>
-          handler(request("PUT", `${base}/policies/${policyId}`, { version: 9 })),
-        )
-        assert.strictEqual(conflict.status, 409)
-        const invalid = yield* Effect.promise(() =>
-          handler(request("POST", `${base}/policies/${policyId}/publish`, { version: 1 })),
-        )
-        assert.strictEqual(invalid.status, 422)
-        assert.include((yield* Effect.promise(() => invalid.json())).message, "issue")
-        const validated = yield* Effect.promise(() =>
-          handler(request("POST", `${base}/policies/validate`, { source: detail.draft })),
-        )
-        assert.strictEqual((yield* Effect.promise(() => validated.json()))._tag, "Valid")
-
         const ruleInvalid = yield* Effect.promise(() =>
           handler(
             request("POST", `${base}/rules`, { labelId: "404", policyId, onNoMatch: "no-action" }),
