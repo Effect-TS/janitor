@@ -18,9 +18,6 @@ export const configurationEndpoint = (repositoryId: string) =>
   `${repository(repositoryId)}/configuration`
 export const reconciliationsEndpoint = (repositoryId: string) =>
   `${repository(repositoryId)}/reconciliations`
-export const rulesEndpoint = (repositoryId: string) => `${repository(repositoryId)}/rules`
-export const ruleEndpoint = (repositoryId: string, ruleId: string) =>
-  `${rulesEndpoint(repositoryId)}/${encodeURIComponent(ruleId)}`
 export const testEndpoint = (repositoryId: string) => `${repository(repositoryId)}/test`
 export const aiConsentEndpoint = (repositoryId: string) => `${repository(repositoryId)}/ai-consent`
 
@@ -118,9 +115,6 @@ export const RuleRecord = Schema.Struct({
   updatedAt: Schema.DateTimeUtc,
 })
 export type RuleRecord = typeof RuleRecord.Type
-
-export const RuleIssue = Schema.Struct({ code: Schema.String, message: Schema.String })
-export type RuleIssue = typeof RuleIssue.Type
 
 // CONFIGURATION
 
