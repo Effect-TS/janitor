@@ -15,7 +15,7 @@ import {
 } from "@janitor/domain/Labeling/Policy/Configuration"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { CurrentAccessIdentity } from "../../src/Ingress/Middleware.ts"
-import { RulesRoutesLayer } from "../../src/Ingress/Rules.ts"
+import { LabelingRoutesLayer } from "../../src/Ingress/LabelingRoutes.ts"
 import { AiConsentService } from "../../src/Labeling/Classifier.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { LabelingOverview } from "../../src/Labeling/Overview.ts"
@@ -129,7 +129,7 @@ const withHandler = <A, E, R>(
   use: (handler: (request: Request) => Promise<Response>) => Effect.Effect<A, E, R>,
 ) =>
   Effect.acquireUseRelease(
-    Effect.sync(() => HttpRouter.toWebHandler(RulesRoutesLayer, { disableLogger: true })),
+    Effect.sync(() => HttpRouter.toWebHandler(LabelingRoutesLayer, { disableLogger: true })),
     ({ handler }) =>
       use((request) =>
         handler(
@@ -169,7 +169,7 @@ const request = (method: string, path: string, body?: unknown, site = "same-orig
 
 const base = `/repositories/${repositoryId}`
 
-describe("RulesRoutes", () => {
+describe("LabelingRoutes", () => {
   it.effect("serves the configuration and rules", () =>
     withHandler((handler) =>
       Effect.gen(function* () {

@@ -18,13 +18,6 @@ export const configurationEndpoint = (repositoryId: string) =>
   `${repository(repositoryId)}/configuration`
 export const reconciliationsEndpoint = (repositoryId: string) =>
   `${repository(repositoryId)}/reconciliations`
-export const policiesEndpoint = (repositoryId: string) => `${repository(repositoryId)}/policies`
-export const policyEndpoint = (repositoryId: string, policyId: string) =>
-  `${policiesEndpoint(repositoryId)}/${encodeURIComponent(policyId)}`
-export const publishEndpoint = (repositoryId: string, policyId: string) =>
-  `${policyEndpoint(repositoryId, policyId)}/publish`
-export const validateEndpoint = (repositoryId: string) =>
-  `${policiesEndpoint(repositoryId)}/validate`
 export const rulesEndpoint = (repositoryId: string) => `${repository(repositoryId)}/rules`
 export const ruleEndpoint = (repositoryId: string, ruleId: string) =>
   `${rulesEndpoint(repositoryId)}/${encodeURIComponent(ruleId)}`
@@ -70,15 +63,6 @@ export type FactDescription = typeof FactDescription.Type
 export const PolicyTarget = Schema.Literals(["issue", "pull_request"])
 export type PolicyTarget = typeof PolicyTarget.Type
 
-export const Manifest = Schema.Struct({
-  facts: Schema.Array(Schema.String),
-  tracks: Schema.Array(Schema.String),
-  references: Schema.Array(Schema.String),
-  nodeCount: Schema.Int,
-  expandedNodeCount: Schema.Int,
-})
-export type Manifest = typeof Manifest.Type
-
 export const PolicyRecord = Schema.Struct({
   policyId: Schema.String,
   repositoryId: Schema.String,
@@ -103,32 +87,6 @@ export const ProgramSource = Schema.Struct({
   classify: Schema.optionalKey(Schema.Unknown),
 })
 export type ProgramSource = typeof ProgramSource.Type
-
-export const PolicyVersionRecord = Schema.Struct({
-  versionId: Schema.String,
-  policyId: Schema.String,
-  revision: Schema.Int,
-  contentHash: Schema.String,
-  program: Schema.Unknown,
-  manifest: Manifest,
-  createdAt: Schema.DateTimeUtc,
-})
-export type PolicyVersionRecord = typeof PolicyVersionRecord.Type
-
-export const PolicyDetail = Schema.Struct({
-  policy: PolicyRecord,
-  draft: ProgramSource,
-  draftDiffers: Schema.Boolean,
-  publishedSource: Schema.optionalKey(Schema.NullOr(ProgramSource)),
-  published: Schema.NullOr(PolicyVersionRecord),
-})
-export type PolicyDetail = typeof PolicyDetail.Type
-
-export const ValidatePolicyResponse = Schema.Union([
-  Schema.TaggedStruct("Valid", { manifest: Manifest }),
-  Schema.TaggedStruct("Invalid", { message: Schema.String }),
-])
-export type ValidatePolicyResponse = typeof ValidatePolicyResponse.Type
 
 import { ResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 

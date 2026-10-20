@@ -1,4 +1,4 @@
-import type { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
+import type { RepositoryBlocked, RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { compile, CompileIssue } from "@janitor/domain/Labeling/Policy/Compile"
@@ -6,7 +6,13 @@ import { PolicyId, type PolicyNames } from "@janitor/domain/Labeling/Policy/Cond
 import {
   type Actor,
   type CreatePolicyRequest,
+  PolicyConflict,
   type PolicyDetail,
+  PolicyHistoryRetained,
+  PolicyInUse,
+  PolicyInvalid,
+  PolicyNameTaken,
+  PolicyNotFound,
   type PolicyRecord,
   PolicyVersionId,
   type PolicyVersionRecord,
@@ -22,20 +28,17 @@ import {
 } from "@janitor/domain/Labeling/Policy/Program"
 import { validatePrompt } from "@janitor/domain/Labeling/Policy/Prompt"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
-import { describeError } from "../SqlErrors.ts"
 import { recordAudit } from "./Audit.ts"
 import { groupIssues } from "./Groups.ts"
 import { labelOwnershipConflict } from "./Ownership.ts"
 import {
   LabelingConfiguration,
-  LabelingConfigurationError,
   policyColumns,
   PolicyRow,
   toPolicyRecord,
@@ -44,47 +47,8 @@ import {
   withRepositoryMutation,
 } from "./Configuration.ts"
 
-export class PoliciesError extends Data.TaggedError("PoliciesError")<{
-  readonly operation: string
-  readonly message: string
-}> {}
-
-export class PolicyNotFound extends Data.TaggedError("PolicyNotFound")<{
-  readonly policyId: PolicyId
-}> {}
-
-/** The caller edited a version that is no longer current. */
-export class PolicyConflict extends Data.TaggedError("PolicyConflict")<{
-  readonly current: PolicyDetail
-}> {}
-
-export class PolicyInvalid extends Data.TaggedError("PolicyInvalid")<{
-  readonly message: string
-}> {}
-
-export class PolicyNameTaken extends Data.TaggedError("PolicyNameTaken")<{
-  readonly name: string
-}> {}
-
-/** Rules bind it or published programs reference it. */
-export class PolicyInUse extends Data.TaggedError("PolicyInUse")<{
-  readonly policyId: PolicyId
-  readonly rules: number
-  readonly references: number
-}> {}
-
 /** A resolver that also names the version, so callers can cache by it. */
 export type VersionResolver = (policyId: PolicyId) => PolicyVersionRecord | undefined
-
-export type PoliciesFailure =
-  | RepositoryNotFound
-  | PolicyNotFound
-  | PolicyConflict
-  | PolicyInvalid
-  | PolicyNameTaken
-  | PolicyInUse
-  | PoliciesError
-  | LabelingConfigurationError
 
 const DraftRow = Schema.Struct({ program: Program })
 const CountRow = Schema.Struct({ count: Schema.FiniteFromString })
@@ -107,50 +71,68 @@ export class Policies extends Context.Service<
   {
     readonly list: (
       repositoryId: GitHubRepositoryDatabaseId,
-    ) => Effect.Effect<ReadonlyArray<PolicyRecord>, PoliciesFailure>
+    ) => Effect.Effect<ReadonlyArray<PolicyRecord>, RepositoryNotFound>
     readonly get: (
       repositoryId: GitHubRepositoryDatabaseId,
       policyId: PolicyId,
-    ) => Effect.Effect<PolicyDetail, PoliciesFailure>
+    ) => Effect.Effect<PolicyDetail, RepositoryNotFound | PolicyNotFound>
     readonly create: (
       repositoryId: GitHubRepositoryDatabaseId,
       request: CreatePolicyRequest,
       actor: Actor,
-    ) => Effect.Effect<PolicyDetail, PoliciesFailure>
+    ) => Effect.Effect<
+      PolicyDetail,
+      RepositoryNotFound | RepositoryBlocked | PolicyNameTaken | PolicyInvalid
+    >
     readonly save: (
       repositoryId: GitHubRepositoryDatabaseId,
       policyId: PolicyId,
       request: SavePolicyRequest,
       actor: Actor,
-    ) => Effect.Effect<PolicyDetail, PoliciesFailure>
+    ) => Effect.Effect<
+      PolicyDetail,
+      | RepositoryNotFound
+      | RepositoryBlocked
+      | PolicyNotFound
+      | PolicyConflict
+      | PolicyNameTaken
+      | PolicyInvalid
+    >
     readonly publish: (
       repositoryId: GitHubRepositoryDatabaseId,
       policyId: PolicyId,
       version: number,
       actor: Actor,
-    ) => Effect.Effect<PolicyDetail, PoliciesFailure>
+    ) => Effect.Effect<
+      PolicyDetail,
+      RepositoryNotFound | RepositoryBlocked | PolicyNotFound | PolicyConflict | PolicyInvalid
+    >
     readonly validate: (
       repositoryId: GitHubRepositoryDatabaseId,
       source: ProgramSource,
       policyId: Option.Option<PolicyId>,
-    ) => Effect.Effect<ValidatePolicyResponse, PoliciesFailure>
+    ) => Effect.Effect<ValidatePolicyResponse, RepositoryNotFound>
     readonly versions: (
       repositoryId: GitHubRepositoryDatabaseId,
       policyId: PolicyId,
-    ) => Effect.Effect<ReadonlyArray<PolicyVersionRecord>, PoliciesFailure>
+    ) => Effect.Effect<ReadonlyArray<PolicyVersionRecord>, RepositoryNotFound | PolicyNotFound>
     readonly remove: (
       repositoryId: GitHubRepositoryDatabaseId,
       policyId: PolicyId,
       version: number,
       actor: Actor,
-    ) => Effect.Effect<void, PoliciesFailure>
+    ) => Effect.Effect<
+      void,
+      | RepositoryNotFound
+      | RepositoryBlocked
+      | PolicyNotFound
+      | PolicyConflict
+      | PolicyInUse
+      | PolicyHistoryRetained
+    >
     /** Names for the authoring form, and a resolver over published versions. */
-    readonly names: (
-      repositoryId: GitHubRepositoryDatabaseId,
-    ) => Effect.Effect<PolicyNames, PoliciesFailure>
-    readonly resolver: (
-      repositoryId: GitHubRepositoryDatabaseId,
-    ) => Effect.Effect<VersionResolver, PoliciesFailure>
+    readonly names: (repositoryId: GitHubRepositoryDatabaseId) => Effect.Effect<PolicyNames>
+    readonly resolver: (repositoryId: GitHubRepositoryDatabaseId) => Effect.Effect<VersionResolver>
   }
 >()("@janitor/cluster/Labeling/Policies/Policies", {
   make: Effect.gen(function* () {
@@ -163,20 +145,18 @@ export class Policies extends Context.Service<
     const encodeProgram = Schema.encodeEffect(Schema.fromJsonString(Program))
     const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(VersionRow.fields.manifest))
 
-    const wrap =
-      (operation: string) =>
-      <A, R>(effect: Effect.Effect<A, { readonly message: string }, R>) =>
-        Effect.mapError(
-          effect,
-          (error) => new PoliciesError({ operation, message: describeError(error) }),
-        )
+    /** Configuration infrastructure failures die; an unknown repository doesn't. */
+    const requireRepository = (repositoryId: GitHubRepositoryDatabaseId) =>
+      configuration
+        .requireRepository(repositoryId)
+        .pipe(Effect.catchTag("LabelingConfigurationError", Effect.die))
 
     const listRows = (repositoryId: GitHubRepositoryDatabaseId, includeOwned = false) =>
       sql`
         SELECT ${policyColumns(sql)} FROM labeling_policy p
         LEFT JOIN labeling_policy_version v ON v.version_id = p.published_version_id
         WHERE p.repository_id = ${repositoryId} AND (${includeOwned} OR p.owner_rule_id IS NULL) ORDER BY p.name
-      `.pipe(Effect.flatMap(decodePolicies), wrap("list"))
+      `.pipe(Effect.flatMap(decodePolicies), Effect.orDie)
 
     const findRow = (repositoryId: GitHubRepositoryDatabaseId, policyId: PolicyId) =>
       sql`
@@ -185,7 +165,7 @@ export class Policies extends Context.Service<
         WHERE p.repository_id = ${repositoryId} AND p.policy_id = ${policyId} AND p.owner_rule_id IS NULL
       `.pipe(
         Effect.flatMap(decodePolicies),
-        wrap("find"),
+        Effect.orDie,
         Effect.flatMap((rows) =>
           rows[0] === undefined
             ? Effect.fail(new PolicyNotFound({ policyId }))
@@ -216,7 +196,7 @@ export class Policies extends Context.Service<
         FROM labeling_policy p
         JOIN labeling_policy_version v ON v.version_id = p.published_version_id
         WHERE p.repository_id = ${repositoryId}
-      `.pipe(Effect.flatMap(decodeVersions), wrap("resolver"))
+      `.pipe(Effect.flatMap(decodeVersions), Effect.orDie)
       const byPolicy = new Map(rows.map((row) => [row.policy_id, toVersionRecord(row)]))
       const resolve: VersionResolver = (policyId) => byPolicy.get(policyId)
       return resolve
@@ -225,10 +205,10 @@ export class Policies extends Context.Service<
     const draftOf = (policyId: PolicyId) =>
       sql`SELECT program FROM labeling_policy_draft WHERE policy_id = ${policyId}`.pipe(
         Effect.flatMap(decodeDrafts),
-        wrap("draft"),
+        Effect.orDie,
         Effect.flatMap((rows) =>
           rows[0] === undefined
-            ? Effect.fail(new PoliciesError({ operation: "draft", message: "draft row missing" }))
+            ? Effect.die(new Error(`Policy ${policyId} has no draft row`))
             : Effect.succeed(rows[0].program),
         ),
       )
@@ -241,7 +221,7 @@ export class Policies extends Context.Service<
             FROM labeling_policy_version WHERE version_id = ${record.publishedVersionId}
           `.pipe(
             Effect.flatMap(decodeVersions),
-            wrap("published"),
+            Effect.orDie,
             Effect.map((rows) => (rows[0] === undefined ? null : toVersionRecord(rows[0]))),
           )
 
@@ -273,13 +253,13 @@ export class Policies extends Context.Service<
           const program = programFromSource(source, policyNames)
           if (program instanceof UnknownPolicyName) {
             return Effect.fail(
-              new PolicyInvalid({ message: `Policy '${program.name}' does not exist` }),
+              new PolicyInvalid({ diagnostic: `Policy '${program.name}' does not exist` }),
             )
           }
           if (program.evaluator._tag === "Classifier") {
             const prompt = validatePrompt(program.evaluator.prompt, program.evaluator.evidence)
             if (prompt._tag === "Invalid") {
-              return Effect.fail(new PolicyInvalid({ message: prompt.message }))
+              return Effect.fail(new PolicyInvalid({ diagnostic: prompt.message }))
             }
           }
           return Effect.succeed(program)
@@ -327,12 +307,12 @@ export class Policies extends Context.Service<
       source: ProgramSource,
       policyId: Option.Option<PolicyId>,
     ) {
-      yield* configuration.requireRepository(repositoryId)
+      yield* requireRepository(repositoryId)
       const program = yield* decodeSource(repositoryId, source).pipe(
         Effect.catchTag("PolicyInvalid", (error) => Effect.succeed(error)),
       )
       if (program instanceof PolicyInvalid) {
-        return { _tag: "Invalid", message: program.message } as const
+        return { _tag: "Invalid", message: program.diagnostic } as const
       }
       const result = yield* compiled(repositoryId, program, policyId)
       return result._tag === "Compiled"
@@ -341,7 +321,7 @@ export class Policies extends Context.Service<
     })
 
     const list = Effect.fn("Policies.list")(function* (repositoryId: GitHubRepositoryDatabaseId) {
-      yield* configuration.requireRepository(repositoryId)
+      yield* requireRepository(repositoryId)
       return (yield* listRows(repositoryId)).map(toPolicyRecord)
     })
 
@@ -349,7 +329,7 @@ export class Policies extends Context.Service<
       repositoryId: GitHubRepositoryDatabaseId,
       policyId: PolicyId,
     ) {
-      yield* configuration.requireRepository(repositoryId)
+      yield* requireRepository(repositoryId)
       return yield* detail(repositoryId, policyId)
     })
 
@@ -364,7 +344,7 @@ export class Policies extends Context.Service<
           AND (${Option.getOrNull(except)}::text IS NULL OR policy_id <> ${Option.getOrNull(except)})
       `.pipe(
         Effect.flatMap(decodeCounts),
-        wrap("nameTaken"),
+        Effect.orDie,
         Effect.map((rows) => (rows[0]?.count ?? 0) > 0),
       )
 
@@ -374,13 +354,13 @@ export class Policies extends Context.Service<
         request: CreatePolicyRequest,
         actor: Actor,
       ) {
-        yield* configuration.requireRepository(repositoryId)
+        yield* requireRepository(repositoryId)
         if (yield* nameTaken(repositoryId, request.name, Option.none())) {
           return yield* new PolicyNameTaken({ name: request.name })
         }
         const program = yield* decodeSource(repositoryId, request.source)
         const policyId = PolicyId.make(yield* newId)
-        const encoded = yield* encodeProgram(program).pipe(wrap("create"))
+        const encoded = yield* encodeProgram(program).pipe(Effect.orDie)
         yield* Effect.gen(function* () {
           yield* sql`
               INSERT INTO labeling_policy (policy_id, repository_id, name, target, description, version)
@@ -397,8 +377,11 @@ export class Policies extends Context.Service<
             before: null,
             after: { name: request.name, description: request.description, program },
           })
-        }).pipe(wrap("create"))
-        return yield* detail(repositoryId, policyId)
+        }).pipe(Effect.orDie)
+        // Just inserted under the repository lock, so it can't be missing.
+        return yield* detail(repositoryId, policyId).pipe(
+          Effect.catchTag("PolicyNotFound", Effect.die),
+        )
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
     )
@@ -424,7 +407,7 @@ export class Policies extends Context.Service<
             ),
           ),
         ),
-        wrap("ownership"),
+        Effect.orDie,
       )
       for (const rule of rules) {
         const conflict = yield* labelOwnershipConflict(
@@ -433,8 +416,8 @@ export class Policies extends Context.Service<
           rule.label_id,
           target,
           rule.rule_id,
-        ).pipe(wrap("ownership"))
-        if (conflict) return yield* new PolicyInvalid({ message: conflict })
+        ).pipe(Effect.orDie)
+        if (conflict) return yield* new PolicyInvalid({ diagnostic: conflict })
         const issues = yield* groupIssues(
           sql,
           repositoryId,
@@ -443,10 +426,10 @@ export class Policies extends Context.Service<
           rule.priority,
           rule.rule_id,
           policyId,
-        ).pipe(wrap("group"))
+        ).pipe(Effect.orDie)
         if (issues.length)
           return yield* new PolicyInvalid({
-            message: issues.map((issue) => issue.message).join("; "),
+            diagnostic: issues.map((issue) => issue.message).join("; "),
           })
       }
     })
@@ -458,7 +441,7 @@ export class Policies extends Context.Service<
         request: SavePolicyRequest,
         actor: Actor,
       ) {
-        yield* configuration.requireRepository(repositoryId)
+        yield* requireRepository(repositoryId)
         const current = yield* detail(repositoryId, policyId)
         if (current.policy.version !== request.version) {
           return yield* new PolicyConflict({ current })
@@ -476,7 +459,7 @@ export class Policies extends Context.Service<
             : yield* decodeSource(repositoryId, request.source)
         yield* validateOwnership(repositoryId, policyId, program.target)
         const description = request.description ?? current.policy.description
-        const encoded = yield* encodeProgram(program).pipe(wrap("save"))
+        const encoded = yield* encodeProgram(program).pipe(Effect.orDie)
         yield* Effect.gen(function* () {
           yield* sql`
               UPDATE labeling_policy
@@ -500,7 +483,7 @@ export class Policies extends Context.Service<
             },
             after: { name, description, program },
           })
-        }).pipe(wrap("save"))
+        }).pipe(Effect.orDie)
         return yield* detail(repositoryId, policyId)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
@@ -513,17 +496,17 @@ export class Policies extends Context.Service<
         version: number,
         actor: Actor,
       ) {
-        yield* configuration.requireRepository(repositoryId)
+        yield* requireRepository(repositoryId)
         const current = yield* detail(repositoryId, policyId)
         if (current.policy.version !== version) return yield* new PolicyConflict({ current })
         const program = yield* draftOf(policyId)
         yield* validateOwnership(repositoryId, policyId, program.target)
         const result = yield* compiled(repositoryId, program, Option.some(policyId))
         if (result._tag === "Rejected")
-          return yield* new PolicyInvalid({ message: result.issue.message })
+          return yield* new PolicyInvalid({ diagnostic: result.issue.message })
         const contentHash = yield* sha256Hex(JSON.stringify(program))
-        const encodedProgram = yield* encodeProgram(program).pipe(wrap("publish"))
-        const encodedManifest = yield* encodeManifest(result.manifest).pipe(wrap("publish"))
+        const encodedProgram = yield* encodeProgram(program).pipe(Effect.orDie)
+        const encodedManifest = yield* encodeManifest(result.manifest).pipe(Effect.orDie)
 
         yield* Effect.gen(function* () {
           const existing = yield* sql`
@@ -561,7 +544,7 @@ export class Policies extends Context.Service<
             after: { versionId, contentHash, manifest: result.manifest },
           })
           yield* configuration.advance(repositoryId, actor)
-        }).pipe(wrap("publish"))
+        }).pipe(Effect.orDie)
         return yield* detail(repositoryId, policyId)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
@@ -571,12 +554,12 @@ export class Policies extends Context.Service<
       repositoryId: GitHubRepositoryDatabaseId,
       policyId: PolicyId,
     ) {
-      yield* configuration.requireRepository(repositoryId)
+      yield* requireRepository(repositoryId)
       yield* findRow(repositoryId, policyId)
       const rows = yield* sql`
         SELECT version_id, policy_id, revision, content_hash, program, manifest, created_at
         FROM labeling_policy_version WHERE policy_id = ${policyId} ORDER BY revision DESC
-      `.pipe(Effect.flatMap(decodeVersions), wrap("versions"))
+      `.pipe(Effect.flatMap(decodeVersions), Effect.orDie)
       return rows.map(toVersionRecord)
     })
 
@@ -587,7 +570,7 @@ export class Policies extends Context.Service<
         version: number,
         actor: Actor,
       ) {
-        yield* configuration.requireRepository(repositoryId)
+        yield* requireRepository(repositoryId)
         const current = yield* detail(repositoryId, policyId)
         if (current.policy.version !== version) return yield* new PolicyConflict({ current })
         const [rules, references] = yield* Effect.all([
@@ -598,7 +581,7 @@ export class Policies extends Context.Service<
           SELECT count(*)::text AS count FROM labeling_policy_dependency d
           WHERE d.dependency_policy_id = ${policyId}
         `.pipe(Effect.flatMap(decodeCounts)),
-        ]).pipe(wrap("remove"))
+        ]).pipe(Effect.orDie)
         const ruleCount = rules[0]?.count ?? 0
         const referenceCount = references[0]?.count ?? 0
         if (ruleCount > 0 || referenceCount > 0) {
@@ -608,12 +591,9 @@ export class Policies extends Context.Service<
           SELECT count(*)::text AS count FROM labeling_configuration c
           JOIN labeling_policy_version v ON c.version_ids ? v.version_id
           WHERE c.repository_id = ${repositoryId} AND v.policy_id = ${policyId}
-        `.pipe(Effect.flatMap(decodeCounts), wrap("remove"))
+        `.pipe(Effect.flatMap(decodeCounts), Effect.orDie)
         if ((history[0]?.count ?? 0) > 0) {
-          return yield* new PolicyInvalid({
-            message:
-              "This policy cannot be deleted because retained configuration history uses its published versions",
-          })
+          return yield* new PolicyHistoryRetained({ policyId })
         }
         yield* Effect.gen(function* () {
           yield* sql`UPDATE labeling_policy SET published_version_id = NULL WHERE policy_id = ${policyId}`
@@ -627,7 +607,7 @@ export class Policies extends Context.Service<
             after: null,
           })
           if (current.published !== null) yield* configuration.advance(repositoryId, actor)
-        }).pipe(wrap("remove"))
+        }).pipe(Effect.orDie)
       },
       (effect, repositoryId) => withRepositoryMutation(sql, repositoryId, effect),
     )

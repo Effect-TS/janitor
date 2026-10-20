@@ -1,3 +1,6 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
+import { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
 import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
 import * as Live from "./live"
 import * as Activity from "@/components/activity"
@@ -46,8 +49,6 @@ import {
   configurationEndpoint,
   FactDescription,
   labelName,
-  PolicyDetail,
-  policyEndpoint,
   policyName,
   PolicyRecord,
   ReconciliationRecord,
@@ -56,7 +57,7 @@ import {
   ruleEndpoint,
   RuleRecord,
 } from "@/components/labeling-wire"
-import type { ApiClient } from "@/lib/api-client"
+import { ApiClient } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
 import * as PolicyStatus from "@/components/policy-status"
@@ -64,10 +65,10 @@ import * as PolicyStatus from "@/components/policy-status"
 export type {
   AiConsent,
   ConfigurationView,
-  PolicyDetail,
   ReconciliationRecord,
   RepositoryOverview,
 } from "@/components/labeling-wire"
+export type { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
 
 // MODEL
 
@@ -299,18 +300,72 @@ export const SetConsent = FoldkitCommand.define("SetConsent", {
     ),
 })
 
+const UNAVAILABLE = "This repository is unavailable."
+const POLICY_GONE = "This policy no longer exists."
+
 export const FetchPolicyDetail = FoldkitCommand.define("FetchPolicyDetail", {
   args: { repositoryId: Schema.String, policyId: Schema.String },
   messages: [Message.GotPolicyDetail, Message.FailedPolicyDetail],
-  execute: ({ repositoryId, policyId }) =>
-    getJson(policyEndpoint(repositoryId, policyId), PolicyDetail).pipe(
+  execute: ({ repositoryId, policyId }) => {
+    const failed = (reason: string) =>
+      Effect.succeed(Message.FailedPolicyDetail({ repositoryId, policyId, reason }))
+    return ApiClient.use((api) =>
+      api.policies.get({
+        params: {
+          repositoryId: GitHubRepositoryDatabaseId.make(repositoryId),
+          policyId: PolicyId.make(policyId),
+        },
+      }),
+    ).pipe(
       Effect.map((detail) => Message.GotPolicyDetail({ detail })),
-      Effect.catch((error) =>
-        Effect.succeed(
-          Message.FailedPolicyDetail({ repositoryId, policyId, reason: describe(error) }),
-        ),
+      Effect.catchTags({
+        PolicyNotFound: () => failed(POLICY_GONE),
+        RepositoryNotFound: () => failed(UNAVAILABLE),
+      }),
+      Effect.catch(() => failed("The policy could not be loaded.")),
+    )
+  },
+})
+
+export const DeletePolicy = FoldkitCommand.define("DeletePolicy", {
+  args: { ...ResponseContext, policyId: Schema.String, version: Schema.Int },
+  messages: [Message.CompletedDelete, Message.FailedDelete],
+  execute: ({ repositoryId, operationId, policyId, version }) => {
+    const failed = (reason: string) =>
+      Effect.succeed(
+        Message.FailedDelete({ repositoryId, operationId, subjectId: policyId, reason }),
+      )
+    return ApiClient.use((api) =>
+      api.policies.delete({
+        params: {
+          repositoryId: GitHubRepositoryDatabaseId.make(repositoryId),
+          policyId: PolicyId.make(policyId),
+        },
+        query: { version },
+      }),
+    ).pipe(
+      Effect.as(
+        Message.CompletedDelete({ what: "policy", repositoryId, operationId, subjectId: policyId }),
       ),
-    ),
+      Effect.catchTags({
+        PolicyConflict: () =>
+          failed("This item changed meanwhile. Review the refreshed version and retry."),
+        PolicyInUse: ({ rules, references }) =>
+          failed(
+            `The policy is bound by ${rules} rules and referenced by ${references} published policy versions, including retained history`,
+          ),
+        PolicyHistoryRetained: () =>
+          failed(
+            "This policy cannot be deleted because retained configuration history uses its published versions",
+          ),
+        PolicyNotFound: () => failed(POLICY_GONE),
+        RepositoryNotFound: () => failed(UNAVAILABLE),
+        RepositoryBlocked: () =>
+          failed("This repository is disconnected, so its policies can't change."),
+      }),
+      Effect.catch(() => failed("The request failed. Please retry.")),
+    )
+  },
 })
 
 export const DeleteSubject = FoldkitCommand.define("DeleteSubject", {
@@ -332,7 +387,7 @@ export const DeleteSubject = FoldkitCommand.define("DeleteSubject", {
           return Message.CompletedDelete({ what, repositoryId, operationId, subjectId })
         case 409: {
           const body = yield* HttpIncomingMessage.schemaBodyJson(
-            Schema.Union([MessageBody, PolicyDetail, RuleRecord]),
+            Schema.Union([MessageBody, RuleRecord]),
           )(response)
           return Message.FailedDelete({
             repositoryId,
@@ -735,17 +790,21 @@ const deleteSubject = (
       enabled: false,
     }),
     commands: [
-      DeleteSubject({
-        repositoryId,
-        operationId: model.nextOperationId,
-        subjectId,
-        version,
-        what,
-        url:
-          what === "policy"
-            ? policyEndpoint(repositoryId, subjectId)
-            : ruleEndpoint(repositoryId, subjectId),
-      }),
+      what === "policy"
+        ? DeletePolicy({
+            repositoryId,
+            operationId: model.nextOperationId,
+            policyId: subjectId,
+            version,
+          })
+        : DeleteSubject({
+            repositoryId,
+            operationId: model.nextOperationId,
+            subjectId,
+            version,
+            what,
+            url: ruleEndpoint(repositoryId, subjectId),
+          }),
     ],
   }
 }

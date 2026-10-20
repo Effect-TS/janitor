@@ -1,11 +1,14 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { Manifest } from "@janitor/domain/Labeling/Policy/Compile"
+import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
+import { PolicyDetail, ValidatePolicyResponse } from "@janitor/domain/Labeling/Policy/Configuration"
 import { describeResultAction } from "@janitor/domain/Labeling/Policy/Plan"
+import { ProgramSource as DomainProgramSource } from "@janitor/domain/Labeling/Policy/Program"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Result from "effect/Result"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
+import type * as HttpClient from "effect/http/HttpClient"
 import * as FoldkitCommand from "foldkit/command"
 import * as Mount from "foldkit/mount"
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
@@ -32,15 +35,9 @@ import {
   FactDescription,
   labelName,
   formatSource,
-  Manifest,
-  PolicyDetail,
-  policiesEndpoint,
-  policyEndpoint,
   ProgramSource,
-  publishEndpoint,
-  validateEndpoint,
-  ValidatePolicyResponse,
 } from "@/components/labeling-wire"
+import { ApiClient } from "@/lib/api-client"
 
 /**
  * The policy editor (plan: "User interface"). Name, description, and the
@@ -287,12 +284,13 @@ const isSubmitting = (model: Model) => model.submission._tag === "Submitting"
 
 // COMMAND
 
-const describe = (error: unknown): string =>
-  typeof error === "object" && error !== null && "message" in error
-    ? String(error.message)
-    : String(error)
+const UNAVAILABLE = "This repository is unavailable."
+const BLOCKED = "This repository is disconnected, so its policies can't change."
+const MALFORMED = "The draft isn't in the policy format."
+const RETRY = "The request failed. Please retry."
 
-const MessageBody = Schema.Struct({ message: Schema.String })
+/** The editor's source is free JSON; the API takes the domain's program source. */
+const programSource = Schema.decodeUnknownOption(DomainProgramSource)
 
 export const ValidateDraft = FoldkitCommand.define("ValidateDraft", {
   args: {
@@ -302,16 +300,23 @@ export const ValidateDraft = FoldkitCommand.define("ValidateDraft", {
     policyId: Schema.optionalKey(Schema.String),
   },
   messages: [Message.CompletedValidate, Message.FailedValidate],
-  execute: ({ repositoryId, source, requestId, policyId }) =>
-    HttpClientRequest.post(validateEndpoint(repositoryId)).pipe(
-      HttpClientRequest.bodyJson({ source, ...(policyId === undefined ? {} : { policyId }) }),
-      Effect.flatMap(HttpClient.execute),
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(ValidatePolicyResponse)),
-      Effect.map((response) => Message.CompletedValidate({ response, requestId })),
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedValidate({ reason: describe(error), requestId })),
-      ),
-    ),
+  execute: ({ repositoryId, source, requestId }) =>
+    Option.match(programSource(source), {
+      onNone: () => Effect.succeed(Message.FailedValidate({ reason: MALFORMED, requestId })),
+      onSome: (decoded) =>
+        ApiClient.use((api) =>
+          api.policies.validate({
+            params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+            payload: { source: decoded },
+          }),
+        ).pipe(
+          Effect.map((response) => Message.CompletedValidate({ response, requestId })),
+          Effect.catchTag("RepositoryNotFound", () =>
+            Effect.succeed(Message.FailedValidate({ reason: UNAVAILABLE, requestId })),
+          ),
+          Effect.orElseSucceed(() => Message.FailedValidate({ reason: RETRY, requestId })),
+        ),
+    }),
 })
 
 const SavePayload = Schema.Struct({
@@ -322,6 +327,68 @@ const SavePayload = Schema.Struct({
   source: ProgramSource,
   publish: Schema.Boolean,
 })
+
+const publishDraft = (repositoryId: GitHubRepositoryDatabaseId, detail: PolicyDetail) =>
+  ApiClient.use((api) =>
+    api.policies.publish({
+      params: { repositoryId, policyId: detail.policy.policyId },
+      payload: { version: detail.policy.version },
+    }),
+  ).pipe(
+    Effect.map((published) => Message.SucceededSavePolicy({ detail: published, published: true })),
+    Effect.catchTags({
+      PolicyInvalid: ({ diagnostic }) =>
+        Effect.succeed(Message.SavedDraftWithPublishError({ detail, reason: diagnostic })),
+      PolicyConflict: () =>
+        Effect.succeed(
+          Message.SavedDraftWithPublishError({
+            detail,
+            reason: "The policy changed meanwhile. Review the refreshed version and publish again.",
+          }),
+        ),
+    }),
+    Effect.orElseSucceed(() =>
+      Message.SavedDraftWithPublishError({ detail, reason: "Publishing failed. Please retry." }),
+    ),
+  )
+
+const save = (
+  { repositoryId, identity, name, description, publish }: Omit<typeof SavePayload.Type, "source">,
+  source: DomainProgramSource,
+) =>
+  Effect.gen(function* () {
+    const repository = GitHubRepositoryDatabaseId.make(repositoryId)
+    const api = yield* ApiClient
+    const detail =
+      identity._tag === "New"
+        ? yield* api.policies.create({
+            params: { repositoryId: repository },
+            payload: { name, description, source },
+          })
+        : yield* api.policies.update({
+            params: { repositoryId: repository, policyId: PolicyId.make(identity.policyId) },
+            payload: { version: identity.version, name, description, source },
+          })
+    return publish
+      ? yield* publishDraft(repository, detail)
+      : Message.SucceededSavePolicy({ detail, published: false })
+  }).pipe(
+    Effect.catchTags({
+      PolicyConflict: ({ current }) =>
+        Effect.succeed(Message.ConflictedSavePolicy({ detail: current })),
+      PolicyNameTaken: ({ name }) =>
+        Effect.succeed(
+          Message.RejectedSavePolicy({ message: `A policy named '${name}' already exists` }),
+        ),
+      PolicyInvalid: ({ diagnostic }) =>
+        Effect.succeed(Message.RejectedSavePolicy({ message: diagnostic })),
+      PolicyNotFound: () =>
+        Effect.succeed(Message.FailedSavePolicy({ reason: "This policy no longer exists." })),
+      RepositoryNotFound: () => Effect.succeed(Message.FailedSavePolicy({ reason: UNAVAILABLE })),
+      RepositoryBlocked: () => Effect.succeed(Message.FailedSavePolicy({ reason: BLOCKED })),
+    }),
+    Effect.orElseSucceed(() => Message.FailedSavePolicy({ reason: RETRY })),
+  )
 
 /** Creates or saves the draft, then publishes when asked. Each answer is one Message. */
 export const SavePolicy = FoldkitCommand.define("SavePolicy", {
@@ -334,65 +401,10 @@ export const SavePolicy = FoldkitCommand.define("SavePolicy", {
     Message.FailedSavePolicy,
   ],
   execute: ({ repositoryId, identity, name, description, source, publish }) =>
-    Effect.gen(function* () {
-      const request =
-        identity._tag === "New"
-          ? HttpClientRequest.post(policiesEndpoint(repositoryId)).pipe(
-              HttpClientRequest.bodyJson({ name, description, source }),
-            )
-          : HttpClientRequest.put(policyEndpoint(repositoryId, identity.policyId)).pipe(
-              HttpClientRequest.bodyJson({ version: identity.version, name, description, source }),
-            )
-      const saved = yield* Effect.flatMap(request, HttpClient.execute)
-      switch (saved.status) {
-        case 200:
-        case 201:
-          break
-        case 409: {
-          const conflict = yield* HttpIncomingMessage.schemaBodyJson(
-            Schema.Union([PolicyDetail, MessageBody]),
-          )(saved)
-          return "policy" in conflict
-            ? Message.ConflictedSavePolicy({ detail: conflict })
-            : Message.RejectedSavePolicy({ message: conflict.message })
-        }
-        case 422: {
-          const { message } = yield* HttpIncomingMessage.schemaBodyJson(MessageBody)(saved)
-          return Message.RejectedSavePolicy({ message })
-        }
-        default:
-          return Message.FailedSavePolicy({ reason: `Server answered ${saved.status}` })
-      }
-      const detail = yield* HttpIncomingMessage.schemaBodyJson(PolicyDetail)(saved)
-      if (!publish) return Message.SucceededSavePolicy({ detail, published: false })
-      return yield* Effect.gen(function* () {
-        const published = yield* HttpClientRequest.post(
-          publishEndpoint(repositoryId, detail.policy.policyId),
-        ).pipe(
-          HttpClientRequest.bodyJson({ version: detail.policy.version }),
-          Effect.flatMap(HttpClient.execute),
-        )
-        if (published.status === 200) {
-          return Message.SucceededSavePolicy({
-            detail: yield* HttpIncomingMessage.schemaBodyJson(PolicyDetail)(published),
-            published: true,
-          })
-        }
-        const reason =
-          published.status === 422
-            ? (yield* HttpIncomingMessage.schemaBodyJson(MessageBody)(published)).message
-            : `Publish answered ${published.status}`
-        return Message.SavedDraftWithPublishError({ detail, reason })
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.succeed(Message.SavedDraftWithPublishError({ detail, reason: describe(error) })),
-        ),
-      )
-    }).pipe(
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedSavePolicy({ reason: describe(error) })),
-      ),
-    ),
+    Option.match(programSource(source), {
+      onNone: () => Effect.succeed(Message.RejectedSavePolicy({ message: MALFORMED })),
+      onSome: (decoded) => save({ repositoryId, identity, name, description, publish }, decoded),
+    }),
 })
 
 // INIT
@@ -401,7 +413,7 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
   Model,
   Message,
   OutMessage,
-  HttpClient.HttpClient
+  HttpClient.HttpClient | ApiClient
 >
 
 export interface InitInput {

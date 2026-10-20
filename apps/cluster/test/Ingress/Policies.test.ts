@@ -120,7 +120,7 @@ describe("policies", () => {
       actors.length = 0
       const created = yield* api.policies.create({
         params: { repositoryId },
-        payload: { name: "Ready", source: detail.draft },
+        payload: { name: "Ready", description: "", source: detail.draft },
       })
       assert.strictEqual(created.policy.name, "Ready")
       const updated = yield* api.policies.update({ params, payload: { version: 1 } })
@@ -168,7 +168,7 @@ describe("policies", () => {
         (api) =>
           api.policies.create({
             params: { repositoryId },
-            payload: { name: "Ready", source: detail.draft },
+            payload: { name: "Ready", description: "", source: detail.draft },
           }),
       )
       yield* refuses(

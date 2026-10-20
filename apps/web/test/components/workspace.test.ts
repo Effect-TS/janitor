@@ -14,6 +14,8 @@ import * as Dialog from "@foldkit/ui/dialog"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
+import { PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import * as PullRequestReviewSettings from "@/components/pull-request-review-settings"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
@@ -143,10 +145,20 @@ describe("Repositories", () => {
       loading,
       Workspace.Message.GotPolicyDetail({
         detail: {
-          policy: configuration.policies[0]!,
+          policy: {
+            ...configuration.policies[0]!,
+            policyId: PolicyId.make("p1"),
+            repositoryId: GitHubRepositoryDatabaseId.make("701"),
+            publishedVersionId: PolicyVersionId.make("v1"),
+          },
           draft: {
             target: "pull_request",
-            matchesWhen: { fact: "baseRef", operator: "equals", value: "main" },
+            matchesWhen: {
+              fact: "baseRef",
+              operator: "equals",
+              value: "main",
+              caseSensitive: false,
+            },
           },
           draftDiffers: false,
           published: null,
@@ -537,14 +549,15 @@ describe("mutation reconciliation", () => {
     const persisted: Workspace.PolicyDetail = {
       policy: {
         ...configuration.policies[0]!,
-        policyId: "new",
+        policyId: PolicyId.make("new"),
+        repositoryId: GitHubRepositoryDatabaseId.make("701"),
         name: "New policy",
         publishedVersionId: null,
         publishedRevision: null,
       },
       draft: {
         target: "pull_request",
-        matchesWhen: { fact: "baseRef", operator: "equals", value: "main" },
+        matchesWhen: { fact: "baseRef", operator: "equals", value: "main", caseSensitive: false },
       },
       draftDiffers: true,
       published: null,

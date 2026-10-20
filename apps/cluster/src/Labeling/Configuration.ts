@@ -1,5 +1,5 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
+import { RepositoryBlocked, RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import {
   type Actor,
   ConfigurationSnapshot,
@@ -33,7 +33,10 @@ import { describeError } from "../SqlErrors.ts"
 import { freshnessOf } from "../SyncFreshness.ts"
 import { SyncTargets } from "../SyncTargets.ts"
 
-/** Serialize configuration edits before reading versions or resolving references. */
+/**
+ * Serialize configuration edits before reading versions or resolving
+ * references. A disconnected repository refuses edits; SQL failures die.
+ */
 export const withRepositoryMutation = <A, E, R>(
   sql: SqlClient.SqlClient,
   repositoryId: GitHubRepositoryDatabaseId,
@@ -46,20 +49,11 @@ export const withRepositoryMutation = <A, E, R>(
           connected: boolean
         }>`SELECT connected FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
         if (!repository?.connected)
-          return yield* new LabelingConfigurationError({
-            operation: "mutation",
-            message: "Repository is disconnected",
-          })
+          return yield* new RepositoryBlocked({ repositoryId, reason: "disconnected" })
         return yield* effect
       }),
     )
-    .pipe(
-      Effect.mapError((error) =>
-        isSqlError(error)
-          ? new LabelingConfigurationError({ operation: "mutation", message: describeError(error) })
-          : error,
-      ),
-    )
+    .pipe(Effect.catchIf(isSqlError, Effect.die))
 
 /** Configuration display tolerates older label verification than evaluation will. */
 export const LABEL_MAX_AGE = Duration.hours(24)

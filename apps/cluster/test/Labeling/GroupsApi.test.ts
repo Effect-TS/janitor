@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as HttpRouter from "effect/http/HttpRouter"
 import { CurrentAccessIdentity } from "../../src/Ingress/Middleware.ts"
-import { RulesRoutesLayer } from "../../src/Ingress/Rules.ts"
+import { LabelingRoutesLayer } from "../../src/Ingress/LabelingRoutes.ts"
 import { AiConsentService, ClassifierProvider } from "../../src/Labeling/Classifier.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
@@ -54,7 +54,7 @@ const withHandler = <A, E, R>(
       expiresAt: DateTime.makeUnsafe("2026-09-03T12:00:00.000Z"),
     })
     return yield* Effect.acquireUseRelease(
-      Effect.sync(() => HttpRouter.toWebHandler(RulesRoutesLayer, { disableLogger: true })),
+      Effect.sync(() => HttpRouter.toWebHandler(LabelingRoutesLayer, { disableLogger: true })),
       ({ handler }) => use((request) => handler(request, context), policy.policy.policyId),
       ({ dispose }) => Effect.promise(dispose),
     )
@@ -117,14 +117,21 @@ layer(ApiServices, { timeout: "2 minutes" })("Labeling group API", (it) => {
           assert.strictEqual(targetChange.status, 422)
           const policies = yield* Policies
           const current = yield* policies.get(repositoryId, a.policyId)
-          const invalidDraft = yield* send("PUT", base + "/policies/" + a.policyId, {
-            version: current.policy.version,
-            source: {
-              target: "issue",
-              matchesWhen: { fact: "title", operator: "contains", value: "x" },
-            },
-          })
-          assert.strictEqual(invalidDraft.status, 422)
+          const invalidDraft = yield* Effect.flip(
+            policies.save(
+              repositoryId,
+              a.policyId,
+              {
+                version: current.policy.version,
+                source: {
+                  target: "issue",
+                  matchesWhen: { fact: "title", operator: "contains", value: "x" },
+                },
+              },
+              actor,
+            ),
+          )
+          assert.strictEqual(invalidDraft._tag, "PolicyInvalid")
           const reorder = {
             group: "kind",
             rules: [

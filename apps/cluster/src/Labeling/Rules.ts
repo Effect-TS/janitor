@@ -1,4 +1,4 @@
-import type { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
+import type { RepositoryBlocked, RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import {
   aiRuleProgram,
   inspectAiRule,
@@ -62,6 +62,7 @@ export class RuleInvalid extends Data.TaggedError("RuleInvalid")<{
 
 export type RulesFailure =
   | RepositoryNotFound
+  | RepositoryBlocked
   | RuleNotFound
   | RuleConflict
   | GroupConflict
