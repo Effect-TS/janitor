@@ -317,6 +317,20 @@ export const ConfigurationView = Schema.Struct({
 }).annotate({ identifier: "ConfigurationView" })
 export type ConfigurationView = typeof ConfigurationView.Type
 
+export const describeRevision = (view: ConfigurationView): string => {
+  if (view.configuredRevision === 0) return "Nothing configured"
+  if (view.activeRevision === view.configuredRevision) {
+    return `Revision ${view.configuredRevision} active`
+  }
+  return `Revision ${view.configuredRevision} waiting on promotion`
+}
+
+export const labelName = (labels: ReadonlyArray<SynchronizedLabel>, labelId: string): string =>
+  labels.find((label) => label.labelId === labelId)?.name ?? labelId
+
+export const policyName = (policies: ReadonlyArray<PolicyRecord>, policyId: string): string =>
+  policies.find((policy) => policy.policyId === policyId)?.name ?? policyId
+
 // AUDIT
 
 export const AuditOperation = Schema.Literals(["create", "update", "publish", "delete"]).annotate({

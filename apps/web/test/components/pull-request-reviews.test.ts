@@ -9,20 +9,22 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as UrlParams from "effect/http/UrlParams"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
-import type { RepositoryOverview } from "@/components/labeling-wire"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
+import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import * as Reviews from "@/components/pull-request-reviews"
 import { ApiClient } from "@/lib/api-client"
 
 const repository: RepositoryOverview = {
-  repositoryId: "701",
+  repositoryId: GitHubRepositoryDatabaseId.make("701"),
   owner: "effect",
   repo: "one",
   enabled: true,
   ruleCount: 0,
   policyCount: 0,
   access: "accessible",
-  configuredRevision: 1,
-  activeRevision: 1,
+  configuredRevision: LabelingRevision.make(1),
+  activeRevision: LabelingRevision.make(1),
 }
 
 const id = (n: number) => RunId.make(`00000000-0000-4000-8000-${String(n).padStart(12, "0")}`)

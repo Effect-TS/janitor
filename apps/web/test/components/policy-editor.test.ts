@@ -4,10 +4,14 @@ import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
-import type { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
+import {
+  LabelingRevision,
+  PolicyVersionId,
+  type PolicyDetail,
+} from "@janitor/domain/Labeling/Policy/Configuration"
 import { ProgramSource } from "@janitor/domain/Labeling/Policy/Program"
 import * as Schema from "effect/Schema"
-import { formatSource } from "@/components/labeling-wire"
+import { formatSource } from "@/components/policy-source/format"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
 import * as TestBench from "@/components/test-bench"
@@ -38,8 +42,8 @@ const fresh = () =>
   PolicyEditor.init({
     repositoryId: "701",
     configuration: {
-      repositoryId: "701",
-      configuredRevision: 0,
+      repositoryId: GitHubRepositoryDatabaseId.make("701"),
+      configuredRevision: LabelingRevision.make(0),
       activeRevision: null,
       policies: [],
       rules: [],
@@ -137,7 +141,7 @@ describe("PolicyEditor", () => {
   it("only passes other published condition policies to reference completion", () => {
     const published = {
       ...detail.policy,
-      publishedVersionId: "v1",
+      publishedVersionId: PolicyVersionId.make("v1"),
       publishedEvaluator: "Conditions" as const,
     }
     const model = PolicyEditor.init({
@@ -148,9 +152,14 @@ describe("PolicyEditor", () => {
         ...fresh().configuration,
         policies: [
           published,
-          { ...published, policyId: "p2", name: "Allowed" },
-          { ...published, policyId: "p3", name: "Classifier", publishedEvaluator: "Classifier" },
-          { ...published, policyId: "p4", name: "Draft", publishedVersionId: null },
+          { ...published, policyId: PolicyId.make("p2"), name: "Allowed" },
+          {
+            ...published,
+            policyId: PolicyId.make("p3"),
+            name: "Classifier",
+            publishedEvaluator: "Classifier",
+          },
+          { ...published, policyId: PolicyId.make("p4"), name: "Draft", publishedVersionId: null },
         ],
       },
     })

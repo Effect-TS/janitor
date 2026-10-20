@@ -3,7 +3,12 @@ import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "../GitHub/Id.
 import { GitHubRepositoryAccess } from "../GitHub/ReadModel.ts"
 import { SyncGeneration } from "../GitHub/Sync.ts"
 import { GitHubWebhookJournalSequence } from "../GitHub/WebhookJournal.ts"
-import { LabelingRevision } from "./Policy/Configuration.ts"
+import {
+  type ConfigurationView,
+  LabelingRevision,
+  labelName,
+  policyName,
+} from "./Policy/Configuration.ts"
 import { Plan } from "./Policy/Plan.ts"
 
 /**
@@ -75,6 +80,25 @@ export const ReconciliationRecord = Schema.Struct({
   completedAt: Schema.NullOr(Schema.DateTimeUtc),
 }).annotate({ identifier: "ReconciliationRecord" })
 export type ReconciliationRecord = typeof ReconciliationRecord.Type
+
+/** One line per planned change, naming the label and the policy that decided it. */
+export const describePlan = (
+  plan: Plan,
+  view: ConfigurationView,
+  actions: ReadonlyArray<LabelActionRecord> = [],
+): ReadonlyArray<string> =>
+  plan.actions.map((action) => {
+    const rule = view.rules.find((candidate) => candidate.id === action.ruleId)
+    const via = rule === undefined ? action.ruleId : policyName(view.policies, rule.policyId)
+    const status = actions.find((entry) => entry.labelId === action.labelId)
+    const suffix =
+      status === undefined || status.status === "planned"
+        ? ""
+        : status.status === "applied"
+          ? " ✓"
+          : ` ✗ ${status.detail ?? "failed"}`
+    return `${action.action} ${labelName(view.labels, action.labelId)} (${via})${suffix}`
+  })
 
 /** One row of the repositories list in the UI. */
 export const RepositoryOverview = Schema.Struct({

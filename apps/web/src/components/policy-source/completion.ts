@@ -8,7 +8,7 @@ import { syntaxTree } from "@codemirror/language"
 import type { EditorState } from "@codemirror/state"
 import type { SyntaxNode } from "@lezer/common"
 import { isScalar, isMap, isSeq, parseDocument, stringify, type YAMLMap } from "yaml"
-import type { FactDescription } from "@/components/labeling-wire"
+import type { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
 /** Catalog-driven completion for YAML keys, facts, operators, and published policies. */
 export interface EditorContext {
   readonly catalog: ReadonlyArray<FactDescription>

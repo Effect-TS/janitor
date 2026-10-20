@@ -15,7 +15,22 @@ import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReference
 import * as Mount from "foldkit/mount"
 import * as Stream from "effect/Stream"
 import * as Queue from "effect/Queue"
-import { AiRuleDefinition, FactDescription } from "@/components/labeling-wire"
+import { AiRuleDefinition } from "@janitor/domain/Labeling/Policy/AiRule"
+import { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
+import {
+  ConfigurationView,
+  PolicyRecord,
+  RuleRecord,
+  SynchronizedLabel,
+  labelName,
+} from "@janitor/domain/Labeling/Policy/Configuration"
+import { ResultAction } from "@janitor/domain/Labeling/Policy/Plan"
+import {
+  type Outcome,
+  describeOutcome,
+  type Evaluation,
+} from "@janitor/domain/Labeling/Policy/Program"
+import { TestCandidates } from "@/components/test-bench"
 import * as Dialog from "@foldkit/ui/dialog"
 import * as Disclosure from "@foldkit/ui/disclosure"
 import * as Effect from "effect/Effect"
@@ -37,18 +52,6 @@ import * as Feed from "@/components/ui/feed"
 import { panel, panelHeader } from "@/components/ui/panel"
 import * as SelectField from "@/components/ui/select"
 import * as SwitchControl from "@/components/ui/switch"
-import {
-  ConfigurationView,
-  ResultAction,
-  type Outcome,
-  PolicyRecord,
-  RuleRecord,
-  SynchronizedLabel,
-  TestCandidates,
-  labelName,
-  describeOutcome,
-  type Evaluation,
-} from "@/components/labeling-wire"
 import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
@@ -607,7 +610,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     SelectedGate: ({ value }) => ({
       model: model.ai
-        ? edited(modifyFields(model, { ai: () => ({ ...model.ai!, gatePolicyId: value || null }) }))
+        ? edited(
+            modifyFields(model, {
+              ai: () => ({
+                ...model.ai!,
+                gatePolicyId: value === "" ? null : PolicyId.make(value),
+              }),
+            }),
+          )
         : model,
     }),
     SelectedTarget: ({ value }) => ({

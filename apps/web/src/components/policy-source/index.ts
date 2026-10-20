@@ -11,7 +11,7 @@ import * as Command from "foldkit/command"
 import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
-import { FactDescription } from "@/components/labeling-wire"
+import { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
 import { parse } from "./format"
 
 export { parse } from "./format"

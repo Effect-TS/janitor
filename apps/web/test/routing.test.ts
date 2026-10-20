@@ -9,9 +9,10 @@ import * as Workspace from "@/components/workspace"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as SyncButton from "@/components/sync-button"
 import * as Connections from "@/components/repository-connections"
-import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
-import type { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
+import { LabelingRevision, type PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration"
+import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 
 const url = (path: string) => Option.getOrThrow(Url.fromString(`https://janitor.test${path}`))
 const initial = (path: string) =>
@@ -53,9 +54,9 @@ const policy: PolicyDetail = {
 }
 const detail: Workspace.RepositoryDetail = {
   configuration: {
-    repositoryId: "701",
-    configuredRevision: 1,
-    activeRevision: 1,
+    repositoryId: GitHubRepositoryDatabaseId.make("701"),
+    configuredRevision: LabelingRevision.make(1),
+    activeRevision: LabelingRevision.make(1),
     policies: [policy.policy],
     rules: [],
     labels: [],
@@ -109,15 +110,15 @@ describe("application routing", () => {
         ...model.workspace,
         repositories: Option.some([
           {
-            repositoryId: "701",
+            repositoryId: GitHubRepositoryDatabaseId.make("701"),
             owner: "Example",
             repo: "project",
             access: "accessible",
             enabled: false,
             ruleCount: 0,
             policyCount: 1,
-            configuredRevision: 1,
-            activeRevision: 1,
+            configuredRevision: LabelingRevision.make(1),
+            activeRevision: LabelingRevision.make(1),
           },
         ]),
       },
@@ -147,15 +148,15 @@ describe("application routing", () => {
   it("redirects root to a remembered accessible repository and otherwise keeps the chooser", () => {
     const first = initial("/").model
     const repository: Workspace.RepositoryOverview = {
-      repositoryId: "701",
+      repositoryId: GitHubRepositoryDatabaseId.make("701"),
       owner: "Example",
       repo: "project",
       access: "accessible",
       enabled: true,
       ruleCount: 0,
       policyCount: 1,
-      configuredRevision: 1,
-      activeRevision: 1,
+      configuredRevision: LabelingRevision.make(1),
+      activeRevision: LabelingRevision.make(1),
     }
     const remembered = send(
       { ...first, lastRepositoryId: Option.some("701") },
@@ -382,10 +383,10 @@ describe("mutation navigation", () => {
 describe("rule menu routing", () => {
   it("updates the URL when Edit is chosen and navigates back to the rules table", () => {
     const rule = {
-      id: "r1",
-      repositoryId: "701",
-      labelId: "11",
-      policyId: "p1",
+      id: RuleId.make("r1"),
+      repositoryId: GitHubRepositoryDatabaseId.make("701"),
+      labelId: GitHubLabelDatabaseId.make("11"),
+      policyId: PolicyId.make("p1"),
       onMatch: "ensure-present" as const,
       onNoMatch: "no-action" as const,
       group: null,
