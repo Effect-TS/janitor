@@ -25,7 +25,7 @@ import {
 } from "../GitHub/SyncSupport.ts"
 import type { GitHubTransport } from "../GitHub/Transport.ts"
 import { flushLive } from "../LiveUpdates.ts"
-import { changedReason, RepositoryEligibility } from "../RepositoryEligibility.ts"
+import { blockReasonText, RepositoryEligibility } from "../RepositoryEligibility.ts"
 import { describeError } from "../SqlErrors.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
@@ -137,7 +137,7 @@ export class DirectLabelingAdmission extends Context.Service<
       if (!item.open) return { _tag: "Skipped", reason: "closed" } as const
       const repository = yield* eligibility.get(repositoryId).pipe(Effect.result)
       if (repository._tag === "Failure") {
-        if (repository.failure._tag !== "@janitor/cluster/RepositoryEligibility/RepositoryBlocked")
+        if (repository.failure._tag !== "RepositoryBlocked")
           return yield* new DirectLabelingError({
             operation: "eligibility",
             message: repository.failure.message,
@@ -145,7 +145,7 @@ export class DirectLabelingAdmission extends Context.Service<
         return {
           _tag: "Skipped",
           reason: "repository-blocked",
-          detail: repository.failure.reason,
+          detail: blockReasonText(repository.failure.reason),
         } as const
       }
       const configured = yield* sql`
@@ -295,19 +295,18 @@ const qualify = (identity: DirectLabelingIdentity) =>
     const eligibility = yield* RepositoryEligibility
     const repository = yield* eligibility.get(identity.repositoryId).pipe(Effect.result)
     if (repository._tag === "Failure") {
-      if (repository.failure._tag !== "@janitor/cluster/RepositoryEligibility/RepositoryBlocked")
-        return yield* repository.failure
+      if (repository.failure._tag !== "RepositoryBlocked") return yield* repository.failure
       return {
         _tag: "Disqualified",
         outcome: "not-qualified",
-        detail: repository.failure.reason,
+        detail: blockReasonText(repository.failure.reason),
       } satisfies Qualification
     }
     if (repository.success.generation !== identity.eligibilityGeneration)
       return {
         _tag: "Disqualified",
         outcome: "not-qualified",
-        detail: changedReason,
+        detail: blockReasonText("changed"),
       } satisfies Qualification
     const revision = yield* configuredRevision(identity.repositoryId)
     if (revision !== identity.rulesRevision) {
@@ -525,16 +524,13 @@ const applyPlan = (identity: DirectLabelingIdentity) =>
     const result = yield* eligibility
       .run(repositoryId, attempt, { generation: identity.eligibilityGeneration })
       .pipe(
-        Effect.catchTag("@janitor/cluster/RepositoryEligibility/RepositoryBlocked", (blocked) =>
-          settleRemaining(identity, blocked.reason).pipe(
+        Effect.catchTag("RepositoryBlocked", (blocked) => {
+          const detail = blockReasonText(blocked.reason)
+          return settleRemaining(identity, detail).pipe(
             sqlFailure,
-            Effect.map((settled) => ({
-              applied: 0,
-              failed: settled.length,
-              skipped: blocked.reason,
-            })),
-          ),
-        ),
+            Effect.map((settled) => ({ applied: 0, failed: settled.length, skipped: detail })),
+          )
+        }),
         Effect.catchTag("SqlError", (error) => sqlFailure(Effect.fail(error))),
       )
     yield* flushLive

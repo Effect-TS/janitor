@@ -1,4 +1,5 @@
 import { ConnectionInventory as Inventory } from "@janitor/domain/GitHub/Connection"
+import type { RepositoryBlockReason } from "@janitor/domain/GitHub/Repository"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Option from "effect/Option"
@@ -291,9 +292,9 @@ export const update = (model: Model, message: Message) =>
                     syncError: null,
                     blockReason:
                       action === "disconnect"
-                        ? "This repository is disconnected from Janitor."
+                        ? "disconnected"
                         : action === "pause"
-                          ? "This repository is paused in Janitor. Resume it to continue."
+                          ? "paused"
                           : null,
                   },
             ),
@@ -366,6 +367,21 @@ const repositoryName = <M>(h: HtmlBuilder<M>, owner: string, repo: string, class
 type Row = (typeof Inventory.Type)["repositories"][number]
 
 const hasAccess = (row: Row) => row.access === "accessible" && row.installationStatus === "active"
+/** Why the server refuses this repository's work, in the list's words. */
+const blockReasonCopy = (reason: RepositoryBlockReason): string => {
+  switch (reason) {
+    case "not-connected":
+      return "This repository is not connected to Janitor."
+    case "disconnected":
+      return "This repository is disconnected from Janitor."
+    case "access-unavailable":
+      return "GitHub access to this repository is unavailable. Restore access on GitHub."
+    case "paused":
+      return "This repository is paused in Janitor. Resume it to continue."
+    case "changed":
+      return "This repository's connection, pause or GitHub access changed. Refresh the list."
+  }
+}
 const syncBlocked = (row: Row) => row.connected && row.enabled && row.syncState === "failed"
 /** Whether repository work may run: connection, access and pause, never cache health. */
 const eligible = (row: Row) => row.connected && hasAccess(row) && row.enabled
@@ -546,7 +562,9 @@ export const view = Submodel.defineView<
                       ],
                     )
                   : h.empty,
-                current.blockReason ? note(h, current.blockReason, [h.Role("status")]) : h.empty,
+                current.blockReason
+                  ? note(h, blockReasonCopy(current.blockReason), [h.Role("status")])
+                  : h.empty,
                 !current.enabled && current.reconnect
                   ? h.p(
                       [h.Class("text-body-sm text-ink-muted")],

@@ -5,8 +5,9 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/sql/SqlClient"
+import { RepositoryBlocked } from "@janitor/domain/GitHub/Repository"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
-import { RepositoryEligibility, changedReason } from "../src/RepositoryEligibility.ts"
+import { RepositoryEligibility } from "../src/RepositoryEligibility.ts"
 import { SyncTargets } from "../src/SyncTargets.ts"
 import { ContentPurge } from "../src/ContentPurge.ts"
 import { GitHubTransport } from "../src/GitHub/Transport.ts"
@@ -65,7 +66,8 @@ layer(services, { timeout: "2 minutes" })("Repository eligibility", (it) => {
       yield* connections.refresh
       // Installation discovery knows the repository before anyone connects it.
       const discovered = yield* Effect.flip(eligibility.get(repositoryId))
-      assert.strictEqual(discovered.reason, "This repository is not connected to Janitor.")
+      assert.instanceOf(discovered, RepositoryBlocked)
+      assert.strictEqual(discovered.reason, "not-connected")
       yield* connections.change(repositoryId, "connect", actor)
       // Initial synchronization is in progress: the UI cache is cold.
       const [cold] = yield* sql<{ verified: number }>`
@@ -109,9 +111,7 @@ layer(services, { timeout: "2 minutes" })("Repository eligibility", (it) => {
       const reason = (repository: string) =>
         eligibility.get(repository).pipe(
           Effect.map(() => null),
-          Effect.catchTag("@janitor/cluster/RepositoryEligibility/RepositoryBlocked", (error) =>
-            Effect.succeed(error.reason),
-          ),
+          Effect.catchTag("RepositoryBlocked", (error) => Effect.succeed(error.reason)),
         )
       const accepted = (yield* eligibility.get(repositoryId)).generation
       // A control change racing an operation waits for the operation's fence.
@@ -136,17 +136,14 @@ layer(services, { timeout: "2 minutes" })("Repository eligibility", (it) => {
       yield* Deferred.succeed(held, undefined)
       yield* Fiber.join(operation)
       yield* Fiber.join(pause)
-      assert.strictEqual(
-        yield* reason(repositoryId),
-        "This repository is paused in Janitor. Resume it to continue.",
-      )
+      assert.strictEqual(yield* reason(repositoryId), "paused")
       yield* connections.change(repositoryId, "resume", actor)
       assert.isNull(yield* reason(repositoryId))
       // Restoration never revives work accepted before the pause.
       const stale = yield* Effect.flip(
         eligibility.run(repositoryId, Effect.die("Stale work ran"), { generation: accepted }),
       )
-      assert.strictEqual(stale.reason, changedReason)
+      assert.strictEqual(stale.reason, "changed")
       const resumed = (yield* eligibility.get(repositoryId)).generation
       assert.strictEqual(
         yield* eligibility.run(repositoryId, Effect.succeed("ran"), { generation: resumed }),
@@ -155,17 +152,11 @@ layer(services, { timeout: "2 minutes" })("Repository eligibility", (it) => {
       // Lost access is reported ahead of a pause and needs action on GitHub.
       granted = { ...permissions, issues: "read" }
       yield* connections.refresh.pipe(Effect.ignore)
-      assert.strictEqual(
-        yield* reason(repositoryId),
-        "GitHub access to this repository is unavailable. Restore access on GitHub.",
-      )
+      assert.strictEqual(yield* reason(repositoryId), "access-unavailable")
       yield* connections.change(repositoryId, "pause", actor).pipe(Effect.ignore)
       granted = { ...permissions }
       yield* connections.refresh
-      assert.strictEqual(
-        yield* reason(repositoryId),
-        "This repository is paused in Janitor. Resume it to continue.",
-      )
+      assert.strictEqual(yield* reason(repositoryId), "paused")
       yield* connections.change(repositoryId, "resume", actor)
       assert.isNull(yield* reason(repositoryId))
       assert.notStrictEqual((yield* eligibility.get(repositoryId)).generation, resumed)
@@ -183,10 +174,7 @@ layer(services, { timeout: "2 minutes" })("Repository eligibility", (it) => {
       assert.notStrictEqual(transferred.generation, before)
       // Disconnection ends work; reconnection starts a new generation.
       yield* connections.change(repositoryId, "disconnect", actor)
-      assert.strictEqual(
-        yield* reason(repositoryId),
-        "This repository is disconnected from Janitor.",
-      )
+      assert.strictEqual(yield* reason(repositoryId), "disconnected")
       yield* connections.change(repositoryId, "connect", actor)
       assert.isNull(yield* reason(repositoryId))
       const reconnected = yield* Effect.flip(
@@ -194,8 +182,8 @@ layer(services, { timeout: "2 minutes" })("Repository eligibility", (it) => {
           generation: transferred.generation,
         }),
       )
-      assert.strictEqual(reconnected.reason, changedReason)
-      assert.strictEqual(yield* reason("999"), "This repository is not connected to Janitor.")
+      assert.strictEqual(reconnected.reason, "changed")
+      assert.strictEqual(yield* reason("999"), "not-connected")
     }),
   )
 })

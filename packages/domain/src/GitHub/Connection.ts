@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import { RepositoryBlockReason } from "./Repository.ts"
 /**
  * Why the repository's cache is not refreshing, or how its last refresh
  * went. Displayed beside the block reason and never consulted to refuse
@@ -27,7 +28,7 @@ export const ConnectionCandidate = Schema.Struct({
   accessError: Schema.optionalKey(Schema.NullOr(Schema.String)),
   installationStatus: Schema.String,
   /** Why repository work is refused, independent of the synchronization cache. */
-  blockReason: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  blockReason: Schema.optionalKey(Schema.NullOr(RepositoryBlockReason)),
   policyCount: Schema.Int,
   ruleCount: Schema.Int,
   syncState: CacheState,
