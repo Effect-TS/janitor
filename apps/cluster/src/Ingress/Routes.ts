@@ -13,7 +13,7 @@ import {
   RateLimitMiddlewareLayer,
 } from "./Middleware.ts"
 import { AccountGroupLayer } from "./Account.ts"
-import { LabelingRoutesLayer } from "./LabelingRoutes.ts"
+import { LabelingGroupLayer } from "./Labeling.ts"
 import { ConnectionsGroupLayer } from "./Connections.ts"
 import { SyncGroupLayer } from "./Sync.ts"
 import { ReadinessRoutesLayer } from "./Readiness.ts"
@@ -44,6 +44,7 @@ const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
         PoliciesGroupLayer,
         RulesGroupLayer,
         TestBenchGroupLayer,
+        LabelingGroupLayer,
       ),
     ),
     Layer.provide(makeApiMiddlewareLayer(middleware)),
@@ -59,9 +60,7 @@ export const makeRoutesLayer = (secrets: IngressSecrets, middleware: AccessMiddl
   Layer.mergeAll(
     Layer.mergeAll(
       makeGitHubWebHookRoutesLayer(secrets),
-      Layer.mergeAll(LiveRoutesLayer, LabelingRoutesLayer).pipe(
-        Layer.provide(makeAuthenticatedMiddlewareLayer(middleware)),
-      ),
+      LiveRoutesLayer.pipe(Layer.provide(makeAuthenticatedMiddlewareLayer(middleware))),
       ReadinessRoutesLayer.pipe(Layer.provide(makeAccessMiddlewareLayer(middleware))),
     ).pipe(Layer.provide(ApiRouterLayer)),
     makeHttpApiLayer(middleware),

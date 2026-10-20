@@ -1,6 +1,7 @@
 import * as HttpApi from "effect/http-api/HttpApi"
 import { AccountGroup } from "./Api/Account.ts"
 import { ConnectionsGroup } from "./Api/Connections.ts"
+import { LabelingGroup } from "./Api/Labeling.ts"
 import { PoliciesGroup } from "./Api/Policies.ts"
 import { PullRequestReviewGroup } from "./Api/PullRequestReview.ts"
 import { RulesGroup } from "./Api/Rules.ts"
@@ -19,4 +20,5 @@ export class JanitorApi extends HttpApi.make("janitor")
   .add(PoliciesGroup)
   .add(RulesGroup)
   .add(TestBenchGroup)
+  .add(LabelingGroup)
   .prefix("/api/v1") {}
