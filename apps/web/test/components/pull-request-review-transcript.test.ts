@@ -3,6 +3,7 @@ import { RunTranscript } from "@janitor/domain/PullRequestReview/Settings"
 import * as Prompt from "effect/ai/Prompt"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
@@ -10,6 +11,7 @@ import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import type { RepositoryOverview } from "@/components/labeling-wire"
 import * as Transcript from "@/components/pull-request-review-transcript"
+import { ApiClient } from "@/lib/api-client"
 
 const repository: RepositoryOverview = {
   repositoryId: "701",
@@ -207,14 +209,23 @@ describe("PR review transcript", () => {
     const fetch = (status: number, body: unknown) =>
       Effect.runPromise(
         Transcript.FetchTranscript({ repositoryId: "701", runId, generation: 4 }).effect.pipe(
-          Effect.provideService(
-            HttpClient.HttpClient,
-            HttpClient.make((request) => {
-              requested.push(new URL(request.url, "https://janitor.test").pathname)
-              return Effect.succeed(
-                HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body), { status })),
-              )
-            }),
+          Effect.provide(
+            ApiClient.layer.pipe(
+              Layer.provide(
+                Layer.succeed(
+                  HttpClient.HttpClient,
+                  HttpClient.make((request) => {
+                    requested.push(new URL(request.url, "https://janitor.test").pathname)
+                    return Effect.succeed(
+                      HttpClientResponse.fromWeb(
+                        request,
+                        new Response(JSON.stringify(body), { status }),
+                      ),
+                    )
+                  }),
+                ),
+              ),
+            ),
           ),
         ),
       )

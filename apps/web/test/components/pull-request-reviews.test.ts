@@ -2,13 +2,16 @@ import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import { RunPage, type RunEntry } from "@janitor/domain/PullRequestReview/Settings"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import * as UrlParams from "effect/http/UrlParams"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import type { RepositoryOverview } from "@/components/labeling-wire"
 import * as Reviews from "@/components/pull-request-reviews"
+import { ApiClient } from "@/lib/api-client"
 
 const repository: RepositoryOverview = {
   repositoryId: "701",
@@ -170,8 +173,8 @@ describe("PR reviews", () => {
 
     const requested: Array<string> = []
     const client = HttpClient.make((request) => {
-      const url = new URL(request.url, "https://janitor.test")
-      requested.push(url.pathname + url.search)
+      const search = UrlParams.toString(request.urlParams)
+      requested.push(new URL(request.url, "https://janitor.test").pathname + `?${search}`)
       const body = Schema.encodeSync(Schema.toCodecJson(RunPage))({ runs: [run(1)], cursor: null })
       return Effect.succeed(
         HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body), { status: 200 })),
@@ -183,7 +186,11 @@ describe("PR reviews", () => {
         generation: 4,
         search: "",
         cursor: id(2),
-      }).effect.pipe(Effect.provideService(HttpClient.HttpClient, client)),
+      }).effect.pipe(
+        Effect.provide(
+          ApiClient.layer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, client))),
+        ),
+      ),
     )
     expect(requested).toEqual([`/api/v1/repositories/701/pull-request-review/runs?cursor=${id(2)}`])
     expect(message).toEqual(
@@ -358,8 +365,8 @@ describe("PR reviews", () => {
 
     const requested: Array<string> = []
     const client = HttpClient.make((request) => {
-      const url = new URL(request.url, "https://janitor.test")
-      requested.push(url.pathname + url.search)
+      const search = UrlParams.toString(request.urlParams)
+      requested.push(new URL(request.url, "https://janitor.test").pathname + `?${search}`)
       const body = Schema.encodeSync(Schema.toCodecJson(RunPage))({ runs: [], cursor: null })
       return Effect.succeed(
         HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body), { status: 200 })),
@@ -371,10 +378,14 @@ describe("PR reviews", () => {
         generation: 4,
         search: "#12",
         cursor: id(2),
-      }).effect.pipe(Effect.provideService(HttpClient.HttpClient, client)),
+      }).effect.pipe(
+        Effect.provide(
+          ApiClient.layer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, client))),
+        ),
+      ),
     )
     expect(requested).toEqual([
-      `/api/v1/repositories/701/pull-request-review/runs?search=%2312&cursor=${id(2)}`,
+      `/api/v1/repositories/701/pull-request-review/runs?cursor=${id(2)}&search=%2312`,
     ])
   })
 })
