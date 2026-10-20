@@ -2,6 +2,8 @@ import * as Popover from "@foldkit/ui/popover"
 import * as Option from "effect/Option"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { LabelingRevision } from "@janitor/domain/Labeling/Policy/Configuration"
 import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import * as RepositorySwitcher from "@/components/repository-switcher"
 
@@ -13,14 +15,14 @@ const repository = (
   ruleCount: 12,
   policyCount: 8,
   access: "accessible",
-  configuredRevision: 1,
-  activeRevision: 1,
+  configuredRevision: LabelingRevision.make(1),
+  activeRevision: LabelingRevision.make(1),
   ...overrides,
 })
 
-const effect = repository({ repositoryId: "701", repo: "effect" })
+const effect = repository({ repositoryId: GitHubRepositoryDatabaseId.make("701"), repo: "effect" })
 const janitor = repository({
-  repositoryId: "702",
+  repositoryId: GitHubRepositoryDatabaseId.make("702"),
   repo: "janitor",
   enabled: false,
   ruleCount: 0,
@@ -29,7 +31,7 @@ const janitor = repository({
   activeRevision: null,
 })
 const website = repository({
-  repositoryId: "703",
+  repositoryId: GitHubRepositoryDatabaseId.make("703"),
   repo: "website",
   owner: "vercel",
   access: "lost",

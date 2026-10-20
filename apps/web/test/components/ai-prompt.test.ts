@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vite-plus/test"
+import { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
 import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReferences"
 import { EditorState } from "@codemirror/state"
 import { CompletionContext } from "@codemirror/autocomplete"
 import { aiCompletion } from "../../src/components/policy-source/ai-editor"
 const catalog = [
-  {
+  FactDescription.make({
     name: "title",
     kinds: ["issue", "pull_request"] as const,
     type: "Text" as const,
@@ -12,8 +13,8 @@ const catalog = [
     track: "entities",
     fields: [],
     operators: [],
-  },
-  {
+  }),
+  FactDescription.make({
     name: "changedFiles",
     kinds: ["pull_request"] as const,
     type: "Collection" as const,
@@ -21,7 +22,7 @@ const catalog = [
     track: "changed_files",
     fields: [],
     operators: [],
-  },
+  }),
 ]
 describe("AI prompt references", () => {
   it("derives unique facts and rejects unsupported or incomplete references", () => {

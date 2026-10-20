@@ -2,17 +2,25 @@ import * as DateTime from "effect/DateTime"
 import * as Option from "effect/Option"
 import { Scene, Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
-import type { PolicyRecord, RuleRecord } from "@janitor/domain/Labeling/Policy/Configuration"
+import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
+import {
+  PolicyVersionId,
+  type PolicyRecord,
+  type RuleRecord,
+} from "@janitor/domain/Labeling/Policy/Configuration"
+import { FactDescription } from "@janitor/domain/Labeling/Policy/Facts"
+import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import * as RuleEditor from "@/components/rule-editor"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
 const published: PolicyRecord = {
-  policyId: "p1",
-  repositoryId: "701",
+  policyId: PolicyId.make("p1"),
+  repositoryId: GitHubRepositoryDatabaseId.make("701"),
   name: "Base is main",
   target: "pull_request",
   description: "",
-  publishedVersionId: "v1",
+  publishedVersionId: PolicyVersionId.make("v1"),
   publishedRevision: 1,
   version: 2,
   createdAt: at,
@@ -20,17 +28,19 @@ const published: PolicyRecord = {
 }
 const draft: PolicyRecord = {
   ...published,
-  policyId: "p2",
+  policyId: PolicyId.make("p2"),
   name: "Draft",
   publishedVersionId: null,
   publishedRevision: null,
 }
-const labels = [{ labelId: "11", name: "bug", availability: "available" as const }]
+const labels = [
+  { labelId: GitHubLabelDatabaseId.make("11"), name: "bug", availability: "available" as const },
+]
 const rule: RuleRecord = {
-  id: "r1",
-  repositoryId: "701",
-  labelId: "11",
-  policyId: "p1",
+  id: RuleId.make("r1"),
+  repositoryId: GitHubRepositoryDatabaseId.make("701"),
+  labelId: GitHubLabelDatabaseId.make("11"),
+  policyId: PolicyId.make("p1"),
   onMatch: "ensure-present",
   onNoMatch: "no-action",
   group: "size",
@@ -44,7 +54,13 @@ const rule: RuleRecord = {
 
 describe("RuleEditor", () => {
   it("validates group membership and reserved priorities in the editor", () => {
-    const other = { ...rule, id: "r2", labelId: "12", priority: 7, enabled: false }
+    const other = {
+      ...rule,
+      id: RuleId.make("r2"),
+      labelId: GitHubLabelDatabaseId.make("12"),
+      priority: 7,
+      enabled: false,
+    }
     const model = RuleEditor.init({
       repositoryId: "701",
       labels,
@@ -79,7 +95,13 @@ describe("RuleEditor", () => {
     )
   })
   it("accepts the reordered priority while preserving unrelated edits made during the request", () => {
-    const other = { ...rule, id: "r2", labelId: "12", priority: 7, enabled: false }
+    const other = {
+      ...rule,
+      id: RuleId.make("r2"),
+      labelId: GitHubLabelDatabaseId.make("12"),
+      priority: 7,
+      enabled: false,
+    }
     const model = RuleEditor.init({
       repositoryId: "701",
       labels,
@@ -128,7 +150,13 @@ describe("RuleEditor", () => {
     expect(preserved.model.priority).toBe("9")
   })
   it("reorders a group including disabled members with one versioned request", () => {
-    const other = { ...rule, id: "r2", labelId: "12", priority: 7, enabled: false }
+    const other = {
+      ...rule,
+      id: RuleId.make("r2"),
+      labelId: GitHubLabelDatabaseId.make("12"),
+      priority: 7,
+      enabled: false,
+    }
     const model = RuleEditor.init({
       repositoryId: "701",
       labels,
@@ -590,15 +618,17 @@ describe("rule flow view", () => {
 })
 
 it("saves an AI definition without selecting a policy and tests unsaved facts", () => {
-  const catalog = ["title", "body"].map((name) => ({
-    name,
-    type: "Text" as const,
-    kinds: ["issue", "pull_request"] as const,
-    track: "entities",
-    description: name,
-    fields: [],
-    operators: [],
-  }))
+  const catalog = (["title", "body"] as const).map((name) =>
+    FactDescription.make({
+      name,
+      type: "Text" as const,
+      kinds: ["issue", "pull_request"] as const,
+      track: "entities",
+      description: name,
+      fields: [],
+      operators: [],
+    }),
+  )
   let model = RuleEditor.init({
     repositoryId: "701",
     labels,
@@ -676,15 +706,17 @@ it("edits either AI result action without resetting it when choosing the rule ty
     labels,
     policies: [published],
     existing: Option.none(),
-    catalog: ["title", "body"].map((name) => ({
-      name,
-      type: "Text",
-      kinds: ["issue", "pull_request"],
-      track: "entities",
-      description: name,
-      fields: [],
-      operators: [],
-    })),
+    catalog: (["title", "body"] as const).map((name) =>
+      FactDescription.make({
+        name,
+        type: "Text",
+        kinds: ["issue", "pull_request"],
+        track: "entities",
+        description: name,
+        fields: [],
+        operators: [],
+      }),
+    ),
   })
   model = RuleEditor.update(
     model,

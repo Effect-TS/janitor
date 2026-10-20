@@ -1,5 +1,11 @@
 import * as RuleEditor from "@/components/rule-editor"
-import { RuleRecord, describeRevision } from "@janitor/domain/Labeling/Policy/Configuration"
+import {
+  LabelingRevision,
+  PolicyVersionId,
+  RuleRecord,
+  describeRevision,
+} from "@janitor/domain/Labeling/Policy/Configuration"
+import { RuleId } from "@janitor/domain/Labeling/Policy/Plan"
 import { describePlan } from "@janitor/domain/Labeling/Reconciliation"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -14,38 +20,43 @@ import * as Workspace from "@/components/workspace"
 import * as Dialog from "@foldkit/ui/dialog"
 import * as PolicyEditor from "@/components/policy-editor"
 import * as PolicySource from "@/components/policy-source"
-import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { GitHubLabelDatabaseId, GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { SyncGeneration } from "@janitor/domain/GitHub/Sync"
+import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
-import { PolicyVersionId } from "@janitor/domain/Labeling/Policy/Configuration"
 import * as PullRequestReviewSettings from "@/components/pull-request-review-settings"
 import { ApiClient } from "@/lib/api-client"
 
 const at = DateTime.makeUnsafe("2026-09-03T14:00:00.000Z")
 const one: Workspace.RepositoryOverview = {
-  repositoryId: "701",
+  repositoryId: GitHubRepositoryDatabaseId.make("701"),
   owner: "effect",
   repo: "one",
   enabled: true,
   ruleCount: 12,
   policyCount: 8,
   access: "accessible",
-  configuredRevision: 1,
-  activeRevision: 1,
+  configuredRevision: LabelingRevision.make(1),
+  activeRevision: LabelingRevision.make(1),
 }
-const two: Workspace.RepositoryOverview = { ...one, repositoryId: "702", repo: "two" }
+const two: Workspace.RepositoryOverview = {
+  ...one,
+  repositoryId: GitHubRepositoryDatabaseId.make("702"),
+  repo: "two",
+}
 
 const configuration: Workspace.ConfigurationView = {
-  repositoryId: "701",
-  configuredRevision: 1,
-  activeRevision: 1,
+  repositoryId: GitHubRepositoryDatabaseId.make("701"),
+  configuredRevision: LabelingRevision.make(1),
+  activeRevision: LabelingRevision.make(1),
   policies: [
     {
-      policyId: "p1",
-      repositoryId: "701",
+      policyId: PolicyId.make("p1"),
+      repositoryId: GitHubRepositoryDatabaseId.make("701"),
       name: "Base is main",
       target: "pull_request",
       description: "",
-      publishedVersionId: "v1",
+      publishedVersionId: PolicyVersionId.make("v1"),
       publishedRevision: 1,
       publishedEvaluator: "Conditions",
       version: 2,
@@ -55,10 +66,10 @@ const configuration: Workspace.ConfigurationView = {
   ],
   rules: [
     {
-      id: "r1",
-      repositoryId: "701",
-      labelId: "11",
-      policyId: "p1",
+      id: RuleId.make("r1"),
+      repositoryId: GitHubRepositoryDatabaseId.make("701"),
+      labelId: GitHubLabelDatabaseId.make("11"),
+      policyId: PolicyId.make("p1"),
       onMatch: "ensure-present",
       onNoMatch: "ensure-absent",
       group: null,
@@ -70,7 +81,7 @@ const configuration: Workspace.ConfigurationView = {
       updatedAt: at,
     },
   ],
-  labels: [{ labelId: "11", name: "bug", availability: "available" }],
+  labels: [{ labelId: GitHubLabelDatabaseId.make("11"), name: "bug", availability: "available" }],
   labelFreshness: "verified",
 }
 
@@ -78,27 +89,37 @@ const detail: Workspace.RepositoryDetail = {
   configuration,
   reconciliations: [
     {
-      repositoryId: "701",
+      repositoryId: GitHubRepositoryDatabaseId.make("701"),
       number: 5,
-      snapshotGeneration: "3",
-      rulesRevision: 1,
-      coveredSequence: "8",
+      snapshotGeneration: SyncGeneration.make("3"),
+      rulesRevision: LabelingRevision.make(1),
+      coveredSequence: GitHubWebhookJournalSequence.make("8"),
       fingerprint: "a".repeat(64),
       createdAt: at,
       outcome: "evaluated",
       detail: "1 change planned",
       plan: {
-        rules: [{ ruleId: "r1", outcome: "match", selected: true }],
-        actions: [{ labelId: "11", action: "add", ruleId: "r1" }],
+        rules: [{ ruleId: RuleId.make("r1"), outcome: "match", selected: true }],
+        actions: [
+          { labelId: GitHubLabelDatabaseId.make("11"), action: "add", ruleId: RuleId.make("r1") },
+        ],
       },
-      actions: [{ labelId: "11", action: "add", ruleId: "r1", status: "applied", detail: null }],
+      actions: [
+        {
+          labelId: GitHubLabelDatabaseId.make("11"),
+          action: "add",
+          ruleId: RuleId.make("r1"),
+          status: "applied",
+          detail: null,
+        },
+      ],
       completedAt: at,
     },
   ],
 }
 
 const consent: Workspace.AiConsent = {
-  repositoryId: "701",
+  repositoryId: GitHubRepositoryDatabaseId.make("701"),
   state: "disabled",
   provider: "openrouter",
   model: "typesafe/jev-1.13",
@@ -343,7 +364,9 @@ describe("Repositories", () => {
     expect(describeRevision({ ...configuration, activeRevision: null })).toBe(
       "Revision 1 waiting on promotion",
     )
-    expect(describeRevision({ ...configuration, configuredRevision: 0 })).toBe("Nothing configured")
+    expect(
+      describeRevision({ ...configuration, configuredRevision: LabelingRevision.make(0) }),
+    ).toBe("Nothing configured")
     expect(describePlan(detail.reconciliations[0]!.plan!, configuration)).toEqual([
       "add bug (Base is main)",
     ])
@@ -515,7 +538,7 @@ describe("mutation reconciliation", () => {
       pending,
       Workspace.Message.Selected({ repositoryId: "702" }),
     ).model
-    const otherConsent = { ...consent, repositoryId: "702" }
+    const otherConsent = { ...consent, repositoryId: GitHubRepositoryDatabaseId.make("702") }
     const received = Workspace.update(
       other,
       Workspace.Message.GotConsent({
