@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils"
 import { CircleAlert, RotateCw, Search } from "lucide"
 import { reasonOf, request } from "@/lib/api"
 import { ApiClient } from "@/lib/api-client"
+import { syncRefusalCopy } from "@/components/sync-button"
 import * as Routes from "@/routes"
 
 export const Model = Schema.Struct({
@@ -152,31 +153,21 @@ const Change = Command.define("ChangeRepositoryConnection", {
       Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })
-const decodeRepositoryId = Schema.decodeUnknownEffect(GitHubRepositoryDatabaseId)
 /** A cache refresh request; it never touches the repository's connection or pause. */
 const RetrySync = Command.define("RetryRepositorySync", {
   args: { id: Schema.String, operationId: Schema.Int },
   messages: [Message.RetriedSync, Message.Failed],
   execute: ({ id, operationId }) =>
-    Effect.gen(function* () {
-      const api = yield* ApiClient
-      const repositoryId = yield* decodeRepositoryId(id)
-      yield* api.sync.requestRepository({ params: { repositoryId } })
-      return Message.RetriedSync({ operationId })
-    }).pipe(
-      Effect.catchTags({
-        RepositoryNotFound: () =>
-          Effect.succeed(Message.Failed({ operationId, reason: blockReasonCopy("not-connected") })),
-        RepositoryBlocked: ({ reason }) =>
-          Effect.succeed(Message.Failed({ operationId, reason: blockReasonCopy(reason) })),
-        SynchronizationDisabled: () =>
-          Effect.succeed(
-            Message.Failed({
-              operationId,
-              reason: "Synchronization is turned off for this installation.",
-            }),
-          ),
-      }),
+    ApiClient.use((api) =>
+      // The inventory's ids are the server's GitHub database ids.
+      api.sync.requestRepository({ params: { repositoryId: GitHubRepositoryDatabaseId.make(id) } }),
+    ).pipe(
+      Effect.as(Message.RetriedSync({ operationId })),
+      Effect.catchTag(
+        ["RepositoryNotFound", "RepositoryBlocked", "SynchronizationDisabled"],
+        (refusal) =>
+          Effect.succeed(Message.Failed({ operationId, reason: syncRefusalCopy(refusal) })),
+      ),
       Effect.catch((error) => Effect.succeed(failed(error, operationId))),
     ),
 })

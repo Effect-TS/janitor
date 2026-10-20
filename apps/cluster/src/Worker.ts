@@ -453,8 +453,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       fileResponse: () => Effect.die("HttpPlatform.fileResponse not supported"),
       fileWebResponse: () => Effect.die("HttpPlatform.fileWebResponse not supported"),
     })
-    // `HttpApiBuilder` asks for a file system to serve file bodies; no route does.
-    const FileSystemStubLayer = FileSystem.layerNoop({})
     const env = yield* Cloudflare.Workers.WorkerEnvironment
     // The audience binding is empty during plan, when no request can arrive.
     // At runtime an empty audience matches no assertion, so a missing binding
@@ -468,7 +466,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         Layer.provide([
           Etag.layer,
           HttpPlatformStubLayer,
-          FileSystemStubLayer,
+          // `HttpApiBuilder` asks for a file system to serve file bodies; no route does.
+          FileSystem.layerNoop({}),
           Path.layer,
           FetchHttpClient.layer,
         ]),

@@ -139,11 +139,7 @@ const respond = (method: string, path: string, headers: Record<string, string>) 
           { webhookSecret: Redacted.make("unused") },
           { localDevAudience: undefined },
         ).pipe(Layer.provide(WorkerLayer)),
-        {
-          disableLogger: true,
-          middleware: (app) =>
-            app.pipe(Effect.provideService(RuntimeContext.RuntimeContext, runtimeContext)),
-        },
+        { disableLogger: true },
       ),
     ),
     ({ handler }) =>

@@ -36,6 +36,7 @@ const stub = (overrides: Partial<SyncStatus["Service"]> = {}): SyncStatus["Servi
 
 const client = (status: SyncStatus["Service"]) =>
   makeClient(
+    ["sync"],
     SyncGroupLayer,
     Context.make(SyncStatus, status).pipe(
       Context.add(WorkflowDispatcher, {

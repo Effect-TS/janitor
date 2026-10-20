@@ -1,6 +1,11 @@
 import * as Tooltip from "@foldkit/ui/tooltip"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import type { RepositoryBlockReason } from "@janitor/domain/GitHub/Repository"
+import type {
+  RepositoryBlocked,
+  RepositoryBlockReason,
+  RepositoryNotFound,
+  SynchronizationDisabled,
+} from "@janitor/domain/GitHub/Repository"
 import { type SyncState, SyncSummary } from "@janitor/domain/GitHub/Sync"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -85,6 +90,20 @@ const blockedCopy = (reason: RepositoryBlockReason): string => {
   }
 }
 
+export type SyncRefusal = RepositoryNotFound | RepositoryBlocked | SynchronizationDisabled
+
+/** The server's reason for refusing a sync request, in the button's words. */
+export const syncRefusalCopy = (refusal: SyncRefusal): string => {
+  switch (refusal._tag) {
+    case "RepositoryNotFound":
+      return blockedCopy("not-connected")
+    case "RepositoryBlocked":
+      return blockedCopy(refusal.reason)
+    case "SynchronizationDisabled":
+      return "Synchronization is turned off for this installation."
+  }
+}
+
 export const FetchSyncSummary = FoldkitCommand.define("FetchSyncSummary", {
   messages: [Message.GotSummary, Message.FailedSummary],
   execute: Effect.gen(function* () {
@@ -97,8 +116,6 @@ export const FetchSyncSummary = FoldkitCommand.define("FetchSyncSummary", {
   ),
 })
 
-const decodeRepositoryId = Schema.decodeUnknownEffect(GitHubRepositoryDatabaseId)
-
 const failedRequest = (reason: string) => Effect.succeed(Message.FailedRequest({ reason }))
 
 export const RequestSync = FoldkitCommand.define("RequestSync", {
@@ -107,21 +124,20 @@ export const RequestSync = FoldkitCommand.define("RequestSync", {
   execute: ({ repositoryId }) =>
     Effect.gen(function* () {
       const api = yield* ApiClient
+      // The route already validated the id as a GitHub database id.
       const summary =
         repositoryId === undefined
           ? yield* api.sync.requestAll()
           : yield* api.sync.requestRepository({
-              params: { repositoryId: yield* decodeRepositoryId(repositoryId) },
+              params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
             })
       const receivedAt = yield* DateTime.now
       return Message.GotRequestResult({ summary, receivedAt })
     }).pipe(
-      Effect.catchTags({
-        RepositoryNotFound: () => failedRequest(blockedCopy("not-connected")),
-        RepositoryBlocked: ({ reason }) => failedRequest(blockedCopy(reason)),
-        SynchronizationDisabled: () =>
-          failedRequest("Synchronization is turned off for this installation."),
-      }),
+      Effect.catchTag(
+        ["RepositoryNotFound", "RepositoryBlocked", "SynchronizationDisabled"],
+        (refusal) => failedRequest(syncRefusalCopy(refusal)),
+      ),
       Effect.catch((error) => failedRequest(describe(error))),
     ),
 })
@@ -371,11 +387,7 @@ export const view = Submodel.defineView<
                     h.div([h.Class("font-medium")], ["Re-sync GitHub"]),
                     h.div(
                       [h.Class("text-ink-muted")],
-                      [
-                        syncDisabled
-                          ? "Repository paused. Resume it in repository settings before syncing."
-                          : tooltipText(model),
-                      ],
+                      [syncDisabled ? blockedCopy("paused") : tooltipText(model)],
                     ),
                   ],
                 )
