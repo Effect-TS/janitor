@@ -1,4 +1,3 @@
-import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { GitHubEntityKind } from "../../GitHub/ReadModel.ts"
 import { PolicyId } from "./Condition.ts"
@@ -25,10 +24,15 @@ export const MAX_TEST_ENTITIES = 25
 
 export const TestRequest = Schema.Struct({
   subject: TestSubject,
-  /** Specific entities, or the most recently updated open ones when empty. */
-  numbers: Schema.Array(Schema.Int.check(Schema.isGreaterThan(0)))
-    .check(Schema.isMaxLength(MAX_TEST_ENTITIES))
-    .pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  /**
+   * Specific entities, or the most recently updated open ones when empty or
+   * absent. Optional in the type too, because the derived client sends it.
+   */
+  numbers: Schema.optionalKey(
+    Schema.Array(Schema.Int.check(Schema.isGreaterThan(0))).check(
+      Schema.isMaxLength(MAX_TEST_ENTITIES),
+    ),
+  ),
 }).annotate({ identifier: "TestRequest" })
 export type TestRequest = typeof TestRequest.Type
 
@@ -59,3 +63,12 @@ export const TestResponse = Schema.Union([
   Schema.TaggedStruct("Rejected", { message: Schema.String }),
 ]).annotate({ identifier: "TestResponse" })
 export type TestResponse = typeof TestResponse.Type
+
+/** A queued rule test: the editor polls it until it is done or failed. */
+export const RuleTestJob = Schema.Struct({
+  testId: Schema.String,
+  status: Schema.Literals(["queued", "running", "done", "failed"]),
+  response: Schema.NullOr(TestResponse),
+  message: Schema.NullOr(Schema.String),
+}).annotate({ identifier: "RuleTestJob" })
+export type RuleTestJob = typeof RuleTestJob.Type

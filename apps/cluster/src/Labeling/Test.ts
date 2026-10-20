@@ -213,7 +213,7 @@ export class LabelingTest extends Context.Service<
             program = version.program
             tracks = version.manifest.tracks
           }
-          const views = yield* items(repositoryId, request.numbers, collectionTracks(tracks))
+          const views = yield* items(repositoryId, request.numbers ?? [], collectionTracks(tracks))
           // Classifier caches also include the prompt, evidence, provider, and confidence threshold.
           const versionId =
             request.subject._tag === "Policy"
@@ -252,7 +252,7 @@ export class LabelingTest extends Context.Service<
           }
           const views = yield* items(
             repositoryId,
-            request.numbers,
+            request.numbers ?? [],
             collectionTracks(snapshot.value.requiredTracks),
           )
           const isCurrent = sql`

@@ -1,9 +1,8 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { TestEntity, TestRequest, TestResponse } from "@janitor/domain/Labeling/Policy/Test"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -15,6 +14,7 @@ import { chip, type ChipVariant } from "@/components/ui/chip"
 import * as Feed from "@/components/ui/feed"
 import { panel, panelHeader } from "@/components/ui/panel"
 import * as Select from "@/components/ui/select"
+import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
 import { Check, CircleAlert, CircleHelp, Play, X } from "lucide"
 import {
@@ -24,9 +24,6 @@ import {
   describePlan,
   labelName,
   type Outcome,
-  TestEntity,
-  testEndpoint,
-  TestResponse,
   TestSubject,
 } from "@/components/labeling-wire"
 
@@ -73,10 +70,12 @@ export type OutMessage = typeof OutMessage.Type
 
 // COMMAND
 
-const describe = (error: unknown): string =>
-  typeof error === "object" && error !== null && "message" in error
-    ? String(error.message)
-    : String(error)
+const UNAVAILABLE = "This repository is unavailable."
+const MALFORMED = "The draft isn't in the policy format."
+const RETRY = "The test failed. Please retry."
+
+/** The subject's source is free JSON; the API takes the domain's test request. */
+const testRequest = Schema.decodeUnknownOption(TestRequest)
 
 export const RunTest = FoldkitCommand.define("RunTest", {
   args: {
@@ -86,24 +85,27 @@ export const RunTest = FoldkitCommand.define("RunTest", {
   },
   messages: [Message.CompletedRunTest, Message.FailedRunTest],
   execute: ({ repositoryId, subject, numbers }) =>
-    HttpClientRequest.post(testEndpoint(repositoryId)).pipe(
-      HttpClientRequest.bodyJson({ subject, numbers: numbers ?? [] }),
-      Effect.flatMap(HttpClient.execute),
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(TestResponse)),
-      Effect.map((response) => Message.CompletedRunTest({ response })),
-      Effect.catch((error) => Effect.succeed(Message.FailedRunTest({ reason: describe(error) }))),
-    ),
+    Option.match(testRequest({ subject, numbers: numbers ?? [] }), {
+      onNone: () => Effect.succeed(Message.FailedRunTest({ reason: MALFORMED })),
+      onSome: (payload) =>
+        ApiClient.use((api) =>
+          api.testBench.run({
+            params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+            payload,
+          }),
+        ).pipe(
+          Effect.map((response) => Message.CompletedRunTest({ response })),
+          Effect.catchTag("RepositoryNotFound", () =>
+            Effect.succeed(Message.FailedRunTest({ reason: UNAVAILABLE })),
+          ),
+          Effect.orElseSucceed(() => Message.FailedRunTest({ reason: RETRY })),
+        ),
+    }),
 })
 
 // INIT
 
-export type UpdateReturn = Update.ReturnWithOutMessage<
-  Model,
-  Message,
-  OutMessage,
-  HttpClient.HttpClient
->
+export type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage, ApiClient>
 
 export const init = (input: {
   readonly repositoryId: string

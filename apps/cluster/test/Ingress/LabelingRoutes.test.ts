@@ -1,5 +1,4 @@
 import { ActivityReader } from "../../src/Labeling/Activity.ts"
-import { RuleTestJobs } from "../../src/Labeling/RuleTestJob.ts"
 import { assert, describe, it } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -21,7 +20,6 @@ import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
 import { LabelingOverview } from "../../src/Labeling/Overview.ts"
 import { Policies } from "../../src/Labeling/Policies.ts"
 import { LabelingRules } from "../../src/Labeling/Rules.ts"
-import { LabelingTest } from "../../src/Labeling/Test.ts"
 import { unused as unusedService } from "../support/Api.ts"
 
 const repositoryId = GitHubRepositoryDatabaseId.make("701")
@@ -81,11 +79,6 @@ const configuration: LabelingConfiguration["Service"] = {
   view: () => Effect.succeed(view),
 }
 
-const test: LabelingTest["Service"] = {
-  items: () => Effect.succeed([]),
-  run: () => Effect.succeed({ _tag: "Evaluated", entities: [] }),
-}
-
 const consentService: AiConsentService["Service"] = {
   get: () =>
     Effect.succeed({
@@ -125,17 +118,6 @@ const withHandler = <A, E, R>(
           Context.make(LabelingRules, unusedService(LabelingRules)).pipe(
             Context.add(Policies, unusedService(Policies)),
             Context.add(LabelingConfiguration, configuration),
-            Context.add(LabelingTest, test),
-            Context.add(RuleTestJobs, {
-              enqueue: () =>
-                Effect.succeed({
-                  testId: "test-1",
-                  status: "queued",
-                  response: null,
-                  message: null,
-                }),
-              get: () => Effect.succeed(null),
-            }),
             Context.add(LabelingOverview, overview),
             Context.add(ActivityReader, {
               page: () => Effect.succeed({ entries: [], cursor: null }),
@@ -184,13 +166,9 @@ describe("LabelingRoutes", () => {
     ),
   )
 
-  it.effect("runs tests, sets AI consent and refuses cross-site writes", () =>
+  it.effect("sets AI consent and refuses cross-site writes", () =>
     withHandler((handler) =>
       Effect.gen(function* () {
-        const tested = yield* Effect.promise(() =>
-          handler(request("POST", `${base}/test`, { subject: { _tag: "Configuration" } })),
-        )
-        assert.strictEqual(tested.status, 200)
         const consented = yield* Effect.promise(() =>
           handler(request("PUT", `${base}/ai-consent`, { enabled: true })),
         )

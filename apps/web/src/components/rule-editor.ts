@@ -5,9 +5,11 @@ import {
   ReorderGroupRequest,
   RuleIssue,
 } from "@janitor/domain/Labeling/Policy/Configuration"
+import { PolicyId } from "@janitor/domain/Labeling/Policy/Condition"
 import { resultAction, describeResultAction, RuleId } from "@janitor/domain/Labeling/Policy/Plan"
+import { AiInputDetails } from "@janitor/domain/Labeling/Policy/AiInput"
+import { RuleTestJob, TestRequest, TestResponse } from "@janitor/domain/Labeling/Policy/Test"
 import * as Clock from "effect/Clock"
-import { AiInputDetails } from "@/components/labeling-wire"
 import { aiInputView, InputInspection } from "@/components/ai-input-view"
 import { inspectAiPrompt } from "@janitor/domain/Labeling/Policy/PromptReferences"
 import * as Mount from "foldkit/mount"
@@ -19,9 +21,6 @@ import * as Disclosure from "@foldkit/ui/disclosure"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as FoldkitCommand from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -46,8 +45,6 @@ import {
   RuleRecord,
   SynchronizedLabel,
   TestCandidates,
-  TestResponse,
-  testEndpoint,
   labelName,
   describeOutcome,
   type Evaluation,
@@ -278,11 +275,6 @@ const publishedPolicies = (model: Model) =>
 
 // COMMAND
 
-const describe = (error: unknown): string =>
-  typeof error === "object" && error !== null && "message" in error
-    ? String(error.message)
-    : String(error)
-
 const Payload = {
   requestId: Schema.optionalKey(Schema.String),
   ai: Schema.optionalKey(AiRuleDefinition),
@@ -302,11 +294,16 @@ const UNAVAILABLE = "This repository is unavailable."
 const BLOCKED = "This repository is disconnected, so its rules can't change."
 const MALFORMED = "The rule isn't in the expected format."
 const RETRY = "The request failed. Please retry."
+const TEST_BLOCKED = "This repository is disconnected, so its rules can't be tested."
+const INPUT_EXPIRED =
+  "Input details expired or are unavailable. Run the test again to inspect a new snapshot."
+const INPUT_RETRY = "Unable to load input details. Try again."
 
 /** Commands carry plain strings; the API takes branded ids and checked fields. */
 const reorderRequest = Schema.decodeUnknownOption(ReorderGroupRequest)
 const createRequest = Schema.decodeUnknownOption(CreateRuleRequest)
 const patchRequest = Schema.decodeUnknownOption(PatchRuleRequest)
+const testRequest = Schema.decodeUnknownOption(TestRequest)
 
 export const ReorderGroup = FoldkitCommand.define("ReorderGroup", {
   args: {
@@ -429,40 +426,47 @@ export const TestRule = FoldkitCommand.define("TestRule", {
     generation: Schema.Int,
   },
   messages: [Message.QueuedTest, Message.CompletedTest, Message.FailedTest],
-  execute: ({ repositoryId, policyId, number, generation, ai, evidence }) =>
-    Effect.gen(function* () {
-      const startedAt = yield* Clock.currentTimeMillis
-      const request = yield* HttpClientRequest.bodyJson(
-        HttpClientRequest.post(testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests")),
-        {
-          subject: ai
-            ? {
-                _tag: "Draft",
-                source: {
-                  target: ai.target,
-                  ...(ai.gatePolicyId ? { appliesWhen: { policy: ai.gatePolicyId } } : {}),
-                  classify: {
-                    prompt: ai.prompt,
-                    minimumConfidence: ai.minimumConfidence,
-                    evidence,
-                  },
-                },
-              }
-            : { _tag: "Policy", policyId },
-          numbers: [number],
-        },
-      )
-      const response = yield* HttpClient.execute(request)
-      if (response.status !== 202)
-        return Message.FailedTest({ reason: `Server answered ${response.status}`, generation })
-      const job = yield* HttpIncomingMessage.schemaBodyJson(RuleTestJob)(response)
-      return testJobMessage(job, generation, startedAt, 0, yield* Clock.currentTimeMillis)
-    }).pipe(
-      Effect.timeout("15 seconds"),
-      Effect.catch((error) =>
-        Effect.succeed(Message.FailedTest({ reason: describe(error), generation })),
-      ),
-    ),
+  execute: ({ repositoryId, policyId, number, generation, ai, evidence }) => {
+    const subject = ai
+      ? {
+          _tag: "Draft",
+          source: {
+            target: ai.target,
+            ...(ai.gatePolicyId ? { appliesWhen: { policy: ai.gatePolicyId } } : {}),
+            classify: {
+              prompt: ai.prompt,
+              minimumConfidence: ai.minimumConfidence,
+              ...(evidence === undefined ? {} : { evidence }),
+            },
+          },
+        }
+      : { _tag: "Policy", policyId: PolicyId.make(policyId) }
+    const failed = (reason: string) => Effect.succeed(Message.FailedTest({ reason, generation }))
+    return Option.match(testRequest({ subject, numbers: [number] }), {
+      onNone: () => failed(MALFORMED),
+      onSome: (payload) =>
+        Effect.gen(function* () {
+          const startedAt = yield* Clock.currentTimeMillis
+          const job = yield* ApiClient.use((api) =>
+            api.testBench.startRuleTest({
+              params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+              payload,
+            }),
+          )
+          return testJobMessage(job, generation, startedAt, 0, yield* Clock.currentTimeMillis)
+        }).pipe(
+          Effect.timeout("15 seconds"),
+          Effect.catchTags({
+            PolicyInvalid: ({ diagnostic }) => failed(diagnostic),
+            RepositoryNotFound: () => failed(UNAVAILABLE),
+            RepositoryBlocked: () => failed(TEST_BLOCKED),
+          }),
+          Effect.orElseSucceed(() =>
+            Message.FailedTest({ reason: "The test couldn't start. Please retry.", generation }),
+          ),
+        ),
+    })
+  },
 })
 const selectedPolicy = (model: Model) =>
   model.policies.find((policy) => Option.contains(model.maybePolicyId, policy.policyId))
@@ -477,12 +481,7 @@ const selectedTestItem = (model: Model) =>
 
 // INIT
 
-export type UpdateReturn = Update.ReturnWithOutMessage<
-  Model,
-  Message,
-  OutMessage,
-  HttpClient.HttpClient | ApiClient
->
+export type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage, ApiClient>
 
 const initialize = (input: {
   readonly repositoryId: string
@@ -1945,14 +1944,8 @@ const MountAiPrompt = Mount.defineStream("MountAiPrompt", {
       ),
     ),
 })
-const RuleTestJob = Schema.Struct({
-  testId: Schema.String,
-  status: Schema.Literals(["queued", "running", "done", "failed"]),
-  response: Schema.NullOr(TestResponse),
-  message: Schema.NullOr(Schema.String),
-})
 const testJobMessage = (
-  job: typeof RuleTestJob.Type,
+  job: RuleTestJob,
   generation: number,
   startedAt: number,
   polls: number,
@@ -1987,78 +1980,55 @@ export const FetchRuleTest = FoldkitCommand.define("FetchRuleTest", {
     status: Schema.Literals(["queued", "running"]),
   },
   messages: [Message.QueuedTest, Message.CompletedTest, Message.FailedTest],
-  execute: ({ repositoryId, testId, generation, polls, startedAt, status }) =>
-    Effect.gen(function* () {
-      if ((yield* Clock.currentTimeMillis) - startedAt >= 240_000)
-        return Message.FailedTest({ generation, reason: "The test timed out. Run it again." })
-
-      const response = yield* HttpClient.get(
-        testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests/") + encodeURIComponent(testId),
-      ).pipe(Effect.timeout("10 seconds"))
-      if (response.status >= 500 || response.status === 429)
-        return Message.QueuedTest({
+  execute: ({ repositoryId, testId, generation, polls, startedAt, status }) => {
+    const retry = (pollError: string) =>
+      Effect.map(Clock.currentTimeMillis, (now) =>
+        Message.QueuedTest({
           testId,
           generation,
           status,
           startedAt,
           polls: polls + 1,
-          elapsedSeconds: Math.floor(((yield* Clock.currentTimeMillis) - startedAt) / 1000),
-          pollError: "temporarily unavailable",
-        })
-      if (response.status !== 200)
-        return Message.FailedTest({
-          generation,
-          reason:
-            response.status === 404
-              ? "The test expired or is unavailable. Run it again."
-              : "Unable to read this test. Check repository access.",
-        })
-      const job = yield* HttpIncomingMessage.schemaBodyJson(RuleTestJob)(response)
+          elapsedSeconds: Math.floor((now - startedAt) / 1000),
+          pollError,
+        }),
+      )
+    const failed = (reason: string) => Effect.succeed(Message.FailedTest({ generation, reason }))
+    return Effect.gen(function* () {
+      if ((yield* Clock.currentTimeMillis) - startedAt >= 240_000)
+        return Message.FailedTest({ generation, reason: "The test timed out. Run it again." })
+      const job = yield* ApiClient.use((api) =>
+        api.testBench.getRuleTest({
+          params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId), testId },
+        }),
+      ).pipe(Effect.timeout("10 seconds"))
       return testJobMessage(job, generation, startedAt, polls + 1, yield* Clock.currentTimeMillis)
     }).pipe(
       Effect.timeout("20 seconds"),
-      Effect.catch(() =>
-        Effect.map(Clock.currentTimeMillis, (now) =>
-          Message.QueuedTest({
-            testId,
-            generation,
-            status,
-            startedAt,
-            polls: polls + 1,
-            elapsedSeconds: Math.floor((now - startedAt) / 1000),
-            pollError: "connection interrupted",
-          }),
-        ),
-      ),
-    ),
+      Effect.catchTags({
+        RuleTestNotFound: () => failed("The test expired or is unavailable. Run it again."),
+        RepositoryNotFound: () => failed("Unable to read this test. Check repository access."),
+        RepositoryBlocked: () => failed("Unable to read this test. Check repository access."),
+      }),
+      Effect.catch(() => retry("temporarily unavailable")),
+    )
+  },
 })
 export const LoadInput = FoldkitCommand.define("LoadRuleTestInput", {
   args: { repositoryId: Schema.String, testId: Schema.String, generation: Schema.Int },
   messages: [Message.LoadedInput, Message.FailedInput],
   execute: ({ repositoryId, testId, generation }) =>
-    Effect.gen(function* () {
-      const response = yield* HttpClient.get(
-        testEndpoint(repositoryId).replace(/\/test$/, "/rule-tests/") +
-          encodeURIComponent(testId) +
-          "/input",
-      )
-      if (response.status !== 200)
-        return Message.FailedInput({
-          generation,
-          reason:
-            response.status === 404
-              ? "Input details expired or are unavailable. Run the test again to inspect a new snapshot."
-              : "Unable to load input details. Try again.",
-        })
-      const details = yield* HttpIncomingMessage.schemaBodyJson(AiInputDetails)(response)
-      return Message.LoadedInput({ generation, details })
-    }).pipe(
+    ApiClient.use((api) =>
+      api.testBench.getRuleTestInput({
+        params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId), testId },
+      }),
+    ).pipe(
+      Effect.map((details) => Message.LoadedInput({ generation, details })),
       Effect.timeout("15 seconds"),
-      Effect.catch(() =>
-        Effect.succeed(
-          Message.FailedInput({ generation, reason: "Unable to load input details. Try again." }),
-        ),
+      Effect.catchTag("RuleTestNotFound", () =>
+        Effect.succeed(Message.FailedInput({ generation, reason: INPUT_EXPIRED })),
       ),
+      Effect.orElseSucceed(() => Message.FailedInput({ generation, reason: INPUT_RETRY })),
     ),
 })
 

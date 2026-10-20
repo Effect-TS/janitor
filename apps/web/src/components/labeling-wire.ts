@@ -18,7 +18,6 @@ export const configurationEndpoint = (repositoryId: string) =>
   `${repository(repositoryId)}/configuration`
 export const reconciliationsEndpoint = (repositoryId: string) =>
   `${repository(repositoryId)}/reconciliations`
-export const testEndpoint = (repositoryId: string) => `${repository(repositoryId)}/test`
 export const aiConsentEndpoint = (repositoryId: string) => `${repository(repositoryId)}/ai-consent`
 
 // REPOSITORIES
@@ -86,6 +85,7 @@ export const ProgramSource = Schema.Struct({
 export type ProgramSource = typeof ProgramSource.Type
 
 import { ResultAction } from "@janitor/domain/Labeling/Policy/Plan"
+import { TestEntity } from "@janitor/domain/Labeling/Policy/Test"
 
 // RULES
 
@@ -195,12 +195,6 @@ export const AiInputReport = Schema.Struct({
   facts: Schema.Array(InputFactReport),
 })
 export type AiInputReport = typeof AiInputReport.Type
-/** `text` is the single-rule decision request as sent: the state and both questions. */
-export const AiInputDetails = Schema.Struct({
-  text: Schema.String,
-  facts: Schema.Array(Schema.Struct({ name: Schema.String, json: Schema.String })),
-})
-export type AiInputDetails = typeof AiInputDetails.Type
 export const AiReasonCode = Schema.Literals([
   "input-too-large",
   "missing-evidence",
@@ -287,33 +281,11 @@ export const TestSubject = Schema.Union([
 ])
 export type TestSubject = typeof TestSubject.Type
 
-export const TestEntity = Schema.Struct({
-  number: Schema.Int,
-  kind: Schema.Literals(["issue", "pull_request"]),
-  title: Schema.String,
-  authorLogin: Schema.String,
-  baseRef: Schema.NullOr(Schema.String),
-  draft: Schema.NullOr(Schema.Boolean),
-  labels: Schema.Array(Schema.String),
-  /** Label names as GitHub reported them, when the facts were read live. */
-  labelNames: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
-  source: Schema.optionalKey(Schema.Literals(["github", "cache"])),
-  evaluation: Schema.NullOr(Evaluation),
-  plan: Schema.NullOr(Plan),
-})
-export type TestEntity = typeof TestEntity.Type
-
 export const TestCandidates = Schema.Union([
   Schema.TaggedStruct("Ready", { items: Schema.Array(TestEntity) }),
   Schema.TaggedStruct("Failed", { reason: Schema.String }),
 ])
 export type TestCandidates = typeof TestCandidates.Type
-
-export const TestResponse = Schema.Union([
-  Schema.TaggedStruct("Evaluated", { entities: Schema.Array(TestEntity) }),
-  Schema.TaggedStruct("Rejected", { message: Schema.String }),
-])
-export type TestResponse = typeof TestResponse.Type
 
 // DESCRIPTIONS
 

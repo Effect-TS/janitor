@@ -5,6 +5,7 @@ import { PoliciesGroup } from "./Api/Policies.ts"
 import { PullRequestReviewGroup } from "./Api/PullRequestReview.ts"
 import { RulesGroup } from "./Api/Rules.ts"
 import { SyncGroup } from "./Api/Sync.ts"
+import { TestBenchGroup } from "./Api/TestBench.ts"
 
 /**
  * Janitor's HTTP API, shared by the cluster's handlers and the web app's
@@ -17,4 +18,5 @@ export class JanitorApi extends HttpApi.make("janitor")
   .add(PullRequestReviewGroup)
   .add(PoliciesGroup)
   .add(RulesGroup)
+  .add(TestBenchGroup)
   .prefix("/api/v1") {}

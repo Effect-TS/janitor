@@ -257,6 +257,13 @@ export class RuleInvalid extends Schema.TaggedError<RuleInvalid>()(
   { httpApiStatus: 422 },
 ) {}
 
+/** The rule test is unknown, or its input snapshot expired. */
+export class RuleTestNotFound extends Schema.TaggedError<RuleTestNotFound>()(
+  "RuleTestNotFound",
+  { testId: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+
 // CONFIGURATION
 
 /** One rule as snapshotted at a revision, bound to a published version. */

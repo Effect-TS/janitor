@@ -41,8 +41,6 @@ import * as RuleEditor from "@/components/rule-editor"
 import {
   AiConsent,
   TestCandidates,
-  TestEntity,
-  testEndpoint,
   aiConsentEndpoint,
   CATALOG_ENDPOINT,
   ConfigurationView,
@@ -246,14 +244,19 @@ export const FetchDetail = FoldkitCommand.define("FetchDetail", {
     Effect.all(
       {
         configuration: getJson(configurationEndpoint(repositoryId), ConfigurationView),
-        testCandidates: getJson(
-          `${testEndpoint(repositoryId)}/items`,
-          Schema.Array(TestEntity),
+        testCandidates: ApiClient.use((api) =>
+          api.testBench.listItems({
+            params: { repositoryId: GitHubRepositoryDatabaseId.make(repositoryId) },
+          }),
         ).pipe(
-          Effect.map((items) => ({ _tag: "Ready" as const, items })),
-          Effect.catch((error) =>
-            Effect.succeed({ _tag: "Failed" as const, reason: describe(error) }),
+          Effect.map((items): TestCandidates => ({ _tag: "Ready", items })),
+          Effect.catchTag("RepositoryNotFound", () =>
+            Effect.succeed<TestCandidates>({ _tag: "Failed", reason: UNAVAILABLE }),
           ),
+          Effect.orElseSucceed((): TestCandidates => ({
+            _tag: "Failed",
+            reason: "The open items couldn't load. Please retry.",
+          })),
         ),
         reconciliations: Effect.succeed([]),
       },
