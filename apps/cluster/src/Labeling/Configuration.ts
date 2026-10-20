@@ -48,7 +48,8 @@ export const withRepositoryMutation = <A, E, R>(
         const [repository] = yield* sql<{
           connected: boolean
         }>`SELECT connected FROM github_repository WHERE repository_id = ${repositoryId} FOR NO KEY UPDATE`
-        if (!repository?.connected)
+        if (repository === undefined) return yield* new RepositoryNotFound({ repositoryId })
+        if (!repository.connected)
           return yield* new RepositoryBlocked({ repositoryId, reason: "disconnected" })
         return yield* effect
       }),
