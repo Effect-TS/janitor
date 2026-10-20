@@ -13,7 +13,6 @@ export type LinkProofReason =
   | "token-rejected"
   | "nonce-mismatch"
   | "wrong-workspace"
-  | "lookup-failed"
 
 /** The platform did not prove ownership. Never carries tokens or codes. */
 export class LinkProofFailed extends Data.TaggedError("LinkProofFailed")<{

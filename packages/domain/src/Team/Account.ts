@@ -68,3 +68,17 @@ export const LinkReturnRequest = Schema.Struct({
   code: Schema.String,
 })
 export type LinkReturnRequest = typeof LinkReturnRequest.Type
+
+/** No active link with this id belongs to the teammate. */
+export class ConnectedAccountNotFound extends Schema.TaggedError<ConnectedAccountNotFound>()(
+  "ConnectedAccountNotFound",
+  { linkId: LinkId },
+  { httpApiStatus: 404 },
+) {}
+
+/** The platform account is already connected to another teammate. */
+export class AccountAlreadyConnected extends Schema.TaggedError<AccountAlreadyConnected>()(
+  "AccountAlreadyConnected",
+  {},
+  { httpApiStatus: 409 },
+) {}

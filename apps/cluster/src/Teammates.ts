@@ -1,5 +1,8 @@
+import { AuthorizationExpired } from "@janitor/domain/GitHub/Authorization"
 import {
+  AccountAlreadyConnected,
   type AccountView,
+  ConnectedAccountNotFound,
   LinkId,
   type LinkedAccount,
   type LinkPlatform,
@@ -14,7 +17,6 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/sql/SqlClient"
 import * as SqlError from "effect/sql/SqlError"
-import { describeError } from "./SqlErrors.ts"
 
 /**
  * The identity behind Access sign-in. Access decides who may use Janitor;
@@ -22,23 +24,6 @@ import { describeError } from "./SqlErrors.ts"
  * stable identity that platform links, accepted inputs and audit rows point
  * at; Access only proves who is at the browser right now.
  */
-
-export const TeammateErrorReason = Schema.Literals([
-  "not-found",
-  "conflict",
-  "expired",
-  "rejected",
-  "unavailable",
-])
-export type TeammateErrorReason = typeof TeammateErrorReason.Type
-
-export class TeammateError extends Schema.TaggedError<TeammateError>()("TeammateError", {
-  reason: TeammateErrorReason,
-  message: Schema.String,
-}) {}
-
-export const isTeammateError = (error: unknown): error is TeammateError =>
-  error instanceof TeammateError
 
 export interface SignInIdentity {
   readonly issuer: string
@@ -116,51 +101,37 @@ const isUniqueViolation = (error: unknown): boolean => {
   )
 }
 
-/** Anything the database refuses becomes `unavailable`, except an ownership race. */
-const wrap = <A, R>(
-  effect: Effect.Effect<A, TeammateError | SqlError.SqlError | Schema.SchemaError, R>,
-) =>
-  effect.pipe(
-    Effect.mapError((error) =>
-      error._tag === "TeammateError"
-        ? error
-        : isUniqueViolation(error)
-          ? new TeammateError({
-              reason: "conflict",
-              message: "That account was just connected by another teammate.",
-            })
-          : new TeammateError({ reason: "unavailable", message: describeError(error) }),
-    ),
-  )
+/** Admission already resolved the teammate, so a missing row is a defect. */
+const unknownTeammate = Effect.die("Unknown teammate")
 
 export class Teammates extends Context.Service<
   Teammates,
   {
     /** Resolves or creates the teammate for a verified Access identity. */
-    readonly admit: (identity: SignInIdentity) => Effect.Effect<TeammateSummary, TeammateError>
+    readonly admit: (identity: SignInIdentity) => Effect.Effect<TeammateSummary>
     readonly account: (
       teammateId: TeammateId,
       linking: LinkingAvailability,
-    ) => Effect.Effect<AccountView, TeammateError>
+    ) => Effect.Effect<AccountView>
     readonly disconnect: (
       teammateId: TeammateId,
-      linkId: string,
-    ) => Effect.Effect<void, TeammateError>
+      linkId: LinkId,
+    ) => Effect.Effect<void, ConnectedAccountNotFound>
     readonly beginLink: (
       teammateId: TeammateId,
       platform: LinkPlatform,
-    ) => Effect.Effect<LinkAttempt, TeammateError>
+    ) => Effect.Effect<LinkAttempt>
     /** Single use: a second call with the same state fails as expired. */
     readonly consumeLinkAttempt: (
       teammateId: TeammateId,
       platform: LinkPlatform,
       state: string,
-    ) => Effect.Effect<{ readonly nonce: string }, TeammateError>
+    ) => Effect.Effect<{ readonly nonce: string }, AuthorizationExpired>
     /** Records a proven account. Replaces the teammate's earlier link in that workspace. */
     readonly link: (
       teammateId: TeammateId,
       proof: LinkProof,
-    ) => Effect.Effect<LinkedAccount, TeammateError>
+    ) => Effect.Effect<LinkedAccount, AccountAlreadyConnected>
   }
 >()("@janitor/cluster/Teammates", {
   make: Effect.gen(function* () {
@@ -238,20 +209,18 @@ export class Teammates extends Context.Service<
           )
           .pipe(Effect.flatMap(decodeTeammates))
         return summary(rows[0]!)
-      }).pipe(wrap)
+      }).pipe(Effect.orDie)
 
     const account = (teammateId: TeammateId, linking: LinkingAvailability) =>
       Effect.gen(function* () {
         const row = yield* loadTeammate(teammateId)
-        if (row === undefined) {
-          return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
-        }
+        if (row === undefined) return yield* unknownTeammate
         const links = (yield* linksOf([teammateId])).map(linkedAccount)
         const view: AccountView = { teammate: summary(row), links, linking }
         return view
-      }).pipe(wrap)
+      }).pipe(Effect.orDie)
 
-    const disconnect = (teammateId: TeammateId, linkId: string) =>
+    const disconnect = (teammateId: TeammateId, linkId: LinkId) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -260,30 +229,23 @@ export class Teammates extends Context.Service<
               yield* sql`UPDATE teammate_link SET status = 'disconnected', ended_at = now()
               WHERE link_id::text = ${linkId} AND teammate_id::text = ${teammateId} AND status = 'active'
               RETURNING link_id`
-            if (rows.length === 0) {
-              return yield* new TeammateError({
-                reason: "not-found",
-                message: "That connected account is not yours or is already disconnected.",
-              })
-            }
+            if (rows.length === 0) return yield* new ConnectedAccountNotFound({ linkId })
             yield* advanceIdentityRevision(teammateId)
             yield* audit(teammateId, teammateId, "disconnect", { linkId })
           }),
         )
-        .pipe(wrap)
+        .pipe(Effect.catchTag(["SqlError", "SchemaError"], Effect.die))
 
     const beginLink = (teammateId: TeammateId, platform: LinkPlatform) =>
       Effect.gen(function* () {
         const row = yield* loadTeammate(teammateId)
-        if (row === undefined) {
-          return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
-        }
+        if (row === undefined) return yield* unknownTeammate
         const [attempt] = yield* sql<{ state: string; nonce: string }>`
           INSERT INTO teammate_link_attempt (teammate_id, platform)
           VALUES (${teammateId}::uuid, ${platform}) RETURNING state::text, nonce::text`
         yield* sql`DELETE FROM teammate_link_attempt WHERE expires_at < now()`
         return { state: attempt!.state, nonce: attempt!.nonce }
-      }).pipe(wrap)
+      }).pipe(Effect.orDie)
 
     const consumeLinkAttempt = (teammateId: TeammateId, platform: LinkPlatform, state: string) =>
       Effect.gen(function* () {
@@ -293,23 +255,16 @@ export class Teammates extends Context.Service<
           WHERE state::text = ${state} AND teammate_id::text = ${teammateId}
             AND platform = ${platform} AND expires_at > now()
           RETURNING nonce::text`
-        if (rows.length === 0) {
-          return yield* new TeammateError({
-            reason: "expired",
-            message: "This connection attempt expired or was already used. Start again.",
-          })
-        }
+        if (rows.length === 0) return yield* new AuthorizationExpired()
         return { nonce: rows[0]!.nonce }
-      }).pipe(wrap)
+      }).pipe(Effect.catchTag("SqlError", Effect.die))
 
     const link = (teammateId: TeammateId, proof: LinkProof) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
             const teammate = yield* lockTeammate(teammateId)
-            if (teammate === undefined) {
-              return yield* new TeammateError({ reason: "not-found", message: "Unknown teammate." })
-            }
+            if (teammate === undefined) return yield* unknownTeammate
             const owners = yield* sql
               .unsafe(
                 `SELECT ${LINK_COLUMNS} FROM teammate_link
@@ -320,10 +275,7 @@ export class Teammates extends Context.Service<
               .pipe(Effect.flatMap(decodeLinks))
             const owner = owners[0]
             if (owner !== undefined && owner.teammate_id !== teammateId) {
-              return yield* new TeammateError({
-                reason: "conflict",
-                message: "That account is connected to another teammate.",
-              })
+              return yield* new AccountAlreadyConnected()
             }
             if (owner !== undefined) {
               // Fresh proof of the same account: keep the link, note the re-proof.
@@ -357,7 +309,11 @@ export class Teammates extends Context.Service<
             return linkedAccount(inserted[0]!)
           }),
         )
-        .pipe(wrap)
+        .pipe(
+          // A concurrent link of the same account loses on the unique index.
+          Effect.catchIf(isUniqueViolation, () => Effect.fail(new AccountAlreadyConnected())),
+          Effect.catchTag(["SqlError", "SchemaError"], Effect.die),
+        )
 
     return {
       admit,

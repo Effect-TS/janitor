@@ -1,96 +1,45 @@
-import {
-  AccountView,
-  LinkedAccount,
-  LinkPlatform,
-  LinkReturnRequest,
-} from "@janitor/domain/Team/Account"
+import { JanitorApi } from "@janitor/domain/Api"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import * as Schema from "effect/Schema"
-import * as HttpRouter from "effect/http/HttpRouter"
-import * as Request from "effect/http/HttpServerRequest"
-import * as Response from "effect/http/HttpServerResponse"
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
 import { AccountLinking } from "../AccountLinking.ts"
-import {
-  isTeammateError,
-  type TeammateError,
-  type TeammateErrorReason,
-  Teammates,
-} from "../Teammates.ts"
-import { CurrentTeammate, SameOriginMiddleware } from "./Middleware.ts"
+import { Teammates } from "../Teammates.ts"
+import { CurrentTeammate } from "./Middleware.ts"
 
 /**
- * Account screens: the signed-in teammate's identity and connected accounts,
- * and the admin-only team roster. Roles are enforced by `Teammates`; these
- * routes only translate outcomes into responses.
+ * The account page: the signed-in teammate's identity and connected accounts.
+ * `Teammates` and `AccountLinking` fail with the domain errors the endpoints
+ * declare, so the handlers only pick the teammate and call through.
  */
-
-const respondMessage = Response.schemaJson(Schema.Struct({ message: Schema.String }))
-
-const STATUS_BY_REASON: Record<TeammateErrorReason, number> = {
-  "not-found": 404,
-  conflict: 409,
-  expired: 410,
-  rejected: 422,
-  unavailable: 503,
-}
-
-/** Teammate outcomes become responses; request-shape errors keep their own status. */
-const handled = <E, R>(effect: Effect.Effect<Response.HttpServerResponse, E | TeammateError, R>) =>
-  effect.pipe(
-    Effect.catchIf(
-      (error: E | TeammateError): error is TeammateError => isTeammateError(error),
-      (error) =>
-        respondMessage({ message: error.message }, { status: STATUS_BY_REASON[error.reason] }),
+export const AccountGroupLayer = HttpApiBuilder.group(JanitorApi, "account", (handlers) =>
+  handlers
+    .handle("get", () =>
+      Effect.gen(function* () {
+        const teammate = yield* CurrentTeammate
+        const linking = yield* AccountLinking
+        return yield* Teammates.use((teammates) =>
+          teammates.account(teammate.teammateId, linking.availability),
+        )
+      }),
+    )
+    .handle("startLink", ({ params }) =>
+      Effect.gen(function* () {
+        const teammate = yield* CurrentTeammate
+        const url = yield* AccountLinking.use((linking) =>
+          linking.start(teammate.teammateId, params.platform),
+        )
+        return { url }
+      }),
+    )
+    .handle("completeLink", ({ params, payload }) =>
+      Effect.flatMap(CurrentTeammate, (teammate) =>
+        AccountLinking.use((linking) =>
+          linking.complete(teammate.teammateId, params.platform, payload),
+        ),
+      ),
+    )
+    .handle("unlink", ({ params }) =>
+      Effect.flatMap(CurrentTeammate, (teammate) =>
+        Teammates.use((teammates) => teammates.disconnect(teammate.teammateId, params.linkId)),
+      ),
     ),
-  )
-
-const PlatformPath = Schema.Struct({ platform: LinkPlatform })
-const LinkPath = Schema.Struct({ linkId: Schema.String })
-
-const reads = HttpRouter.add(
-  "GET",
-  "/account",
-  Effect.gen(function* () {
-    const teammate = yield* CurrentTeammate
-    const linking = yield* AccountLinking
-    const view = yield* (yield* Teammates).account(teammate.teammateId, linking.availability)
-    return yield* Response.schemaJson(AccountView)(view)
-  }).pipe(handled),
 )
-
-const writes = HttpRouter.addAll([
-  HttpRouter.route(
-    "POST",
-    "/account/links/:platform/start",
-    Effect.gen(function* () {
-      const { platform } = yield* HttpRouter.schemaPathParams(PlatformPath)
-      const teammate = yield* CurrentTeammate
-      const url = yield* (yield* AccountLinking).start(teammate.teammateId, platform)
-      return yield* Response.schemaJson(Schema.Struct({ url: Schema.String }))({ url })
-    }).pipe(handled),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/account/links/:platform/return",
-    Effect.gen(function* () {
-      const { platform } = yield* HttpRouter.schemaPathParams(PlatformPath)
-      const body = yield* Request.schemaBodyJson(LinkReturnRequest)
-      const teammate = yield* CurrentTeammate
-      const linked = yield* (yield* AccountLinking).complete(teammate.teammateId, platform, body)
-      return yield* Response.schemaJson(LinkedAccount)(linked)
-    }).pipe(handled),
-  ),
-  HttpRouter.route(
-    "DELETE",
-    "/account/links/:linkId",
-    Effect.gen(function* () {
-      const { linkId } = yield* HttpRouter.schemaPathParams(LinkPath)
-      const teammate = yield* CurrentTeammate
-      yield* (yield* Teammates).disconnect(teammate.teammateId, linkId)
-      return Response.empty({ status: 204 })
-    }).pipe(handled),
-  ),
-]).pipe(Layer.provide(SameOriginMiddleware))
-
-export const AccountRoutesLayer = Layer.mergeAll(reads, writes)
