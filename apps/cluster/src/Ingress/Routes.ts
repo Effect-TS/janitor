@@ -20,6 +20,7 @@ import { ReadinessRoutesLayer } from "./Readiness.ts"
 import { PullRequestReviewGroupLayer } from "./PullRequestReview.ts"
 import { PoliciesGroupLayer } from "./Policies.ts"
 import { RulesGroupLayer } from "./Rules.ts"
+import { TestBenchGroupLayer } from "./TestBench.ts"
 
 const ApiRouterLayer = Layer.effect(
   HttpRouter.HttpRouter,
@@ -42,6 +43,7 @@ const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
         PullRequestReviewGroupLayer,
         PoliciesGroupLayer,
         RulesGroupLayer,
+        TestBenchGroupLayer,
       ),
     ),
     Layer.provide(makeApiMiddlewareLayer(middleware)),

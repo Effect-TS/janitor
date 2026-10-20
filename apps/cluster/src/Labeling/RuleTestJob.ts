@@ -1,27 +1,22 @@
-import { RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
+import { RepositoryBlocked, type RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import { flushLive } from "../LiveUpdates.ts"
 import * as Context from "effect/Context"
 import * as Layer from "effect/Layer"
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
-import { TestRequest, TestResponse } from "@janitor/domain/Labeling/Policy/Test"
+import { RuleTestJob, TestRequest } from "@janitor/domain/Labeling/Policy/Test"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Duration from "effect/Duration"
 import * as Activity from "effect/workflow/Activity"
 import * as Workflow from "effect/workflow/Workflow"
 import * as SqlClient from "effect/sql/SqlClient"
+import { isSqlError } from "effect/sql/SqlError"
 import { WorkflowOutbox } from "../WorkflowOutbox.ts"
 import type { WorkflowRegistration } from "../WorkflowDispatcher.ts"
 import { LabelingConfiguration } from "./Configuration.ts"
 import { ClassifierError, EvaluationRetry } from "./Classifier.ts"
 import { LabelingTest } from "./Test.ts"
 
-export const RuleTestJob = Schema.Struct({
-  testId: Schema.String,
-  status: Schema.Literals(["queued", "running", "done", "failed"]),
-  response: Schema.NullOr(TestResponse),
-  message: Schema.NullOr(Schema.String),
-})
 const Payload = Schema.Struct({ repositoryId: GitHubRepositoryDatabaseId, testId: Schema.String })
 const Row = Schema.Struct({
   request: TestRequest,
@@ -30,49 +25,63 @@ const Row = Schema.Struct({
   message: Schema.NullOr(Schema.String),
 })
 const TAG = "LabelingRuleTest"
+
+/** A known repository that is no longer connected refuses its rule tests. */
+const requireConnected = Effect.fnUntraced(function* (repositoryId: GitHubRepositoryDatabaseId) {
+  const configuration = yield* LabelingConfiguration
+  yield* configuration
+    .requireRepository(repositoryId)
+    .pipe(Effect.catchTag("LabelingConfigurationError", Effect.die))
+  const sql = yield* SqlClient.SqlClient
+  const connected =
+    yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected`.pipe(
+      Effect.orDie,
+    )
+  if (!connected.length)
+    return yield* new RepositoryBlocked({ repositoryId, reason: "disconnected" })
+})
+
+/** Infrastructure failures die; the repository refusals stay typed. */
 export const enqueueRuleTest = Effect.fn("enqueueRuleTest")(function* (
   repositoryId: GitHubRepositoryDatabaseId,
   request: TestRequest,
 ) {
-  const configuration = yield* LabelingConfiguration
-  yield* configuration.requireRepository(repositoryId)
+  yield* requireConnected(repositoryId)
   const sql = yield* SqlClient.SqlClient
-  const connected =
-    yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected`
-  if (!connected.length) return yield* new RepositoryNotFound({ repositoryId })
   const outbox = yield* WorkflowOutbox
   const testId = crypto.randomUUID()
-  yield* sql.withTransaction(
-    Effect.gen(function* () {
-      const membership =
-        yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected FOR NO KEY UPDATE`
-      if (!membership.length) return yield* new RepositoryNotFound({ repositoryId })
-      yield* sql`DELETE FROM labeling_rule_test WHERE repository_id=${repositoryId} AND expires_at<CLOCK_TIMESTAMP()`
-      yield* sql`INSERT INTO labeling_rule_test(test_id,repository_id,request) VALUES(${testId},${repositoryId},${JSON.stringify(request)}::jsonb)`
-      yield* outbox.enqueue({
-        workflowTag: TAG,
-        executionKey: testId,
-        payload: { repositoryId, testId },
-      })
-    }),
-  )
+  yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        const membership =
+          yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected FOR NO KEY UPDATE`
+        if (!membership.length)
+          return yield* new RepositoryBlocked({ repositoryId, reason: "disconnected" })
+        yield* sql`DELETE FROM labeling_rule_test WHERE repository_id=${repositoryId} AND expires_at<CLOCK_TIMESTAMP()`
+        yield* sql`INSERT INTO labeling_rule_test(test_id,repository_id,request) VALUES(${testId},${repositoryId},${JSON.stringify(request)}::jsonb)`
+        yield* outbox
+          .enqueue({ workflowTag: TAG, executionKey: testId, payload: { repositoryId, testId } })
+          .pipe(Effect.orDie)
+      }),
+    )
+    .pipe(Effect.catchIf(isSqlError, Effect.die))
   return { testId, status: "queued" as const, response: null, message: null }
 })
+/** A missing test is null; infrastructure and row decode failures die. */
 export const getRuleTest = Effect.fn("getRuleTest")(function* (
   repositoryId: GitHubRepositoryDatabaseId,
   testId: string,
   includeInput = false,
 ) {
-  const configuration = yield* LabelingConfiguration
-  yield* configuration.requireRepository(repositoryId)
+  yield* requireConnected(repositoryId)
   const sql = yield* SqlClient.SqlClient
-  const connected =
-    yield* sql`SELECT repository_id FROM github_repository WHERE repository_id=${repositoryId} AND connected`
-  if (!connected.length) return yield* new RepositoryNotFound({ repositoryId })
-  yield* sql`UPDATE labeling_rule_test SET status='failed',message='The test expired. Run it again.' WHERE repository_id=${repositoryId} AND test_id=${testId} AND expires_at<CLOCK_TIMESTAMP() AND status IN ('queued','running')`
+  yield* sql`UPDATE labeling_rule_test SET status='failed',message='The test expired. Run it again.' WHERE repository_id=${repositoryId} AND test_id=${testId} AND expires_at<CLOCK_TIMESTAMP() AND status IN ('queued','running')`.pipe(
+    Effect.orDie,
+  )
   const rows =
     yield* sql`SELECT request,status,response,message FROM labeling_rule_test WHERE repository_id=${repositoryId} AND test_id=${testId} AND (expires_at>CLOCK_TIMESTAMP() OR NOT ${includeInput})`.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Row))),
+      Effect.orDie,
     )
   return rows[0]
     ? {
@@ -167,12 +176,12 @@ export class RuleTestJobs extends Context.Service<
     readonly enqueue: (
       repositoryId: GitHubRepositoryDatabaseId,
       request: TestRequest,
-    ) => Effect.Effect<typeof RuleTestJob.Type, unknown>
+    ) => Effect.Effect<RuleTestJob, RepositoryNotFound | RepositoryBlocked>
     readonly get: (
       repositoryId: GitHubRepositoryDatabaseId,
       testId: string,
       includeInput?: boolean,
-    ) => Effect.Effect<typeof RuleTestJob.Type | null, unknown>
+    ) => Effect.Effect<RuleTestJob | null, RepositoryNotFound | RepositoryBlocked>
   }
 >()("@janitor/Labeling/RuleTestJobs") {
   static readonly layer = Layer.effect(
