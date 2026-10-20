@@ -24,14 +24,19 @@ import {
 } from "../src/GitHub/WebhookConsumer.ts"
 import { WorkflowDispatcher } from "../src/WorkflowDispatcher.ts"
 import { GitHubRepositoryDatabaseId, GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
+import { RepositoryBlocked } from "@janitor/domain/GitHub/Repository"
 import {
   GitHubWebhookName,
   GitHubWebhookPayloadSha256,
   GitHubWebhookEnvelopeV1,
   GitHubWebhookR2ObjectKey,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
-// GitHub answers these repository lookups with a failure status.
-const failures: Record<string, number> = { "/repos/test/gone": 404, "/repos/test/broken": 502 }
+// GitHub answers these access checks with a failure status.
+const failures: Record<string, number> = {
+  "/repos/test/gone": 404,
+  "/repos/test/broken": 502,
+  "/app/installations/79": 404,
+}
 const Services = RepositoryConnections.layer.pipe(
   Layer.provideMerge(WorkflowDispatcher.layer([])),
   Layer.provideMerge(WorkflowEngine.layerMemory),
@@ -140,8 +145,10 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
             .eligible,
         )
         const denied = yield* Effect.flip(connections.change(repositoryId, "resume", actor))
-        assert.strictEqual(denied._tag, "RepositoryBlocked")
-        assert.strictEqual(denied.reason, "disconnected")
+        assert.deepStrictEqual(
+          denied,
+          new RepositoryBlocked({ repositoryId, reason: "disconnected" }),
+        )
         // Older releases retained configuration even while disconnected.
         yield* sql`INSERT INTO labeling_policy(policy_id,repository_id,name,target,version) VALUES('legacy-retained','9001','Legacy retained','issue',1)`
         yield* connections.change(repositoryId, "disconnect", actor)
@@ -156,8 +163,10 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
         yield* sql`UPDATE github_repository SET access='lost' WHERE repository_id='9001'`
         yield* connections.change(repositoryId, "pause", actor)
         const lost = yield* Effect.flip(connections.change(repositoryId, "resume", actor))
-        assert.strictEqual(lost._tag, "RepositoryBlocked")
-        assert.strictEqual(lost.reason, "access-unavailable")
+        assert.deepStrictEqual(
+          lost,
+          new RepositoryBlocked({ repositoryId, reason: "access-unavailable" }),
+        )
       }),
   )
   it.effect("binds expiring GitHub return state to the operator and consumes it once", () =>
@@ -407,12 +416,25 @@ layer(Services, { timeout: "2 minutes" })("Repository connections", (it) => {
       const gone = yield* Effect.flip(
         connections.change(GitHubRepositoryDatabaseId.make("9004"), "connect", actor),
       )
-      assert.strictEqual(gone._tag, "RepositoryBlocked")
-      assert.strictEqual(gone.reason, "access-unavailable")
+      assert.deepStrictEqual(
+        gone,
+        new RepositoryBlocked({
+          repositoryId: GitHubRepositoryDatabaseId.make("9004"),
+          reason: "access-unavailable",
+        }),
+      )
       const broken = yield* Effect.exit(
         connections.change(GitHubRepositoryDatabaseId.make("9005"), "connect", actor),
       )
       assert.isTrue(Exit.isFailure(broken) && Cause.hasDies(broken.cause))
+      yield* sql`INSERT INTO github_installation(access_error,installation_id,account_database_id,account_handle,account_type,repository_selection,status,html_url,projected_sequence) VALUES(NULL,'79','3','removed-org','Organization','selected','active','https://github.com/settings/installations/79',1)`
+      yield* sql`INSERT INTO github_repository(repository_id,installation_id,owner,repo,connected,access,projected_sequence) VALUES('9006','79','removed-org','example',FALSE,'accessible',1)`
+      const removed = GitHubRepositoryDatabaseId.make("9006")
+      const uninstalled = yield* Effect.flip(connections.change(removed, "connect", actor))
+      assert.deepStrictEqual(
+        uninstalled,
+        new RepositoryBlocked({ repositoryId: removed, reason: "access-unavailable" }),
+      )
     }),
   )
 })
