@@ -12,6 +12,14 @@ import * as HttpServer from "effect/http/HttpServer"
 type Group = typeof JanitorApi extends HttpApi.HttpApi<string, infer Groups> ? Groups : never
 type GroupName = HttpApiGroup.Identifier<Group>
 
+/** A service outside the scenario: fail on the first property read. */
+export const unused = <I, S extends object>(tag: Context.Key<I, S>): S =>
+  new Proxy({} as S, {
+    get: (_target, property) => {
+      throw new Error(`Unexpected use of ${tag.key}.${String(property)}`)
+    },
+  })
+
 /**
  * Provides request-time services the way the Worker's per-request context
  * does. `Effect.provideService` can't discharge a group layer's

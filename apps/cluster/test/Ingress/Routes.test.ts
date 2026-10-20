@@ -17,6 +17,24 @@ import { makeRoutesLayer } from "../../src/Ingress/Routes.ts"
 import { SyncStatus } from "../../src/SyncStatus.ts"
 import { Teammates } from "../../src/Teammates.ts"
 import { WorkflowDispatcher } from "../../src/WorkflowDispatcher.ts"
+import { AccountLinking } from "../../src/AccountLinking.ts"
+import { GitHubReadModel } from "../../src/GitHub/ReadModel.ts"
+import { GitHubWebhookJournal } from "../../src/GitHub/WebhookJournal.ts"
+import { Readiness } from "../../src/Ingress/Readiness.ts"
+import { ActivityReader } from "../../src/Labeling/Activity.ts"
+import { AiConsentService } from "../../src/Labeling/Classifier.ts"
+import { LabelingConfiguration } from "../../src/Labeling/Configuration.ts"
+import { LabelingOverview } from "../../src/Labeling/Overview.ts"
+import { Policies } from "../../src/Labeling/Policies.ts"
+import { LabelingRules } from "../../src/Labeling/Rules.ts"
+import { RuleTestJobs } from "../../src/Labeling/RuleTestJob.ts"
+import { LabelingTest } from "../../src/Labeling/Test.ts"
+import { RunTranscripts } from "../../src/PullRequestReview/RunEntity.ts"
+import { RepositoryDisabler } from "../../src/PullRequestReview/Scheduler.ts"
+import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
+import { RepositoryConnections } from "../../src/RepositoryConnections.ts"
+import { RepositoryEligibility } from "../../src/RepositoryEligibility.ts"
+import { unused } from "../support/Api.ts"
 
 const runtimeContext = RuntimeContext.RuntimeContext.of({
   Type: "Test",
@@ -55,6 +73,7 @@ const WorkerLayer = Layer.mergeAll(
   // nothing here sends to either.
   Layer.succeed(Cloudflare.Queues.WriteQueue, () => Effect.succeed({} as never)),
   Layer.succeed(Cloudflare.R2.WriteBucket, () => Effect.succeed({} as never)),
+  Layer.succeed(Cloudflare.Providers, unused(Cloudflare.Providers)),
   Layer.succeed(Stack, {
     name: "test",
     stage: "production",
@@ -71,6 +90,24 @@ const requestContext = Context.make(SyncStatus, {
   requestAll: Effect.succeed({ summary, requested: 0 }),
   requestRepository: () => Effect.die("must not run"),
 }).pipe(
+  Context.add(AccountLinking, unused(AccountLinking)),
+  Context.add(ActivityReader, unused(ActivityReader)),
+  Context.add(AiConsentService, unused(AiConsentService)),
+  Context.add(GitHubReadModel, unused(GitHubReadModel)),
+  Context.add(GitHubWebhookJournal, unused(GitHubWebhookJournal)),
+  Context.add(LabelingConfiguration, unused(LabelingConfiguration)),
+  Context.add(LabelingOverview, unused(LabelingOverview)),
+  Context.add(LabelingRules, unused(LabelingRules)),
+  Context.add(LabelingTest, unused(LabelingTest)),
+  Context.add(Policies, unused(Policies)),
+  Context.add(PullRequestReviewStore, unused(PullRequestReviewStore)),
+  Context.add(Readiness, unused(Readiness)),
+  Context.add(RepositoryConnections, unused(RepositoryConnections)),
+  Context.add(RepositoryDisabler, unused(RepositoryDisabler)),
+  Context.add(RepositoryEligibility, unused(RepositoryEligibility)),
+  Context.add(RuleTestJobs, unused(RuleTestJobs)),
+  Context.add(RunTranscripts, unused(RunTranscripts)),
+  Context.add(RuntimeContext.RuntimeContext, runtimeContext),
   Context.add(WorkflowDispatcher, {
     dispatchDue: () => Effect.succeed({ claimed: 0, accepted: 0, released: 0 }),
   }),
