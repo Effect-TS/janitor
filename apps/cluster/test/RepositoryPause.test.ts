@@ -19,6 +19,7 @@ import {
   GitHubWebhookPayloadSha256,
   type GitHubWebhookEnvelopeV1,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
+import { RepositoryBlocked } from "@janitor/domain/GitHub/Repository"
 import { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import { RepositoryConnections } from "../src/RepositoryConnections.ts"
 import { RepositoryEligibility } from "../src/RepositoryEligibility.ts"
@@ -175,7 +176,7 @@ layer(Services, { timeout: "2 minutes" })("Repository pause", (it) => {
         assert.strictEqual(envelopes.length, 1)
         assert.isFalse((yield* connections.inventory).repositories[0]!.enabled)
         const denied = yield* Effect.flip((yield* SyncStatus).requestRepository(repositoryId))
-        assert.include(denied.message, "Resume")
+        assert.deepStrictEqual(denied, new RepositoryBlocked({ repositoryId, reason: "paused" }))
         const verifying = yield* Deferred.make<void>()
         const verified = yield* Deferred.make<void>()
         verification = Deferred.succeed(verifying, undefined).pipe(

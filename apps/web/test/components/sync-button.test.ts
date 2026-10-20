@@ -1,4 +1,7 @@
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import type { SyncState, SyncSummary } from "@janitor/domain/GitHub/Sync"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as DateTime from "effect/DateTime"
@@ -6,10 +9,11 @@ import * as Option from "effect/Option"
 import { Story } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import * as SyncButton from "@/components/sync-button"
+import { ApiClient } from "@/lib/api-client"
 
 const now = DateTime.makeUnsafe("2026-09-03T12:00:00.000Z")
 
-const summary = (state: SyncButton.SyncState, pendingTargets = 0): SyncButton.SyncSummary => ({
+const summary = (state: SyncState, pendingTargets = 0): SyncSummary => ({
   state,
   lastVerifiedAt: DateTime.makeUnsafe("2026-09-03T11:55:00.000Z"),
   pendingTargets,
@@ -169,7 +173,7 @@ describe("sync work invalidation", () => {
     const invalidated = SyncButton.informWorkChanged(initial)
     expect(invalidated.model.needsRefresh).toBe(true)
     expect(invalidated.commands).toBeUndefined()
-    const summary: SyncButton.SyncSummary = {
+    const summary: SyncSummary = {
       state: "idle",
       lastVerifiedAt: null,
       pendingTargets: 0,
@@ -209,25 +213,36 @@ describe("sync work invalidation", () => {
 })
 
 describe("repository manual sync", () => {
-  it("targets the selected repository and preserves the server resume instruction", async () => {
-    const reason = "Repository paused. Resume it in repository settings before syncing."
+  it("targets the selected repository and explains a paused refusal", async () => {
+    const repositoryId = GitHubRepositoryDatabaseId.make("701")
     const client = HttpClient.make((request) => {
       expect(request.method).toBe("POST")
-      expect(request.url).toBe("/api/v1/repositories/701/sync")
+      expect(new URL(request.url, "https://janitor.test").pathname).toBe(
+        "/api/v1/repositories/701/sync",
+      )
       return Effect.succeed(
-        HttpClientResponse.fromWeb(request, new Response(reason, { status: 409 })),
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(
+            JSON.stringify({ _tag: "RepositoryBlocked", repositoryId: "701", reason: "paused" }),
+            { status: 409, headers: { "content-type": "application/json" } },
+          ),
+        ),
       )
     })
-    const requested = SyncButton.update(
-      idle(),
-      SyncButton.Message.PressedSync({ repositoryId: "701" }),
-    )
+    const requested = SyncButton.update(idle(), SyncButton.Message.PressedSync({ repositoryId }))
     expect(requested.commands?.[0]?.args).toEqual({ repositoryId: "701" })
     const result = await Effect.runPromise(
-      SyncButton.RequestSync({ repositoryId: "701" }).effect.pipe(
-        Effect.provideService(HttpClient.HttpClient, client),
+      SyncButton.RequestSync({ repositoryId }).effect.pipe(
+        Effect.provide(
+          ApiClient.layer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, client))),
+        ),
       ),
     )
-    expect(result).toEqual(SyncButton.Message.FailedRequest({ reason }))
+    expect(result).toEqual(
+      SyncButton.Message.FailedRequest({
+        reason: "Repository paused. Resume it in repository settings before syncing.",
+      }),
+    )
   })
 })

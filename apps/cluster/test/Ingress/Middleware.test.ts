@@ -22,6 +22,7 @@ import {
   LOCAL_DEV_ISSUER,
   makeAccessMiddlewareLayer,
   RateLimitMiddlewareLayer,
+  SameOriginWritesMiddleware,
 } from "../../src/Ingress/Middleware.ts"
 import { Teammates } from "../../src/Teammates.ts"
 import { TeammateId, type TeammateSummary } from "@janitor/domain/Team/Account"
@@ -264,34 +265,39 @@ describe("AccessMiddleware", () => {
     ),
   )
 
-  it.effect("answers 401 when the verifier rejects or cannot fetch keys", () =>
-    Effect.gen(function* () {
-      const rejected = yield* withAccessHandler(
-        () => Effect.fail(new AccessAssertionRejected({ reason: "expired" })),
-        (handler) =>
-          Effect.promise(() =>
+  it.effect("answers 401 when the verifier rejects the assertion", () =>
+    withAccessHandler(
+      () => Effect.fail(new AccessAssertionRejected({ reason: "expired" })),
+      (handler) =>
+        Effect.gen(function* () {
+          const response = yield* Effect.promise(() =>
             handler(
               new Request("https://example.com/whoami", {
                 headers: { "cf-access-jwt-assertion": "a.b.c" },
               }),
             ),
-          ),
-      )
-      assert.strictEqual(rejected.status, 401)
+          )
+          assert.strictEqual(response.status, 401)
+        }),
+    ),
+  )
 
-      const unavailable = yield* withAccessHandler(
-        () => Effect.fail(new AccessKeysUnavailable({ cause: "down" })),
-        (handler) =>
-          Effect.promise(() =>
+  it.effect("answers an empty 500 when the signing keys cannot be fetched", () =>
+    withAccessHandler(
+      () => Effect.fail(new AccessKeysUnavailable({ cause: "down" })),
+      (handler) =>
+        Effect.gen(function* () {
+          const response = yield* Effect.promise(() =>
             handler(
               new Request("https://example.com/whoami", {
                 headers: { "cf-access-jwt-assertion": "a.b.c" },
               }),
             ),
-          ),
-      )
-      assert.strictEqual(unavailable.status, 401)
-    }),
+          )
+          assert.strictEqual(response.status, 500)
+          assert.strictEqual(yield* Effect.promise(() => response.text()), "")
+        }),
+    ),
   )
 
   it.effect("passes the exact header to the verifier and gives the route the identity", () => {
@@ -543,10 +549,60 @@ describe("MembershipMiddleware", () => {
     }),
   )
 
-  it.effect("fails closed with 503 when the teammate cannot be resolved", () =>
+  it.effect("fails closed with an empty 500 when the teammate cannot be resolved", () =>
     Effect.gen(function* () {
       const response = yield* respond("person", { "cf-access-jwt-assertion": "h.p.s" }, false)
-      assert.strictEqual(response.status, 503)
+      assert.strictEqual(response.status, 500)
+      assert.strictEqual(yield* Effect.promise(() => response.text()), "")
+    }),
+  )
+})
+
+describe("SameOriginWritesMiddleware", () => {
+  const respond = (method: string, headers: Record<string, string> = {}) =>
+    Effect.acquireUseRelease(
+      Effect.sync(() =>
+        HttpRouter.toWebHandler(
+          HttpRouter.add("*", "/probe", Effect.succeed(HttpServerResponse.empty())).pipe(
+            Layer.provide(SameOriginWritesMiddleware.layer),
+          ),
+          { disableLogger: true },
+        ),
+      ),
+      ({ handler }) =>
+        Effect.promise(() =>
+          handler(new Request("https://janitor.example/probe", { method, headers })),
+        ),
+      ({ dispose }) => Effect.promise(dispose),
+    )
+
+  const crossSite = { "sec-fetch-site": "cross-site" }
+
+  it.effect("lets a cross-site read through", () =>
+    Effect.gen(function* () {
+      for (const method of ["GET", "HEAD"]) {
+        assert.strictEqual((yield* respond(method, crossSite)).status, 204)
+      }
+    }),
+  )
+
+  it.effect("refuses a write from another site, another origin or no origin", () =>
+    Effect.gen(function* () {
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        assert.strictEqual((yield* respond(method, crossSite)).status, 403)
+      }
+      assert.strictEqual((yield* respond("POST", { origin: "https://evil.example" })).status, 403)
+      assert.strictEqual((yield* respond("POST")).status, 403)
+    }),
+  )
+
+  it.effect("accepts a same-origin write", () =>
+    Effect.gen(function* () {
+      assert.strictEqual((yield* respond("POST", { "sec-fetch-site": "same-origin" })).status, 204)
+      assert.strictEqual(
+        (yield* respond("POST", { origin: "https://janitor.example" })).status,
+        204,
+      )
     }),
   )
 })
