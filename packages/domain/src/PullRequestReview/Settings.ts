@@ -27,6 +27,13 @@ export const RepositorySettings = Schema.Struct({
 }).annotate({ identifier: "PullRequestReviewRepositorySettings" })
 export type RepositorySettings = typeof RepositorySettings.Type
 
+/** PR review can't be enabled for a private repository, or one whose visibility is unknown. */
+export class PrivateRepository extends Schema.TaggedError<PrivateRepository>()(
+  "PrivateRepository",
+  { repositoryId: GitHubRepositoryDatabaseId },
+  { httpApiStatus: 409 },
+) {}
+
 export const SetRepositorySettingsRequest = Schema.Struct({
   enabled: Schema.Boolean,
 }).annotate({ identifier: "PullRequestReviewSetRepositorySettingsRequest" })
@@ -91,3 +98,20 @@ export const RunTranscript = Schema.Struct({
   records: Schema.Array(LoopRecord),
 }).annotate({ identifier: "PullRequestReviewRunTranscript" })
 export type RunTranscript = typeof RunTranscript.Type
+
+/** No run with this id in the repository. */
+export class RunNotFound extends Schema.TaggedError<RunNotFound>()(
+  "RunNotFound",
+  { runId: RunId },
+  { httpApiStatus: 404 },
+) {}
+
+/**
+ * The run's transcript is no longer kept: it is dropped once the retention
+ * period after the run ended has passed, or at once for a cancelled run.
+ */
+export class TranscriptExpired extends Schema.TaggedError<TranscriptExpired>()(
+  "TranscriptExpired",
+  { runId: RunId },
+  { httpApiStatus: 410 },
+) {}

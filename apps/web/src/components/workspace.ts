@@ -56,6 +56,7 @@ import {
   ruleEndpoint,
   RuleRecord,
 } from "@/components/labeling-wire"
+import type { ApiClient } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import * as Routes from "@/routes"
 import * as PolicyStatus from "@/components/policy-status"
@@ -406,7 +407,7 @@ export type UpdateReturn = Update.ReturnWithOutMessage<
   Model,
   Message,
   OutMessage,
-  HttpClient.HttpClient
+  HttpClient.HttpClient | ApiClient
 >
 
 export const init = (): UpdateReturn => ({
@@ -444,7 +445,7 @@ export const init = (): UpdateReturn => ({
 
 // UPDATE
 
-type Step = Update.Return<Model, Message, HttpClient.HttpClient>
+type Step = Update.Return<Model, Message, HttpClient.HttpClient | ApiClient>
 
 const closed = (model: Model): Model =>
   modifyFields(model, {

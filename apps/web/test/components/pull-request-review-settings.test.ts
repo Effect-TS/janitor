@@ -1,12 +1,14 @@
 import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import { RepositorySettings } from "@janitor/domain/PullRequestReview/Settings"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { Scene } from "foldkit/test"
 import { describe, expect, it } from "vite-plus/test"
 import * as Settings from "@/components/pull-request-review-settings"
+import { ApiClient } from "@/lib/api-client"
 
 const disabled = RepositorySettings.make({
   repositoryId: GitHubRepositoryDatabaseId.make("701"),
@@ -84,7 +86,9 @@ describe("PR review settings", () => {
     })
     const message = await Effect.runPromise(
       Settings.SetSettings({ repositoryId: "701", enabled: true }).effect.pipe(
-        Effect.provideService(HttpClient.HttpClient, client),
+        Effect.provide(
+          ApiClient.layer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, client))),
+        ),
       ),
     )
     expect(sent).toEqual([
