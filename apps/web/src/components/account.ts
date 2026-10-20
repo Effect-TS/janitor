@@ -1,6 +1,7 @@
 import {
   AccountView,
   LinkedAccount,
+  LinkId,
   LinkPlatform,
   type TeammateSummary,
 } from "@janitor/domain/Team/Account"
@@ -9,8 +10,6 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage"
 import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -23,7 +22,7 @@ import { platformMark } from "@/components/ui/mark"
 import { panel } from "@/components/ui/panel"
 import { rack } from "@/components/ui/rack"
 import { sign } from "@/components/ui/sign"
-import { readFailure, reasonOf, request } from "@/lib/api"
+import { ApiClient } from "@/lib/api-client"
 import * as Routes from "@/routes"
 
 /**
@@ -70,7 +69,7 @@ export const Message = defineMessageUnion({
   LoadFailed: { reason: Schema.String, requestId: Schema.Int },
   ClickedConnect: { platform: LinkPlatform },
   GotPlatformUrl: { url: Schema.String, operationId: Schema.Int },
-  ClickedDisconnect: { linkId: Schema.String },
+  ClickedDisconnect: { linkId: LinkId },
   Changed: { operationId: Schema.Int, notice: Schema.String },
   Returned: { operationId: Schema.Int, linked: LinkedAccount },
   Failed: { reason: Schema.String, operationId: Schema.Int },
@@ -91,23 +90,20 @@ export interface ReturnParams {
   readonly code: string
 }
 
-const base = "/api/v1/account"
-const failed = (error: unknown, operationId: number) =>
-  Message.Failed({ operationId, reason: reasonOf(error) })
+const failed = (reason: string, operationId: number) => Message.Failed({ operationId, reason })
+const retry = (operationId: number) => failed("The request failed. Please retry.", operationId)
 
 export const Load = Command.define("LoadAccount", {
   args: { requestId: Schema.Int },
   messages: [Message.Loaded, Message.LoadFailed],
   execute: ({ requestId }) =>
-    HttpClient.get(base).pipe(
-      Effect.flatMap((response) =>
-        response.status === 200
-          ? HttpIncomingMessage.schemaBodyJson(AccountView)(response)
-          : readFailure(response, "Could not load your account. Retry to continue."),
-      ),
+    ApiClient.use((api) => api.account.get()).pipe(
       Effect.map((view) => Message.Loaded({ view, requestId })),
-      Effect.catch((error) =>
-        Effect.succeed(Message.LoadFailed({ reason: reasonOf(error), requestId })),
+      Effect.orElseSucceed(() =>
+        Message.LoadFailed({
+          reason: "Could not load your account. Retry to continue.",
+          requestId,
+        }),
       ),
     ),
 })
@@ -122,10 +118,9 @@ const Start = Command.define("StartAccountLink", {
   args: { platform: LinkPlatform, operationId: Schema.Int },
   messages: [Message.GotPlatformUrl, Message.Failed],
   execute: ({ platform, operationId }) =>
-    request("POST", `${base}/links/${platform}/start`, {}).pipe(
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(Schema.Struct({ url: Schema.String }))),
+    ApiClient.use((api) => api.account.startLink({ params: { platform } })).pipe(
       Effect.map(({ url }) => Message.GotPlatformUrl({ url, operationId })),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+      Effect.orElseSucceed(() => retry(operationId)),
     ),
 })
 
@@ -138,24 +133,48 @@ const CompleteLink = Command.define("CompleteAccountLink", {
   },
   messages: [Message.Returned, Message.Failed],
   execute: ({ platform, state, code, operationId }) =>
-    request("POST", `${base}/links/${platform}/return`, { state, code }).pipe(
-      Effect.flatMap(HttpIncomingMessage.schemaBodyJson(LinkedAccount)),
+    ApiClient.use((api) =>
+      api.account.completeLink({ params: { platform }, payload: { state, code } }),
+    ).pipe(
       Effect.map((linked) => Message.Returned({ linked, operationId })),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+      Effect.catchTags({
+        AuthorizationExpired: () =>
+          Effect.succeed(
+            failed(
+              "This connection attempt expired or was already used. Start again.",
+              operationId,
+            ),
+          ),
+        AuthorizationRejected: () =>
+          Effect.succeed(
+            failed(
+              `${platformNames[platform]} did not accept the authorization. Try again.`,
+              operationId,
+            ),
+          ),
+        AccountAlreadyConnected: () =>
+          Effect.succeed(failed("That account is connected to another teammate.", operationId)),
+      }),
+      Effect.orElseSucceed(() => retry(operationId)),
     ),
 })
 
 const Disconnect = Command.define("DisconnectAccountLink", {
-  args: { linkId: Schema.String, operationId: Schema.Int },
+  args: { linkId: LinkId, operationId: Schema.Int },
   messages: [Message.Changed, Message.Failed],
   execute: ({ linkId, operationId }) =>
-    request("DELETE", `${base}/links/${encodeURIComponent(linkId)}`, {}).pipe(
+    ApiClient.use((api) => api.account.unlink({ params: { linkId } })).pipe(
       Effect.as(Message.Changed({ operationId, notice: "Account disconnected." })),
-      Effect.catch((error) => Effect.succeed(failed(error, operationId))),
+      Effect.catchTag("ConnectedAccountNotFound", () =>
+        Effect.succeed(
+          failed("That connected account is not yours or is already disconnected.", operationId),
+        ),
+      ),
+      Effect.orElseSucceed(() => retry(operationId)),
     ),
 })
 
-type Step = Update.ReturnWithOutMessage<Model, Message, OutMessage, HttpClient.HttpClient>
+type Step = Update.ReturnWithOutMessage<Model, Message, OutMessage, ApiClient>
 
 const isBusy = (model: Model): boolean => Option.isSome(model.pending)
 const matchesOperation = (model: Model, operationId: number) =>

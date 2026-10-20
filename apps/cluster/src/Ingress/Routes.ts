@@ -12,7 +12,7 @@ import {
   makeAuthenticatedMiddlewareLayer,
   RateLimitMiddlewareLayer,
 } from "./Middleware.ts"
-import { AccountRoutesLayer } from "./Account.ts"
+import { AccountGroupLayer } from "./Account.ts"
 import { RulesRoutesLayer } from "./Rules.ts"
 import { ConnectionRoutesLayer } from "./Connections.ts"
 import { SyncGroupLayer } from "./Sync.ts"
@@ -32,7 +32,7 @@ const ApiRouterLayer = Layer.effect(
  */
 const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
   HttpApiBuilder.layer(JanitorApi).pipe(
-    Layer.provide(SyncGroupLayer),
+    Layer.provide(Layer.mergeAll(SyncGroupLayer, AccountGroupLayer)),
     Layer.provide(makeApiMiddlewareLayer(middleware)),
   )
 
@@ -51,7 +51,6 @@ export const makeRoutesLayer = (secrets: IngressSecrets, middleware: AccessMiddl
         RulesRoutesLayer,
         PullRequestReviewRoutesLayer,
         ConnectionRoutesLayer,
-        AccountRoutesLayer,
       ).pipe(Layer.provide(makeAuthenticatedMiddlewareLayer(middleware))),
       ReadinessRoutesLayer.pipe(Layer.provide(makeAccessMiddlewareLayer(middleware))),
     ).pipe(Layer.provide(ApiRouterLayer)),

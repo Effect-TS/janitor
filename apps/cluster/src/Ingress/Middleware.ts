@@ -186,7 +186,7 @@ export const MembershipMiddleware = HttpRouter.middleware<{ provides: CurrentTea
     if (Option.isNone(teammates)) {
       return yield* Effect.die("Teammates service missing from the request context")
     }
-    const teammate = yield* teammates.value.admit(identity).pipe(Effect.orDie)
+    const teammate = yield* teammates.value.admit(identity)
     return yield* app.pipe(
       Effect.provideService(CurrentTeammate, teammate),
       Effect.annotateLogs({ teammateId: teammate.teammateId }),

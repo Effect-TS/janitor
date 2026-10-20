@@ -1,6 +1,8 @@
 import { assert, layer } from "@effect/vitest"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
@@ -99,11 +101,11 @@ layer(Services, { timeout: "2 minutes" })("Account linking", (it) => {
       const foreign = yield* Effect.flip(
         linking.complete(other.teammateId, "github", { state, code: "github-code" }),
       )
-      assert.strictEqual(foreign.reason, "expired")
+      assert.strictEqual(foreign._tag, "AuthorizationExpired")
       const refused = yield* Effect.flip(
         linking.complete(admin.teammateId, "github", { state, code: "bad-code" }),
       )
-      assert.strictEqual(refused.reason, "rejected")
+      assert.strictEqual(refused._tag, "AuthorizationRejected")
       const fresh = new URL(yield* linking.start(admin.teammateId, "github"))
       platforms.seen.length = 0
       const freshState = fresh.searchParams.get("state")!
@@ -115,7 +117,7 @@ layer(Services, { timeout: "2 minutes" })("Account linking", (it) => {
       const replay = yield* Effect.flip(
         linking.complete(admin.teammateId, "github", { state: freshState, code: "github-code" }),
       )
-      assert.strictEqual(replay.reason, "expired")
+      assert.strictEqual(replay._tag, "AuthorizationExpired")
       assert.deepStrictEqual(
         [linked.platform, linked.workspaceId, linked.accountId, linked.displayName],
         ["github", "github.com", "4242", "octocat"],
@@ -140,8 +142,8 @@ layer(Services, { timeout: "2 minutes" })("Account linking", (it) => {
         Effect.provideService(HttpClient.HttpClient, fakePlatforms(platforms)),
       )
       assert.deepStrictEqual(unconfigured.availability, { github: false })
-      const unavailable = yield* Effect.flip(unconfigured.start(admin.teammateId, "github"))
-      assert.strictEqual(unavailable.reason, "unavailable")
+      const unavailable = yield* Effect.exit(unconfigured.start(admin.teammateId, "github"))
+      assert.isTrue(Exit.isFailure(unavailable) && Cause.hasDies(unavailable.cause))
     }),
   )
 })

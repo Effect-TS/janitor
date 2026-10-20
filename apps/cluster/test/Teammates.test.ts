@@ -60,7 +60,7 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       const conflict = yield* Effect.flip(
         teammates.link(other.teammateId, { ...github, accountId: "100", displayName: "impostor" }),
       )
-      assert.strictEqual(conflict.reason, "conflict")
+      assert.strictEqual(conflict._tag, "AccountAlreadyConnected")
       // One GitHub account per teammate; a second one replaces the first.
       const replacement = yield* teammates.link(owner.teammateId, {
         ...github,
@@ -87,7 +87,8 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       assert.strictEqual(released[0]?.status, "disconnected")
       // Only the owner can disconnect a link.
       const foreign = yield* Effect.flip(teammates.disconnect(owner.teammateId, freed.linkId))
-      assert.strictEqual(foreign.reason, "not-found")
+      assert.strictEqual(foreign._tag, "ConnectedAccountNotFound")
+      assert.strictEqual(foreign.linkId, freed.linkId)
     }),
   )
 
@@ -127,7 +128,7 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       const wrongTeammate = yield* Effect.flip(
         teammates.consumeLinkAttempt(other.teammateId, "github", attempt.state),
       )
-      assert.strictEqual(wrongTeammate.reason, "expired")
+      assert.strictEqual(wrongTeammate._tag, "AuthorizationExpired")
       const consumed = yield* teammates.consumeLinkAttempt(
         owner.teammateId,
         "github",
@@ -137,17 +138,17 @@ layer(Services, { timeout: "2 minutes" })("Teammates", (it) => {
       const replay = yield* Effect.flip(
         teammates.consumeLinkAttempt(owner.teammateId, "github", attempt.state),
       )
-      assert.strictEqual(replay.reason, "expired")
+      assert.strictEqual(replay._tag, "AuthorizationExpired")
       const stale = yield* teammates.beginLink(owner.teammateId, "github")
       yield* sql`UPDATE teammate_link_attempt SET expires_at = now() - interval '1 minute' WHERE state::text = ${stale.state}`
       const expired = yield* Effect.flip(
         teammates.consumeLinkAttempt(owner.teammateId, "github", stale.state),
       )
-      assert.strictEqual(expired.reason, "expired")
+      assert.strictEqual(expired._tag, "AuthorizationExpired")
       const garbage = yield* Effect.flip(
         teammates.consumeLinkAttempt(owner.teammateId, "github", "not-a-state"),
       )
-      assert.strictEqual(garbage.reason, "expired")
+      assert.strictEqual(garbage._tag, "AuthorizationExpired")
     }),
   )
 })

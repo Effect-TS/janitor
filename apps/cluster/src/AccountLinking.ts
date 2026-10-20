@@ -1,4 +1,9 @@
 import {
+  type AuthorizationExpired,
+  AuthorizationRejected,
+} from "@janitor/domain/GitHub/Authorization"
+import {
+  type AccountAlreadyConnected,
   type LinkedAccount,
   type LinkingAvailability,
   type LinkPlatform,
@@ -14,7 +19,7 @@ import type * as Redacted from "effect/Redacted"
 import type * as HttpClient from "effect/http/HttpClient"
 import * as GitHubLink from "./Linking/GitHub.ts"
 import type { LinkProofFailed, ProvenAccount } from "./Linking/Proof.ts"
-import { TeammateError, Teammates } from "./Teammates.ts"
+import { Teammates } from "./Teammates.ts"
 
 /**
  * The account-linking round trip: start an attempt bound to the signed-in
@@ -67,15 +72,15 @@ export class AccountLinking extends Context.Service<
   {
     readonly availability: LinkingAvailability
     /** Returns the platform URL the browser should open. */
-    readonly start: (
-      teammateId: TeammateId,
-      platform: LinkPlatform,
-    ) => Effect.Effect<string, TeammateError>
+    readonly start: (teammateId: TeammateId, platform: LinkPlatform) => Effect.Effect<string>
     readonly complete: (
       teammateId: TeammateId,
       platform: LinkPlatform,
       request: LinkReturnRequest,
-    ) => Effect.Effect<LinkedAccount, TeammateError>
+    ) => Effect.Effect<
+      LinkedAccount,
+      AuthorizationExpired | AuthorizationRejected | AccountAlreadyConnected
+    >
   }
 >()("@janitor/cluster/AccountLinking", {
   make: Effect.gen(function* () {
@@ -97,7 +102,7 @@ export class AccountLinking extends Context.Service<
 
     const providerFor = (platform: LinkPlatform) =>
       Option.match(maybeGithub, {
-        onNone: () => Effect.fail(unavailable(platform)),
+        onNone: () => Effect.die(`${platform} account linking is not configured`),
         onSome: Effect.succeed,
       })
 
@@ -119,7 +124,7 @@ export class AccountLinking extends Context.Service<
               Effect.annotateLogs({ platform, teammateId }),
             ),
           ),
-          Effect.mapError(proofFailed),
+          Effect.mapError(() => new AuthorizationRejected()),
         )
         return yield* teammates.link(teammateId, { platform, ...proven })
       })
@@ -133,15 +138,6 @@ export class AccountLinking extends Context.Service<
     AccountLinkingConfig | Teammates | HttpClient.HttpClient
   > = Layer.effect(this, this.make)
 }
-
-const unavailable = (_platform: LinkPlatform) =>
-  new TeammateError({
-    reason: "unavailable",
-    message: "GitHub account linking is not configured for this deployment.",
-  })
-
-const proofFailed = (error: LinkProofFailed) =>
-  new TeammateError({ reason: "rejected", message: error.message })
 
 interface Provider {
   readonly authorizeUrl: (state: string, nonce: string) => string

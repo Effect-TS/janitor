@@ -116,7 +116,7 @@ export const make = Effect.fnUntraced(function* (config: GitHubLinkConfig) {
       .pipe(
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(decodeUser),
-        Effect.mapError(failed("lookup-failed", "GitHub did not identify the authorized user.")),
+        Effect.orDie,
         Effect.map((response): ProvenAccount => ({
           workspaceId: GITHUB_WORKSPACE_ID,
           accountId: response.body.id,
