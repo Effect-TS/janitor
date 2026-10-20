@@ -226,10 +226,16 @@ describe("PR review transcript", () => {
       expect(Schema.encodeSync(Schema.toCodecJson(RunTranscript))(loaded.transcript)).toEqual(
         encoded,
       )
-    expect(await fetch(410, { message: "Expired." })).toEqual(
+    expect(await fetch(410, { _tag: "TranscriptExpired", runId })).toEqual(
       Transcript.Message.Expired({ generation: 4 }),
     )
+    expect(await fetch(404, { _tag: "RunNotFound", runId })).toEqual(
+      Transcript.Message.Failed({
+        generation: 4,
+        reason: "This PR review run doesn't exist in this repository.",
+      }),
+    )
     expect((await fetch(503, {}))._tag).toBe("Failed")
-    expect(requested).toEqual([transcriptPath, transcriptPath, transcriptPath])
+    expect(requested).toEqual([transcriptPath, transcriptPath, transcriptPath, transcriptPath])
   })
 })
