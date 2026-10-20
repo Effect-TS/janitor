@@ -2,7 +2,8 @@ import { assert, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as SqlClient from "effect/sql/SqlClient"
-import { RepositoryBlocked } from "@janitor/domain/GitHub/Repository"
+import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
+import { RepositoryBlocked, RepositoryNotFound } from "@janitor/domain/GitHub/Repository"
 import {
   LabelingRevision,
   PolicyHistoryRetained,
@@ -688,10 +689,21 @@ layer(Services, { timeout: "2 minutes" })("Policies and rules against Postgres",
       )
     }),
   )
-  it.effect("refuses writes to a disconnected repository", () =>
+  it.effect("refuses writes to an unknown or disconnected repository", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient
       const policies = yield* Policies
+      const unknownRepositoryId = GitHubRepositoryDatabaseId.make("799")
+      assert.deepStrictEqual(
+        yield* Effect.flip(
+          policies.create(
+            unknownRepositoryId,
+            { name: "Unknown", description: "", source: baseMain },
+            actor,
+          ),
+        ),
+        new RepositoryNotFound({ repositoryId: unknownRepositoryId }),
+      )
       yield* sql`UPDATE github_repository SET connected = FALSE WHERE repository_id = ${repositoryId}`
       const refused = yield* Effect.flip(
         policies.create(
