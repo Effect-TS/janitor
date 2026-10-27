@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import { ChatCredentials } from "../../../src/Chat/Egress/BotApp.ts"
 import {
   CHAT_GENERATION_HEADER,
   makeChatWorkspace,
@@ -59,9 +60,13 @@ const makeState = (): ChatWorkspaceState & { readonly container: FakeContainer }
         return Promise.resolve()
       },
     },
-    exports: { GitEgress: () => ({ fetch: () => Promise.resolve(new Response(null)) }) },
+    exports: { ChatEgress: () => ({ fetch: () => Promise.resolve(new Response(null)) }) },
   }
 }
+
+/** A workspace without the bot's credentials: its egress hands out no token. */
+const makeWorkspace = (state: ChatWorkspaceState) =>
+  makeChatWorkspace(state).pipe(Effect.provide(ChatCredentials.disabled))
 
 const acquireInput = (generation: number) => ({
   sessionId: "slack/T1/C1/1700000000.000100",
@@ -78,11 +83,11 @@ describe("chat workspace", () => {
     () =>
       Effect.gen(function* () {
         const state = makeState()
-        const workspace = yield* makeChatWorkspace(state)
+        const workspace = yield* makeWorkspace(state)
         yield* workspace.acquire(acquireInput(1))
         yield* workspace.acquire(acquireInput(2))
 
-        const restarted = yield* makeChatWorkspace(state)
+        const restarted = yield* makeWorkspace(state)
         yield* restarted.destroy(1)
         assert.isTrue(state.container.running)
         yield* restarted.destroy(2)
@@ -92,7 +97,7 @@ describe("chat workspace", () => {
 
   it.effect("executor calls from a superseded grant are refused", () =>
     Effect.gen(function* () {
-      const workspace = yield* makeChatWorkspace(makeState())
+      const workspace = yield* makeWorkspace(makeState())
       yield* workspace.acquire(acquireInput(1))
       yield* workspace.acquire(acquireInput(2))
       const call = (generation: number) =>
@@ -112,7 +117,7 @@ describe("chat workspace", () => {
   it.effect("a release reaches the container, so its warm window starts at release", () =>
     Effect.gen(function* () {
       const state = makeState()
-      const workspace = yield* makeChatWorkspace(state)
+      const workspace = yield* makeWorkspace(state)
       yield* workspace.acquire(acquireInput(1))
       state.container.requests.length = 0
 
@@ -126,10 +131,10 @@ describe("chat workspace", () => {
     () =>
       Effect.gen(function* () {
         const state = makeState()
-        const workspace = yield* makeChatWorkspace(state)
+        const workspace = yield* makeWorkspace(state)
         yield* workspace.acquire(acquireInput(2))
 
-        const restarted = yield* makeChatWorkspace(state)
+        const restarted = yield* makeWorkspace(state)
         assert.isTrue(Exit.isFailure(yield* Effect.exit(restarted.acquire(acquireInput(1)))))
         const call = (generation: number) =>
           restarted.forward(

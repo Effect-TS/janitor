@@ -71,6 +71,8 @@ export class ChatSandboxes extends Context.Service<
      */
     readonly acquire: (input: {
       readonly sessionId: string
+      /** The turn, for the egress proxy's logs. */
+      readonly turnId?: string | undefined
       readonly startBudget: Duration.Input
       readonly onQueued?: ((ahead: number) => Effect.Effect<void>) | undefined
     }) => Effect.Effect<ChatSandbox, SandboxBusy | ChatAcquireError>
@@ -129,7 +131,7 @@ export class ChatSandboxes extends Context.Service<
       })
 
     return Layer.succeed(ChatSandboxes, {
-      acquire: ({ sessionId, startBudget, onQueued }) =>
+      acquire: ({ sessionId, turnId, startBudget, onQueued }) =>
         Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             const config = yield* Effect.orDie(chatSandboxConfig)
@@ -147,6 +149,7 @@ export class ChatSandboxes extends Context.Service<
                 return yield* Effect.suspend(() =>
                   options.workspaces.getByName(sessionId).acquire({
                     sessionId,
+                    turnId,
                     fresh: grant.fresh,
                     generation: grant.generation,
                     multicaWorkspaceId: config.multicaWorkspaceId,

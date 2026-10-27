@@ -124,10 +124,15 @@ import {
   ReviewWorkspaceLive,
 } from "./PullRequestReview/Sandbox/WorkspaceObject.ts"
 import type { TailnetEgressNamespace } from "./PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
-import { chatSandboxInit } from "./Chat/Config.ts"
+import { chatEgressSecrets, chatSandboxInit } from "./Chat/Config.ts"
+import { ChatCredentials } from "./Chat/Egress/BotApp.ts"
 import { ChatSandboxPool, ChatSandboxPoolLive } from "./Chat/Sandbox/PoolObject.ts"
 import { ChatSandboxes } from "./Chat/Sandbox/Sandboxes.ts"
-import { ChatWorkspace, ChatWorkspaceLive } from "./Chat/Sandbox/WorkspaceObject.ts"
+import {
+  ChatWorkspace,
+  ChatWorkspaceLive,
+  exportChatEgress,
+} from "./Chat/Sandbox/WorkspaceObject.ts"
 import {
   TailnetEgress,
   TailnetEgressLive,
@@ -166,8 +171,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     return {
       main: import.meta.url,
       // The pinned local workerd is 1.20260704.1; newer dates fail at startup.
-      // `enable_ctx_exports` gives the PR review workspace DO
-      // `ctx.exports.GitEgress` to route its sandbox's egress to.
+      // `enable_ctx_exports` gives the PR review and chat workspace DOs
+      // `ctx.exports.GitEgress` and `ctx.exports.ChatEgress` to route their
+      // sandboxes' egress to.
       compatibility: {
         date: dev ? "2026-07-04" : "2026-09-05",
         flags: ["nodejs_compat", "enable_ctx_exports"],
@@ -241,6 +247,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // here is what binds them.
     yield* pullRequestReviewInit
     yield* chatSandboxInit
+    // The chat bot's GitHub App and Multica PAT, each optional: without them
+    // the chat egress proxy hands GitHub and Multica no credential.
+    const chatSecrets = yield* chatEgressSecrets
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
@@ -292,9 +301,18 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
     )
     // Chat sandboxes: one workspace DO per chat session, each owning a
-    // container, and one pool DO that decides which sessions hold one. Until
-    // the chat egress proxy lands, their egress is PR review's `GitEgress`.
-    const chatWorkspaces = yield* ChatWorkspace.pipe(Effect.provide(ChatWorkspaceLive))
+    // container, and one pool DO that decides which sessions hold one. Their
+    // egress goes through the `ChatEgress` entrypoint, with the tokens the
+    // session's workspace mints.
+    yield* exportChatEgress
+    const chatWorkspaces = yield* ChatWorkspace.pipe(
+      Effect.provide(
+        ChatWorkspaceLive.pipe(
+          Layer.provide(ChatCredentials.layerFrom(chatSecrets)),
+          Layer.provide(FetchHttpClient.layer),
+        ),
+      ),
+    )
     const chatPools = yield* ChatSandboxPool.pipe(Effect.provide(ChatSandboxPoolLive))
     // The PR review model's way onto the tailnet, when PR_REVIEW_AI_VIA_TAILNET is on.
     yield* TailnetEgress.pipe(Effect.provide(TailnetEgressLive))

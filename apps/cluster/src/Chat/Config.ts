@@ -1,7 +1,10 @@
 import * as Config from "effect/Config"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import type * as Option from "effect/Option"
+import type * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
+import * as GitHubAppAuth from "../GitHub/AppAuth.ts"
 
 /**
  * Deployment-wide chat bot settings (EFF-3015). Every value has a default.
@@ -92,3 +95,27 @@ export const chatSandboxConfig = Config.all({
  * Never fails: every setting has a default.
  */
 export const chatSandboxInit: Effect.Effect<void> = Effect.ignore(chatSandboxConfig)
+
+/** The chat bot's secrets. Each is optional, so the deployment runs before they exist. */
+export interface ChatEgressSecrets {
+  /** `CHAT_GITHUB_APP_ID` and `CHAT_GITHUB_APP_PRIVATE_KEY`: the bot's own GitHub App. */
+  readonly app: Option.Option<GitHubAppAuth.GitHubAppCredentials>
+  /** `CHAT_MULTICA_TOKEN`: the Janitor Multica user's PAT. */
+  readonly multicaToken: Option.Option<Redacted.Redacted<string>>
+}
+
+/**
+ * The chat egress proxy's secrets (EFF-3017). The Worker reads them at init,
+ * so alchemy binds whichever are set.
+ */
+export const chatEgressSecrets: Config.Config<ChatEgressSecrets> = Config.all({
+  app: Config.option(
+    Config.unwrap(
+      GitHubAppAuth.config({
+        appId: "CHAT_GITHUB_APP_ID",
+        privateKey: "CHAT_GITHUB_APP_PRIVATE_KEY",
+      }),
+    ),
+  ),
+  multicaToken: Config.option(Config.Redacted("CHAT_MULTICA_TOKEN")),
+})

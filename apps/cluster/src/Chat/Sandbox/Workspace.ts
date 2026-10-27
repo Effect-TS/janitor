@@ -11,7 +11,13 @@ import {
   type WorkspaceContainer,
 } from "../../PullRequestReview/Sandbox/Container.ts"
 import { CONTAINER_PORT } from "../../PullRequestReview/Sandbox/ContainerApp.ts"
-import type { EgressProps } from "../../PullRequestReview/Sandbox/Egress.ts"
+import { ChatCredentials } from "../Egress/BotApp.ts"
+import {
+  EGRESS_CONTROL_HEADER,
+  EgressQuery,
+  makeEgressSession,
+  type ChatEgressProps,
+} from "../Egress/Session.ts"
 import { provisionRequest } from "./Provision.ts"
 
 /**
@@ -22,15 +28,18 @@ import { provisionRequest } from "./Provision.ts"
  *
  * - `acquire` finds the session's warm container still running and
  *   provisions it again, or starts a fresh one without internet, routes its
- *   egress, and provisions it. Either way the container is held with the
- *   warm window as its inactivity timeout, so an abandoned sandbox stops on
- *   its own.
- * - `release` ends a turn and touches the container, so the warm window
- *   starts at the release.
- * - `destroy` stops the container: the pool evicted it, or its warm window
- *   ran out.
+ *   egress to the `ChatEgress` entrypoint, and provisions it. Either way the
+ *   container is held with the warm window as its inactivity timeout, so an
+ *   abandoned sandbox stops on its own. Then the turn's GitHub tokens are
+ *   minted (EFF-3017).
+ * - `release` ends a turn, revokes its tokens, and touches the container, so
+ *   the warm window starts at the release.
+ * - `destroy` revokes the tokens and stops the container: the pool evicted
+ *   it, or its warm window ran out.
  * - `forward` passes executor RPC to the container's port as-is, but only
  *   from the grant the container is held under.
+ * - `egressControl` answers the egress entrypoint: tokens and GitHub lookups
+ *   for the current grant's turn (`Egress/Session.ts`).
  *
  * Every call names the pool's grant generation, and the workspace keeps the
  * current one in storage: a call from an older grant changes nothing.
@@ -44,13 +53,15 @@ export interface ChatWorkspaceState {
     put(key: string, value: unknown): Promise<void>
   }
   readonly exports: {
-    readonly GitEgress: (options: { readonly props: EgressProps }) => Fetcher
+    readonly ChatEgress: (options: { readonly props: ChatEgressProps }) => Fetcher
   }
 }
 
 /** What a turn passes to `acquire`. Plain data, as it crosses Durable Object RPC. */
 export interface ChatAcquireInput {
   readonly sessionId: string
+  /** The turn, for the egress proxy's logs; the grant's generation when not given. */
+  readonly turnId?: string | undefined
   /** The pool kept no warm sandbox for the session: start a new container even if one runs. */
   readonly fresh: boolean
   /** The pool's generation for this grant; a destroy for an older one is ignored. */
@@ -97,14 +108,20 @@ const PROVISION_RETRY_DELAYS = [Duration.seconds(5), Duration.seconds(15), Durat
 const PROVISION_TIMEOUT = Duration.minutes(1)
 const GENERATION_KEY = "generation"
 const WARM_FOR_KEY = "warmFor"
+/** The grant whose turn holds the sandbox; cleared at release. */
+const ACTIVE_KEY = "activeGeneration"
+
+const decodeEgressQuery = Schema.decodeUnknownEffect(Schema.fromJsonString(EgressQuery))
 
 /** The header executor calls carry their turn's grant generation in. */
 export const CHAT_GENERATION_HEADER = "x-janitor-chat-generation"
 
 export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspaceState) {
   const { container } = state
+  const credentials = yield* ChatCredentials
   const control = makeContainerControl(container)
   const lock = yield* Semaphore.make(1)
+  const egress = yield* makeEgressSession(credentials.app)
   /** The grant the container was last acquired under; kept in storage across restarts. */
   let current = yield* promise(() => state.storage.get<number>(GENERATION_KEY)).pipe(
     Effect.orElseSucceed(() => undefined),
@@ -113,18 +130,38 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
   let warmFor = yield* promise(() => state.storage.get<number>(WARM_FOR_KEY)).pipe(
     Effect.orElseSucceed(() => undefined),
   )
+  // A turn still holding the sandbox when the object restarted keeps its egress credentials.
+  const active = yield* promise(() => state.storage.get<number | null>(ACTIVE_KEY)).pipe(
+    Effect.orElseSucceed(() => undefined),
+  )
+  if (typeof active === "number" && active === current) yield* egress.resume(active)
+
+  /** Ends the egress credentials of the turn holding `generation`. */
+  const stopEgress = (generation: number) =>
+    Effect.gen(function* () {
+      yield* egress.stop(generation)
+      yield* promise(async () => {
+        const held = await state.storage.get<number | null>(ACTIVE_KEY)
+        if (typeof held === "number" && held <= generation) {
+          await state.storage.put(ACTIVE_KEY, null)
+        }
+      }).pipe(Effect.ignore)
+    })
 
   /** Routes the container's egress, then posts one provisioning request. */
   const provisionOnce = (input: ChatAcquireInput) =>
     Effect.gen(function* () {
-      // PR review's allowlist and nothing else, with no token, until the chat
-      // egress proxy (EFF-3017) replaces it.
-      const egress = state.exports.GitEgress({
-        props: { runId: input.sessionId, repo: "", prNumber: 0, token: "" },
+      const proxy = state.exports.ChatEgress({
+        props: {
+          sessionId: input.sessionId,
+          generation: input.generation,
+          turnId: input.turnId ?? String(input.generation),
+          multicaToken: credentials.multicaToken,
+        },
       })
       yield* promise(async () => {
-        await container.interceptAllOutboundHttp(egress)
-        await container.interceptOutboundHttps("*", egress)
+        await container.interceptAllOutboundHttp(proxy)
+        await container.interceptOutboundHttps("*", proxy)
       }).pipe(Effect.mapError(() => "registering the egress failed"))
       const status = yield* promise(async () => {
         const response = await container
@@ -180,13 +217,17 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
       if (!warm) yield* control.start(Duration.millis(input.startBudget))
       yield* control.hold(Duration.millis(input.warmFor))
       yield* provision(input)
+      yield* promise(() => state.storage.put(ACTIVE_KEY, input.generation)).pipe(Effect.orDie)
+      yield* egress.start(input.generation)
       return { fresh: !warm }
     }).pipe(Effect.annotateLogs({ sessionId: input.sessionId }), Semaphore.withPermits(lock, 1))
 
   /** Stops the container, unless a grant newer than `generation` acquired it since. */
   const destroy = (generation: number) =>
     Effect.suspend(() =>
-      current !== undefined && generation < current ? Effect.void : control.destroy,
+      current !== undefined && generation < current
+        ? Effect.void
+        : Effect.andThen(stopEgress(generation), control.destroy),
     ).pipe(Semaphore.withPermits(lock, 1))
 
   /**
@@ -197,7 +238,9 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
    */
   const release = (generation: number) =>
     Effect.gen(function* () {
-      if (generation !== current || !container.running) return
+      if (generation !== current) return
+      yield* stopEgress(generation)
+      if (!container.running) return
       yield* control.health
       if (warmFor !== undefined) yield* control.hold(Duration.millis(warmFor))
     }).pipe(Semaphore.withPermits(lock, 1))
@@ -216,5 +259,24 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
         : control.forward(request),
     )
 
-  return { acquire, release, destroy, forward } as const
+  /**
+   * Answers the egress entrypoint, which marks its requests with the grant
+   * it was registered under. Only the entrypoint sends these: the container
+   * reaches the workspace only through it, and executor RPC never carries
+   * the header.
+   */
+  const egressControl = (request: Request): Effect.Effect<Response> =>
+    Effect.gen(function* () {
+      const generation = Number(request.headers.get(EGRESS_CONTROL_HEADER))
+      const body = yield* promise(() => request.text())
+      const query = yield* decodeEgressQuery(body)
+      const answer = yield* egress.answer(query, generation)
+      return Response.json(answer)
+    }).pipe(
+      Effect.orElseSucceed(
+        () => new Response("unreadable egress control request\n", { status: 400 }),
+      ),
+    )
+
+  return { acquire, release, destroy, forward, egressControl } as const
 })
