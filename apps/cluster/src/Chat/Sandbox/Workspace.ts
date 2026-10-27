@@ -32,6 +32,10 @@ import { provisionRequest } from "./Provision.ts"
 /** The part of the Durable Object's `ctx` the workspace uses. */
 export interface ChatWorkspaceState {
   readonly container: WorkspaceContainer
+  readonly storage: {
+    get<T>(key: string): Promise<T | undefined>
+    put(key: string, value: unknown): Promise<void>
+  }
   readonly exports: {
     readonly GitEgress: (options: { readonly props: EgressProps }) => Fetcher
   }
@@ -42,8 +46,8 @@ export interface ChatAcquireInput {
   readonly sessionId: string
   /** The pool kept no warm sandbox for the session: start a new container even if one runs. */
   readonly fresh: boolean
-  /** The pool's stamp for this grant; a destroy under an older one is ignored. */
-  readonly lease: number
+  /** The pool's generation for this grant; a destroy for an older one is ignored. */
+  readonly generation: number
   /** The Multica workspace the sandbox's CLI acts in. */
   readonly multicaWorkspaceId: string
   /** How long to keep retrying a start that found no container instance, in milliseconds. */
@@ -74,13 +78,16 @@ export interface ChatAcquired {
 /** Backoff between provisioning attempts, as PR review's checkout. */
 const PROVISION_RETRY_DELAYS = [Duration.seconds(5), Duration.seconds(15), Duration.seconds(30)]
 const PROVISION_TIMEOUT = Duration.minutes(1)
+const GENERATION_KEY = "generation"
 
 export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspaceState) {
   const { container } = state
   const control = makeContainerControl(container)
   const lock = yield* Semaphore.make(1)
-  /** The grant the container was last acquired under; unknown after the object restarts. */
-  let currentLease: number | undefined
+  /** The grant the container was last acquired under; kept in storage across restarts. */
+  let current = yield* promise(() => state.storage.get<number>(GENERATION_KEY)).pipe(
+    Effect.orElseSucceed(() => undefined),
+  )
 
   /** Routes the container's egress, then posts one provisioning request. */
   const provisionOnce = (input: ChatAcquireInput) =>
@@ -133,7 +140,8 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
 
   const acquire = (input: ChatAcquireInput): Effect.Effect<ChatAcquired, ChatAcquireError> =>
     Effect.gen(function* () {
-      currentLease = input.lease
+      current = input.generation
+      yield* promise(() => state.storage.put(GENERATION_KEY, input.generation)).pipe(Effect.orDie)
       const warm = !input.fresh && container.running && (yield* control.health)
       if (!warm) yield* control.start(Duration.millis(input.startBudget))
       yield* control.hold(Duration.millis(input.warmFor))
@@ -141,12 +149,10 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
       return { fresh: !warm }
     }).pipe(Effect.annotateLogs({ sessionId: input.sessionId }), Semaphore.withPermits(lock, 1))
 
-  /** Stops the container, unless a newer grant than `lease` acquired it since. */
-  const destroy = (lease: number | null) =>
+  /** Stops the container, unless a grant newer than `generation` acquired it since. */
+  const destroy = (generation: number) =>
     Effect.suspend(() =>
-      lease !== null && currentLease !== undefined && lease < currentLease
-        ? Effect.void
-        : control.destroy,
+      current !== undefined && generation < current ? Effect.void : control.destroy,
     ).pipe(Semaphore.withPermits(lock, 1))
 
   return { acquire, destroy, forward: control.forward } as const

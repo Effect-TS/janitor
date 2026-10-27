@@ -18,10 +18,19 @@ import type { ChatWorkspaceShape } from "./WorkspaceObject.ts"
 /** How often a queued turn asks the pool for its position. */
 const POSITION_POLL = Duration.seconds(3)
 
+/**
+ * When a turn first asks for its position. Soon, so a short wait is still
+ * reported, but after the pool has had a moment to queue the turn: both calls
+ * go out together, and an answer from before the queueing would be empty.
+ */
+const FIRST_POSITION_POLL = Duration.millis(250)
+
 /** What a turn holds: its sandbox's executor, and whether the sandbox is new. */
 export interface ChatSandbox {
   /** Nothing from the session's earlier turns is in the sandbox. */
   readonly fresh: boolean
+  /** The pool's grant, which `release` hands back. */
+  readonly generation: number
   readonly executor: Layer.Layer<AgentExecutor.AgentExecutor>
 }
 
@@ -53,7 +62,8 @@ export class ChatSandboxes extends Context.Service<
       readonly startBudget: Duration.Input
       readonly onQueued?: ((ahead: number) => Effect.Effect<void>) | undefined
     }) => Effect.Effect<ChatSandbox, SandboxBusy | ChatAcquireError>
-    readonly release: (sessionId: string) => Effect.Effect<void>
+    /** Ends the turn holding `generation`; a newer turn's sandbox is left alone. */
+    readonly release: (sessionId: string, generation: number) => Effect.Effect<void>
   }
 >()("@janitor/cluster/Chat/Sandbox/ChatSandboxes") {
   /**
@@ -71,8 +81,10 @@ export class ChatSandboxes extends Context.Service<
     const destroy = (released: ReadonlyArray<PoolRelease>) =>
       Effect.forEach(
         released,
-        ({ sessionId, lease }) =>
-          Effect.suspend(() => options.workspaces.getByName(sessionId).destroy({ lease })).pipe(
+        ({ sessionId, generation }) =>
+          Effect.suspend(() =>
+            options.workspaces.getByName(sessionId).destroy({ generation }),
+          ).pipe(
             Effect.catchCause(() =>
               Effect.logWarning("Could not destroy a chat sandbox the pool let go of"),
             ),
@@ -80,8 +92,8 @@ export class ChatSandboxes extends Context.Service<
         { concurrency: "unbounded", discard: true },
       )
 
-    const release = (sessionId: string) =>
-      Effect.suspend(() => pool().release({ sessionId })).pipe(
+    const release = (sessionId: string, generation: number) =>
+      Effect.suspend(() => pool().release({ sessionId, generation })).pipe(
         Effect.flatMap(({ destroy: released }) => destroy(released)),
       )
 
@@ -89,48 +101,56 @@ export class ChatSandboxes extends Context.Service<
     const watchQueue = (sessionId: string, onQueued: (ahead: number) => Effect.Effect<void>) =>
       Effect.gen(function* () {
         let last: number | null = null
+        yield* Effect.sleep(FIRST_POSITION_POLL)
         while (true) {
-          yield* Effect.sleep(POSITION_POLL)
           const ahead = yield* Effect.suspend(() => pool().queuePosition({ sessionId })).pipe(
             Effect.orElseSucceed(() => null),
           )
           if (ahead !== null && ahead !== last) yield* onQueued(ahead)
           last = ahead
+          yield* Effect.sleep(POSITION_POLL)
         }
       })
 
     return Layer.succeed(ChatSandboxes, {
       acquire: ({ sessionId, startBudget, onQueued }) =>
-        Effect.gen(function* () {
-          const config = yield* Effect.orDie(chatSandboxConfig)
-          const watcher =
-            onQueued === undefined
-              ? undefined
-              : yield* Effect.forkChild(watchQueue(sessionId, onQueued))
-          const grant = yield* Effect.suspend(() => pool().acquire({ sessionId })).pipe(
-            decodeFailure(SandboxBusy),
-            Effect.ensuring(watcher === undefined ? Effect.void : Fiber.interrupt(watcher)),
-          )
-          yield* destroy(grant.destroy)
-          const acquired = yield* Effect.suspend(() =>
-            options.workspaces.getByName(sessionId).acquire({
-              sessionId,
-              fresh: grant.fresh,
-              lease: grant.lease,
-              multicaWorkspaceId: config.multicaWorkspaceId,
-              startBudget: Duration.toMillis(Duration.fromInputUnsafe(startBudget)),
-              warmFor: Duration.toMillis(config.warmFor),
-            }),
-          ).pipe(
-            decodeFailure(ChatAcquireError),
-            // The slot goes back to the pool; the next turn finds no running container and starts one.
-            Effect.tapError(() => release(sessionId)),
-          )
-          return {
-            fresh: grant.fresh || acquired.fresh,
-            executor: executorLayer(options.namespace.getByName(sessionId)),
-          }
-        }).pipe(Effect.annotateLogs({ sessionId })),
+        Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function* () {
+            const config = yield* Effect.orDie(chatSandboxConfig)
+            const watcher =
+              onQueued === undefined
+                ? undefined
+                : yield* Effect.forkChild(watchQueue(sessionId, onQueued))
+            const grant = yield* restore(Effect.suspend(() => pool().acquire({ sessionId }))).pipe(
+              decodeFailure(SandboxBusy),
+              Effect.ensuring(watcher === undefined ? Effect.void : Fiber.interrupt(watcher)),
+            )
+            const acquired = yield* restore(
+              Effect.gen(function* () {
+                yield* destroy(grant.destroy)
+                return yield* Effect.suspend(() =>
+                  options.workspaces.getByName(sessionId).acquire({
+                    sessionId,
+                    fresh: grant.fresh,
+                    generation: grant.generation,
+                    multicaWorkspaceId: config.multicaWorkspaceId,
+                    startBudget: Duration.toMillis(Duration.fromInputUnsafe(startBudget)),
+                    warmFor: Duration.toMillis(config.warmFor),
+                  }),
+                ).pipe(decodeFailure(ChatAcquireError))
+              }),
+            ).pipe(
+              // Failed, died or stopped before the turn got its sandbox: the grant goes
+              // back to the pool, and the next turn finds no running container and starts one.
+              Effect.onError(() => release(sessionId, grant.generation)),
+            )
+            return {
+              fresh: grant.fresh || acquired.fresh,
+              generation: grant.generation,
+              executor: executorLayer(options.namespace.getByName(sessionId)),
+            }
+          }),
+        ).pipe(Effect.annotateLogs({ sessionId })),
       release,
     })
   }

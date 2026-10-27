@@ -63,11 +63,26 @@ export const chatQueueTimeout: Config.Config<Duration.Duration> = seconds(
   900,
 )
 
+/**
+ * `CHAT_TURN_DEADLINE_SECONDS`: a turn's hard deadline, counted from its
+ * start and across resumes.
+ */
+export const chatTurnDeadline: Config.Config<Duration.Duration> = seconds(
+  "CHAT_TURN_DEADLINE_SECONDS",
+  1200,
+)
+
+/** How long past the turn deadline the pool waits for a release before taking the turn as dead. */
+const ABANDON_MARGIN = Duration.minutes(5)
+
 /** The chat sandbox settings the Worker and its Durable Objects read at runtime. */
 export const chatSandboxConfig = Config.all({
   maxInstances: chatSandboxMaxInstances,
   warmFor: chatSandboxWarm,
   queueTimeout: chatQueueTimeout,
+  abandonAfter: chatTurnDeadline.pipe(
+    Config.map((deadline) => Duration.sum(deadline, ABANDON_MARGIN)),
+  ),
   multicaWorkspaceId: chatMulticaWorkspaceId,
 })
 

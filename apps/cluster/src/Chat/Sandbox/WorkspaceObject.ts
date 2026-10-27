@@ -21,8 +21,8 @@ import {
  */
 export interface ChatWorkspaceShape {
   readonly acquire: (input: ChatAcquireInput) => Effect.Effect<ChatAcquired, ChatAcquireError>
-  /** Stops the container, unless a grant newer than `lease` acquired it since. */
-  readonly destroy: (input: { readonly lease: number | null }) => Effect.Effect<void>
+  /** Stops the container, unless a grant newer than `generation` acquired it since. */
+  readonly destroy: (input: { readonly generation: number }) => Effect.Effect<void>
 }
 
 export class ChatWorkspace extends Cloudflare.DurableObject<ChatWorkspace, ChatWorkspaceShape>()(
@@ -42,7 +42,7 @@ export const ChatWorkspaceLive = ChatWorkspace.make(
       const workspace = yield* makeChatWorkspace(state.raw as unknown as ChatWorkspaceState)
       return {
         acquire: (input: ChatAcquireInput) => workspace.acquire(input),
-        destroy: ({ lease }: { readonly lease: number | null }) => workspace.destroy(lease),
+        destroy: ({ generation }: { readonly generation: number }) => workspace.destroy(generation),
         fetch: Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest
           const response = yield* workspace.forward(yield* HttpServerRequest.toWeb(request))
