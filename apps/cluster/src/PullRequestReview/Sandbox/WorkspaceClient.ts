@@ -70,7 +70,7 @@ export class SandboxWorkspaces extends Context.Service<
  * is pinned inside this client only: the model's `HttpClient` keeps the
  * global fetch.
  */
-const executorLayer = (workspace: {
+export const executorLayer = (workspace: {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
 }): Layer.Layer<AgentExecutor.AgentExecutor> => {
   const fetch: typeof globalThis.fetch = (input, init) => workspace.fetch(input, init)

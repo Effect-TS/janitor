@@ -1,5 +1,6 @@
 import * as Config from "effect/Config"
 import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
 /**
@@ -43,3 +44,36 @@ const DEFAULT_MULTICA_WORKSPACE_ID = "6eac4221-824e-4b2f-8517-546454766676"
 export const chatMulticaWorkspaceId: Config.Config<string> = Config.NonEmptyString(
   "CHAT_MULTICA_WORKSPACE_ID",
 ).pipe(Config.withDefault(DEFAULT_MULTICA_WORKSPACE_ID))
+
+/**
+ * `CHAT_SANDBOX_WARM_SECONDS`: how long a session's sandbox stays warm after
+ * its turn ends, so the next turn finds its clones and edits.
+ */
+export const chatSandboxWarm: Config.Config<Duration.Duration> = seconds(
+  "CHAT_SANDBOX_WARM_SECONDS",
+  1800,
+)
+
+/**
+ * `CHAT_QUEUE_TIMEOUT_SECONDS`: how long a turn waits for a sandbox when every
+ * one is running a turn, before it gives up as busy.
+ */
+export const chatQueueTimeout: Config.Config<Duration.Duration> = seconds(
+  "CHAT_QUEUE_TIMEOUT_SECONDS",
+  900,
+)
+
+/** The chat sandbox settings the Worker and its Durable Objects read at runtime. */
+export const chatSandboxConfig = Config.all({
+  maxInstances: chatSandboxMaxInstances,
+  warmFor: chatSandboxWarm,
+  queueTimeout: chatQueueTimeout,
+  multicaWorkspaceId: chatMulticaWorkspaceId,
+})
+
+/**
+ * Reads the chat sandbox settings for the Worker's init, so alchemy binds
+ * them into the deployed environment (as `pullRequestReviewInit` does).
+ * Never fails: every setting has a default.
+ */
+export const chatSandboxInit: Effect.Effect<void> = Effect.ignore(chatSandboxConfig)

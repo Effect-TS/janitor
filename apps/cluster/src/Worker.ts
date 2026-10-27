@@ -124,6 +124,10 @@ import {
   ReviewWorkspaceLive,
 } from "./PullRequestReview/Sandbox/WorkspaceObject.ts"
 import type { TailnetEgressNamespace } from "./PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
+import { chatSandboxInit } from "./Chat/Config.ts"
+import { ChatSandboxPool, ChatSandboxPoolLive } from "./Chat/Sandbox/PoolObject.ts"
+import { ChatSandboxes } from "./Chat/Sandbox/Sandboxes.ts"
+import { ChatWorkspace, ChatWorkspaceLive } from "./Chat/Sandbox/WorkspaceObject.ts"
 import {
   TailnetEgress,
   TailnetEgressLive,
@@ -236,6 +240,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // PR review reads its settings later, in the cluster layer; reading them
     // here is what binds them.
     yield* pullRequestReviewInit
+    yield* chatSandboxInit
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
@@ -286,6 +291,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ),
       ),
     )
+    // Chat sandboxes: one workspace DO per chat session, each owning a
+    // container, and one pool DO that decides which sessions hold one. Until
+    // the chat egress proxy lands, their egress is PR review's `GitEgress`.
+    const chatWorkspaces = yield* ChatWorkspace.pipe(Effect.provide(ChatWorkspaceLive))
+    const chatPools = yield* ChatSandboxPool.pipe(Effect.provide(ChatSandboxPoolLive))
     // The PR review model's way onto the tailnet, when PR_REVIEW_AI_VIA_TAILNET is on.
     yield* TailnetEgress.pipe(Effect.provide(TailnetEgressLive))
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
@@ -392,6 +402,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           SandboxWorkspaces.layer({
             stubs: workspaces,
             namespace: liveEnvironment.PullRequestReviewWorkspace as WorkspaceNamespace,
+          }),
+          ChatSandboxes.layer({
+            pools: chatPools,
+            workspaces: chatWorkspaces,
+            namespace: liveEnvironment.ChatWorkspace as WorkspaceNamespace,
           }),
         ),
       ),
