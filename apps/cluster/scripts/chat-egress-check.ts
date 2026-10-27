@@ -312,6 +312,29 @@ const api = async (method: string, path: string, body?: unknown) => {
   return { status: response.status, text, json: () => JSON.parse(text) as Record<string, unknown> }
 }
 
+/** `multica issue list` through the proxy, with the placeholder token the sandbox sets. */
+const multicaIssueList = async () => {
+  // From the scratch directory: the CLI looks for daemon task markers upward from its cwd.
+  const result = await exec("multica", ["issue", "list", "--output", "json"], {
+    cwd: scratch,
+    env: {
+      ...cleanEnv,
+      MULTICA_SERVER_URL: via("api.multica.ai"),
+      MULTICA_TOKEN: "mul_placeholder",
+      MULTICA_WORKSPACE_ID: multicaWorkspaceId,
+    },
+  })
+  let detail = result.stderr.trim().split("\n").slice(-2).join(" | ")
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown
+    const issues = Array.isArray(parsed)
+      ? parsed
+      : ((parsed as { issues?: Array<unknown> }).issues ?? [])
+    detail = `exit ${result.status}, ${issues.length} issues listed`
+  } catch {}
+  return { worked: result.status === 0, detail }
+}
+
 const stamp = new Date()
   .toISOString()
   .replace(/[-:.TZ]/g, "")
@@ -388,27 +411,7 @@ try {
     return { worked: response.status === 204, detail: `${response.status}` }
   })
 
-  await run("multica issue list", "works", async () => {
-    // From the scratch directory: the CLI looks for daemon task markers upward from its cwd.
-    const result = await exec("multica", ["issue", "list", "--output", "json"], {
-      cwd: scratch,
-      env: {
-        ...cleanEnv,
-        MULTICA_SERVER_URL: via("api.multica.ai"),
-        MULTICA_TOKEN: "mul_placeholder",
-        MULTICA_WORKSPACE_ID: multicaWorkspaceId,
-      },
-    })
-    let detail = result.stderr.trim().split("\n").slice(-2).join(" | ")
-    try {
-      const parsed = JSON.parse(result.stdout) as unknown
-      const issues = Array.isArray(parsed)
-        ? parsed
-        : ((parsed as { issues?: Array<unknown> }).issues ?? [])
-      detail = `exit ${result.status}, ${issues.length} issues listed`
-    } catch {}
-    return { worked: result.status === 0, detail }
-  })
+  await run("multica issue list", "works", multicaIssueList)
 
   await run("push to main", "refused", async () => {
     await git(["fetch", "--quiet", "origin", "main"])
@@ -441,6 +444,7 @@ await run(
   "uncredentialed",
   async () => await git(["ls-remote", "origin", "main"]),
 )
+await run("after release: multica issue list", "uncredentialed", multicaIssueList)
 
 /** Asks GitHub directly whether the revoked tokens still work. */
 const revoked = await Promise.all(
