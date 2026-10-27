@@ -69,10 +69,20 @@ export class ProvisionFailed extends Schema.TaggedError<ProvisionFailed>()("Prov
   attempts: Schema.Int,
 }) {}
 
+/**
+ * A newer grant already acquired the workspace: this acquire arrived late,
+ * after the pool had taken the sandbox over. The turn has no sandbox.
+ */
+export class GrantSuperseded extends Schema.TaggedError<GrantSuperseded>()("GrantSuperseded", {
+  generation: Schema.Int,
+  current: Schema.Int,
+}) {}
+
 export const ChatAcquireError = Schema.Union([
   ContainerUnavailable,
   ContainerNotAttached,
   ProvisionFailed,
+  GrantSuperseded,
 ])
 export type ChatAcquireError = typeof ChatAcquireError.Type
 
@@ -155,6 +165,11 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
 
   const acquire = (input: ChatAcquireInput): Effect.Effect<ChatAcquired, ChatAcquireError> =>
     Effect.gen(function* () {
+      // Never move the fence back: a late acquire from an older grant would
+      // let that turn in and shut the newer one out.
+      if (current !== undefined && input.generation < current) {
+        return yield* new GrantSuperseded({ generation: input.generation, current })
+      }
       current = input.generation
       warmFor = input.warmFor
       yield* promise(async () => {
