@@ -106,17 +106,22 @@ describe("chat sandboxes", () => {
     }),
   )
 
-  it.effect("the executor's calls carry the turn's generation", () =>
+  it.effect("a turn uses and releases its granted generation", () =>
     Effect.gen(function* () {
       const called = yield* Deferred.make<string | null>()
+      const released: Array<number> = []
+      const poolReleased: Array<string> = []
       const workspace: ChatWorkspaceShape = {
         acquire: () => Effect.succeed({ fresh: true }),
-        release: () => Effect.void,
+        release: ({ generation }) =>
+          Effect.sync(() => {
+            released.push(generation)
+          }),
         destroy: () => Effect.void,
       }
 
       yield* withSandboxes(
-        grantingPool(),
+        grantingPool(poolReleased),
         workspace,
         Effect.gen(function* () {
           const sandboxes = yield* ChatSandboxes
@@ -129,37 +134,15 @@ describe("chat sandboxes", () => {
           )
           assert.strictEqual(yield* Deferred.await(called), String(grant.generation))
           yield* Fiber.interrupt(call)
+          yield* sandboxes.release(SESSION, sandbox.generation)
         }),
         (request) => {
           Deferred.doneUnsafe(called, Effect.succeed(request.headers.get(CHAT_GENERATION_HEADER)))
           return new Promise<Response>(() => {})
         },
       )
-    }),
-  )
-
-  it.effect("a release reaches the session's workspace", () =>
-    Effect.gen(function* () {
-      const released: Array<number> = []
-      const workspace: ChatWorkspaceShape = {
-        acquire: () => Effect.succeed({ fresh: true }),
-        release: ({ generation }) =>
-          Effect.sync(() => {
-            released.push(generation)
-          }),
-        destroy: () => Effect.void,
-      }
-
-      yield* withSandboxes(
-        grantingPool(),
-        workspace,
-        Effect.gen(function* () {
-          const sandboxes = yield* ChatSandboxes
-          const sandbox = yield* sandboxes.acquire({ sessionId: SESSION, startBudget: "1 minute" })
-          yield* sandboxes.release(SESSION, sandbox.generation)
-        }),
-      )
       assert.deepStrictEqual(released, [grant.generation])
+      assert.deepStrictEqual(poolReleased, [`${SESSION}@${grant.generation}`])
     }),
   )
 })

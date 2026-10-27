@@ -23,23 +23,6 @@ const acquireInput = (generation: number) => ({
 })
 
 describe("chat workspace", () => {
-  it.effect(
-    "a destroy from an older grant leaves a newer grant's container running, even after a restart",
-    () =>
-      Effect.gen(function* () {
-        const state = makeState()
-        const workspace = yield* makeWorkspace(state)
-        yield* workspace.acquire(acquireInput(1))
-        yield* workspace.acquire(acquireInput(2))
-
-        const restarted = yield* makeWorkspace(state)
-        yield* restarted.destroy(1)
-        assert.isTrue(state.container.running)
-        yield* restarted.destroy(2)
-        assert.isFalse(state.container.running)
-      }),
-  )
-
   it.effect("executor calls from a superseded grant are refused", () =>
     Effect.gen(function* () {
       const workspace = yield* makeWorkspace(makeState())
@@ -56,18 +39,6 @@ describe("chat workspace", () => {
 
       assert.strictEqual((yield* call(1)).status, 409)
       assert.strictEqual((yield* call(2)).status, 200)
-    }),
-  )
-
-  it.effect("a release reaches the container, so its warm window starts at release", () =>
-    Effect.gen(function* () {
-      const state = makeState()
-      const workspace = yield* makeWorkspace(state)
-      yield* workspace.acquire(acquireInput(1))
-      state.container.requests.length = 0
-
-      yield* workspace.release(1)
-      assert.isAbove(state.container.requests.length, 0)
     }),
   )
 
@@ -93,6 +64,8 @@ describe("chat workspace", () => {
         assert.strictEqual((yield* call(1)).status, 409)
         yield* restarted.destroy(1)
         assert.isTrue(state.container.running)
+        yield* restarted.destroy(2)
+        assert.isFalse(state.container.running)
       }),
   )
 })

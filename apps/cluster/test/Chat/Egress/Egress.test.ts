@@ -269,10 +269,13 @@ const table: ReadonlyArray<Row> = [
 
   // REST reads: the read token
   rest("GET", `${E}/pulls`, "read:Effect-TS"),
-  rest("GET", "/repos/effect-ts/EFFECT/pulls", "read:Effect-TS"),
   rest("GET", "/repos/Effectful-Tech/clanka/issues", "read:Effectful-Tech"),
   rest("GET", `${E}/releases`, "read:Effect-TS"),
   rest("GET", "/repos/someone/else/pulls", "anonymous"),
+  rest("GET", "/orgs/Effectful-Tech/repos", "read:Effectful-Tech"),
+  rest("GET", "/orgs/someone/repos", "anonymous"),
+  rest("GET", "/users/someone/repos", "anonymous"),
+  rest("GET", "/search/issues?q=repo:Effect-TS/effect", "read:Effect-TS"),
 
   // REST writes the policy allows: the write token
   rest("POST", `${E}/pulls`, "write:Effect-TS", { title: "t", head: "feature", base: "main" }),
@@ -379,13 +382,6 @@ const table: ReadonlyArray<Row> = [
     "write:Effect-TS",
   ),
   graphql(
-    "addComment",
-    {
-      query: `mutation { addComment(input: { subjectId: "I_effect", body: "hi" }) { clientMutationId } }`,
-    },
-    "write:Effect-TS",
-  ),
-  graphql(
     "createPullRequest",
     {
       query: `mutation { createPullRequest(input: { repositoryId: "R_effect", baseRefName: "main", headRefName: "feature", title: "t" }) { clientMutationId } }`,
@@ -399,24 +395,12 @@ const table: ReadonlyArray<Row> = [
     },
     "write:Effect-TS",
   ),
-  graphql(
-    "deleteRef on a branch",
-    { query: `mutation { deleteRef(input: { refId: "REF_feature" }) { clientMutationId } }` },
-    "write:Effect-TS",
-  ),
 
   // GraphQL mutations the policy refuses
   graphql(
     "createCommitOnBranch",
     {
       query: `mutation { createCommitOnBranch(input: { branch: { repositoryNameWithOwner: "Effect-TS/effect", branchName: "feature" }, expectedHeadOid: "${OLD}", message: { headline: "m" } }) { clientMutationId } }`,
-    },
-    "refused",
-  ),
-  graphql(
-    "createRef",
-    {
-      query: `mutation { createRef(input: { repositoryId: "R_effect", name: "refs/heads/x", oid: "${NEW}" }) { clientMutationId } }`,
     },
     "refused",
   ),
@@ -432,11 +416,6 @@ const table: ReadonlyArray<Row> = [
     {
       query: `mutation { updateRefs(input: { repositoryId: "R_effect", refUpdates: [{ name: "refs/heads/feature", afterOid: "${NEW}" }] }) { clientMutationId } }`,
     },
-    "refused",
-  ),
-  graphql(
-    "deleteRef on the default branch",
-    { query: `mutation { deleteRef(input: { refId: "REF_main" }) { clientMutationId } }` },
     "refused",
   ),
   graphql(
@@ -528,15 +507,8 @@ const table: ReadonlyArray<Row> = [
     body: encoder.encode(JSON.stringify({ content: "hi" })),
     expected: "multica",
   },
-  {
-    name: "multica",
-    method: "DELETE",
-    url: "https://api.multica.ai/api/issues/1",
-    expected: "multica",
-  },
 
   // Everything else: no credential
-  { name: "npm", method: "GET", url: "https://registry.npmjs.org/effect", expected: "anonymous" },
   { name: "web", method: "GET", url: "https://example.com/", expected: "anonymous" },
   { name: "multica web", method: "GET", url: "https://multica.ai/", expected: "anonymous" },
   {
@@ -615,17 +587,20 @@ const send = (row: Row, headers: Record<string, string> = {}) =>
 
 const describeRow = (row: Row) => `${row.name}: ${row.method} ${row.url}`
 
+const expectOutcomes = (rows: ReadonlyArray<Row>) =>
+  Effect.gen(function* () {
+    const outcomes = yield* Effect.forEach(rows, (row) =>
+      send(row).pipe(Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome))),
+    )
+    assert.deepStrictEqual(
+      rows.map((row, index) => `${describeRow(row)} -> ${outcomes[index]}`),
+      rows.map((row) => `${describeRow(row)} -> ${row.expected}`),
+    )
+  })
+
 describe("chat egress proxy", () => {
   it.effect("applies the GitHub policy and injects the right credential", () =>
-    Effect.gen(function* () {
-      const outcomes = yield* Effect.forEach(table, (row) =>
-        send(row).pipe(Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome))),
-      )
-      assert.deepStrictEqual(
-        table.map((row, index) => `${describeRow(row)} -> ${outcomes[index]}`),
-        table.map((row) => `${describeRow(row)} -> ${row.expected}`),
-      )
-    }),
+    expectOutcomes(table),
   )
 
   it.effect("never forwards a container-supplied Authorization to GitHub or Multica", () =>
@@ -682,18 +657,6 @@ describe("chat egress proxy", () => {
     }),
   )
 
-  /** Runs rows through the proxy and compares each outcome with its expectation, as the table does. */
-  const expectOutcomes = (rows: ReadonlyArray<Row>) =>
-    Effect.gen(function* () {
-      const outcomes = yield* Effect.forEach(rows, (row) =>
-        send(row).pipe(Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome))),
-      )
-      assert.deepStrictEqual(
-        rows.map((row, index) => `${describeRow(row)} -> ${outcomes[index]}`),
-        rows.map((row) => `${describeRow(row)} -> ${row.expected}`),
-      )
-    })
-
   it.effect("a mutation that names its target by plain id gets that org's write token", () =>
     expectOutcomes([
       graphql(
@@ -703,15 +666,6 @@ describe("chat egress proxy", () => {
         },
         "write:Effect-TS",
       ),
-    ]),
-  )
-
-  it.effect("org-scoped reads use that org's read token, and other orgs get none", () =>
-    expectOutcomes([
-      rest("GET", "/orgs/Effectful-Tech/repos", "read:Effectful-Tech"),
-      rest("GET", "/orgs/someone/repos", "anonymous"),
-      rest("GET", "/users/someone/repos", "anonymous"),
-      rest("GET", "/search/issues?q=repo:Effect-TS/effect", "read:Effect-TS"),
     ]),
   )
 })

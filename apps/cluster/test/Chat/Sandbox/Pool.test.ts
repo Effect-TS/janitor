@@ -141,22 +141,10 @@ describe("chat sandbox pool", () => {
       }),
   )
 
-  it.effect("a grant never released gives its sandbox up after the abandon window", () =>
-    Effect.gen(function* () {
-      const { pool, destroyed, destroyedGenerations } = yield* makePool(1)
-      const abandoned = yield* pool.acquire("a")
-      yield* TestClock.adjust("25 minutes")
-
-      assert.isTrue((yield* pool.acquire("b")).fresh)
-      assert.deepStrictEqual(destroyed, ["a"])
-      assert.deepStrictEqual(destroyedGenerations, [abandoned.generation])
-    }),
-  )
-
   it.effect("a queued turn gets the sandbox when the grant ahead of it is abandoned", () =>
     Effect.gen(function* () {
-      const { pool, destroyed, queue, nextQueued } = yield* makePool(1)
-      yield* pool.acquire("a")
+      const { pool, destroyed, destroyedGenerations, queue, nextQueued } = yield* makePool(1)
+      const abandoned = yield* pool.acquire("a")
       yield* TestClock.adjust("20 minutes")
       const b = yield* queue("b")
       assert.strictEqual(yield* nextQueued, "b:0")
@@ -168,6 +156,7 @@ describe("chat sandbox pool", () => {
       yield* TestClock.adjust("1 minute")
       assert.isTrue((yield* Fiber.join(b)).fresh)
       assert.deepStrictEqual(destroyed, ["a"])
+      assert.deepStrictEqual(destroyedGenerations, [abandoned.generation])
     }),
   )
 
