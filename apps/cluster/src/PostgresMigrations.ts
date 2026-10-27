@@ -13,13 +13,15 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 
 export interface PostgresMigrationsProps {
-  /** The database the migrations run against, reached directly over verified TLS. */
+  /** The database the migrations run against, reached directly. */
   readonly origin: {
     readonly host: string
     readonly port: number
     readonly database: string
     readonly user: string
     readonly password: Redacted.Redacted<string>
+    /** Defaults to `verify-full`. `disable` is for test servers without TLS. */
+    readonly sslmode?: "verify-full" | "disable"
   }
   /** Directory of `.sql` migrations, applied in file order. */
   readonly migrations: string
@@ -64,7 +66,7 @@ const withClient = <A, E, R>(
         database: origin.database,
         user: origin.user,
         password: Redacted.value(origin.password),
-        ssl: { rejectUnauthorized: true },
+        ssl: origin.sslmode === "disable" ? false : { rejectUnauthorized: true },
       })
       yield* Effect.tryPromise({
         try: () => client.connect(),

@@ -106,7 +106,7 @@ const withDatabase = (url: string, database: string) => {
 }
 
 /** Runs `effect` against `url` with a short-lived client. */
-const usingDatabase = <A, E>(
+export const usingDatabase = <A, E>(
   url: string,
   effect: Effect.Effect<A, E, SqlClient.SqlClient | FileSystem.FileSystem | Path.Path>,
 ) => effect.pipe(Effect.provide(Layer.merge(clientLayer(url), NodeServices.layer)), Effect.scoped)
@@ -161,20 +161,32 @@ export const setup = (project: TestProject) =>
   )
 
 /**
- * Copies the migrated template into a new database on the shared server and
- * drops it when the scope closes. Returns the new database's connection URL.
+ * Creates a new database on the shared server, copied from `template` when
+ * given, and drops it when the scope closes. Returns its connection URL.
  */
-export const migratedDatabase = Effect.acquireRelease(
-  Effect.gen(function* () {
-    const server = inject("postgresUrl")
-    // Not `Random`: test services may seed it, and names must differ across workers.
-    const name = `test_${crypto.randomUUID().replaceAll("-", "")}`
-    yield* execute(server, `CREATE DATABASE ${name} TEMPLATE ${TEMPLATE}`)
-    return { url: withDatabase(server, name), name, server }
-  }).pipe(Effect.orDie),
-  ({ name, server }) =>
-    execute(server, `DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).pipe(Effect.ignore),
-)
+const scratchDatabase = (template: string | undefined) =>
+  Effect.acquireRelease(
+    Effect.gen(function* () {
+      const server = inject("postgresUrl")
+      // Not `Random`: test services may seed it, and names must differ across workers.
+      const name = `test_${crypto.randomUUID().replaceAll("-", "")}`
+      yield* execute(
+        server,
+        template === undefined
+          ? `CREATE DATABASE ${name}`
+          : `CREATE DATABASE ${name} TEMPLATE ${template}`,
+      )
+      return { url: withDatabase(server, name), name, server }
+    }).pipe(Effect.orDie),
+    ({ name, server }) =>
+      execute(server, `DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).pipe(Effect.ignore),
+  )
+
+/** A copy of the migrated template on the run's shared server. */
+export const migratedDatabase = scratchDatabase(TEMPLATE)
+
+/** A database with no schema on the run's shared server. */
+export const emptyDatabase = scratchDatabase(undefined)
 
 /** A fresh database with all migrations applied, on the run's shared server. */
 export const MigratedPostgresLayer = Layer.unwrap(
