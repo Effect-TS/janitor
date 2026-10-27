@@ -280,6 +280,9 @@ catalogs:
     foldkit:
       specifier: ^0.165.0
       version: 0.165.0
+    graphql:
+      specifier: 17.0.2
+      version: 17.0.2
     happy-dom:
       specifier: ^20.0.0
       version: 20.13.1
@@ -398,6 +401,9 @@ importers:
       effect:
         specifier: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
         version: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
+      graphql:
+        specifier: 'catalog:'
+        version: 17.0.2
     devDependencies:
       '@effect/graphql-generator':
         specifier: 'catalog:'
@@ -3357,6 +3363,10 @@ packages:
   graphql@16.11.0:
     resolution: {integrity: sha512-mS1lbMsxgQj6hge1XZ6p7GPhbrtFwUFYi3wRzXAC/FmYnyXMTvvI3td3rjmQ2u8ewXueaSvRPWaEcgVVOT9Jnw==}
     engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
+
+  graphql@17.0.2:
+    resolution: {integrity: sha512-FRWbddMxfkjiB7z+aQDWIR+E34xo9I8c9mtK2RPv8PmMzKRvrdsreHL/Ui/TmwHJfhHChEtsFPyMHKI+xuarQQ==}
+    engines: {node: ^22.0.0 || ^24.0.0 || ^25.0.0 || >=26.0.0}
 
   happy-dom@20.13.1:
     resolution: {integrity: sha512-hoh0Sq+2vSDi8CJaFnLBLAlEK7/vrRmUiim30PwFj9aiVwqF/Z+6cCpmt9gNuQgu+PHjNC4O2PhjxA9Nr+UlBQ==}
@@ -6751,6 +6761,8 @@ snapshots:
   graphmatch@1.1.1: {}
 
   graphql@16.11.0: {}
+
+  graphql@17.0.2: {}
 
   happy-dom@20.13.1:
     dependencies:

@@ -19,7 +19,8 @@
     "@janitor/domain": "workspace:^",
     "alchemy": "catalog:",
     "clanka": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "graphql": "catalog:"
   },
   "devDependencies": {
     "@effect/graphql-generator": "catalog:",

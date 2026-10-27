@@ -616,8 +616,7 @@ const send = (row: Row, headers: Record<string, string> = {}) =>
 const describeRow = (row: Row) => `${row.name}: ${row.method} ${row.url}`
 
 describe("chat egress proxy", () => {
-  // Red until the proxy is implemented (EFF-3017): drop `.fails` with it.
-  it.effect.fails("applies the GitHub policy and injects the right credential", () =>
+  it.effect("applies the GitHub policy and injects the right credential", () =>
     Effect.gen(function* () {
       const outcomes = yield* Effect.forEach(table, (row) =>
         send(row).pipe(Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome))),
@@ -629,7 +628,7 @@ describe("chat egress proxy", () => {
     }),
   )
 
-  it.effect.fails("never forwards a container-supplied Authorization to GitHub or Multica", () =>
+  it.effect("never forwards a container-supplied Authorization to GitHub or Multica", () =>
     Effect.gen(function* () {
       const secret = "ghp_from_the_container"
       const sent: ReadonlyArray<readonly [Row, string]> = [

@@ -52,6 +52,7 @@ catalog:
   effect: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
   happy-dom: ^20.0.0
   foldkit: ^0.165.0
+  graphql: 17.0.2
   lucide: ^1.33.0
   tailwind-merge: ^3.6.0
   tailwindcss: ^4.3.3
