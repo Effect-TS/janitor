@@ -126,7 +126,7 @@ describe("chat egress credential lifecycle", () => {
     }),
   )
 
-  it.effect.fails(
+  it.effect(
     "a remint that fails after its turn ended hands out no token, not even the one still valid",
     () =>
       Effect.gen(function* () {

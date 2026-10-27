@@ -172,7 +172,8 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
         ),
         Effect.uninterruptible,
       )
-      if (fresh === "failed") return held
+      // Whichever way the mint went, the turn may have ended while it ran.
+      if (fresh === "failed") return active === generation ? held : undefined
       if (active !== generation) {
         yield* revoke(fresh)
         return undefined
@@ -189,7 +190,8 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
       const org = botOrg(owner)
       if (org === undefined || active === undefined || generation !== active) return undefined
       const held = yield* orgTokens(org, generation)
-      return held === undefined
+      // Checked again after the wait, so no path out of `orgTokens` outlives the turn.
+      return held === undefined || generation !== active
         ? undefined
         : ({ read: held.read, write: held.write } as GitHubTokens)
     })
