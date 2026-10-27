@@ -131,17 +131,28 @@ const REFUSED_MUTATIONS: ReadonlySet<string> = new Set([
 /** Why a request was refused, for the 403's body. */
 class Refused extends Data.TaggedError("Refused")<{ readonly reason: string }> {}
 
-type Access = "read" | "write"
+const refuse = (reason: string) => new Refused({ reason })
 
 /** Which token a request gets: an owner's read or write token, or none. */
-type Credential = { readonly owner: string; readonly access: Access } | undefined
+type Credential = { readonly owner: string; readonly access: "read" | "write" } | undefined
+
+const read = (owner: string): Credential => ({ owner, access: "read" })
+const write = (owner: string): Credential => ({ owner, access: "write" })
+
+/** What the policy decided for a request: its credential, and its body where the proxy read it. */
+interface Decision {
+  readonly credential: Credential
+  readonly body?: BodyInit | undefined
+}
 
 const lower = (value: string) => value.toLowerCase()
 
 const sameOwner = (a: string, b: string) => lower(a) === lower(b)
 
+const isRead = (method: string) => method === "GET" || method === "HEAD"
+
 const lookupRefused = (error: LookupFailed) =>
-  new Refused({ reason: `GitHub couldn't be asked about it (${error.reason})` })
+  refuse(`GitHub couldn't be asked about it (${error.reason})`)
 
 /**
  * Whether a ref is protected: every tag and every ref outside
@@ -166,11 +177,7 @@ const protectedReason = (github: GitHubLookup, repository: Repository, ref: stri
 
 const refuseProtected = (github: GitHubLookup, repository: Repository, ref: string) =>
   protectedReason(github, repository, ref).pipe(
-    Effect.flatMap((reason) =>
-      reason === undefined
-        ? Effect.void
-        : Effect.fail(new Refused({ reason: `${ref}: ${reason}` })),
-    ),
+    Effect.flatMap((reason) => (reason === undefined ? Effect.void : refuse(`${ref}: ${reason}`))),
   )
 
 /** Reads a body up to `limit` bytes; past it, the request is refused. */
@@ -193,12 +200,10 @@ const readBody = (request: Request, limit: number) =>
       }
       return concat(chunks, size)
     },
-    catch: () => new Refused({ reason: "its body couldn't be read" }),
+    catch: () => refuse("its body couldn't be read"),
   }).pipe(
     Effect.flatMap((body) =>
-      body === undefined
-        ? Effect.fail(new Refused({ reason: `its body is over ${limit} bytes` }))
-        : Effect.succeed(body),
+      body === undefined ? refuse(`its body is over ${limit} bytes`) : Effect.succeed(body),
     ),
   )
 
@@ -214,13 +219,9 @@ const concat = (chunks: ReadonlyArray<Uint8Array>, size: number) => {
 
 // git push
 
-interface RefUpdate {
-  readonly ref: string
-}
-
-/** A push's ref updates, and its body as a stream that replays what was read. */
+/** The refs a push updates, and its body as a stream that replays what was read. */
 interface ParsedPush {
-  readonly updates: ReadonlyArray<RefUpdate>
+  readonly refs: ReadonlyArray<string>
   readonly body: ReadableStream<Uint8Array>
 }
 
@@ -243,7 +244,7 @@ const parsePush = (request: Request) =>
       const reader = request.body.getReader()
       let buffer = new Uint8Array(0)
       let offset = 0
-      const updates: Array<RefUpdate> = []
+      const refs: Array<string> = []
       const fail = async (reason: string) => {
         await reader.cancel()
         return reason
@@ -264,7 +265,7 @@ const parsePush = (request: Request) =>
               },
               cancel: (reason) => reader.cancel(reason),
             })
-            return { updates, body }
+            return { refs, body }
           }
           if (length < 4) return fail("its ref updates don't parse")
           if (buffer.byteLength - offset >= length) {
@@ -286,24 +287,21 @@ const parsePush = (request: Request) =>
             ) {
               return fail("its ref updates don't parse")
             }
-            updates.push({ ref })
+            refs.push(ref)
             continue
           }
         }
         if (buffer.byteLength > MAX_PUSH_COMMANDS_BYTES) return fail("its ref updates are too long")
         const { done, value } = await reader.read()
         if (done) return "it ended before its ref updates did"
-        const grown = new Uint8Array(buffer.byteLength + value.byteLength)
-        grown.set(buffer)
-        grown.set(value, buffer.byteLength)
-        buffer = grown
+        buffer = concat([buffer, value], buffer.byteLength + value.byteLength)
       }
     },
-    catch: () => new Refused({ reason: "its body couldn't be read" }),
+    catch: () => refuse("its body couldn't be read"),
   }).pipe(
     Effect.flatMap((parsed) =>
       typeof parsed === "string"
-        ? Effect.fail(new Refused({ reason: `the push was refused: ${parsed}` }))
+        ? refuse(`the push was refused: ${parsed}`)
         : Effect.succeed(parsed),
     ),
   )
@@ -450,22 +448,25 @@ const firstBotOwner = (egress: ChatEgress, owners: ReadonlyArray<string>) =>
     return undefined
   })
 
-const graphqlCredential = (request: Request, egress: ChatEgress) =>
+const graphqlCredential = (
+  request: Request,
+  egress: ChatEgress,
+): Effect.Effect<Decision, Refused> =>
   Effect.gen(function* () {
     const body = yield* readBody(request, MAX_GRAPHQL_BYTES)
     const parsed = parseGraphQL(body)
     if (typeof parsed === "string") {
-      return yield* new Refused({ reason: `the GraphQL request was refused: ${parsed}` })
+      return yield* refuse(`the GraphQL request was refused: ${parsed}`)
     }
     const refused = parsed.mutations.find((field) => REFUSED_MUTATIONS.has(field.name))
     if (refused !== undefined) {
-      return yield* new Refused({ reason: `the ${refused.name} mutation is not allowed` })
+      return yield* refuse(`the ${refused.name} mutation is not allowed`)
     }
     const node = (id: string) => egress.github.node(id).pipe(Effect.mapError(lookupRefused))
     if (parsed.mutations.length === 0) {
       // A query only picks which read token to use, so a failed lookup isn't a refusal.
       const nodeOwners = yield* Effect.forEach(parsed.nodeIds, (id) =>
-        egress.github.node(id).pipe(
+        node(id).pipe(
           Effect.map((found) => found?.repository.owner),
           Effect.orElseSucceed(() => undefined),
         ),
@@ -474,15 +475,8 @@ const graphqlCredential = (request: Request, egress: ChatEgress) =>
         ...parsed.owners,
         ...nodeOwners.filter((owner): owner is string => owner !== undefined),
       ]
-      const credential: Credential =
-        owners.length === 0
-          ? { owner: BOT_ORGS[0]!, access: "read" }
-          : yield* firstBotOwner(egress, owners).pipe(
-              Effect.map((owner) =>
-                owner === undefined ? undefined : { owner, access: "read" as const },
-              ),
-            )
-      return { credential, body }
+      const owner = owners.length === 0 ? BOT_ORGS[0]! : yield* firstBotOwner(egress, owners)
+      return { credential: owner === undefined ? undefined : read(owner), body }
     }
 
     // A mutation gets the write token of the one org its nodes are in.
@@ -497,7 +491,7 @@ const graphqlCredential = (request: Request, egress: ChatEgress) =>
       if ((yield* egress.githubTokens(owner)) !== undefined) botOwners.set(lower(owner), owner)
     }
     if (botOwners.size > 1) {
-      return yield* new Refused({ reason: "one GraphQL request can't write to two orgs" })
+      return yield* refuse("one GraphQL request can't write to two orgs")
     }
     const [owner] = botOwners.values()
     if (owner === undefined) return { credential: undefined, body }
@@ -506,11 +500,11 @@ const graphqlCredential = (request: Request, egress: ChatEgress) =>
       const refId = isRecord(field.args.input) ? field.args.input.refId : undefined
       const ref = typeof refId === "string" ? yield* node(refId) : undefined
       if (ref?.ref === undefined) {
-        return yield* new Refused({ reason: "deleteRef names a ref that couldn't be found" })
+        return yield* refuse("deleteRef names a ref that couldn't be found")
       }
       yield* refuseProtected(egress.github, ref.repository, ref.ref)
     }
-    return { credential: { owner, access: "write" as const }, body }
+    return { credential: write(owner), body }
   })
 
 // REST and git
@@ -535,13 +529,10 @@ const restCredential = (
   repository: Repository,
   rest: ReadonlyArray<string>,
   github: GitHubLookup,
-) =>
+): Effect.Effect<Credential, Refused> =>
   Effect.gen(function* () {
-    if (method === "GET" || method === "HEAD") {
-      return { owner: repository.owner, access: "read" as const }
-    }
+    if (isRead(method)) return read(repository.owner)
     const [first, second, third, ...more] = rest.map(lower)
-    const refuse = (reason: string) => Effect.fail(new Refused({ reason }))
     if (first === "merges" && rest.length === 1) {
       return yield* refuse("merging branches directly is not allowed; merge a pull request")
     }
@@ -551,9 +542,7 @@ const restCredential = (
     if (first === "contents") {
       return yield* refuse("writing through the contents API is not allowed; push a branch")
     }
-    if (first === "releases" || first?.startsWith("releases")) {
-      return yield* refuse("releases are not allowed")
-    }
+    if (first?.startsWith("releases")) return yield* refuse("releases are not allowed")
     if (first === "git" && second === "tags") return yield* refuse("tags are not allowed")
     if (first === "git" && (second === "refs" || second === "ref")) {
       if (method !== "DELETE" || second !== "refs" || third !== "heads" || more.length === 0) {
@@ -561,7 +550,7 @@ const restCredential = (
       }
       yield* refuseProtected(github, repository, `refs/heads/${rest.slice(3).join("/")}`)
     }
-    return { owner: repository.owner, access: "write" as const }
+    return write(repository.owner)
   })
 
 /**
@@ -569,71 +558,67 @@ const restCredential = (
  * the read token; pushes the write token, once every ref-update line has
  * been checked. Other GETs get the read token; anything else no credential.
  */
-const gitCredential = (request: Request, url: URL, egress: ChatEgress) =>
+const gitCredential = (
+  request: Request,
+  url: URL,
+  egress: ChatEgress,
+): Effect.Effect<Decision, Refused> =>
   Effect.gen(function* () {
+    const none = { credential: undefined }
     const [empty, owner, name, ...rest] = url.pathname.split("/")
-    if (empty !== "" || owner === undefined || name === undefined) return { credential: undefined }
-    if (!NAME.test(owner) || !NAME.test(name)) return { credential: undefined }
-    if ((yield* egress.githubTokens(owner)) === undefined) return { credential: undefined }
+    if (empty !== "" || owner === undefined || name === undefined) return none
+    if (!NAME.test(owner) || !NAME.test(name)) return none
+    if ((yield* egress.githubTokens(owner)) === undefined) return none
     const repository = { owner, name: name.replace(/\.git$/i, "") }
     const action = rest.join("/")
     const service = url.searchParams.getAll("service")
     if (action === "info/refs" && request.method === "GET" && service.length === 1) {
-      if (service[0] === "git-upload-pack")
-        return { credential: { owner, access: "read" as const } }
-      if (service[0] === "git-receive-pack") {
-        return { credential: { owner, access: "write" as const } }
-      }
+      if (service[0] === "git-upload-pack") return { credential: read(owner) }
+      if (service[0] === "git-receive-pack") return { credential: write(owner) }
     }
     if (action === "git-upload-pack" && request.method === "POST") {
-      return { credential: { owner, access: "read" as const } }
+      return { credential: read(owner) }
     }
     if (action === "git-receive-pack" && request.method === "POST") {
       const push = yield* parsePush(request)
-      for (const update of push.updates) {
-        yield* refuseProtected(egress.github, repository, update.ref)
-      }
-      return { credential: { owner, access: "write" as const }, body: push.body }
+      for (const ref of push.refs) yield* refuseProtected(egress.github, repository, ref)
+      return { credential: write(owner), body: push.body }
     }
-    if (request.method === "GET" || request.method === "HEAD") {
-      return { credential: { owner, access: "read" as const } }
-    }
-    return { credential: undefined }
+    return isRead(request.method) ? { credential: read(owner) } : none
   })
 
 /** `api.github.com` and `uploads.github.com`: GraphQL, repository routes, and the rest. */
-const apiCredential = (request: Request, url: URL, egress: ChatEgress) =>
+const apiCredential = (
+  request: Request,
+  url: URL,
+  egress: ChatEgress,
+): Effect.Effect<Decision, Refused> =>
   Effect.gen(function* () {
+    const none = { credential: undefined }
     if (url.hostname === "api.github.com" && url.pathname === "/graphql") {
-      if (request.method !== "POST") return { credential: undefined }
-      return yield* graphqlCredential(request, egress)
+      return request.method === "POST" ? yield* graphqlCredential(request, egress) : none
     }
     const segments = decodedSegments(url.pathname)
-    if (segments === undefined) {
-      return yield* new Refused({ reason: "its path doesn't decode" })
-    }
-    const [root, owner, name, ...rest] = segments
-    if (lower(root ?? "") === "repos" && owner !== undefined && name !== undefined) {
-      if ((yield* egress.githubTokens(owner)) === undefined) return { credential: undefined }
+    if (segments === undefined) return yield* refuse("its path doesn't decode")
+    const [first, owner, name, ...rest] = segments
+    const root = lower(first ?? "")
+    if (root === "repos" && owner !== undefined && name !== undefined) {
+      if ((yield* egress.githubTokens(owner)) === undefined) return none
       return {
         credential: yield* restCredential(request.method, { owner, name }, rest, egress.github),
       }
     }
-    const read = request.method === "GET" || request.method === "HEAD"
     // Org and user routes name their owner: the bot's orgs get their own read
     // token, and any other owner none. Writes there are outside the policy.
-    if ((lower(root ?? "") === "orgs" || lower(root ?? "") === "users") && owner !== undefined) {
-      if (!read || (yield* egress.githubTokens(owner)) === undefined) {
-        return { credential: undefined }
-      }
-      return { credential: { owner, access: "read" as const } }
+    if ((root === "orgs" || root === "users") && owner !== undefined) {
+      if (!isRead(request.method) || (yield* egress.githubTokens(owner)) === undefined) return none
+      return { credential: read(owner) }
     }
     // Reads that name no owner at all, such as search, use the first org's
     // read token. `/repositories/{id}` and other writes get none.
-    if (lower(root ?? "") !== "repositories" && read) {
-      return { credential: { owner: BOT_ORGS[0]!, access: "read" as const } }
-    }
-    return { credential: undefined }
+    return root !== "repositories" && isRead(request.method)
+      ? { credential: read(BOT_ORGS[0]!) }
+      : none
   })
 
 const refusal = (request: Request, url: URL, reason: string) =>
@@ -678,7 +663,6 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
         ? gitCredential(request, url, egress)
         : apiCredential(request, url, egress)
     ).pipe(
-      Effect.map((decision): { credential: Credential; body?: BodyInit } => decision),
       Effect.catchTag("Refused", (refused) =>
         Effect.logWarning("Chat egress refused a request").pipe(
           Effect.annotateLogs({ method: request.method, host: url.host }),
@@ -688,16 +672,17 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
     )
     if (decided instanceof Refused) return refusal(request, url, decided.reason)
     const { credential, body } = decided
-    const tokens =
-      credential === undefined ? undefined : yield* egress.githubTokens(credential.owner)
-    if (credential !== undefined && tokens !== undefined) {
-      const token = credential.access === "read" ? tokens.read : tokens.write
-      headers.set(
-        "authorization",
-        url.hostname === "github.com"
-          ? `Basic ${btoa(`x-access-token:${token}`)}`
-          : `Bearer ${token}`,
-      )
+    if (credential !== undefined) {
+      const tokens = yield* egress.githubTokens(credential.owner)
+      if (tokens !== undefined) {
+        const token = credential.access === "read" ? tokens.read : tokens.write
+        headers.set(
+          "authorization",
+          url.hostname === "github.com"
+            ? `Basic ${btoa(`x-access-token:${token}`)}`
+            : `Bearer ${token}`,
+        )
+      }
     }
     return yield* forward(body)
   }).pipe(Effect.annotateLogs({ sessionId: egress.sessionId, turnId: egress.turnId }))

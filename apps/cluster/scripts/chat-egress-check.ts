@@ -96,11 +96,7 @@ const state: ChatWorkspaceState = {
   },
 }
 
-const secrets = await Effect.runPromise(
-  Effect.gen(function* () {
-    return yield* chatEgressSecrets
-  }),
-)
+const secrets = await Effect.runPromise(chatEgressSecrets)
 if (Option.isNone(secrets.app) || Option.isNone(secrets.multicaToken)) {
   console.error(
     "CHAT_GITHUB_APP_ID, CHAT_GITHUB_APP_PRIVATE_KEY and CHAT_MULTICA_TOKEN are required",
@@ -108,11 +104,7 @@ if (Option.isNone(secrets.app) || Option.isNone(secrets.multicaToken)) {
   process.exit(2)
 }
 const multicaToken = Redacted.value(secrets.multicaToken.value)
-const multicaWorkspaceId = await Effect.runPromise(
-  Effect.gen(function* () {
-    return yield* chatMulticaWorkspaceId
-  }),
-)
+const multicaWorkspaceId = await Effect.runPromise(chatMulticaWorkspaceId)
 
 const workspace = await Effect.runPromise(
   makeChatWorkspace(state).pipe(

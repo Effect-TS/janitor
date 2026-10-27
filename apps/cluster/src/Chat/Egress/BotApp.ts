@@ -15,6 +15,7 @@ import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import * as GitHubAppAuth from "../../GitHub/AppAuth.ts"
 import type { ChatEgressSecrets } from "../Config.ts"
+import type { GitHubTokens } from "./Egress.ts"
 
 /**
  * The chat bot's credentials (EFF-3017): its own GitHub App, separate from
@@ -23,11 +24,8 @@ import type { ChatEgressSecrets } from "../Config.ts"
  * credential; without the PAT, Multica gets none.
  */
 
-/** A read-only and a write installation token for one org, both covering all its repos. */
-export interface OrgTokens {
-  readonly read: string
-  readonly write: string
-  /** When the first of the two expires, in epoch milliseconds. */
+/** An org's two installation tokens, and when the first of them expires, in epoch milliseconds. */
+export interface OrgTokens extends GitHubTokens {
   readonly expiresAt: number
 }
 
@@ -98,7 +96,8 @@ const makeBotApp = Effect.fnUntraced(function* (auth: GitHubAppAuth.GitHubAppAut
 
   const installation = (org: string) =>
     Effect.gen(function* () {
-      const known = installations.get(org.toLowerCase())
+      const key = org.toLowerCase()
+      const known = installations.get(key)
       if (known !== undefined) return known
       const jwt = yield* auth.appJwt.pipe(Effect.mapError(failed("signing the App JWT failed")))
       const response = yield* http
@@ -112,7 +111,7 @@ const makeBotApp = Effect.fnUntraced(function* (auth: GitHubAppAuth.GitHubAppAut
         )
         .pipe(Effect.mapError(failed("the installation lookup failed")))
       if (response.status === 404) {
-        installations.set(org.toLowerCase(), null)
+        installations.set(key, null)
         return null
       }
       if (response.status !== 200) {
@@ -123,7 +122,7 @@ const makeBotApp = Effect.fnUntraced(function* (auth: GitHubAppAuth.GitHubAppAut
       const { id } = yield* decodeInstallation(response).pipe(
         Effect.mapError(failed("the installation lookup was unreadable")),
       )
-      installations.set(org.toLowerCase(), id)
+      installations.set(key, id)
       return id
     })
 

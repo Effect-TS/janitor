@@ -120,20 +120,17 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
   const { container } = state
   const credentials = yield* ChatCredentials
   const control = makeContainerControl(container)
-  const lock = yield* Semaphore.make(1)
+  const locked = Semaphore.withPermits(yield* Semaphore.make(1), 1)
   const egress = yield* makeEgressSession(credentials)
+  /** A stored value, or `undefined` when storage can't be read. */
+  const stored = <T>(key: string) =>
+    promise(() => state.storage.get<T>(key)).pipe(Effect.orElseSucceed(() => undefined))
   /** The grant the container was last acquired under; kept in storage across restarts. */
-  let current = yield* promise(() => state.storage.get<number>(GENERATION_KEY)).pipe(
-    Effect.orElseSucceed(() => undefined),
-  )
+  let current = yield* stored<number>(GENERATION_KEY)
   /** The warm window the last acquire asked for, in milliseconds; kept the same way. */
-  let warmFor = yield* promise(() => state.storage.get<number>(WARM_FOR_KEY)).pipe(
-    Effect.orElseSucceed(() => undefined),
-  )
+  let warmFor = yield* stored<number>(WARM_FOR_KEY)
   // A turn still holding the sandbox when the object restarted keeps its egress credentials.
-  const active = yield* promise(() => state.storage.get<number | null>(ACTIVE_KEY)).pipe(
-    Effect.orElseSucceed(() => undefined),
-  )
+  const active = yield* stored<number | null>(ACTIVE_KEY)
   if (typeof active === "number" && active === current) yield* egress.resume(active)
 
   /** Ends the egress credentials of the turn holding `generation`. */
@@ -219,7 +216,7 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
       yield* promise(() => state.storage.put(ACTIVE_KEY, input.generation)).pipe(Effect.orDie)
       yield* egress.start(input.generation)
       return { fresh: !warm }
-    }).pipe(Effect.annotateLogs({ sessionId: input.sessionId }), Semaphore.withPermits(lock, 1))
+    }).pipe(Effect.annotateLogs({ sessionId: input.sessionId }), locked)
 
   /** Stops the container, unless a grant newer than `generation` acquired it since. */
   const destroy = (generation: number) =>
@@ -227,7 +224,7 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
       current !== undefined && generation < current
         ? Effect.void
         : Effect.andThen(stopEgress(generation), control.destroy),
-    ).pipe(Semaphore.withPermits(lock, 1))
+    ).pipe(locked)
 
   /**
    * The turn holding `generation` ended. The container's inactivity clock
@@ -242,7 +239,7 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
       if (!container.running) return
       yield* control.health
       if (warmFor !== undefined) yield* control.hold(Duration.millis(warmFor))
-    }).pipe(Semaphore.withPermits(lock, 1))
+    }).pipe(locked)
 
   /**
    * Passes executor RPC to the container, if it comes from the grant the

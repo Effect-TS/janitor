@@ -112,7 +112,7 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
 }) {
   const { app } = credentials
   /** Serializes minting with `start` and `stop`'s revocations. */
-  const lock = yield* Semaphore.make(1)
+  const locked = Semaphore.withPermits(yield* Semaphore.make(1), 1)
   /** The grant whose turn holds the sandbox, or `undefined` between turns. */
   let active: number | undefined
   /** Tokens by org; `null` where the App isn't installed. */
@@ -162,18 +162,16 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
         Effect.catch((error) =>
           Effect.logWarning("Could not mint chat sandbox tokens", error.reason).pipe(
             Effect.annotateLogs({ org }),
-            Effect.andThen(
-              Effect.sync(() => {
-                retryAfter.set(key, now + Duration.toMillis(MINT_RETRY))
-              }),
-            ),
             Effect.as("failed" as const),
           ),
         ),
         Effect.uninterruptible,
       )
       // Whichever way the mint went, the turn may have ended while it ran.
-      if (fresh === "failed") return active === generation ? held : undefined
+      if (fresh === "failed") {
+        retryAfter.set(key, now + Duration.toMillis(MINT_RETRY))
+        return active === generation ? held : undefined
+      }
       if (active !== generation) {
         yield* revoke(fresh)
         return undefined
@@ -182,18 +180,18 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
       retryAfter.delete(key)
       yield* revoke(held)
       return fresh
-    }).pipe(Semaphore.withPermits(lock, 1))
+    }).pipe(locked)
 
   /** The tokens a request from `generation` may use for `owner`. */
-  const tokens = (owner: string, generation: number) =>
+  const tokens = (owner: string, generation: number): Effect.Effect<GitHubTokens | undefined> =>
     Effect.gen(function* () {
       const org = botOrg(owner)
-      if (org === undefined || active === undefined || generation !== active) return undefined
+      if (org === undefined || generation !== active) return undefined
       const held = yield* orgTokens(org, generation)
       // Checked again after the wait, so no path out of `orgTokens` outlives the turn.
       return held === undefined || generation !== active
         ? undefined
-        : ({ read: held.read, write: held.write } as GitHubTokens)
+        : { read: held.read, write: held.write }
     })
 
   /** A GitHub request with a read token, answered as status and JSON. */
@@ -304,20 +302,19 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
         })
         if (response.status !== 200) return yield* answered(response.status)
         const value = (yield* decode(NodeResponse)(response.body)).data?.node
+        if (value == null) continue
+        // A repository names itself; anything else names the repository it's in.
         const repository =
-          value?.repository ??
-          (value?.owner !== undefined && value.name !== undefined
+          value.repository ??
+          (value.owner !== undefined && value.name !== undefined
             ? { name: value.name, owner: value.owner }
             : undefined)
-        if (value == null || repository === undefined) continue
-        found = {
-          repository: { owner: repository.owner.login, name: repository.name },
-          ...(value.repository !== undefined &&
-          value.prefix !== undefined &&
-          value.name !== undefined
-            ? { ref: `${value.prefix}${value.name}` }
-            : {}),
-        }
+        if (repository === undefined) continue
+        const ref =
+          value.repository !== undefined && value.prefix !== undefined && value.name !== undefined
+            ? `${value.prefix}${value.name}`
+            : undefined
+        found = { repository: { owner: repository.owner.login, name: repository.name }, ref }
         break
       }
       nodes.set(id, found ?? null)
@@ -327,18 +324,20 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
   /** A turn acquired the sandbox: earlier tokens go, and this turn's are minted. */
   const start = (generation: number) =>
     Effect.gen(function* () {
-      yield* Effect.gen(function* () {
-        yield* revokeAll
-        repositories.clear()
-        branches.clear()
-        nodes.clear()
-        active = generation
-      }).pipe(Semaphore.withPermits(lock, 1))
-      yield* Effect.forEach(BOT_ORGS, (org) => orgTokens(org, generation), {
-        concurrency: "unbounded",
-        discard: true,
-      })
-    })
+      yield* revokeAll
+      repositories.clear()
+      branches.clear()
+      nodes.clear()
+      active = generation
+    }).pipe(
+      locked,
+      Effect.andThen(
+        Effect.forEach(BOT_ORGS, (org) => orgTokens(org, generation), {
+          concurrency: "unbounded",
+          discard: true,
+        }),
+      ),
+    )
 
   /**
    * The turn holding `generation` ended. The grant ends at once, so no
@@ -349,15 +348,13 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
     Effect.suspend(() => {
       if (active === undefined || generation < active) return Effect.void
       active = undefined
-      return revokeAll.pipe(Semaphore.withPermits(lock, 1))
+      return locked(revokeAll)
     })
 
   /** The Janitor PAT, for the turn holding `generation` only. */
   const multica = (generation: number) =>
     Effect.sync(() =>
-      credentials.multicaToken !== "" && active !== undefined && generation === active
-        ? credentials.multicaToken
-        : null,
+      credentials.multicaToken !== "" && generation === active ? credentials.multicaToken : null,
     )
 
   /** Answers one control request from the egress entrypoint. */
