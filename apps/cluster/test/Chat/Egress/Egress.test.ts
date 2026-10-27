@@ -53,7 +53,7 @@ const makeEgress = (forwarded: Array<Request>): ChatEgress => ({
   sessionId: "slack/T1/C1/1730000000.000100",
   turnId: "turn-1",
   githubTokens: (owner) => Effect.succeed(TOKENS[owner.toLowerCase()]),
-  multicaToken: MULTICA_TOKEN,
+  multicaToken: Effect.succeed(MULTICA_TOKEN),
   github: {
     repository: (repository) => {
       const info = REPOSITORIES[key(repository)]
@@ -694,7 +694,7 @@ describe("chat egress proxy", () => {
       )
     })
 
-  it.effect.fails("a mutation that names its target by plain id gets that org's write token", () =>
+  it.effect("a mutation that names its target by plain id gets that org's write token", () =>
     expectOutcomes([
       graphql(
         "updateIssue",
@@ -706,7 +706,7 @@ describe("chat egress proxy", () => {
     ]),
   )
 
-  it.effect.fails("org-scoped reads use that org's read token, and other orgs get none", () =>
+  it.effect("org-scoped reads use that org's read token, and other orgs get none", () =>
     expectOutcomes([
       rest("GET", "/orgs/Effectful-Tech/repos", "read:Effectful-Tech"),
       rest("GET", "/orgs/someone/repos", "anonymous"),

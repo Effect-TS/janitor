@@ -56,7 +56,7 @@ const setup = (app: BotApp) =>
   })
 
 describe("chat egress credential lifecycle", () => {
-  it.effect.fails(
+  it.effect(
     "a sandbox left running after its turn reaches GitHub and Multica with no credential",
     () =>
       Effect.gen(function* () {
@@ -81,7 +81,7 @@ describe("chat egress credential lifecycle", () => {
       }),
   )
 
-  it.effect.fails("a token minted after its turn ended is never handed out, and is revoked", () =>
+  it.effect("a token minted after its turn ended is never handed out, and is revoked", () =>
     Effect.gen(function* () {
       const reminting = yield* Deferred.make<void>()
       const gate = yield* Deferred.make<void>()

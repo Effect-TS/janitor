@@ -57,8 +57,11 @@ export const makeEgressContext = (
   return {
     sessionId: props.sessionId,
     turnId: props.turnId,
-    multicaToken: props.multicaToken,
     // A workspace that can't be reached hands out no token: the request goes without one.
+    multicaToken: ask({ op: "multica" }).pipe(
+      Effect.map((token) => (token as string | null) ?? undefined),
+      Effect.orElseSucceed(() => undefined),
+    ),
     githubTokens: (owner) =>
       ask({ op: "tokens", owner }).pipe(
         Effect.map((tokens) => (tokens as GitHubTokens | null) ?? undefined),

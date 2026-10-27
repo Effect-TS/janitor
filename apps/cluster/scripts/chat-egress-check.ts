@@ -217,7 +217,8 @@ const via = (host: string) => `http://127.0.0.1:${port}/${host}`
 
 interface Result {
   readonly name: string
-  readonly expected: "works" | "refused"
+  /** `uncredentialed`: forwarded, but every upstream request went without a credential. */
+  readonly expected: "works" | "refused" | "uncredentialed"
   readonly ok: boolean
   readonly detail: string
   readonly upstream: ReadonlyArray<string>
@@ -233,9 +234,18 @@ const run = async (
   // A step that throws failed to run at all: never a pass, even where a refusal was expected.
   // A refusal counts only when the proxy itself refused, not when GitHub said no.
   const refusedByProxy = () => upstreamLog.slice(before).some((line) => line.startsWith("REFUSED"))
+  const uncredentialed = () => {
+    const lines = upstreamLog.slice(before)
+    return lines.length > 0 && lines.every((line) => line.endsWith("-> none"))
+  }
   const outcome = await step().then(
     ({ worked, detail }) => ({
-      ok: expected === "works" ? worked : !worked && refusedByProxy(),
+      ok:
+        expected === "works"
+          ? worked
+          : expected === "refused"
+            ? !worked && refusedByProxy()
+            : uncredentialed(),
       detail,
     }),
     (error: unknown) => ({ ok: false, detail: `the step failed to run: ${String(error)}` }),
@@ -428,7 +438,7 @@ try {
 
 await run(
   "after release: fetch the sandbox again",
-  "refused",
+  "uncredentialed",
   async () => await git(["ls-remote", "origin", "main"]),
 )
 

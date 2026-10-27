@@ -121,7 +121,7 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
   const credentials = yield* ChatCredentials
   const control = makeContainerControl(container)
   const lock = yield* Semaphore.make(1)
-  const egress = yield* makeEgressSession(credentials.app)
+  const egress = yield* makeEgressSession(credentials)
   /** The grant the container was last acquired under; kept in storage across restarts. */
   let current = yield* promise(() => state.storage.get<number>(GENERATION_KEY)).pipe(
     Effect.orElseSucceed(() => undefined),
@@ -156,7 +156,6 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
           sessionId: input.sessionId,
           generation: input.generation,
           turnId: input.turnId ?? String(input.generation),
-          multicaToken: credentials.multicaToken,
         },
       })
       yield* promise(async () => {

@@ -24,8 +24,9 @@ import {
  *   lookup cache and mints both tokens for every org.
  * - A token within `REMINT_MARGIN` of expiry is minted again on its next use,
  *   and the old one revoked.
- * - `stop` (at release) revokes every token. Between turns GitHub gets no
- *   credential.
+ * - `stop` (at release) ends the grant at once and revokes every token. A
+ *   mint still in flight for it is revoked when it lands, never handed out.
+ *   Between turns GitHub gets no credential, and Multica gets no PAT.
  *
  * Tokens live only in memory: never in storage, logs or errors. If the
  * object restarts mid-turn, the turn's tokens are minted again on first use,
@@ -40,6 +41,7 @@ const RepositorySchema = Schema.Struct({ owner: Schema.String, name: Schema.Stri
 /** What the egress entrypoint asks its workspace. */
 export const EgressQuery = Schema.Union([
   Schema.Struct({ op: Schema.Literal("tokens"), owner: Schema.String }),
+  Schema.Struct({ op: Schema.Literal("multica") }),
   Schema.Struct({ op: Schema.Literal("repository"), repository: RepositorySchema }),
   Schema.Struct({
     op: Schema.Literal("branchRuled"),
@@ -103,7 +105,13 @@ const repositoryPath = (repository: Repository) =>
 
 const botOrg = (owner: string) => BOT_ORGS.find((org) => org.toLowerCase() === owner.toLowerCase())
 
-export const makeEgressSession = Effect.fnUntraced(function* (app: BotApp | undefined) {
+export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
+  readonly app: BotApp | undefined
+  /** `CHAT_MULTICA_TOKEN`, or empty when unset. */
+  readonly multicaToken: string
+}) {
+  const { app } = credentials
+  /** Serializes minting with `start` and `stop`'s revocations. */
   const lock = yield* Semaphore.make(1)
   /** The grant whose turn holds the sandbox, or `undefined` between turns. */
   let active: number | undefined
@@ -128,10 +136,15 @@ export const makeEgressSession = Effect.fnUntraced(function* (app: BotApp | unde
     return Effect.forEach(held, revoke, { discard: true })
   })
 
-  /** The org's current tokens, minting them when missing or near expiry. */
-  const orgTokens = (org: string) =>
+  /**
+   * The org's current tokens for the turn holding `generation`, minting them
+   * when missing or near expiry. The grant is checked again once the mint
+   * lands: `stop` ends it without waiting for the lock, and a token minted
+   * for an ended turn is revoked instead of kept.
+   */
+  const orgTokens = (org: string, generation: number) =>
     Effect.gen(function* () {
-      if (app === undefined) return undefined
+      if (app === undefined || active !== generation) return undefined
       const key = org.toLowerCase()
       const now = yield* Clock.currentTimeMillis
       const held = minted.get(key)
@@ -160,6 +173,10 @@ export const makeEgressSession = Effect.fnUntraced(function* (app: BotApp | unde
         Effect.uninterruptible,
       )
       if (fresh === "failed") return held
+      if (active !== generation) {
+        yield* revoke(fresh)
+        return undefined
+      }
       minted.set(key, fresh ?? null)
       retryAfter.delete(key)
       yield* revoke(held)
@@ -171,7 +188,7 @@ export const makeEgressSession = Effect.fnUntraced(function* (app: BotApp | unde
     Effect.gen(function* () {
       const org = botOrg(owner)
       if (org === undefined || active === undefined || generation !== active) return undefined
-      const held = yield* orgTokens(org)
+      const held = yield* orgTokens(org, generation)
       return held === undefined
         ? undefined
         : ({ read: held.read, write: held.write } as GitHubTokens)
@@ -308,21 +325,38 @@ export const makeEgressSession = Effect.fnUntraced(function* (app: BotApp | unde
   /** A turn acquired the sandbox: earlier tokens go, and this turn's are minted. */
   const start = (generation: number) =>
     Effect.gen(function* () {
-      yield* revokeAll
-      repositories.clear()
-      branches.clear()
-      nodes.clear()
-      active = generation
-      yield* Effect.forEach(BOT_ORGS, orgTokens, { concurrency: "unbounded", discard: true })
+      yield* Effect.gen(function* () {
+        yield* revokeAll
+        repositories.clear()
+        branches.clear()
+        nodes.clear()
+        active = generation
+      }).pipe(Semaphore.withPermits(lock, 1))
+      yield* Effect.forEach(BOT_ORGS, (org) => orgTokens(org, generation), {
+        concurrency: "unbounded",
+        discard: true,
+      })
     })
 
-  /** The turn holding `generation` ended: its tokens are revoked. */
+  /**
+   * The turn holding `generation` ended. The grant ends at once, so no
+   * request gets a token or the PAT from here on; the revocations wait for a
+   * mint in flight, which then revokes its own result.
+   */
   const stop = (generation: number) =>
     Effect.suspend(() => {
       if (active === undefined || generation < active) return Effect.void
       active = undefined
-      return revokeAll
+      return revokeAll.pipe(Semaphore.withPermits(lock, 1))
     })
+
+  /** The Janitor PAT, for the turn holding `generation` only. */
+  const multica = (generation: number) =>
+    Effect.sync(() =>
+      credentials.multicaToken !== "" && active !== undefined && generation === active
+        ? credentials.multicaToken
+        : null,
+    )
 
   /** Answers one control request from the egress entrypoint. */
   const answer = (query: EgressQuery, generation: number): Effect.Effect<EgressAnswer> => {
@@ -330,6 +364,8 @@ export const makeEgressSession = Effect.fnUntraced(function* (app: BotApp | unde
       switch (query.op) {
         case "tokens":
           return tokens(query.owner, generation).pipe(Effect.map((held) => held ?? null))
+        case "multica":
+          return multica(generation)
         case "repository":
           return repository(query.repository, generation)
         case "branchRuled":
@@ -361,6 +397,4 @@ export interface ChatEgressProps {
   /** The grant the turn holds; the workspace hands tokens only to its current one. */
   readonly generation: number
   readonly turnId: string
-  /** `CHAT_MULTICA_TOKEN`, or empty when unset. */
-  readonly multicaToken: string
 }

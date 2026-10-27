@@ -83,8 +83,12 @@ export interface ChatEgress {
    * other owner.
    */
   readonly githubTokens: (owner: string) => Effect.Effect<GitHubTokens | undefined>
-  /** `CHAT_MULTICA_TOKEN`, the Janitor user's PAT; empty when unset, and then Multica gets none. */
-  readonly multicaToken: string
+  /**
+   * `CHAT_MULTICA_TOKEN`, the Janitor user's PAT, while the turn holds the
+   * sandbox; `undefined` between turns or when unset, and then Multica gets
+   * none.
+   */
+  readonly multicaToken: Effect.Effect<string | undefined>
   readonly github: GitHubLookup
   /** Sends the rewritten request on. */
   readonly upstream: (request: Request) => Effect.Effect<Response>
@@ -420,11 +424,15 @@ const parseGraphQL = (body: Uint8Array): ParsedGraphQL | string => {
   return { mutations, owners, nodeIds }
 }
 
-/** The node ids a mutation's arguments name: every `…Id` string, nested inputs included. */
+/**
+ * The node ids a mutation's arguments name: every `id` and `…Id` string,
+ * nested inputs included, as in `updateIssue(input: { id })`.
+ */
 const nodeIdsIn = (value: unknown, into: Array<string> = []): Array<string> => {
   if (!isRecord(value)) return into
   for (const [key, field] of Object.entries(value)) {
-    if (key !== "clientMutationId" && key.endsWith("Id") && typeof field === "string") {
+    const named = key === "id" || (key !== "clientMutationId" && key.endsWith("Id"))
+    if (named && typeof field === "string") {
       into.push(field)
     } else if (isRecord(field)) {
       nodeIdsIn(field, into)
@@ -611,12 +619,18 @@ const apiCredential = (request: Request, url: URL, egress: ChatEgress) =>
         credential: yield* restCredential(request.method, { owner, name }, rest, egress.github),
       }
     }
-    // Reads that name no repository, such as search, use the first org's read token.
-    // `/repositories/{id}` and other writes get none.
-    if (
-      lower(root ?? "") !== "repositories" &&
-      (request.method === "GET" || request.method === "HEAD")
-    ) {
+    const read = request.method === "GET" || request.method === "HEAD"
+    // Org and user routes name their owner: the bot's orgs get their own read
+    // token, and any other owner none. Writes there are outside the policy.
+    if ((lower(root ?? "") === "orgs" || lower(root ?? "") === "users") && owner !== undefined) {
+      if (!read || (yield* egress.githubTokens(owner)) === undefined) {
+        return { credential: undefined }
+      }
+      return { credential: { owner, access: "read" as const } }
+    }
+    // Reads that name no owner at all, such as search, use the first org's
+    // read token. `/repositories/{id}` and other writes get none.
+    if (lower(root ?? "") !== "repositories" && read) {
       return { credential: { owner: BOT_ORGS[0]!, access: "read" as const } }
     }
     return { credential: undefined }
@@ -653,9 +667,8 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
       )
 
     if (url.protocol === "https:" && url.hostname === MULTICA_HOST) {
-      if (egress.multicaToken !== "") {
-        headers.set("authorization", `Bearer ${egress.multicaToken}`)
-      }
+      const token = yield* egress.multicaToken
+      if (token !== undefined) headers.set("authorization", `Bearer ${token}`)
       return yield* forward()
     }
     if (!isGitHubRequest(url)) return yield* forward()
