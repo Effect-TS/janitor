@@ -21,6 +21,8 @@ import {
  */
 export interface ChatWorkspaceShape {
   readonly acquire: (input: ChatAcquireInput) => Effect.Effect<ChatAcquired, ChatAcquireError>
+  /** The turn holding `generation` ended. */
+  readonly release: (input: { readonly generation: number }) => Effect.Effect<void>
   /** Stops the container, unless a grant newer than `generation` acquired it since. */
   readonly destroy: (input: { readonly generation: number }) => Effect.Effect<void>
 }
@@ -42,6 +44,7 @@ export const ChatWorkspaceLive = ChatWorkspace.make(
       const workspace = yield* makeChatWorkspace(state.raw as unknown as ChatWorkspaceState)
       return {
         acquire: (input: ChatAcquireInput) => workspace.acquire(input),
+        release: ({ generation }: { readonly generation: number }) => workspace.release(generation),
         destroy: ({ generation }: { readonly generation: number }) => workspace.destroy(generation),
         fetch: Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest

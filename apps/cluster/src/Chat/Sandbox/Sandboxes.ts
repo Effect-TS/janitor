@@ -12,8 +12,20 @@ import {
 import { chatSandboxConfig } from "../Config.ts"
 import { SandboxBusy } from "./Pool.ts"
 import { POOL_NAME, type ChatSandboxPoolShape, type PoolRelease } from "./PoolObject.ts"
-import { ChatAcquireError } from "./Workspace.ts"
+import { CHAT_GENERATION_HEADER, ChatAcquireError } from "./Workspace.ts"
 import type { ChatWorkspaceShape } from "./WorkspaceObject.ts"
+
+/** The workspace's fetch, with every executor call stamped with the turn's grant. */
+const fenced = (
+  workspace: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> },
+  generation: number,
+) => ({
+  fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    request.headers.set(CHAT_GENERATION_HEADER, String(generation))
+    return workspace.fetch(request)
+  },
+})
 
 /** How often a queued turn asks the pool for its position. */
 const POSITION_POLL = Duration.seconds(3)
@@ -93,7 +105,11 @@ export class ChatSandboxes extends Context.Service<
       )
 
     const release = (sessionId: string, generation: number) =>
-      Effect.suspend(() => pool().release({ sessionId, generation })).pipe(
+      Effect.suspend(() => options.workspaces.getByName(sessionId).release({ generation })).pipe(
+        Effect.catchCause(() =>
+          Effect.logWarning("Could not refresh a released chat sandbox's warm window"),
+        ),
+        Effect.andThen(Effect.suspend(() => pool().release({ sessionId, generation }))),
         Effect.flatMap(({ destroy: released }) => destroy(released)),
       )
 
@@ -147,7 +163,9 @@ export class ChatSandboxes extends Context.Service<
             return {
               fresh: grant.fresh || acquired.fresh,
               generation: grant.generation,
-              executor: executorLayer(options.namespace.getByName(sessionId)),
+              executor: executorLayer(
+                fenced(options.namespace.getByName(sessionId), grant.generation),
+              ),
             }
           }),
         ).pipe(Effect.annotateLogs({ sessionId })),
