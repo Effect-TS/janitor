@@ -7,62 +7,7 @@ import {
   makeChatWorkspace,
   type ChatWorkspaceState,
 } from "../../../src/Chat/Sandbox/Workspace.ts"
-import type {
-  Fetcher,
-  WorkspaceContainer,
-} from "../../../src/PullRequestReview/Sandbox/Container.ts"
-
-/** workerd's `ctx.container`, with a container that answers `/health` and `/provision` at once. */
-class FakeContainer implements WorkspaceContainer {
-  running = false
-  /** The path of every request the container got. */
-  readonly requests: Array<string> = []
-  start() {
-    this.running = true
-  }
-  monitor() {
-    return new Promise<void>(() => {})
-  }
-  destroy() {
-    this.running = false
-    return Promise.resolve()
-  }
-  getTcpPort(): Fetcher {
-    return {
-      fetch: (input) => {
-        const url = new URL(input instanceof Request ? input.url : String(input))
-        this.requests.push(url.pathname)
-        return Promise.resolve(
-          new Response(null, { status: url.pathname === "/provision" ? 204 : 200 }),
-        )
-      },
-    }
-  }
-  setInactivityTimeout() {
-    return Promise.resolve()
-  }
-  interceptAllOutboundHttp() {
-    return Promise.resolve()
-  }
-  interceptOutboundHttps() {
-    return Promise.resolve()
-  }
-}
-
-const makeState = (): ChatWorkspaceState & { readonly container: FakeContainer } => {
-  const stored = new Map<string, unknown>()
-  return {
-    container: new FakeContainer(),
-    storage: {
-      get: <T>(key: string) => Promise.resolve(stored.get(key) as T | undefined),
-      put: (key, value) => {
-        stored.set(key, value)
-        return Promise.resolve()
-      },
-    },
-    exports: { ChatEgress: () => ({ fetch: () => Promise.resolve(new Response(null)) }) },
-  }
-}
+import { makeState } from "./support.ts"
 
 /** A workspace without the bot's credentials: its egress hands out no token. */
 const makeWorkspace = (state: ChatWorkspaceState) =>

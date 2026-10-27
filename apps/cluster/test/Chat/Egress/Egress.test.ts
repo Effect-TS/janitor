@@ -681,4 +681,37 @@ describe("chat egress proxy", () => {
       )
     }),
   )
+
+  /** Runs rows through the proxy and compares each outcome with its expectation, as the table does. */
+  const expectOutcomes = (rows: ReadonlyArray<Row>) =>
+    Effect.gen(function* () {
+      const outcomes = yield* Effect.forEach(rows, (row) =>
+        send(row).pipe(Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome))),
+      )
+      assert.deepStrictEqual(
+        rows.map((row, index) => `${describeRow(row)} -> ${outcomes[index]}`),
+        rows.map((row) => `${describeRow(row)} -> ${row.expected}`),
+      )
+    })
+
+  it.effect.fails("a mutation that names its target by plain id gets that org's write token", () =>
+    expectOutcomes([
+      graphql(
+        "updateIssue",
+        {
+          query: `mutation { updateIssue(input: { id: "I_effect", title: "t" }) { clientMutationId } }`,
+        },
+        "write:Effect-TS",
+      ),
+    ]),
+  )
+
+  it.effect.fails("org-scoped reads use that org's read token, and other orgs get none", () =>
+    expectOutcomes([
+      rest("GET", "/orgs/Effectful-Tech/repos", "read:Effectful-Tech"),
+      rest("GET", "/orgs/someone/repos", "anonymous"),
+      rest("GET", "/users/someone/repos", "anonymous"),
+      rest("GET", "/search/issues?q=repo:Effect-TS/effect", "read:Effect-TS"),
+    ]),
+  )
 })
