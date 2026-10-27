@@ -2,13 +2,11 @@ import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import * as Docker from "alchemy/Docker"
 import { hashDirectory } from "alchemy/Command/Memo"
-import * as Neon from "alchemy/Neon"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
-import * as Schema from "effect/Schema"
-import { retain } from "alchemy/RemovalPolicy"
-import { deployment } from "./Deployment.ts"
+import { requiredText } from "./Deployment.ts"
+import { PostgresMigrations } from "./PostgresMigrations.ts"
 
 const LocalDatabasePassword = Redacted.make("janitor")
 
@@ -61,28 +59,42 @@ const LocalDatabase = Effect.gen(function* () {
   }
 })
 
-export const NeonDatabase = Effect.gen(function* () {
-  const target = yield* deployment
-  const historyRetentionSeconds = yield* Config.schema(
-    Schema.Int.check(Schema.isGreaterThan(0)),
-    "NEON_HISTORY_RETENTION_SECONDS",
-  ).pipe(Config.withDefault(7 * 24 * 60 * 60))
-  const project = yield* Neon.Project("Database", {
-    region: "aws-us-east-1",
-    pgVersion: 18,
+// Production runs on an Azure Database for PostgreSQL Flexible Server created
+// outside Alchemy. Its firewall admits every address because Hyperdrive has no
+// fixed egress IPs, so the server requires TLS.
+export const AzureDatabase = Effect.gen(function* () {
+  const host = yield* requiredText("POSTGRES_HOST")
+  const migrations = yield* PostgresMigrations("Migrations", {
+    origin: {
+      host,
+      port: 5432,
+      database: "janitor",
+      user: yield* requiredText("POSTGRES_USER"),
+      password: yield* requiredText("POSTGRES_PASSWORD").pipe(Config.map(Redacted.make)),
+    },
     migrations: "apps/cluster/migrations",
-    historyRetentionSeconds,
-  }).pipe(retain(target.retain))
+  })
+
+  // Hyperdrive takes the origin from the migrations, so the Workers deploy
+  // only after the schema is current.
+  const origin: Alchemy.InputProps<Cloudflare.Hyperdrive.PublicOrigin> = {
+    scheme: "postgres",
+    host: migrations.origin.host,
+    port: migrations.origin.port,
+    database: migrations.origin.database,
+    user: migrations.origin.user,
+    password: migrations.origin.password,
+  }
 
   return {
-    databaseId: project.projectId,
-    origin: project.origin,
+    databaseId: host,
+    origin,
   }
 })
 
 export const JanitorDatabase = Effect.gen(function* () {
   const isDev = yield* Alchemy.ALCHEMY_DEV
-  return yield* isDev ? LocalDatabase : NeonDatabase
+  return yield* isDev ? LocalDatabase : AzureDatabase
 })
 
 export const JanitorHyperdrive = Effect.gen(function* () {
@@ -94,6 +106,6 @@ export const JanitorHyperdrive = Effect.gen(function* () {
     // Connection state, workflow coordination and sync progress require fresh reads.
     // Hyperdrive's default query cache is not invalidated by database writes.
     caching: { disabled: true },
-    ...(isDev ? { dev: database.origin } : undefined),
+    ...(isDev ? { dev: database.origin } : { mtls: { sslmode: "require" } }),
   })
 })

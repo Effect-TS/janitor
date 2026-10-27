@@ -62,7 +62,7 @@ const DecisionRow = Schema.Struct({
 })
 
 /**
- * Shared GitHub rate budget in Neon. Every active Durable Object and Worker
+ * Shared GitHub rate budget in Postgres. Every active Durable Object and Worker
  * consults the same limits, cooldowns, and bounded leases, so concurrent
  * callers cannot collectively overrun one credential's allowance.
  */

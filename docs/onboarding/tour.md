@@ -50,7 +50,7 @@ Everything is Effect 4, pinned to a commit snapshot in `pnpm-workspace.yaml` rat
 
 ## Infrastructure
 
-Alchemy declares all infrastructure in TypeScript. `alchemy.run.ts` builds the main stack. Under `vp run dev` it runs locally: workerd for the Workers, a Docker container for Postgres, and local emulators for queues, R2, and Hyperdrive. Under `--stage production` the same file deploys to Cloudflare and Neon.
+Alchemy declares all infrastructure in TypeScript. `alchemy.run.ts` builds the main stack. Under `vp run dev` it runs locally: workerd for the Workers, a Docker container for Postgres, and local emulators for queues, R2, and Hyperdrive. Under `--stage production` the same file deploys to Cloudflare and applies the migrations to the production Postgres server on Azure.
 
 Production deploys only from CI, after `Check` passes on `main`. You shouldn't need to deploy anything yourself.
 

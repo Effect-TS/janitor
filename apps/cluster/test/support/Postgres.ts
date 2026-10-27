@@ -68,7 +68,7 @@ export const runScript = (sql: SqlClient.SqlClient, script: string) =>
     discard: true,
   })
 
-/** Applies every SQL migration in file order, as Neon and the local image do. */
+/** Applies every SQL migration in file order, as production deploys and the local image do. */
 const applyMigrations = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
