@@ -3,7 +3,7 @@ import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
-import { ChatCredentials, type BotApp } from "../../../src/Chat/Egress/BotApp.ts"
+import { BotAppError, ChatCredentials, type BotApp } from "../../../src/Chat/Egress/BotApp.ts"
 import { makeEgressContext } from "../../../src/Chat/Egress/Client.ts"
 import { handleChatEgress } from "../../../src/Chat/Egress/Egress.ts"
 import { makeChatWorkspace } from "../../../src/Chat/Sandbox/Workspace.ts"
@@ -124,5 +124,42 @@ describe("chat egress credential lifecycle", () => {
         { authorization: null, lateTokensRevoked: true },
       )
     }),
+  )
+
+  it.effect.fails(
+    "a remint that fails after its turn ended hands out no token, not even the one still valid",
+    () =>
+      Effect.gen(function* () {
+        const reminting = yield* Deferred.make<void>()
+        const gate = yield* Deferred.make<void>()
+        let mints = 0
+        const { workspace, send } = yield* setup({
+          mint: (org) =>
+            Effect.gen(function* () {
+              if (org !== "Effect-TS") return undefined
+              mints++
+              // Valid for five more minutes: inside the remint margin, so the next use mints again.
+              if (mints === 1) {
+                return { read: "ghs_read_1", write: "ghs_write_1", expiresAt: 5 * 60_000 }
+              }
+              yield* Deferred.succeed(reminting, undefined)
+              yield* Deferred.await(gate)
+              return yield* new BotAppError({ reason: "GitHub is down" })
+            }),
+          revoke: () => Effect.void,
+        })
+        yield* workspace.acquire(acquireInput)
+
+        const request = yield* Effect.forkChild(send(GITHUB))
+        yield* Deferred.await(reminting)
+        // The release goes first: it finishes now, or waits on the mint if the two are serialized.
+        const release = yield* Effect.forkChild(workspace.release(acquireInput.generation))
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)))
+        yield* Deferred.succeed(gate, undefined)
+        const authorization = yield* Fiber.join(request)
+        yield* Fiber.join(release)
+
+        assert.strictEqual(authorization, null)
+      }),
   )
 })
