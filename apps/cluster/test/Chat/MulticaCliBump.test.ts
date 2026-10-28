@@ -4,10 +4,6 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vite-plus/test"
 import { bumpMulticaCli } from "../../scripts/multica-cli-bump.ts"
 
-// The script's public entry point takes a pin file and an HTTP boundary. No workflow or live GitHub
-// calls are needed here.
-const bump = (cliPath: string, fetch: typeof globalThis.fetch) => bumpMulticaCli({ cliPath, fetch })
-
 const original = `/** Keep this comment. */
 export const MULTICA_CLI_VERSION = "0.7.0"
 
@@ -52,7 +48,7 @@ describe("multica CLI bump", () => {
     const before = await stat(path)
 
     await expect(
-      bump(
+      bumpMulticaCli(
         path,
         github(
           "v0.7.1",
@@ -69,7 +65,7 @@ describe("multica CLI bump", () => {
     const path = await pinFile()
     const before = await stat(path)
 
-    await bump(path, github("v0.7.0"))
+    await bumpMulticaCli(path, github("v0.7.0"))
 
     expect(await readFile(path, "utf8")).toBe(original)
     expect((await stat(path)).mtimeMs).toBe(before.mtimeMs)
@@ -78,7 +74,7 @@ describe("multica CLI bump", () => {
   it("writes the latest version and its linux-amd64 hash together", async () => {
     const path = await pinFile()
 
-    await bump(
+    await bumpMulticaCli(
       path,
       github(
         "v0.7.1",
