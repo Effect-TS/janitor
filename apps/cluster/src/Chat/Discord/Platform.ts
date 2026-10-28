@@ -65,11 +65,15 @@ const make = Effect.gen(function* () {
     )
 
   /**
-   * Answers the message that started the turn. The thread's first message
-   * lives in its parent channel, so a missing reference posts on its own.
+   * Answers the message that started the turn. A thread started from a
+   * message shares its id, and that message lives in the parent channel,
+   * where a reply from inside the thread can't point; a reference to it
+   * would show "Message could not be loaded", so none is set.
    */
-  const reference = (replyTo: string | undefined) =>
-    replyTo === undefined ? undefined : { message_id: replyTo, fail_if_not_exists: false }
+  const reference = (thread: ChatThread, replyTo: string | undefined) =>
+    replyTo === undefined || (thread._tag === "Discord" && replyTo === thread.threadId)
+      ? undefined
+      : { message_id: replyTo, fail_if_not_exists: false }
 
   const upload = (
     thread: ChatThread,
@@ -79,7 +83,7 @@ const make = Effect.gen(function* () {
     post(thread, {
       allowed_mentions: noMentions,
       attachments: [{ id: "0", filename: file.name }],
-      message_reference: reference(replyTo),
+      message_reference: reference(thread, replyTo),
     }).pipe(rest.withFiles([new File([file.content], file.name, { type: "text/markdown" })]))
 
   const history = (thread: ChatThread, limit: number) =>
@@ -149,7 +153,7 @@ const make = Effect.gen(function* () {
         post(thread, {
           content: chunk,
           allowed_mentions: userMentions,
-          message_reference: index === 0 ? reference(options?.replyTo) : undefined,
+          message_reference: index === 0 ? reference(thread, options?.replyTo) : undefined,
         }),
       ).pipe(
         Effect.flatMap((posted) => {
