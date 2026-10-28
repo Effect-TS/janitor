@@ -231,9 +231,10 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
         let messagesReceived = 0
         const drops = new Map<string, number>()
 
-        // The shard's socket belongs to the event that started it, and that
-        // event never finishes, so nothing logged in it reaches Workers logs.
-        // The shard's log lines are held instead, and the next alarm or
+        // The event that starts the shard stays open until the next event
+        // arrives, and Workers logs receive its lines only once it ends, so
+        // the shard's own lines would arrive late and apart from the alarm
+        // that reports on them. They are held instead, and the next alarm or
         // `start` writes them, up to `HELD_LOGS` a minute.
         let held: Array<Effect.Effect<void>> = []
         let heldDropped = 0
