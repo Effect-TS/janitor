@@ -391,6 +391,7 @@ export class FakePlatform {
           if (this.failReplies)
             return yield* new ChatPlatformError({ message: "channel_not_found" })
           this.replies.push({ thread, text })
+          return yield* DateTime.now
         }),
       uploadFile: () => Effect.die("unexpected file upload"),
       download: (_thread, attachment, maxBytes) =>

@@ -1,4 +1,5 @@
 import * as Clock from "effect/Clock"
+import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -277,14 +278,23 @@ const make = Effect.gen(function* () {
       ),
     postReply: (thread, text) => {
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
-      if (chunks.length > MAX_CHUNKS) return uploadFile(thread, { name: "reply.md", content: text })
-      return Effect.forEach(
-        chunks,
-        (chunk, index) =>
-          (index === 0 ? Effect.void : Effect.sleep(BETWEEN_POSTS)).pipe(
-            Effect.andThen(post(thread, { markdown_text: chunk, metadata: metadata("reply") })),
-          ),
-        { discard: true },
+      if (chunks.length > MAX_CHUNKS)
+        return uploadFile(thread, { name: "reply.md", content: text }).pipe(
+          // File uploads do not return a message timestamp; completion is a
+          // conservative boundary rather than backdating to the request.
+          Effect.andThen(DateTime.now),
+        )
+      return Effect.forEach(chunks, (chunk, index) =>
+        (index === 0 ? Effect.void : Effect.sleep(BETWEEN_POSTS)).pipe(
+          Effect.andThen(post(thread, { markdown_text: chunk, metadata: metadata("reply") })),
+        ),
+      ).pipe(
+        Effect.flatMap((posted) => {
+          const last = posted.at(-1)
+          return last === undefined
+            ? DateTime.now
+            : Effect.succeed(DateTime.makeUnsafe(Math.floor(Number(last) * 1000)))
+        }),
       )
     },
     uploadFile,

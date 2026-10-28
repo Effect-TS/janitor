@@ -239,6 +239,26 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
+  it.effect("the reply gate sees the bot proposal when a user replies Go ahead", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* send(harness, slackThread, "Why did the preview not deploy?", { mention: true })
+        yield* modelCalls(harness, 1)
+        const proposal = "I can update the preview workflow to allow janitor PRs. Shall I?"
+        harness.model.answer(say(proposal))
+        yield* turnEnded(harness, slackThread)
+
+        yield* send(harness, slackThread, "Go ahead")
+
+        const input = harness.gate.inputs[0] as { earlier: Array<{ text: string }> }
+        assert.include(
+          input.earlier.map((message) => message.text),
+          proposal,
+        )
+      }),
+    ),
+  )
+
   it.effect("bot and outsider messages are context only, even when they mention the bot", () =>
     test((harness) =>
       Effect.gen(function* () {
