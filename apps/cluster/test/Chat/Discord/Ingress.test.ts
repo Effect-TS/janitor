@@ -18,6 +18,7 @@ import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
 const GUILD = "100"
 const ROLE = "200"
 const BOT_USER = "300"
+const BOT_ROLE = "301"
 const CHANNEL = "400"
 /** A thread under `CHANNEL` that has a session. */
 const SESSION_THREAD = "500"
@@ -48,6 +49,11 @@ const makeIngress = () => {
       const respond = (): Response => {
         if (path === "/users/@me")
           return Response.json({ id: BOT_USER, username: "janitor", bot: true })
+        if (path === `/guilds/${GUILD}/roles`)
+          return Response.json([
+            { id: ROLE, name: "Core", managed: false },
+            { id: BOT_ROLE, name: "Janitor", managed: true, tags: { bot_id: BOT_USER } },
+          ])
         const thread = /^\/channels\/(\d+)\/messages\/(\d+)\/threads$/.exec(path)
         if (thread !== null && request.method === "POST") {
           threadsStarted.push({ channel: thread[1]!, message: thread[2]!, body })
@@ -203,6 +209,35 @@ describe("Discord ingress", () => {
       assert.deepStrictEqual(
         ingress.handedOff.map(({ message }) => message.id),
         ["1101", "1102"],
+      )
+    }),
+  )
+
+  it.effect("starts a thread from a managed bot role mention and strips it from the message", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress()
+      const handle = yield* ingress.instance
+      yield* handle(
+        message("1251", {
+          channel_id: CHANNEL,
+          content: `<@&${BOT_ROLE}> hello`,
+          mention_roles: [BOT_ROLE],
+        }),
+      )
+
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ thread, message }) => ({
+          thread,
+          mentionsBot: message.mentionsBot,
+          text: message.text,
+        })),
+        [
+          {
+            thread: { _tag: "Discord", guild: GUILD, threadId: "1251" },
+            mentionsBot: true,
+            text: "hello",
+          },
+        ],
       )
     }),
   )
