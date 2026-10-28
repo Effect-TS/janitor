@@ -344,9 +344,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  // Marked `.fails` until a backfill filled in late takes its place by
-  // Slack time, before the messages that arrived while it was pending.
-  it.effect.fails("a failed backfill is tried again with the next message", () =>
+  it.effect("a failed backfill is tried again with the next message", () =>
     test((harness) =>
       Effect.gen(function* () {
         const earlier = yield* harness.message("The README changed yesterday.", {
@@ -367,7 +365,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect.fails(
+  it.effect(
     "a follow-up after a late backfill of 20 or more messages still shows the gate the mention",
     () =>
       test((harness) =>

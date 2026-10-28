@@ -1,4 +1,5 @@
 import * as Prompt from "effect/ai/Prompt"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -145,13 +146,21 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     return row !== undefined
   })
 
+  /**
+   * Thread order: when each message was sent, then its id, which a backfill
+   * filled in late keeps too. Ids are Slack ts or Discord snowflakes, so a
+   * shorter one is older.
+   */
+  const chronological = sql.literal("sent_at, length(message_id), message_id")
+
   const ensureTables = Effect.all(
     [
       sql`CREATE TABLE IF NOT EXISTS chat_session (
         session_id TEXT PRIMARY KEY, state TEXT NOT NULL)`,
       sql`CREATE TABLE IF NOT EXISTS chat_messages (
         session_id TEXT NOT NULL, seq INTEGER NOT NULL, message_id TEXT NOT NULL,
-        message TEXT NOT NULL, gate TEXT, wants_turn INTEGER NOT NULL DEFAULT 0,
+        sent_at INTEGER NOT NULL, message TEXT NOT NULL, gate TEXT,
+        wants_turn INTEGER NOT NULL DEFAULT 0,
         delivered INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (session_id, seq), UNIQUE (session_id, message_id))`,
       sql`CREATE TABLE IF NOT EXISTS chat_turns (
@@ -217,8 +226,9 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
             WHERE session_id = ${sessionId} AND message_id = ${message.id}`
           if (found !== undefined) return false
           yield* sql`
-            INSERT INTO chat_messages (session_id, seq, message_id, message, gate)
-            SELECT ${sessionId}, COALESCE(MAX(seq) + 1, 0), ${message.id}, ${json}, ${gateJson}
+            INSERT INTO chat_messages (session_id, seq, message_id, sent_at, message, gate)
+            SELECT ${sessionId}, COALESCE(MAX(seq) + 1, 0), ${message.id},
+              ${DateTime.toEpochMillis(message.sentAt)}, ${json}, ${gateJson}
             FROM chat_messages WHERE session_id = ${sessionId}`
           return true
         }),
@@ -249,13 +259,14 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     Effect.flatMap(Effect.forEach(decodeRow)),
   )
 
-  /** The thread's latest `limit` messages, oldest first. */
+  /** The thread's latest `limit` messages by when they were sent, oldest first. */
   const recent = (limit: number) =>
     sql<MessageRow>`
       SELECT message, gate, wants_turn FROM (
-        SELECT seq, message, gate, wants_turn FROM chat_messages
-        WHERE session_id = ${sessionId} ORDER BY seq DESC LIMIT ${limit}
-      ) ORDER BY seq`.pipe(
+        SELECT sent_at, message_id, message, gate, wants_turn FROM chat_messages
+        WHERE session_id = ${sessionId}
+        ORDER BY sent_at DESC, length(message_id) DESC, message_id DESC LIMIT ${limit}
+      ) ORDER BY ${chronological}`.pipe(
       Effect.flatMap(Effect.forEach(decodeRow)),
       Effect.map((rows) => rows.map((row) => row.message)),
     )
@@ -263,9 +274,8 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
   /** Gated messages the model hasn't seen yet, oldest first. */
   const undelivered = sql<MessageRow>`
     SELECT message, gate, wants_turn FROM chat_messages
-    WHERE session_id = ${sessionId} AND delivered = 0 AND gate IS NOT NULL ORDER BY seq`.pipe(
-    Effect.flatMap(Effect.forEach(decodeRow)),
-  )
+    WHERE session_id = ${sessionId} AND delivered = 0 AND gate IS NOT NULL
+    ORDER BY ${chronological}`.pipe(Effect.flatMap(Effect.forEach(decodeRow)))
 
   /**
    * Ends a turn as `move` says, in one transaction with turning messages
@@ -410,7 +420,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     Effect.all({
       messages: sql<MessageRow>`
         SELECT message, gate, wants_turn FROM chat_messages
-        WHERE session_id = ${sessionId} AND gate IS NOT NULL ORDER BY seq`.pipe(
+        WHERE session_id = ${sessionId} AND gate IS NOT NULL ORDER BY ${chronological}`.pipe(
         Effect.flatMap(Effect.forEach(decodeRow)),
       ),
       turns,
