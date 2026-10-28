@@ -14,7 +14,6 @@ import * as WebhookVerifier from "../../Ingress/WebhookVerifier.ts"
 import type { ChatMessage, ChatThread } from "../Platform.ts"
 import { sessionClient } from "../Session.ts"
 import {
-  isExtShared,
   lookUpAuthor,
   MESSAGE_SUBTYPES,
   mentionsBot,
@@ -84,8 +83,6 @@ export const MAX_SLACK_WEBHOOK_BODY_BYTES = 1024 * 1024
 /** Slack retries a delivery it has no answer to within 3 seconds. */
 const ANSWER_WITHIN = Duration.millis(2500)
 
-const SLACK_CONNECT_REFUSAL =
-  "I don't work in Slack Connect channels, since they're shared with other organizations."
 const DIRECT_MESSAGE_POINTER = "I only work in channels. Mention me in a channel to start a thread."
 
 const accepted = HttpServerResponse.text("Accepted")
@@ -97,8 +94,12 @@ const Envelope = Schema.Struct({
   challenge: Schema.optionalKey(Schema.String),
   team_id: Schema.optionalKey(Schema.String),
   api_app_id: Schema.optionalKey(Schema.String),
+  authorizations: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ team_id: Schema.optionalKey(Schema.NullOr(Schema.String)) })),
+  ),
   event: Schema.optionalKey(Schema.Unknown),
 })
+type Envelope = typeof Envelope.Type
 
 const Event = Schema.Struct({
   ...SlackMessage.fields,
@@ -121,6 +122,15 @@ const Routes = Layer.unwrap(
     const verify = yield* WebhookVerifier.slackVerifier({ secret: config.signingSecret })
     const decodeEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))
     const decodeEvent = Schema.decodeUnknownOption(Event)
+
+    /**
+     * Whether the event is for our workspace. In a Slack Connect channel the
+     * other organization hosts, the envelope can carry its team, with our
+     * installation in `authorizations`.
+     */
+    const forWorkspace = (envelope: Envelope) =>
+      envelope.team_id === config.workspaceId ||
+      (envelope.authorizations ?? []).some(({ team_id }) => team_id === config.workspaceId)
 
     const reply = (channel: string, threadTs: string | undefined, text: string) =>
       api
@@ -173,15 +183,6 @@ const Routes = Layer.unwrap(
         : yield* lookUpAuthor(api, config.workspaceId, user)
       // Only an admitted user's mention starts a session.
       if (author.class !== "admitted" && !(yield* hasSession)) return
-      // An admitted message can start or steer a turn, whose replies a Slack
-      // Connect channel shows outside the workspace. A channel can become
-      // shared after its session started, so every one is checked.
-      if (author.class === "admitted" && (yield* isExtShared(api, event.channel))) {
-        // Slack also delivers a mention as a message event; refuse once.
-        if (event.type === "app_mention")
-          yield* reply(event.channel, thread.threadTs, SLACK_CONNECT_REFUSAL)
-        return
-      }
       if (author.class === "admitted" && Option.isNone(cached))
         yield* sessions.rememberAdmission(thread, user, author.name)
       yield* sessions.receive(
@@ -214,10 +215,7 @@ const Routes = Layer.unwrap(
         if (envelope.value.type === "url_verification")
           return HttpServerResponse.text(envelope.value.challenge ?? "")
         if (envelope.value.type !== "event_callback") return accepted
-        if (
-          envelope.value.team_id !== config.workspaceId ||
-          envelope.value.api_app_id !== config.appId
-        )
+        if (!forWorkspace(envelope.value) || envelope.value.api_app_id !== config.appId)
           return HttpServerResponse.text("Wrong app or workspace", { status: 403 })
         const event = decodeEvent(envelope.value.event)
         if (event._tag === "None") return accepted

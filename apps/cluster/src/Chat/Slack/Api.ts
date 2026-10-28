@@ -165,26 +165,6 @@ export const decode =
       Effect.mapError(() => failure(method, "Invalid Slack response", "retry")),
     )
 
-/**
- * Whether the channel is shared with another organization (Slack Connect),
- * where the bot doesn't work.
- */
-export const isExtShared = (
-  api: SlackApi["Service"],
-  channel: string,
-): Effect.Effect<boolean, SlackApiError> =>
-  api.call("conversations.info", { channel }).pipe(
-    Effect.flatMap(
-      decode(
-        "conversations.info",
-        Schema.Struct({
-          channel: Schema.Struct({ is_ext_shared: Schema.optionalKey(Schema.Boolean) }),
-        }),
-      ),
-    ),
-    Effect.map((body) => body.channel.is_ext_shared === true),
-  )
-
 const SlackUser = Schema.Struct({
   team_id: Schema.optionalKey(Schema.String),
   name: Schema.optionalKey(Schema.String),
