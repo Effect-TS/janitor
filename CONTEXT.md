@@ -232,3 +232,22 @@ The run's container or executor transport went away mid-run. It is not a failed 
 
 **`janitor/review` check run**:
 The check run janitor keeps on each reviewed head SHA. It is the canonical state of a pull request's review: `in_progress` while a run is going, `failure` with blocking findings, `success` otherwise, `cancelled` when superseded, and `neutral` with the reason when a run errored, hit the deadline or was skipped.
+
+### Chat bot
+
+**Chat session**:
+The chat bot's state for one chat thread: one Slack thread or one Discord thread, keyed `slack/{team}/{channel}/{thread_ts}` or `discord/{guild}/{thread_id}`. It holds the thread's messages with their gate outcomes, the turns and the agent history. It expires 30 days after its last message, and a delete from the web app ends it early; a later message starts a new session.
+_Avoid_: Conversation, chat
+
+**Turn**:
+One run of the chat agent, started by an admitted user's message that mentions the bot or passes the reply gate. A turn ends with a final reply, "Stopped", its deadline, or a failure. One turn runs at a time per session; a message during a turn is steered into it, or starts the next turn if it arrives too late.
+_Avoid_: Run (for chat), job
+
+**Admitted user**:
+A Discord member holding the configured role, or a full member of our Slack workspace (not a guest, not a Slack Connect user). Only admitted users start or steer turns. Messages from outsiders and from any bot account are context only.
+
+**Reply gate**:
+The Jev decision that judges whether a thread message that doesn't mention the bot is addressed to it. At a probability of 0.5 or above a turn starts; a rejected message stays as context, and a failed gate call starts nothing.
+
+**Chat sandbox**:
+The container a chat session's turns run in, from a pool separate from PR review's. It stays warm between turns for a while, so a follow-up finds its clones and edits; durable work is pushed work.
