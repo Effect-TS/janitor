@@ -172,6 +172,12 @@ export const chatGateModel: Config.Config<string> = Config.NonEmptyString("CHAT_
   Config.withDefault(DEFAULT_CHAT_GATE_MODEL),
 )
 
+/** `CHAT_SESSION_RETENTION_DAYS`: how long a session is kept after its last message. */
+export const chatSessionRetention: Config.Config<Duration.Duration> = count(
+  "CHAT_SESSION_RETENTION_DAYS",
+  30,
+).pipe(Config.map(Duration.days))
+
 /** The settings a chat session reads while it runs turns. */
 export const chatSessionConfig = Config.all({
   deadline: chatTurnDeadline,
@@ -181,8 +187,7 @@ export const chatSessionConfig = Config.all({
     Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
     "CHAT_MAX_RESUMES",
   ).pipe(Config.withDefault(3)),
-  /** `CHAT_SESSION_RETENTION_DAYS`: how long a session is kept after its last message. */
-  retention: count("CHAT_SESSION_RETENTION_DAYS", 30).pipe(Config.map(Duration.days)),
+  retention: chatSessionRetention,
   /** `PUBLIC_ORIGIN`: the web app, for the status message's transcript link. */
   publicOrigin: Config.option(Config.NonEmptyString("PUBLIC_ORIGIN")),
 })

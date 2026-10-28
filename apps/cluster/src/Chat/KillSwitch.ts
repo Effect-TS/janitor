@@ -1,13 +1,15 @@
-import type { KillSwitchState } from "@janitor/domain/Chat/Session"
+import type { KillSwitchChange, KillSwitchState } from "@janitor/domain/Chat/Session"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Schedule from "effect/Schedule"
 import * as SqlClient from "effect/sql/SqlClient"
 import type * as SqlError from "effect/sql/SqlError"
 
 export type { KillSwitchState } from "@janitor/domain/Chat/Session"
 
 const off: KillSwitchState = { global: false, slack: false, discord: false }
+const everywhere: KillSwitchState = { global: true, slack: true, discord: true }
 
 /**
  * The chat bot's kill switch (EFF-3012): on for every thread, or for one
@@ -21,20 +23,24 @@ export class ChatKillSwitch extends Context.Service<
   { readonly get: Effect.Effect<KillSwitchState> }
 >()("@janitor/cluster/Chat/KillSwitch/ChatKillSwitch") {
   /**
-   * The stored switch, read on every call. A failed read answers the last
-   * state read, off before the first, so a database blip neither stops nor
-   * starts the bot.
+   * The stored switch, read on every call and retried briefly. A read that
+   * still fails answers the last state read, so a database blip neither
+   * stops nor starts the bot. Before any read has worked it answers on
+   * everywhere: an unknown switch never lets a turn start.
    */
   static readonly stored: Layer.Layer<ChatKillSwitch, never, ChatKillSwitchStore> = Layer.effect(
     this,
     Effect.gen(function* () {
       const store = yield* ChatKillSwitchStore
-      let last: KillSwitchState = off
+      let last: KillSwitchState | undefined
       return {
         get: store.get.pipe(
+          Effect.retry({ times: 2, schedule: Schedule.exponential("100 millis") }),
           Effect.tap((state) => Effect.sync(() => (last = state))),
           Effect.catch((error) =>
-            Effect.logWarning("Reading the chat kill switch failed", error).pipe(Effect.as(last)),
+            Effect.logWarning("Reading the chat kill switch failed", error).pipe(
+              Effect.as(last ?? everywhere),
+            ),
           ),
         ),
       }
@@ -50,7 +56,8 @@ export class ChatKillSwitchStore extends Context.Service<
   ChatKillSwitchStore,
   {
     readonly get: Effect.Effect<KillSwitchState, SqlError.SqlError>
-    readonly set: (state: KillSwitchState) => Effect.Effect<void, SqlError.SqlError>
+    /** Sets one switch and leaves the others as they are. */
+    readonly set: (change: KillSwitchChange) => Effect.Effect<void, SqlError.SqlError>
   }
 >()("@janitor/cluster/Chat/KillSwitch/ChatKillSwitchStore") {
   static readonly layer: Layer.Layer<ChatKillSwitchStore, never, SqlClient.SqlClient> =
@@ -63,12 +70,11 @@ export class ChatKillSwitchStore extends Context.Service<
             SELECT global, slack, discord FROM chat_kill_switch`.pipe(
             Effect.map((rows) => rows[0] ?? off),
           ),
-          set: (state) =>
+          set: ({ switch: key, on }) =>
             sql`
-              INSERT INTO chat_kill_switch (id, global, slack, discord)
-              VALUES (TRUE, ${state.global}, ${state.slack}, ${state.discord})
-              ON CONFLICT (id) DO UPDATE SET global = EXCLUDED.global, slack = EXCLUDED.slack,
-                discord = EXCLUDED.discord, updated_at = CLOCK_TIMESTAMP()`.pipe(Effect.asVoid),
+              INSERT INTO chat_kill_switch ${sql.insert({ id: true, [key]: on })}
+              ON CONFLICT (id) DO UPDATE SET ${sql(key)} = EXCLUDED.${sql(key)},
+                updated_at = CLOCK_TIMESTAMP()`.pipe(Effect.asVoid),
         }
       }),
     )

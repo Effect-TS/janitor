@@ -119,6 +119,8 @@ Each session links to its transcript, which the status message in the thread lin
 
 **Delete session** ends a session early: it cancels a running turn, releases the sandbox and deletes the history. A later message in the thread starts a new session, which reads the thread's last 100 messages again, so a pasted secret has to be deleted in Slack or Discord too.
 
+While the bot is off for the whole deployment (`CHAT_AI_API_URL` or `CHAT_AI_API_KEY` unset), the sessions it kept are still listed, but their transcripts can't be read and they can't be deleted: the endpoints answer `503` until the bot is back on. A session's row leaves the list once its retention has passed, even if the session couldn't remove it itself.
+
 ## Kill switch
 
 The kill switch panel on the chat sessions page turns the bot off for every thread, or for Slack's or Discord's. Anyone with Access can use it. Turning it off for a thread's platform, or for every thread:
@@ -127,7 +129,7 @@ The kill switch panel on the chat sessions page turns the bot off for every thre
 - starts no new turn;
 - tells each thread once that the bot is switched off, and keeps its messages as context for when it's back.
 
-Off for every thread wins over the platform switches. The switch is stored in Postgres, and sessions read it every few seconds while a turn runs and on every message. Turning it back on starts nothing by itself: the next message that wants a turn starts one.
+Off for every thread wins over the platform switches. Each change sets one switch and leaves the others as they are, so two people changing different switches never undo each other. The switch is stored in Postgres, and sessions read it every few seconds while a turn runs and on every message. A read that fails is retried, then answers the last state read; before any read has worked, it counts as off everywhere, so an unknown switch never lets a turn start. Turning it back on starts nothing by itself: the next message that wants a turn starts one.
 
 ## Accepted risks
 

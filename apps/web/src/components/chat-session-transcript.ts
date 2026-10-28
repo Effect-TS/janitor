@@ -92,6 +92,9 @@ export const init = (): Model => ({
 const transcriptPath = (sessionId: string) =>
   `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/transcript`
 
+const OFF =
+  "The chat bot is off in this deployment, so its sessions can't be read or deleted until it's back on."
+
 /** How often a running turn's transcript is read again. */
 const POLL = "5 seconds"
 
@@ -102,7 +105,10 @@ export const FetchTranscript = Command.define("FetchChatSessionTranscript", {
     ApiClient.use((api) => api.chat.getTranscript({ params: { sessionId } })).pipe(
       Effect.timeout("15 seconds"),
       Effect.map((transcript) => Message.Loaded({ generation, transcript })),
-      Effect.catchTag("TranscriptGone", () => Effect.succeed(Message.Expired({ generation }))),
+      Effect.catchTags({
+        TranscriptGone: () => Effect.succeed(Message.Expired({ generation })),
+        ChatUnavailable: () => Effect.succeed(Message.Failed({ generation, reason: OFF })),
+      }),
       Effect.orElseSucceed(() =>
         Message.Failed({
           generation,
@@ -119,6 +125,9 @@ export const DeleteSession = Command.define("DeleteChatSession", {
     ApiClient.use((api) => api.chat.deleteSession({ params: { sessionId } })).pipe(
       Effect.timeout("30 seconds"),
       Effect.as(Message.Deleted({ generation })),
+      Effect.catchTag("ChatUnavailable", () =>
+        Effect.succeed(Message.FailedDelete({ generation, reason: OFF })),
+      ),
       Effect.orElseSucceed(() =>
         Message.FailedDelete({
           generation,

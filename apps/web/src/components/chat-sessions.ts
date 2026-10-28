@@ -1,5 +1,7 @@
 import {
   type ChatThread,
+  KillSwitchChange,
+  KillSwitchKey,
   KillSwitchState,
   SessionList,
   SessionSummary,
@@ -34,9 +36,6 @@ import * as Routes from "@/routes"
  * switch.
  */
 
-export const KillSwitchKey = Schema.Literals(["global", "slack", "discord"])
-export type KillSwitchKey = typeof KillSwitchKey.Type
-
 export const Model = Schema.Struct({
   active: Schema.Boolean,
   sessions: Schema.Array(SessionSummary),
@@ -46,6 +45,8 @@ export const Model = Schema.Struct({
   killSwitch: Schema.NullOr(KillSwitchState),
   /** The switch being saved; the others wait for it. */
   saving: Schema.NullOr(KillSwitchKey),
+  /** Counts the saves, so a read that started before one never overwrites what it set. */
+  killSwitchRevision: Schema.Int,
   killSwitchError: Schema.NullOr(Schema.String),
   /** Fences responses from an earlier activation. */
   generation: Schema.Int,
@@ -58,8 +59,10 @@ export const Message = defineMessageUnion({
   ClickedRefresh: {},
   Loaded: { generation: Schema.Int, list: SessionList },
   Failed: { generation: Schema.Int, reason: Schema.String },
-  LoadedKillSwitch: { state: KillSwitchState },
-  FailedKillSwitch: { reason: Schema.String },
+  LoadedKillSwitch: { revision: Schema.Int, state: KillSwitchState },
+  FailedKillSwitch: { revision: Schema.Int, reason: Schema.String },
+  SavedKillSwitch: { state: KillSwitchState },
+  FailedSaveKillSwitch: { reason: Schema.String },
   /** `on` engages the kill switch: the bot stops there. */
   ToggledKillSwitch: { key: KillSwitchKey, on: Schema.Boolean },
 })
@@ -73,6 +76,7 @@ export const init = (): Model => ({
   error: null,
   killSwitch: null,
   saving: null,
+  killSwitchRevision: 0,
   killSwitchError: null,
   generation: 0,
 })
@@ -97,27 +101,28 @@ export const FetchSessions = Command.define("FetchChatSessions", {
 })
 
 export const FetchKillSwitch = Command.define("FetchChatKillSwitch", {
-  args: {},
+  args: { revision: Schema.Int },
   messages: [Message.LoadedKillSwitch, Message.FailedKillSwitch],
-  execute: () =>
+  execute: ({ revision }) =>
     ApiClient.use((api) => api.chat.getKillSwitch()).pipe(
       Effect.timeout("15 seconds"),
-      Effect.map((state) => Message.LoadedKillSwitch({ state })),
+      Effect.map((state) => Message.LoadedKillSwitch({ revision, state })),
       Effect.orElseSucceed(() =>
-        Message.FailedKillSwitch({ reason: "The kill switch could not be loaded." }),
+        Message.FailedKillSwitch({ revision, reason: "The kill switch could not be loaded." }),
       ),
     ),
 })
 
+/** Sets the one switch, so a change made meanwhile in another browser to another stays. */
 export const SetKillSwitch = Command.define("SetChatKillSwitch", {
-  args: { state: KillSwitchState },
-  messages: [Message.LoadedKillSwitch, Message.FailedKillSwitch],
-  execute: ({ state }) =>
-    ApiClient.use((api) => api.chat.setKillSwitch({ payload: state })).pipe(
+  args: { change: KillSwitchChange },
+  messages: [Message.SavedKillSwitch, Message.FailedSaveKillSwitch],
+  execute: ({ change }) =>
+    ApiClient.use((api) => api.chat.setKillSwitch({ payload: change })).pipe(
       Effect.timeout("15 seconds"),
-      Effect.map((state) => Message.LoadedKillSwitch({ state })),
+      Effect.map((state) => Message.SavedKillSwitch({ state })),
       Effect.orElseSucceed(() =>
-        Message.FailedKillSwitch({ reason: "The kill switch didn't change. Please retry." }),
+        Message.FailedSaveKillSwitch({ reason: "The kill switch didn't change. Please retry." }),
       ),
     ),
 })
@@ -132,6 +137,18 @@ const fetch = (model: Model): Return =>
         commands: [FetchSessions({ generation: model.generation })],
       }
 
+/** Reads the kill switch too, unless a save is in flight: its answer is the newer state. */
+const withKillSwitchRead = (step: Return): Return =>
+  step.model.saving !== null
+    ? step
+    : {
+        ...step,
+        commands: [
+          ...(step.commands ?? []),
+          FetchKillSwitch({ revision: step.model.killSwitchRevision }),
+        ],
+      }
+
 export const update = (model: Model, message: Message): Return =>
   Message.match(message, {
     Activated: ({ active }) => {
@@ -139,14 +156,10 @@ export const update = (model: Model, message: Message): Return =>
       // Fence responses when leaving and refresh on return.
       const fenced = { ...model, active, loading: false, generation: model.generation + 1 }
       if (!active) return { model: fenced }
-      const step = fetch(fenced)
-      return { ...step, commands: [...(step.commands ?? []), FetchKillSwitch({})] }
+      return withKillSwitchRead(fetch(fenced))
     },
     Polled: () => fetch(model),
-    ClickedRefresh: () => {
-      const step = fetch(model)
-      return { ...step, commands: [...(step.commands ?? []), FetchKillSwitch({})] }
-    },
+    ClickedRefresh: () => withKillSwitchRead(fetch(model)),
     Loaded: ({ generation, list }) =>
       generation !== model.generation || !model.active
         ? { model }
@@ -163,18 +176,31 @@ export const update = (model: Model, message: Message): Return =>
       generation !== model.generation
         ? { model }
         : { model: { ...model, loading: false, error: reason } },
-    LoadedKillSwitch: ({ state }) => ({
+    LoadedKillSwitch: ({ revision, state }) =>
+      revision !== model.killSwitchRevision || model.saving !== null
+        ? { model }
+        : { model: { ...model, killSwitch: state, killSwitchError: null } },
+    FailedKillSwitch: ({ revision, reason }) =>
+      revision !== model.killSwitchRevision || model.saving !== null
+        ? { model }
+        : { model: { ...model, killSwitchError: reason } },
+    SavedKillSwitch: ({ state }) => ({
       model: { ...model, killSwitch: state, saving: null, killSwitchError: null },
     }),
-    FailedKillSwitch: ({ reason }) => ({
+    FailedSaveKillSwitch: ({ reason }) => ({
       model: { ...model, saving: null, killSwitchError: reason },
     }),
     ToggledKillSwitch: ({ key, on }) =>
       model.killSwitch === null || model.saving !== null
         ? { model }
         : {
-            model: { ...model, saving: key, killSwitchError: null },
-            commands: [SetKillSwitch({ state: { ...model.killSwitch, [key]: on } })],
+            model: {
+              ...model,
+              saving: key,
+              killSwitchRevision: model.killSwitchRevision + 1,
+              killSwitchError: null,
+            },
+            commands: [SetKillSwitch({ change: { switch: key, on } })],
           },
   })
 

@@ -19,6 +19,7 @@ import * as PrimaryKey from "effect/PrimaryKey"
 import * as Queue from "effect/Queue"
 import * as Rpc from "effect/rpc/Rpc"
 import * as RpcGroup from "effect/rpc/RpcGroup"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
@@ -29,7 +30,11 @@ import {
   threadMessages,
   wrapUpMessage,
 } from "@janitor/domain/Chat/Prompt"
-import { SessionTranscriptTurn, TranscriptMessage } from "@janitor/domain/Chat/Session"
+import {
+  ChatUnavailable,
+  SessionTranscriptTurn,
+  TranscriptMessage,
+} from "@janitor/domain/Chat/Session"
 import type { HistoryChange } from "../AgentLoop.ts"
 import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agent.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
@@ -140,10 +145,11 @@ export class ChatSessionControl extends Context.Service<
       Option.Option<{
         readonly messages: ReadonlyArray<TranscriptMessage>
         readonly turns: ReadonlyArray<SessionTranscriptTurn>
-      }>
+      }>,
+      ChatUnavailable
     >
     /** Sends the session `Delete`: it cancels the turn, releases the sandbox and deletes the history. */
-    readonly delete: (sessionId: string) => Effect.Effect<void>
+    readonly delete: (sessionId: string) => Effect.Effect<void, ChatUnavailable>
   }
 >()("@janitor/cluster/Chat/Session/ChatSessionControl") {
   /** The session entities, through the cluster's client. An entity that can't be reached dies. */
@@ -175,10 +181,13 @@ export class ChatSessionControl extends Context.Service<
     }),
   )
 
-  /** No session entities: the chat bot is off, so every session is gone already. */
+  /**
+   * No session entities: the chat bot is off. The sessions it kept are still
+   * in their storage, so they can't be read or deleted until it is back on.
+   */
   static readonly unavailable = Layer.succeed(this, {
-    transcript: () => Effect.succeed(Option.none()),
-    delete: () => Effect.void,
+    transcript: () => Effect.fail(new ChatUnavailable()),
+    delete: () => Effect.fail(new ChatUnavailable()),
   })
 }
 
@@ -192,6 +201,9 @@ export const ChatSession = Entity.fromRpcGroup(
 
 /** How often a running turn reads the kill switch, and the status message is edited at most. */
 const TICK = Duration.seconds(3)
+
+/** How often a running turn's tokens reach the sessions page at most. */
+const INDEX_PROGRESS = Duration.seconds(30)
 
 /** Messages read for the backfill when the bot joins a thread. */
 const BACKFILL = 100
@@ -375,6 +387,15 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         Effect.logWarning("Couldn't save the chat session's index row", cause),
       ),
     )
+
+    let indexedProgressAt = 0
+    /** A running turn's actions and tokens, saved to the index at most every `INDEX_PROGRESS`. */
+    const saveProgress = Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis
+      if (now - indexedProgressAt < Duration.toMillis(INDEX_PROGRESS)) return
+      indexedProgressAt = now
+      yield* saveIndex
+    })
 
     const keepAlive = (enabled: boolean) =>
       Effect.suspend(() => {
@@ -783,6 +804,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 actions,
                 usage: addUsage(base.usage, progress.usage),
               }))
+              yield* saveProgress
             }).pipe(Effect.orDie),
         })
         yield* Semaphore.withPermits(
@@ -1019,7 +1041,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       )(
         Effect.suspend(() => {
           dropped = true
-          return index.remove(entityId)
+          // The page lists the row until it goes. Should every try fail, the
+          // sessions list prunes it once its retention has passed.
+          return index
+            .remove(entityId)
+            .pipe(Effect.retry({ times: 4, schedule: Schedule.exponential("1 second") }))
         }),
       ).pipe(
         Effect.catchCause((cause) =>

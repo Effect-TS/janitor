@@ -113,6 +113,20 @@ export const KillSwitchState = Schema.Struct({
 }).annotate({ identifier: "ChatKillSwitchState" })
 export type KillSwitchState = typeof KillSwitchState.Type
 
+/** One of the kill switch's three switches. */
+export const KillSwitchKey = Schema.Literals(["global", "slack", "discord"])
+export type KillSwitchKey = typeof KillSwitchKey.Type
+
+/**
+ * Turns one switch on or off and leaves the others as they are, so two
+ * people changing different switches never undo each other.
+ */
+export const KillSwitchChange = Schema.Struct({
+  switch: KillSwitchKey,
+  on: Schema.Boolean,
+}).annotate({ identifier: "ChatKillSwitchChange" })
+export type KillSwitchChange = typeof KillSwitchChange.Type
+
 /** A row of the chat sessions page. */
 export const SessionSummary = Schema.Struct({
   /** The session key, as in the status message's transcript link. */
@@ -168,4 +182,14 @@ export class TranscriptGone extends Schema.TaggedError<TranscriptGone>()(
   "TranscriptGone",
   { sessionId: Schema.String },
   { httpApiStatus: 410 },
+) {}
+
+/**
+ * The chat bot is off in this deployment, so no session can be read or
+ * deleted until it is back on. The sessions it kept are still listed.
+ */
+export class ChatUnavailable extends Schema.TaggedError<ChatUnavailable>()(
+  "ChatUnavailable",
+  {},
+  { httpApiStatus: 503 },
 ) {}

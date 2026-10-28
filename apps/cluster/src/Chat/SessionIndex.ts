@@ -29,6 +29,8 @@ export class ChatSessionIndex extends Context.Service<
     /** Saves the session's row as it stands now. */
     readonly save: (summary: SessionSummary) => Effect.Effect<void, IndexError>
     readonly remove: (sessionId: string) => Effect.Effect<void, IndexError>
+    /** Removes the rows with no activity since `cutoff`: their sessions have expired. */
+    readonly removeBefore: (cutoff: DateTime.Utc) => Effect.Effect<void, IndexError>
     readonly get: (sessionId: string) => Effect.Effect<Option.Option<SessionSummary>, IndexError>
     /** Every session, latest activity first. */
     readonly list: Effect.Effect<ReadonlyArray<SessionSummary>, IndexError>
@@ -59,6 +61,10 @@ export class ChatSessionIndex extends Context.Service<
         ),
       remove: (sessionId) =>
         sql`DELETE FROM chat_sessions WHERE session_id = ${sessionId}`.pipe(Effect.asVoid),
+      removeBefore: (cutoff) =>
+        sql`DELETE FROM chat_sessions WHERE last_activity_at < ${DateTime.toDateUtc(cutoff)}`.pipe(
+          Effect.asVoid,
+        ),
       get: (sessionId) =>
         sql`${select} WHERE session_id = ${sessionId}`.pipe(
           Effect.flatMap(decodeRows),

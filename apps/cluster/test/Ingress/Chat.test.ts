@@ -219,13 +219,20 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
       assert.deepStrictEqual(yield* api.chat.getKillSwitch(), off)
 
       const slackOff = { global: false, slack: true, discord: false }
-      assert.deepStrictEqual(yield* api.chat.setKillSwitch({ payload: slackOff }), slackOff)
+      assert.deepStrictEqual(
+        yield* api.chat.setKillSwitch({ payload: { switch: "slack", on: true } }),
+        slackOff,
+      )
       // Stored, not held by the handler: another client reads it back.
       assert.deepStrictEqual(yield* (yield* client).chat.getKillSwitch(), slackOff)
 
-      const everywhere = { global: true, slack: false, discord: false }
-      yield* api.chat.setKillSwitch({ payload: everywhere })
-      assert.deepStrictEqual(yield* api.chat.getKillSwitch(), everywhere)
+      // One switch at a time, so turning on another leaves Slack's as it is.
+      yield* api.chat.setKillSwitch({ payload: { switch: "global", on: true } })
+      assert.deepStrictEqual(yield* api.chat.getKillSwitch(), {
+        global: true,
+        slack: true,
+        discord: false,
+      })
     }),
   )
 })
