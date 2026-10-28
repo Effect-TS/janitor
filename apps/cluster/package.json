@@ -22,6 +22,7 @@
     "@janitor/domain": "workspace:^",
     "alchemy": "catalog:",
     "clanka": "catalog:",
+    "dfx": "catalog:",
     "effect": "catalog:",
     "graphql": "catalog:"
   },
