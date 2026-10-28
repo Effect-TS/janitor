@@ -425,11 +425,6 @@ const memoryIndex = () => {
   return Layer.succeed(ChatSessionIndex, {
     save: (summary) => Effect.sync(() => void rows.set(summary.sessionId, summary)),
     remove: (sessionId) => Effect.sync(() => void rows.delete(sessionId)),
-    removeBefore: (cutoff) =>
-      Effect.sync(() => {
-        for (const [sessionId, row] of rows)
-          if (DateTime.isLessThan(row.lastActivityAt, cutoff)) rows.delete(sessionId)
-      }),
     get: (sessionId) => Effect.sync(() => Option.fromNullishOr(rows.get(sessionId))),
     list: Effect.sync(() => [...rows.values()]),
   })

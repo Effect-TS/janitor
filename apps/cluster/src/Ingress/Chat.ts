@@ -1,10 +1,8 @@
 import { JanitorApi } from "@janitor/domain/Api"
 import { TranscriptGone } from "@janitor/domain/Chat/Session"
-import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
-import { chatSessionRetention } from "../Chat/Config.ts"
 import { ChatKillSwitchStore } from "../Chat/KillSwitch.ts"
 import { ChatSessionControl } from "../Chat/Session.ts"
 import { ChatSessionIndex } from "../Chat/SessionIndex.ts"
@@ -18,14 +16,10 @@ import { ChatSessionIndex } from "../Chat/SessionIndex.ts"
 export const ChatGroupLayer = HttpApiBuilder.group(JanitorApi, "chat", (handlers) =>
   handlers
     .handle("listSessions", () =>
-      Effect.gen(function* () {
-        const index = yield* ChatSessionIndex
-        // A row whose session has expired is pruned here, should the session
-        // have failed to remove it.
-        const retention = yield* chatSessionRetention
-        yield* index.removeBefore(DateTime.subtractDuration(yield* DateTime.now, retention))
-        return { sessions: yield* index.list }
-      }).pipe(Effect.orDie),
+      ChatSessionIndex.use((index) => index.list).pipe(
+        Effect.map((sessions) => ({ sessions })),
+        Effect.orDie,
+      ),
     )
     .handle("getTranscript", ({ params }) =>
       Effect.gen(function* () {
@@ -41,14 +35,12 @@ export const ChatGroupLayer = HttpApiBuilder.group(JanitorApi, "chat", (handlers
       }),
     )
     .handle("deleteSession", ({ params }) =>
-      Effect.gen(function* () {
-        const { sessionId } = params
-        yield* ChatSessionControl.use((control) => control.delete(sessionId))
-        // The session removes its row too; this one fails the request if the
-        // row stays, so the page never shows a deleted session as kept.
-        yield* ChatSessionIndex.use((index) => index.remove(sessionId)).pipe(Effect.orDie)
-        yield* Effect.logInfo("Chat session deleted from the web app")
-      }).pipe(Effect.annotateLogs({ sessionId: params.sessionId })),
+      // The session removes its own index row as it deletes, in order with
+      // its messages, so a session a later message starts keeps its row.
+      ChatSessionControl.use((control) => control.delete(params.sessionId)).pipe(
+        Effect.andThen(Effect.logInfo("Chat session deleted from the web app")),
+        Effect.annotateLogs({ sessionId: params.sessionId }),
+      ),
     )
     .handle("getKillSwitch", () => ChatKillSwitchStore.use((store) => store.get).pipe(Effect.orDie))
     .handle("setKillSwitch", ({ payload }) =>

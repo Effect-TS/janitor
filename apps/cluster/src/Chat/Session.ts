@@ -123,6 +123,23 @@ export class ExpirePayload extends Schema.Class<ExpirePayload>("ChatSession/Expi
 }
 export const Expire = Rpc.make("Expire", { payload: ExpirePayload })
 
+/**
+ * Sent to itself when removing a dropped session's index row failed: tries
+ * again at `at`, until the row is gone or a new session in the thread owns
+ * it. Persisted, so it outlives a restart.
+ */
+export class ForgetPayload extends Schema.Class<ForgetPayload>("ChatSession/Forget")({
+  at: Schema.DateTimeUtc,
+}) {
+  [DeliverAt.symbol](): DateTime.DateTime {
+    return this.at
+  }
+  [PrimaryKey.symbol](): string {
+    return `forget/${DateTime.toEpochMillis(this.at)}`
+  }
+}
+export const Forget = Rpc.make("Forget", { payload: ForgetPayload })
+
 /** What the session's storage holds: nothing once it expired or was deleted. */
 export const TranscriptResult = Schema.TaggedUnion({
   Expired: {},
@@ -193,7 +210,7 @@ export class ChatSessionControl extends Context.Service<
 
 export const ChatSession = Entity.fromRpcGroup(
   "ChatSession",
-  RpcGroup.make(Receive, Delete, Cancel, RememberAdmission, Expire)
+  RpcGroup.make(Receive, Delete, Cancel, RememberAdmission, Expire, Forget)
     .annotateRpcs(ClusterSchema.Persisted, true)
     // Reads change nothing, so they aren't stored and replayed like the rest.
     .add(Transcript, CachedAdmission, Exists),
@@ -204,6 +221,9 @@ const TICK = Duration.seconds(3)
 
 /** How often a running turn's tokens reach the sessions page at most. */
 const INDEX_PROGRESS = Duration.seconds(30)
+
+/** How long a dropped session waits to try removing its index row again. */
+const FORGET_RETRY = Duration.hours(1)
 
 /** Messages read for the backfill when the bot joins a thread. */
 const BACKFILL = 100
@@ -389,13 +409,53 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     )
 
     let indexedProgressAt = 0
-    /** A running turn's actions and tokens, saved to the index at most every `INDEX_PROGRESS`. */
+    let trailingProgress = false
+    /**
+     * A running turn's actions and tokens, saved to the index at most every
+     * `INDEX_PROGRESS`. Progress inside that window is saved once it ends,
+     * so the last update is never left out.
+     */
     const saveProgress = Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
-      if (now - indexedProgressAt < Duration.toMillis(INDEX_PROGRESS)) return
-      indexedProgressAt = now
-      yield* saveIndex
+      const wait = indexedProgressAt + Duration.toMillis(INDEX_PROGRESS) - now
+      if (wait <= 0) {
+        indexedProgressAt = now
+        return yield* saveIndex
+      }
+      if (trailingProgress) return
+      trailingProgress = true
+      yield* Effect.forkIn(
+        Effect.gen(function* () {
+          yield* Effect.sleep(Duration.millis(wait))
+          trailingProgress = false
+          indexedProgressAt = yield* Clock.currentTimeMillis
+          yield* saveIndex
+        }),
+        entityScope,
+      )
     })
+
+    /**
+     * Removes a dropped session's index row. Should every try fail, it sends
+     * itself `Forget` to try again later, so the page never lists a session
+     * that's gone for good.
+     */
+    const removeIndex = index.remove(entityId).pipe(
+      Effect.retry({ times: 4, schedule: Schedule.exponential("1 second") }),
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          yield* Effect.logWarning("Couldn't remove the chat session's index row", cause)
+          const now = yield* Clock.currentTimeMillis
+          yield* self.Forget(
+            new ForgetPayload({ at: DateTime.makeUnsafe(now + Duration.toMillis(FORGET_RETRY)) }),
+            { discard: true },
+          )
+        }),
+      ),
+      Effect.catchCause((cause) =>
+        Effect.logError("Couldn't schedule removing the chat session's index row", cause),
+      ),
+    )
 
     const keepAlive = (enabled: boolean) =>
       Effect.suspend(() => {
@@ -1041,16 +1101,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       )(
         Effect.suspend(() => {
           dropped = true
-          // The page lists the row until it goes. Should every try fail, the
-          // sessions list prunes it once its retention has passed.
-          return index
-            .remove(entityId)
-            .pipe(Effect.retry({ times: 4, schedule: Schedule.exponential("1 second") }))
+          return removeIndex
         }),
-      ).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Couldn't remove the chat session's index row", cause),
-        ),
       )
       yield* keepAlive(false)
     })
@@ -1200,6 +1252,18 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             yield* Effect.logInfo("Chat session expired")
           }),
         ).pipe(withLogs, Effect.orDie),
+
+      Forget: () =>
+        Semaphore.withPermits(
+          inbox,
+          1,
+        )(
+          Effect.gen(function* () {
+            // A message since started a new session, whose saves own the row.
+            if (!dropped) return
+            yield* Semaphore.withPermits(indexing, 1)(removeIndex)
+          }),
+        ).pipe(withLogs),
 
       Transcript: () =>
         Effect.gen(function* () {
