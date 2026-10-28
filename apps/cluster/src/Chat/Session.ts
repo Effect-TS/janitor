@@ -433,10 +433,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         ),
       )
 
+    // The key's slashes stay path separators: redirects decode an encoded
+    // `%2F` and break the link.
+    const transcriptPath = entityId.split("/").map(encodeURIComponent).join("/")
     const transcriptLink = (origin: Option.Option<string>) =>
       Option.match(origin, {
         onNone: () => "",
-        onSome: (origin) => ` · ${origin}/chat/sessions/${encodeURIComponent(entityId)}`,
+        onSome: (origin) => ` · ${origin}/chat/sessions/${transcriptPath}`,
       })
 
     /** The status message's last text: how the turn ended. */
