@@ -64,26 +64,18 @@ const make = Effect.gen(function* () {
       Effect.mapError(platformError),
     )
 
-  /**
-   * Answers the message that started the turn. A thread started from a
-   * message shares its id, and that message lives in the parent channel,
-   * where a reply from inside the thread can't point; a reference to it
-   * would show "Message could not be loaded", so none is set.
-   */
-  const reference = (thread: ChatThread, replyTo: string | undefined) =>
-    replyTo === undefined || (thread._tag === "Discord" && replyTo === thread.threadId)
-      ? undefined
-      : { message_id: replyTo, fail_if_not_exists: false }
-
   const upload = (
     thread: ChatThread,
     file: { readonly name: string; readonly content: string },
-    replyTo?: string,
+    fields?: Pick<
+      Parameters<typeof rest.createMessage>[1],
+      "content" | "allowed_mentions" | "message_reference"
+    >,
   ) =>
     post(thread, {
       allowed_mentions: noMentions,
       attachments: [{ id: "0", filename: file.name }],
-      message_reference: reference(thread, replyTo),
+      ...fields,
     }).pipe(rest.withFiles([new File([file.content], file.name, { type: "text/markdown" })]))
 
   const history = (thread: ChatThread, limit: number) =>
@@ -144,16 +136,39 @@ const make = Effect.gen(function* () {
         Effect.mapError(platformError),
       ),
     postReply: (thread, text, options) => {
-      const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
+      const replyTo = options?.replyTo
+      // A thread started from a message shares its id, and that message
+      // lives in the parent channel, where a reply from inside the thread
+      // can't point: it would show "Message could not be loaded". Its
+      // author is mentioned instead, so they are still pinged.
+      const starter =
+        thread._tag === "Discord" && replyTo?.messageId === thread.threadId ? replyTo : undefined
+      const reference =
+        replyTo === undefined || starter !== undefined
+          ? undefined
+          : { message_id: replyTo.messageId, fail_if_not_exists: false }
+      const mention = starter === undefined ? undefined : `<@${starter.authorId}>`
+      const chunks = chunkMarkdown(
+        // A fence opening the reply must stay at the start of its line.
+        mention === undefined ? text : `${mention}${/^\s*```/.test(text) ? "\n" : " "}${text}`,
+        CHUNK_CHARACTERS,
+      )
       if (chunks.length > MAX_CHUNKS)
-        return upload(thread, { name: "reply.md", content: text }, options?.replyTo).pipe(
-          Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)),
-        )
+        return upload(
+          thread,
+          { name: "reply.md", content: text },
+          {
+            content: mention,
+            allowed_mentions:
+              starter === undefined ? noMentions : { parse: [], users: [starter.authorId] },
+            message_reference: reference,
+          },
+        ).pipe(Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)))
       return Effect.forEach(chunks, (chunk, index) =>
         post(thread, {
           content: chunk,
           allowed_mentions: userMentions,
-          message_reference: index === 0 ? reference(thread, options?.replyTo) : undefined,
+          message_reference: index === 0 ? reference : undefined,
         }),
       ).pipe(
         Effect.flatMap((posted) => {
@@ -189,9 +204,10 @@ const make = Effect.gen(function* () {
  * Discord's `ChatPlatform`, over dfx's REST client, which waits out rate
  * limits itself. Replies go out in messages of at most 2,000 characters with
  * code fences kept balanced, the first answering the message that started
- * the turn; one that needs more than five messages is uploaded as
- * `reply.md`. Replies may ping users only, and no post unfurls links. The
- * backfill reads each author's roles, since REST messages carry no member.
+ * the turn, or mentioning its author when that message started the thread;
+ * one that needs more than five messages is uploaded as `reply.md`. Replies
+ * may ping users only, and no post unfurls links. The backfill reads each
+ * author's roles, since REST messages carry no member.
  */
 export const layer: Layer.Layer<
   ChatPlatform,

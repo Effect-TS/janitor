@@ -75,12 +75,15 @@ export class ChatPlatform extends Context.Service<
     ) => Effect.Effect<void, ChatPlatformError>
     /**
      * Posts a reply and returns when its final part was published. On
-     * Discord it answers `replyTo`, the message that started the turn.
+     * Discord it answers `replyTo`, the message that started the turn, or
+     * mentions its author when that message started the thread.
      */
     readonly postReply: (
       thread: ChatThread,
       text: string,
-      options?: { readonly replyTo?: string | undefined },
+      options?: {
+        readonly replyTo?: { readonly messageId: string; readonly authorId: string } | undefined
+      },
     ) => Effect.Effect<DateTime.Utc, ChatPlatformError>
     readonly uploadFile: (
       thread: ChatThread,

@@ -875,9 +875,15 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               1,
             )(
               Effect.gen(function* () {
+                const answered = running.claimed.at(-1)
+                const message =
+                  answered === undefined ? Option.none() : yield* storage.message(answered)
+                const replyTo = Option.isSome(message)
+                  ? { messageId: message.value.id, authorId: message.value.author.id }
+                  : undefined
                 // Never retried here: the transport retries what is safe to retry.
                 const posted = yield* platform
-                  .postReply(running.thread, result.text, { replyTo: running.claimed.at(-1) })
+                  .postReply(running.thread, result.text, { replyTo })
                   .pipe(Effect.result)
                 if (posted._tag === "Failure") {
                   yield* Effect.logError("Couldn't post a chat reply").pipe(

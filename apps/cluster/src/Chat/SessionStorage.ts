@@ -253,6 +253,17 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     )
   }
 
+  /** A stored message by its id. */
+  const message = (id: string) =>
+    sql<{ message: string }>`
+      SELECT message FROM chat_messages WHERE session_id = ${sessionId} AND message_id = ${id}`.pipe(
+      Effect.flatMap(([row]) =>
+        row === undefined
+          ? Effect.succeed(Option.none<ChatMessage>())
+          : Effect.map(Schema.decodeEffect(ChatMessageJson)(row.message), Option.some),
+      ),
+    )
+
   /** Gated messages the model hasn't seen yet, oldest first. */
   const undelivered = sql<MessageRow>`
     SELECT message, gate, wants_turn FROM chat_messages
@@ -477,6 +488,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     setGate,
     ungated,
     recent,
+    message,
     undelivered,
     endTurn,
     hasWanted,
