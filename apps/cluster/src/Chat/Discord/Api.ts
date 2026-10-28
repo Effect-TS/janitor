@@ -43,6 +43,20 @@ export const rememberBotUserId = (
   )
 }
 
+/** The bot's managed role, identified by Discord's tag rather than its display name. */
+export const rememberBotRoleId = (rest: DiscordREST["Service"], guildId: string) => {
+  let roleId: string | undefined
+  return (botUserId: string): Effect.Effect<string | undefined, DiscordRESTError> =>
+    Effect.suspend(() =>
+      roleId !== undefined
+        ? Effect.succeed(roleId)
+        : Effect.map(
+            rest.listGuildRoles(guildId),
+            (roles) => (roleId = roles.find((role) => role.tags?.bot_id === botUserId)?.id),
+          ),
+    )
+}
+
 /** Discord's error code for a refusal, such as 10003 for an unknown channel. */
 export const errorCode = (error: DiscordRESTError): number | undefined =>
   error._tag === "ErrorResponse" ? error.data.code : undefined
@@ -73,6 +87,7 @@ export type DiscordMessage = Pick<
 > & {
   readonly author: Discord.UserResponse
   readonly mentions: ReadonlyArray<{ readonly id: string }>
+  readonly mention_roles: ReadonlyArray<string>
 }
 
 /** The author's membership: `member` on a gateway message, a guild member read over REST, or none. */
@@ -94,6 +109,7 @@ export const toChatMessage = (
   member: DiscordMember | undefined,
   roleId: string,
   botUserId: string,
+  botRoleId?: string,
 ): ChatMessage => ({
   id: message.id,
   author: {
@@ -106,8 +122,15 @@ export const toChatMessage = (
           ? "admitted"
           : "outsider",
   },
-  text: message.content.replace(botMention(botUserId), "").trim(),
-  mentionsBot: message.mentions.some((user) => user.id === botUserId),
+  text: (botRoleId === undefined
+    ? message.content
+    : message.content.replaceAll("<@&" + botRoleId + ">", "")
+  )
+    .replace(botMention(botUserId), "")
+    .trim(),
+  mentionsBot:
+    message.mentions.some((user) => user.id === botUserId) ||
+    (botRoleId !== undefined && message.mention_roles.includes(botRoleId)),
   sentAt: DateTime.makeUnsafe(message.timestamp),
   attachments: message.attachments.map((attachment) => ({
     id: attachmentId(message.channel_id, message.id, attachment.id),
