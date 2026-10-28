@@ -146,6 +146,66 @@ const finished = (
 })
 
 layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
+  for (const thread of [slackThread, discordThread]) {
+    it.effect(
+      `${thread._tag}: a replied turn leaves only the reply after it finishes posting`,
+      () =>
+        test((harness) =>
+          Effect.gen(function* () {
+            const posted = yield* Deferred.make<void>()
+            harness.platform.holdReplies = posted
+            yield* send(harness, thread, "Hello there.", { mention: true })
+            yield* modelCalls(harness, 1)
+            harness.model.answer(say("Hello."))
+            yield* harness.until(
+              Effect.sync(() => harness.platform.posting === 1),
+              "the reply to start posting",
+            )
+            yield* harness.wait("6 seconds")
+            assert.strictEqual(harness.platform.statusTexts(thread).length, 1)
+            assert.deepStrictEqual(harness.platform.statusDeletes, [])
+            assert.deepStrictEqual(harness.platform.replies, [])
+
+            yield* Deferred.succeed(posted, undefined)
+            yield* turnEnded(harness, thread)
+            yield* harness.until(
+              Effect.sync(() => {
+                const status = harness.platform.statuses[0]!
+                return status.deleted || status.texts.at(-1)!.startsWith("Done")
+              }),
+              "the final status update",
+            )
+            assert.deepStrictEqual(harness.platform.replies, [{ thread, text: "Hello." }])
+            assert.deepStrictEqual(harness.platform.statusTexts(thread), [])
+            assert.deepStrictEqual(harness.platform.statusDeletes, [{ thread, messageId: "0" }])
+
+            const texts = [...harness.platform.statuses[0]!.texts]
+            yield* harness.wait("10 seconds")
+            assert.deepStrictEqual(harness.platform.statuses[0]!.texts, texts)
+            assert.deepStrictEqual(harness.platform.statusTexts(thread), [])
+          }),
+        ),
+    )
+
+    it.effect(`${thread._tag}: a failed status delete falls back to Done instead of Working`, () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          harness.platform.failStatusDeletes = true
+          yield* firstTurn(harness, thread)
+          yield* turnEnded(harness, thread)
+          yield* harness.until(
+            Effect.sync(() => harness.platform.statusTexts(thread)[0]?.startsWith("Done") ?? false),
+            "the fallback Done status",
+          )
+          assert.deepStrictEqual(harness.platform.statusDeletes, [{ thread, messageId: "0" }])
+          assert.strictEqual(harness.platform.statusTexts(thread).length, 1)
+          assert.match(harness.platform.statusTexts(thread)[0]!, /^Done · .* · 0 actions$/)
+          assert.deepStrictEqual(harness.platform.replies, [{ thread, text: "Hello." }])
+        }),
+      ),
+    )
+  }
+
   it.effect(
     "a mention backfills the thread, starts a turn and records its reply, usage, model and actions",
     () =>
@@ -319,6 +379,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
             ),
             "the status to say Stopped",
           )
+          assert.deepStrictEqual(harness.platform.statusDeletes, [])
           yield* harness.until(
             Effect.sync(() => harness.sandboxes.releases.length === 1),
             "the sandbox release",
@@ -498,6 +559,16 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           finished({ status: "deadline", wrappedUp: true, actions: 3 }),
         ])
         yield* harness.until(
+          Effect.sync(
+            () =>
+              harness.platform
+                .statusTexts(slackThread)[0]
+                ?.startsWith("Stopped at the time limit") ?? false,
+          ),
+          "the time-limit status",
+        )
+        assert.deepStrictEqual(harness.platform.statusDeletes, [])
+        yield* harness.until(
           Effect.sync(() => harness.sandboxes.releases.length === 1),
           "the sandbox release",
         )
@@ -524,7 +595,33 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           ),
           "the status to give the category",
         )
+        assert.deepStrictEqual(harness.platform.statusDeletes, [])
         assert.deepStrictEqual(harness.platform.replies, [])
+      }),
+    ),
+  )
+
+  it.effect("a busy turn keeps its status message without posting a reply", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        harness.sandboxes.busy = true
+        yield* send(harness, slackThread, "Run the tests.", { mention: true })
+        yield* turnEnded(harness, slackThread)
+        yield* harness.until(
+          Effect.sync(
+            () =>
+              harness.platform.statusTexts(slackThread)[0]?.startsWith("Every sandbox") ?? false,
+          ),
+          "the busy status",
+        )
+        assert.deepStrictEqual(harness.platform.statusTexts(slackThread), [
+          "Every sandbox is busy right now. Try again in a while.",
+        ])
+        assert.deepStrictEqual(harness.platform.statusDeletes, [])
+        assert.deepStrictEqual(harness.platform.replies, [])
+        assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+          finished({ status: "failed", errorCategory: "busy" }),
+        ])
       }),
     ),
   )

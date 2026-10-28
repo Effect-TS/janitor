@@ -139,6 +139,11 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.mapError(platformError),
       ),
+    deleteStatus: (thread, messageId) =>
+      discordThread(thread).pipe(
+        Effect.flatMap(({ threadId }) => rest.deleteMessage(threadId, messageId)),
+        Effect.mapError(platformError),
+      ),
     postReply: (thread, text, options) => {
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
       if (chunks.length > MAX_CHUNKS)

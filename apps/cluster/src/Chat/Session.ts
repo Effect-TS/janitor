@@ -497,7 +497,21 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         )
         if (Option.isSome(saved)) {
           const turn = saved.value
-          yield* editStatus(running.thread, turn.statusMessageId, finalStatus(turn, now))
+          const final = editStatus(running.thread, turn.statusMessageId, finalStatus(turn, now))
+          // A reply speaks for itself, so its status goes; any other end
+          // keeps it, as the turn's only output.
+          if (turn.status === "replied" && turn.statusMessageId !== null)
+            yield* platform
+              .deleteStatus(running.thread, turn.statusMessageId)
+              .pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Couldn't delete a chat status message").pipe(
+                    Effect.annotateLogs({ reason: error.message }),
+                    Effect.andThen(final),
+                  ),
+                ),
+              )
+          else yield* final
           yield* Effect.logInfo(`Chat turn ${end.status}`).pipe(
             Effect.annotateLogs({
               turnId: running.turnId,

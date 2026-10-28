@@ -43,6 +43,7 @@ import {
   sessionKey,
 } from "../../src/Chat/Platform.ts"
 import { ChatSandboxes } from "../../src/Chat/Sandbox/Sandboxes.ts"
+import { SandboxBusy } from "../../src/Chat/Sandbox/Pool.ts"
 import { ChatSession, ChatSessionLayer } from "../../src/Chat/Session.ts"
 import { ChatSessionIndex } from "../../src/Chat/SessionIndex.ts"
 
@@ -246,6 +247,8 @@ export class FakeSandboxes {
   hang = false
   /** While set, an acquire waits for ever, as when every sandbox is running a turn. */
   holdAcquires = false
+  /** While set, the pool refuses an acquire after its queue timeout. */
+  busy = false
   private finished = Deferred.makeUnsafe<"ok" | "lost">()
 
   finishScripts() {
@@ -303,6 +306,7 @@ export class FakeSandboxes {
         Effect.suspend(() => {
           const fresh = !this.acquires.includes(sessionId)
           this.acquires.push(sessionId)
+          if (this.busy) return Effect.fail(new SandboxBusy())
           const sandbox = {
             fresh,
             generation: this.acquires.length,
@@ -326,11 +330,15 @@ export class FakeSandboxes {
 export interface FakeStatus {
   readonly thread: ChatThread
   readonly texts: Array<string>
+  deleted: boolean
 }
 
 /** Slack and Discord. Status messages, replies and downloads are recorded. */
 export class FakePlatform {
   readonly statuses: Array<FakeStatus> = []
+  readonly statusDeletes: Array<{ readonly thread: ChatThread; readonly messageId: string }> = []
+  /** While set, deleting a status fails, as a denied delete does. */
+  failStatusDeletes = false
   readonly replies: Array<{ readonly thread: ChatThread; readonly text: string }> = []
   /** Replies still being posted. */
   posting = 0
@@ -371,14 +379,27 @@ export class FakePlatform {
   /** The latest text of each status message in `thread`, in order. */
   statusTexts(thread: ChatThread) {
     return this.statuses
+      .filter((status) => !status.deleted)
       .filter((status) => sessionKey(status.thread) === sessionKey(thread))
       .map((status) => status.texts.at(-1)!)
   }
 
+  readonly deleteStatus = (thread: ChatThread, messageId: string) =>
+    Effect.suspend(() => {
+      this.statusDeletes.push({ thread, messageId })
+      if (this.failStatusDeletes)
+        return Effect.fail(new ChatPlatformError({ message: "missing_permissions" }))
+      this.statuses[Number(messageId)]!.deleted = true
+      return Effect.void
+    })
+
   get layer() {
     return Layer.succeed(ChatPlatform, {
+      deleteStatus: this.deleteStatus,
       postStatus: (thread, text) =>
-        Effect.sync(() => String(this.statuses.push({ thread, texts: [text] }) - 1)),
+        Effect.sync(() =>
+          String(this.statuses.push({ thread, texts: [text], deleted: false }) - 1),
+        ),
       editStatus: (_thread, messageId, text) =>
         Effect.sync(() => {
           this.statuses[Number(messageId)]!.texts.push(text)
