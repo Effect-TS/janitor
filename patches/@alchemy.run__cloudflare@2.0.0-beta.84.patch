@@ -52,18 +52,24 @@ index 2184f3fb9e3ccb5f3a485fbbcffc14a6f44fb60d..bb7a5cf3a5c06636f4ad1ab6f63199c2
 +export declare const retryContainerPublication: <A, E extends DockerImagePublicationError | TimeoutError, R>(publication: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
  //# sourceMappingURL=ContainerPublication.d.ts.map
 diff --git a/lib/Containers/ContainerPublication.js b/lib/Containers/ContainerPublication.js
-index 650bc53ffb269f006591040066414080e1ea5d90..30098c2a57ccbd5a1ff8c5d42ed2a99d350a2e35 100644
+index 650bc53ffb269f006591040066414080e1ea5d90..440bad543b64f8a5270cdbafc9af2fa510b869e5 100644
 --- a/lib/Containers/ContainerPublication.js
 +++ b/lib/Containers/ContainerPublication.js
-@@ -1,7 +1,9 @@
+@@ -1,7 +1,13 @@
  import * as Effect from "effect/Effect";
  import * as Schedule from "effect/Schedule";
- export const retryContainerPublication = (publication) => Effect.retry(publication, {
+-export const retryContainerPublication = (publication) => Effect.retry(publication, {
 -    while: (error) => error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
-+    while: (error) => error._tag === "DockerRegistryBlobUnknown" ||
-+        error._tag === "DockerRegistryUnavailable" ||
-+        error._tag === "TimeoutError",
-     schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
+-    schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++export const retryContainerPublication = (publication) => Effect.suspend(() => {
++    // Each timeout already costs three minutes; leave room for the rest of the deploy.
++    let timeoutRetries = 0;
++    return Effect.retry(publication, {
++        while: (error) => error._tag === "TimeoutError"
++            ? timeoutRetries++ < 1
++            : error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
++        schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++    });
  });
  //# sourceMappingURL=ContainerPublication.js.map
 diff --git a/lib/Workers/Sources/Rolldown.js b/lib/Workers/Sources/Rolldown.js
@@ -141,10 +147,10 @@ index 3ab6a0d153e0f51b7cf79d653e3be922a6b3ae1b..5736b939997b08658c8a82d41b62e8c1
  
          // Resolve the pushed manifest digest from the registry itself rather
 diff --git a/src/Containers/ContainerPublication.ts b/src/Containers/ContainerPublication.ts
-index f18e8249309368db0205122c1828b5bef508edba..c9ca1421b30c5d70a03d4cc4f6943d23ee8b11a7 100644
+index f18e8249309368db0205122c1828b5bef508edba..92ae0533d5932f78a36af3ebb854f2cdf53469aa 100644
 --- a/src/Containers/ContainerPublication.ts
 +++ b/src/Containers/ContainerPublication.ts
-@@ -1,12 +1,15 @@
+@@ -1,12 +1,19 @@
  import type { DockerImagePublicationError } from "@alchemy.run/docker/RegistryError";
 +import type { TimeoutError } from "effect/Cause";
  import * as Effect from "effect/Effect";
@@ -155,13 +161,20 @@ index f18e8249309368db0205122c1828b5bef508edba..c9ca1421b30c5d70a03d4cc4f6943d23
 +export const retryContainerPublication = <A, E extends DockerImagePublicationError | TimeoutError, R>(
 +  publication: Effect.Effect<A, E, R>,
  ) =>
-   Effect.retry(publication, {
-     while: (error) =>
+-  Effect.retry(publication, {
+-    while: (error) =>
 -      error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
-+      error._tag === "DockerRegistryBlobUnknown" ||
-+      error._tag === "DockerRegistryUnavailable" ||
-+      error._tag === "TimeoutError",
-     schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
+-    schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++  Effect.suspend(() => {
++    // Each timeout already costs three minutes; leave room for the rest of the deploy.
++    let timeoutRetries = 0;
++    return Effect.retry(publication, {
++      while: (error) =>
++        error._tag === "TimeoutError"
++          ? timeoutRetries++ < 1
++          : error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
++      schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++    });
    });
 diff --git a/src/Workers/Sources/Rolldown.ts b/src/Workers/Sources/Rolldown.ts
 index efb0935ecdf910271eddd79fc3ace6ffb54e5a2a..0d4b7e44edea87cac0f614a3ef886d4d9b5a92e5 100644
