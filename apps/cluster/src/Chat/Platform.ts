@@ -73,6 +73,11 @@ export class ChatPlatform extends Context.Service<
       messageId: string,
       text: string,
     ) => Effect.Effect<void, ChatPlatformError>
+    /** Deletes a turn's status message, once the turn replied. */
+    readonly deleteStatus: (
+      thread: ChatThread,
+      messageId: string,
+    ) => Effect.Effect<void, ChatPlatformError>
     /**
      * Posts a reply and returns when its final part was published. On
      * Discord it answers `replyTo`, the message that started the turn.
@@ -109,6 +114,7 @@ export class ChatPlatform extends Context.Service<
   static readonly unavailable = Layer.succeed(this, {
     postStatus: () => noPlatform,
     editStatus: () => noPlatform,
+    deleteStatus: () => noPlatform,
     postReply: () => noPlatform,
     uploadFile: () => noPlatform,
     download: () => noPlatform,
@@ -132,6 +138,7 @@ export class ChatPlatform extends Context.Service<
         return {
           postStatus: (thread, text) => of(thread).postStatus(thread, text),
           editStatus: (thread, messageId, text) => of(thread).editStatus(thread, messageId, text),
+          deleteStatus: (thread, messageId) => of(thread).deleteStatus(thread, messageId),
           postReply: (thread, text, options) => of(thread).postReply(thread, text, options),
           uploadFile: (thread, file) => of(thread).uploadFile(thread, file),
           download: (thread, attachment, maxBytes) =>

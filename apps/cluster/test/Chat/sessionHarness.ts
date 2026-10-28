@@ -394,9 +394,7 @@ export class FakePlatform {
     })
 
   get layer() {
-    // The tests introduce this operation before the production platform contract does.
-    const platform: Context.Service.Shape<typeof ChatPlatform> &
-      Pick<FakePlatform, "deleteStatus"> = {
+    return Layer.succeed(ChatPlatform, {
       deleteStatus: this.deleteStatus,
       postStatus: (thread, text) =>
         Effect.sync(() =>
@@ -439,8 +437,7 @@ export class FakePlatform {
             ? Effect.fail(new ChatPlatformError({ message: "ratelimited" }))
             : Effect.succeed(this.threadHistory)
         }),
-    }
-    return Layer.succeed(ChatPlatform, platform)
+    })
   }
 }
 

@@ -276,6 +276,14 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.mapError(platformError),
       ),
+    deleteStatus: (thread, messageId) =>
+      writable(thread).pipe(
+        Effect.flatMap(({ channel }) =>
+          api.call("chat.delete", { channel, ts: messageId }, { write: true }),
+        ),
+        Effect.asVoid,
+        Effect.mapError(platformError),
+      ),
     postReply: (thread, text) => {
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
       if (chunks.length > MAX_CHUNKS)
