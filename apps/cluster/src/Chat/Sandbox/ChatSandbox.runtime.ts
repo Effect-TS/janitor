@@ -39,8 +39,6 @@ const DENO_VERSION = "2.9.6"
 const PREFETCHED: ReadonlyArray<{ readonly repo: string; readonly branch: string }> = [
   { repo: "Effect-TS/effect", branch: "main" },
   { repo: "Effect-TS/website", branch: "main" },
-  { repo: "Effectful-Tech/clanka", branch: "master" },
-  { repo: "Effect-TS/janitor", branch: "main" },
 ]
 
 /**
