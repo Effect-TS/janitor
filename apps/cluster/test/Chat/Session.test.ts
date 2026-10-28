@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import { assert, layer } from "@effect/vitest"
+import { assert, describe, it, layer } from "@effect/vitest"
 import * as Clock from "effect/Clock"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Deferred from "effect/Deferred"
@@ -9,7 +9,7 @@ import * as Layer from "effect/Layer"
 import * as Prompt from "effect/ai/Prompt"
 import { resumeMessage, switchedOffMessage, wrapUpMessage } from "@janitor/domain/Chat/Prompt"
 import { type ChatThread, sessionKey } from "../../src/Chat/Platform.ts"
-import type { TranscriptResult, TranscriptTurn } from "../../src/Chat/Session.ts"
+import { landedInputs, type TranscriptResult, type TranscriptTurn } from "../../src/Chat/Session.ts"
 import {
   discordThread,
   makeSessionHarness,
@@ -628,16 +628,28 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
             mediaType: "application/octet-stream",
             size: 21 * 1024 * 1024,
           }
+          // Reported as small, but more than 20 MB arrives.
+          const understated = {
+            id: "F4",
+            name: "trace.bin",
+            mediaType: "application/octet-stream",
+            size: 10,
+          }
           harness.platform.files.set(notes.id, new TextEncoder().encode("notes"))
           harness.platform.files.set(screenshot.id, new Uint8Array([137, 80, 78, 71]))
+          harness.platform.files.set(understated.id, new Uint8Array(20 * 1024 * 1024 + 1))
           yield* send(harness, slackThread, "What's wrong in the screenshot?", {
             mention: true,
-            attachments: [notes, screenshot, dump],
+            attachments: [notes, screenshot, dump, understated],
           })
           yield* modelCalls(harness, 1)
 
-          // The file over 20 MB is never fetched.
-          assert.deepStrictEqual(harness.platform.downloads, [notes.id, screenshot.id])
+          // The file reported over 20 MB is never fetched, and the one that turns out bigger is dropped.
+          assert.deepStrictEqual(harness.platform.downloads, [
+            notes.id,
+            screenshot.id,
+            understated.id,
+          ])
           const written = harness.sandboxes.written.map((file) => file.path)
           assert.strictEqual(written.length, 2)
           assert.isTrue(written[0]!.endsWith("/notes.txt"))
@@ -657,6 +669,107 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           assert.strictEqual(images.length, 1)
         }),
       ),
+  )
+
+  it.effect.fails(
+    "attachments with the same name in one turn are all kept, and a steered image is pointed out",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          const report = (id: string) => ({
+            id,
+            name: "report.txt",
+            mediaType: "text/plain",
+            size: 6,
+          })
+          const chart = { id: "C1", name: "chart.png", mediaType: "image/png", size: 4 }
+          harness.platform.files.set("R1", new TextEncoder().encode("first"))
+          harness.platform.files.set("R2", new TextEncoder().encode("second"))
+          harness.platform.files.set(chart.id, new Uint8Array([137, 80, 78, 71]))
+          harness.sandboxes.hang = true
+          yield* send(harness, slackThread, "Compare these reports.", {
+            mention: true,
+            attachments: [report("R1")],
+          })
+          yield* modelCalls(harness, 1)
+          harness.model.answer(run("cat report.txt"))
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.scripts.length === 1),
+            "the script to start",
+          )
+
+          harness.gate.answer = 0.9
+          yield* send(harness, slackThread, "Here's the newer one, and a chart.", {
+            attachments: [report("R2"), chart],
+          })
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.written.length === 3),
+            "the steered files",
+          )
+          yield* harness.wait("5 seconds")
+          harness.sandboxes.finishScripts()
+          yield* modelCalls(harness, 2)
+
+          const [first, second, image] = harness.sandboxes.written.map((file) => file.path)
+          assert.isTrue(first!.endsWith("/report.txt"))
+          assert.isTrue(second!.endsWith("/report.txt"))
+          assert.notStrictEqual(first, second)
+          const prompt = seen(harness.model.last)
+          assert.include(prompt, second!)
+          assert.include(prompt, image!)
+          assert.include(prompt, "readFile")
+        }),
+      ),
+  )
+
+  it.effect.fails("a stalled attachment download doesn't keep the turn past minute 20", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const startedAt = yield* Clock.currentTimeMillis
+        const at = (minutes: number, seconds: number) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
+          )
+        harness.platform.holdDownloads = true
+        yield* send(harness, slackThread, "Read the build log.", {
+          mention: true,
+          attachments: [{ id: "L1", name: "build.log", mediaType: "text/plain", size: 10 }],
+        })
+        yield* harness.until(
+          Effect.sync(() => harness.platform.downloads.length === 1),
+          "the download to start",
+        )
+        yield* at(19, 50)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
+        yield* at(20, 10)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
+      }),
+    ),
+  )
+
+  it.effect.fails('a stalled download in a steered message doesn\'t hold up "stop"', () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* longTurn(harness, slackThread, "Fix the flaky test.")
+        harness.platform.holdDownloads = true
+        harness.gate.answer = 0.9
+        yield* send(harness, slackThread, "Here's the failing log.", {
+          author: "Grace",
+          attachments: [{ id: "L1", name: "test.log", mediaType: "text/plain", size: 10 }],
+        })
+        yield* send(harness, slackThread, "stop")
+        yield* harness.until(
+          Effect.sync(
+            () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
+          ),
+          "the status to say Stopped",
+        )
+        assert.deepStrictEqual(
+          turns(yield* harness.transcript(slackThread)).map((turn) => turn.status),
+          ["stopped"],
+        )
+      }),
+    ),
   )
 
   it.effect("an admission is remembered for an hour", () =>
@@ -781,4 +894,19 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       }),
     ),
   )
+})
+
+describe("landedInputs", () => {
+  const user = (text: string) =>
+    Prompt.makeMessage("user", { content: [Prompt.makePart("text", { text })] })
+  const older = { text: "Ada: yes", ids: ["1"] }
+  const newer = { text: "Ada: yes", ids: ["2"] }
+
+  it.fails("lands each appended message on one input, the oldest with its text", () => {
+    assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes")]), [older])
+    assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes"), user("Ada: yes")]), [
+      older,
+      newer,
+    ])
+  })
 })

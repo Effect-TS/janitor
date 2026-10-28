@@ -342,6 +342,8 @@ export class FakePlatform {
   readonly files = new Map<string, Uint8Array>()
   /** The ids of the attachments downloaded, in order. */
   readonly downloads: Array<string> = []
+  /** While set, a download never finishes, as a stalled transfer doesn't. */
+  holdDownloads = false
 
   /** The latest text of each status message in `thread`, in order. */
   statusTexts(thread: ChatThread) {
@@ -368,10 +370,14 @@ export class FakePlatform {
           this.replies.push({ thread, text })
         }),
       uploadFile: () => Effect.die("unexpected file upload"),
-      download: (_thread, attachment) =>
-        Effect.sync(() => {
+      download: (_thread, attachment, maxBytes) =>
+        Effect.suspend(() => {
           this.downloads.push(attachment.id)
-          return this.files.get(attachment.id) ?? new Uint8Array()
+          if (this.holdDownloads) return Effect.never
+          const content = this.files.get(attachment.id) ?? new Uint8Array()
+          return content.length > maxBytes
+            ? Effect.fail(new ChatPlatformError({ message: "file_too_large" }))
+            : Effect.succeed(content)
         }),
       history: () => Effect.sync(() => this.threadHistory),
     })

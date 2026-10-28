@@ -83,10 +83,14 @@ export class ChatPlatform extends Context.Service<
       thread: ChatThread,
       file: { readonly name: string; readonly content: string },
     ) => Effect.Effect<void, ChatPlatformError>
-    /** An attachment's bytes. */
+    /**
+     * An attachment's bytes. Reading stops past `maxBytes`, and a longer
+     * file fails, whatever size the platform reported.
+     */
     readonly download: (
       thread: ChatThread,
       attachment: ChatAttachment,
+      maxBytes: number,
     ) => Effect.Effect<Uint8Array, ChatPlatformError>
     /** The thread's latest messages, oldest first, for the backfill when the bot joins it. */
     readonly history: (

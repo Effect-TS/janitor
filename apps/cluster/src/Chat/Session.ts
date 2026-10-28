@@ -200,10 +200,19 @@ interface TurnEnd {
 }
 
 /** A text the turn sent the model, and the messages it carries, until it lands in the history. */
-interface InFlight {
+export interface InFlight {
   readonly text: string
   readonly ids: ReadonlyArray<string>
 }
+
+/**
+ * The in-flight texts that `appended` user messages land: each message
+ * lands at most one, the oldest with its text. Not implemented yet (EFF-3018).
+ */
+export const landedInputs = (
+  _inFlight: ReadonlyArray<InFlight>,
+  _appended: ReadonlyArray<Prompt.Message>,
+): ReadonlyArray<InFlight> => []
 
 /** The turn this entity is running. */
 interface Running {
@@ -383,10 +392,12 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 name = `${copy}-${safeName(attachment.name)}`
               used.add(name)
               const path = `${folder}/${name}`
-              const saved = yield* platform.download(running.thread, attachment).pipe(
-                Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
-                Effect.result,
-              )
+              const saved = yield* platform
+                .download(running.thread, attachment, MAX_ATTACHMENT_BYTES)
+                .pipe(
+                  Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
+                  Effect.result,
+                )
               if (saved._tag === "Failure") {
                 yield* Effect.logWarning("Couldn't save a chat attachment in the sandbox").pipe(
                   Effect.annotateLogs({ reason: saved.failure._tag }),
