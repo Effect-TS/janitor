@@ -129,14 +129,15 @@ describe("Slack platform", () => {
     }).pipe(Effect.provide(services)),
   )
 
-  it.effect("posts nothing to a channel shared with another organization", () =>
+  it.effect("posts to a channel shared with another organization", () =>
     Effect.gen(function* () {
       const platform = yield* ChatPlatform
       posts = 0
+      respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
       const shared: ChatThread = { ...thread, channel: "C-shared" }
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(platform.postReply(shared, "hello"))))
-      assert.isTrue(Exit.isFailure(yield* Effect.exit(platform.postStatus(shared, "Starting"))))
-      assert.strictEqual(posts, 0)
+      yield* platform.postReply(shared, "hello")
+      yield* platform.postStatus(shared, "Starting")
+      assert.strictEqual(posts, 2)
     }).pipe(Effect.provide(services)),
   )
 })

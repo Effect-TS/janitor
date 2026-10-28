@@ -254,8 +254,12 @@ describe("Slack ingress", () => {
       )
       assert.strictEqual((yield* ingress.post(event, { timestamp: now - 301 })).status, 401)
       assert.strictEqual(
-        (yield* ingress.post(eventCallback(mention("1700000001.000100"), { team_id: "T2" })))
-          .status,
+        (yield* ingress.post(
+          eventCallback(mention("1700000001.000100"), {
+            team_id: "T2",
+            authorizations: [{ team_id: "T2", user_id: "UBOT2", is_bot: true }],
+          }),
+        )).status,
         403,
       )
       assert.strictEqual(
@@ -390,25 +394,39 @@ describe("Slack ingress", () => {
     }),
   )
 
-  it.effect("answers a direct message and a Slack Connect channel without a session", () =>
+  it.effect("answers a direct message without a session", () =>
     Effect.gen(function* () {
       const ingress = yield* makeIngress()
       yield* ingress.post(
         eventCallback(message("1700000030.000100", { channel: "D1", channel_type: "im" })),
       )
-      // A mention starts nothing in a shared channel, and a channel shared after
-      // its session started no longer reaches it.
-      yield* ingress.post(eventCallback(mention("1700000031.000100", { channel: "C-shared" })))
-      yield* ingress.post(
-        eventCallback(
-          message("1700000032.000100", { channel: "C-shared", thread_ts: SESSION_THREAD }),
-        ),
-      )
       assert.deepStrictEqual(ingress.handedOff, [])
       assert.deepStrictEqual(
         ingress.posted.map(({ channel }) => channel),
-        ["D1", "C-shared"],
+        ["D1"],
       )
+    }),
+  )
+
+  it.effect("in a Slack Connect channel, only a member's mention starts a session", () =>
+    Effect.gen(function* () {
+      const ingress = yield* makeIngress()
+      yield* ingress.post(
+        eventCallback(mention("1700000040.000100", { channel: "C-shared", user: "U-connect" })),
+      )
+      // A channel the other organization hosts can come under its team, on
+      // behalf of the installation in ours.
+      assert.strictEqual(
+        (yield* ingress.post(
+          eventCallback(mention("1700000041.000100", { channel: "C-shared" }), { team_id: "T2" }),
+        )).status,
+        200,
+      )
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => message.id),
+        ["1700000041.000100"],
+      )
+      assert.deepStrictEqual(ingress.posted, [])
     }),
   )
 })
