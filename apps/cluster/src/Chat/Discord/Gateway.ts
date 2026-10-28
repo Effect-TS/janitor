@@ -16,6 +16,7 @@ import * as References from "effect/References"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Socket from "effect/socket/Socket"
 import { restLayer } from "./Api.ts"
+import { chatBotGate } from "../Config.ts"
 import { DiscordBotConfig, discordSettings } from "./Config.ts"
 import * as Ingress from "./Ingress.ts"
 
@@ -125,14 +126,25 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
           sql.exec(`DELETE FROM kv WHERE key = ?`, key)
         }
 
-        const settings = yield* Effect.orDie(discordSettings)
-        // Discord was turned off: the alarm stops the shard.
+        // The Worker's rule: Discord is on only while the bot is. Settings
+        // change only with a deploy, which rebuilds this object, so an
+        // instance holding a socket always runs under the current settings.
+        const settings = (yield* Effect.orDie(chatBotGate))
+          ? yield* Effect.orDie(discordSettings)
+          : Option.none()
+        // Turned off: no shard starts, and the alarm left from before the
+        // deploy wakes the object once to forget its session and stop.
         if (Option.isNone(settings)) {
           return {
             start: () => Effect.void,
             alarm: () =>
               Effect.promise(() => storage.deleteAlarm()).pipe(
-                Effect.andThen(Effect.sync(() => kvDelete("shard-state"))),
+                Effect.andThen(
+                  Effect.sync(() => {
+                    kvDelete("enabled")
+                    kvDelete("shard-state")
+                  }),
+                ),
               ),
           }
         }

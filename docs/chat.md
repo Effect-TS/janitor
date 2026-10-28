@@ -114,7 +114,7 @@ The development stack's `janitor-dev` tunnel forwards `/api/v1/webhooks/slack` t
 - A mention of the bot from an admitted user in a text or announcement channel starts a thread from that message, archived after a day of quiet, and a session on it. A mention inside an existing thread uses that thread. When the bot joins a thread that already has messages, it reads the last 100 as context.
 - In a thread with a session, every message from the configured server reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot always starts or steers a turn.
 - Admitted users are those with the configured role in `member.roles` on the message. A revoked role counts from the author's next message. Everyone else in the server is an outsider: their messages in a thread with a session reach the model as context only, and their mentions start nothing. Messages from other servers, and messages with no member, such as webhooks, are ignored.
-- Messages from bots, janitor's own included, are context only. Edits, deletions, and system messages such as joins and pins are ignored.
+- Messages from other bots are context only. janitor's own replies are already in the session, so the gateway skips them, and the backfill reads them as bot messages. Edits, deletions, and system messages such as joins and pins are ignored.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
 - Replies are posted as Markdown, up to 2,000 characters a message, with code fences kept balanced. The first one answers the message that started the turn. A reply that would need more than five messages is uploaded as `reply.md`. Replies can ping users, never a role, `@everyone` or `@here`. Status messages ping nobody, and no post unfurls links.
 - Attachments from admitted users are fetched from Discord's CDN for the turn, up to 20 MB each.
@@ -148,7 +148,7 @@ Discord is on once all three of these are set, and off while any of them is miss
 | `DISCORD_GUILD_ID`  | With developer mode on in Discord, right-click the server and **Copy Server ID** |
 | `DISCORD_ROLE_ID`   | **Server Settings**, **Roles**, right-click the role and **Copy Role ID**        |
 
-Turning Discord off stops the shard at the gateway's next alarm. The object stays declared, so turning Discord on again resumes where it left off.
+Turning the bot or Discord off takes a deploy, which restarts the gateway. The restarted object finds no settings, starts no shard, and on its next alarm forgets its session and stops waking. It stays declared, so its storage survives, and turning Discord on again starts a new gateway session.
 
 ### Inviting the bot
 

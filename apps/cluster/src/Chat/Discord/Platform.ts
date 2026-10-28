@@ -76,17 +76,23 @@ const make = Effect.gen(function* () {
       Effect.mapError(platformError),
     )
 
-  const uploadFile = (
+  /**
+   * Answers the message that started the turn. The thread's first message
+   * lives in its parent channel, so a missing reference posts on its own.
+   */
+  const reference = (replyTo: string | undefined) =>
+    replyTo === undefined ? undefined : { message_id: replyTo, fail_if_not_exists: false }
+
+  const upload = (
     thread: ChatThread,
     file: { readonly name: string; readonly content: string },
+    replyTo?: string,
   ) =>
     post(thread, {
       allowed_mentions: noMentions,
       attachments: [{ id: "0", filename: file.name }],
-    }).pipe(
-      rest.withFiles([new File([file.content], file.name, { type: "text/markdown" })]),
-      Effect.asVoid,
-    )
+      message_reference: reference(replyTo),
+    }).pipe(rest.withFiles([new File([file.content], file.name, { type: "text/markdown" })]))
 
   const history = (thread: ChatThread, limit: number) =>
     Effect.gen(function* () {
@@ -156,20 +162,14 @@ const make = Effect.gen(function* () {
     postReply: (thread, text, options) => {
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
       if (chunks.length > MAX_CHUNKS)
-        return uploadFile(thread, { name: "reply.md", content: text }).pipe(
-          Effect.andThen(DateTime.now),
+        return upload(thread, { name: "reply.md", content: text }, options?.replyTo).pipe(
+          Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)),
         )
       return Effect.forEach(chunks, (chunk, index) =>
         post(thread, {
           content: chunk,
           allowed_mentions: userMentions,
-          // A reply in the thread to the message that started the turn. The
-          // thread's first message lives in its parent channel, so a missing
-          // reference posts the reply on its own.
-          message_reference:
-            index === 0 && options?.replyTo !== undefined
-              ? { message_id: options.replyTo, fail_if_not_exists: false }
-              : undefined,
+          message_reference: index === 0 ? reference(options?.replyTo) : undefined,
         }),
       ).pipe(
         Effect.flatMap((posted) => {
@@ -180,7 +180,7 @@ const make = Effect.gen(function* () {
         }),
       )
     },
-    uploadFile,
+    uploadFile: (thread, file) => Effect.asVoid(upload(thread, file)),
     download: (_thread, attachment, maxBytes) =>
       Effect.gen(function* () {
         const ids = parseAttachmentId(attachment.id)
