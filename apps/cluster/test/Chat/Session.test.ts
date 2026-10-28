@@ -511,7 +511,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect.fails(
+  it.effect(
     "the kill switch stops a running turn, starts no new one and says so once per thread",
     () =>
       test((harness) =>
@@ -575,34 +575,32 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect.fails(
-    "a turn still ends at minute 20 when its sandbox is lost and no new one comes",
-    () =>
-      test((harness) =>
-        Effect.gen(function* () {
-          const startedAt = yield* Clock.currentTimeMillis
-          const at = (minutes: number, seconds: number) =>
-            Effect.flatMap(Clock.currentTimeMillis, (now) =>
-              harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
-            )
-          yield* longTurn(harness, slackThread, "Upgrade every dependency.")
-
-          yield* at(18, 50)
-          harness.sandboxes.holdAcquires = true
-          harness.sandboxes.loseScripts()
-          yield* harness.until(
-            Effect.sync(() => harness.sandboxes.acquires.length === 2),
-            "the second acquire",
+  it.effect("a turn still ends at minute 20 when its sandbox is lost and no new one comes", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const startedAt = yield* Clock.currentTimeMillis
+        const at = (minutes: number, seconds: number) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
           )
-          yield* at(19, 50)
-          assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
-          yield* at(20, 10)
-          assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
-        }),
-      ),
+        yield* longTurn(harness, slackThread, "Upgrade every dependency.")
+
+        yield* at(18, 50)
+        harness.sandboxes.holdAcquires = true
+        harness.sandboxes.loseScripts()
+        yield* harness.until(
+          Effect.sync(() => harness.sandboxes.acquires.length === 2),
+          "the second acquire",
+        )
+        yield* at(19, 50)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
+        yield* at(20, 10)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
+      }),
+    ),
   )
 
-  it.effect.fails("a reply that can't be posted fails the turn", () =>
+  it.effect("a reply that can't be posted fails the turn", () =>
     test((harness) =>
       Effect.gen(function* () {
         harness.platform.failReplies = true
@@ -617,7 +615,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect.fails(
+  it.effect(
     "attachments go into the turn's folder in the sandbox, up to 20 MB each, and images reach the model",
     () =>
       test((harness) =>
@@ -661,7 +659,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect.fails("an admission is remembered for an hour", () =>
+  it.effect("an admission is remembered for an hour", () =>
     test((harness) =>
       Effect.gen(function* () {
         yield* harness.admit(slackThread, "U-Ada")
@@ -675,7 +673,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect.fails("the transcript shows each turn's own history", () =>
+  it.effect("the transcript shows each turn's own history", () =>
     test((harness) =>
       Effect.gen(function* () {
         yield* send(harness, slackThread, "First question.", { mention: true })
@@ -709,7 +707,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect.fails("cancel stops the running turn and keeps the session", () =>
+  it.effect("cancel stops the running turn and keeps the session", () =>
     test((harness) =>
       Effect.gen(function* () {
         yield* longTurn(harness, slackThread, "Run the whole test suite.")

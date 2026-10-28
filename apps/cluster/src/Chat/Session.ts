@@ -28,12 +28,18 @@ import {
   wrapUpMessage,
 } from "@janitor/domain/Chat/Prompt"
 import type { HistoryChange } from "../PullRequestReview/Agent.ts"
-import { ChatAgent, ChatAgentLayer, type ChatLoop, type ChatProgress } from "./Agent.ts"
+import {
+  ChatAgent,
+  ChatAgentLayer,
+  type ChatImage,
+  type ChatLoop,
+  type ChatProgress,
+} from "./Agent.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
 import { ChatMessage, ChatPlatform, ChatThread } from "./Platform.ts"
-import { ChatSandboxes } from "./Sandbox/Sandboxes.ts"
+import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
 import {
   GateOutcome,
   makeSessionStorage,
@@ -145,6 +151,18 @@ const BACKFILL = 100
 /** The gate passes a message at this probability or above. */
 const GATE_PASS = 0.5
 
+/** Attachments up to this size are written into the turn's folder; bigger ones are never fetched. */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+
+/** Each turn's attachments go in a folder of its own under here. */
+const ATTACHMENTS_DIRECTORY = "/workspace/attachments"
+
+/** An attachment's name as one safe path segment. */
+const safeName = (name: string) => name.replace(/[/\\]/g, "_").replace(/^\.+/, "_") || "file"
+
+/** How long a remembered admission counts. */
+const ADMISSION_TTL = Duration.hours(1)
+
 const isStop = (text: string) => /^\s*stop[\s.!]*$/i.test(text)
 
 const switchedOff = (state: KillSwitchState, thread: ChatThread) =>
@@ -175,16 +193,6 @@ const userText = (message: Prompt.Message) =>
     ? undefined
     : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
 
-/** Messages as the model sees them, each prefixed with its author. */
-const render = (messages: ReadonlyArray<StoredMessage>) =>
-  threadMessages(
-    messages.map(({ message }) => ({
-      author: message.author.name,
-      kind: message.author.class,
-      text: message.text,
-    })),
-  )
-
 /** What a turn ended with. */
 interface TurnEnd {
   readonly status: Exclude<TurnStatus, "running">
@@ -204,6 +212,8 @@ interface Running {
   fiber: Fiber.Fiber<void> | undefined
   /** The loop, once it started; steers go to it. */
   loop: ChatLoop | undefined
+  /** The sandbox the loop runs in, for the attachments of steered messages. */
+  sandbox: ChatSandbox | undefined
   /** Set once the loop replied: a message now waits for the next turn. */
   ending: boolean
   /** Set by a stop, so the turn's own end leaves finishing it to the stop. */
@@ -337,10 +347,64 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         const pending = (yield* storage.undelivered).filter(
           ({ message }) => !inFlight.has(message.id),
         )
-        if (!pending.some((stored) => stored.wantsTurn)) return
-        const text = render(pending)
+        if (!pending.some((stored) => stored.wantsTurn) || running.sandbox === undefined) return
+        // A steer is text only: its images are in the turn's folder, not image input.
+        const { text } = yield* prepare(running, running.sandbox, pending)
         running.inFlight.push({ text, ids: pending.map(({ message }) => message.id) })
         yield* running.loop.steer(text)
+      })
+
+    /**
+     * Thread messages as the model sees them, each prefixed with its author.
+     * Admitted users' attachments are written into the turn's folder first,
+     * up to 20 MB each, and each message says where its files are; images
+     * also come back for image input.
+     */
+    const prepare = (
+      running: Running,
+      sandbox: ChatSandbox,
+      pending: ReadonlyArray<StoredMessage>,
+    ) =>
+      Effect.gen(function* () {
+        const folder = `${ATTACHMENTS_DIRECTORY}/${running.turnId}`
+        const used = new Set<string>()
+        const images: Array<ChatImage> = []
+        const messages = []
+        for (const { message } of pending) {
+          const notes: Array<string> = []
+          if (message.author.class === "admitted")
+            for (const attachment of message.attachments) {
+              if (attachment.size > MAX_ATTACHMENT_BYTES) {
+                notes.push(`[${attachment.name}: not fetched, it is over 20 MB]`)
+                continue
+              }
+              let name = safeName(attachment.name)
+              for (let copy = 2; used.has(name); copy++)
+                name = `${copy}-${safeName(attachment.name)}`
+              used.add(name)
+              const path = `${folder}/${name}`
+              const saved = yield* platform.download(running.thread, attachment).pipe(
+                Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
+                Effect.result,
+              )
+              if (saved._tag === "Failure") {
+                yield* Effect.logWarning("Couldn't save a chat attachment in the sandbox").pipe(
+                  Effect.annotateLogs({ reason: saved.failure._tag }),
+                )
+                notes.push(`[${attachment.name}: couldn't be fetched]`)
+                continue
+              }
+              notes.push(`[attached: ${path}]`)
+              if (attachment.mediaType.startsWith("image/"))
+                images.push({ name, mediaType: attachment.mediaType, data: saved.success })
+            }
+          messages.push({
+            author: message.author.name,
+            kind: message.author.class,
+            text: [message.text, ...notes].join("\n"),
+          })
+        }
+        return { text: threadMessages(messages), images }
       })
 
     /** Starts a turn for the messages waiting. Run with `transitions` held. */
@@ -374,6 +438,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           thread,
           fiber: undefined,
           loop: undefined,
+          sandbox: undefined,
           ending: false,
           stopping: false,
           inFlight: [],
@@ -409,14 +474,27 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         1,
       )(Effect.suspend(() => (running.stopping ? Effect.void : finish(running, outcome))))
 
-    /** Commits a step of the loop's history, and marks what it delivered. */
+    /**
+     * Commits a step of the loop's history with the thread messages it
+     * delivered, in one transaction. Each user message the step appended
+     * lands at most one text sent to the model, the oldest with its text.
+     */
     const commitStep = (running: Running, change: HistoryChange) =>
       Effect.gen(function* () {
-        yield* storage.commitHistory(change)
-        const texts = new Set(change.messages.flatMap((message) => userText(message) ?? []))
-        const landed = running.inFlight.filter((sent) => texts.has(sent.text))
-        if (landed.length === 0) return
-        yield* storage.markDelivered(landed.flatMap((sent) => sent.ids))
+        const landed: Array<InFlight> = []
+        if (change._tag === "Appended")
+          for (const message of change.messages) {
+            const text = userText(message)
+            const sent = running.inFlight.find(
+              (candidate) => candidate.text === text && !landed.includes(candidate),
+            )
+            if (sent !== undefined) landed.push(sent)
+          }
+        yield* storage.commitStep(
+          running.turnId,
+          change,
+          landed.flatMap((sent) => sent.ids),
+        )
         for (const sent of landed) running.inFlight.splice(running.inFlight.indexOf(sent), 1)
       }).pipe(Effect.orDie)
 
@@ -432,20 +510,38 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           Effect.sync(() => {
             running.view = `Waiting for a sandbox (${ahead} ahead)`
           })
-        const acquired = yield* Effect.acquireRelease(
-          sandboxes
-            .acquire({
-              sessionId: entityId,
-              turnId: turn.turnId,
-              startBudget: config.deadline,
-              onQueued: queued,
-            })
-            .pipe(Effect.result),
+        // A resume waits for its sandbox no longer than the turn's deadline. The
+        // first acquire's wait in the queue doesn't count against the turn.
+        const remaining =
+          turn.startedAt === null
+            ? undefined
+            : turn.startedAt + Duration.toMillis(config.deadline) - (yield* Clock.currentTimeMillis)
+        if (remaining !== undefined && remaining <= 0)
+          return { status: "deadline" } satisfies TurnEnd
+        const acquiring = sandboxes.acquire({
+          sessionId: entityId,
+          turnId: turn.turnId,
+          startBudget: remaining === undefined ? config.deadline : Duration.millis(remaining),
+          onQueued: queued,
+        })
+        const granted = yield* Effect.acquireRelease(
+          // Interruptible, so a stop or a shutdown doesn't wait out the queue.
+          Effect.interruptible(
+            remaining === undefined
+              ? Effect.map(acquiring, Option.some)
+              : Effect.timeoutOption(acquiring, Duration.millis(remaining)),
+          ).pipe(Effect.result),
           (result) =>
-            result._tag === "Success"
-              ? sandboxes.release(entityId, result.success.generation)
+            result._tag === "Success" && Option.isSome(result.success)
+              ? sandboxes.release(entityId, result.success.value.generation)
               : Effect.void,
         )
+        if (granted._tag === "Success" && Option.isNone(granted.success))
+          return { status: "deadline" } satisfies TurnEnd
+        const acquired =
+          granted._tag === "Success"
+            ? ({ _tag: "Success", success: Option.getOrThrow(granted.success) } as const)
+            : granted
         if (acquired._tag === "Failure") {
           const error = acquired.failure
           yield* Effect.logWarning("Couldn't get a chat sandbox").pipe(
@@ -473,9 +569,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         const multicaWorkspaceId = yield* Effect.orDie(chatMulticaWorkspaceId)
         const history = yield* storage.history(resumed)
         const pending = yield* storage.undelivered
+        running.sandbox = acquired.success
+        const prepared = yield* prepare(running, acquired.success, pending)
         const prompt = [
           ...(resumed ? [resumeMessage] : []),
-          ...(pending.length === 0 ? [] : [render(pending)]),
+          ...(pending.length === 0 ? [] : [prepared.text]),
         ].join("\n\n")
         // Nothing for a new turn to answer: every message it was for has been seen.
         if (prompt === "") return { status: "replied" } satisfies TurnEnd
@@ -490,6 +588,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           executor: acquired.success.executor,
           history,
           prompt,
+          images: prepared.images,
           onStep: (change) => commitStep(running, change),
           onProgress: (progress: ChatProgress) =>
             Effect.gen(function* () {
@@ -514,6 +613,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
             running.loop = undefined
+            running.sandbox = undefined
           }),
         )
 
@@ -539,15 +639,16 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         switch (result._tag) {
           case "Replied": {
             running.ending = true
-            yield* platform
+            // Never retried here: the transport retries what is safe to retry.
+            const posted = yield* platform
               .postReply(running.thread, result.text)
-              .pipe(
-                Effect.catch((error) =>
-                  Effect.logError("Couldn't post a chat reply").pipe(
-                    Effect.annotateLogs({ reason: error.message }),
-                  ),
-                ),
+              .pipe(Effect.result)
+            if (posted._tag === "Failure") {
+              yield* Effect.logError("Couldn't post a chat reply").pipe(
+                Effect.annotateLogs({ reason: posted.failure.message }),
               )
+              return { status: "failed", errorCategory: "reply_failed" } satisfies TurnEnd
+            }
             return { status: "replied" } satisfies TurnEnd
           }
           case "Interrupted":
@@ -570,7 +671,15 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           if (switchedOff(yield* killSwitch.get, running.thread)) {
             yield* Effect.logInfo("Chat kill switch is on; stopping the turn")
             // Not from this fiber: stopping the turn interrupts it.
-            yield* Effect.forkIn(withLogs(stopTurn), entityScope)
+            yield* Effect.forkIn(
+              withLogs(
+                Effect.andThen(
+                  stopTurn,
+                  Semaphore.withPermits(inbox, 1)(announceSwitchedOff(running.thread)),
+                ),
+              ),
+              entityScope,
+            )
             return
           }
           const loaded = yield* storage.loadTurn(turn.turnId).pipe(Effect.orDie)
@@ -633,6 +742,23 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         yield* end(running, outcome)
       }).pipe(Effect.orDie)
 
+    /** Tells the thread once that the bot is switched off. Run with `inbox` held. */
+    const announceSwitchedOff = (thread: ChatThread) =>
+      Effect.gen(function* () {
+        const session = yield* storage.loadSession
+        if (Option.isNone(session) || session.value.switchedOffNotified) return
+        yield* storage.saveSession({ ...session.value, switchedOffNotified: true })
+        yield* platform
+          .postReply(thread, switchedOffMessage)
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Couldn't say the chat bot is switched off").pipe(
+                Effect.annotateLogs({ reason: error.message }),
+              ),
+            ),
+          )
+      }).pipe(Effect.orDie)
+
     /** Gates one stored message, then steers it, starts a turn with it or keeps it as context. */
     const handle = (thread: ChatThread, message: ChatMessage) =>
       Effect.gen(function* () {
@@ -642,19 +768,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         if (switchedOff(yield* killSwitch.get, thread)) {
           yield* storage.setGate(message.id, { _tag: "SwitchedOff" })
           yield* stopTurn
-          if (Option.isSome(session) && !session.value.switchedOffNotified) {
-            yield* storage.saveSession({ ...session.value, switchedOffNotified: true })
-            yield* platform
-              .postReply(thread, switchedOffMessage)
-              .pipe(
-                Effect.catch((error) =>
-                  Effect.logWarning("Couldn't say the chat bot is switched off").pipe(
-                    Effect.annotateLogs({ reason: error.message }),
-                  ),
-                ),
-              )
-          }
-          return
+          return yield* announceSwitchedOff(thread)
         }
         if (Option.isSome(session) && session.value.switchedOffNotified)
           yield* storage.saveSession({ ...session.value, switchedOffNotified: false })
@@ -734,11 +848,23 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             inbox,
             1,
           )(
-            Effect.flatMap(storage.ungated, (messages) =>
-              Effect.forEach(messages, ({ message }) => handle(thread, message), {
+            Effect.gen(function* () {
+              const ungated = yield* storage.ungated
+              yield* Effect.forEach(ungated, ({ message }) => handle(thread, message), {
                 discard: true,
-              }),
-            ),
+              })
+              // Gated as wanting a turn, but stopped before the turn was saved.
+              yield* Semaphore.withPermits(
+                transitions,
+                1,
+              )(
+                Effect.gen(function* () {
+                  if (current !== undefined || !(yield* storage.hasWanted)) return
+                  if (switchedOff(yield* killSwitch.get, thread)) return
+                  yield* startTurn(thread)
+                }),
+              )
+            }),
           ).pipe(withLogs, Effect.orDie),
           entityScope,
         )
@@ -789,10 +915,33 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           }),
         ).pipe(withLogs, Effect.orDie),
 
-      // Not implemented yet (EFF-3018).
-      Cancel: () => Effect.void,
-      RememberAdmission: () => Effect.void,
-      CachedAdmission: () => Effect.succeed(false),
+      Cancel: () =>
+        Semaphore.withPermits(
+          inbox,
+          1,
+        )(
+          Effect.gen(function* () {
+            if (dropped) return
+            yield* Effect.logInfo("Chat turn cancelled from the web app")
+            yield* stopTurn
+          }),
+        ).pipe(withLogs, Effect.orDie),
+
+      RememberAdmission: ({ payload }) =>
+        Effect.gen(function* () {
+          yield* storage.ensureTables
+          yield* storage.rememberAdmission(payload.userId, yield* Clock.currentTimeMillis)
+        }).pipe(withLogs, Effect.orDie),
+
+      CachedAdmission: ({ payload }) =>
+        Effect.gen(function* () {
+          const admittedAt = yield* storage.admittedAt(payload.userId)
+          const now = yield* Clock.currentTimeMillis
+          return Option.match(admittedAt, {
+            onNone: () => false,
+            onSome: (at) => now - at < Duration.toMillis(ADMISSION_TTL),
+          })
+        }).pipe(withLogs, Effect.orDie),
 
       Expire: ({ payload }) =>
         Semaphore.withPermits(
@@ -813,7 +962,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       Transcript: () =>
         Effect.gen(function* () {
           if (dropped) return { _tag: "Expired" } as const
-          const { messages, turns } = yield* storage.transcript
+          const { messages, turns, history } = yield* storage.transcript
           if (messages.length === 0 && turns.length === 0) return { _tag: "Expired" } as const
           return {
             _tag: "Available",
@@ -827,7 +976,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               model: turn.model,
               actions: turn.actions,
               usage: turn.usage,
-              messages: [],
+              messages: history.get(turn.turnId) ?? [],
             })),
           } as const
         }).pipe(withLogs, Effect.orDie),

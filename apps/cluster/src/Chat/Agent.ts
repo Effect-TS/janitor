@@ -70,10 +70,38 @@ export interface ChatTurnStart {
   /** The session's history so far, without the system message. */
   readonly history: ReadonlyArray<Prompt.Message>
   readonly prompt: string
+  /** Images sent with the prompt, as image input. */
+  readonly images: ReadonlyArray<ChatImage>
   /** Commits a history change. The loop waits for it before its next model call. */
   readonly onStep: (history: HistoryChange) => Effect.Effect<void>
   readonly onProgress: (progress: ChatProgress) => Effect.Effect<void>
 }
+
+/** An attached image the model sees with the prompt. */
+export interface ChatImage {
+  readonly name: string
+  readonly mediaType: string
+  readonly data: Uint8Array
+}
+
+/** The prompt as one user message: its text, then its images. */
+const promptWith = (text: string, images: ReadonlyArray<ChatImage>): Prompt.RawInput =>
+  images.length === 0
+    ? text
+    : Prompt.fromMessages([
+        Prompt.makeMessage("user", {
+          content: [
+            Prompt.makePart("text", { text }),
+            ...images.map((image) =>
+              Prompt.makePart("file", {
+                mediaType: image.mediaType,
+                fileName: image.name,
+                data: image.data,
+              }),
+            ),
+          ],
+        }),
+      ])
 
 export interface ChatLoop {
   /** Sends the agent a message between its steps; it lands with the next model call. */
@@ -241,7 +269,7 @@ const make = Effect.gen(function* () {
         MutableRef.set(agent.history, Prompt.fromMessages(options.history))
       yield* Deferred.succeed(ready, agent)
       const output = yield* agent
-        .send({ prompt: options.prompt })
+        .send({ prompt: promptWith(options.prompt, options.images) })
         .pipe(Effect.provideServiceEffect(LanguageModel.LanguageModel, committedModel(agent)))
       yield* Stream.runForEach(output, onPart)
     }).pipe(

@@ -5,6 +5,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { errorFields } from "../../PullRequestReview/Log.ts"
+import { WORKSPACE_DIRECTORY } from "../../PullRequestReview/Sandbox/ContainerApp.ts"
 import { ProvisionRequest } from "./Provision.ts"
 
 /**
@@ -17,7 +18,18 @@ import { ProvisionRequest } from "./Provision.ts"
  * - `POST /provision`: applies a `ProvisionRequest` and answers 204. One at a
  *   time; applying the same request again is harmless, so the workspace can
  *   retry.
+ * - `PUT /files?path=<absolute path>`: writes the body to a file under
+ *   `/workspace`, creating its directories, and answers 204. A path outside
+ *   `/workspace` gets 400. The session writes a turn's attachments this way.
  */
+/** An absolute path under `/workspace`, with no `.` or `..` segment to climb out of it. */
+const insideWorkspace = (path: string) =>
+  path.startsWith(`${WORKSPACE_DIRECTORY}/`) &&
+  path
+    .slice(WORKSPACE_DIRECTORY.length + 1)
+    .split("/")
+    .every((segment) => segment !== "" && segment !== "." && segment !== "..")
+
 export const makeChatContainerApp = (options: {
   readonly rpc: Effect.Effect<
     HttpServerResponse.HttpServerResponse,
@@ -25,6 +37,8 @@ export const makeChatContainerApp = (options: {
     HttpServerRequest.HttpServerRequest | Scope.Scope
   >
   readonly provision: (request: ProvisionRequest) => Effect.Effect<void, unknown>
+  /** Writes `content` to `path`, already checked to be under `/workspace`. */
+  readonly writeFile: (path: string, content: Uint8Array) => Effect.Effect<void, unknown>
 }): Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
@@ -34,7 +48,8 @@ export const makeChatContainerApp = (options: {
 
   return Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest
-    const path = new URL(request.url, "http://container").pathname.replace(/\/+$/, "") || "/"
+    const url = new URL(request.url, "http://container")
+    const path = url.pathname.replace(/\/+$/, "") || "/"
     switch (path) {
       case "/rpc":
         return yield* options.rpc
@@ -44,6 +59,13 @@ export const makeChatContainerApp = (options: {
         if (request.method !== "POST") return HttpServerResponse.empty({ status: 405 })
         const provisionRequest = yield* HttpServerRequest.schemaBodyJson(ProvisionRequest)
         yield* options.provision(provisionRequest).pipe(Semaphore.withPermits(lock, 1))
+        return HttpServerResponse.empty({ status: 204 })
+      }
+      case "/files": {
+        if (request.method !== "PUT") return HttpServerResponse.empty({ status: 405 })
+        const target = url.searchParams.get("path") ?? ""
+        if (!insideWorkspace(target)) return HttpServerResponse.empty({ status: 400 })
+        yield* options.writeFile(target, new Uint8Array(yield* request.arrayBuffer))
         return HttpServerResponse.empty({ status: 204 })
       }
       default:

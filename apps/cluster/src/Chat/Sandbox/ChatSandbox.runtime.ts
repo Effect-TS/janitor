@@ -3,6 +3,8 @@ import * as Dockerfile from "alchemy/Docker/Dockerfile"
 import * as AgentExecutor from "clanka/AgentExecutor"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
 import * as References from "effect/References"
@@ -150,6 +152,14 @@ export default ChatSandbox.make(
                 workspace: WORKSPACE_DIRECTORY,
               }),
             ),
+          ),
+        writeFile: (path, content) =>
+          node(
+            Effect.gen(function* () {
+              const fs = yield* FileSystem.FileSystem
+              yield* fs.makeDirectory((yield* Path.Path).dirname(path), { recursive: true })
+              yield* fs.writeFile(path, content)
+            }),
           ),
       }),
     })

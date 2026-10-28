@@ -130,6 +130,7 @@ import { ChatModelLayer } from "./Chat/Agent.ts"
 import {
   chatBotGate,
   chatBotInit,
+  type ChatEgressSecrets,
   chatEgressSecrets,
   chatGateModel,
   chatSandboxInit,
@@ -258,16 +259,20 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // PR review reads its settings later, in the cluster layer; reading them
     // here is what binds them.
     yield* pullRequestReviewInit
-    yield* chatSandboxInit
     // The chat bot is off for the whole deployment until `CHAT_AI_API_URL` and
-    // `CHAT_AI_API_KEY` are set; until then no other chat bot setting is read
-    // and no chat session is bound.
+    // `CHAT_AI_API_KEY` are set; until then no other chat setting is read, and
+    // no chat sandbox, egress entrypoint or session is bound.
     const chatBot = yield* chatBotGate
-    if (chatBot) yield* chatBotInit
+    if (chatBot) {
+      yield* chatSandboxInit
+      yield* chatBotInit
+    }
     const chatGate = chatBot ? yield* chatGateModel : ""
     // The chat bot's GitHub App and Multica PAT, each optional: without them
     // the chat egress proxy hands GitHub and Multica no credential.
-    const chatSecrets = yield* chatEgressSecrets
+    const chatSecrets: ChatEgressSecrets = chatBot
+      ? yield* chatEgressSecrets
+      : { app: Option.none(), multicaToken: Option.none() }
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
@@ -321,8 +326,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // Chat sandboxes: one workspace DO per chat session, each owning a
     // container, and one pool DO that decides which sessions hold one. Their
     // egress goes through the `ChatEgress` entrypoint, with the tokens the
-    // session's workspace mints.
-    yield* exportChatEgress
+    // session's workspace mints. Both classes stay declared while the bot is
+    // off, so turning it off never deletes their storage; the workspace has
+    // no container then, and nothing acquires one.
+    if (chatBot) yield* exportChatEgress
     const chatWorkspaces = yield* ChatWorkspace.pipe(
       Effect.provide(
         ChatWorkspaceLive.pipe(
@@ -384,6 +391,13 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             ),
           ),
           Layer.provide(ChatGateLayer),
+          Layer.provide(
+            ChatSandboxes.layer({
+              pools: chatPools,
+              workspaces: chatWorkspaces,
+              namespace: liveEnvironment.ChatWorkspace as WorkspaceNamespace,
+            }),
+          ),
           // Slack ingress (EFF-3019) and the web app (EFF-3021) replace these.
           Layer.provide(ChatPlatform.unavailable),
           Layer.provide(ChatKillSwitch.off),
@@ -477,11 +491,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           SandboxWorkspaces.layer({
             stubs: workspaces,
             namespace: liveEnvironment.PullRequestReviewWorkspace as WorkspaceNamespace,
-          }),
-          ChatSandboxes.layer({
-            pools: chatPools,
-            workspaces: chatWorkspaces,
-            namespace: liveEnvironment.ChatWorkspace as WorkspaceNamespace,
           }),
         ),
       ),

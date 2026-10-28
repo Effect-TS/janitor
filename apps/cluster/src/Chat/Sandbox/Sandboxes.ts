@@ -1,5 +1,6 @@
 import type * as AgentExecutor from "clanka/AgentExecutor"
 import * as Context from "effect/Context"
+import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -44,9 +45,14 @@ export interface ChatSandbox {
   /** The pool's grant, which `release` hands back. */
   readonly generation: number
   readonly executor: Layer.Layer<AgentExecutor.AgentExecutor>
-  /** Writes a file into the sandbox, creating its directories, as attachments are. */
-  readonly writeFile: (path: string, content: Uint8Array) => Effect.Effect<void>
+  /** Writes a file under `/workspace`, creating its directories, as attachments are. */
+  readonly writeFile: (path: string, content: Uint8Array) => Effect.Effect<void, SandboxWriteFailed>
 }
+
+/** A file couldn't be written into the sandbox. */
+export class SandboxWriteFailed extends Data.TaggedError("SandboxWriteFailed")<{
+  readonly reason: string
+}> {}
 
 /** Errors cross Durable Object RPC as plain objects; this turns them back into classes. */
 const decodeFailure =
@@ -171,8 +177,21 @@ export class ChatSandboxes extends Context.Service<
               executor: executorLayer(
                 fenced(options.namespace.getByName(sessionId), grant.generation),
               ),
-              writeFile: () =>
-                Effect.die("writing a file into a chat sandbox is not implemented yet (EFF-3018)"),
+              writeFile: (path: string, content: Uint8Array) =>
+                Effect.tryPromise({
+                  try: () =>
+                    fenced(options.namespace.getByName(sessionId), grant.generation).fetch(
+                      `http://workspace/files?path=${encodeURIComponent(path)}`,
+                      { method: "PUT", body: content as Uint8Array<ArrayBuffer> },
+                    ),
+                  catch: (cause) => new SandboxWriteFailed({ reason: String(cause) }),
+                }).pipe(
+                  Effect.flatMap((response) =>
+                    response.status === 204
+                      ? Effect.void
+                      : Effect.fail(new SandboxWriteFailed({ reason: `HTTP ${response.status}` })),
+                  ),
+                ),
             }
           }),
         ).pipe(Effect.annotateLogs({ sessionId })),

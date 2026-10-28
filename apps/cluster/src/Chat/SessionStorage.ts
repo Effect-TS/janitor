@@ -118,7 +118,14 @@ const decodeRow = (row: MessageRow) =>
     wantsTurn: Effect.succeed(row.wants_turn === 1),
   })
 
-const TABLES = ["chat_session", "chat_messages", "chat_turns", "chat_history"] as const
+const TABLES = [
+  "chat_session",
+  "chat_messages",
+  "chat_turns",
+  "chat_history",
+  "chat_transcript",
+  "chat_admissions",
+] as const
 
 /** The session's storage over its entity's SQLite, keyed by session id. */
 export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) => {
@@ -146,6 +153,12 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
       sql`CREATE TABLE IF NOT EXISTS chat_history (
         session_id TEXT NOT NULL, seq INTEGER NOT NULL, message TEXT NOT NULL,
         PRIMARY KEY (session_id, seq))`,
+      sql`CREATE TABLE IF NOT EXISTS chat_transcript (
+        session_id TEXT NOT NULL, turn_id TEXT NOT NULL, seq INTEGER NOT NULL, message TEXT NOT NULL,
+        PRIMARY KEY (session_id, turn_id, seq))`,
+      sql`CREATE TABLE IF NOT EXISTS chat_admissions (
+        session_id TEXT NOT NULL, user_id TEXT NOT NULL, admitted_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, user_id))`,
     ],
     { discard: true },
   )
@@ -161,6 +174,8 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
       yield* sql`DELETE FROM chat_messages WHERE session_id = ${sessionId}`
       yield* sql`DELETE FROM chat_turns WHERE session_id = ${sessionId}`
       yield* sql`DELETE FROM chat_history WHERE session_id = ${sessionId}`
+      yield* sql`DELETE FROM chat_transcript WHERE session_id = ${sessionId}`
+      yield* sql`DELETE FROM chat_admissions WHERE session_id = ${sessionId}`
       const [left] = yield* sql`SELECT 1 FROM chat_session LIMIT 1`
       if (left !== undefined) return
       for (const table of TABLES) yield* sql`DROP TABLE IF EXISTS ${sql(table)}`
@@ -249,15 +264,6 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     Effect.flatMap(Effect.forEach(decodeRow)),
   )
 
-  const markDelivered = (ids: ReadonlyArray<string>) =>
-    Effect.forEach(
-      ids,
-      (id) => sql`
-        UPDATE chat_messages SET delivered = 1
-        WHERE session_id = ${sessionId} AND message_id = ${id}`,
-      { discard: true },
-    ).pipe(sql.withTransaction)
-
   /** Turns every message still waiting for a turn into context, as "stop" does. */
   const clearWanted = sql`
     UPDATE chat_messages SET wants_turn = 0
@@ -312,10 +318,12 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     )
 
   /**
-   * Commits one history change, in one transaction. A replacement replaces
-   * every row. The system message is never stored.
+   * Commits one step of a turn, in one transaction: its history change, the
+   * messages it appended to the turn's transcript, and the thread messages
+   * it delivered to the model. A replacement replaces every history row and
+   * adds nothing to the transcript. The system message is never stored.
    */
-  const commitHistory = (change: HistoryChange) =>
+  const commitStep = (turnId: string, change: HistoryChange, delivered: ReadonlyArray<string>) =>
     Effect.gen(function* () {
       const rows = yield* Effect.forEach(
         change.messages.filter((message) => message.role !== "system"),
@@ -332,6 +340,19 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
             yield* sql`
               INSERT INTO chat_history (session_id, seq, message)
               VALUES (${sessionId}, ${next!.next + index}, ${message})`
+          if (change._tag === "Appended") {
+            const [logged] = yield* sql<{ next: number }>`
+              SELECT COALESCE(MAX(seq) + 1, 0) AS next FROM chat_transcript
+              WHERE session_id = ${sessionId} AND turn_id = ${turnId}`
+            for (const [index, message] of rows.entries())
+              yield* sql`
+                INSERT INTO chat_transcript (session_id, turn_id, seq, message)
+                VALUES (${sessionId}, ${turnId}, ${logged!.next + index}, ${message})`
+          }
+          for (const id of delivered)
+            yield* sql`
+              UPDATE chat_messages SET delivered = 1
+              WHERE session_id = ${sessionId} AND message_id = ${id}`
         }),
       )
     })
@@ -359,7 +380,10 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
       return messages.slice(0, -1)
     })
 
-  /** The messages with their gate outcomes and the turns, read in one transaction. */
+  /**
+   * The messages with their gate outcomes, the turns, and each turn's
+   * transcript messages by turn id, read in one transaction.
+   */
   const transcript = sql.withTransaction(
     Effect.all({
       messages: sql<MessageRow>`
@@ -368,8 +392,47 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
         Effect.flatMap(Effect.forEach(decodeRow)),
       ),
       turns,
+      history: sql<{ turn_id: string; message: string }>`
+        SELECT turn_id, message FROM chat_transcript
+        WHERE session_id = ${sessionId} ORDER BY turn_id, seq`.pipe(
+        Effect.flatMap(
+          Effect.forEach((row) =>
+            Effect.map(Schema.decodeEffect(MessageJson)(row.message), (message) => ({
+              turnId: row.turn_id,
+              message,
+            })),
+          ),
+        ),
+        Effect.map((rows) => {
+          const byTurn = new Map<string, Array<Prompt.Message>>()
+          for (const { turnId, message } of rows)
+            byTurn.set(turnId, [...(byTurn.get(turnId) ?? []), message])
+          return byTurn
+        }),
+      ),
     }),
   )
+
+  /** Remembers a user as admitted, as of `now`. */
+  const rememberAdmission = (userId: string, now: number) =>
+    sql`
+      INSERT INTO chat_admissions (session_id, user_id, admitted_at)
+      VALUES (${sessionId}, ${userId}, ${now})
+      ON CONFLICT (session_id, user_id) DO UPDATE SET admitted_at = excluded.admitted_at`.pipe(
+      Effect.asVoid,
+    )
+
+  /** When the user was last remembered as admitted, if they were; no tables means never. */
+  const admittedAt = (userId: string) =>
+    Effect.gen(function* () {
+      const [table] = yield* sql`
+        SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chat_admissions'`
+      if (table === undefined) return Option.none<number>()
+      const [row] = yield* sql<{ admitted_at: number }>`
+        SELECT admitted_at FROM chat_admissions
+        WHERE session_id = ${sessionId} AND user_id = ${userId}`
+      return Option.fromNullishOr(row?.admitted_at)
+    })
 
   return {
     exists,
@@ -382,16 +445,17 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     ungated,
     recent,
     undelivered,
-    markDelivered,
     clearWanted,
     hasWanted,
     saveTurn,
     turns,
     loadTurn,
     updateTurn,
-    commitHistory,
+    commitStep,
     history,
     transcript,
+    rememberAdmission,
+    admittedAt,
   }
 }
 

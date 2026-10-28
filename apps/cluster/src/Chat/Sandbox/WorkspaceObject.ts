@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect"
 import * as HttpBody from "effect/http/HttpBody"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import { chatBotGate } from "../Config.ts"
 import { ChatCredentials } from "../Egress/BotApp.ts"
 import { EGRESS_CONTROL_HEADER } from "../Egress/Session.ts"
 import { ChatSandbox } from "./ChatSandbox.ts"
@@ -50,11 +51,15 @@ export const exportChatEgress = Effect.gen(function* () {
 
 export const ChatWorkspaceLive = ChatWorkspace.make(
   Effect.gen(function* () {
-    // Attaches the container application to this class. The handle alchemy
-    // would start is not used: the workspace drives `ctx.container` itself.
-    yield* (ChatSandbox as unknown as Record<string, Effect.Effect<unknown>>)[
-      "~alchemy/Container/Binding"
-    ]!
+    // Attaches the container application to this class, only while the chat
+    // bot is on: off, no chat image is built and no application deployed.
+    // The class itself stays declared, so turning the bot off never takes a
+    // migration that deletes its storage. The handle alchemy would start is
+    // not used: the workspace drives `ctx.container` itself.
+    if (yield* chatBotGate.pipe(Effect.orElseSucceed(() => false)))
+      yield* (ChatSandbox as unknown as Record<string, Effect.Effect<unknown>>)[
+        "~alchemy/Container/Binding"
+      ]!
     const state = yield* Cloudflare.DurableObjectState
     const credentials = yield* ChatCredentials
 
