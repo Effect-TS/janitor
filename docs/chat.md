@@ -1,6 +1,6 @@
 # Operating the chat bot
 
-The chat bot is a team agent people talk to from Slack and, later, Discord. Each thread is a chat session: mention the bot to start one, and it runs clanka in a chat sandbox with access to every repository in Effect-TS and Effectful-Tech. ADR 0014 records the design, and `CONTEXT.md` defines the terms.
+The chat bot is a team agent people talk to from Slack and Discord. Each thread is a chat session: mention the bot to start one, and it runs clanka in a chat sandbox with access to every repository in Effect-TS and Effectful-Tech. ADR 0014 records the design, and `CONTEXT.md` defines the terms.
 
 The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API_KEY` are set. Each platform is also off until its own settings are set. While the bot or a platform is off, its settings aren't read and nothing is bound, so a deploy can go out before any secret exists.
 
@@ -109,7 +109,54 @@ The development stack's `janitor-dev` tunnel forwards `/api/v1/webhooks/slack` t
 
 ## Discord
 
-Discord comes with "Discord ingress for the chat bot" (EFF-3020). Until then its kill switch exists but no thread uses it.
+### What it does
+
+- A mention of the bot from an admitted user in a text or announcement channel starts a thread from that message, archived after a day of quiet, and a session on it. A mention inside an existing thread uses that thread. When the bot joins a thread that already has messages, it reads the last 100 as context.
+- In a thread with a session, every message from the configured server reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot always starts or steers a turn.
+- Admitted users are those with the configured role in `member.roles` on the message. A revoked role counts from the author's next message. Everyone else in the server is an outsider: their messages in a thread with a session reach the model as context only, and their mentions start nothing. Messages from other servers, and messages with no member, such as webhooks, are ignored.
+- Messages from bots, janitor's own included, are context only. Edits, deletions, and system messages such as joins and pins are ignored.
+- A direct message gets a one-line pointer to a channel, and starts nothing.
+- Replies are posted as Markdown, up to 2,000 characters a message, with code fences kept balanced. The first one answers the message that started the turn. A reply that would need more than five messages is uploaded as `reply.md`. Replies can ping users, never a role, `@everyone` or `@here`. Status messages ping nobody, and no post unfurls links.
+- Attachments from admitted users are fetched from Discord's CDN for the turn, up to 20 MB each.
+
+### The gateway
+
+Discord has no webhook for messages, so one Durable Object, `ChatDiscordGateway`, holds the bot's gateway socket with dfx's shard. The Worker's one-minute cron starts it, and its own 60-second alarm restarts the shard if it dies or goes quiet for three minutes. The shard's session is kept in the object's storage, so after an eviction or a deploy the object resumes the session, and Discord replays what arrived while the socket was down. The object remembers the message ids it handled for a day and drops the replays.
+
+A message is handled before the shard stores its sequence number. If its session can't be reached, the shard reconnects and the RESUME delivers the message again. A request Discord refuses, such as a thread the bot lacks permission to create, is logged and the message dropped.
+
+Apart from starting threads and the direct message pointer, the object never posts to Discord: replies and status messages come from the session.
+
+If Discord closes the socket with 4014, the app isn't allowed an intent it asks for, usually Message Content. With 4004, the token is wrong. The object logs `Discord closed the gateway with 4014` (or `4004`) and the reason, and waits an hour before it tries again, so a misconfigured app stays well inside Discord's 1,000 IDENTIFYs a day. Fix the setting, then deploy, or wait for the hour to pass.
+
+### Creating the Discord app
+
+Create one app for production and one for development, in the [Discord developer portal](https://discord.com/developers/applications). The development app goes in a private test server.
+
+1. Under **Bot**, turn on the **Message Content** intent. Leave the other privileged intents off. The bot also asks for `GUILDS`, `GUILD_MESSAGES` and `DIRECT_MESSAGES`, which need no toggle.
+2. Under **Bot**, reset the token and copy it.
+3. Under **OAuth2**, **URL Generator**, pick the `bot` scope and the permissions **View Channels**, **Send Messages**, **Send Messages in Threads**, **Create Public Threads**, **Read Message History** and **Attach Files**. Open the URL and add the bot to the server.
+4. Create the role whose holders may use the bot, or pick an existing one.
+
+### Settings
+
+Discord is on once all three of these are set, and off while any of them is missing. They live in Infisical, in the `janitor` project.
+
+| Setting             | Where to find it                                                                 |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN` | **Bot**, **Token**                                                               |
+| `DISCORD_GUILD_ID`  | With developer mode on in Discord, right-click the server and **Copy Server ID** |
+| `DISCORD_ROLE_ID`   | **Server Settings**, **Roles**, right-click the role and **Copy Role ID**        |
+
+Turning Discord off stops the shard at the gateway's next alarm. The object stays declared, so turning Discord on again resumes where it left off.
+
+### Inviting the bot
+
+The bot hears every channel it can view. Restrict it with channel permissions: roll out to one staff-only channel first, and to wider channels for role holders after a week without incidents.
+
+### Development
+
+The gateway is an outbound socket, so the development app needs no tunnel. A local `alchemy dev` run with the three settings from Infisical's development environment connects within a minute, on the cron's first tick. Only one process should hold the development app's gateway at a time: two would each get every message.
 
 ## Chat sessions page
 

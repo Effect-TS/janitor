@@ -138,6 +138,11 @@ import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
 import { ChatPlatform } from "./Chat/Platform.ts"
 import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
 import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
+import { restLayer as discordRestLayer } from "./Chat/Discord/Api.ts"
+import { DiscordBotConfig, discordSettings } from "./Chat/Discord/Config.ts"
+import { ChatDiscordGateway, ChatDiscordGatewayLive, GATEWAY_NAME } from "./Chat/Discord/Gateway.ts"
+import { DiscordSessions } from "./Chat/Discord/Ingress.ts"
+import * as DiscordPlatform from "./Chat/Discord/Platform.ts"
 import { SlackConfig, slackSettings } from "./Chat/Slack/Config.ts"
 import { SlackSessions, SlackWebhookRoutesLayer } from "./Chat/Slack/Ingress.ts"
 import * as SlackPlatform from "./Chat/Slack/Platform.ts"
@@ -273,6 +278,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const chatGate = chatBot ? yield* chatGateModel : ""
     // Slack stays off until all four `SLACK_*` settings are set.
     const slack = chatBot ? yield* slackSettings : Option.none()
+    // Discord stays off until all three `DISCORD_*` settings are set.
+    const discord = chatBot ? yield* discordSettings : Option.none()
     // The chat bot's GitHub App and Multica PAT, each optional: without them
     // the chat egress proxy hands GitHub and Multica no credential.
     const chatSecrets: ChatEgressSecrets = chatBot
@@ -380,13 +387,24 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             }),
           ),
           Layer.provide(
-            Option.match(slack, {
-              onNone: () => ChatPlatform.unavailable,
-              onSome: (config) =>
-                SlackPlatform.layer.pipe(
-                  Layer.provide(SlackConfig.layerFrom(config)),
-                  Layer.provide(FetchHttpClient.layer),
-                ),
+            ChatPlatform.route({
+              Slack: Option.match(slack, {
+                onNone: () => ChatPlatform.unavailable,
+                onSome: (config) =>
+                  SlackPlatform.layer.pipe(
+                    Layer.provide(SlackConfig.layerFrom(config)),
+                    Layer.provide(FetchHttpClient.layer),
+                  ),
+              }),
+              Discord: Option.match(discord, {
+                onNone: () => ChatPlatform.unavailable,
+                onSome: (config) =>
+                  DiscordPlatform.layer.pipe(
+                    Layer.provide(DiscordBotConfig.layerFrom(config)),
+                    Layer.provide(discordRestLayer(config.botToken)),
+                    Layer.provide(FetchHttpClient.layer),
+                  ),
+              }),
             }),
           ),
           Layer.provide(ChatKillSwitch.stored),
@@ -507,8 +525,25 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)
     notifyOutbox = wakeOutboxDispatch()
     const wakeSyncRepair = cluster.wake(SyncRepairCronName)
+    // The Discord gateway: one object holding the bot's socket and handing
+    // messages to the chat sessions. Declared while Discord is off, so
+    // turning it off never deletes its storage; its alarm then stops the
+    // shard. The cron turns it on, and starts it again after a deploy.
+    const gateways = yield* ChatDiscordGateway.pipe(
+      Effect.provide(ChatDiscordGatewayLive(DiscordSessions.fromCluster(cluster.provide))),
+    )
+    const startDiscordGateway = Option.isSome(discord)
+      ? gateways
+          .getByName(GATEWAY_NAME)
+          .start()
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError("Couldn't start the Discord gateway", cause),
+            ),
+          )
+      : Effect.void
     yield* Cloudflare.Workers.cron("* * * * *", () =>
-      Effect.all([wakeOutboxDispatch(), wakeSyncRepair()], {
+      Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), startDiscordGateway], {
         discard: true,
       }),
     )

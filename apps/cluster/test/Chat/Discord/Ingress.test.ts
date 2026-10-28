@@ -1,13 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as DiscordConfig from "dfx/DiscordConfig"
-import { DiscordRESTLive } from "dfx/DiscordREST"
-import { MemoryRateLimitStoreLive } from "dfx/RateLimit"
 import type * as Discord from "dfx/types"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import { restLayer } from "../../../src/Chat/Discord/Api.ts"
 import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
 import * as DiscordIngress from "../../../src/Chat/Discord/Ingress.ts"
 import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
@@ -15,8 +13,6 @@ import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
 /**
  * The gateway's ingress, from a `MESSAGE_CREATE` to what it hands the chat
  * sessions. Discord's REST API and the sessions are fakes.
- *
- * Expected failures until the ingress is implemented (EFF-3020).
  */
 
 const GUILD = "100"
@@ -85,19 +81,14 @@ const makeIngress = () => {
     }),
     // One store across every instance, as the Durable Object's storage is.
     Layer.succeed(DiscordIngress.SeenMessages, {
-      claim: (messageId) =>
+      has: (messageId) => Effect.sync(() => seen.has(messageId)),
+      add: (messageId) =>
         Effect.sync(() => {
-          if (seen.has(messageId)) return false
           seen.add(messageId)
-          return true
         }),
     }),
-    DiscordRESTLive.pipe(
-      Layer.provide([
-        DiscordConfig.layer({ token: Redacted.make("bot-token") }),
-        MemoryRateLimitStoreLive,
-        Layer.succeed(HttpClient.HttpClient, discordApi),
-      ]),
+    restLayer(Redacted.make("bot-token")).pipe(
+      Layer.provide(Layer.succeed(HttpClient.HttpClient, discordApi)),
     ),
   )
 
@@ -176,7 +167,7 @@ const mention = (id: string, channel: string) =>
   })
 
 describe("Discord ingress", () => {
-  it.effect.fails("admits authors with the role, and refuses other guilds and no member", () =>
+  it.effect("admits authors with the role, and refuses other guilds and no member", () =>
     Effect.gen(function* () {
       const ingress = makeIngress()
       const handle = yield* ingress.instance
@@ -203,7 +194,7 @@ describe("Discord ingress", () => {
     }),
   )
 
-  it.effect.fails("drops a message a RESUME replays to a rebuilt instance", () =>
+  it.effect("drops a message a RESUME replays to a rebuilt instance", () =>
     Effect.gen(function* () {
       const ingress = makeIngress()
       const before = yield* ingress.instance
@@ -220,7 +211,7 @@ describe("Discord ingress", () => {
     }),
   )
 
-  it.effect.fails("starts a thread from a channel mention, and uses an existing one", () =>
+  it.effect("starts a thread from a channel mention, and uses an existing one", () =>
     Effect.gen(function* () {
       const ingress = makeIngress()
       const handle = yield* ingress.instance

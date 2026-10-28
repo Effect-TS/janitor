@@ -73,10 +73,14 @@ export class ChatPlatform extends Context.Service<
       messageId: string,
       text: string,
     ) => Effect.Effect<void, ChatPlatformError>
-    /** Posts a reply and returns when its final part was published. */
+    /**
+     * Posts a reply and returns when its final part was published. On
+     * Discord it answers `replyTo`, the message that started the turn.
+     */
     readonly postReply: (
       thread: ChatThread,
       text: string,
+      options?: { readonly replyTo?: string | undefined },
     ) => Effect.Effect<DateTime.Utc, ChatPlatformError>
     readonly uploadFile: (
       thread: ChatThread,
@@ -110,4 +114,30 @@ export class ChatPlatform extends Context.Service<
     download: () => noPlatform,
     history: () => Effect.succeed([]),
   })
+
+  /**
+   * One `ChatPlatform` over Slack's and Discord's, each thread going to its
+   * own. Pass `ChatPlatform.unavailable` for a platform that is off.
+   */
+  static readonly route = <E1, R1, E2, R2>(platforms: {
+    readonly Slack: Layer.Layer<ChatPlatform, E1, R1>
+    readonly Discord: Layer.Layer<ChatPlatform, E2, R2>
+  }): Layer.Layer<ChatPlatform, E1 | E2, R1 | R2> =>
+    Layer.effect(
+      this,
+      Effect.gen(function* () {
+        const slack = Context.get(yield* Layer.build(platforms.Slack), ChatPlatform)
+        const discord = Context.get(yield* Layer.build(platforms.Discord), ChatPlatform)
+        const of = (thread: ChatThread) => (thread._tag === "Slack" ? slack : discord)
+        return {
+          postStatus: (thread, text) => of(thread).postStatus(thread, text),
+          editStatus: (thread, messageId, text) => of(thread).editStatus(thread, messageId, text),
+          postReply: (thread, text, options) => of(thread).postReply(thread, text, options),
+          uploadFile: (thread, file) => of(thread).uploadFile(thread, file),
+          download: (thread, attachment, maxBytes) =>
+            of(thread).download(thread, attachment, maxBytes),
+          history: (thread, limit) => of(thread).history(thread, limit),
+        }
+      }),
+    )
 }

@@ -1,19 +1,16 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as DiscordConfig from "dfx/DiscordConfig"
-import { DiscordRESTLive } from "dfx/DiscordREST"
-import { MemoryRateLimitStoreLive } from "dfx/RateLimit"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import { restLayer } from "../../../src/Chat/Discord/Api.ts"
+import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
 import * as DiscordPlatform from "../../../src/Chat/Discord/Platform.ts"
 import { ChatPlatform, type ChatThread } from "../../../src/Chat/Platform.ts"
 
 /**
  * Discord's `ChatPlatform` over a fake Discord REST API.
- *
- * Expected failures until the platform is implemented (EFF-3020).
  */
 
 const thread: ChatThread = { _tag: "Discord", guild: "100", threadId: "500" }
@@ -22,10 +19,13 @@ const thread: ChatThread = { _tag: "Discord", guild: "100", threadId: "500" }
 const posted: Array<string> = []
 
 const services = DiscordPlatform.layer.pipe(
-  Layer.provide(DiscordRESTLive),
+  Layer.provide(restLayer(Redacted.make("bot-token"))),
   Layer.provide([
-    DiscordConfig.layer({ token: Redacted.make("bot-token") }),
-    MemoryRateLimitStoreLive,
+    DiscordBotConfig.layerFrom({
+      botToken: Redacted.make("bot-token"),
+      guildId: "100",
+      roleId: "200",
+    }),
     Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
@@ -59,7 +59,7 @@ const services = DiscordPlatform.layer.pipe(
 const isFence = (line: string) => line.trimStart().startsWith("```")
 
 describe("Discord platform", () => {
-  it.effect.fails("posts a long reply in 2,000-character chunks with balanced code fences", () =>
+  it.effect("posts a long reply in 2,000-character chunks with balanced code fences", () =>
     Effect.gen(function* () {
       const platform = yield* ChatPlatform
       posted.length = 0
