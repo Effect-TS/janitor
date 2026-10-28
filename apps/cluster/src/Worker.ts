@@ -533,14 +533,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Effect.provide(ChatDiscordGatewayLive(DiscordSessions.fromCluster(cluster.provide))),
     )
     const startDiscordGateway = Option.isSome(discord)
-      ? gateways
-          .getByName(GATEWAY_NAME)
-          .start()
-          .pipe(
-            Effect.catchCause((cause) =>
-              Effect.logError("Couldn't start the Discord gateway", cause),
-            ),
-          )
+      ? Effect.suspend(() => gateways.getByName(GATEWAY_NAME).start()).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError("Couldn't start the Discord gateway", cause),
+          ),
+        )
       : Effect.void
     yield* Cloudflare.Workers.cron("* * * * *", () =>
       Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), startDiscordGateway], {
