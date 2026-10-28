@@ -38,6 +38,8 @@ The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API
 
 Turns call an OpenAI-compatible chat completions endpoint, the same mechanism as PR review's with a key of its own. Set `CHAT_AI_API_URL` to the endpoint's base URL, the part before `/chat/completions`, and `CHAT_AI_API_KEY` to its key, both in Infisical (project `janitor`). Without both, the bot is off.
 
+Chat turns and their sub-agents request OpenAI priority processing with `service_tier: "priority"`. The endpoint and model must support this tier; provider priority pricing applies. PR review and the reply gate are unchanged.
+
 | Setting                    | Default              | Meaning                                                                                |
 | -------------------------- | -------------------- | -------------------------------------------------------------------------------------- |
 | `CHAT_AI_MODEL`            | `openai/gpt-6.1-sol` | The model turns run on, as the endpoint names it                                       |

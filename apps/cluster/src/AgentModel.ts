@@ -31,6 +31,8 @@ export interface OpenAiCompatibleModel {
   readonly apiKey: Option.Option<Redacted.Redacted<string>>
   readonly model: string
   readonly reasoningEffort: ReasoningEffort
+  /** Request priority processing when enabled for this agent. */
+  readonly serviceTier?: "priority"
   /** Reach the endpoint through the tailnet egress container instead of the open internet. */
   readonly viaTailnet: boolean
 }
@@ -60,7 +62,10 @@ export const openAiCompatibleModel = (
   settings: OpenAiCompatibleModel,
   egress: TailnetEgressNamespace,
 ): ModelLayer =>
-  OpenAiLanguageModel.model(settings.model, { reasoning_effort: settings.reasoningEffort }).pipe(
+  OpenAiLanguageModel.model(settings.model, {
+    reasoning_effort: settings.reasoningEffort,
+    service_tier: settings.serviceTier,
+  }).pipe(
     Layer.provide(
       OpenAiClient.layer({
         apiUrl: Option.getOrUndefined(settings.apiUrl),

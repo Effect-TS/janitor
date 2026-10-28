@@ -269,15 +269,17 @@ export const ChatModelLayer = (
         const invalid = invalidModel(error, "invalid chat settings")
         return Layer.merge(invalid, Agent.layerSubagentModel(invalid))
       },
-      onSuccess: (config) =>
-        Layer.merge(
-          openAiCompatibleModel(config, egress),
+      onSuccess: (config) => {
+        const settings = { ...config, serviceTier: "priority" as const }
+        return Layer.merge(
+          openAiCompatibleModel(settings, egress),
           Agent.layerSubagentModel(
             openAiCompatibleModel(
-              { ...config, model: Option.getOrElse(config.subagentModel, () => config.model) },
+              { ...settings, model: Option.getOrElse(config.subagentModel, () => config.model) },
               egress,
             ),
           ),
-        ),
+        )
+      },
     }),
   )
