@@ -2,18 +2,11 @@ import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vite-plus/test"
+import { bumpMulticaCli } from "../../scripts/multica-cli-bump.ts"
 
 // The script's public entry point takes a pin file and an HTTP boundary. No workflow or live GitHub
-// calls are needed here. Remove `.fails` when the implementation lands (EFF-3042).
-const script = new URL("../../scripts/multica-cli-bump.ts", import.meta.url).href
-const bump = async (cliPath: string, fetch: typeof globalThis.fetch) => {
-  const {
-    bumpMulticaCli,
-  }: {
-    bumpMulticaCli: (options: { cliPath: string; fetch: typeof globalThis.fetch }) => Promise<void>
-  } = await import(/* @vite-ignore */ script)
-  await bumpMulticaCli({ cliPath, fetch })
-}
+// calls are needed here.
+const bump = (cliPath: string, fetch: typeof globalThis.fetch) => bumpMulticaCli({ cliPath, fetch })
 
 const original = `/** Keep this comment. */
 export const MULTICA_CLI_VERSION = "0.7.0"
@@ -54,7 +47,7 @@ const github =
   }
 
 describe("multica CLI bump", () => {
-  it.fails("fails without a linux-amd64 checksum and writes nothing", async () => {
+  it("fails without a linux-amd64 checksum and writes nothing", async () => {
     const path = await pinFile()
     const before = await stat(path)
 
@@ -72,7 +65,7 @@ describe("multica CLI bump", () => {
     expect((await stat(path)).mtimeMs).toBe(before.mtimeMs)
   })
 
-  it.fails("leaves a matching pin untouched without downloading checksums", async () => {
+  it("leaves a matching pin untouched without downloading checksums", async () => {
     const path = await pinFile()
     const before = await stat(path)
 
@@ -82,7 +75,7 @@ describe("multica CLI bump", () => {
     expect((await stat(path)).mtimeMs).toBe(before.mtimeMs)
   })
 
-  it.fails("writes the latest version and its linux-amd64 hash together", async () => {
+  it("writes the latest version and its linux-amd64 hash together", async () => {
     const path = await pinFile()
 
     await bump(

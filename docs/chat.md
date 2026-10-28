@@ -64,6 +64,25 @@ The bot acts on GitHub as its own App, separate from janitor's, and in Multica a
 
 The production App is installed on every repository of Effect-TS and Effectful-Tech, private ones included, with contents, pull requests and issues read and write, and actions, checks, commit statuses and metadata read. The development App is installed only on `Effect-TS/janitor-sandbox`, so a local run never holds write tokens for real repositories. The Janitor member uses the mailbox `tech-ops@effectful.co`. Agents the bot should trigger must be visible to workspace members or list the Janitor user.
 
+### Keeping the multica CLI and skill in sync
+
+The `Bump multica CLI` workflow runs daily at 05:23 UTC and can be dispatched manually
+from `main`. It updates the CLI version and linux-amd64 checksum in `MulticaCli.ts`,
+then regenerates `MulticaSkill.ts` from the same tag. An unchanged version does nothing;
+a missing checksum fails before either pin is written. The fixed `bump/multica-cli`
+branch has at most one open PR against `main`.
+
+Set repository Actions secrets `MULTICA_BUMP_APP_ID` (the GitHub App's numeric ID) and
+`MULTICA_BUMP_APP_PRIVATE_KEY` (its PEM private key). The App must be installed on
+`Effect-TS/janitor` with Contents and Pull requests read/write. These are repository
+secrets, not Infisical settings. The App token lets the bump PR trigger Check.
+Enable **Allow auto-merge** and require the `check` status on `main`; do not give the
+App a ruleset bypass. Auto-merge then waits for Check, and Deploy ships the merged pin.
+
+To bump locally, run `vp run chat:multica-cli-bump` followed by
+`vp run chat:multica-skill`, and commit both files together. Do not run `multica update`
+in the sandbox or install an unpinned binary while the image builds.
+
 ## Slack
 
 ### What it does
