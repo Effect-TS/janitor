@@ -8,7 +8,7 @@ import {
   type GitHubWebhookJournalSequence,
 } from "@janitor/domain/GitHub/WebhookJournal"
 import type { RuntimeContext } from "alchemy/RuntimeContext"
-import type * as Cloudflare from "alchemy/Cloudflare"
+import type * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"

@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 
 /**
  * The chat sandbox: clanka's executor with every tool, and whatever the model

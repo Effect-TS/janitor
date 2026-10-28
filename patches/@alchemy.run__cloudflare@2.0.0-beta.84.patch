@@ -1,0 +1,69 @@
+diff --git a/lib/Workers/Sources/Rolldown.js b/lib/Workers/Sources/Rolldown.js
+index af8e61b835b214d6623a8757f431c71788071fac..2771da63bcddd25e989630b3399f0509f5180348 100644
+--- a/lib/Workers/Sources/Rolldown.js
++++ b/lib/Workers/Sources/Rolldown.js
+@@ -167,6 +167,8 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+     const doClasses = [];
+     const wfClasses = [];
+     const migrations = {};
++    // Named `WorkerEntrypoint` classes re-exported from their own module.
++    const entrypointModules = [];
+     for (const [className, entry] of Object.entries(exports)) {
+         if (isDurableObjectExport(entry)) {
+             doClasses.push(className);
+@@ -177,6 +179,9 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+         else if (entry.kind === "sqlMigrations") {
+             migrations[className] = entry.snapshot;
+         }
++        else if (entry.kind === "entrypointModule") {
++            entrypointModules.push(`export { ${entry.exportName} as ${className} } from ${JSON.stringify(entry.module)};`);
++        }
+     }
+     const hasMigrations = Object.keys(migrations).length > 0;
+     const hasDoClasses = doClasses.length > 0;
+@@ -200,6 +205,8 @@ const meta = {
+ 
+ export default makeWorkerBridge(WorkerEntrypoint, meta);
+ 
++${entrypointModules.join("\n")}
++
+ // export class proxy stubs for Durable Objects and Workflows
+ ${[
+         ...(hasDoClasses
+diff --git a/src/Workers/Sources/Rolldown.ts b/src/Workers/Sources/Rolldown.ts
+index efb0935ecdf910271eddd79fc3ace6ffb54e5a2a..0d4b7e44edea87cac0f614a3ef886d4d9b5a92e5 100644
+--- a/src/Workers/Sources/Rolldown.ts
++++ b/src/Workers/Sources/Rolldown.ts
+@@ -258,6 +258,8 @@ export const makeEffectVirtualEntry = (
+   const doClasses: string[] = [];
+   const wfClasses: string[] = [];
+   const migrations: Record<string, SqlMigrationSnapshot> = {};
++  // Named `WorkerEntrypoint` classes re-exported from their own module.
++  const entrypointModules: string[] = [];
+   for (const [className, entry] of Object.entries(exports)) {
+     if (isDurableObjectExport(entry)) {
+       doClasses.push(className);
+@@ -265,6 +267,14 @@ export const makeEffectVirtualEntry = (
+       wfClasses.push(className);
+     } else if (entry.kind === "sqlMigrations") {
+       migrations[className] = entry.snapshot;
++    } else if ((entry as { kind: string }).kind === "entrypointModule") {
++      const { module, exportName } = entry as unknown as {
++        module: string;
++        exportName: string;
++      };
++      entrypointModules.push(
++        `export { ${exportName} as ${className} } from ${JSON.stringify(module)};`,
++      );
+     }
+   }
+   const hasMigrations = Object.keys(migrations).length > 0;
+@@ -289,6 +299,8 @@ const meta = {
+ 
+ export default makeWorkerBridge(WorkerEntrypoint, meta);
+ 
++${entrypointModules.join("\n")}
++
+ // export class proxy stubs for Durable Objects and Workflows
+ ${[
+   ...(hasDoClasses

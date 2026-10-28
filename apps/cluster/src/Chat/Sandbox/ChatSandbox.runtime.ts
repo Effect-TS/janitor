@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import * as Dockerfile from "alchemy/Docker/Dockerfile"
+import * as Dockerfile from "@alchemy.run/docker/Dockerfile"
 import * as AgentExecutor from "clanka/AgentExecutor"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"

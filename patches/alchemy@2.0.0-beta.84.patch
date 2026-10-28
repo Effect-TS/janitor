@@ -1,0 +1,64 @@
+diff --git a/lib/Command/Memo.js b/lib/Command/Memo.js
+index 2a7735eef730bc07c6608f7e1ed88f32a18cd1bf..ef4fdfd43dea972e2595e5f18a28962703d41ab7 100644
+--- a/lib/Command/Memo.js
++++ b/lib/Command/Memo.js
+@@ -2,7 +2,6 @@ import * as Effect from "effect/Effect";
+ import * as FileSystem from "effect/FileSystem";
+ import * as Path from "effect/Path";
+ import picomatch from "picomatch";
+-import { convertPathToPattern, glob } from "tinyglobby";
+ import { dotAlchemyDirectory } from "../AlchemyContext.js";
+ import { combineIgnoreRules, listFileSystemDirectory, parseIgnoreRules, walkIgnoring, } from "../Util/Ignore.js";
+ import { isPathWithin } from "../Util/isPathWithin.js";
+@@ -75,6 +74,9 @@ const Memo = Effect.gen(function* () {
+      * separately, as they lie outside the walked tree.
+      */
+     const listGitTrackedCandidates = Effect.fn(function* (options, gitignore) {
++        // Filesystem globbing is only needed while planning a deployment.
++        // Loading it at module scope runs fdir's createRequire in Workers.
++        const { glob } = yield* Effect.promise(() => import("tinyglobby"));
+         const inside = options.include.filter((pattern) => !pattern.startsWith("../"));
+         const outside = options.include.filter((pattern) => pattern.startsWith("../"));
+         const matches = picomatch(inside, { dot: true });
+@@ -98,6 +100,9 @@ const Memo = Effect.gen(function* () {
+         return [...files.map((entry) => entry.path), ...external];
+     });
+     const listFiles = Effect.fn(function* (options) {
++        // Filesystem globbing is only needed while planning a deployment.
++        // Loading it at module scope runs fdir's createRequire in Workers.
++        const { convertPathToPattern, glob } = yield* Effect.promise(() => import("tinyglobby"));
+         // Explicitly hashing a generated artifact still hashes its contents.
+         const excludeRuntime = !isPathWithin(dotAlchemy, options.cwd, runtimeBase);
+         const [files, lockfile] = yield* Effect.all([
+diff --git a/src/Command/Memo.ts b/src/Command/Memo.ts
+index 0b758a171fc6b31c3eb7bfaa8413067291bf9daf..b70839c14f18495ffd3dddd1397b168e1d7eaf65 100644
+--- a/src/Command/Memo.ts
++++ b/src/Command/Memo.ts
+@@ -3,7 +3,6 @@ import * as FileSystem from "effect/FileSystem";
+ import * as Path from "effect/Path";
+ import type { PlatformError } from "effect/PlatformError";
+ import picomatch from "picomatch";
+-import { convertPathToPattern, glob } from "tinyglobby";
+ import { dotAlchemyDirectory } from "../AlchemyContext.ts";
+ import {
+   combineIgnoreRules,
+@@ -162,6 +161,9 @@ const Memo = Effect.gen(function* () {
+     options: ResolvedMemoOptions,
+     gitignore: IgnoreRules,
+   ): Effect.fn.Return<string[], PlatformError, FileSystem.FileSystem | Path.Path> {
++    // Filesystem globbing is only needed while planning a deployment.
++    // Loading it at module scope runs fdir's createRequire in Workers.
++    const { glob } = yield* Effect.promise(() => import("tinyglobby"));
+     const inside = options.include.filter((pattern) => !pattern.startsWith("../"));
+     const outside = options.include.filter((pattern) => pattern.startsWith("../"));
+     const matches = picomatch(inside, { dot: true });
+@@ -197,6 +199,9 @@ const Memo = Effect.gen(function* () {
+   const listFiles = Effect.fn(function* (
+     options: ResolvedMemoOptions,
+   ): Effect.fn.Return<string[], PlatformError, FileSystem.FileSystem | Path.Path> {
++    // Filesystem globbing is only needed while planning a deployment.
++    // Loading it at module scope runs fdir's createRequire in Workers.
++    const { convertPathToPattern, glob } = yield* Effect.promise(() => import("tinyglobby"));
+     // Explicitly hashing a generated artifact still hashes its contents.
+     const excludeRuntime = !isPathWithin(dotAlchemy, options.cwd, runtimeBase);
+     const [files, lockfile] = yield* Effect.all(

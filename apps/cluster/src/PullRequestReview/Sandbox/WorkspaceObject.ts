@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Effect from "effect/Effect"
 import * as HttpBody from "effect/http/HttpBody"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
@@ -46,11 +46,9 @@ export const exportGitEgress = Effect.gen(function* () {
 
 export const ReviewWorkspaceLive = ReviewWorkspace.make(
   Effect.gen(function* () {
-    // Attaches the container application to this class. The handle alchemy
-    // would start is not used: the workspace drives `ctx.container` itself.
-    yield* (SandboxContainer as unknown as Record<string, Effect.Effect<unknown>>)[
-      "~alchemy/Container/Binding"
-    ]!
+    // Attaches the container application to this class. The returned handle
+    // is not used: the workspace drives `ctx.container` itself.
+    yield* SandboxContainer
     const state = yield* Cloudflare.DurableObjectState
     const auth = yield* GitHubAppAuth
 
