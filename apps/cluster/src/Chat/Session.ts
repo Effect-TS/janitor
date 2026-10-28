@@ -832,6 +832,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           instructions: systemPrompt({
             audience: running.thread._tag === "Slack" ? "slack" : "discord",
             multicaWorkspaceId,
+            multicaWorkspaceSlug: config.multicaWorkspaceSlug,
           }),
           executor: sandbox.executor,
           history,

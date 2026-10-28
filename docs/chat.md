@@ -55,12 +55,13 @@ Janitor enforces no spend cap. The 20-minute turn and the 10 sandboxes bound wha
 
 The bot acts on GitHub as its own App, separate from janitor's, and in Multica as the Janitor member. The egress proxy hands each sandbox their credentials; without them it hands GitHub and Multica none, so the bot can still read public repositories but can't push or reach Multica.
 
-| Setting                       | Meaning                                                        |
-| ----------------------------- | -------------------------------------------------------------- |
-| `CHAT_GITHUB_APP_ID`          | The bot App's id                                               |
-| `CHAT_GITHUB_APP_PRIVATE_KEY` | The bot App's private key                                      |
-| `CHAT_MULTICA_TOKEN`          | The Janitor member's non-expiring Multica PAT                  |
-| `CHAT_MULTICA_WORKSPACE_ID`   | The Multica workspace the CLI acts in; defaults to Effectful's |
+| Setting                       | Meaning                                                         |
+| ----------------------------- | --------------------------------------------------------------- |
+| `CHAT_GITHUB_APP_ID`          | The bot App's id                                                |
+| `CHAT_GITHUB_APP_PRIVATE_KEY` | The bot App's private key                                       |
+| `CHAT_MULTICA_TOKEN`          | The Janitor member's non-expiring Multica PAT                   |
+| `CHAT_MULTICA_WORKSPACE_ID`   | The Multica workspace the CLI acts in; defaults to Effectful's  |
+| `CHAT_MULTICA_WORKSPACE_SLUG` | That workspace's slug, for issue links; defaults to Effectful's |
 
 The production App is installed on every repository of Effect-TS and Effectful-Tech, private ones included, with contents, pull requests and issues read and write, and actions, checks, commit statuses and metadata read. The development App is installed only on `Effect-TS/janitor-sandbox`, so a local run never holds write tokens for real repositories. The Janitor member uses the mailbox `tech-ops@effectful.co`. Agents the bot should trigger must be visible to workspace members or list the Janitor user.
 
