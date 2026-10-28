@@ -31,6 +31,17 @@ export const sessionKey = (thread: ChatThread): string =>
 export const AuthorClass = Schema.Literals(["admitted", "outsider", "bot"])
 export type AuthorClass = typeof AuthorClass.Type
 
+/** A file attached to a thread message; `download` fetches its bytes. */
+export const ChatAttachment = Schema.Struct({
+  /** The platform's file id: the Slack file id or the Discord attachment id. */
+  id: Schema.String,
+  name: Schema.String,
+  mediaType: Schema.String,
+  /** In bytes, as the platform reports it. */
+  size: Schema.Int,
+})
+export type ChatAttachment = typeof ChatAttachment.Type
+
 /** A thread message, as ingress hands it to the session. */
 export const ChatMessage = Schema.Struct({
   /** The platform's message id: the Slack `ts` or the Discord snowflake. Sessions dedupe on it. */
@@ -44,6 +55,7 @@ export const ChatMessage = Schema.Struct({
   text: Schema.String,
   mentionsBot: Schema.Boolean,
   sentAt: Schema.DateTimeUtc,
+  attachments: Schema.Array(ChatAttachment),
 })
 export type ChatMessage = typeof ChatMessage.Type
 
@@ -71,6 +83,11 @@ export class ChatPlatform extends Context.Service<
       thread: ChatThread,
       file: { readonly name: string; readonly content: string },
     ) => Effect.Effect<void, ChatPlatformError>
+    /** An attachment's bytes. */
+    readonly download: (
+      thread: ChatThread,
+      attachment: ChatAttachment,
+    ) => Effect.Effect<Uint8Array, ChatPlatformError>
     /** The thread's latest messages, oldest first, for the backfill when the bot joins it. */
     readonly history: (
       thread: ChatThread,
@@ -90,6 +107,8 @@ export class ChatPlatform extends Context.Service<
     postReply: () =>
       Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
     uploadFile: () =>
+      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
+    download: () =>
       Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
     history: () => Effect.succeed([]),
   })

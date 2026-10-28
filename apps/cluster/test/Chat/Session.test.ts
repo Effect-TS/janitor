@@ -6,8 +6,9 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Prompt from "effect/ai/Prompt"
 import { resumeMessage, switchedOffMessage, wrapUpMessage } from "@janitor/domain/Chat/Prompt"
-import type { ChatThread } from "../../src/Chat/Platform.ts"
+import { type ChatThread, sessionKey } from "../../src/Chat/Platform.ts"
 import type { TranscriptResult, TranscriptTurn } from "../../src/Chat/Session.ts"
 import {
   discordThread,
@@ -63,9 +64,9 @@ const available = (transcript: TranscriptResult) => {
   return transcript
 }
 
-/** The transcript's turns, without their generated ids. */
+/** The transcript's turns, without their generated ids and their history. */
 const turns = (transcript: TranscriptResult) =>
-  available(transcript).turns.map(({ turnId: _, ...turn }) => turn)
+  available(transcript).turns.map(({ turnId: _, messages: _messages, ...turn }) => turn)
 
 /** Each stored message's id and gate outcome. */
 const stored = (transcript: TranscriptResult) =>
@@ -510,7 +511,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect(
+  it.effect.fails(
     "the kill switch stops a running turn, starts no new one and says so once per thread",
     () =>
       test((harness) =>
@@ -522,6 +523,11 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
               () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
             ),
             "the status to say Stopped",
+          )
+          // Said when the switch stops the turn, without waiting for another message.
+          yield* harness.until(
+            Effect.sync(() => harness.platform.replies.length === 1),
+            "the switched-off reply",
           )
 
           yield* send(harness, slackThread, "Are you there?", { mention: true })
@@ -543,6 +549,188 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           )
         }),
       ),
+  )
+
+  it.effect("the first turn in a thread sees the thread's earlier messages as context", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const earlier = [
+          yield* harness.message("The deploy failed again.", { author: "Grace" }),
+          yield* harness.message("Same error as Tuesday.", { author: "Linus" }),
+        ]
+        harness.platform.threadHistory = earlier
+        const asked = yield* send(harness, slackThread, "Can you look into it?", {
+          mention: true,
+        })
+        yield* modelCalls(harness, 1)
+        const prompt = seen(harness.model.last)
+        assert.include(prompt, "The deploy failed again.")
+        assert.include(prompt, "Same error as Tuesday.")
+        assert.deepStrictEqual(stored(yield* harness.transcript(slackThread)), [
+          [earlier[0]!.id, { _tag: "Context" }],
+          [earlier[1]!.id, { _tag: "Context" }],
+          [asked.id, { _tag: "Mention" }],
+        ])
+      }),
+    ),
+  )
+
+  it.effect.fails(
+    "a turn still ends at minute 20 when its sandbox is lost and no new one comes",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          const startedAt = yield* Clock.currentTimeMillis
+          const at = (minutes: number, seconds: number) =>
+            Effect.flatMap(Clock.currentTimeMillis, (now) =>
+              harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
+            )
+          yield* longTurn(harness, slackThread, "Upgrade every dependency.")
+
+          yield* at(18, 50)
+          harness.sandboxes.holdAcquires = true
+          harness.sandboxes.loseScripts()
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.acquires.length === 2),
+            "the second acquire",
+          )
+          yield* at(19, 50)
+          assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
+          yield* at(20, 10)
+          assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
+        }),
+      ),
+  )
+
+  it.effect.fails("a reply that can't be posted fails the turn", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        harness.platform.failReplies = true
+        yield* send(harness, slackThread, "Summarise yesterday's PRs.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(say("Three merged, one open."))
+        yield* turnEnded(harness, slackThread)
+        assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+          finished({ status: "failed", errorCategory: "reply_failed" }),
+        ])
+      }),
+    ),
+  )
+
+  it.effect.fails(
+    "attachments go into the turn's folder in the sandbox, up to 20 MB each, and images reach the model",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          const notes = { id: "F1", name: "notes.txt", mediaType: "text/plain", size: 5 }
+          const screenshot = { id: "F2", name: "screenshot.png", mediaType: "image/png", size: 4 }
+          const dump = {
+            id: "F3",
+            name: "heap.bin",
+            mediaType: "application/octet-stream",
+            size: 21 * 1024 * 1024,
+          }
+          harness.platform.files.set(notes.id, new TextEncoder().encode("notes"))
+          harness.platform.files.set(screenshot.id, new Uint8Array([137, 80, 78, 71]))
+          yield* send(harness, slackThread, "What's wrong in the screenshot?", {
+            mention: true,
+            attachments: [notes, screenshot, dump],
+          })
+          yield* modelCalls(harness, 1)
+
+          // The file over 20 MB is never fetched.
+          assert.deepStrictEqual(harness.platform.downloads, [notes.id, screenshot.id])
+          const written = harness.sandboxes.written.map((file) => file.path)
+          assert.strictEqual(written.length, 2)
+          assert.isTrue(written[0]!.endsWith("/notes.txt"))
+          assert.isTrue(written[1]!.endsWith("/screenshot.png"))
+          const folder = (path: string) => path.slice(0, path.lastIndexOf("/"))
+          assert.strictEqual(folder(written[0]!), folder(written[1]!))
+          assert.deepStrictEqual([...harness.sandboxes.written[1]!.content], [137, 80, 78, 71])
+          // The model is told where the files are, and sees the image.
+          assert.include(seen(harness.model.last), written[0]!)
+          const images = harness.model.last.content.flatMap((message) =>
+            message.role === "user"
+              ? message.content.filter(
+                  (part) => part.type === "file" && part.mediaType === "image/png",
+                )
+              : [],
+          )
+          assert.strictEqual(images.length, 1)
+        }),
+      ),
+  )
+
+  it.effect.fails("an admission is remembered for an hour", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* harness.admit(slackThread, "U-Ada")
+        assert.isTrue(yield* harness.admitted(slackThread, "U-Ada"))
+        assert.isFalse(yield* harness.admitted(slackThread, "U-Grace"))
+        yield* harness.wait("59 minutes", "1 minute")
+        assert.isTrue(yield* harness.admitted(slackThread, "U-Ada"))
+        yield* harness.wait("2 minutes", "1 minute")
+        assert.isFalse(yield* harness.admitted(slackThread, "U-Ada"))
+      }),
+    ),
+  )
+
+  it.effect.fails("the transcript shows each turn's own history", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* send(harness, slackThread, "First question.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(run("ls"), say("First answer."))
+        yield* turnEnded(harness, slackThread)
+        yield* send(harness, slackThread, "Second question.", { mention: true })
+        yield* modelCalls(harness, 3)
+        harness.model.answer(say("Second answer."))
+        yield* harness.until(
+          Effect.map(
+            harness.transcript(slackThread),
+            (transcript) =>
+              available(transcript).turns.every((turn) => turn.status !== "running") &&
+              available(transcript).turns.length === 2,
+          ),
+          "the second turn to end",
+        )
+
+        const [first, second] = available(yield* harness.transcript(slackThread)).turns.map(
+          (turn) => seen(Prompt.fromMessages(turn.messages)),
+        )
+        assert.include(first, "First question.")
+        assert.include(first, "ls")
+        assert.include(first, "First answer.")
+        assert.notInclude(first, "Second")
+        assert.include(second, "Second question.")
+        assert.include(second, "Second answer.")
+        assert.notInclude(second, "First")
+      }),
+    ),
+  )
+
+  it.effect.fails("cancel stops the running turn and keeps the session", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* longTurn(harness, slackThread, "Run the whole test suite.")
+        yield* harness.cancel(slackThread)
+        yield* harness.until(
+          Effect.sync(
+            () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
+          ),
+          "the status to say Stopped",
+        )
+        assert.deepStrictEqual(harness.sandboxes.releases, [sessionKey(slackThread)])
+        assert.deepStrictEqual(
+          turns(yield* harness.transcript(slackThread)).map((turn) => turn.status),
+          ["stopped"],
+        )
+
+        harness.sandboxes.hang = false
+        yield* send(harness, slackThread, "Try just the chat tests.", { mention: true })
+        yield* modelCalls(harness, 2)
+      }),
+    ),
   )
 
   it.effect("a message delivered twice in a row is stored and acted on once", () =>

@@ -34,8 +34,10 @@ import * as TestClock from "effect/testing/TestClock"
 import { ChatKillSwitch, type KillSwitchState } from "../../src/Chat/KillSwitch.ts"
 import {
   type AuthorClass,
+  type ChatAttachment,
   type ChatMessage,
   ChatPlatform,
+  ChatPlatformError,
   type ChatThread,
   sessionKey,
 } from "../../src/Chat/Platform.ts"
@@ -234,16 +236,29 @@ export class FakeSandboxes {
   readonly acquires: Array<string> = []
   readonly releases: Array<string> = []
   readonly scripts: Array<string> = []
+  /** Every file written into a sandbox, as attachments are. */
+  readonly written: Array<{ readonly path: string; readonly content: Uint8Array }> = []
   /** How many more scripts find their sandbox gone. */
   lose = 0
-  /** While set, a script runs until `finishScripts`, as a long build would. */
+  /** While set, a script runs until `finishScripts` or `loseScripts`, as a long build would. */
   hang = false
-  private finished = Deferred.makeUnsafe<void>()
+  /** While set, an acquire waits for ever, as when every sandbox is running a turn. */
+  holdAcquires = false
+  private finished = Deferred.makeUnsafe<"ok" | "lost">()
 
   finishScripts() {
+    this.endScripts("ok")
+  }
+
+  /** Ends the scripts running now as their container goes away. */
+  loseScripts() {
+    this.endScripts("lost")
+  }
+
+  private endScripts(end: "ok" | "lost") {
     const finished = this.finished
-    this.finished = Deferred.makeUnsafe<void>()
-    Deferred.doneUnsafe(finished, Effect.void)
+    this.finished = Deferred.makeUnsafe<"ok" | "lost">()
+    Deferred.doneUnsafe(finished, Effect.succeed(end))
   }
 
   private readonly executor = Layer.succeed(
@@ -270,9 +285,9 @@ export class FakeSandboxes {
               this.lose -= 1
               return Effect.succeed(Stream.die(lostSandbox))
             }
-            return Effect.as(
-              this.hang ? Deferred.await(this.finished) : Effect.void,
-              Stream.make("ok"),
+            return Effect.map(
+              this.hang ? Deferred.await(this.finished) : Effect.succeed("ok" as const),
+              (end) => (end === "ok" ? Stream.make("ok") : Stream.die(lostSandbox)),
             )
           }),
         ),
@@ -283,10 +298,19 @@ export class FakeSandboxes {
   get layer() {
     return Layer.succeed(ChatSandboxes, {
       acquire: ({ sessionId }) =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
           const fresh = !this.acquires.includes(sessionId)
           this.acquires.push(sessionId)
-          return { fresh, generation: this.acquires.length, executor: this.executor }
+          const sandbox = {
+            fresh,
+            generation: this.acquires.length,
+            executor: this.executor,
+            writeFile: (path: string, content: Uint8Array) =>
+              Effect.sync(() => {
+                this.written.push({ path, content })
+              }),
+          }
+          return this.holdAcquires ? Effect.never : Effect.succeed(sandbox)
         }),
       release: (sessionId) =>
         Effect.sync(() => {
@@ -302,7 +326,7 @@ export interface FakeStatus {
   readonly texts: Array<string>
 }
 
-/** Slack and Discord. Status messages and replies are recorded; the thread has no earlier messages. */
+/** Slack and Discord. Status messages, replies and downloads are recorded. */
 export class FakePlatform {
   readonly statuses: Array<FakeStatus> = []
   readonly replies: Array<{ readonly thread: ChatThread; readonly text: string }> = []
@@ -310,6 +334,14 @@ export class FakePlatform {
   posting = 0
   /** While set, posting a reply waits for it. */
   holdReplies: Deferred.Deferred<void> | undefined
+  /** While set, posting a reply fails, as a denied post does. */
+  failReplies = false
+  /** The thread's earlier messages, which the backfill reads. */
+  threadHistory: ReadonlyArray<ChatMessage> = []
+  /** Each attachment's bytes, by attachment id. */
+  readonly files = new Map<string, Uint8Array>()
+  /** The ids of the attachments downloaded, in order. */
+  readonly downloads: Array<string> = []
 
   /** The latest text of each status message in `thread`, in order. */
   statusTexts(thread: ChatThread) {
@@ -331,10 +363,17 @@ export class FakePlatform {
           this.posting += 1
           if (this.holdReplies !== undefined) yield* Deferred.await(this.holdReplies)
           this.posting -= 1
+          if (this.failReplies)
+            return yield* new ChatPlatformError({ message: "channel_not_found" })
           this.replies.push({ thread, text })
         }),
       uploadFile: () => Effect.die("unexpected file upload"),
-      history: () => Effect.succeed([]),
+      download: (_thread, attachment) =>
+        Effect.sync(() => {
+          this.downloads.push(attachment.id)
+          return this.files.get(attachment.id) ?? new Uint8Array()
+        }),
+      history: () => Effect.sync(() => this.threadHistory),
     })
   }
 }
@@ -453,6 +492,7 @@ export const makeSessionHarness = Effect.gen(function* () {
         readonly author?: string
         readonly class?: AuthorClass
         readonly mention?: boolean
+        readonly attachments?: ReadonlyArray<ChatAttachment>
       } = {},
     ) =>
       Effect.map(Clock.currentTimeMillis, (now): ChatMessage => {
@@ -463,6 +503,7 @@ export const makeSessionHarness = Effect.gen(function* () {
           text,
           mentionsBot: options.mention ?? false,
           sentAt: DateTime.makeUnsafe(now),
+          attachments: options.attachments ?? [],
         }
       }),
 
@@ -483,6 +524,22 @@ export const makeSessionHarness = Effect.gen(function* () {
     /** Deletes the session, as the web app does. */
     remove: (thread: ChatThread) =>
       Effect.flatMap(client(thread), (session) => stepping(use(session.Delete({})), "Delete")),
+
+    /** Stops the running turn, as the web app does. */
+    cancel: (thread: ChatThread) =>
+      Effect.flatMap(client(thread), (session) => stepping(use(session.Cancel({})), "Cancel")),
+
+    /** Remembers `userId` as admitted, as Slack ingress does after `users.info`. */
+    admit: (thread: ChatThread, userId: string) =>
+      Effect.flatMap(client(thread), (session) =>
+        stepping(use(session.RememberAdmission({ userId })), "RememberAdmission"),
+      ),
+
+    /** Whether the session remembers `userId` as admitted. */
+    admitted: (thread: ChatThread, userId: string) =>
+      Effect.flatMap(client(thread), (session) =>
+        use(Effect.orDie(session.CachedAdmission({ userId }))),
+      ),
 
     transcript: (thread: ChatThread) =>
       Effect.flatMap(client(thread), (session) => use(Effect.orDie(session.Transcript()))),

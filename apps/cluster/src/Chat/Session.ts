@@ -72,6 +72,26 @@ export const Receive = Rpc.make("Receive", {
 export const Delete = Rpc.make("Delete", { payload: {} })
 
 /**
+ * Stops the running turn from the web app, as "stop" does. The session and
+ * its history stay.
+ */
+export const Cancel = Rpc.make("Cancel", { payload: {} })
+
+/**
+ * Remembers a Slack user as admitted for an hour, for ingress's admission
+ * check. Denials are never remembered.
+ */
+export const RememberAdmission = Rpc.make("RememberAdmission", {
+  payload: { userId: Schema.String },
+})
+
+/** Whether the user's admission is remembered and less than an hour old. */
+export const CachedAdmission = Rpc.make("CachedAdmission", {
+  payload: { userId: Schema.String },
+  success: Schema.Boolean,
+})
+
+/**
  * Sent to itself after each message, for when the session expires. One for
  * an earlier message finds a later one and does nothing.
  */
@@ -94,7 +114,13 @@ export const TranscriptResult = Schema.TaggedUnion({
   Expired: {},
   Available: {
     messages: Schema.Array(Schema.Struct({ ...ChatMessage.fields, gate: GateOutcome })),
-    turns: Schema.Array(TranscriptTurn),
+    turns: Schema.Array(
+      Schema.Struct({
+        ...TranscriptTurn.fields,
+        /** The agent history the turn added, without the system message. */
+        messages: Schema.Array(Prompt.Message),
+      }),
+    ),
   },
 })
 export type TranscriptResult = typeof TranscriptResult.Type
@@ -104,10 +130,10 @@ export const Transcript = Rpc.make("Transcript", { success: TranscriptResult })
 
 export const ChatSession = Entity.fromRpcGroup(
   "ChatSession",
-  RpcGroup.make(Receive, Delete, Expire)
+  RpcGroup.make(Receive, Delete, Cancel, RememberAdmission, Expire)
     .annotateRpcs(ClusterSchema.Persisted, true)
-    // A read changes nothing, so it isn't stored and replayed like the rest.
-    .add(Transcript),
+    // Reads change nothing, so they aren't stored and replayed like the rest.
+    .add(Transcript, CachedAdmission),
 )
 
 /** How often a running turn reads the kill switch, and the status message is edited at most. */
@@ -763,6 +789,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           }),
         ).pipe(withLogs, Effect.orDie),
 
+      // Not implemented yet (EFF-3018).
+      Cancel: () => Effect.void,
+      RememberAdmission: () => Effect.void,
+      CachedAdmission: () => Effect.succeed(false),
+
       Expire: ({ payload }) =>
         Semaphore.withPermits(
           inbox,
@@ -787,7 +818,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           return {
             _tag: "Available",
             messages: messages.map(({ message, gate }) => ({ ...message, gate: gate! })),
-            turns: turns.map((turn): TranscriptTurn => ({
+            turns: turns.map((turn) => ({
               turnId: turn.turnId,
               status: turn.status,
               errorCategory: turn.errorCategory,
@@ -796,6 +827,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               model: turn.model,
               actions: turn.actions,
               usage: turn.usage,
+              messages: [],
             })),
           } as const
         }).pipe(withLogs, Effect.orDie),

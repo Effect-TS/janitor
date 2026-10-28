@@ -44,6 +44,8 @@ export interface ChatSandbox {
   /** The pool's grant, which `release` hands back. */
   readonly generation: number
   readonly executor: Layer.Layer<AgentExecutor.AgentExecutor>
+  /** Writes a file into the sandbox, creating its directories, as attachments are. */
+  readonly writeFile: (path: string, content: Uint8Array) => Effect.Effect<void>
 }
 
 /** Errors cross Durable Object RPC as plain objects; this turns them back into classes. */
@@ -169,6 +171,8 @@ export class ChatSandboxes extends Context.Service<
               executor: executorLayer(
                 fenced(options.namespace.getByName(sessionId), grant.generation),
               ),
+              writeFile: () =>
+                Effect.die("writing a file into a chat sandbox is not implemented yet (EFF-3018)"),
             }
           }),
         ).pipe(Effect.annotateLogs({ sessionId })),
