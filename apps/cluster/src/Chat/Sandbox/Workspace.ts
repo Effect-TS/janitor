@@ -131,6 +131,8 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
   /** A stored value, or `undefined` when storage can't be read. */
   const stored = <T>(key: string) =>
     promise(() => state.storage.get<T>(key)).pipe(Effect.orElseSucceed(() => undefined))
+  const store = (key: string, value: unknown) =>
+    promise(() => state.storage.put(key, value)).pipe(Effect.orDie)
   /** The grant the container was last acquired under; kept in storage across restarts. */
   let current = yield* stored<number>(GENERATION_KEY)
   /** The warm window the last acquire asked for, in milliseconds; kept the same way. */
@@ -185,10 +187,8 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
         return yield* Effect.fail(`provisioning answered ${status}`)
     })
 
-  /** Provisions the container; one that has its skills keeps them, so none are loaded or sent. */
-  const provision = (input: ChatAcquireInput, skilled: boolean) =>
+  const provision = (input: ChatAcquireInput, provisioned: ReadonlyArray<Skill>) =>
     Effect.gen(function* () {
-      const provisioned = skilled ? [] : yield* skills.load
       for (let retry = 0; ; retry++) {
         const failure = yield* provisionOnce(input, provisioned).pipe(
           Effect.as(undefined),
@@ -218,16 +218,17 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
         await state.storage.put(WARM_FOR_KEY, input.warmFor)
       }).pipe(Effect.orDie)
       const warm = !input.fresh && container.running && (yield* control.health)
-      // A warm container whose first provisioning failed never got its skills.
+      // A container that has its skills keeps them; a warm one whose first
+      // provisioning failed never got them.
       const skilled = warm && (yield* stored<boolean>(SKILLED_KEY)) === true
       if (!warm) {
-        yield* promise(() => state.storage.put(SKILLED_KEY, false)).pipe(Effect.orDie)
+        yield* store(SKILLED_KEY, false)
         yield* control.start(Duration.millis(input.startBudget))
       }
       yield* control.hold(Duration.millis(input.warmFor))
-      yield* provision(input, skilled)
-      yield* promise(() => state.storage.put(SKILLED_KEY, true)).pipe(Effect.orDie)
-      yield* promise(() => state.storage.put(ACTIVE_KEY, input.generation)).pipe(Effect.orDie)
+      yield* provision(input, skilled ? [] : yield* skills.load)
+      yield* store(SKILLED_KEY, true)
+      yield* store(ACTIVE_KEY, input.generation)
       yield* egress.start(input.generation)
       return { fresh: !warm }
     }).pipe(Effect.annotateLogs({ sessionId: input.sessionId }), locked)

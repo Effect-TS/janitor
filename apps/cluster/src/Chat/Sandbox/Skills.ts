@@ -127,20 +127,11 @@ export class SkillsGitHub extends Context.Service<
 
         const resolveRef = (repository: string, ref: string | undefined) =>
           Effect.gen(function* () {
-            const credential = yield* token(repository)
-            const name =
-              ref ??
-              (yield* send(
-                "the repository lookup",
-                `/repos/${repository}`,
-                credential,
-                GITHUB_REQUEST_HEADERS.accept,
-                decodeRepository,
-              )).default_branch
+            // `HEAD` is the default branch's tip.
             const sha = yield* send(
               "resolving the ref",
-              `/repos/${repository}/commits/${encodeURIComponent(name)}`,
-              credential,
+              `/repos/${repository}/commits/${encodeURIComponent(ref ?? "HEAD")}`,
+              yield* token(repository),
               "application/vnd.github.sha",
               (response) => response.text,
             )
@@ -207,9 +198,6 @@ const TreeApi = Schema.Struct({
 })
 
 const decodeInstallation = HttpClientResponse.schemaBodyJson(Schema.Struct({ id: Schema.Int }))
-const decodeRepository = HttpClientResponse.schemaBodyJson(
-  Schema.Struct({ default_branch: Schema.String }),
-)
 const decodeTree = HttpClientResponse.schemaBodyJson(TreeApi)
 
 const tooLarge = new SkillsReadError({
@@ -280,14 +268,14 @@ export class ChatSkills extends Context.Service<
   })
 
   static readonly layerFrom = (
-    settings: ChatSkillsSettings,
+    settings: Option.Option<ChatSkillsSettings>,
   ): Layer.Layer<ChatSkills, never, SkillsGitHub> =>
     Layer.effect(
       ChatSkills,
       Effect.gen(function* () {
-        if (Option.isNone(settings.repository)) return { load: Effect.succeed([MULTICA_SKILL]) }
-        const repository = settings.repository.value
-        const ref = Option.getOrUndefined(settings.ref)
+        if (Option.isNone(settings)) return { load: Effect.succeed([MULTICA_SKILL]) }
+        const { repository, directory } = settings.value
+        const ref = Option.getOrUndefined(settings.value.ref)
         const github = yield* SkillsGitHub
         /** The skills at the last commit read; a new commit replaces them. */
         let cached: { readonly sha: string; readonly skills: ReadonlyArray<Skill> } | undefined
@@ -295,8 +283,8 @@ export class ChatSkills extends Context.Service<
         const load = Effect.gen(function* () {
           const sha = yield* github.resolveRef(repository, ref)
           if (cached?.sha !== sha) {
-            const files = yield* github.readDirectory(repository, sha, settings.directory)
-            cached = { sha, skills: yield* collectSkills(settings.directory, files) }
+            const files = yield* github.readDirectory(repository, sha, directory)
+            cached = { sha, skills: yield* collectSkills(directory, files) }
           }
           const skills = cached.skills
           yield* Effect.logInfo("Provisioning the chat sandbox with the repository's skills").pipe(

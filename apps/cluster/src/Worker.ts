@@ -132,7 +132,6 @@ import {
   chatEgressSecrets,
   chatGateModel,
   chatSandboxInit,
-  type ChatSkillsSettings,
   chatSkillsConfig,
 } from "./Chat/Config.ts"
 import { ReplyGate } from "./Chat/Gate.ts"
@@ -290,9 +289,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       : { app: Option.none(), multicaToken: Option.none() }
     // The repository the bot's skills come from, read through janitor's App;
     // unset, the bot gets only the bundled `multica-platform` skill.
-    const chatSkills: ChatSkillsSettings = chatBot
-      ? yield* chatSkillsConfig
-      : { repository: Option.none(), directory: ".agents/skills", ref: Option.none() }
+    const chatSkills = chatBot ? yield* chatSkillsConfig : Option.none()
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
