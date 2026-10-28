@@ -259,6 +259,21 @@ describe("Discord ingress", () => {
       }),
   )
 
+  it.effect("keeps the bot role's mention syntax that doesn't mention the role", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress()
+      const handle = yield* ingress.instance
+      // Discord doesn't parse a mention in inline code.
+      const content = `<@&${ROLE}> the bot's role is \`<@&${BOT_ROLE}>\``
+      yield* handle(message("1271", { content, mention_roles: [ROLE] }))
+
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.text, message.mentionsBot]),
+        [[content, false]],
+      )
+    }),
+  )
+
   it.effect("starts a thread from a channel mention, and uses an existing one", () =>
     Effect.gen(function* () {
       const ingress = makeIngress()
