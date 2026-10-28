@@ -39,8 +39,6 @@ import * as AccessJwt from "./Ingress/AccessJwt.ts"
 import { makeRoutesLayer } from "./Ingress/Routes.ts"
 import * as Config from "effect/Config"
 import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
-import * as AiError from "effect/ai/AiError"
-import * as DecisionModel from "effect/ai/DecisionModel"
 import * as OpenRouterDecisionModel from "@effect/ai-openrouter/OpenRouterDecisionModel"
 import * as Cause from "effect/Cause"
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable"
@@ -135,6 +133,7 @@ import {
   chatGateModel,
   chatSandboxInit,
 } from "./Chat/Config.ts"
+import { ReplyGate } from "./Chat/Gate.ts"
 import { ChatKillSwitch } from "./Chat/KillSwitch.ts"
 import { ChatPlatform } from "./Chat/Platform.ts"
 import { ChatSession, ChatSessionLayer } from "./Chat/Session.ts"
@@ -358,31 +357,6 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const publicOrigin =
       typeof liveEnvironment.PUBLIC_ORIGIN === "string" ? liveEnvironment.PUBLIC_ORIGIN : ""
     let notifyOutbox: Effect.Effect<void> = Effect.void
-    // The reply gate asks Jev with labeling's OpenRouter key. Without one every
-    // gate call fails, and a message that doesn't mention the bot starts nothing.
-    const ChatGateLayer = Option.match(ai.apiKey, {
-      onNone: () =>
-        Layer.effect(
-          DecisionModel.DecisionModel,
-          DecisionModel.make({
-            decide: () =>
-              Effect.fail(
-                AiError.make({
-                  module: "ChatGate",
-                  method: "decide",
-                  reason: new AiError.UnknownError({
-                    description: "OPENROUTER_API_KEY is not set",
-                  }),
-                }),
-              ),
-          }),
-        ),
-      onSome: (apiKey) =>
-        OpenRouterDecisionModel.layer({ model: chatGate }).pipe(
-          Layer.provide(OpenRouterClient.layer({ apiKey })),
-          Layer.provide(FetchHttpClient.layer),
-        ),
-    })
     const ChatLayer = chatBot
       ? ChatSessionLayer.pipe(
           Layer.provide(
@@ -390,7 +364,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
               liveEnvironment.PullRequestReviewTailnetEgress as TailnetEgressNamespace,
             ),
           ),
-          Layer.provide(ChatGateLayer),
+          // The reply gate asks Jev with labeling's OpenRouter key.
+          Layer.provide(ReplyGate.decisionModel({ apiKey: ai.apiKey, model: chatGate })),
           Layer.provide(
             ChatSandboxes.layer({
               pools: chatPools,

@@ -3,8 +3,8 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as SqlClient from "effect/sql/SqlClient"
-import type { HistoryChange } from "../PullRequestReview/Agent.ts"
-import { encodeMessage } from "../PullRequestReview/RunStorage.ts"
+import { decodeMessage, encodeMessage } from "../AgentHistory.ts"
+import type { HistoryChange } from "../AgentLoop.ts"
 import { ChatMessage, ChatThread } from "./Platform.ts"
 
 /**
@@ -109,7 +109,6 @@ const SessionJson = Schema.fromJsonString(SessionState)
 const TurnJson = Schema.fromJsonString(TurnState)
 const ChatMessageJson = Schema.fromJsonString(Schema.toCodecJson(ChatMessage))
 const GateJson = Schema.fromJsonString(GateOutcome)
-const MessageJson = Schema.fromJsonString(Prompt.Message)
 
 interface MessageRow {
   readonly message: string
@@ -176,12 +175,8 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
    */
   const drop = sql.withTransaction(
     Effect.gen(function* () {
-      yield* sql`DELETE FROM chat_session WHERE session_id = ${sessionId}`
-      yield* sql`DELETE FROM chat_messages WHERE session_id = ${sessionId}`
-      yield* sql`DELETE FROM chat_turns WHERE session_id = ${sessionId}`
-      yield* sql`DELETE FROM chat_history WHERE session_id = ${sessionId}`
-      yield* sql`DELETE FROM chat_transcript WHERE session_id = ${sessionId}`
-      yield* sql`DELETE FROM chat_admissions WHERE session_id = ${sessionId}`
+      for (const table of TABLES)
+        yield* sql`DELETE FROM ${sql(table)} WHERE session_id = ${sessionId}`
       const [left] = yield* sql`SELECT 1 FROM chat_session LIMIT 1`
       if (left !== undefined) return
       for (const table of TABLES) yield* sql`DROP TABLE IF EXISTS ${sql(table)}`
@@ -392,9 +387,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     Effect.gen(function* () {
       const rows = yield* sql<{ seq: number; message: string }>`
         SELECT seq, message FROM chat_history WHERE session_id = ${sessionId} ORDER BY seq`
-      const messages = yield* Effect.forEach(rows, (row) =>
-        Schema.decodeEffect(MessageJson)(row.message),
-      )
+      const messages = yield* Effect.forEach(rows, (row) => decodeMessage(row.message))
       const last = messages.at(-1)
       if (
         !resume ||
@@ -424,7 +417,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
         WHERE session_id = ${sessionId} ORDER BY turn_id, seq`.pipe(
         Effect.flatMap(
           Effect.forEach((row) =>
-            Effect.map(Schema.decodeEffect(MessageJson)(row.message), (message) => ({
+            Effect.map(decodeMessage(row.message), (message) => ({
               turnId: row.turn_id,
               message,
             })),

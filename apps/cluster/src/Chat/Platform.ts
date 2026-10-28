@@ -97,6 +97,8 @@ export const readLimited = <E>(
     )
   })
 
+const noPlatform = Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" }))
+
 export class ChatPlatform extends Context.Service<
   ChatPlatform,
   {
@@ -137,16 +139,11 @@ export class ChatPlatform extends Context.Service<
    * The Worker binds it until Slack ingress (EFF-3019) supplies a platform.
    */
   static readonly unavailable = Layer.succeed(this, {
-    postStatus: () =>
-      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
-    editStatus: () =>
-      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
-    postReply: () =>
-      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
-    uploadFile: () =>
-      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
-    download: () =>
-      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
+    postStatus: () => noPlatform,
+    editStatus: () => noPlatform,
+    postReply: () => noPlatform,
+    uploadFile: () => noPlatform,
+    download: () => noPlatform,
     history: () => Effect.succeed([]),
   })
 }

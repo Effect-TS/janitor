@@ -28,16 +28,10 @@ import {
   threadMessages,
   wrapUpMessage,
 } from "@janitor/domain/Chat/Prompt"
-import type { HistoryChange } from "../PullRequestReview/Agent.ts"
-import {
-  ChatAgent,
-  ChatAgentLayer,
-  type ChatImage,
-  type ChatLoop,
-  type ChatProgress,
-} from "./Agent.ts"
+import type { HistoryChange } from "../AgentLoop.ts"
+import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agent.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
-import { ReplyGate } from "./Gate.ts"
+import { GATE_CONTEXT, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
 import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
@@ -234,13 +228,10 @@ interface Running {
   readonly turnId: string
   readonly thread: ChatThread
   fiber: Fiber.Fiber<void> | undefined
-  /** The loop, once it started; steers go to it. */
-  loop: ChatLoop | undefined
-  /** The sandbox the loop runs in, for the attachments of steered messages. */
-  sandbox: ChatSandbox | undefined
   /**
-   * Steers waiting for their attachments, in arrival order. One worker in
-   * the loop's scope takes them, so a stop or the deadline ends it too.
+   * Steers waiting for their attachments, in arrival order, once the loop
+   * started. One worker in the loop's scope takes them, so a stop or the
+   * deadline ends it too.
    */
   steers: Queue.Queue<ReadonlyArray<StoredMessage>> | undefined
   /** Messages queued to steer, so no later steer takes them again. */
@@ -383,8 +374,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const steerPending = (running: Running) =>
       Effect.gen(function* () {
         const { steers } = running
-        if (running.loop === undefined || steers === undefined) return
-        if (running.ending || running.stopping) return
+        if (steers === undefined || running.ending || running.stopping) return
         const taken = new Set([
           ...running.inFlight.flatMap((sent) => sent.ids),
           ...running.preparing,
@@ -536,8 +526,6 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           turnId,
           thread,
           fiber: undefined,
-          loop: undefined,
-          sandbox: undefined,
           steers: undefined,
           preparing: new Set(),
           claimed,
@@ -614,32 +602,28 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             : turn.startedAt + Duration.toMillis(config.deadline) - (yield* Clock.currentTimeMillis)
         if (remaining !== undefined && remaining <= 0)
           return { status: "deadline" } satisfies TurnEnd
+        const budget = remaining === undefined ? undefined : Duration.millis(remaining)
         const acquiring = sandboxes.acquire({
           sessionId: entityId,
           turnId: turn.turnId,
-          startBudget: remaining === undefined ? config.deadline : Duration.millis(remaining),
+          startBudget: budget ?? config.deadline,
           onQueued: queued,
         })
+        // None once the deadline passes while waiting.
         const granted = yield* Effect.acquireRelease(
           // Interruptible, so a stop or a shutdown doesn't wait out the queue.
           Effect.interruptible(
-            remaining === undefined
-              ? Effect.map(acquiring, Option.some)
-              : Effect.timeoutOption(acquiring, Duration.millis(remaining)),
+            budget === undefined
+              ? Effect.asSome(acquiring)
+              : Effect.timeoutOption(acquiring, budget),
           ).pipe(Effect.result),
           (result) =>
             result._tag === "Success" && Option.isSome(result.success)
               ? sandboxes.release(entityId, result.success.value.generation)
               : Effect.void,
         )
-        if (granted._tag === "Success" && Option.isNone(granted.success))
-          return { status: "deadline" } satisfies TurnEnd
-        const acquired =
-          granted._tag === "Success"
-            ? ({ _tag: "Success", success: Option.getOrThrow(granted.success) } as const)
-            : granted
-        if (acquired._tag === "Failure") {
-          const error = acquired.failure
+        if (granted._tag === "Failure") {
+          const error = granted.failure
           yield* Effect.logWarning("Couldn't get a chat sandbox").pipe(
             Effect.annotateLogs({ reason: error._tag }),
           )
@@ -648,6 +632,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             errorCategory: error._tag === "SandboxBusy" ? "busy" : "sandbox_unavailable",
           } satisfies TurnEnd
         }
+        if (Option.isNone(granted.success)) return { status: "deadline" } satisfies TurnEnd
+        const sandbox = granted.success.value
         const now = yield* Clock.currentTimeMillis
         const started = yield* storage.updateTurn(turn.turnId, (state) =>
           state.status !== "running" || state.startedAt !== null
@@ -665,16 +651,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         const multicaWorkspaceId = yield* Effect.orDie(chatMulticaWorkspaceId)
         const history = yield* storage.history(resumed)
         const pending = yield* storage.undelivered
-        running.sandbox = acquired.success
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
-            running.loop = undefined
-            running.sandbox = undefined
             running.steers = undefined
           }),
         )
         // Fetching attachments counts against the turn's deadline.
-        const preparing = yield* prepare(running, acquired.success, pending).pipe(
+        const preparing = yield* prepare(running, sandbox, pending).pipe(
           Effect.timeoutOption(Duration.millis(deadline - now)),
         )
         if (Option.isNone(preparing)) return { status: "deadline" } satisfies TurnEnd
@@ -693,12 +676,12 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             audience: running.thread._tag === "Slack" ? "slack" : "discord",
             multicaWorkspaceId,
           }),
-          executor: acquired.success.executor,
+          executor: sandbox.executor,
           history,
           prompt,
           images: prepared.images,
           onStep: (change) => commitStep(running, change),
-          onProgress: (progress: ChatProgress) =>
+          onProgress: (progress) =>
             Effect.gen(function* () {
               const actions = base.actions + progress.actions
               running.view = `Working · ${actionCount(actions)}${progress.note === null ? "" : ` · ${progress.note}`}`
@@ -715,8 +698,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         )(
           Effect.gen(function* () {
             const steers = yield* Queue.unbounded<ReadonlyArray<StoredMessage>>()
-            yield* Effect.forkScoped(steerWorker(running, loop, acquired.success, steers))
-            running.loop = loop
+            yield* Effect.forkScoped(steerWorker(running, loop, sandbox, steers))
             running.steers = steers
             yield* steerPending(running)
           }),
@@ -886,7 +868,9 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         let outcome: GateOutcome
         if (message.mentionsBot) outcome = { _tag: "Mention" }
         else {
-          const decided = yield* gate.decide(yield* storage.recent(20)).pipe(Effect.result)
+          const decided = yield* gate
+            .decide(yield* storage.recent(GATE_CONTEXT))
+            .pipe(Effect.result)
           if (decided._tag === "Failure") {
             yield* Effect.logWarning("Chat reply gate failed; starting nothing")
             outcome = { _tag: "Failed" }

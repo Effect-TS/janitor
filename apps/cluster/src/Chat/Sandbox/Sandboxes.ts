@@ -171,19 +171,18 @@ export class ChatSandboxes extends Context.Service<
               // back to the pool, and the next turn finds no running container and starts one.
               Effect.onError(() => release(sessionId, grant.generation)),
             )
+            const workspace = fenced(options.namespace.getByName(sessionId), grant.generation)
             return {
               fresh: grant.fresh || acquired.fresh,
               generation: grant.generation,
-              executor: executorLayer(
-                fenced(options.namespace.getByName(sessionId), grant.generation),
-              ),
+              executor: executorLayer(workspace),
               writeFile: (path: string, content: Uint8Array) =>
                 Effect.tryPromise({
                   try: () =>
-                    fenced(options.namespace.getByName(sessionId), grant.generation).fetch(
-                      `http://workspace/files?path=${encodeURIComponent(path)}`,
-                      { method: "PUT", body: content as Uint8Array<ArrayBuffer> },
-                    ),
+                    workspace.fetch(`http://workspace/files?path=${encodeURIComponent(path)}`, {
+                      method: "PUT",
+                      body: content as Uint8Array<ArrayBuffer>,
+                    }),
                   catch: (cause) => new SandboxWriteFailed({ reason: String(cause) }),
                 }).pipe(
                   Effect.flatMap((response) =>

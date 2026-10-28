@@ -1,5 +1,3 @@
-import * as OpenAiClient from "@effect/ai-openai-compat/OpenAiClient"
-import * as OpenAiLanguageModel from "@effect/ai-openai-compat/OpenAiLanguageModel"
 import * as Agent from "clanka/Agent"
 import type * as AgentExecutor from "clanka/AgentExecutor"
 import type * as AgentOutput from "clanka/AgentOutput"
@@ -7,22 +5,24 @@ import type * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
 import * as Model from "effect/ai/Model"
 import * as Prompt from "effect/ai/Prompt"
-import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
-import * as Equal from "effect/Equal"
 import type * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
-import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as References from "effect/References"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import type { HistoryChange } from "../PullRequestReview/Agent.ts"
-import { isSandboxLoss, tailnetHttpClient } from "../PullRequestReview/ReviewAgent.ts"
+import {
+  type HistoryChange,
+  type LoopHandle,
+  loopExit,
+  makeCommitBoundary,
+  startLoop,
+} from "../AgentLoop.ts"
+import { invalidModel, openAiCompatibleModel } from "../AgentModel.ts"
 import type { TailnetEgressNamespace } from "../PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
 import { chatModelConfig } from "./Config.ts"
 
@@ -30,7 +30,8 @@ import { chatModelConfig } from "./Config.ts"
  * The chat bot's agent (EFF-3018): clanka's `Agent.makeWith` in the Worker,
  * with conversation mode on, so a plain reply ends the turn. The session
  * entity owns the turn: its history, deadline, resumes and steering. This
- * module owns the model, the commit boundary and how a loop's exit reads.
+ * module owns the model, what a loop reports as it runs and how its exit
+ * reads; the commit boundary is PR review's (`AgentLoop`).
  */
 
 /** Model calls retried in a row before the turn ends with a provider failure. */
@@ -103,13 +104,7 @@ const promptWith = (text: string, images: ReadonlyArray<ChatImage>): Prompt.RawI
         }),
       ])
 
-export interface ChatLoop {
-  /** Sends the agent a message between its steps; it lands with the next model call. */
-  readonly steer: (message: string) => Effect.Effect<void>
-  /** Stops the loop; `result` then ends as `Interrupted`. */
-  readonly interrupt: Effect.Effect<void>
-  readonly result: Effect.Effect<ChatLoopEnd>
-}
+export type ChatLoop = LoopHandle<ChatLoopEnd>
 
 export class ChatAgent extends Context.Service<
   ChatAgent,
@@ -150,36 +145,34 @@ const sumUsage = (usages: ReadonlyArray<AgentOutput.Usage>): ChatUsage | null =>
 const loopEnd = (
   exit: Exit.Exit<void, AgentOutput.AgentFinished | AgentOutput.RetriesExhausted | AiError.AiError>,
 ): Effect.Effect<ChatLoopEnd> => {
-  if (exit._tag === "Success")
-    return Effect.as(Effect.logWarning("The chat loop ended without a reply"), {
-      _tag: "Failed",
-      category: "incomplete",
-    })
-  const error = Cause.findErrorOption(exit.cause)
-  if (Option.isSome(error)) {
-    const failure = error.value
-    if (failure._tag === "AgentFinished")
-      return Effect.succeed({ _tag: "Replied", text: failure.summary })
-    const reason = failure._tag === "RetriesExhausted" ? failure.error.reason : failure.reason
-    const status = "http" in reason ? reason.http?.response?.status : undefined
-    return Effect.as(
-      Effect.logWarning("The chat model failed").pipe(
-        Effect.annotateLogs({
-          errorCategory: reason._tag,
-          ...(status === undefined ? {} : { status }),
-        }),
-      ),
-      { _tag: "Failed", category: reason._tag },
-    )
+  const end = loopExit(exit)
+  switch (end._tag) {
+    case "Finished":
+      return Effect.succeed({ _tag: "Replied", text: end.summary })
+    case "Incomplete":
+      return Effect.as(Effect.logWarning("The chat loop ended without a reply"), {
+        _tag: "Failed",
+        category: "incomplete",
+      })
+    case "ProviderFailed":
+      return Effect.as(
+        Effect.logWarning("The chat model failed").pipe(
+          Effect.annotateLogs({
+            errorCategory: end.category,
+            ...(end.status === undefined ? {} : { status: end.status }),
+          }),
+        ),
+        { _tag: "Failed", category: end.category },
+      )
+    case "SandboxLost":
+    case "Interrupted":
+      return Effect.succeed(end)
+    case "Crashed":
+      return Effect.as(
+        Effect.logError("The chat loop failed").pipe(Effect.annotateLogs({ defect: end.defect })),
+        { _tag: "Failed", category: "loop_failed" },
+      )
   }
-  if (isSandboxLoss(exit.cause)) return Effect.succeed({ _tag: "SandboxLost" })
-  if (Cause.hasInterruptsOnly(exit.cause)) return Effect.succeed({ _tag: "Interrupted" })
-  const defect = Cause.squash(exit.cause)
-  const kind = defect instanceof Error ? defect.name : typeof defect
-  return Effect.as(
-    Effect.logError("The chat loop failed").pipe(Effect.annotateLogs({ defect: kind })),
-    { _tag: "Failed", category: "loop_failed" },
-  )
 }
 
 const make = Effect.gen(function* () {
@@ -189,48 +182,7 @@ const make = Effect.gen(function* () {
   const subagentModel = yield* Effect.serviceOption(Agent.SubagentModel)
 
   const start = Effect.fnUntraced(function* (options: ChatTurnStart) {
-    const ready = yield* Deferred.make<Agent.Agent>()
-    const ended = yield* Deferred.make<ChatLoopEnd>()
-
-    /** The history the session holds, and a signal for each commit. */
-    let committed: ReadonlyArray<Prompt.Message> = options.history
-    let commitDone = Deferred.makeUnsafe<void>()
-
-    const commit = (history: HistoryChange) =>
-      Effect.andThen(
-        options.onStep(history),
-        Effect.sync(() => {
-          committed =
-            history._tag === "Appended" ? [...committed, ...history.messages] : history.messages
-          const done = commitDone
-          commitDone = Deferred.makeUnsafe<void>()
-          Deferred.doneUnsafe(done, Effect.void)
-        }),
-      )
-
-    /**
-     * Waits until every change to the loop's history is committed, so a step
-     * the session hasn't committed never has a next step (as `ReviewAgent`).
-     */
-    const caughtUp = (agent: Agent.Agent) =>
-      Effect.suspend(function wait(): Effect.Effect<void> {
-        const current = agent.history.current.content.filter((message) => message.role !== "system")
-        return current.length === committed.length &&
-          current.every((message, index) => Equal.equals(message, committed[index]))
-          ? Effect.void
-          : Effect.andThen(Deferred.await(commitDone), Effect.suspend(wait))
-      })
-
-    const committedModel = (agent: Agent.Agent) =>
-      Effect.gen(function* () {
-        const ai = yield* LanguageModel.LanguageModel
-        const streamText = (options: Parameters<typeof ai.streamText>[0]) =>
-          Stream.unwrap(Effect.as(caughtUp(agent), ai.streamText(options)))
-        return LanguageModel.LanguageModel.of({
-          ...ai,
-          streamText: streamText as typeof ai.streamText,
-        })
-      })
+    const boundary = makeCommitBoundary({ history: options.history, onStep: options.onStep })
 
     let actions = 0
     let note: string | null = null
@@ -244,9 +196,9 @@ const make = Effect.gen(function* () {
       switch (part._tag) {
         case "HistoryAppended":
           note = noteOf(part.messages) ?? note
-          return commit({ _tag: "Appended", messages: part.messages })
+          return boundary.commit({ _tag: "Appended", messages: part.messages })
         case "HistoryReplaced":
-          return commit({ _tag: "Replaced", messages: part.messages })
+          return boundary.commit({ _tag: "Replaced", messages: part.messages })
         case "ScriptStart":
           actions += 1
           return progress
@@ -263,50 +215,32 @@ const make = Effect.gen(function* () {
       }
     }
 
-    const loop = Effect.gen(function* () {
-      const agent = yield* Agent.makeWith({ instructions: Option.some(options.instructions) })
-      if (options.history.length > 0)
-        MutableRef.set(agent.history, Prompt.fromMessages(options.history))
-      yield* Deferred.succeed(ready, agent)
-      const output = yield* agent
-        .send({ prompt: promptWith(options.prompt, options.images) })
-        .pipe(Effect.provideServiceEffect(LanguageModel.LanguageModel, committedModel(agent)))
-      yield* Stream.runForEach(output, onPart)
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(options.executor),
-      Effect.provideContext(model),
-      Option.isSome(subagentModel)
-        ? Effect.provideService(Agent.SubagentModel, subagentModel.value)
-        : (effect) => effect,
-      Effect.provideService(Agent.ConversationMode, true),
-      Effect.provideService(Agent.MaxRetries, MAX_RETRIES),
-      // clanka's compaction warning logs the raw provider error, body included.
-      Effect.provideService(References.MinimumLogLevel, "Error"),
-    )
-
-    const fiber = yield* Effect.forkScoped(
-      Effect.flatMap(Effect.exit(loop), (exit) =>
-        Effect.flatMap(loopEnd(exit), (end) => Deferred.succeed(ended, end)),
-      ),
-    )
-    const scope = yield* Effect.scope
-
-    return {
-      // Delivered between steps; the session's timers don't wait for it.
-      steer: (message: string) =>
-        Effect.asVoid(
-          Effect.forkIn(
-            Effect.flatMap(Deferred.await(ready), (agent) => agent.steer(message)),
-            scope,
-          ),
+    return yield* startLoop({
+      loop: (ready) =>
+        Effect.gen(function* () {
+          const agent = yield* Agent.makeWith({ instructions: Option.some(options.instructions) })
+          if (options.history.length > 0)
+            MutableRef.set(agent.history, Prompt.fromMessages(options.history))
+          yield* Deferred.succeed(ready, agent)
+          const output = yield* agent
+            .send({ prompt: promptWith(options.prompt, options.images) })
+            .pipe(Effect.provideServiceEffect(LanguageModel.LanguageModel, boundary.model(agent)))
+          yield* Stream.runForEach(output, onPart)
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(options.executor),
+          Effect.provideContext(model),
+          Option.isSome(subagentModel)
+            ? Effect.provideService(Agent.SubagentModel, subagentModel.value)
+            : (effect) => effect,
+          Effect.provideService(Agent.ConversationMode, true),
+          Effect.provideService(Agent.MaxRetries, MAX_RETRIES),
+          // clanka's compaction warning logs the raw provider error, body included.
+          Effect.provideService(References.MinimumLogLevel, "Error"),
         ),
-      interrupt: Effect.andThen(
-        Fiber.interrupt(fiber),
-        Deferred.succeed(ended, { _tag: "Interrupted" }),
-      ).pipe(Effect.asVoid),
-      result: Deferred.await(ended),
-    } satisfies ChatLoop
+      onExit: loopEnd,
+      interrupted: { _tag: "Interrupted" },
+    })
   })
 
   return ChatAgent.of({ model: yield* Model.ModelName, start })
@@ -318,21 +252,6 @@ export const ChatAgentLayer: Layer.Layer<
   never,
   LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName
 > = Layer.effect(ChatAgent, make)
-
-const openAiModel = (
-  config: Effect.Success<typeof chatModelConfig>,
-  model: string,
-  egress: TailnetEgressNamespace,
-) =>
-  OpenAiLanguageModel.model(model, { reasoning_effort: config.reasoningEffort }).pipe(
-    Layer.provide(
-      OpenAiClient.layer({
-        apiUrl: Option.getOrUndefined(config.apiUrl),
-        apiKey: Option.getOrUndefined(config.apiKey),
-      }),
-    ),
-    Layer.provide(config.viaTailnet ? tailnetHttpClient(egress) : FetchHttpClient.layer),
-  )
 
 /**
  * The `CHAT_AI_*` model through an OpenAI-compatible endpoint, as PR review's
@@ -347,26 +266,15 @@ export const ChatModelLayer = (
   Layer.unwrap(
     Effect.match(chatModelConfig, {
       onFailure: (error) => {
-        const invalid = Layer.mergeAll(
-          Layer.effect(
-            LanguageModel.LanguageModel,
-            LanguageModel.make({
-              generateText: () => Effect.die(error),
-              streamText: () => Stream.die(error),
-            }),
-          ),
-          Layer.succeed(Model.ProviderName, "openai"),
-          Layer.succeed(Model.ModelName, "invalid chat settings"),
-        )
+        const invalid = invalidModel(error, "invalid chat settings")
         return Layer.merge(invalid, Agent.layerSubagentModel(invalid))
       },
       onSuccess: (config) =>
         Layer.merge(
-          openAiModel(config, config.model, egress),
+          openAiCompatibleModel(config, egress),
           Agent.layerSubagentModel(
-            openAiModel(
-              config,
-              Option.getOrElse(config.subagentModel, () => config.model),
+            openAiCompatibleModel(
+              { ...config, model: Option.getOrElse(config.subagentModel, () => config.model) },
               egress,
             ),
           ),

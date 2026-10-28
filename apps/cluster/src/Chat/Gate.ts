@@ -1,9 +1,15 @@
+import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
+import * as OpenRouterDecisionModel from "@effect/ai-openrouter/OpenRouterDecisionModel"
+import * as AiError from "effect/ai/AiError"
 import * as Decision from "effect/ai/Decision"
 import * as DecisionModel from "effect/ai/DecisionModel"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import type * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import type { ChatMessage } from "./Platform.ts"
 
@@ -80,4 +86,37 @@ export class ReplyGate extends Context.Service<
       }
     }),
   )
+
+  /**
+   * The gate's decision model in the Worker: `model` on OpenRouter with
+   * labeling's `OPENROUTER_API_KEY`. Without the key every gate call fails,
+   * and a message that doesn't mention the bot starts nothing.
+   */
+  static readonly decisionModel = (options: {
+    readonly apiKey: Option.Option<Redacted.Redacted<string>>
+    readonly model: string
+  }): Layer.Layer<DecisionModel.DecisionModel> =>
+    Option.match(options.apiKey, {
+      onNone: () =>
+        Layer.effect(
+          DecisionModel.DecisionModel,
+          DecisionModel.make({
+            decide: () =>
+              Effect.fail(
+                AiError.make({
+                  module: "ChatGate",
+                  method: "decide",
+                  reason: new AiError.UnknownError({
+                    description: "OPENROUTER_API_KEY is not set",
+                  }),
+                }),
+              ),
+          }),
+        ),
+      onSome: (apiKey) =>
+        OpenRouterDecisionModel.layer({ model: options.model }).pipe(
+          Layer.provide(OpenRouterClient.layer({ apiKey })),
+          Layer.provide(FetchHttpClient.layer),
+        ),
+    })
 }
