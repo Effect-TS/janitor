@@ -144,10 +144,33 @@ export const settings = pipe(
 const chatBase = pipe(Route.literal("chat"), Route.slash(Route.literal("sessions")))
 /** Deployment-wide, like Account: the chat bot's sessions aren't a repository's. */
 export const chatSessions = pipe(chatBase, Route.mapTo(AppRoute.ChatSessions))
-/** `sessionId` is the session key, one encoded segment: the bot's status message links here. */
+// The session key (`slack/{team}/{channel}/{thread_ts}`) spans the remaining
+// segments. Links print its slashes as separators, because an encoded `%2F`
+// gets decoded by redirects on the way. Links that encode the whole key in one
+// segment still parse.
+const sessionKeySegments: Route.Biparser<{ readonly sessionId: string }> = {
+  parse: (segments) => {
+    if (segments.length === 0) {
+      return Effect.fail(new Route.ParseError({ message: "Expected sessionId" }))
+    }
+    return Effect.try({
+      try: (): Route.ParseResult<{ readonly sessionId: string }> => [
+        { sessionId: segments.map(decodeURIComponent).join("/") },
+        [],
+      ],
+      catch: () => new Route.ParseError({ message: "Invalid sessionId" }),
+    })
+  },
+  print: (value, state) =>
+    Effect.succeed({
+      ...state,
+      segments: [...state.segments, ...value.sessionId.split("/").map(encodeURIComponent)],
+    }),
+}
+/** The bot's status message links here. */
 export const chatSessionTranscript = pipe(
   chatBase,
-  Route.slash(idSegment("sessionId")),
+  Route.slash(sessionKeySegments),
   Route.mapTo(AppRoute.ChatSessionTranscript),
 )
 /** Every primitive in every state, in both themes. A deliverable, not a page users visit. */

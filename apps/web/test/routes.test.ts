@@ -66,6 +66,22 @@ describe("SPA routes", () => {
   })
 
   it.each([
+    ["/chat/sessions/slack/T012/C034/1761600000.123456", "slack/T012/C034/1761600000.123456"],
+    ["/chat/sessions/slack%2FT012%2FC034%2F1761600000.123456", "slack/T012/C034/1761600000.123456"],
+    ["/chat/sessions/discord/G012/1300000000000000000", "discord/G012/1300000000000000000"],
+  ])("opens the chat session transcript for %s", (path, sessionId) => {
+    expect(parse(path)).toMatchObject({ _tag: "ChatSessionTranscript", sessionId })
+  })
+
+  it("links a chat session transcript with the session key's slashes unencoded", () => {
+    expect(
+      Routes.path(
+        Routes.AppRoute.ChatSessionTranscript({ sessionId: "slack/T012/C034/1761600000.123456" }),
+      ),
+    ).toBe("/chat/sessions/slack/T012/C034/1761600000.123456")
+  })
+
+  it.each([
     "/unknown",
     "/repositories",
     "/account/github",
