@@ -13,6 +13,8 @@ export class FakeContainer implements WorkspaceContainer {
   readonly requests: Array<string> = []
   /** The body of every `/provision` request, in order. */
   readonly provisions: Array<ProvisionRequest> = []
+  /** What `/provision` answers. */
+  provisionStatus = 204
   start() {
     this.running = true
   }
@@ -32,7 +34,9 @@ export class FakeContainer implements WorkspaceContainer {
           this.provisions.push(JSON.parse(init.body))
         }
         return Promise.resolve(
-          new Response(null, { status: url.pathname === "/provision" ? 204 : 200 }),
+          new Response(null, {
+            status: url.pathname === "/provision" ? this.provisionStatus : 200,
+          }),
         )
       },
     }
