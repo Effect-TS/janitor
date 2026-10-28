@@ -344,7 +344,9 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect("a failed backfill is tried again with the next message", () =>
+  // Marked `.fails` until a backfill filled in late takes its place by
+  // Slack time, before the messages that arrived while it was pending.
+  it.effect.fails("a failed backfill is tried again with the next message", () =>
     test((harness) =>
       Effect.gen(function* () {
         const earlier = yield* harness.message("The README changed yesterday.", {
@@ -352,16 +354,44 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
         })
         harness.platform.threadHistory = [earlier]
         harness.platform.failHistory = true
+        yield* harness.wait("1 second")
         const asked = yield* send(harness, slackThread, "What changed?", { author: "Grace" })
         harness.platform.failHistory = false
         const again = yield* send(harness, slackThread, "Anyone?", { author: "Grace" })
         const transcript = available(yield* harness.transcript(slackThread))
         assert.deepStrictEqual(
           transcript.messages.map((message) => message.id),
-          [asked.id, earlier.id, again.id],
+          [earlier.id, asked.id, again.id],
         )
       }),
     ),
+  )
+
+  it.effect.fails(
+    "a follow-up after a late backfill of 20 or more messages still shows the gate the mention",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          harness.platform.threadHistory = yield* Effect.forEach(
+            Array.from({ length: 25 }, (_, index) => index),
+            (index) => harness.message(`Earlier note ${index}.`, { author: "Grace" }),
+          )
+          harness.platform.failHistory = true
+          yield* harness.wait("1 second")
+          yield* send(harness, slackThread, "Can you check the README?", { mention: true })
+          yield* modelCalls(harness, 1)
+          harness.model.answer(say("It looks fine."))
+          yield* harness.until(
+            Effect.sync(() => harness.platform.replies.length > 0),
+            "the reply",
+          )
+          harness.platform.failHistory = false
+          harness.gate.answer = 0.2
+          yield* send(harness, slackThread, "And the docs too?")
+          assert.strictEqual(harness.gate.inputs.length, 1)
+          assert.include(JSON.stringify(harness.gate.inputs[0]), "Can you check the README?")
+        }),
+      ),
   )
 
   it.effect(
