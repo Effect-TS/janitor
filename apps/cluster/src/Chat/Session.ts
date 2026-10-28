@@ -107,7 +107,8 @@ export const Exists = Rpc.make("Exists", { success: Schema.Boolean })
 
 /**
  * Sent to itself after each message, for when the session expires. One for
- * an earlier message finds a later one and does nothing.
+ * an earlier message finds a later one and does nothing. One that couldn't
+ * end the session sends itself again for later.
  */
 export class ExpirePayload extends Schema.Class<ExpirePayload>("ChatSession/Expire")({
   /** The epoch millis of the message it was sent for. */
@@ -118,27 +119,10 @@ export class ExpirePayload extends Schema.Class<ExpirePayload>("ChatSession/Expi
     return this.at
   }
   [PrimaryKey.symbol](): string {
-    return `expire/${this.lastMessageAt}`
+    return `expire/${this.lastMessageAt}/${DateTime.toEpochMillis(this.at)}`
   }
 }
 export const Expire = Rpc.make("Expire", { payload: ExpirePayload })
-
-/**
- * Sent to itself when removing a dropped session's index row failed: tries
- * again at `at`, until the row is gone or a new session in the thread owns
- * it. Persisted, so it outlives a restart.
- */
-export class ForgetPayload extends Schema.Class<ForgetPayload>("ChatSession/Forget")({
-  at: Schema.DateTimeUtc,
-}) {
-  [DeliverAt.symbol](): DateTime.DateTime {
-    return this.at
-  }
-  [PrimaryKey.symbol](): string {
-    return `forget/${DateTime.toEpochMillis(this.at)}`
-  }
-}
-export const Forget = Rpc.make("Forget", { payload: ForgetPayload })
 
 /** What the session's storage holds: nothing once it expired or was deleted. */
 export const TranscriptResult = Schema.TaggedUnion({
@@ -210,7 +194,7 @@ export class ChatSessionControl extends Context.Service<
 
 export const ChatSession = Entity.fromRpcGroup(
   "ChatSession",
-  RpcGroup.make(Receive, Delete, Cancel, RememberAdmission, Expire, Forget)
+  RpcGroup.make(Receive, Delete, Cancel, RememberAdmission, Expire)
     .annotateRpcs(ClusterSchema.Persisted, true)
     // Reads change nothing, so they aren't stored and replayed like the rest.
     .add(Transcript, CachedAdmission, Exists),
@@ -222,8 +206,8 @@ const TICK = Duration.seconds(3)
 /** How often a running turn's tokens reach the sessions page at most. */
 const INDEX_PROGRESS = Duration.seconds(30)
 
-/** How long a dropped session waits to try removing its index row again. */
-const FORGET_RETRY = Duration.hours(1)
+/** How long an expiry that couldn't end the session waits to try again. */
+const EXPIRE_RETRY = Duration.hours(1)
 
 /** Messages read for the backfill when the bot joins a thread. */
 const BACKFILL = 100
@@ -434,28 +418,6 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         entityScope,
       )
     })
-
-    /**
-     * Removes a dropped session's index row. Should every try fail, it sends
-     * itself `Forget` to try again later, so the page never lists a session
-     * that's gone for good.
-     */
-    const removeIndex = index.remove(entityId).pipe(
-      Effect.retry({ times: 4, schedule: Schedule.exponential("1 second") }),
-      Effect.catchCause((cause) =>
-        Effect.gen(function* () {
-          yield* Effect.logWarning("Couldn't remove the chat session's index row", cause)
-          const now = yield* Clock.currentTimeMillis
-          yield* self.Forget(
-            new ForgetPayload({ at: DateTime.makeUnsafe(now + Duration.toMillis(FORGET_RETRY)) }),
-            { discard: true },
-          )
-        }),
-      ),
-      Effect.catchCause((cause) =>
-        Effect.logError("Couldn't schedule removing the chat session's index row", cause),
-      ),
-    )
 
     const keepAlive = (enabled: boolean) =>
       Effect.suspend(() => {
@@ -1094,14 +1056,20 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     /** Ends the session: stops its turn and deletes its storage. */
     const drop = Effect.gen(function* () {
       yield* stopTurn
-      yield* storage.drop
+      // The index row goes first and the storage only once it's gone, under
+      // `indexing` so no save comes between. A failure leaves both, so the
+      // page never lists a session whose transcript is gone, and a replay
+      // after a crash runs the same steps again.
       yield* Semaphore.withPermits(
         indexing,
         1,
       )(
-        Effect.suspend(() => {
+        Effect.gen(function* () {
+          yield* index
+            .remove(entityId)
+            .pipe(Effect.retry({ times: 4, schedule: Schedule.exponential("1 second") }))
+          yield* storage.drop
           dropped = true
-          return removeIndex
         }),
       )
       yield* keepAlive(false)
@@ -1248,22 +1216,26 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             // A later message moved the expiry on.
             if (Option.isNone(session) || session.value.lastMessageAt !== payload.lastMessageAt)
               return
-            yield* drop
-            yield* Effect.logInfo("Chat session expired")
+            const ended = yield* drop.pipe(
+              Effect.as(true),
+              Effect.catch((error) =>
+                Effect.logWarning(
+                  "Couldn't end the expired chat session; trying again later",
+                  error,
+                ).pipe(Effect.as(false)),
+              ),
+            )
+            if (ended) return yield* Effect.logInfo("Chat session expired")
+            const now = yield* Clock.currentTimeMillis
+            yield* self.Expire(
+              new ExpirePayload({
+                lastMessageAt: payload.lastMessageAt,
+                at: DateTime.makeUnsafe(now + Duration.toMillis(EXPIRE_RETRY)),
+              }),
+              { discard: true },
+            )
           }),
         ).pipe(withLogs, Effect.orDie),
-
-      Forget: () =>
-        Semaphore.withPermits(
-          inbox,
-          1,
-        )(
-          Effect.gen(function* () {
-            // A message since started a new session, whose saves own the row.
-            if (!dropped) return
-            yield* Semaphore.withPermits(indexing, 1)(removeIndex)
-          }),
-        ).pipe(withLogs),
 
       Transcript: () =>
         Effect.gen(function* () {

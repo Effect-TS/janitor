@@ -119,7 +119,7 @@ Each session links to its transcript, which the status message in the thread lin
 
 **Delete session** ends a session early: it cancels a running turn, releases the sandbox and deletes the history. A later message in the thread starts a new session, which reads the thread's last 100 messages again, so a pasted secret has to be deleted in Slack or Discord too.
 
-While the bot is off for the whole deployment (`CHAT_AI_API_URL` or `CHAT_AI_API_KEY` unset), the sessions it kept are still listed, but their transcripts can't be read and they can't be deleted: the endpoints answer `503` until the bot is back on. A session that expires or is deleted removes its own row from the list. If that fails, it tries again every hour until the row is gone.
+While the bot is off for the whole deployment (`CHAT_AI_API_URL` or `CHAT_AI_API_KEY` unset), the sessions it kept are still listed, but their transcripts can't be read and they can't be deleted: the endpoints answer `503` until the bot is back on. A session that expires or is deleted removes its row from the list before it deletes its storage, and keeps both if the removal fails: the delete then fails and can be retried, and the expiry tries again an hour later.
 
 ## Kill switch
 
