@@ -44,6 +44,12 @@ const MAX_RETRIES = 3
 
 const Envelope = Schema.Struct({ ok: Schema.Boolean, error: Schema.optionalKey(Schema.String) })
 
+const failure = (method: string, message: string, disposition: Disposition, retryAfter = 30) =>
+  new SlackApiError({ method, message, disposition, retryAfter })
+
+/** Slack posts never unfurl links. */
+export const noUnfurls = { unfurl_links: false, unfurl_media: false }
+
 export interface CallOptions {
   /** A write: an outcome Slack didn't confirm is `uncertain`, never retried. */
   readonly write?: boolean
@@ -77,16 +83,10 @@ export class SlackApi extends Context.Service<
         HttpClient.mapRequest(HttpClientRequest.bearerToken(Redacted.value(config.botToken))),
       )
 
-      const failure = (
-        method: string,
-        message: string,
-        disposition: Disposition,
-        retryAfter = 30,
-      ) => new SlackApiError({ method, message, disposition, retryAfter })
-
       const once = (method: string, params: Record<string, unknown>, write: boolean) =>
         Effect.gen(function* () {
           const unconfirmed = write ? "uncertain" : "retry"
+          const invalid = failure(method, "Invalid Slack response", unconfirmed)
           const body: Record<string, string> = {}
           for (const [key, value] of Object.entries(params))
             if (value !== undefined)
@@ -115,11 +115,9 @@ export class SlackApi extends Context.Service<
           }
           if (response.status < 200 || response.status >= 300)
             return yield* failure(method, `Slack HTTP ${response.status}`, unconfirmed)
-          const json = yield* response.json.pipe(
-            Effect.mapError(() => failure(method, "Invalid Slack response", unconfirmed)),
-          )
+          const json = yield* response.json.pipe(Effect.mapError(() => invalid))
           const result = yield* Schema.decodeUnknownEffect(Envelope)(json).pipe(
-            Effect.mapError(() => failure(method, "Invalid Slack response", unconfirmed)),
+            Effect.mapError(() => invalid),
           )
           if (!result.ok) {
             const error = result.error ?? "Slack refused the request"
@@ -164,15 +162,7 @@ export const decode =
   <S extends Schema.Top & { readonly DecodingServices: never }>(method: string, schema: S) =>
   (body: unknown): Effect.Effect<S["Type"], SlackApiError> =>
     Schema.decodeUnknownEffect(schema)(body).pipe(
-      Effect.mapError(
-        () =>
-          new SlackApiError({
-            method,
-            message: "Invalid Slack response",
-            disposition: "retry",
-            retryAfter: 30,
-          }),
-      ),
+      Effect.mapError(() => failure(method, "Invalid Slack response", "retry")),
     )
 
 /**

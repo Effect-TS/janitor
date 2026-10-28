@@ -18,6 +18,7 @@ import {
   lookUpAuthor,
   MESSAGE_SUBTYPES,
   mentionsBot,
+  noUnfurls,
   SlackApi,
   type SlackAuthor,
   SlackMessage,
@@ -60,28 +61,25 @@ export class SlackSessions extends Context.Service<
   static readonly fromCluster = (
     provide: <A, E>(effect: Effect.Effect<A, E, Sharding.Sharding>) => Effect.Effect<A, E>,
   ): Layer.Layer<SlackSessions> => {
-    const session = (thread: ChatThread) =>
-      Effect.map(ChatSession.client, (client) => client(sessionKey(thread)))
-    const run = <A, E>(effect: Effect.Effect<A, E, Sharding.Sharding>) =>
-      provide(effect).pipe(
-        Effect.mapError((error) => new SlackSessionError({ message: String(error) })),
-      )
+    const session = <A, E>(
+      thread: ChatThread,
+      call: (
+        client: ReturnType<Effect.Success<typeof ChatSession.client>>,
+      ) => Effect.Effect<A, E, Sharding.Sharding>,
+    ) =>
+      provide(
+        Effect.flatMap(ChatSession.client, (client) => call(client(sessionKey(thread)))),
+      ).pipe(Effect.mapError((error) => new SlackSessionError({ message: String(error) })))
     return Layer.succeed(this, {
       receive: (thread, message) =>
-        run(
-          Effect.flatMap(session(thread), (client) =>
-            client.Receive({ thread, message }, { discard: true }),
-          ),
-        ),
-      exists: (thread) => run(Effect.flatMap(session(thread), (client) => client.Exists())),
+        session(thread, (client) => client.Receive({ thread, message }, { discard: true })),
+      exists: (thread) => session(thread, (client) => client.Exists()),
       cachedAdmission: (thread, userId) =>
-        run(Effect.flatMap(session(thread), (client) => client.CachedAdmission({ userId }))).pipe(
+        session(thread, (client) => client.CachedAdmission({ userId })).pipe(
           Effect.map(Option.fromNullishOr),
         ),
       rememberAdmission: (thread, userId, name) =>
-        run(
-          Effect.flatMap(session(thread), (client) => client.RememberAdmission({ userId, name })),
-        ),
+        session(thread, (client) => client.RememberAdmission({ userId, name })),
     })
   }
 }
@@ -125,7 +123,7 @@ const Routes = Layer.unwrap(
     const config = yield* SlackConfig
     const sessions = yield* SlackSessions
     const api = yield* SlackApi
-    const verifier = yield* WebhookVerifier.SlackWebhookVerifier
+    const verify = yield* WebhookVerifier.slackVerifier({ secret: config.signingSecret })
     const decodeEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))
     const decodeEvent = Schema.decodeUnknownOption(Event)
 
@@ -133,7 +131,7 @@ const Routes = Layer.unwrap(
       api
         .call(
           "chat.postMessage",
-          { channel, thread_ts: threadTs, text, unfurl_links: false, unfurl_media: false },
+          { channel, thread_ts: threadTs, text, ...noUnfurls },
           { write: true },
         )
         .pipe(
@@ -208,13 +206,11 @@ const Routes = Layer.unwrap(
           Effect.catchTag("BodyTooLargeError", () => Effect.undefined),
         )
         if (body === undefined) return HttpServerResponse.text("Too large", { status: 413 })
-        const valid = yield* verifier
-          .verify({
-            signature: headers.value["x-slack-signature"],
-            timestamp: headers.value["x-slack-request-timestamp"],
-            body,
-          })
-          .pipe(Effect.catchTag("InvalidSignatureError", () => Effect.succeed(false)))
+        const valid = yield* verify({
+          signature: headers.value["x-slack-signature"],
+          timestamp: headers.value["x-slack-request-timestamp"],
+          body,
+        }).pipe(Effect.catchTag("InvalidSignatureError", () => Effect.succeed(false)))
         if (!valid) return invalidSignature
 
         const envelope = decodeEnvelope(new TextDecoder().decode(body))
@@ -257,13 +253,4 @@ export const SlackWebhookRoutesLayer: Layer.Layer<
   never,
   never,
   HttpRouter.HttpRouter | HttpClient.HttpClient | SlackConfig | SlackSessions
-> = Routes.pipe(
-  Layer.provide(SlackApi.layer),
-  Layer.provide(
-    Layer.unwrap(
-      Effect.map(SlackConfig, (config) =>
-        WebhookVerifier.slackLayerFrom({ secret: config.signingSecret }),
-      ),
-    ),
-  ),
-)
+> = Routes.pipe(Layer.provide(SlackApi.layer))

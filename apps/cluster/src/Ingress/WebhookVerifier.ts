@@ -88,47 +88,31 @@ export const layer = (
 ): Layer.Layer<WebhookVerifier, Config.ConfigError> =>
   Layer.effect(WebhookVerifier, Effect.flatMap(Config.unwrap(config), make))
 
+const SLACK_WINDOW_SECONDS = 300
+
 /**
- * Slack's format: `X-Slack-Signature` is `v0=` and the hex HMAC-SHA-256 of
+ * Slack's signature check, from an already resolved signing secret.
+ * `X-Slack-Signature` is `v0=` and the hex HMAC-SHA-256 of
  * `v0:{X-Slack-Request-Timestamp}:{body}`. A timestamp more than 300 seconds
  * from now fails the check, so a captured request can't be replayed.
  */
-export class SlackWebhookVerifier extends Context.Service<
-  SlackWebhookVerifier,
-  {
-    readonly verify: (request: {
-      readonly signature: string
-      readonly timestamp: string
-      readonly body: Uint8Array
-    }) => Effect.Effect<boolean, InvalidSignatureError | VerifySignatureError>
-  }
->()("@janitor/cluster/Ingress/WebhookVerifier/SlackWebhookVerifier") {}
-
-const SLACK_WINDOW_SECONDS = 300
-
-const makeSlack = Effect.fnUntraced(function* ({ secret }: WebhookVerifierConfig) {
+export const slackVerifier = Effect.fnUntraced(function* ({ secret }: WebhookVerifierConfig) {
   const check = yield* makeHmac(secret, "v0=")
-  return {
-    verify: Effect.fn("SlackWebhookVerifier.verify")(function* (request: {
-      readonly signature: string
-      readonly timestamp: string
-      readonly body: Uint8Array
-    }) {
-      const now = (yield* Clock.currentTimeMillis) / 1000
-      if (
-        !/^\d+$/.test(request.timestamp) ||
-        Math.abs(now - Number(request.timestamp)) > SLACK_WINDOW_SECONDS
-      )
-        return false
-      const prefix = new TextEncoder().encode(`v0:${request.timestamp}:`)
-      const signed = new Uint8Array(prefix.length + request.body.length)
-      signed.set(prefix)
-      signed.set(request.body, prefix.length)
-      return yield* check(request.signature, signed)
-    }),
-  }
+  return Effect.fn("WebhookVerifier.verifySlack")(function* (request: {
+    readonly signature: string
+    readonly timestamp: string
+    readonly body: Uint8Array
+  }) {
+    const now = (yield* Clock.currentTimeMillis) / 1000
+    if (
+      !/^\d+$/.test(request.timestamp) ||
+      Math.abs(now - Number(request.timestamp)) > SLACK_WINDOW_SECONDS
+    )
+      return false
+    const prefix = new TextEncoder().encode(`v0:${request.timestamp}:`)
+    const signed = new Uint8Array(prefix.length + request.body.length)
+    signed.set(prefix)
+    signed.set(request.body, prefix.length)
+    return yield* check(request.signature, signed)
+  })
 })
-
-/** Builds Slack's verifier from an already resolved signing secret. */
-export const slackLayerFrom = (config: WebhookVerifierConfig): Layer.Layer<SlackWebhookVerifier> =>
-  Layer.effect(SlackWebhookVerifier, makeSlack(config))

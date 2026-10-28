@@ -13,6 +13,7 @@ import {
   lookUpAuthor,
   MESSAGE_SUBTYPES,
   mentionsBot,
+  noUnfurls,
   SlackApi,
   type SlackApiError,
   type SlackAuthor,
@@ -34,8 +35,6 @@ const metadata = (kind: "status" | "reply") => ({
   event_type: "janitor_output",
   event_payload: { kind },
 })
-
-const noUnfurls = { unfurl_links: false, unfurl_media: false }
 
 const Posted = Schema.Struct({ ts: Schema.String })
 
@@ -248,7 +247,7 @@ const make = Effect.gen(function* () {
           { concurrency: 5 },
         ),
       )
-      const result = messages.map((message) => {
+      return messages.map((message) => {
         const id = message.user ?? message.bot_id ?? ""
         const author: SlackAuthor = isBot(message)
           ? { class: "bot", name: message.username ?? "bot" }
@@ -260,7 +259,6 @@ const make = Effect.gen(function* () {
           mentionsBot(message.text ?? "", botUserId),
         )
       })
-      return result
     }).pipe(Effect.mapError(platformError))
 
   return ChatPlatform.of({
