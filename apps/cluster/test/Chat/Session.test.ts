@@ -6,9 +6,15 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Stream from "effect/Stream"
 import * as Prompt from "effect/ai/Prompt"
 import { resumeMessage, switchedOffMessage, wrapUpMessage } from "@janitor/domain/Chat/Prompt"
-import { type ChatThread, sessionKey } from "../../src/Chat/Platform.ts"
+import {
+  ChatPlatformError,
+  type ChatThread,
+  readLimited,
+  sessionKey,
+} from "../../src/Chat/Platform.ts"
 import { landedInputs, type TranscriptResult, type TranscriptTurn } from "../../src/Chat/Session.ts"
 import {
   discordThread,
@@ -772,6 +778,65 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
+  it.effect.fails("a message that missed a turn still gets one after a restart", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const startedAt = yield* Clock.currentTimeMillis
+        const at = (minutes: number, seconds: number) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
+          )
+        yield* send(harness, slackThread, "Fix the flaky test.", { mention: true })
+        yield* modelCalls(harness, 1)
+        // The turn's reply is on its way when the next mention arrives: too late for it.
+        harness.platform.holdReplies = Deferred.makeUnsafe<void>()
+        harness.model.answer(say("Fixed it."))
+        yield* harness.until(
+          Effect.sync(() => harness.platform.posting > 0),
+          "the reply to be posting",
+        )
+        yield* send(harness, slackThread, "Also bump the version.", { mention: true })
+
+        // The runner restarts after the first turn's deadline, so its resume ends at once.
+        yield* at(20, 10)
+        yield* harness.restart
+        yield* modelCalls(harness, 2)
+        assert.include(seen(harness.model.last), "Also bump the version.")
+      }),
+    ),
+  )
+
+  it.effect.fails("steers reach the model in the order their messages arrived", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* longTurn(harness, slackThread, "Fix the flaky test.")
+        harness.gate.answer = 0.9
+        harness.platform.files.set("L1", new TextEncoder().encode("FAIL Pool.test.ts"))
+        harness.platform.holdDownload("L1")
+        yield* send(harness, slackThread, "Here's the failing log.", {
+          author: "Grace",
+          attachments: [{ id: "L1", name: "test.log", mediaType: "text/plain", size: 17 }],
+        })
+        yield* send(harness, slackThread, "It only fails on CI.", { author: "Linus" })
+        yield* harness.wait("5 seconds")
+        harness.platform.releaseDownloads()
+        yield* harness.until(
+          Effect.sync(() => harness.sandboxes.written.length === 1),
+          "the log to be written",
+        )
+        yield* harness.wait("5 seconds")
+        harness.sandboxes.finishScripts()
+        yield* modelCalls(harness, 2)
+
+        const prompt = seen(harness.model.last)
+        const first = prompt.indexOf("Here's the failing log.")
+        const second = prompt.indexOf("It only fails on CI.")
+        assert.isAtLeast(first, 0)
+        assert.isAbove(second, first)
+      }),
+    ),
+  )
+
   it.effect("an admission is remembered for an hour", () =>
     test((harness) =>
       Effect.gen(function* () {
@@ -909,4 +974,37 @@ describe("landedInputs", () => {
       newer,
     ])
   })
+})
+
+describe("readLimited", () => {
+  it.effect("reads a body up to the limit, and stops at the chunk that crosses it", () =>
+    Effect.gen(function* () {
+      const exact = yield* readLimited(
+        Stream.make(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6])),
+        6,
+      )
+      assert.deepStrictEqual([...exact], [1, 2, 3, 4, 5, 6])
+
+      let pulled = 0
+      let finalized = false
+      const body = Stream.range(1, 4).pipe(
+        Stream.rechunk(1),
+        Stream.mapEffect(() =>
+          Effect.sync(() => {
+            pulled += 1
+            return new Uint8Array(3)
+          }),
+        ),
+        Stream.ensuring(
+          Effect.sync(() => {
+            finalized = true
+          }),
+        ),
+      )
+      const error = yield* Effect.flip(readLimited(body, 6))
+      assert.instanceOf(error, ChatPlatformError)
+      assert.strictEqual(pulled, 3)
+      assert.isTrue(finalized)
+    }),
+  )
 })

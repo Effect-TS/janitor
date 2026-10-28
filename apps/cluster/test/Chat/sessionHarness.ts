@@ -344,6 +344,21 @@ export class FakePlatform {
   readonly downloads: Array<string> = []
   /** While set, a download never finishes, as a stalled transfer doesn't. */
   holdDownloads = false
+  /** Attachments whose download waits for `releaseDownloads`. */
+  private readonly held = new Set<string>()
+  private released = Deferred.makeUnsafe<void>()
+
+  /** Holds the download of attachment `id` until `releaseDownloads`, as a slow transfer would. */
+  holdDownload(id: string) {
+    this.held.add(id)
+  }
+
+  releaseDownloads() {
+    this.held.clear()
+    const released = this.released
+    this.released = Deferred.makeUnsafe<void>()
+    Deferred.doneUnsafe(released, Effect.void)
+  }
 
   /** The latest text of each status message in `thread`, in order. */
   statusTexts(thread: ChatThread) {
@@ -374,10 +389,15 @@ export class FakePlatform {
         Effect.suspend(() => {
           this.downloads.push(attachment.id)
           if (this.holdDownloads) return Effect.never
-          const content = this.files.get(attachment.id) ?? new Uint8Array()
-          return content.length > maxBytes
-            ? Effect.fail(new ChatPlatformError({ message: "file_too_large" }))
-            : Effect.succeed(content)
+          return Effect.andThen(
+            this.held.has(attachment.id) ? Deferred.await(this.released) : Effect.void,
+            Effect.suspend(() => {
+              const content = this.files.get(attachment.id) ?? new Uint8Array()
+              return content.length > maxBytes
+                ? Effect.fail(new ChatPlatformError({ message: "file_too_large" }))
+                : Effect.succeed(content)
+            }),
+          )
         }),
       history: () => Effect.sync(() => this.threadHistory),
     })
