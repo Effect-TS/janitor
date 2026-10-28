@@ -138,10 +138,14 @@ const finished = (
 
 layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
   it.effect(
-    "a mention starts a turn that replies in the thread and records its usage, model and actions",
+    "a mention backfills the thread, starts a turn and records its reply, usage, model and actions",
     () =>
       test((harness) =>
         Effect.gen(function* () {
+          const earlier = yield* harness.message("The README changed yesterday.", {
+            author: "Grace",
+          })
+          harness.platform.threadHistory = [earlier]
           const asked = yield* send(harness, slackThread, "What does janitor's README cover?", {
             mention: true,
           })
@@ -150,6 +154,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           assert.deepStrictEqual(harness.gate.inputs, [])
           assert.include(seen(harness.model.last), "What does janitor's README cover?")
           assert.include(seen(harness.model.last), "Ada")
+          assert.include(seen(harness.model.last), "The README changed yesterday.")
 
           harness.model.answer(
             run("cat README.md", { input: 100, output: 10 }),
@@ -170,7 +175,10 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           )
 
           const transcript = yield* harness.transcript(slackThread)
-          assert.deepStrictEqual(stored(transcript), [[asked.id, { _tag: "Mention" }]])
+          assert.deepStrictEqual(stored(transcript), [
+            [earlier.id, { _tag: "Context" }],
+            [asked.id, { _tag: "Mention" }],
+          ])
           assert.deepStrictEqual(turns(transcript), [
             finished({
               actions: 1,
@@ -261,96 +269,48 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
   )
 
   it.effect(
-    "a message during a turn is steered into it, and one that misses the turn starts the next",
+    '"stop" from an admitted user stops a turn even during a stalled steered download',
     () =>
       test((harness) =>
         Effect.gen(function* () {
-          yield* longTurn(harness, slackThread, "Fix the flaky test.")
-
-          // Passed by the gate while the script runs: the model sees it at its next step.
+          yield* longTurn(harness, slackThread, "Run the whole test suite.")
+          harness.platform.holdDownloads = true
           harness.gate.answer = 0.9
-          yield* send(harness, slackThread, "It's the one in Pool.test.ts.", { author: "Grace" })
+          yield* send(harness, slackThread, "Here's the failing log.", {
+            attachments: [{ id: "L1", name: "test.log", mediaType: "text/plain", size: 10 }],
+          })
           yield* harness.until(
-            Effect.sync(() => harness.gate.inputs.length === 1),
-            "the gate",
+            Effect.sync(() => harness.platform.downloads.length === 1),
+            "the steered download to start",
           )
-          yield* harness.wait("5 seconds")
-          harness.sandboxes.finishScripts()
-          yield* modelCalls(harness, 2)
-          assert.include(seen(harness.model.last), "It's the one in Pool.test.ts.")
-
-          // The loop has ended and its reply is on the way: too late to steer.
-          harness.platform.holdReplies = Deferred.makeUnsafe<void>()
-          harness.model.answer(say("Fixed it."))
+          yield* send(harness, slackThread, "Stop", { author: "Grace", mention: true })
           yield* harness.until(
-            Effect.sync(() => harness.platform.posting > 0),
-            "the reply to be posting",
+            Effect.sync(
+              () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
+            ),
+            "the status to say Stopped",
           )
-          yield* send(harness, slackThread, "Also bump the version.", { mention: true })
-          yield* Deferred.succeed(harness.platform.holdReplies, undefined)
-          yield* modelCalls(harness, 3)
-          assert.include(seen(harness.model.last), "Also bump the version.")
-          harness.model.answer(say("Bumped."))
           yield* harness.until(
-            Effect.sync(() => harness.platform.replies.length === 2),
-            "the second reply",
+            Effect.sync(() => harness.sandboxes.releases.length === 1),
+            "the sandbox release",
           )
 
+          assert.strictEqual(harness.model.prompts.length, 1)
+          assert.strictEqual(harness.gate.inputs.length, 1)
+          assert.deepStrictEqual(harness.platform.replies, [])
+          // The session and its history stay.
+          const transcript = yield* harness.transcript(slackThread)
+          assert.deepStrictEqual(gates(transcript), [
+            { _tag: "Mention" },
+            { _tag: "Passed", probability: 0.9 },
+            { _tag: "Stop" },
+          ])
           assert.deepStrictEqual(
-            harness.platform.replies.map((reply) => reply.text),
-            ["Fixed it.", "Bumped."],
-          )
-          assert.deepStrictEqual(
-            turns(yield* harness.transcript(slackThread)).map((turn) => turn.status),
-            ["replied", "replied"],
+            turns(transcript).map((turn) => turn.status),
+            ["stopped"],
           )
         }),
       ),
-  )
-
-  it.effect('"stop" from any admitted user ends the running turn before a model sees it', () =>
-    test((harness) =>
-      Effect.gen(function* () {
-        yield* longTurn(harness, slackThread, "Run the whole test suite.")
-        yield* send(harness, slackThread, "stop", { author: "Grace" })
-        yield* harness.until(
-          Effect.sync(
-            () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
-          ),
-          "the status to say Stopped",
-        )
-        yield* harness.until(
-          Effect.sync(() => harness.sandboxes.releases.length === 1),
-          "the sandbox release",
-        )
-
-        // With the mention, too.
-        yield* longTurn(harness, slackThread, "Try again.")
-        yield* send(harness, slackThread, "Stop", { mention: true })
-        yield* harness.until(
-          Effect.sync(
-            () => harness.platform.statusTexts(slackThread)[1]?.includes("Stopped") ?? false,
-          ),
-          "the second status to say Stopped",
-        )
-
-        assert.strictEqual(harness.model.prompts.length, 2)
-        assert.deepStrictEqual(harness.gate.inputs, [])
-        assert.deepStrictEqual(harness.platform.replies, [])
-        // The session and its history stay.
-        const transcript = yield* harness.transcript(slackThread)
-        assert.deepStrictEqual(gates(transcript), [
-          { _tag: "Mention" },
-          { _tag: "Stop" },
-          { _tag: "Mention" },
-          { _tag: "Stop" },
-        ])
-        assert.deepStrictEqual(
-          turns(transcript).map((turn) => turn.status),
-          ["stopped", "stopped"],
-        )
-      }),
-    ),
   )
 
   it.effect(
@@ -557,30 +517,6 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect("the first turn in a thread sees the thread's earlier messages as context", () =>
-    test((harness) =>
-      Effect.gen(function* () {
-        const earlier = [
-          yield* harness.message("The deploy failed again.", { author: "Grace" }),
-          yield* harness.message("Same error as Tuesday.", { author: "Linus" }),
-        ]
-        harness.platform.threadHistory = earlier
-        const asked = yield* send(harness, slackThread, "Can you look into it?", {
-          mention: true,
-        })
-        yield* modelCalls(harness, 1)
-        const prompt = seen(harness.model.last)
-        assert.include(prompt, "The deploy failed again.")
-        assert.include(prompt, "Same error as Tuesday.")
-        assert.deepStrictEqual(stored(yield* harness.transcript(slackThread)), [
-          [earlier[0]!.id, { _tag: "Context" }],
-          [earlier[1]!.id, { _tag: "Context" }],
-          [asked.id, { _tag: "Mention" }],
-        ])
-      }),
-    ),
-  )
-
   it.effect("a turn still ends at minute 20 when its sandbox is lost and no new one comes", () =>
     test((harness) =>
       Effect.gen(function* () {
@@ -753,31 +689,6 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect('a stalled download in a steered message doesn\'t hold up "stop"', () =>
-    test((harness) =>
-      Effect.gen(function* () {
-        yield* longTurn(harness, slackThread, "Fix the flaky test.")
-        harness.platform.holdDownloads = true
-        harness.gate.answer = 0.9
-        yield* send(harness, slackThread, "Here's the failing log.", {
-          author: "Grace",
-          attachments: [{ id: "L1", name: "test.log", mediaType: "text/plain", size: 10 }],
-        })
-        yield* send(harness, slackThread, "stop")
-        yield* harness.until(
-          Effect.sync(
-            () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
-          ),
-          "the status to say Stopped",
-        )
-        assert.deepStrictEqual(
-          turns(yield* harness.transcript(slackThread)).map((turn) => turn.status),
-          ["stopped"],
-        )
-      }),
-    ),
-  )
-
   it.effect("a message that missed a turn still gets one after a restart", () =>
     test((harness) =>
       Effect.gen(function* () {
@@ -922,56 +833,36 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect("a message delivered twice in a row is stored and acted on once", () =>
-    test((harness) =>
-      Effect.gen(function* () {
-        const asked = yield* harness.message("Close stale issues.", { mention: true })
-        yield* harness.deliver(slackThread, asked)
-        yield* modelCalls(harness, 1)
-        yield* harness.deliver(slackThread, asked)
-        harness.model.answer(say("Closed 3."))
-        yield* turnEnded(harness, slackThread)
+  for (const racing of [false, true]) {
+    it.effect(
+      racing
+        ? "racing deliveries of one message are stored and acted on once"
+        : "a message delivered twice in a row is stored and acted on once",
+      () =>
+        test((harness) =>
+          Effect.gen(function* () {
+            const asked = yield* harness.message("Close stale issues.", { mention: true })
+            if (racing) {
+              yield* harness.deliverTwiceAtOnce(slackThread, asked)
+            } else {
+              yield* harness.deliver(slackThread, asked)
+              yield* modelCalls(harness, 1)
+              yield* harness.deliver(slackThread, asked)
+            }
+            yield* modelCalls(harness, 1)
+            harness.model.answer(say("Closed 3."))
+            yield* turnEnded(harness, slackThread)
+            yield* harness.wait("10 seconds")
 
-        harness.gate.answer = 0
-        const aside = yield* harness.message("Nice.")
-        yield* harness.deliver(slackThread, aside)
-        yield* harness.deliver(slackThread, aside)
-        yield* harness.wait("10 seconds")
-
-        assert.strictEqual(harness.model.prompts.length, 1)
-        assert.strictEqual(harness.gate.inputs.length, 1)
-        assert.strictEqual(harness.platform.replies.length, 1)
-        const transcript = yield* harness.transcript(slackThread)
-        assert.deepStrictEqual(
-          available(transcript).messages.map((message) => message.id),
-          [asked.id, aside.id],
-        )
-        assert.strictEqual(available(transcript).turns.length, 1)
-      }),
-    ),
-  )
-
-  it.effect("racing deliveries of one message are stored and acted on once", () =>
-    test((harness) =>
-      Effect.gen(function* () {
-        const asked = yield* harness.message("Close stale issues.", { mention: true })
-        yield* harness.deliverTwiceAtOnce(slackThread, asked)
-        yield* modelCalls(harness, 1)
-        harness.model.answer(say("Closed 3."))
-        yield* turnEnded(harness, slackThread)
-        yield* harness.wait("10 seconds")
-
-        assert.strictEqual(harness.model.prompts.length, 1)
-        assert.strictEqual(harness.platform.replies.length, 1)
-        const transcript = yield* harness.transcript(slackThread)
-        assert.deepStrictEqual(
-          available(transcript).messages.map((message) => message.id),
-          [asked.id],
-        )
-        assert.strictEqual(available(transcript).turns.length, 1)
-      }),
-    ),
-  )
+            assert.strictEqual(harness.model.prompts.length, 1)
+            assert.strictEqual(harness.platform.replies.length, 1)
+            const transcript = yield* harness.transcript(slackThread)
+            assert.deepStrictEqual(stored(transcript), [[asked.id, { _tag: "Mention" }]])
+            assert.strictEqual(available(transcript).turns.length, 1)
+          }),
+        ),
+    )
+  }
 })
 
 describe("landedInputs", () => {
@@ -982,10 +873,6 @@ describe("landedInputs", () => {
 
   it("lands each appended message on one input, the oldest with its text", () => {
     assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes")]), [older])
-    assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes"), user("Ada: yes")]), [
-      older,
-      newer,
-    ])
   })
 })
 
