@@ -112,7 +112,7 @@ Slack is on once all four of these are set, and off while any of them is missing
 | ---------------------- | -------------------------------------------------------------- |
 | `SLACK_SIGNING_SECRET` | **Basic Information**, **Signing Secret**                      |
 | `SLACK_BOT_TOKEN`      | **OAuth & Permissions**, **Bot User OAuth Token** (`xoxb-...`) |
-| `SLACK_WORKSPACE_ID`   | The workspace's team id (`T...`), the `team_id` events carry   |
+| `SLACK_WORKSPACE_ID`   | The workspace's team id (`T...`)                               |
 | `SLACK_APP_ID`         | **Basic Information**, **App ID** (`A...`)                     |
 
 The webhook path skips Cloudflare Access, like GitHub's, and relies on the signature: an HMAC-SHA-256 of `v0:{timestamp}:{body}` with the signing secret, within 300 seconds of the request's timestamp. Each event's `api_app_id` must match the settings, and its `team_id` too unless `authorizations` lists our workspace, as it does for a Slack Connect channel another organization hosts. The route answers within 2.5 seconds, or answers 503 so Slack delivers the event again, and sessions ignore a message they already have.

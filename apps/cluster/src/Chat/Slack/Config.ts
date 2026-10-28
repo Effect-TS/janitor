@@ -14,7 +14,7 @@ export class SlackConfig extends Context.Service<
   {
     readonly signingSecret: Redacted.Redacted<string>
     readonly botToken: Redacted.Redacted<string>
-    /** The envelope's `team_id`, and the team an admitted user belongs to. */
+    /** Our workspace, which events must be for, and the team an admitted user belongs to. */
     readonly workspaceId: string
     /** The envelope's `api_app_id`. */
     readonly appId: string
