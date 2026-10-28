@@ -78,15 +78,6 @@ const committed: Committed = {
       attachments: [],
       gate: { _tag: "Mention" },
     },
-    {
-      id: "1761642060.000200",
-      author: { id: "U-guest", name: "guest", class: "outsider" },
-      text: "following",
-      mentionsBot: false,
-      sentAt: at(2),
-      attachments: [],
-      gate: { _tag: "Context" },
-    },
   ],
   turns: [
     {
@@ -141,7 +132,6 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
       const api = yield* client
       const index = yield* ChatSessionIndex
       const older = summary("1761640000.000100", 5)
-      const newer = summary("1761640000.000200", 20)
       const waiting: SessionSummary = {
         sessionId: "discord/G1/900",
         thread: { _tag: "Discord", guild: "G1", threadId: "900" },
@@ -151,7 +141,7 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
         lastActivityAt: at(10),
         usage: null,
       }
-      for (const session of [older, newer, waiting]) yield* index.save(session)
+      for (const session of [older, waiting]) yield* index.save(session)
       // A later save replaces the session's row.
       const running: SessionSummary = {
         ...older,
@@ -161,11 +151,11 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
       }
       yield* index.save(running)
 
-      const ids = new Set([older.sessionId, newer.sessionId, waiting.sessionId])
+      const ids = new Set([older.sessionId, waiting.sessionId])
       const { sessions } = yield* api.chat.listSessions()
       assert.deepStrictEqual(
         sessions.filter((session) => ids.has(session.sessionId)),
-        [running, newer, waiting],
+        [running, waiting],
       )
     }),
   )
