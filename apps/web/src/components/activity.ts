@@ -1080,24 +1080,11 @@ export const view = Submodel.defineView<
         ],
       }),
       toolbar,
-      model.error
-        ? h.div(
-            [
-              h.Role("alert"),
-              h.Class("flex shrink-0 items-center justify-between gap-3 text-body-sm"),
-            ],
-            [
-              h.span([h.Class("text-destructive")], [model.error]),
-              Button.view(h, {
-                label: "Retry",
-                variant: "secondary",
-                size: "sm",
-                onClick: Message.ClickedRetry(),
-                isDisabled: model.loading,
-              }),
-            ],
-          )
-        : h.empty,
+      Page.errorStrip(h, {
+        error: model.error,
+        onRetry: Message.ClickedRetry(),
+        isLoading: model.loading,
+      }),
       card,
     ],
     inspector: inspector(h, model, repository, configuration),

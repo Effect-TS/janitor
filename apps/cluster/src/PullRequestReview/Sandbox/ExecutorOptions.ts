@@ -10,7 +10,7 @@ const EXCLUDED_TOOLS: ReadonlyArray<ExcludableTool> = [
 ]
 
 /** The most characters of one command's output the sandbox keeps. */
-const COMMAND_OUTPUT_CHARS = 30_000
+export const COMMAND_OUTPUT_CHARS = 30_000
 
 /**
  * The sandbox executor's tools and limits: every command and script is capped

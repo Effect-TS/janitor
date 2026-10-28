@@ -11,6 +11,14 @@ import { GitHubAppAuth } from "../../GitHub/AppAuth.ts"
 import { mintSandboxToken } from "../GitHub.ts"
 import { errorFields } from "../Log.ts"
 import { CheckoutOutcome, HeadShaMismatch, type CheckoutRequest } from "./Checkout.ts"
+import {
+  ContainerNotAttached,
+  ContainerUnavailable,
+  makeContainerControl,
+  promise,
+  type Fetcher,
+  type WorkspaceContainer,
+} from "./Container.ts"
 import { CONTAINER_PORT } from "./ContainerApp.ts"
 import type { EgressProps } from "./Egress.ts"
 
@@ -31,23 +39,6 @@ import type { EgressProps } from "./Egress.ts"
  * The token lives only in memory and in the intercepts' props. It is never
  * written to storage, logged, or put in an error.
  */
-
-/** A Fetcher binding: the container's port, or a `ctx.exports` entrypoint. */
-export interface Fetcher {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
-}
-
-/** The part of workerd's `ctx.container` the workspace drives. */
-export interface WorkspaceContainer {
-  readonly running: boolean
-  start(options?: { readonly enableInternet?: boolean }): void
-  monitor(): Promise<void>
-  destroy(): Promise<void>
-  getTcpPort(port: number): Fetcher
-  setInactivityTimeout(durationMs: number): Promise<void>
-  interceptAllOutboundHttp(binding: Fetcher): Promise<void>
-  interceptOutboundHttps(addr: string, binding: Fetcher): Promise<void>
-}
 
 /** The part of the Durable Object's `ctx` the workspace uses. */
 export interface WorkspaceState {
@@ -81,21 +72,6 @@ export interface AcquireInput {
   readonly startBudget: Duration.Input
 }
 
-/** No container could be started within the budget. */
-export class ContainerUnavailable extends Schema.TaggedError<ContainerUnavailable>()(
-  "ContainerUnavailable",
-  { reason: Schema.String },
-) {}
-
-/**
- * The workspace's Durable Object namespace has no container application, as
- * after a deploy that failed partway. No retry can help, only a deploy.
- */
-export class ContainerNotAttached extends Schema.TaggedError<ContainerNotAttached>()(
-  "ContainerNotAttached",
-  {},
-) {}
-
 /** Every checkout attempt failed. The run ends without posting; the check run gives `reason`. */
 export class CheckoutFailed extends Schema.TaggedError<CheckoutFailed>()("CheckoutFailed", {
   reason: Schema.String,
@@ -108,7 +84,8 @@ export class WorkspaceReleased extends Schema.TaggedError<WorkspaceReleased>()(
   {},
 ) {}
 
-export { HeadShaMismatch }
+export { ContainerNotAttached, ContainerUnavailable, HeadShaMismatch }
+export type { Fetcher, WorkspaceContainer }
 
 export const AcquireError = Schema.Union([
   ContainerUnavailable,
@@ -125,11 +102,7 @@ export const INACTIVITY_TIMEOUT = Duration.minutes(15)
 /** Backoff between checkout attempts (EFF-1892 point 7). */
 const CHECKOUT_RETRY_DELAYS = [Duration.seconds(5), Duration.seconds(15), Duration.seconds(30)]
 
-const NO_INSTANCE = "no container instance"
-const NOT_ATTACHED = "no container application assigned"
 const RELEASED_KEY = "released"
-const HEALTH_POLL = Duration.millis(250)
-const HEALTH_TIMEOUT = Duration.seconds(5)
 const PROVISION_TIMEOUT = Duration.minutes(3)
 /** Bounds a token request, so `release` never waits on GitHub for long. */
 const MINT_TIMEOUT = Duration.seconds(30)
@@ -138,14 +111,6 @@ const MINT_TIMEOUT = Duration.seconds(30)
 class AttemptFailed extends Schema.TaggedError<AttemptFailed>()("AttemptFailed", {
   reason: Schema.String,
 }) {}
-
-/** The two start rejections janitor acts on, as fixed categories; any other is just a failed start. */
-const startFailure = (error: unknown): string | undefined => {
-  if (!(error instanceof Error)) return undefined
-  if (error.message.includes(NO_INSTANCE)) return NO_INSTANCE
-  if (error.message.includes(NOT_ATTACHED)) return NOT_ATTACHED
-  return undefined
-}
 
 const decodeOutcome = Schema.decodeUnknownEffect(Schema.fromJsonString(CheckoutOutcome))
 
@@ -158,13 +123,9 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
   /** The acquire in flight, which `release` stops before cleaning up. */
   let acquiring: Fiber.Fiber<void, AcquireError> | undefined
 
-  /** workerd's rejections are free text from outside janitor, so they're dropped, never logged. */
-  const promise = <A>(evaluate: () => Promise<A>) =>
-    Effect.tryPromise({ try: evaluate, catch: () => "rejected" as const })
-
-  const hold = promise(() =>
-    container.setInactivityTimeout(Duration.toMillis(INACTIVITY_TIMEOUT)),
-  ).pipe(Effect.catch(() => Effect.logWarning("Could not set the sandbox inactivity timeout")))
+  const control = makeContainerControl(container)
+  const { start } = control
+  const hold = control.hold(INACTIVITY_TIMEOUT)
 
   // The runtime doesn't keep the timeout across object restarts.
   if (container.running) yield* hold
@@ -180,62 +141,6 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
       ),
     ),
   )
-
-  const health = promise(() =>
-    container.getTcpPort(CONTAINER_PORT).fetch("http://container/health"),
-  ).pipe(
-    Effect.timeoutOrElse({ duration: HEALTH_TIMEOUT, orElse: () => Effect.fail("timed out") }),
-    Effect.map((response) => response.ok),
-    Effect.orElseSucceed(() => false),
-  )
-
-  /** One `start()`: ready once `/health` answers, or the exit reason. */
-  const startOnce = Effect.gen(function* () {
-    let exit: string | undefined
-    const thrown = yield* Effect.try({
-      try: () => {
-        container.start({ enableInternet: false })
-        container.monitor().then(
-          () => {
-            exit = "the container exited"
-          },
-          (error: unknown) => {
-            exit = startFailure(error) ?? "the container failed"
-          },
-        )
-      },
-      catch: (error) => startFailure(error) ?? "the container did not start",
-    }).pipe(Effect.match({ onFailure: (reason) => reason, onSuccess: () => undefined }))
-    if (thrown !== undefined) return thrown
-    while (true) {
-      if (yield* health) return undefined
-      if (exit !== undefined && !container.running) return exit
-      yield* Effect.sleep(HEALTH_POLL)
-    }
-  })
-
-  /** Starts the container, retrying "no container instance"; the budget bounds the whole startup. */
-  const start = (budget: Duration.Duration) =>
-    Effect.gen(function* () {
-      if (container.running) yield* promise(() => container.destroy()).pipe(Effect.ignore)
-      let reason = "the executor did not answer"
-      yield* Effect.gen(function* () {
-        for (let retry = 0; ; retry++) {
-          const exit = yield* startOnce
-          if (exit === undefined) return
-          if (exit === NOT_ATTACHED) return yield* new ContainerNotAttached()
-          if (exit !== NO_INSTANCE) return yield* new ContainerUnavailable({ reason: exit })
-          reason = exit
-          yield* Effect.logInfo("No sandbox container instance yet; retrying")
-          yield* Effect.sleep(Duration.min(Duration.seconds(2 ** retry), Duration.seconds(5)))
-        }
-      }).pipe(
-        Effect.timeoutOrElse({
-          duration: budget,
-          orElse: () => Effect.fail(new ContainerUnavailable({ reason })),
-        }),
-      )
-    })
 
   const ensureNotReleased = Effect.suspend(() =>
     released ? Effect.fail(new WorkspaceReleased()) : Effect.void,
@@ -381,36 +286,13 @@ export const makeWorkspace = Effect.fnUntraced(function* (state: WorkspaceState)
       return yield* exit
     }).pipe(Semaphore.withPermits(lock, 1))
 
-  const forward = (request: Request): Effect.Effect<Response> =>
-    Effect.suspend(() => {
-      if (!container.running) {
-        return Effect.succeed(
-          new Response("the sandbox container is not running\n", { status: 503 }),
-        )
-      }
-      const url = new URL(request.url)
-      return promise(() =>
-        container
-          .getTcpPort(CONTAINER_PORT)
-          .fetch(new Request(`http://container${url.pathname}${url.search}`, request)),
-      ).pipe(
-        Effect.catch((reason) =>
-          Effect.succeed(
-            new Response(`the sandbox container failed: ${reason}\n`, { status: 502 }),
-          ),
-        ),
-      )
-    })
+  const forward = control.forward
 
   const release = Effect.gen(function* () {
     released = true
     if (acquiring !== undefined) yield* Fiber.interrupt(acquiring)
     yield* promise(() => storage.put(RELEASED_KEY, true)).pipe(Effect.orDie)
-    if (container.running) {
-      yield* promise(() => container.destroy()).pipe(
-        Effect.catch(() => Effect.logWarning("Could not destroy the sandbox container")),
-      )
-    }
+    yield* control.destroy
     yield* revoke
   })
 

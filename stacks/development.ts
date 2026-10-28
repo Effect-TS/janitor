@@ -24,7 +24,7 @@ export default Alchemy.Stack(
       "CLOUDFLARE_ZONE_ID",
     )
 
-    // Only the webhook route is public. Locally the API treats a request
+    // Only the webhook routes are public. Locally the API treats a request
     // without an Access assertion as the local-dev teammate, so any other
     // path through the tunnel would expose it to the internet.
     const tunnel = yield* Cloudflare.Tunnel.Tunnel("Webhooks", {
@@ -33,6 +33,11 @@ export default Alchemy.Stack(
         {
           hostname,
           path: "^/api/v1/webhooks/github$",
+          service: "http://localhost:8787",
+        },
+        {
+          hostname,
+          path: "^/api/v1/webhooks/slack$",
           service: "http://localhost:8787",
         },
         { service: "http_status:404" },
@@ -51,6 +56,7 @@ export default Alchemy.Stack(
     return {
       tunnelId: tunnel.tunnelId,
       webhookUrl: `https://${hostname}/api/v1/webhooks/github`,
+      slackWebhookUrl: `https://${hostname}/api/v1/webhooks/slack`,
     }
   }),
 )

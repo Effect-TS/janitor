@@ -9,16 +9,15 @@ import {
   GitHubWebhookPayloadSha256,
 } from "@janitor/domain/GitHub/WebhookEnvelope"
 import * as Config from "effect/Config"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as Stream from "effect/Stream"
 import * as HttpRouter from "effect/http/HttpRouter"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import * as HttpServerError from "effect/http/HttpServerError"
 import * as WebhookVerifier from "./WebhookVerifier.ts"
+import { failureCategory, readBodyBounded } from "./Webhooks.ts"
 import * as GitHubEventQueue from "../GitHub/EventQueue.ts"
 import * as GitHubPayloadStore from "../GitHub/PayloadStore.ts"
 import {
@@ -28,25 +27,11 @@ import {
 import * as Hex from "effect/encoding/Hex"
 import * as Redacted from "effect/Redacted"
 import * as DateTime from "effect/DateTime"
-import * as Cause from "effect/Cause"
 
 export const MAX_GITHUB_WEBHOOK_BODY_BYTES = 1024 * 1024
 
 // Queue messages cap at 128 KB and base64 adds a third; keep headroom for the envelope.
 export const MAX_INLINE_WEBHOOK_BODY_BYTES = 64 * 1024
-
-/** A failure's tag, which code defines; a defect or interruption gets a fixed category. */
-const failureCategory = (cause: Cause.Cause<unknown>): string => {
-  const failure = Cause.findErrorOption(cause)
-  if (failure._tag === "None") return Cause.hasInterruptsOnly(cause) ? "interrupted" : "defect"
-  const error = failure.value
-  return typeof error === "object" &&
-    error !== null &&
-    "_tag" in error &&
-    typeof error._tag === "string"
-    ? error._tag
-    : "unknown"
-}
 
 const GitHubHeaders = Schema.Struct({
   "content-length": Schema.optional(Schema.FiniteFromString.check(Schema.isInt())),
@@ -69,10 +54,6 @@ const serviceUnavailableResponse = HttpServerResponse.text("Service Unavailable"
   status: 503,
   headers: { "Retry-After": "60" },
 })
-
-export class BodyTooLargeError extends Data.TaggedError("BodyTooLargeError")<{
-  readonly maxBytes: number
-}> {}
 
 /**
  * Secrets the ingress needs. The Worker resolves them during init so Alchemy
@@ -98,39 +79,6 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
     const sha256Hex = Effect.fnUntraced(function* (body: Uint8Array<ArrayBuffer>) {
       const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", body))
       return GitHubWebhookPayloadSha256.make(Hex.encode(new Uint8Array(digest)))
-    })
-
-    const readBodyBounded = Effect.fnUntraced(function* (
-      request: HttpServerRequest.HttpServerRequest,
-    ) {
-      const chunks: Array<Uint8Array> = []
-
-      let total = 0
-      yield* request.stream.pipe(
-        Stream.runForEach(
-          Effect.fnUntraced(function* (chunk) {
-            total += chunk.byteLength
-
-            if (total > MAX_GITHUB_WEBHOOK_BODY_BYTES) {
-              return yield* new BodyTooLargeError({
-                maxBytes: MAX_GITHUB_WEBHOOK_BODY_BYTES,
-              })
-            }
-
-            chunks.push(chunk)
-          }),
-        ),
-      )
-
-      const body = new Uint8Array(total)
-
-      let offset = 0
-      for (const chunk of chunks) {
-        body.set(chunk, offset)
-        offset += chunk.byteLength
-      }
-
-      return body
     })
 
     return HttpRouter.add(
@@ -167,7 +115,7 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           return yield* drop("Declared body exceeds the size limit")
         }
 
-        const body = yield* readBodyBounded(request).pipe(
+        const body = yield* readBodyBounded(request, MAX_GITHUB_WEBHOOK_BODY_BYTES).pipe(
           Effect.catchTags({
             BodyTooLargeError: () => Effect.undefined,
             HttpServerError: (cause) =>

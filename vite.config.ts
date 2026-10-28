@@ -57,6 +57,11 @@ export default defineConfig({
         command: "vp exec alchemy deploy alchemy.run.ts --stage production --dry-run",
         cache: false,
       },
+      "chat:multica-skill": {
+        command:
+          "node apps/cluster/scripts/multica-skill.ts && vp fmt apps/cluster/src/Chat/Sandbox/MulticaSkill.ts",
+        cache: false,
+      },
       "deploy:prod": {
         command: "vp exec alchemy deploy alchemy.run.ts --stage production",
         cache: false,

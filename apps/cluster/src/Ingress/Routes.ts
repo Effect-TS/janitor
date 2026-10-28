@@ -13,6 +13,7 @@ import {
   RateLimitMiddlewareLayer,
 } from "./Middleware.ts"
 import { AccountGroupLayer } from "./Account.ts"
+import { ChatGroupLayer } from "./Chat.ts"
 import { LabelingGroupLayer } from "./Labeling.ts"
 import { ConnectionsGroupLayer } from "./Connections.ts"
 import { SyncGroupLayer } from "./Sync.ts"
@@ -45,21 +46,27 @@ const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
         RulesGroupLayer,
         TestBenchGroupLayer,
         LabelingGroupLayer,
+        ChatGroupLayer,
       ),
     ),
     Layer.provide(makeApiMiddlewareLayer(middleware)),
   )
 
 /**
- * The webhook route stays outside Access and relies on the GitHub signature,
- * Every human route sits behind the Access assertion check, which alone
+ * The webhook routes stay outside Access and rely on the GitHub and Slack
+ * signatures. Slack's route is there only while Slack is on. Every human route sits behind the Access assertion check, which alone
  * decides who may use Janitor. The readiness probe needs Access only: a probe
  * is not a person, and must not be admitted as a teammate.
  */
-export const makeRoutesLayer = (secrets: IngressSecrets, middleware: AccessMiddlewareOptions) =>
+export const makeRoutesLayer = (
+  secrets: IngressSecrets,
+  middleware: AccessMiddlewareOptions,
+  slackRoutes: Layer.Layer<never, never, HttpRouter.HttpRouter> = Layer.empty,
+) =>
   Layer.mergeAll(
     Layer.mergeAll(
       makeGitHubWebHookRoutesLayer(secrets),
+      slackRoutes,
       LiveRoutesLayer.pipe(Layer.provide(makeAuthenticatedMiddlewareLayer(middleware))),
       ReadinessRoutesLayer.pipe(Layer.provide(makeAccessMiddlewareLayer(middleware))),
     ).pipe(Layer.provide(ApiRouterLayer)),

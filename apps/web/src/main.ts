@@ -1,6 +1,8 @@
 import * as Live from "./components/live"
 import * as Connections from "@/components/repository-connections"
 import * as Account from "@/components/account"
+import * as ChatSessions from "@/components/chat-sessions"
+import * as ChatSessionTranscript from "@/components/chat-session-transcript"
 import * as DesignSystem from "@/components/design-system"
 import * as Overlay from "@/components/ui/overlay"
 import { buttonBase, buttonSizes, buttonVariants } from "@/components/ui/button"
@@ -24,7 +26,16 @@ import { labelName } from "@janitor/domain/Labeling/Policy/Configuration"
 import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import * as SyncButton from "@/components/sync-button"
 import * as ThemeSwitcher from "@/components/theme-switcher"
-import { House, FileCode2, Tags, Activity, GitPullRequest, Settings, UserRound } from "lucide"
+import {
+  House,
+  FileCode2,
+  Tags,
+  Activity,
+  GitPullRequest,
+  MessagesSquare,
+  Settings,
+  UserRound,
+} from "lucide"
 import * as Icon from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import * as Toast from "@foldkit/ui/toast"
@@ -46,6 +57,8 @@ export const AppToast = Toast.make(ToastPayload)
 export const Model = Schema.Struct({
   connections: Connections.Model,
   account: Account.Model,
+  chatSessions: ChatSessions.Model,
+  chatTranscript: ChatSessionTranscript.Model,
   navigation: Navigation.Model,
   lastRepositoryId: Schema.Option(Schema.String),
   sidebar: Sidebar.Model,
@@ -61,6 +74,8 @@ export type Model = typeof Model.Type
 export const Message = defineMessageUnion({
   GotConnectionsMessage: { message: Connections.Message },
   GotAccountMessage: { message: Account.Message },
+  GotChatSessionsMessage: { message: ChatSessions.Message },
+  GotChatTranscriptMessage: { message: ChatSessionTranscript.Message },
   GotNavigationMessage: { message: Navigation.Message },
   PersistedRepository: {},
   NoOp: {},
@@ -201,11 +216,56 @@ const enterRoute = (previous: Model, route: Routes.AppRoute): Step => {
     wasEditor === willBeEditor || previous.sidebar.isMobile
       ? previous
       : modifyFields(previous, { sidebar: (sidebar) => Sidebar.setOpen(sidebar, !willBeEditor) })
-  return enterOtherRoute(model, route)
+  const entered = enterOtherRoute(model, route)
+  const chat = activateChat(entered.model, route)
+  return { model: chat.model, commands: [...(entered.commands ?? []), ...(chat.commands ?? [])] }
+}
+
+const isChatRoute = (
+  route: Routes.AppRoute,
+): route is Extract<Routes.AppRoute, { _tag: "ChatSessions" | "ChatSessionTranscript" }> =>
+  route._tag === "ChatSessions" || route._tag === "ChatSessionTranscript"
+
+/** The chat pages fetch while they show and fence their responses once left. */
+const activateChat = (model: Model, route: Routes.AppRoute): Step => {
+  const sessions = ChatSessions.update(
+    model.chatSessions,
+    ChatSessions.Message.Activated({ active: route._tag === "ChatSessions" }),
+  )
+  const transcript = ChatSessionTranscript.update(
+    model.chatTranscript,
+    ChatSessionTranscript.Message.Activated({
+      sessionId:
+        route._tag === "ChatSessionTranscript" ? route.sessionId : model.chatTranscript.sessionId,
+      active: route._tag === "ChatSessionTranscript",
+    }),
+  )
+  return {
+    model: modifyFields(model, {
+      chatSessions: () => sessions.model,
+      chatTranscript: () => transcript.model,
+    }),
+    commands: [
+      ...Command.mapMessages(sessions.commands ?? [], (message) =>
+        Message.GotChatSessionsMessage({ message }),
+      ),
+      ...Command.mapMessages(transcript.commands ?? [], (message) =>
+        Message.GotChatTranscriptMessage({ message }),
+      ),
+    ],
+  }
 }
 
 const enterOtherRoute = (model: Model, route: Routes.AppRoute): Step => {
   if (isAccountRoute(route)) return enterAccount(model, route)
+  if (isChatRoute(route))
+    return {
+      model: modifyFields(model, {
+        navigation: (navigation) => Navigation.enter(navigation, route),
+        workspace: () =>
+          modifyFields(model.workspace, { panel: () => ({ _tag: "Closed" as const }) }),
+      }),
+    }
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return {
       model: modifyFields(model, {
@@ -312,6 +372,46 @@ const foldAccount = Update.foldChild({
   write: (model, next) => modifyFields(model, { account: () => next }),
   toParentMessage: (message) => Message.GotAccountMessage({ message }),
   foldOutMessage: foldAccountOutMessage,
+})
+
+const foldChatSessions = Update.foldChild({
+  update: ChatSessions.update,
+  read: (model: Model) => Option.some(model.chatSessions),
+  write: (model, next) => modifyFields(model, { chatSessions: () => next }),
+  toParentMessage: (message) => Message.GotChatSessionsMessage({ message }),
+})
+
+const foldChatTranscriptOutMessage =
+  (outMessage: ChatSessionTranscript.OutMessage): Update.Step<Model, Message, AppServices> =>
+  (model) =>
+    ChatSessionTranscript.OutMessage.match(outMessage, {
+      DeletedSession: () => {
+        const routed = requestNavigation(model, Routes.chatSessions(), true, false)
+        const shown = AppToast.show(routed.model.toast, {
+          variant: "Success",
+          payload: {
+            title: "Chat session deleted",
+            description: "A later message in the thread starts a new session.",
+          },
+        })
+        return {
+          model: modifyFields(routed.model, { toast: () => shown.model }),
+          commands: [
+            ...(routed.commands ?? []),
+            ...Command.mapMessages(shown.commands, (message) =>
+              Message.GotToastMessage({ message }),
+            ),
+          ],
+        }
+      },
+    })
+
+const foldChatTranscript = Update.foldChild({
+  update: ChatSessionTranscript.update,
+  read: (model: Model) => Option.some(model.chatTranscript),
+  write: (model, next) => modifyFields(model, { chatTranscript: () => next }),
+  toParentMessage: (message) => Message.GotChatTranscriptMessage({ message }),
+  foldOutMessage: foldChatTranscriptOutMessage,
 })
 
 const foldSidebar = Update.foldChild({
@@ -714,6 +814,8 @@ export const update = (model: Model, message: Message): Step =>
       return { model: updated, commands }
     },
     GotAccountMessage: ({ message }) => foldAccount(model, message),
+    GotChatSessionsMessage: ({ message }) => foldChatSessions(model, message),
+    GotChatTranscriptMessage: ({ message }) => foldChatTranscript(model, message),
     GotNavigationMessage: ({ message }) => updateNavigation(model, message),
     PersistedRepository: () => ({ model }),
     NoOp: () => ({ model }),
@@ -833,6 +935,8 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
       }),
     ),
     account: Account.init(),
+    chatSessions: ChatSessions.init(),
+    chatTranscript: ChatSessionTranscript.init(),
     navigation: Navigation.init(flags.historyIndex ?? 0),
     lastRepositoryId: flags.lastRepositoryId ?? Option.none(),
     sidebar,
@@ -930,6 +1034,19 @@ const workspaceSubscriptions = Subscription.lift(Workspace.subscriptions)<Model,
   toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
 })
 
+const chatSessionsSubscriptions = Subscription.lift(ChatSessions.subscriptions)<Model, Message>({
+  toChildModel: (model) => model.chatSessions,
+  toParentMessage: (message) => Message.GotChatSessionsMessage({ message }),
+})
+
+const chatTranscriptSubscriptions = Subscription.lift(ChatSessionTranscript.subscriptions)<
+  Model,
+  Message
+>({
+  toChildModel: (model) => model.chatTranscript,
+  toParentMessage: (message) => Message.GotChatTranscriptMessage({ message }),
+})
+
 const navigationSubscriptions = Subscription.make<Model, Message>()((entry) => ({
   unsavedChanges: entry(
     { dirty: Schema.Boolean },
@@ -959,6 +1076,8 @@ export const subscriptions = Subscription.aggregate<Model, Message, AppServices>
   themeSubscriptions,
   liveSubscriptions,
   workspaceSubscriptions,
+  chatSessionsSubscriptions,
+  chatTranscriptSubscriptions,
   navigationSubscriptions,
 )
 
@@ -1117,6 +1236,27 @@ const accountLink = (h: HtmlBuilder<Message>, model: Model): Html =>
         children: [
           h.a(
             [
+              h.Href(Routes.chatSessions()),
+              h.Class(
+                cn(
+                  Sidebar.sidebarMenuButtonClass,
+                  navLinkClass,
+                  isChatRoute(model.navigation.route) && navLinkActiveClass,
+                ),
+              ),
+              h.AriaCurrent(isChatRoute(model.navigation.route) ? "page" : "false"),
+            ],
+            [
+              Icon.view(h, MessagesSquare, "size-4 shrink-0 text-ink-subtle"),
+              h.span([], ["Chat sessions"]),
+            ],
+          ),
+        ],
+      }),
+      Sidebar.menuItem(h, {
+        children: [
+          h.a(
+            [
               h.Href(Routes.accountSection("accounts")),
               h.Class(
                 cn(
@@ -1186,45 +1326,52 @@ const breadcrumb = (h: HtmlBuilder<Message>, model: Model): Html => {
       ? [leaf("Connect repository")]
       : isAccountRoute(route)
         ? [leaf("Account")]
-        : route._tag === "Home"
-          ? [leaf("Repositories")]
-          : route._tag === "DesignSystem"
-            ? [leaf("Design system")]
-            : route._tag === "NotFound"
-              ? [leaf("Page not found")]
-              : route._tag === "Rule"
-                ? sectionCrumbs("Rules", [
-                    leaf(
-                      Option.map(configuration, (view) =>
-                        labelName(
-                          view.labels,
-                          view.rules.find((rule) => rule.id === route.ruleId)?.labelId ?? "",
-                        ),
-                      ).pipe(Option.getOrElse(() => "Rule")),
-                      true,
-                    ),
-                  ])
-                : route._tag === "NewRule"
-                  ? sectionCrumbs("Rules", [leaf("New rule")])
-                  : route._tag === "Policy"
-                    ? sectionCrumbs("Policies", [
+        : route._tag === "ChatSessions"
+          ? [leaf("Chat sessions")]
+          : route._tag === "ChatSessionTranscript"
+            ? [crumbLink(Routes.chatSessions(), "Chat sessions"), separator(), leaf("Transcript")]
+            : route._tag === "Home"
+              ? [leaf("Repositories")]
+              : route._tag === "DesignSystem"
+                ? [leaf("Design system")]
+                : route._tag === "NotFound"
+                  ? [leaf("Page not found")]
+                  : route._tag === "Rule"
+                    ? sectionCrumbs("Rules", [
                         leaf(
-                          Option.map(
-                            configuration,
-                            (view) =>
-                              view.policies.find((policy) => policy.policyId === route.policyId)
-                                ?.name ?? "Policy",
-                          ).pipe(Option.getOrElse(() => "Policy")),
+                          Option.map(configuration, (view) =>
+                            labelName(
+                              view.labels,
+                              view.rules.find((rule) => rule.id === route.ruleId)?.labelId ?? "",
+                            ),
+                          ).pipe(Option.getOrElse(() => "Rule")),
                           true,
                         ),
                       ])
-                    : route._tag === "NewPolicy"
-                      ? sectionCrumbs("Policies", [leaf("New policy")])
-                      : route._tag === "PullRequestReviewTranscript"
-                        ? sectionCrumbs("PR reviews", [leaf("Transcript")])
-                        : [leaf(Routes.section(route))]
+                    : route._tag === "NewRule"
+                      ? sectionCrumbs("Rules", [leaf("New rule")])
+                      : route._tag === "Policy"
+                        ? sectionCrumbs("Policies", [
+                            leaf(
+                              Option.map(
+                                configuration,
+                                (view) =>
+                                  view.policies.find((policy) => policy.policyId === route.policyId)
+                                    ?.name ?? "Policy",
+                              ).pipe(Option.getOrElse(() => "Policy")),
+                              true,
+                            ),
+                          ])
+                        : route._tag === "NewPolicy"
+                          ? sectionCrumbs("Policies", [leaf("New policy")])
+                          : route._tag === "PullRequestReviewTranscript"
+                            ? sectionCrumbs("PR reviews", [leaf("Transcript")])
+                            : [leaf(Routes.section(route))]
   const crumbs =
-    route._tag === "Home" || route._tag === "NotFound" || route._tag === "DesignSystem"
+    route._tag === "Home" ||
+    route._tag === "NotFound" ||
+    route._tag === "DesignSystem" ||
+    isChatRoute(route)
       ? tail
       : [...repositoryCrumbs, ...tail]
   return h.nav(
@@ -1356,6 +1503,20 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
   const route = model.navigation.route
   const repositories = Option.getOrElse(model.workspace.repositories, () => [])
   if (isAccountRoute(route)) return accountView(h, model)
+  if (route._tag === "ChatSessions")
+    return h.submodel({
+      slotId: "chat-sessions",
+      model: model.chatSessions,
+      view: ChatSessions.view,
+      toParentMessage: (message) => Message.GotChatSessionsMessage({ message }),
+    })
+  if (route._tag === "ChatSessionTranscript")
+    return h.submodel({
+      slotId: "chat-session-transcript",
+      model: model.chatTranscript,
+      view: ChatSessionTranscript.view,
+      toParentMessage: (message) => Message.GotChatTranscriptMessage({ message }),
+    })
   if (route._tag === "DesignSystem") return DesignSystem.view(h, { noop: Message.NoOp() })
   if (route._tag === "Connect" || route._tag === "ConnectReturn")
     return connectionView(h, model, null)
@@ -1495,7 +1656,7 @@ const routeContent = (h: HtmlBuilder<Message>, model: Model): Html => {
 }
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "DesignSystem" ? "Design system" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
+  title: `${model.navigation.route._tag === "Connect" || model.navigation.route._tag === "ConnectReturn" ? "Connect repository" : isAccountRoute(model.navigation.route) ? "Account" : isChatRoute(model.navigation.route) ? "Chat sessions" : model.navigation.route._tag === "Home" ? "Repositories" : model.navigation.route._tag === "DesignSystem" ? "Design system" : model.navigation.route._tag === "NotFound" ? "Page not found" : Routes.section(model.navigation.route)} · The Janitor`,
   body: h.submodel({
     slotId: "app-sidebar",
     model: model.sidebar,

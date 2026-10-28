@@ -124,6 +124,31 @@ import {
   ReviewWorkspaceLive,
 } from "./PullRequestReview/Sandbox/WorkspaceObject.ts"
 import type { TailnetEgressNamespace } from "./PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
+import { ChatModelLayer } from "./Chat/Agent.ts"
+import {
+  chatBotGate,
+  chatBotInit,
+  type ChatEgressSecrets,
+  chatEgressSecrets,
+  chatGateModel,
+  chatSandboxInit,
+} from "./Chat/Config.ts"
+import { ReplyGate } from "./Chat/Gate.ts"
+import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
+import { ChatPlatform } from "./Chat/Platform.ts"
+import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
+import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
+import { SlackConfig, slackSettings } from "./Chat/Slack/Config.ts"
+import { SlackSessions, SlackWebhookRoutesLayer } from "./Chat/Slack/Ingress.ts"
+import * as SlackPlatform from "./Chat/Slack/Platform.ts"
+import { ChatCredentials } from "./Chat/Egress/BotApp.ts"
+import { ChatSandboxPool, ChatSandboxPoolLive } from "./Chat/Sandbox/PoolObject.ts"
+import { ChatSandboxes } from "./Chat/Sandbox/Sandboxes.ts"
+import {
+  ChatWorkspace,
+  ChatWorkspaceLive,
+  exportChatEgress,
+} from "./Chat/Sandbox/WorkspaceObject.ts"
 import {
   TailnetEgress,
   TailnetEgressLive,
@@ -162,8 +187,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     return {
       main: import.meta.url,
       // The pinned local workerd is 1.20260704.1; newer dates fail at startup.
-      // `enable_ctx_exports` gives the PR review workspace DO
-      // `ctx.exports.GitEgress` to route its sandbox's egress to.
+      // `enable_ctx_exports` gives the PR review and chat workspace DOs
+      // `ctx.exports.GitEgress` and `ctx.exports.ChatEgress` to route their
+      // sandboxes' egress to.
       compatibility: {
         date: dev ? "2026-07-04" : "2026-09-05",
         flags: ["nodejs_compat", "enable_ctx_exports"],
@@ -236,6 +262,22 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // PR review reads its settings later, in the cluster layer; reading them
     // here is what binds them.
     yield* pullRequestReviewInit
+    // The chat bot is off for the whole deployment until `CHAT_AI_API_URL` and
+    // `CHAT_AI_API_KEY` are set; until then no other chat setting is read, and
+    // no chat sandbox, egress entrypoint or session is bound.
+    const chatBot = yield* chatBotGate
+    if (chatBot) {
+      yield* chatSandboxInit
+      yield* chatBotInit
+    }
+    const chatGate = chatBot ? yield* chatGateModel : ""
+    // Slack stays off until all four `SLACK_*` settings are set.
+    const slack = chatBot ? yield* slackSettings : Option.none()
+    // The chat bot's GitHub App and Multica PAT, each optional: without them
+    // the chat egress proxy hands GitHub and Multica no credential.
+    const chatSecrets: ChatEgressSecrets = chatBot
+      ? yield* chatEgressSecrets
+      : { app: Option.none(), multicaToken: Option.none() }
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
@@ -286,6 +328,22 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         ),
       ),
     )
+    // Chat sandboxes: one workspace DO per chat session, each owning a
+    // container, and one pool DO that decides which sessions hold one. Their
+    // egress goes through the `ChatEgress` entrypoint, with the tokens the
+    // session's workspace mints. Both classes stay declared while the bot is
+    // off, so turning it off never deletes their storage; the workspace has
+    // no container then, and nothing acquires one.
+    if (chatBot) yield* exportChatEgress
+    const chatWorkspaces = yield* ChatWorkspace.pipe(
+      Effect.provide(
+        ChatWorkspaceLive.pipe(
+          Layer.provide(ChatCredentials.layerFrom(chatSecrets)),
+          Layer.provide(FetchHttpClient.layer),
+        ),
+      ),
+    )
+    const chatPools = yield* ChatSandboxPool.pipe(Effect.provide(ChatSandboxPoolLive))
     // The PR review model's way onto the tailnet, when PR_REVIEW_AI_VIA_TAILNET is on.
     yield* TailnetEgress.pipe(Effect.provide(TailnetEgressLive))
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
@@ -305,6 +363,35 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const publicOrigin =
       typeof liveEnvironment.PUBLIC_ORIGIN === "string" ? liveEnvironment.PUBLIC_ORIGIN : ""
     let notifyOutbox: Effect.Effect<void> = Effect.void
+    const ChatLayer = chatBot
+      ? ChatSessionLayer.pipe(
+          Layer.provide(
+            ChatModelLayer(
+              liveEnvironment.PullRequestReviewTailnetEgress as TailnetEgressNamespace,
+            ),
+          ),
+          // The reply gate asks Jev with labeling's OpenRouter key.
+          Layer.provide(ReplyGate.decisionModel({ apiKey: ai.apiKey, model: chatGate })),
+          Layer.provide(
+            ChatSandboxes.layer({
+              pools: chatPools,
+              workspaces: chatWorkspaces,
+              namespace: liveEnvironment.ChatWorkspace as WorkspaceNamespace,
+            }),
+          ),
+          Layer.provide(
+            Option.match(slack, {
+              onNone: () => ChatPlatform.unavailable,
+              onSome: (config) =>
+                SlackPlatform.layer.pipe(
+                  Layer.provide(SlackConfig.layerFrom(config)),
+                  Layer.provide(FetchHttpClient.layer),
+                ),
+            }),
+          ),
+          Layer.provide(ChatKillSwitch.stored),
+        )
+      : Layer.empty
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
       ProjectGitHubWebhookLayer,
@@ -319,6 +406,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       PullRequestSchedulerLayer,
       RepositoryDisabler.layer,
       RunTranscripts.layer,
+      chatBot ? ChatSessionControl.layer : ChatSessionControl.unavailable,
+      ChatLayer,
       PullRequestReviewRunLayer.pipe(
         Layer.provide(RunPublisherLayer),
         Layer.provide(
@@ -356,6 +445,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           LabelingOverview.layer,
           ActivityReader.layer,
           PullRequestReviewStore.layer,
+          ChatSessionIndex.layer,
+          ChatKillSwitchStore.layer,
         ),
       ),
       Layer.provideMerge(Policies.layer),
@@ -408,7 +499,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
-      entities: [PullRequestScheduler, PullRequestReviewRun],
+      entities: chatBot
+        ? [PullRequestScheduler, PullRequestReviewRun, ChatSession]
+        : [PullRequestScheduler, PullRequestReviewRun],
       layer: ClusterLayer,
     })
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)
@@ -458,8 +551,17 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // At runtime an empty audience matches no assertion, so a missing binding
     // fails closed rather than open.
     const accessAudience = typeof env.ACCESS_AUD === "string" ? env.ACCESS_AUD : ""
+    const slackRoutes = Option.match(slack, {
+      onNone: () => Layer.empty,
+      onSome: (config) =>
+        SlackWebhookRoutesLayer.pipe(
+          Layer.provide(SlackConfig.layerFrom(config)),
+          Layer.provide(SlackSessions.fromCluster(cluster.provide)),
+          Layer.provide(FetchHttpClient.layer),
+        ),
+    })
     const apiRoutes = yield* HttpRouter.toHttpEffect(
-      makeRoutesLayer(secrets, { localDevAudience }).pipe(
+      makeRoutesLayer(secrets, { localDevAudience }, slackRoutes).pipe(
         Layer.provide(
           AccessJwt.layerFrom({ teamDomain: Access.TEAM_DOMAIN, audience: accessAudience }),
         ),

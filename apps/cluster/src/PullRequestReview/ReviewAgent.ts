@@ -1,28 +1,20 @@
-import * as OpenAiClient from "@effect/ai-openai-compat/OpenAiClient"
-import * as OpenAiLanguageModel from "@effect/ai-openai-compat/OpenAiLanguageModel"
 import * as Agent from "clanka/Agent"
 import * as AgentExecutor from "clanka/AgentExecutor"
 import type * as AgentOutput from "clanka/AgentOutput"
 import * as AgentSkills from "clanka/AgentSkills"
 import type * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
-import * as Model from "effect/ai/Model"
+import type * as Model from "effect/ai/Model"
 import * as Prompt from "effect/ai/Prompt"
 import * as Tool from "effect/ai/Tool"
 import * as Toolkit from "effect/ai/Toolkit"
-import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
-import * as Equal from "effect/Equal"
 import type * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
-import * as FetchHttpClient from "effect/http/FetchHttpClient"
-import * as HttpClient from "effect/http/HttpClient"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as References from "effect/References"
-import { RpcClientError } from "effect/rpc/RpcClientError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import {
@@ -41,8 +33,9 @@ import {
   type ThreadContext,
 } from "@janitor/domain/PullRequestReview/Prompt"
 import { checkDuplicate, type EarlierThread } from "@janitor/domain/PullRequestReview/Threads"
+import { loopExit, makeCommitBoundary, startLoop } from "../AgentLoop.ts"
+import { invalidModel, type ModelLayer, openAiCompatibleModel } from "../AgentModel.ts"
 import {
-  type HistoryChange,
   type LoopEnd,
   type LoopRecord,
   ReviewAgent,
@@ -51,7 +44,7 @@ import {
 } from "./Agent.ts"
 import { pullRequestReviewConfig } from "./Config.ts"
 import { earlierThread, makeActors, rootComment } from "./EarlierThreads.ts"
-import { type TailnetEgressNamespace, tailnetFetch } from "./TailnetEgress/TailnetEgressClient.ts"
+import type { TailnetEgressNamespace } from "./TailnetEgress/TailnetEgressClient.ts"
 import type * as ReviewGitHub from "./GitHub.ts"
 
 /**
@@ -69,58 +62,18 @@ export { executorOptions } from "./Sandbox/ExecutorOptions.ts"
 
 /**
  * The PR review model through an OpenAI-compatible chat completions endpoint
- * (EFF-1929), with its own HTTP client: the executor's is pinned to the
- * sandbox. With `PR_REVIEW_AI_VIA_TAILNET` its requests go through the
+ * (EFF-1929). With `PR_REVIEW_AI_VIA_TAILNET` its requests go through the
  * tailnet egress DO instead of the open internet. Without the endpoint's URL
  * and key PR review is off, so no run ever calls it. Invalid PR review
  * settings fail the model's calls, never the cluster labeling shares.
  */
-export const ReviewModelLayer = (
-  egress: TailnetEgressNamespace,
-): Layer.Layer<LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName> =>
+export const ReviewModelLayer = (egress: TailnetEgressNamespace): ModelLayer =>
   Layer.unwrap(
     Effect.match(pullRequestReviewConfig, {
-      onFailure: (error) =>
-        Layer.mergeAll(
-          Layer.effect(
-            LanguageModel.LanguageModel,
-            LanguageModel.make({
-              generateText: () => Effect.die(error),
-              streamText: () => Stream.die(error),
-            }),
-          ),
-          Layer.succeed(Model.ProviderName, "openai"),
-          Layer.succeed(Model.ModelName, "invalid PR review settings"),
-        ),
-      onSuccess: (config) =>
-        OpenAiLanguageModel.model(config.model, { reasoning_effort: config.reasoningEffort }).pipe(
-          Layer.provide(
-            OpenAiClient.layer({
-              apiUrl: Option.getOrUndefined(config.apiUrl),
-              apiKey: Option.getOrUndefined(config.apiKey),
-            }),
-          ),
-          Layer.provide(config.viaTailnet ? tailnetHttpClient(egress) : FetchHttpClient.layer),
-        ),
+      onFailure: (error) => invalidModel(error, "invalid PR review settings"),
+      onSuccess: (config) => openAiCompatibleModel(config, egress),
     }),
   )
-
-/**
- * The fetch client with each request's `fetch` pinned to the tailnet egress
- * DO, as `WorkspaceClient` pins the executor's. Providing `FetchHttpClient.Fetch`
- * to the layer instead isn't enough: the Worker shares `FetchHttpClient.layer`
- * across its layers, so its client is built once with the global fetch.
- */
-const tailnetHttpClient = (egress: TailnetEgressNamespace): Layer.Layer<HttpClient.HttpClient> =>
-  Layer.effect(
-    HttpClient.HttpClient,
-    Effect.map(
-      HttpClient.HttpClient,
-      HttpClient.transform((effect) =>
-        Effect.provideService(effect, FetchHttpClient.Fetch, tailnetFetch(egress)),
-      ),
-    ),
-  ).pipe(Layer.provide(FetchHttpClient.layer))
 
 const ReportFinding = Tool.make("reportFinding", {
   description:
@@ -361,34 +314,28 @@ const baseOnly = (executor: Layer.Layer<AgentExecutor.AgentExecutor>) =>
     }),
   ).pipe(Layer.provide(executor))
 
-/** A defect from the executor's transport: its container or the connection to it is gone. */
-const isSandboxLoss = (cause: Cause.Cause<unknown>) =>
-  cause.reasons.some(
-    (reason) => Cause.isDieReason(reason) && Schema.is(RpcClientError)(reason.defect),
-  )
-
 /** How a loop's exit ends it. Provider failures are logged by category and HTTP status only, never with a body. */
 const loopEnd = (
   exit: Exit.Exit<void, AgentOutput.AgentFinished | AgentOutput.RetriesExhausted | AiError.AiError>,
 ): Effect.Effect<LoopEnd> => {
-  if (exit._tag === "Success")
-    return Effect.succeed({ _tag: "Failed", message: "The loop ended without taskComplete" })
-  const error = Cause.findErrorOption(exit.cause)
-  if (Option.isSome(error)) {
-    const failure = error.value
-    if (failure._tag === "AgentFinished")
-      return Effect.succeed({ _tag: "Completed", summary: failure.summary })
-    const reason = failure._tag === "RetriesExhausted" ? failure.error.reason : failure.reason
-    const status = "http" in reason ? reason.http?.response?.status : undefined
-    const message = `The PR review model failed: ${reason._tag}${status === undefined ? "" : ` (HTTP ${status})`}`
-    return Effect.as(Effect.logWarning(message), { _tag: "Failed", message })
+  const end = loopExit(exit)
+  switch (end._tag) {
+    case "Finished":
+      return Effect.succeed({ _tag: "Completed", summary: end.summary })
+    case "Incomplete":
+      return Effect.succeed({ _tag: "Failed", message: "The loop ended without taskComplete" })
+    case "ProviderFailed": {
+      const message = `The PR review model failed: ${end.category}${end.status === undefined ? "" : ` (HTTP ${end.status})`}`
+      return Effect.as(Effect.logWarning(message), { _tag: "Failed", message })
+    }
+    case "SandboxLost":
+    case "Interrupted":
+      return Effect.succeed(end)
+    case "Crashed": {
+      const message = `The PR review loop failed: ${end.defect}`
+      return Effect.as(Effect.logError(message), { _tag: "Failed", message })
+    }
   }
-  if (isSandboxLoss(exit.cause)) return Effect.succeed({ _tag: "SandboxLost" })
-  if (Cause.hasInterruptsOnly(exit.cause)) return Effect.succeed({ _tag: "Interrupted" })
-  const defect = Cause.squash(exit.cause)
-  const kind = defect instanceof Error ? defect.name : typeof defect
-  const message = `The PR review loop failed: ${kind}`
-  return Effect.as(Effect.logError(message), { _tag: "Failed", message })
 }
 
 const make = Effect.gen(function* () {
@@ -399,121 +346,59 @@ const make = Effect.gen(function* () {
   const start = Effect.fnUntraced(function* (options: StartOptions) {
     const inputs = yield* readInputs(options)
     const tools = makeTools(options, inputs)
-    const ready = yield* Deferred.make<Agent.Agent>()
-    const ended = yield* Deferred.make<LoopEnd>()
 
-    /**
-     * The history messages the run entity holds, and a signal for each commit.
-     * A resumed loop starts from the rows it was given.
-     */
-    let committed: ReadonlyArray<Prompt.Message> = options.history
-    let commitDone = Deferred.makeUnsafe<void>()
+    // Each history event commits with the records made since the last one,
+    // so records made in a script belong to the commit of that script's step.
+    // A resumed loop starts from the rows it was given.
+    const boundary = makeCommitBoundary({
+      history: options.history,
+      onStep: (history) => options.onStep({ history, records: tools.takePending() }),
+    })
 
-    /** Commits a history event with the records made since the last one. */
-    const commit = (history: HistoryChange) =>
-      Effect.suspend(() => options.onStep({ history, records: tools.takePending() })).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            committed =
-              history._tag === "Appended" ? [...committed, ...history.messages] : history.messages
-            const done = commitDone
-            commitDone = Deferred.makeUnsafe<void>()
-            Deferred.doneUnsafe(done, Effect.void)
-          }),
-        ),
-      )
-
-    /**
-     * Waits until every change to the loop's history is committed. clanka
-     * doesn't wait for its history events, so the model calls do: a step the
-     * run entity hasn't committed never has a next step, and records made in
-     * a script belong to the commit of that script's step.
-     */
-    const caughtUp = (agent: Agent.Agent) =>
-      Effect.suspend(function wait(): Effect.Effect<void> {
-        // Compared by content: a compaction can keep the length, and clanka's
-        // events carry copies of its history's messages.
-        const current = agent.history.current.content.filter((message) => message.role !== "system")
-        return current.length === committed.length &&
-          current.every((message, index) => Equal.equals(message, committed[index]))
-          ? Effect.void
-          : Effect.andThen(Deferred.await(commitDone), Effect.suspend(wait))
-      })
-
-    /** The model behind the commit boundary. clanka only streams, for its steps and compaction alike. */
-    const committedModel = (agent: Agent.Agent) =>
-      Effect.gen(function* () {
-        const ai = yield* LanguageModel.LanguageModel
-        // The method is generic over the toolkit; this only adds the wait.
-        const streamText = (options: Parameters<typeof ai.streamText>[0]) =>
-          Stream.unwrap(Effect.as(caughtUp(agent), ai.streamText(options)))
-        return LanguageModel.LanguageModel.of({
-          ...ai,
-          streamText: streamText as typeof ai.streamText,
-        })
-      })
-
-    const loop = Effect.gen(function* () {
-      const agent = yield* Agent.makeWith({
-        instructions: Option.some(inputs.instructions),
-        skills: inputs.skills,
-        loopTools: ReviewTools,
-      })
-      if (options.history.length > 0)
-        MutableRef.set(agent.history, Prompt.fromMessages(options.history))
-      yield* Deferred.succeed(ready, agent)
-      const output = yield* agent
-        .send({ prompt: options.prompt ?? inputs.firstMessage })
-        .pipe(Effect.provideServiceEffect(LanguageModel.LanguageModel, committedModel(agent)))
-      yield* Stream.runForEach(output, (part) =>
-        part._tag === "HistoryAppended"
-          ? commit({ _tag: "Appended", messages: part.messages })
-          : part._tag === "HistoryReplaced"
-            ? commit({ _tag: "Replaced", messages: part.messages })
-            : Effect.void,
-      )
-    }).pipe(
-      // Records whose script never reached the history are kept: the loop did report them.
-      Effect.ensuring(
-        Effect.suspend(() => {
-          const records = tools.takePending()
-          return records.length === 0
-            ? Effect.void
-            : options.onStep({ history: { _tag: "Appended", messages: [] }, records })
-        }),
-      ),
-      Effect.scoped,
-      Effect.provide(Layer.mergeAll(tools.handlers, baseOnly(options.executor))),
-      Effect.provideContext(model),
-      Effect.provideService(Agent.MaxRetries, MAX_RETRIES),
-      // clanka's compaction warning logs the raw provider error, body included.
-      // `loopEnd` logs the loop's own failures, by category.
-      Effect.provideService(References.MinimumLogLevel, "Error"),
-    )
-
-    const fiber = yield* Effect.forkScoped(
-      Effect.flatMap(Effect.exit(loop), (exit) =>
-        Effect.flatMap(loopEnd(exit), (end) => Deferred.succeed(ended, end)),
-      ),
-    )
-    const scope = yield* Effect.scope
-
-    return {
-      standardsSources: inputs.standardsSources,
-      // Delivered between steps; the run entity's timers don't wait for it.
-      steer: (message: string) =>
-        Effect.asVoid(
-          Effect.forkIn(
-            Effect.flatMap(Deferred.await(ready), (agent) => agent.steer(message)),
-            scope,
+    const handle = yield* startLoop({
+      loop: (ready) =>
+        Effect.gen(function* () {
+          const agent = yield* Agent.makeWith({
+            instructions: Option.some(inputs.instructions),
+            skills: inputs.skills,
+            loopTools: ReviewTools,
+          })
+          if (options.history.length > 0)
+            MutableRef.set(agent.history, Prompt.fromMessages(options.history))
+          yield* Deferred.succeed(ready, agent)
+          const output = yield* agent
+            .send({ prompt: options.prompt ?? inputs.firstMessage })
+            .pipe(Effect.provideServiceEffect(LanguageModel.LanguageModel, boundary.model(agent)))
+          yield* Stream.runForEach(output, (part) =>
+            part._tag === "HistoryAppended"
+              ? boundary.commit({ _tag: "Appended", messages: part.messages })
+              : part._tag === "HistoryReplaced"
+                ? boundary.commit({ _tag: "Replaced", messages: part.messages })
+                : Effect.void,
+          )
+        }).pipe(
+          // Records whose script never reached the history are kept: the loop did report them.
+          Effect.ensuring(
+            Effect.suspend(() => {
+              const records = tools.takePending()
+              return records.length === 0
+                ? Effect.void
+                : options.onStep({ history: { _tag: "Appended", messages: [] }, records })
+            }),
           ),
+          Effect.scoped,
+          Effect.provide(Layer.mergeAll(tools.handlers, baseOnly(options.executor))),
+          Effect.provideContext(model),
+          Effect.provideService(Agent.MaxRetries, MAX_RETRIES),
+          // clanka's compaction warning logs the raw provider error, body included.
+          // `loopEnd` logs the loop's own failures, by category.
+          Effect.provideService(References.MinimumLogLevel, "Error"),
         ),
-      interrupt: Effect.andThen(
-        Fiber.interrupt(fiber),
-        Deferred.succeed(ended, { _tag: "Interrupted" }),
-      ).pipe(Effect.asVoid),
-      result: Deferred.await(ended),
-    }
+      onExit: loopEnd,
+      interrupted: { _tag: "Interrupted" },
+    })
+
+    return { standardsSources: inputs.standardsSources, ...handle }
   })
 
   return ReviewAgent.of({ start })

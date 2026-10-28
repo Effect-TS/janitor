@@ -272,14 +272,17 @@ catalogs:
       specifier: 2.0.0-beta.80
       version: 2.0.0-beta.80
     clanka:
-      specifier: 0.10.1
-      version: 0.10.1
+      specifier: 0.13.2
+      version: 0.13.2
     clsx:
       specifier: ^2.1.1
       version: 2.1.1
     foldkit:
       specifier: ^0.165.0
       version: 0.165.0
+    graphql:
+      specifier: 17.0.2
+      version: 17.0.2
     happy-dom:
       specifier: ^20.0.0
       version: 20.13.1
@@ -394,10 +397,13 @@ importers:
         version: 2.0.0-beta.80(patch_hash=1f7b68d31baebf8af69485593fcc47ec30e3232058001f2769aae20977c74a3a)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01))(@effect/vitest@https://pkg.pr.new/Effect-TS/effect/@effect/vitest@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)(vitest@4.1.11))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)(hono@4.11.4)(pg@8.23.0)(typescript@7.0.2)(ws@8.22.0)
       clanka:
         specifier: 'catalog:'
-        version: 0.10.1(69bb33a36f5f6b66c191afd85baa8f9d)
+        version: 0.13.2(69bb33a36f5f6b66c191afd85baa8f9d)
       effect:
         specifier: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
         version: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
+      graphql:
+        specifier: 'catalog:'
+        version: 17.0.2
     devDependencies:
       '@effect/graphql-generator':
         specifier: 'catalog:'
@@ -3003,8 +3009,8 @@ packages:
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
 
-  clanka@0.10.1:
-    resolution: {integrity: sha512-S+GyTp37hKfJNpQm8VGeK8qo4GWNexu4akbtwpGxTKdLqTJ9Rx9TaOs6d/t6ePUfAicg7maTX44KqLZaAITZ/w==}
+  clanka@0.13.2:
+    resolution: {integrity: sha512-8upWpqqWgJvuHlEGUj0hSiglPRPx5Pa1zNHebk6r5Y2KVa1ne7Z2m/rpHj7UtUXw+NB/axO19tXZkQ2D86yyjA==}
     hasBin: true
     peerDependencies:
       '@effect/ai-openai': ^4.0.0
@@ -3357,6 +3363,10 @@ packages:
   graphql@16.11.0:
     resolution: {integrity: sha512-mS1lbMsxgQj6hge1XZ6p7GPhbrtFwUFYi3wRzXAC/FmYnyXMTvvI3td3rjmQ2u8ewXueaSvRPWaEcgVVOT9Jnw==}
     engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
+
+  graphql@17.0.2:
+    resolution: {integrity: sha512-FRWbddMxfkjiB7z+aQDWIR+E34xo9I8c9mtK2RPv8PmMzKRvrdsreHL/Ui/TmwHJfhHChEtsFPyMHKI+xuarQQ==}
+    engines: {node: ^22.0.0 || ^24.0.0 || ^25.0.0 || >=26.0.0}
 
   happy-dom@20.13.1:
     resolution: {integrity: sha512-hoh0Sq+2vSDi8CJaFnLBLAlEK7/vrRmUiim30PwFj9aiVwqF/Z+6cCpmt9gNuQgu+PHjNC4O2PhjxA9Nr+UlBQ==}
@@ -6342,7 +6352,7 @@ snapshots:
 
   chownr@1.1.4: {}
 
-  clanka@0.10.1(69bb33a36f5f6b66c191afd85baa8f9d):
+  clanka@0.13.2(69bb33a36f5f6b66c191afd85baa8f9d):
     dependencies:
       '@effect/ai-openai': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)
       '@effect/ai-openai-compat': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@667feb75dcf5259c4d9eafe51476487b18b8de01(effect@https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01)
@@ -6751,6 +6761,8 @@ snapshots:
   graphmatch@1.1.1: {}
 
   graphql@16.11.0: {}
+
+  graphql@17.0.2: {}
 
   happy-dom@20.13.1:
     dependencies:

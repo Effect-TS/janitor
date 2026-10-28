@@ -16,6 +16,8 @@ import { JanitorDatabase } from "@janitor/cluster/Database"
 import { PostgresMigrationsProvider } from "@janitor/cluster/PostgresMigrations"
 import ClusterWorker from "@janitor/cluster/Worker"
 import SandboxContainerLive from "@janitor/cluster/PullRequestReview/Sandbox/SandboxContainer.runtime"
+import ChatSandboxLive from "@janitor/cluster/Chat/Sandbox/ChatSandbox.runtime"
+import { chatBotGate } from "@janitor/cluster/Chat/Config"
 import { deployment } from "@janitor/cluster/Deployment"
 
 const DockerProviders = Layer.effect(
@@ -102,8 +104,15 @@ export default Alchemy.Stack(
       url: website.url,
     }
   }).pipe(
-    // Builds the PR review sandbox image and its container application,
-    // which the cluster Worker's workspace Durable Object binds.
-    Effect.provide(SandboxContainerLive),
+    // Builds the PR review sandbox image and its container application, which
+    // the cluster Worker's workspace Durable Object binds; and the chat
+    // sandbox's, only while the chat bot is on (`CHAT_AI_API_URL` and
+    // `CHAT_AI_API_KEY` set).
+    Effect.provide(
+      Layer.mergeAll(
+        SandboxContainerLive,
+        Layer.unwrap(Effect.map(chatBotGate, (on) => (on ? ChatSandboxLive : Layer.empty))),
+      ),
+    ),
   ),
 )

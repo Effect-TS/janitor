@@ -30,6 +30,9 @@ import { LabelingRules } from "../../src/Labeling/Rules.ts"
 import { RuleTestJobs } from "../../src/Labeling/RuleTestJob.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
 import { RunTranscripts } from "../../src/PullRequestReview/RunEntity.ts"
+import { ChatKillSwitchStore } from "../../src/Chat/KillSwitch.ts"
+import { ChatSessionControl } from "../../src/Chat/Session.ts"
+import { ChatSessionIndex } from "../../src/Chat/SessionIndex.ts"
 import { RepositoryDisabler } from "../../src/PullRequestReview/Scheduler.ts"
 import { PullRequestReviewStore } from "../../src/PullRequestReview/Store.ts"
 import { RepositoryConnections } from "../../src/RepositoryConnections.ts"
@@ -85,7 +88,7 @@ const WorkerLayer = Layer.mergeAll(
   HttpServer.layerServices,
 )
 
-const requestContext = Context.make(SyncStatus, {
+const serviceContext = Context.make(SyncStatus, {
   summary: Effect.succeed(summary),
   requestAll: Effect.succeed({ summary, requested: 0 }),
   requestRepository: () => Effect.die("must not run"),
@@ -128,6 +131,14 @@ const requestContext = Context.make(SyncStatus, {
       consumeLinkAttempt: () => Effect.die("unused"),
       link: () => Effect.die("unused"),
     }),
+  ),
+)
+
+const requestContext = Context.merge(
+  serviceContext,
+  Context.make(ChatKillSwitchStore, unused(ChatKillSwitchStore)).pipe(
+    Context.add(ChatSessionControl, unused(ChatSessionControl)),
+    Context.add(ChatSessionIndex, unused(ChatSessionIndex)),
   ),
 )
 

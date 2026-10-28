@@ -1,0 +1,325 @@
+import * as Clock from "effect/Clock"
+import * as Deferred from "effect/Deferred"
+import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
+import * as Semaphore from "effect/Semaphore"
+
+/**
+ * The chat sandbox pool (EFF-3016): at most `capacity` sandboxes, one per
+ * chat session, shared by every platform.
+ *
+ * - A turn acquires its session's sandbox and releases it when the turn
+ *   ends. A released sandbox stays warm for `warmFor`: a turn of the same
+ *   session that acquires within that window gets it back as it was. After
+ *   the window the sandbox is destroyed, and the next turn starts on a
+ *   fresh one.
+ * - A turn that finds the pool full destroys the warm sandbox that has been
+ *   idle longest. If every sandbox is running a turn, it waits in one
+ *   first-come queue, told how many turns are ahead of it whenever that
+ *   changes, and gives up as busy after `queueTimeout`.
+ *
+ * - Each grant has a generation, counting up across the pool and its
+ *   restarts. A second acquire for a session takes its sandbox over with a
+ *   newer generation, and a release only ends the generation it names, so a
+ *   turn resumed after a crash isn't ended by the dead turn's release.
+ * - A grant not released within `abandonAfter` is taken to have ended, and
+ *   its sandbox counts as idle from then.
+ *
+ * Expired sandboxes are destroyed when the pool next acquires or releases;
+ * the container's own inactivity timeout stops it at the same time.
+ */
+
+/** Every sandbox was running a turn for the whole queue timeout. */
+export class SandboxBusy extends Schema.TaggedError<SandboxBusy>()("SandboxBusy", {}) {}
+
+/** What a turn holds while it runs. */
+export interface Lease {
+  /** No warm sandbox was kept for the session: its clones and edits are gone. */
+  readonly fresh: boolean
+  /**
+   * Numbers this grant. Grants count up across the whole pool and its
+   * restarts, so a later grant always has a higher generation.
+   */
+  readonly generation: number
+}
+
+/** One session's sandbox, as the pool keeps it. */
+export const SandboxRecord = Schema.Struct({
+  sessionId: Schema.String,
+  running: Schema.Boolean,
+  /** Epoch milliseconds of the release that made it idle; 0 while running. */
+  idleSince: Schema.Finite,
+  /** The grant the sandbox is held under, or was last held under. */
+  generation: Schema.Int,
+  /** Epoch milliseconds of that grant. */
+  grantedAt: Schema.Finite,
+})
+export type SandboxRecord = typeof SandboxRecord.Type
+
+/** What the pool keeps across restarts. */
+export const PoolSnapshot = Schema.Struct({
+  /** The last generation granted. */
+  generation: Schema.Int,
+  sandboxes: Schema.Array(SandboxRecord),
+})
+export type PoolSnapshot = typeof PoolSnapshot.Type
+
+export interface SandboxPoolOptions {
+  /** `CHAT_SANDBOX_MAX_INSTANCES`. */
+  readonly capacity: number
+  /** `CHAT_SANDBOX_WARM_SECONDS`. */
+  readonly warmFor: Duration.Duration
+  /** `CHAT_QUEUE_TIMEOUT_SECONDS`. */
+  readonly queueTimeout: Duration.Duration
+  /**
+   * A grant not released this long after it was made is taken to have ended:
+   * its turn died without releasing. Its sandbox counts as idle from then.
+   */
+  readonly abandonAfter: Duration.Duration
+  /**
+   * Destroys a session's sandbox container: evicted, or its warm window ran
+   * out. `generation` is the grant the sandbox was last held under.
+   */
+  readonly destroy: (sessionId: string, generation: number) => Effect.Effect<void>
+  /**
+   * Keeps the sandboxes across restarts of whatever hosts the pool. The
+   * queue isn't kept: its turns are waiting on the host, which stays up
+   * while they do.
+   */
+  readonly storage?:
+    | {
+        readonly load: Effect.Effect<PoolSnapshot | undefined>
+        readonly save: (snapshot: PoolSnapshot) => Effect.Effect<void>
+      }
+    | undefined
+}
+
+export interface SandboxPool {
+  /**
+   * Waits for a sandbox for the session's turn. While queued, `onQueued` gets
+   * the number of turns ahead, first when the turn joins the queue and again
+   * each time that number changes.
+   */
+  readonly acquire: (
+    sessionId: string,
+    onQueued?: (ahead: number) => Effect.Effect<void>,
+  ) => Effect.Effect<Lease, SandboxBusy>
+  /**
+   * The turn holding `generation` ended; its sandbox stays warm. A release
+   * for a grant the session no longer holds changes nothing.
+   */
+  readonly release: (sessionId: string, generation: number) => Effect.Effect<void>
+}
+
+interface Sandbox {
+  running: boolean
+  idleSince: number
+  generation: number
+  grantedAt: number
+}
+
+interface Waiter {
+  readonly sessionId: string
+  readonly granted: Deferred.Deferred<Lease>
+  readonly onQueued: ((ahead: number) => Effect.Effect<void>) | undefined
+  /** The position `onQueued` last heard. */
+  ahead: number
+}
+
+export const makeSandboxPool = (options: SandboxPoolOptions): Effect.Effect<SandboxPool> =>
+  Effect.gen(function* () {
+    const lock = yield* Semaphore.make(1)
+    const locked = Semaphore.withPermits(lock, 1)
+    const warmFor = Duration.toMillis(options.warmFor)
+    const abandonAfter = Duration.toMillis(options.abandonAfter)
+    const sandboxes = new Map<string, Sandbox>()
+    const queue: Array<Waiter> = []
+
+    const snapshot = options.storage === undefined ? undefined : yield* options.storage.load
+    let generation = snapshot?.generation ?? 0
+    for (const { sessionId, ...sandbox } of snapshot?.sandboxes ?? []) {
+      sandboxes.set(sessionId, { ...sandbox })
+    }
+
+    const save = Effect.suspend(() =>
+      options.storage === undefined
+        ? Effect.void
+        : options.storage.save({
+            generation,
+            sandboxes: Array.from(sandboxes, ([sessionId, sandbox]) => ({
+              sessionId,
+              ...sandbox,
+            })),
+          }),
+    )
+
+    const destroy = (sessionId: string) =>
+      Effect.suspend(() => {
+        const last = sandboxes.get(sessionId)?.generation ?? 0
+        sandboxes.delete(sessionId)
+        return options.destroy(sessionId, last)
+      })
+
+    /**
+     * Takes grants held past the abandon window as ended, idle from the end of
+     * that window, and destroys the sandboxes whose warm window ran out.
+     */
+    const expire = Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis
+      for (const [sessionId, sandbox] of Array.from(sandboxes)) {
+        if (sandbox.running && now - sandbox.grantedAt >= abandonAfter) {
+          sandbox.running = false
+          sandbox.idleSince = sandbox.grantedAt + abandonAfter
+        }
+        if (!sandbox.running && now - sandbox.idleSince >= warmFor) yield* destroy(sessionId)
+      }
+    })
+
+    /** When the oldest running grant reaches the abandon window; none if nothing runs. */
+    const nextAbandon = () => {
+      let next: number | undefined
+      for (const sandbox of sandboxes.values()) {
+        if (!sandbox.running) continue
+        const at = sandbox.grantedAt + abandonAfter
+        if (next === undefined || at < next) next = at
+      }
+      return next
+    }
+
+    /** The session's warm sandbox, a free slot, or the longest-idle sandbox's slot; none if all are running. */
+    const take = (sessionId: string) =>
+      Effect.gen(function* () {
+        const grantedAt = yield* Clock.currentTimeMillis
+        const warm = sandboxes.get(sessionId)
+        if (warm !== undefined) {
+          generation += 1
+          Object.assign(warm, { running: true, generation, grantedAt })
+          return { fresh: false, generation } satisfies Lease
+        }
+        if (sandboxes.size >= options.capacity) {
+          let idlest: string | undefined
+          for (const [id, sandbox] of sandboxes) {
+            if (sandbox.running) continue
+            if (idlest === undefined || sandbox.idleSince < sandboxes.get(idlest)!.idleSince) {
+              idlest = id
+            }
+          }
+          if (idlest === undefined) return undefined
+          yield* destroy(idlest)
+        }
+        generation += 1
+        sandboxes.set(sessionId, { running: true, idleSince: 0, generation, grantedAt })
+        return { fresh: true, generation } satisfies Lease
+      })
+
+    /** Tells each waiter whose position changed. */
+    const announce = Effect.suspend(() =>
+      Effect.forEach(
+        queue.slice(),
+        (waiter, ahead) => {
+          if (waiter.ahead === ahead) return Effect.void
+          waiter.ahead = ahead
+          return waiter.onQueued?.(ahead) ?? Effect.void
+        },
+        { discard: true },
+      ),
+    )
+
+    /** Hands freed sandboxes to the queue, first come, first served. */
+    const serve = Effect.gen(function* () {
+      while (queue.length > 0) {
+        const lease = yield* take(queue[0]!.sessionId)
+        if (lease === undefined) break
+        yield* Deferred.succeed(queue.shift()!.granted, lease)
+      }
+      yield* announce
+    })
+
+    /** Takes a waiter out of the queue: busy, unless it was granted a sandbox in the meantime. */
+    const leave = (waiter: Waiter) =>
+      locked(
+        Effect.gen(function* () {
+          if (yield* Deferred.isDone(waiter.granted)) return yield* Deferred.await(waiter.granted)
+          queue.splice(queue.indexOf(waiter), 1)
+          yield* announce
+          return yield* new SandboxBusy()
+        }),
+      )
+
+    /**
+     * Waits for the waiter's grant. A grant held past the abandon window frees
+     * its slot without a release to say so, so the wait also wakes when the
+     * oldest running grant reaches the window, and serves the queue then.
+     */
+    const awaitGrant = (waiter: Waiter): Effect.Effect<Lease> =>
+      Effect.gen(function* () {
+        while (true) {
+          const wake = nextAbandon()
+          if (wake === undefined) return yield* Deferred.await(waiter.granted)
+          const now = yield* Clock.currentTimeMillis
+          const lease = yield* Deferred.await(waiter.granted).pipe(
+            Effect.timeoutOption(Duration.millis(Math.max(0, wake - now))),
+          )
+          if (Option.isSome(lease)) return lease.value
+          yield* locked(Effect.andThen(expire, Effect.andThen(serve, save)))
+        }
+      })
+
+    const release = (sessionId: string, generation: number) =>
+      locked(
+        Effect.gen(function* () {
+          const sandbox = sandboxes.get(sessionId)
+          // A release from a turn whose grant was taken over changes nothing.
+          if (sandbox !== undefined && sandbox.running && sandbox.generation === generation) {
+            sandbox.running = false
+            sandbox.idleSince = yield* Clock.currentTimeMillis
+          }
+          yield* expire
+          yield* serve
+          yield* save
+        }),
+      )
+
+    const acquire = (
+      sessionId: string,
+      onQueued?: (ahead: number) => Effect.Effect<void>,
+    ): Effect.Effect<Lease, SandboxBusy> =>
+      Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const taken = yield* locked(
+            Effect.gen(function* () {
+              yield* expire
+              const lease = queue.length === 0 ? yield* take(sessionId) : undefined
+              yield* save
+              if (lease !== undefined) return lease
+              const waiter: Waiter = {
+                sessionId,
+                granted: yield* Deferred.make<Lease>(),
+                onQueued,
+                ahead: queue.length,
+              }
+              queue.push(waiter)
+              yield* onQueued?.(waiter.ahead) ?? Effect.void
+              return waiter
+            }),
+          )
+          if (!("granted" in taken)) return taken
+          return yield* restore(awaitGrant(taken)).pipe(
+            Effect.timeoutOrElse({ duration: options.queueTimeout, orElse: () => leave(taken) }),
+            // A turn stopped while queued gives back whatever it was granted.
+            Effect.onInterrupt(() =>
+              leave(taken).pipe(
+                Effect.matchEffect({
+                  onFailure: () => Effect.void,
+                  onSuccess: (lease) => release(sessionId, lease.generation),
+                }),
+              ),
+            ),
+          )
+        }),
+      )
+
+    return { acquire, release } satisfies SandboxPool
+  })

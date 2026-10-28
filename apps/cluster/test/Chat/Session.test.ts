@@ -1,0 +1,998 @@
+import * as NodeServices from "@effect/platform-node/NodeServices"
+import { assert, describe, it, layer } from "@effect/vitest"
+import * as Clock from "effect/Clock"
+import * as ConfigProvider from "effect/ConfigProvider"
+import * as Deferred from "effect/Deferred"
+import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Stream from "effect/Stream"
+import * as Prompt from "effect/ai/Prompt"
+import { resumeMessage, switchedOffMessage, wrapUpMessage } from "@janitor/domain/Chat/Prompt"
+import {
+  ChatPlatformError,
+  type ChatThread,
+  readLimited,
+  sessionKey,
+} from "../../src/Chat/Platform.ts"
+import { landedInputs, type TranscriptResult, type TranscriptTurn } from "../../src/Chat/Session.ts"
+import {
+  discordThread,
+  makeSessionHarness,
+  quotaExhausted,
+  run,
+  say,
+  seen,
+  type SessionHarness,
+  slackThread,
+} from "./sessionHarness.ts"
+
+/**
+ * The chat session entity (EFF-3018) with its clanka agent, driven through
+ * a fake platform, a fake model and a fake sandbox executor.
+ */
+
+/** The deployment's environment; the bot is on while the API URL and key are set. */
+const env: Record<string, string> = {
+  CHAT_AI_API_URL: "https://ai.test/v1",
+  CHAT_AI_API_KEY: "test-key",
+}
+
+const Services = NodeServices.layer.pipe(
+  Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
+)
+
+const test = <A, E, R>(body: (harness: SessionHarness) => Effect.Effect<A, E, R>) =>
+  Effect.scoped(Effect.flatMap(makeSessionHarness, body))
+
+/** Sends a message to `thread`, and returns it. */
+const send = (
+  harness: SessionHarness,
+  thread: ChatThread,
+  text: string,
+  options?: Parameters<SessionHarness["message"]>[1],
+) =>
+  Effect.gen(function* () {
+    const message = yield* harness.message(text, options)
+    yield* harness.deliver(thread, message)
+    return message
+  })
+
+/** Waits until the model has been called `count` times in all. */
+const modelCalls = (harness: SessionHarness, count: number) =>
+  harness.until(
+    Effect.sync(() => harness.model.prompts.length >= count),
+    `model call ${count}`,
+  )
+
+const available = (transcript: TranscriptResult) => {
+  if (transcript._tag !== "Available") throw new Error("The session has no transcript")
+  return transcript
+}
+
+/** The transcript's turns, without their generated ids, their times and their history. */
+const turns = (transcript: TranscriptResult) =>
+  available(transcript).turns.map(
+    ({
+      turnId: _,
+      queuedAt: _queuedAt,
+      startedAt: _startedAt,
+      finishedAt: _finishedAt,
+      messages: _messages,
+      ...turn
+    }) => turn,
+  )
+
+/** Each stored message's id and gate outcome. */
+const stored = (transcript: TranscriptResult) =>
+  available(transcript).messages.map((message) => [message.id, message.gate])
+
+const gates = (transcript: TranscriptResult) =>
+  available(transcript).messages.map((message) => message.gate)
+
+const lastTurn = (harness: SessionHarness, thread: ChatThread) =>
+  Effect.map(harness.transcript(thread), (transcript) => available(transcript).turns.at(-1))
+
+/** Waits until the thread's latest turn has left `running`. */
+const turnEnded = (harness: SessionHarness, thread: ChatThread) =>
+  harness.until(
+    Effect.map(
+      lastTurn(harness, thread),
+      (turn) => turn !== undefined && turn.status !== "running",
+    ),
+    "the turn to end",
+  )
+
+/** A first turn in `thread`: a mention the model answers at once. */
+const firstTurn = (harness: SessionHarness, thread: ChatThread) =>
+  Effect.gen(function* () {
+    const calls = harness.model.prompts.length
+    const replies = harness.platform.replies.length
+    yield* send(harness, thread, "Hello there.", { mention: true })
+    yield* modelCalls(harness, calls + 1)
+    harness.model.answer(say("Hello."))
+    yield* harness.until(
+      Effect.sync(() => harness.platform.replies.length > replies),
+      "the first reply",
+    )
+  })
+
+/** Starts a turn whose first script runs until the test finishes it. */
+const longTurn = (harness: SessionHarness, thread: ChatThread, text: string) =>
+  Effect.gen(function* () {
+    harness.sandboxes.hang = true
+    const calls = harness.model.prompts.length
+    const scripts = harness.sandboxes.scripts.length
+    yield* send(harness, thread, text, { mention: true })
+    yield* modelCalls(harness, calls + 1)
+    harness.model.answer(run("pnpm test"))
+    yield* harness.until(
+      Effect.sync(() => harness.sandboxes.scripts.length > scripts),
+      "the script to start",
+    )
+  })
+
+const finished = (
+  turn: Partial<Omit<TranscriptTurn, "turnId">>,
+): Omit<TranscriptTurn, "turnId"> => ({
+  status: "replied",
+  errorCategory: null,
+  resumes: 0,
+  wrappedUp: false,
+  model: "test-model",
+  actions: 0,
+  usage: null,
+  ...turn,
+})
+
+layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
+  it.effect(
+    "a mention backfills the thread, starts a turn and records its reply, usage, model and actions",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          const earlier = yield* harness.message("The README changed yesterday.", {
+            author: "Grace",
+          })
+          harness.platform.threadHistory = [earlier]
+          const asked = yield* send(harness, slackThread, "What does janitor's README cover?", {
+            mention: true,
+          })
+          yield* modelCalls(harness, 1)
+          // A mention skips the gate, and the model sees who asked.
+          assert.deepStrictEqual(harness.gate.inputs, [])
+          assert.include(seen(harness.model.last), "What does janitor's README cover?")
+          assert.include(seen(harness.model.last), "Ada")
+          assert.include(seen(harness.model.last), "The README changed yesterday.")
+
+          harness.model.answer(
+            run("cat README.md", { input: 100, output: 10 }),
+            say("It covers the cluster app.", { input: 150, output: 20, cacheRead: 50 }),
+          )
+          yield* harness.until(
+            Effect.sync(() => harness.platform.replies.length > 0),
+            "the reply",
+          )
+          assert.deepStrictEqual(harness.platform.replies, [
+            { thread: slackThread, text: "It covers the cluster app." },
+          ])
+          assert.deepStrictEqual(harness.sandboxes.scripts, ["cat README.md"])
+          assert.strictEqual(harness.platform.statuses.length, 1)
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.releases.length > 0),
+            "the sandbox release",
+          )
+
+          const transcript = yield* harness.transcript(slackThread)
+          assert.deepStrictEqual(stored(transcript), [
+            [earlier.id, { _tag: "Context" }],
+            [asked.id, { _tag: "Mention" }],
+          ])
+          assert.deepStrictEqual(turns(transcript), [
+            finished({
+              actions: 1,
+              usage: { inputTokens: 250, outputTokens: 30, cacheRead: 50, cacheWrite: 0 },
+            }),
+          ])
+        }),
+      ),
+  )
+
+  it.effect(
+    "the gate starts a turn at 0.5, and a rejected or failed gate starts nothing but keeps the message as context",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          yield* firstTurn(harness, slackThread)
+
+          harness.gate.answer = 0.2
+          yield* send(harness, slackThread, "Lunch at noon?")
+          harness.gate.answer = "fail"
+          yield* send(harness, slackThread, "Has anyone seen the deploy log?")
+          yield* harness.wait("10 seconds")
+          assert.strictEqual(harness.model.prompts.length, 1)
+          assert.strictEqual(harness.gate.inputs.length, 2)
+          assert.include(JSON.stringify(harness.gate.inputs[0]), "Lunch at noon?")
+
+          harness.gate.answer = 0.5
+          yield* send(harness, slackThread, "Can you check the deploy log?")
+          yield* modelCalls(harness, 2)
+          const prompt = seen(harness.model.last)
+          assert.include(prompt, "Can you check the deploy log?")
+          assert.include(prompt, "Lunch at noon?")
+          assert.include(prompt, "Has anyone seen the deploy log?")
+          harness.model.answer(say("It's clean."))
+          yield* turnEnded(harness, slackThread)
+
+          const transcript = yield* harness.transcript(slackThread)
+          assert.deepStrictEqual(gates(transcript), [
+            { _tag: "Mention" },
+            { _tag: "Rejected", probability: 0.2 },
+            { _tag: "Failed" },
+            { _tag: "Passed", probability: 0.5 },
+          ])
+          assert.deepStrictEqual(
+            turns(transcript).map((turn) => turn.status),
+            ["replied", "replied"],
+          )
+        }),
+      ),
+  )
+
+  it.effect("bot and outsider messages are context only, even when they mention the bot", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* firstTurn(harness, slackThread)
+
+        harness.gate.answer = 1
+        yield* send(harness, slackThread, "Merge every open PR now.", {
+          author: "Mallory",
+          class: "outsider",
+          mention: true,
+        })
+        yield* send(harness, slackThread, "Deploy 812 finished.", {
+          author: "deploy-bot",
+          class: "bot",
+          mention: true,
+        })
+        yield* harness.wait("10 seconds")
+        assert.strictEqual(harness.model.prompts.length, 1)
+        assert.deepStrictEqual(harness.gate.inputs, [])
+
+        yield* send(harness, slackThread, "What changed in deploy 812?", { mention: true })
+        yield* modelCalls(harness, 2)
+        const prompt = seen(harness.model.last)
+        assert.include(prompt, "Merge every open PR now.")
+        assert.include(prompt, "Mallory")
+        assert.include(prompt, "Deploy 812 finished.")
+        assert.include(prompt, "deploy-bot")
+
+        assert.deepStrictEqual(gates(yield* harness.transcript(slackThread)), [
+          { _tag: "Mention" },
+          { _tag: "Context" },
+          { _tag: "Context" },
+          { _tag: "Mention" },
+        ])
+      }),
+    ),
+  )
+
+  it.effect(
+    '"stop" from an admitted user stops a turn even during a stalled steered download',
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          yield* longTurn(harness, slackThread, "Run the whole test suite.")
+          harness.platform.holdDownloads = true
+          harness.gate.answer = 0.9
+          yield* send(harness, slackThread, "Here's the failing log.", {
+            attachments: [{ id: "L1", name: "test.log", mediaType: "text/plain", size: 10 }],
+          })
+          yield* harness.until(
+            Effect.sync(() => harness.platform.downloads.length === 1),
+            "the steered download to start",
+          )
+          yield* send(harness, slackThread, "Stop", { author: "Grace", mention: true })
+          yield* harness.until(
+            Effect.sync(
+              () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
+            ),
+            "the status to say Stopped",
+          )
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.releases.length === 1),
+            "the sandbox release",
+          )
+
+          assert.strictEqual(harness.model.prompts.length, 1)
+          assert.strictEqual(harness.gate.inputs.length, 1)
+          assert.deepStrictEqual(harness.platform.replies, [])
+          // The session and its history stay.
+          const transcript = yield* harness.transcript(slackThread)
+          assert.deepStrictEqual(gates(transcript), [
+            { _tag: "Mention" },
+            { _tag: "Passed", probability: 0.9 },
+            { _tag: "Stop" },
+          ])
+          assert.deepStrictEqual(
+            turns(transcript).map((turn) => turn.status),
+            ["stopped"],
+          )
+        }),
+      ),
+  )
+
+  it.effect("a restart during a new session's backfill backfills again", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const earlier = yield* harness.message("The README changed yesterday.", {
+          author: "Grace",
+        })
+        harness.platform.threadHistory = [earlier]
+        harness.platform.holdHistory = true
+        const asked = yield* harness.message("What changed?", { mention: true })
+        yield* harness.store(slackThread, asked)
+        yield* harness.until(
+          Effect.sync(() => harness.platform.historyReads > 0),
+          "the backfill to start",
+        )
+        yield* harness.restart
+        harness.platform.holdHistory = false
+        yield* harness.until(
+          Effect.map(
+            harness.transcript(slackThread),
+            (transcript) => transcript._tag === "Available" && transcript.messages.length === 2,
+          ),
+          "the backfill",
+        )
+        assert.deepStrictEqual(stored(yield* harness.transcript(slackThread)), [
+          [earlier.id, { _tag: "Context" }],
+          [asked.id, { _tag: "Mention" }],
+        ])
+      }),
+    ),
+  )
+
+  it.effect("a failed backfill is tried again with the next message", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const earlier = yield* harness.message("The README changed yesterday.", {
+          author: "Grace",
+        })
+        harness.platform.threadHistory = [earlier]
+        harness.platform.failHistory = true
+        yield* harness.wait("1 second")
+        const asked = yield* send(harness, slackThread, "What changed?", { author: "Grace" })
+        harness.platform.failHistory = false
+        const again = yield* send(harness, slackThread, "Anyone?", { author: "Grace" })
+        const transcript = available(yield* harness.transcript(slackThread))
+        assert.deepStrictEqual(
+          transcript.messages.map((message) => message.id),
+          [earlier.id, asked.id, again.id],
+        )
+      }),
+    ),
+  )
+
+  it.effect(
+    "a follow-up after a late backfill of 20 or more messages still shows the gate the mention",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          harness.platform.threadHistory = yield* Effect.forEach(
+            Array.from({ length: 25 }, (_, index) => index),
+            (index) => harness.message(`Earlier note ${index}.`, { author: "Grace" }),
+          )
+          harness.platform.failHistory = true
+          yield* harness.wait("1 second")
+          yield* send(harness, slackThread, "Can you check the README?", { mention: true })
+          yield* modelCalls(harness, 1)
+          harness.model.answer(say("It looks fine."))
+          yield* harness.until(
+            Effect.sync(() => harness.platform.replies.length > 0),
+            "the reply",
+          )
+          harness.platform.failHistory = false
+          harness.gate.answer = 0.2
+          yield* send(harness, slackThread, "And the docs too?")
+          assert.strictEqual(harness.gate.inputs.length, 1)
+          assert.include(JSON.stringify(harness.gate.inputs[0]), "Can you check the README?")
+        }),
+      ),
+  )
+
+  it.effect(
+    "a lost sandbox or a restart resumes the turn in a new sandbox, three times at most",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          yield* send(harness, slackThread, "Open a PR on janitor-sandbox.", { mention: true })
+          yield* modelCalls(harness, 1)
+
+          harness.sandboxes.lose = 1
+          harness.model.answer(run("git push"))
+          yield* modelCalls(harness, 2)
+          assert.strictEqual(harness.sandboxes.acquires.length, 2)
+          assert.include(seen(harness.model.last), resumeMessage)
+          assert.include(seen(harness.model.last), "Open a PR on janitor-sandbox.")
+
+          // A rebuilt entity resumes the running turn.
+          yield* harness.restart
+          yield* modelCalls(harness, 3)
+          assert.strictEqual(harness.sandboxes.acquires.length, 3)
+          assert.include(seen(harness.model.last), resumeMessage)
+          assert.include(seen(harness.model.last), "Open a PR on janitor-sandbox.")
+
+          harness.sandboxes.lose = 1
+          harness.model.answer(run("git push"))
+          yield* modelCalls(harness, 4)
+          assert.strictEqual(harness.sandboxes.acquires.length, 4)
+
+          // A fourth resume is one too many.
+          harness.sandboxes.lose = 1
+          harness.model.answer(run("git push"))
+          yield* turnEnded(harness, slackThread)
+          yield* harness.wait("10 seconds")
+          assert.strictEqual(harness.sandboxes.acquires.length, 4)
+          assert.strictEqual(harness.model.prompts.length, 4)
+          assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+            finished({
+              status: "failed",
+              errorCategory: "resume_limit",
+              resumes: 3,
+              actions: 3,
+            }),
+          ])
+          assert.deepStrictEqual(harness.platform.replies, [])
+        }),
+      ),
+  )
+
+  it.effect("a turn is told to wrap up at minute 17 and stopped at minute 20", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const startedAt = yield* Clock.currentTimeMillis
+        /** Moves the clock to `minutes` and `seconds` after the turn's start. */
+        const at = (minutes: number, seconds: number) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
+          )
+        yield* longTurn(harness, slackThread, "Upgrade every dependency.")
+
+        yield* at(16, 50)
+        harness.sandboxes.finishScripts()
+        yield* modelCalls(harness, 2)
+        assert.notInclude(seen(harness.model.last), wrapUpMessage)
+        harness.model.answer(run("pnpm build"))
+
+        yield* at(17, 10)
+        harness.sandboxes.finishScripts()
+        yield* modelCalls(harness, 3)
+        assert.include(seen(harness.model.last), wrapUpMessage)
+        harness.model.answer(run("pnpm test"))
+
+        yield* at(19, 50)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
+        yield* at(20, 10)
+        assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+          finished({ status: "deadline", wrappedUp: true, actions: 3 }),
+        ])
+        yield* harness.until(
+          Effect.sync(() => harness.sandboxes.releases.length === 1),
+          "the sandbox release",
+        )
+      }),
+    ),
+  )
+
+  it.effect("a provider failure ends the turn with its error category", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* send(harness, slackThread, "Summarise yesterday's PRs.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(quotaExhausted)
+        yield* turnEnded(harness, slackThread)
+
+        assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+          finished({ status: "failed", errorCategory: "QuotaExhaustedError" }),
+        ])
+        yield* harness.until(
+          Effect.sync(
+            () =>
+              harness.platform.statusTexts(slackThread)[0]?.includes("QuotaExhaustedError") ??
+              false,
+          ),
+          "the status to give the category",
+        )
+        assert.deepStrictEqual(harness.platform.replies, [])
+      }),
+    ),
+  )
+
+  it.effect(
+    "a session expires 30 days after its last message, and its storage goes",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          // The 30-day default, shortened so the clock has less to step through.
+          env["CHAT_SESSION_RETENTION_DAYS"] = "1"
+          yield* firstTurn(harness, slackThread)
+          yield* harness.wait("20 hours", "10 minutes")
+          yield* send(harness, slackThread, "Thanks!")
+
+          yield* harness.wait("20 hours", "10 minutes")
+          assert.strictEqual((yield* harness.transcript(slackThread))._tag, "Available")
+          assert.isNotEmpty(yield* harness.tables)
+
+          yield* harness.wait("5 hours", "10 minutes")
+          assert.deepStrictEqual(yield* harness.transcript(slackThread), { _tag: "Expired" })
+          assert.deepStrictEqual(yield* harness.tables, [])
+        }).pipe(Effect.ensuring(Effect.sync(() => delete env["CHAT_SESSION_RETENTION_DAYS"]))),
+      ),
+    // Stepping the clock through two days takes a while.
+    60_000,
+  )
+
+  it.effect(
+    "delete stops the running turn, releases the sandbox and deletes the session's storage",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          yield* longTurn(harness, slackThread, "My token is hunter2, use it.")
+          yield* harness.remove(slackThread)
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.releases.length === 1),
+            "the sandbox release",
+          )
+          assert.deepStrictEqual(yield* harness.transcript(slackThread), { _tag: "Expired" })
+          assert.deepStrictEqual(yield* harness.tables, [])
+          // The stopped turn takes no further step.
+          harness.sandboxes.finishScripts()
+          yield* harness.wait("10 seconds")
+          assert.strictEqual(harness.model.prompts.length, 1)
+
+          // A later message starts a new session.
+          harness.sandboxes.hang = false
+          const again = yield* send(harness, slackThread, "Start over.", { mention: true })
+          yield* modelCalls(harness, 2)
+          assert.notInclude(seen(harness.model.last), "hunter2")
+          harness.model.answer(say("Starting over."))
+          yield* turnEnded(harness, slackThread)
+          assert.deepStrictEqual(stored(yield* harness.transcript(slackThread)), [
+            [again.id, { _tag: "Mention" }],
+          ])
+        }),
+      ),
+  )
+
+  it.effect(
+    "the kill switch stops a running turn, starts no new one and says so once per thread",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          yield* longTurn(harness, slackThread, "Rebase every open PR.")
+          harness.killSwitch.slack = true
+          yield* harness.until(
+            Effect.sync(
+              () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
+            ),
+            "the status to say Stopped",
+          )
+          // Said when the switch stops the turn, without waiting for another message.
+          yield* harness.until(
+            Effect.sync(() => harness.platform.replies.length === 1),
+            "the switched-off reply",
+          )
+
+          yield* send(harness, slackThread, "Are you there?", { mention: true })
+          yield* send(harness, slackThread, "Hello?", { mention: true })
+          yield* harness.wait("10 seconds")
+          assert.strictEqual(harness.model.prompts.length, 1)
+          assert.deepStrictEqual(harness.platform.replies, [
+            { thread: slackThread, text: switchedOffMessage },
+          ])
+          // Still stored as context.
+          assert.strictEqual(available(yield* harness.transcript(slackThread)).messages.length, 3)
+
+          // Only Slack is switched off.
+          harness.sandboxes.hang = false
+          yield* firstTurn(harness, discordThread)
+          assert.deepStrictEqual(
+            turns(yield* harness.transcript(slackThread)).map((turn) => turn.status),
+            ["stopped"],
+          )
+        }),
+      ),
+  )
+
+  it.effect("a turn still ends at minute 20 when its sandbox is lost and no new one comes", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const startedAt = yield* Clock.currentTimeMillis
+        const at = (minutes: number, seconds: number) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
+          )
+        yield* longTurn(harness, slackThread, "Upgrade every dependency.")
+
+        yield* at(18, 50)
+        harness.sandboxes.holdAcquires = true
+        harness.sandboxes.loseScripts()
+        yield* harness.until(
+          Effect.sync(() => harness.sandboxes.acquires.length === 2),
+          "the second acquire",
+        )
+        yield* at(19, 50)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
+        yield* at(20, 10)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
+      }),
+    ),
+  )
+
+  it.effect("a reply that can't be posted fails the turn", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        harness.platform.failReplies = true
+        yield* send(harness, slackThread, "Summarise yesterday's PRs.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(say("Three merged, one open."))
+        yield* turnEnded(harness, slackThread)
+        assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+          finished({ status: "failed", errorCategory: "reply_failed" }),
+        ])
+      }),
+    ),
+  )
+
+  it.effect(
+    "attachments go into the turn's folder in the sandbox, up to 20 MB each, and images reach the model",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          const notes = { id: "F1", name: "notes.txt", mediaType: "text/plain", size: 5 }
+          const screenshot = { id: "F2", name: "screenshot.png", mediaType: "image/png", size: 4 }
+          const dump = {
+            id: "F3",
+            name: "heap.bin",
+            mediaType: "application/octet-stream",
+            size: 21 * 1024 * 1024,
+          }
+          // Reported as small, but more than 20 MB arrives.
+          const understated = {
+            id: "F4",
+            name: "trace.bin",
+            mediaType: "application/octet-stream",
+            size: 10,
+          }
+          harness.platform.files.set(notes.id, new TextEncoder().encode("notes"))
+          harness.platform.files.set(screenshot.id, new Uint8Array([137, 80, 78, 71]))
+          harness.platform.files.set(understated.id, new Uint8Array(20 * 1024 * 1024 + 1))
+          yield* send(harness, slackThread, "What's wrong in the screenshot?", {
+            mention: true,
+            attachments: [notes, screenshot, dump, understated],
+          })
+          yield* modelCalls(harness, 1)
+
+          // The file reported over 20 MB is never fetched, and the one that turns out bigger is dropped.
+          assert.deepStrictEqual(harness.platform.downloads, [
+            notes.id,
+            screenshot.id,
+            understated.id,
+          ])
+          const written = harness.sandboxes.written.map((file) => file.path)
+          assert.strictEqual(written.length, 2)
+          assert.isTrue(written[0]!.endsWith("/notes.txt"))
+          assert.isTrue(written[1]!.endsWith("/screenshot.png"))
+          const folder = (path: string) => path.slice(0, path.lastIndexOf("/"))
+          assert.strictEqual(folder(written[0]!), folder(written[1]!))
+          assert.deepStrictEqual([...harness.sandboxes.written[1]!.content], [137, 80, 78, 71])
+          // The model is told where the files are, and sees the image.
+          assert.include(seen(harness.model.last), written[0]!)
+          const images = harness.model.last.content.flatMap((message) =>
+            message.role === "user"
+              ? message.content.filter(
+                  (part) => part.type === "file" && part.mediaType === "image/png",
+                )
+              : [],
+          )
+          assert.strictEqual(images.length, 1)
+        }),
+      ),
+  )
+
+  it.effect(
+    "attachments with the same name in one turn are all kept, and a steered image is pointed out",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          const report = (id: string) => ({
+            id,
+            name: "report.txt",
+            mediaType: "text/plain",
+            size: 6,
+          })
+          const chart = { id: "C1", name: "chart.png", mediaType: "image/png", size: 4 }
+          harness.platform.files.set("R1", new TextEncoder().encode("first"))
+          harness.platform.files.set("R2", new TextEncoder().encode("second"))
+          harness.platform.files.set(chart.id, new Uint8Array([137, 80, 78, 71]))
+          harness.sandboxes.hang = true
+          yield* send(harness, slackThread, "Compare these reports.", {
+            mention: true,
+            attachments: [report("R1")],
+          })
+          yield* modelCalls(harness, 1)
+          harness.model.answer(run("cat report.txt"))
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.scripts.length === 1),
+            "the script to start",
+          )
+
+          harness.gate.answer = 0.9
+          yield* send(harness, slackThread, "Here's the newer one, and a chart.", {
+            attachments: [report("R2"), chart],
+          })
+          yield* harness.until(
+            Effect.sync(() => harness.sandboxes.written.length === 3),
+            "the steered files",
+          )
+          yield* harness.wait("5 seconds")
+          harness.sandboxes.finishScripts()
+          yield* modelCalls(harness, 2)
+
+          const [first, second, image] = harness.sandboxes.written.map((file) => file.path)
+          assert.isTrue(first!.endsWith("/report.txt"))
+          assert.isTrue(second!.endsWith("/report.txt"))
+          assert.notStrictEqual(first, second)
+          const prompt = seen(harness.model.last)
+          assert.include(prompt, second!)
+          assert.include(prompt, image!)
+          assert.include(prompt, "readFile")
+        }),
+      ),
+  )
+
+  it.effect("a stalled attachment download doesn't keep the turn past minute 20", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const startedAt = yield* Clock.currentTimeMillis
+        const at = (minutes: number, seconds: number) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
+          )
+        harness.platform.holdDownloads = true
+        yield* send(harness, slackThread, "Read the build log.", {
+          mention: true,
+          attachments: [{ id: "L1", name: "build.log", mediaType: "text/plain", size: 10 }],
+        })
+        yield* harness.until(
+          Effect.sync(() => harness.platform.downloads.length === 1),
+          "the download to start",
+        )
+        yield* at(19, 50)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
+        yield* at(20, 10)
+        assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
+      }),
+    ),
+  )
+
+  it.effect("a message that missed a turn still gets one after a restart", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        // A 5-minute deadline, so the restart comes inside the in-memory
+        // runner's 10-minute claim window: a keep-alive held longer is answered
+        // when it is read again, and the restarted runner wouldn't rebuild the
+        // entity. Cloudflare keeps keep-alive as a flag, without that window.
+        env["CHAT_TURN_DEADLINE_SECONDS"] = "300"
+        env["CHAT_WRAP_UP_AFTER_SECONDS"] = "240"
+        const startedAt = yield* Clock.currentTimeMillis
+        const at = (minutes: number, seconds: number) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            harness.wait(Duration.millis(startedAt + (minutes * 60 + seconds) * 1_000 - now)),
+          )
+        yield* send(harness, slackThread, "Fix the flaky test.", { mention: true })
+        yield* modelCalls(harness, 1)
+        // The turn's reply is on its way when the next mention arrives: too late for it.
+        harness.platform.holdReplies = Deferred.makeUnsafe<void>()
+        harness.model.answer(say("Fixed it."))
+        yield* harness.until(
+          Effect.sync(() => harness.platform.posting > 0),
+          "the reply to be posting",
+        )
+        yield* send(harness, slackThread, "Also bump the version.", { mention: true })
+
+        // The runner restarts after the first turn's deadline, so its resume ends at once.
+        yield* at(5, 10)
+        yield* harness.restart
+        yield* modelCalls(harness, 2)
+        assert.include(seen(harness.model.last), "Also bump the version.")
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            delete env["CHAT_TURN_DEADLINE_SECONDS"]
+            delete env["CHAT_WRAP_UP_AFTER_SECONDS"]
+          }),
+        ),
+      ),
+    ),
+  )
+
+  it.effect("steers reach the model in the order their messages arrived", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* longTurn(harness, slackThread, "Fix the flaky test.")
+        harness.gate.answer = 0.9
+        harness.platform.files.set("L1", new TextEncoder().encode("FAIL Pool.test.ts"))
+        harness.platform.holdDownload("L1")
+        yield* send(harness, slackThread, "Here's the failing log.", {
+          author: "Grace",
+          attachments: [{ id: "L1", name: "test.log", mediaType: "text/plain", size: 17 }],
+        })
+        yield* send(harness, slackThread, "It only fails on CI.", { author: "Linus" })
+        yield* harness.wait("5 seconds")
+        harness.platform.releaseDownloads()
+        yield* harness.until(
+          Effect.sync(() => harness.sandboxes.written.length === 1),
+          "the log to be written",
+        )
+        yield* harness.wait("5 seconds")
+        harness.sandboxes.finishScripts()
+        yield* modelCalls(harness, 2)
+
+        const prompt = seen(harness.model.last)
+        const first = prompt.indexOf("Here's the failing log.")
+        const second = prompt.indexOf("It only fails on CI.")
+        assert.isAtLeast(first, 0)
+        assert.isAbove(second, first)
+      }),
+    ),
+  )
+
+  it.effect("an admission is remembered for an hour", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* harness.admit(slackThread, "U-Ada")
+        assert.isTrue(yield* harness.admitted(slackThread, "U-Ada"))
+        assert.isFalse(yield* harness.admitted(slackThread, "U-Grace"))
+        yield* harness.wait("59 minutes", "1 minute")
+        assert.isTrue(yield* harness.admitted(slackThread, "U-Ada"))
+        yield* harness.wait("2 minutes", "1 minute")
+        assert.isFalse(yield* harness.admitted(slackThread, "U-Ada"))
+      }),
+    ),
+  )
+
+  it.effect("the transcript shows each turn's own history", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* send(harness, slackThread, "First question.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(run("ls"), say("First answer."))
+        yield* turnEnded(harness, slackThread)
+        yield* send(harness, slackThread, "Second question.", { mention: true })
+        yield* modelCalls(harness, 3)
+        harness.model.answer(say("Second answer."))
+        yield* harness.until(
+          Effect.map(
+            harness.transcript(slackThread),
+            (transcript) =>
+              available(transcript).turns.every((turn) => turn.status !== "running") &&
+              available(transcript).turns.length === 2,
+          ),
+          "the second turn to end",
+        )
+
+        const [first, second] = available(yield* harness.transcript(slackThread)).turns.map(
+          (turn) => seen(Prompt.fromMessages(turn.messages)),
+        )
+        assert.include(first, "First question.")
+        assert.include(first, "ls")
+        assert.include(first, "First answer.")
+        assert.notInclude(first, "Second")
+        assert.include(second, "Second question.")
+        assert.include(second, "Second answer.")
+        assert.notInclude(second, "First")
+      }),
+    ),
+  )
+
+  it.effect("cancel stops the running turn and keeps the session", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* longTurn(harness, slackThread, "Run the whole test suite.")
+        yield* harness.cancel(slackThread)
+        yield* harness.until(
+          Effect.sync(
+            () => harness.platform.statusTexts(slackThread)[0]?.includes("Stopped") ?? false,
+          ),
+          "the status to say Stopped",
+        )
+        assert.deepStrictEqual(harness.sandboxes.releases, [sessionKey(slackThread)])
+        assert.deepStrictEqual(
+          turns(yield* harness.transcript(slackThread)).map((turn) => turn.status),
+          ["stopped"],
+        )
+
+        harness.sandboxes.hang = false
+        yield* send(harness, slackThread, "Try just the chat tests.", { mention: true })
+        yield* modelCalls(harness, 2)
+      }),
+    ),
+  )
+
+  for (const racing of [false, true]) {
+    it.effect(
+      racing
+        ? "racing deliveries of one message are stored and acted on once"
+        : "a message delivered twice in a row is stored and acted on once",
+      () =>
+        test((harness) =>
+          Effect.gen(function* () {
+            const asked = yield* harness.message("Close stale issues.", { mention: true })
+            if (racing) {
+              yield* harness.deliverTwiceAtOnce(slackThread, asked)
+            } else {
+              yield* harness.deliver(slackThread, asked)
+              yield* modelCalls(harness, 1)
+              yield* harness.deliver(slackThread, asked)
+            }
+            yield* modelCalls(harness, 1)
+            harness.model.answer(say("Closed 3."))
+            yield* turnEnded(harness, slackThread)
+            yield* harness.wait("10 seconds")
+
+            assert.strictEqual(harness.model.prompts.length, 1)
+            assert.strictEqual(harness.platform.replies.length, 1)
+            const transcript = yield* harness.transcript(slackThread)
+            assert.deepStrictEqual(stored(transcript), [[asked.id, { _tag: "Mention" }]])
+            assert.strictEqual(available(transcript).turns.length, 1)
+          }),
+        ),
+    )
+  }
+})
+
+describe("landedInputs", () => {
+  const user = (text: string) =>
+    Prompt.makeMessage("user", { content: [Prompt.makePart("text", { text })] })
+  const older = { text: "Ada: yes", ids: ["1"] }
+  const newer = { text: "Ada: yes", ids: ["2"] }
+
+  it("lands each appended message on one input, the oldest with its text", () => {
+    assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes")]), [older])
+  })
+})
+
+describe("readLimited", () => {
+  it.effect("reads a body up to the limit, and stops at the chunk that crosses it", () =>
+    Effect.gen(function* () {
+      const exact = yield* readLimited(
+        Stream.make(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6])),
+        6,
+      )
+      assert.deepStrictEqual([...exact], [1, 2, 3, 4, 5, 6])
+
+      let pulled = 0
+      let finalized = false
+      const body = Stream.range(1, 4).pipe(
+        Stream.rechunk(1),
+        Stream.mapEffect(() =>
+          Effect.sync(() => {
+            pulled += 1
+            return new Uint8Array(3)
+          }),
+        ),
+        Stream.ensuring(
+          Effect.sync(() => {
+            finalized = true
+          }),
+        ),
+      )
+      const error = yield* Effect.flip(readLimited(body, 6))
+      assert.instanceOf(error, ChatPlatformError)
+      assert.strictEqual(pulled, 3)
+      assert.isTrue(finalized)
+    }),
+  )
+})

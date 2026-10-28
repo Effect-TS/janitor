@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { LoopRecord } from "@janitor/domain/PullRequestReview/Finding"
 import type { RunId, Trigger } from "@janitor/domain/PullRequestReview/Run"
+import type { HistoryChange, LoopHandle } from "../AgentLoop.ts"
 import type { PullRequestGitHub } from "./GitHub.ts"
 
 /**
@@ -20,15 +21,6 @@ import type { PullRequestGitHub } from "./GitHub.ts"
 
 /** What a loop-side tool decided in a step; in the domain, as transcripts show it too. */
 export { LoopRecord }
-
-/**
- * How a step changed the loop's history: messages added to the end, or the
- * whole history replaced, as compaction does. Either may include the system
- * message, which the run entity never stores.
- */
-export type HistoryChange =
-  | { readonly _tag: "Appended"; readonly messages: ReadonlyArray<Prompt.Message> }
-  | { readonly _tag: "Replaced"; readonly messages: ReadonlyArray<Prompt.Message> }
 
 /** One step of the loop, committed in one transaction. */
 export interface AgentStep {
@@ -63,19 +55,13 @@ export const LoopOutcome = Schema.Struct({
 export type LoopOutcome = typeof LoopOutcome.Type
 
 /** A running loop. */
-export interface ReviewSession {
+export interface ReviewSession extends LoopHandle<LoopEnd> {
   /**
    * The review standards sources the loop's instructions were built from
    * (EFF-1647), such as the fixed protocol, the default rubric, `AGENTS.md`
    * and invoker guidance. The run record lists them.
    */
   readonly standardsSources: ReadonlyArray<string>
-  /** Sends the agent a message between its steps, such as the wrap-up message. */
-  readonly steer: (message: string) => Effect.Effect<void>
-  /** Stops the loop; `result` then ends as `Interrupted`. */
-  readonly interrupt: Effect.Effect<void>
-  /** Waits for the loop to end. */
-  readonly result: Effect.Effect<LoopEnd>
 }
 
 export interface StartOptions {

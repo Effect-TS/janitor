@@ -47,11 +47,12 @@ catalog:
   "@types/node": ^24.13.3
   alchemy: 2.0.0-beta.80
   "@distilled.cloud/cloudflare": 1.0.0-rc.13
-  clanka: 0.10.1
+  clanka: 0.13.2
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
   happy-dom: ^20.0.0
   foldkit: ^0.165.0
+  graphql: 17.0.2
   lucide: ^1.33.0
   tailwind-merge: ^3.6.0
   tailwindcss: ^4.3.3
@@ -113,7 +114,7 @@ minimumReleaseAgeExclude:
   - "@foldkit/*"
   - alchemy
   - foldkit
-  - clanka@0.10.1
+  - clanka@0.13.2
 
 patchedDependencies:
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
