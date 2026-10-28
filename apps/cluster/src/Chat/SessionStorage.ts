@@ -6,7 +6,9 @@ import * as Schema from "effect/Schema"
 import type * as SqlClient from "effect/sql/SqlClient"
 import { decodeMessage, encodeMessage } from "../AgentHistory.ts"
 import type { HistoryChange } from "../AgentLoop.ts"
-import { ChatMessage, ChatThread } from "./Platform.ts"
+import { ChatMessage, ChatThread, GateOutcome, TranscriptTurn } from "@janitor/domain/Chat/Session"
+
+export { GateOutcome, TranscriptTurn, TurnStatus, TurnUsage } from "@janitor/domain/Chat/Session"
 
 /**
  * A chat session's own storage, in its entity's Durable Object SQLite
@@ -14,58 +16,6 @@ import { ChatMessage, ChatThread } from "./Platform.ts"
  * message id) with their gate outcomes, its turns with their usage, and the
  * agent's history across turns. Every transaction is short and only runs SQL.
  */
-
-/** What the reply gate made of a message, for the transcript. */
-export const GateOutcome = Schema.TaggedUnion({
-  /** It mentions the bot, so it skipped the gate. */
-  Mention: {},
-  /** Only "stop": it cancelled the running turn before any model saw it. */
-  Stop: {},
-  Passed: { probability: Schema.Finite },
-  Rejected: { probability: Schema.Finite },
-  /** The gate call failed, so it started nothing. */
-  Failed: {},
-  /** From an outsider or a bot, or backfilled: never gated, context only. */
-  Context: {},
-  /** Arrived while the kill switch was on: kept as context. */
-  SwitchedOff: {},
-})
-export type GateOutcome = typeof GateOutcome.Type
-
-/** A turn's final cumulative clanka `Usage`, sub-agents included. */
-export const TurnUsage = Schema.Struct({
-  inputTokens: Schema.Int,
-  outputTokens: Schema.Int,
-  cacheRead: Schema.Int,
-  cacheWrite: Schema.Int,
-})
-export type TurnUsage = typeof TurnUsage.Type
-
-export const TurnStatus = Schema.Literals([
-  "running",
-  /** Ended with a final reply. */
-  "replied",
-  /** "stop", the kill switch or a delete. */
-  "stopped",
-  "deadline",
-  "failed",
-])
-export type TurnStatus = typeof TurnStatus.Type
-
-export const TranscriptTurn = Schema.Struct({
-  turnId: Schema.String,
-  status: TurnStatus,
-  /** Why a failed turn failed: a provider error's category, `resume_limit`, `busy` and the like. */
-  errorCategory: Schema.NullOr(Schema.String),
-  resumes: Schema.Int,
-  wrappedUp: Schema.Boolean,
-  model: Schema.NullOr(Schema.String),
-  /** How many scripts the turn started, across its resumes. */
-  actions: Schema.Int,
-  /** Null until the model reports any. */
-  usage: Schema.NullOr(TurnUsage),
-})
-export type TranscriptTurn = typeof TranscriptTurn.Type
 
 export const TurnState = Schema.Struct({
   ...TranscriptTurn.fields,

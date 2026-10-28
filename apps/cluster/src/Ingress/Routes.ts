@@ -13,6 +13,7 @@ import {
   RateLimitMiddlewareLayer,
 } from "./Middleware.ts"
 import { AccountGroupLayer } from "./Account.ts"
+import { ChatGroupLayer } from "./Chat.ts"
 import { LabelingGroupLayer } from "./Labeling.ts"
 import { ConnectionsGroupLayer } from "./Connections.ts"
 import { SyncGroupLayer } from "./Sync.ts"
@@ -45,6 +46,7 @@ const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
         RulesGroupLayer,
         TestBenchGroupLayer,
         LabelingGroupLayer,
+        ChatGroupLayer,
       ),
     ),
     Layer.provide(makeApiMiddlewareLayer(middleware)),

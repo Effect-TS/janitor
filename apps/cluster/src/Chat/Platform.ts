@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+import type { ChatAttachment, ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 
 /**
  * The platform-neutral side of a chat thread (EFF-3018). The session entity
@@ -11,54 +12,13 @@ import * as Stream from "effect/Stream"
  * ingress for the chat bot" (EFF-3020) implement it.
  */
 
-/** One Slack thread or one Discord thread: what a chat session is for. */
-export const ChatThread = Schema.TaggedUnion({
-  Slack: { team: Schema.String, channel: Schema.String, threadTs: Schema.String },
-  Discord: { guild: Schema.String, threadId: Schema.String },
-})
-export type ChatThread = typeof ChatThread.Type
+export { AuthorClass, ChatAttachment, ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 
 /** The session key, and the session entity's id: `slack/{team}/{channel}/{thread_ts}` or `discord/{guild}/{thread_id}`. */
 export const sessionKey = (thread: ChatThread): string =>
   thread._tag === "Slack"
     ? `slack/${thread.team}/${thread.channel}/${thread.threadTs}`
     : `discord/${thread.guild}/${thread.threadId}`
-
-/**
- * Who wrote a message, as ingress classified it: an admitted user, an
- * outsider (no role, a guest, a Slack Connect user) or any bot account,
- * janitor's included. Only admitted messages start or steer a turn.
- */
-export const AuthorClass = Schema.Literals(["admitted", "outsider", "bot"])
-export type AuthorClass = typeof AuthorClass.Type
-
-/** A file attached to a thread message; `download` fetches its bytes. */
-export const ChatAttachment = Schema.Struct({
-  /** The platform's file id: the Slack file id or the Discord attachment id. */
-  id: Schema.String,
-  name: Schema.String,
-  mediaType: Schema.String,
-  /** In bytes, as the platform reports it. */
-  size: Schema.Int,
-})
-export type ChatAttachment = typeof ChatAttachment.Type
-
-/** A thread message, as ingress hands it to the session. */
-export const ChatMessage = Schema.Struct({
-  /** The platform's message id: the Slack `ts` or the Discord snowflake. Sessions dedupe on it. */
-  id: Schema.String,
-  author: Schema.Struct({
-    id: Schema.String,
-    name: Schema.String,
-    class: AuthorClass,
-  }),
-  /** The message text, with mentions of the bot removed. */
-  text: Schema.String,
-  mentionsBot: Schema.Boolean,
-  sentAt: Schema.DateTimeUtc,
-  attachments: Schema.Array(ChatAttachment),
-})
-export type ChatMessage = typeof ChatMessage.Type
 
 export class ChatPlatformError extends Schema.TaggedError<ChatPlatformError>()(
   "ChatPlatformError",

@@ -8,6 +8,7 @@ import * as ClusterSchema from "effect/cluster/ClusterSchema"
 import * as DeliverAt from "effect/cluster/DeliverAt"
 import * as Entity from "effect/cluster/Entity"
 import type * as Sharding from "effect/cluster/Sharding"
+import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -28,6 +29,7 @@ import {
   threadMessages,
   wrapUpMessage,
 } from "@janitor/domain/Chat/Prompt"
+import type { SessionTranscriptTurn, TranscriptMessage } from "@janitor/domain/Chat/Session"
 import type { HistoryChange } from "../AgentLoop.ts"
 import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agent.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
@@ -134,6 +136,25 @@ export type TranscriptResult = typeof TranscriptResult.Type
 
 /** Reads the session's transcript as committed so far. */
 export const Transcript = Rpc.make("Transcript", { success: TranscriptResult })
+
+/**
+ * What the web app's API asks of the session entities (EFF-3021). The
+ * cluster's client implements it in "Chat sessions in the web app".
+ */
+export class ChatSessionControl extends Context.Service<
+  ChatSessionControl,
+  {
+    /** The session's transcript as committed so far; none once its storage is gone. */
+    readonly transcript: (sessionId: string) => Effect.Effect<
+      Option.Option<{
+        readonly messages: ReadonlyArray<TranscriptMessage>
+        readonly turns: ReadonlyArray<SessionTranscriptTurn>
+      }>
+    >
+    /** Sends the session `Delete`: it cancels the turn, releases the sandbox and deletes the history. */
+    readonly delete: (sessionId: string) => Effect.Effect<void>
+  }
+>()("@janitor/cluster/Chat/Session/ChatSessionControl") {}
 
 export const ChatSession = Entity.fromRpcGroup(
   "ChatSession",
