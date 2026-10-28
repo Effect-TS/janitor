@@ -2,6 +2,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 
 /**
  * The platform-neutral side of a chat thread (EFF-3018). The session entity
@@ -63,6 +64,38 @@ export class ChatPlatformError extends Schema.TaggedError<ChatPlatformError>()(
   "ChatPlatformError",
   { message: Schema.String },
 ) {}
+
+/**
+ * Reads a download's body for a transport's `download`, failing as soon
+ * as more than `maxBytes` arrive, without reading or buffering the rest.
+ * Pass it `HttpClientResponse.stream`.
+ */
+export const readLimited = <E>(
+  body: Stream.Stream<Uint8Array, E>,
+  maxBytes: number,
+): Effect.Effect<Uint8Array, ChatPlatformError> =>
+  Effect.suspend(() => {
+    let size = 0
+    return body.pipe(
+      Stream.mapError((error) => new ChatPlatformError({ message: String(error) })),
+      Stream.mapEffect((chunk) => {
+        size += chunk.length
+        return size > maxBytes
+          ? Effect.fail(new ChatPlatformError({ message: `larger than ${maxBytes} bytes` }))
+          : Effect.succeed(chunk)
+      }),
+      Stream.runCollect,
+      Effect.map((chunks) => {
+        const content = new Uint8Array(size)
+        let offset = 0
+        for (const chunk of chunks) {
+          content.set(chunk, offset)
+          offset += chunk.length
+        }
+        return content
+      }),
+    )
+  })
 
 export class ChatPlatform extends Context.Service<
   ChatPlatform,

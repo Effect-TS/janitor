@@ -264,10 +264,31 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     Effect.flatMap(Effect.forEach(decodeRow)),
   )
 
-  /** Turns every message still waiting for a turn into context, as "stop" does. */
-  const clearWanted = sql`
-    UPDATE chat_messages SET wants_turn = 0
-    WHERE session_id = ${sessionId} AND delivered = 0`.pipe(Effect.asVoid)
+  /**
+   * Ends a turn as `move` says, in one transaction with turning messages
+   * waiting for a turn into context: the `settled` ones the turn was
+   * started for, and for a stopped turn every one. A restart then never
+   * finds an ended turn's messages still wanting work.
+   */
+  const endTurn = (
+    turnId: string,
+    move: (state: TurnState) => TurnState | undefined,
+    options: { readonly clearWanted: boolean; readonly settled: ReadonlyArray<string> },
+  ) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        const saved = yield* updateTurn(turnId, move)
+        if (options.clearWanted)
+          yield* sql`
+            UPDATE chat_messages SET wants_turn = 0
+            WHERE session_id = ${sessionId} AND delivered = 0`
+        for (const id of options.settled)
+          yield* sql`
+            UPDATE chat_messages SET wants_turn = 0
+            WHERE session_id = ${sessionId} AND message_id = ${id}`
+        return saved
+      }),
+    )
 
   const hasWanted = sql`
     SELECT 1 FROM chat_messages
@@ -445,7 +466,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     ungated,
     recent,
     undelivered,
-    clearWanted,
+    endTurn,
     hasWanted,
     saveTurn,
     turns,

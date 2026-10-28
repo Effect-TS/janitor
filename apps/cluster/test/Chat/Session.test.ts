@@ -671,7 +671,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect.fails(
+  it.effect(
     "attachments with the same name in one turn are all kept, and a steered image is pointed out",
     () =>
       test((harness) =>
@@ -722,7 +722,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect.fails("a stalled attachment download doesn't keep the turn past minute 20", () =>
+  it.effect("a stalled attachment download doesn't keep the turn past minute 20", () =>
     test((harness) =>
       Effect.gen(function* () {
         const startedAt = yield* Clock.currentTimeMillis
@@ -747,7 +747,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect.fails('a stalled download in a steered message doesn\'t hold up "stop"', () =>
+  it.effect('a stalled download in a steered message doesn\'t hold up "stop"', () =>
     test((harness) =>
       Effect.gen(function* () {
         yield* longTurn(harness, slackThread, "Fix the flaky test.")
@@ -902,7 +902,7 @@ describe("landedInputs", () => {
   const older = { text: "Ada: yes", ids: ["1"] }
   const newer = { text: "Ada: yes", ids: ["2"] }
 
-  it.fails("lands each appended message on one input, the oldest with its text", () => {
+  it("lands each appended message on one input, the oldest with its text", () => {
     assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes")]), [older])
     assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes"), user("Ada: yes")]), [
       older,

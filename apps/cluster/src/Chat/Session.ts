@@ -38,7 +38,7 @@ import {
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
-import { ChatMessage, ChatPlatform, ChatThread } from "./Platform.ts"
+import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
 import {
   GateOutcome,
@@ -207,12 +207,23 @@ export interface InFlight {
 
 /**
  * The in-flight texts that `appended` user messages land: each message
- * lands at most one, the oldest with its text. Not implemented yet (EFF-3018).
+ * lands at most one, the oldest with its text. Two steers with the same
+ * text need two messages before both count as delivered.
  */
 export const landedInputs = (
-  _inFlight: ReadonlyArray<InFlight>,
-  _appended: ReadonlyArray<Prompt.Message>,
-): ReadonlyArray<InFlight> => []
+  inFlight: ReadonlyArray<InFlight>,
+  appended: ReadonlyArray<Prompt.Message>,
+): ReadonlyArray<InFlight> => {
+  const landed: Array<InFlight> = []
+  for (const message of appended) {
+    const text = userText(message)
+    const sent = inFlight.find(
+      (candidate) => candidate.text === text && !landed.includes(candidate),
+    )
+    if (sent !== undefined) landed.push(sent)
+  }
+  return landed
+}
 
 /** The turn this entity is running. */
 interface Running {
@@ -223,6 +234,16 @@ interface Running {
   loop: ChatLoop | undefined
   /** The sandbox the loop runs in, for the attachments of steered messages. */
   sandbox: ChatSandbox | undefined
+  /** The loop's scope: a steer prepares its attachments in it, so a stop interrupts that too. */
+  scope: Scope.Scope | undefined
+  /** Messages whose steer is being prepared, so no other steer takes them. */
+  readonly preparing: Set<string>
+  /**
+   * The messages waiting for a turn when this one started. However the turn
+   * ends, they stop waiting: a deadline or a busy pool doesn't start the
+   * same work again. Messages that arrive later and miss it still do.
+   */
+  readonly claimed: ReadonlyArray<string>
   /** Set once the loop replied: a message now waits for the next turn. */
   ending: boolean
   /** Set by a stop, so the turn's own end leaves finishing it to the stop. */
@@ -319,15 +340,20 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         if (current !== running) return
         current = undefined
         const now = yield* Clock.currentTimeMillis
-        const saved = yield* storage.updateTurn(running.turnId, (turn) =>
-          turn.status === "running"
-            ? {
-                ...turn,
-                status: end.status,
-                errorCategory: end.errorCategory ?? null,
-                finishedAt: now,
-              }
-            : undefined,
+        // A stopped turn's waiting messages stay as context, in the same
+        // transaction, so a restart never starts work someone stopped.
+        const saved = yield* storage.endTurn(
+          running.turnId,
+          (turn) =>
+            turn.status === "running"
+              ? {
+                  ...turn,
+                  status: end.status,
+                  errorCategory: end.errorCategory ?? null,
+                  finishedAt: now,
+                }
+              : undefined,
+          { clearWanted: end.status === "stopped", settled: running.claimed },
         )
         if (Option.isSome(saved)) {
           const turn = saved.value
@@ -341,8 +367,6 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             }),
           )
         }
-        // A stopped turn's waiting messages stay as context.
-        if (end.status === "stopped") yield* storage.clearWanted
         if ((yield* storage.hasWanted) && !switchedOff(yield* killSwitch.get, running.thread))
           return yield* startTurn(running.thread)
         yield* keepAlive(false)
@@ -351,35 +375,56 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     /** Steers every message the model hasn't seen into the running loop, if one wants a turn. */
     const steerPending = (running: Running) =>
       Effect.gen(function* () {
-        if (running.loop === undefined || running.ending || running.stopping) return
-        const inFlight = new Set(running.inFlight.flatMap((sent) => sent.ids))
-        const pending = (yield* storage.undelivered).filter(
-          ({ message }) => !inFlight.has(message.id),
+        const { loop, sandbox, scope } = running
+        if (loop === undefined || sandbox === undefined || scope === undefined) return
+        if (running.ending || running.stopping) return
+        const taken = new Set([
+          ...running.inFlight.flatMap((sent) => sent.ids),
+          ...running.preparing,
+        ])
+        const pending = (yield* storage.undelivered).filter(({ message }) => !taken.has(message.id))
+        if (!pending.some((stored) => stored.wantsTurn)) return
+        const ids = pending.map(({ message }) => message.id)
+        for (const id of ids) running.preparing.add(id)
+        // Attachments can take a while, so they're fetched in the loop's scope
+        // rather than under the session's locks: a stop doesn't wait for them,
+        // and the deadline ends them with the loop.
+        yield* Effect.forkIn(
+          Effect.gen(function* () {
+            const { text } = yield* prepare(running, sandbox, pending, { steered: true })
+            running.inFlight.push({ text, ids })
+            yield* loop.steer(text)
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                for (const id of ids) running.preparing.delete(id)
+              }),
+            ),
+          ),
+          scope,
         )
-        if (!pending.some((stored) => stored.wantsTurn) || running.sandbox === undefined) return
-        // A steer is text only: its images are in the turn's folder, not image input.
-        const { text } = yield* prepare(running, running.sandbox, pending)
-        running.inFlight.push({ text, ids: pending.map(({ message }) => message.id) })
-        yield* running.loop.steer(text)
       })
 
     /**
      * Thread messages as the model sees them, each prefixed with its author.
      * Admitted users' attachments are written into the turn's folder first,
-     * up to 20 MB each, and each message says where its files are; images
-     * also come back for image input.
+     * one folder per message, up to 20 MB each, and each message says where
+     * its files are. Images come back for image input; a steer is text only,
+     * so a steered image's note says to open it with `readFile`, which shows
+     * it to the model.
      */
     const prepare = (
       running: Running,
       sandbox: ChatSandbox,
       pending: ReadonlyArray<StoredMessage>,
+      options: { readonly steered: boolean } = { steered: false },
     ) =>
       Effect.gen(function* () {
-        const folder = `${ATTACHMENTS_DIRECTORY}/${running.turnId}`
-        const used = new Set<string>()
         const images: Array<ChatImage> = []
         const messages = []
         for (const { message } of pending) {
+          const folder = `${ATTACHMENTS_DIRECTORY}/${running.turnId}/${safeName(message.id)}`
+          const used = new Set<string>()
           const notes: Array<string> = []
           if (message.author.class === "admitted")
             for (const attachment of message.attachments) {
@@ -395,6 +440,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               const saved = yield* platform
                 .download(running.thread, attachment, MAX_ATTACHMENT_BYTES)
                 .pipe(
+                  // Whatever size the platform reported.
+                  Effect.filterOrFail(
+                    (content) => content.length <= MAX_ATTACHMENT_BYTES,
+                    () => new ChatPlatformError({ message: "over the attachment limit" }),
+                  ),
                   Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
                   Effect.result,
                 )
@@ -405,9 +455,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 notes.push(`[${attachment.name}: couldn't be fetched]`)
                 continue
               }
-              notes.push(`[attached: ${path}]`)
-              if (attachment.mediaType.startsWith("image/"))
-                images.push({ name, mediaType: attachment.mediaType, data: saved.success })
+              const image = attachment.mediaType.startsWith("image/")
+              notes.push(
+                image && options.steered
+                  ? `[attached: ${path}, an image: open it with readFile to see it]`
+                  : `[attached: ${path}]`,
+              )
+              if (image) images.push({ name, mediaType: attachment.mediaType, data: saved.success })
             }
           messages.push({
             author: message.author.name,
@@ -450,6 +504,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           fiber: undefined,
           loop: undefined,
           sandbox: undefined,
+          scope: undefined,
+          preparing: new Set(),
+          claimed: (yield* storage.undelivered)
+            .filter((stored) => stored.wantsTurn)
+            .map(({ message }) => message.id),
           ending: false,
           stopping: false,
           inFlight: [],
@@ -492,15 +551,9 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
      */
     const commitStep = (running: Running, change: HistoryChange) =>
       Effect.gen(function* () {
-        const landed: Array<InFlight> = []
-        if (change._tag === "Appended")
-          for (const message of change.messages) {
-            const text = userText(message)
-            const sent = running.inFlight.find(
-              (candidate) => candidate.text === text && !landed.includes(candidate),
-            )
-            if (sent !== undefined) landed.push(sent)
-          }
+        // A compaction's replacement re-sends old messages; only appends land anything.
+        const landed =
+          change._tag === "Appended" ? landedInputs(running.inFlight, change.messages) : []
         yield* storage.commitStep(
           running.turnId,
           change,
@@ -581,7 +634,20 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         const history = yield* storage.history(resumed)
         const pending = yield* storage.undelivered
         running.sandbox = acquired.success
-        const prepared = yield* prepare(running, acquired.success, pending)
+        running.scope = yield* Scope.Scope
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            running.loop = undefined
+            running.sandbox = undefined
+            running.scope = undefined
+          }),
+        )
+        // Fetching attachments counts against the turn's deadline.
+        const preparing = yield* prepare(running, acquired.success, pending).pipe(
+          Effect.timeoutOption(Duration.millis(deadline - now)),
+        )
+        if (Option.isNone(preparing)) return { status: "deadline" } satisfies TurnEnd
+        const prepared = preparing.value
         const prompt = [
           ...(resumed ? [resumeMessage] : []),
           ...(pending.length === 0 ? [] : [prepared.text]),
@@ -619,12 +685,6 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           Effect.suspend(() => {
             running.loop = loop
             return steerPending(running)
-          }),
-        )
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            running.loop = undefined
-            running.sandbox = undefined
           }),
         )
 
@@ -853,7 +913,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           yield* Semaphore.withPermits(
             transitions,
             1,
-          )(resumeTurn(running.turnId, thread)).pipe(withLogs)
+          )(resumeTurn(running.turnId, thread)).pipe(withLogs, Effect.orDie)
         yield* Effect.forkIn(
           Semaphore.withPermits(
             inbox,
