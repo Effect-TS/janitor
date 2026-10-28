@@ -28,54 +28,19 @@ import { applyProvision } from "./Provision.ts"
 // The container runs on Node; cluster code is typed without Node globals.
 declare const process: { readonly env: Record<string, string | undefined> }
 
-/** Where pnpm keeps its store, and clanka looks for user skills. */
+/**
+ * Keeps pnpm's store on the same filesystem as /workspace for hardlinks,
+ * and holds clanka's user skills.
+ */
 const HOME = "/root"
 
 const GH_VERSION = "2.103.3"
 const BUN_VERSION = "1.4.4"
 const DENO_VERSION = "2.9.6"
 
-/** The repositories whose default-branch lockfiles seed the image's pnpm store. */
-const PREFETCHED: ReadonlyArray<{ readonly repo: string; readonly branch: string }> = [
-  { repo: "Effect-TS/effect", branch: "main" },
-  { repo: "Effect-TS/website", branch: "main" },
-]
-
-/**
- * Seeds the pnpm store from each repository's lockfile, with the pnpm its
- * `packageManager` pins (through corepack), so an install in a fresh clone
- * links from the store instead of downloading. The store stays in `$HOME`,
- * on the image's root filesystem with `/workspace`, so pnpm can hardlink from
- * it.
- *
- * Each lockfile is added first, straight from the default branch: the build
- * fetches it every deploy, and the step after it reruns only when one
- * changed. That step clones just what `pnpm fetch` reads (the manifest, the
- * lockfile, the workspace file and the patches it names), fetches without
- * running any package's scripts, and drops the clones.
- */
-const prefetchSteps = () => {
-  const name = (repo: string) => repo.replace("/", "-")
-  const lockfiles = PREFETCHED.map(
-    ({ repo, branch }) =>
-      `ADD https://raw.githubusercontent.com/${repo}/${branch}/pnpm-lock.yaml /opt/prefetch/${name(repo)}.yaml`,
-  )
-  const fetches = PREFETCHED.map(({ repo, branch }) => {
-    const dir = `/tmp/prefetch/${name(repo)}`
-    return [
-      `git clone --quiet --depth 1 --filter=blob:none --no-checkout --branch ${branch} https://github.com/${repo}.git ${dir}`,
-      `git -C ${dir} sparse-checkout set --no-cone /package.json /pnpm-lock.yaml /pnpm-workspace.yaml /.npmrc /patches/`,
-      `git -C ${dir} checkout --quiet`,
-      `(cd ${dir} && pnpm fetch --ignore-scripts --reporter=append-only > /dev/null)`,
-    ].join(" && ")
-  })
-  return [...lockfiles, `RUN ${[...fetches, "rm -rf /tmp/prefetch"].join(" && ")}`].join("\n")
-}
-
 /**
  * PR review's image, plus `gh`, the pinned `multica` CLI (its checksum
- * verified), bun, deno and the prefetched pnpm store. No nix: the model
- * installs anything else it needs.
+ * verified), bun and deno. No nix: the model installs anything else it needs.
  */
 const chatImage = (commandTimeout: Duration.Duration) => `
 ${REVIEW_IMAGE}
@@ -83,7 +48,6 @@ ENV HOME=${HOME}
 RUN curl -fsSL https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz | tar -xz -C /tmp && mv /tmp/gh_${GH_VERSION}_linux_amd64/bin/gh /usr/local/bin/gh && rm -rf /tmp/gh_${GH_VERSION}_linux_amd64
 RUN curl -fsSLo /tmp/multica.tar.gz https://github.com/multica-ai/multica/releases/download/v${MULTICA_CLI_VERSION}/multica-cli-${MULTICA_CLI_VERSION}-linux-amd64.tar.gz && echo "${MULTICA_CLI_SHA256}  /tmp/multica.tar.gz" | sha256sum -c - && tar -xzf /tmp/multica.tar.gz -C /usr/local/bin multica && rm /tmp/multica.tar.gz
 RUN npm install -g --no-audit --no-fund bun@${BUN_VERSION} deno@${DENO_VERSION}
-${prefetchSteps()}
 ENV CHAT_COMMAND_TIMEOUT_SECONDS=${String(Duration.toSeconds(commandTimeout))}
 `
 
