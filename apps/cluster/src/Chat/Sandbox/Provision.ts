@@ -19,6 +19,9 @@ import { MULTICA_SKILL_FILES, MULTICA_SKILL_NAME } from "./MulticaSkill.ts"
 /** Where the sandbox's `multica` CLI sends its requests. */
 export const MULTICA_SERVER_URL = "https://api.multica.ai"
 
+const GIT_NAME = "Effect Bot"
+const GIT_EMAIL = "tech-ops@effectful.co"
+
 /** The variables that put the `multica` CLI into daemon-task mode. Never set in a sandbox. */
 export const DAEMON_TASK_VARIABLES: ReadonlyArray<string> = [
   "MULTICA_DAEMON_PORT",
@@ -70,6 +73,10 @@ export type ProvisionRequest = typeof ProvisionRequest.Type
  * `Authorization` header they send.
  */
 export const sandboxEnvironment = (multicaWorkspaceId: string): Record<string, string> => ({
+  GIT_AUTHOR_NAME: GIT_NAME,
+  GIT_AUTHOR_EMAIL: GIT_EMAIL,
+  GIT_COMMITTER_NAME: GIT_NAME,
+  GIT_COMMITTER_EMAIL: GIT_EMAIL,
   GH_TOKEN: "placeholder",
   MULTICA_TOKEN: "mul_placeholder",
   MULTICA_SERVER_URL,
