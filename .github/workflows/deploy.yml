@@ -51,7 +51,7 @@ jobs:
       - uses: voidzero-dev/setup-vp@27ddd5a8e32d89312fdd2c227d7d1613ca5465b0 # v1.16.1
         with:
           version: "0.3.0"
-          node-version: "24.19.0"
+          node-version: "24.22.1"
           run-install: false
           cache: true
       - run: vp install --frozen-lockfile
