@@ -342,6 +342,8 @@ export class FakePlatform {
   historyReads = 0
   /** While set, reading the thread's history never finishes. */
   holdHistory = false
+  /** While set, reading the thread's history fails. */
+  failHistory = false
   /** Each attachment's bytes, by attachment id. */
   readonly files = new Map<string, Uint8Array>()
   /** The ids of the attachments downloaded, in order. */
@@ -406,7 +408,10 @@ export class FakePlatform {
       history: () =>
         Effect.suspend(() => {
           this.historyReads += 1
-          return this.holdHistory ? Effect.never : Effect.succeed(this.threadHistory)
+          if (this.holdHistory) return Effect.never
+          return this.failHistory
+            ? Effect.fail(new ChatPlatformError({ message: "ratelimited" }))
+            : Effect.succeed(this.threadHistory)
         }),
     })
   }

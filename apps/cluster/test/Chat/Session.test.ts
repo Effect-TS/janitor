@@ -344,6 +344,26 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
+  it.effect("a failed backfill is tried again with the next message", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const earlier = yield* harness.message("The README changed yesterday.", {
+          author: "Grace",
+        })
+        harness.platform.threadHistory = [earlier]
+        harness.platform.failHistory = true
+        const asked = yield* send(harness, slackThread, "What changed?", { author: "Grace" })
+        harness.platform.failHistory = false
+        const again = yield* send(harness, slackThread, "Anyone?", { author: "Grace" })
+        const transcript = available(yield* harness.transcript(slackThread))
+        assert.deepStrictEqual(
+          transcript.messages.map((message) => message.id),
+          [asked.id, earlier.id, again.id],
+        )
+      }),
+    ),
+  )
+
   it.effect(
     "a lost sandbox or a restart resumes the turn in a new sandbox, three times at most",
     () =>

@@ -33,11 +33,16 @@ const replies = Array.from({ length: 61 }, (_, index) => ({
   text: `reply ${index}`,
 }))
 
-/** Answers the other methods: `auth.test`, `users.info` and `conversations.replies`. */
+/** Answers the other methods. Channel `C-shared` is a Slack Connect channel. */
 const answer = (method: string, params: URLSearchParams): Response => {
   switch (method) {
     case "auth.test":
       return Response.json({ ok: true, user_id: "UBOT" })
+    case "conversations.info":
+      return Response.json({
+        ok: true,
+        channel: { is_ext_shared: params.get("channel") === "C-shared" },
+      })
     case "users.info":
       return Response.json({ ok: true, user: { team_id: "T1", name: "ada" } })
     case "conversations.replies": {
@@ -121,6 +126,17 @@ describe("Slack platform", () => {
         messages.map((message) => message.text),
         ["reply 58", "reply 59", "reply 60"],
       )
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("posts nothing to a channel shared with another organization", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posts = 0
+      const shared: ChatThread = { ...thread, channel: "C-shared" }
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(platform.postReply(shared, "hello"))))
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(platform.postStatus(shared, "Starting"))))
+      assert.strictEqual(posts, 0)
     }).pipe(Effect.provide(services)),
   )
 })

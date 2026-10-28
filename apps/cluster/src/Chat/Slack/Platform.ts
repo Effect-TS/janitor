@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -8,6 +9,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
 import {
   decode,
+  isExtShared,
   lookUpAuthor,
   MESSAGE_SUBTYPES,
   mentionsBot,
@@ -106,12 +108,45 @@ const slackThread = (
  */
 const PAGE_SIZE = 200
 
+/** How long a channel's Slack Connect check holds before the next write checks again. */
+const SHARED_CHECK_TTL = Duration.minutes(1)
+
 const make = Effect.gen(function* () {
   const api = yield* SlackApi
   const config = yield* SlackConfig
 
+  // Channels checked recently: whether each is shared, and when it was checked.
+  const sharedChecks = new Map<string, { readonly shared: boolean; readonly at: number }>()
+
+  /**
+   * The thread, for a write. A channel shared with another organization after
+   * its session started gets nothing more from a running turn: each write
+   * checks it, at most once a minute per channel. A failed check fails the
+   * write.
+   */
+  const writable = (thread: ChatThread) =>
+    Effect.gen(function* () {
+      const slack = yield* slackThread(thread)
+      const now = yield* Clock.currentTimeMillis
+      const checked = sharedChecks.get(slack.channel)
+      const shared =
+        checked !== undefined && now - checked.at < Duration.toMillis(SHARED_CHECK_TTL)
+          ? checked.shared
+          : yield* isExtShared(api, slack.channel).pipe(
+              Effect.tap((shared) =>
+                Effect.sync(() => sharedChecks.set(slack.channel, { shared, at: now })),
+              ),
+              Effect.mapError(platformError),
+            )
+      if (shared)
+        return yield* new ChatPlatformError({
+          message: "The channel is shared with another organization",
+        })
+      return slack
+    })
+
   const post = (thread: ChatThread, fields: Record<string, unknown>) =>
-    slackThread(thread).pipe(
+    writable(thread).pipe(
       Effect.flatMap(({ channel, threadTs }) =>
         api.call(
           "chat.postMessage",
@@ -129,7 +164,7 @@ const make = Effect.gen(function* () {
     file: { readonly name: string; readonly content: string },
   ) =>
     Effect.gen(function* () {
-      const { channel, threadTs } = yield* slackThread(thread)
+      const { channel, threadTs } = yield* writable(thread)
       const bytes = new TextEncoder().encode(file.content)
       const target = yield* api
         .call("files.getUploadURLExternal", { filename: file.name, length: bytes.length })
@@ -231,7 +266,7 @@ const make = Effect.gen(function* () {
   return ChatPlatform.of({
     postStatus: (thread, text) => post(thread, { text, metadata: metadata("status") }),
     editStatus: (thread, messageId, text) =>
-      slackThread(thread).pipe(
+      writable(thread).pipe(
         Effect.flatMap(({ channel }) =>
           api.call(
             "chat.update",

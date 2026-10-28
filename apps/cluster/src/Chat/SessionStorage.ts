@@ -94,6 +94,8 @@ export const SessionState = Schema.Struct({
   lastMessageAt: Schema.Finite,
   /** The thread was told the bot is switched off, since it last was on. */
   switchedOffNotified: Schema.Boolean,
+  /** Reading the thread's history failed; the next message tries again. */
+  backfillPending: Schema.optionalKey(Schema.Boolean),
 })
 export type SessionState = typeof SessionState.Type
 

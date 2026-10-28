@@ -14,7 +14,7 @@ import * as WebhookVerifier from "../../Ingress/WebhookVerifier.ts"
 import { type ChatMessage, type ChatThread, sessionKey } from "../Platform.ts"
 import { ChatSession } from "../Session.ts"
 import {
-  decode,
+  isExtShared,
   lookUpAuthor,
   MESSAGE_SUBTYPES,
   mentionsBot,
@@ -145,19 +145,6 @@ const Routes = Layer.unwrap(
           ),
         )
 
-    const isExtShared = (channel: string) =>
-      api.call("conversations.info", { channel }).pipe(
-        Effect.flatMap(
-          decode(
-            "conversations.info",
-            Schema.Struct({
-              channel: Schema.Struct({ is_ext_shared: Schema.optionalKey(Schema.Boolean) }),
-            }),
-          ),
-        ),
-        Effect.map((body) => body.channel.is_ext_shared === true),
-      )
-
     /** Filters the event, admits its author and hands the message to its session. */
     const handle = Effect.fnUntraced(function* (event: Event) {
       if (event.type !== "message" && event.type !== "app_mention") return
@@ -196,7 +183,7 @@ const Routes = Layer.unwrap(
       // An admitted message can start or steer a turn, whose replies a Slack
       // Connect channel shows outside the workspace. A channel can become
       // shared after its session started, so every one is checked.
-      if (author.class === "admitted" && (yield* isExtShared(event.channel))) {
+      if (author.class === "admitted" && (yield* isExtShared(api, event.channel))) {
         // Slack also delivers a mention as a message event; refuse once.
         if (event.type === "app_mention")
           yield* reply(event.channel, thread.threadTs, SLACK_CONNECT_REFUSAL)

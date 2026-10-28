@@ -900,7 +900,10 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         )(Effect.suspend(() => (current === undefined ? startTurn(thread) : steerPending(current))))
       })
 
-    /** Backfills a thread the bot just joined: its earlier messages, as context. */
+    /**
+     * Backfills a thread the bot just joined: its earlier messages, as
+     * context. Succeeds with whether the thread's history was read.
+     */
     const backfill = (thread: ChatThread, joinedWith: string) =>
       platform.history(thread, BACKFILL).pipe(
         Effect.flatMap((messages) =>
@@ -910,9 +913,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             { discard: true },
           ),
         ),
+        Effect.as(true),
         Effect.catchTag("ChatPlatformError", (error) =>
           Effect.logWarning("Couldn't backfill a chat thread").pipe(
             Effect.annotateLogs({ reason: error.message }),
+            Effect.as(false),
           ),
         ),
       )
@@ -977,13 +982,17 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             dropped = false
             const now = yield* Clock.currentTimeMillis
             const session = yield* storage.loadSession
-            const state: SessionState = Option.isSome(session)
+            let state: SessionState = Option.isSome(session)
               ? { ...session.value, lastMessageAt: now }
               : { thread, lastMessageAt: now, switchedOffNotified: false }
-            // The session row is saved only once the backfill is in: a
+            // The session row is saved only once the backfill is done: a
             // restart during it replays this message, which backfills again.
-            if (Option.isNone(session)) {
-              yield* backfill(thread, message.id)
+            // A failed backfill is retried with the next message.
+            if (Option.isNone(session) || state.backfillPending === true) {
+              const { backfillPending: _, ...rest } = state
+              state = (yield* backfill(thread, message.id))
+                ? rest
+                : { ...rest, backfillPending: true }
               yield* storage.saveSession(state)
             }
             if (!(yield* storage.addMessage(message, null))) return
