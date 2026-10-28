@@ -778,9 +778,15 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect.fails("a message that missed a turn still gets one after a restart", () =>
+  it.effect("a message that missed a turn still gets one after a restart", () =>
     test((harness) =>
       Effect.gen(function* () {
+        // A 5-minute deadline, so the restart comes inside the in-memory
+        // runner's 10-minute claim window: a keep-alive held longer is answered
+        // when it is read again, and the restarted runner wouldn't rebuild the
+        // entity. Cloudflare keeps keep-alive as a flag, without that window.
+        env["CHAT_TURN_DEADLINE_SECONDS"] = "300"
+        env["CHAT_WRAP_UP_AFTER_SECONDS"] = "240"
         const startedAt = yield* Clock.currentTimeMillis
         const at = (minutes: number, seconds: number) =>
           Effect.flatMap(Clock.currentTimeMillis, (now) =>
@@ -798,15 +804,22 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
         yield* send(harness, slackThread, "Also bump the version.", { mention: true })
 
         // The runner restarts after the first turn's deadline, so its resume ends at once.
-        yield* at(20, 10)
+        yield* at(5, 10)
         yield* harness.restart
         yield* modelCalls(harness, 2)
         assert.include(seen(harness.model.last), "Also bump the version.")
-      }),
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            delete env["CHAT_TURN_DEADLINE_SECONDS"]
+            delete env["CHAT_WRAP_UP_AFTER_SECONDS"]
+          }),
+        ),
+      ),
     ),
   )
 
-  it.effect.fails("steers reach the model in the order their messages arrived", () =>
+  it.effect("steers reach the model in the order their messages arrived", () =>
     test((harness) =>
       Effect.gen(function* () {
         yield* longTurn(harness, slackThread, "Fix the flaky test.")

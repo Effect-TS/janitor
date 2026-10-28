@@ -79,6 +79,12 @@ export const TurnState = Schema.Struct({
   acquires: Schema.Int,
   statusMessageId: Schema.NullOr(Schema.String),
   finishedAt: Schema.NullOr(Schema.Finite),
+  /**
+   * The messages waiting for a turn when this one was created. However it
+   * ends, they stop waiting; saved with the turn, so a resume settles the
+   * same messages and never one that arrived later and missed it.
+   */
+  claimed: Schema.Array(Schema.String),
 })
 export type TurnState = typeof TurnState.Type
 
