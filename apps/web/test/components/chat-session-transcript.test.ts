@@ -5,10 +5,7 @@ import { Scene } from "foldkit/test"
 import { describe, it } from "vite-plus/test"
 import * as Transcript from "@/components/chat-session-transcript"
 
-/**
- * The chat session transcript page (EFF-3021). Marked `.fails` until "Chat
- * sessions in the web app" lands (EFF-3021).
- */
+/** The chat session transcript page (EFF-3021). */
 
 const sessionId = "slack/T1/C1/1761642000.000100"
 
@@ -96,7 +93,7 @@ const transcript: SessionTranscript = {
 const scene = { update: Transcript.update, view: Transcript.view }
 
 describe("Chat session transcript", () => {
-  it.fails("shows hostile Markdown and HTML as plain text", () => {
+  it("shows hostile Markdown and HTML as plain text", () => {
     const { model } = Transcript.update(
       Transcript.init(),
       Transcript.Message.Activated({ sessionId, active: true }),

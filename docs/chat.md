@@ -2,7 +2,65 @@
 
 The chat bot is a team agent people talk to from Slack and, later, Discord. Each thread is a chat session: mention the bot to start one, and it runs clanka in a chat sandbox with access to every repository in Effect-TS and Effectful-Tech. ADR 0014 records the design, and `CONTEXT.md` defines the terms.
 
-The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API_KEY` are set. Each platform is also off until its own settings are set.
+The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API_KEY` are set. Each platform is also off until its own settings are set. While the bot or a platform is off, its settings aren't read and nothing is bound, so a deploy can go out before any secret exists.
+
+## What it does
+
+- A mention of the bot starts a session on its thread, and the session's first turn. When the bot joins a thread that already has messages, it reads the last 100 as context.
+- In a thread with a session, the reply gate decides whether a message without a mention is meant for the bot. It asks Jev, with the last 20 messages as context, and a message passes at a probability of one half or more. A mention always skips the gate.
+- A message that passes while a turn is running steers it: the model sees it between its steps. A message that is only "stop" stops the running turn before any model sees it.
+- Each turn runs clanka in a chat sandbox, a container of its own class so chat can't starve PR review. Nothing is checked out up front: the model clones what it needs into `/workspace/<org>/<repo>`. It can push to any branch except protected ones, open and merge pull requests, and use the `multica` CLI as the Janitor member, for example to hand larger work to a squad as an issue. The egress proxy adds the credentials; the sandbox holds none.
+- The thread gets a status message that the bot edits as the turn goes, with a link to the session's transcript, and then the reply. A plain reply ends the turn.
+- After a turn, the sandbox stays warm for 30 minutes, so a follow-up finds its clones and edits. Durable work is pushed work: anything not pushed is gone once the sandbox is.
+- A turn that loses its sandbox, or is cut off by a restart, resumes on a fresh one, up to three times. The model is told the sandbox is new and to check what it already pushed, opened or commented before redoing a step.
+- At 17 minutes the turn is told to wrap up, and at 20 it stops. Time spent waiting for a sandbox doesn't count. When all 10 sandboxes are running turns, a turn waits in one queue shared by every platform, and gives up after 15 minutes with a message that the bot is busy.
+- When the model provider fails once clanka's retries run out (quota, auth, 5xx), the turn ends, and the status message gives the error's category.
+- A session expires 30 days after its last message, and its storage and transcript go with it. A later message starts a new session with a fresh backfill.
+
+### Limits
+
+| Setting                        | Default | Meaning                                                                |
+| ------------------------------ | ------- | ---------------------------------------------------------------------- |
+| `CHAT_TURN_DEADLINE_SECONDS`   | 1200    | A turn's hard deadline, from its start and across resumes              |
+| `CHAT_WRAP_UP_AFTER_SECONDS`   | 1020    | When a turn is told to wrap up, from its start                         |
+| `CHAT_COMMAND_TIMEOUT_SECONDS` | 300     | The longest one `bash` command or `execute` script may run             |
+| `CHAT_MAX_RESUMES`             | 3       | How often one turn may resume after a lost sandbox or a restart        |
+| `CHAT_SANDBOX_WARM_SECONDS`    | 1800    | How long a session's sandbox stays warm after its turn                 |
+| `CHAT_QUEUE_TIMEOUT_SECONDS`   | 900     | How long a turn waits for a sandbox before giving up as busy           |
+| `CHAT_SESSION_RETENTION_DAYS`  | 30      | How long a session, and its transcript, is kept after its last message |
+| `CHAT_SANDBOX_MAX_INSTANCES`   | 10      | How many chat sandboxes may run at once                                |
+
+`CHAT_SANDBOX_MAX_INSTANCES` sets the container application's `max_instances`, and `CHAT_COMMAND_TIMEOUT_SECONDS` is baked into the sandbox image, so both need a deploy to change.
+
+## Deployment setup
+
+### Model and credit limit
+
+Turns call an OpenAI-compatible chat completions endpoint, the same mechanism as PR review's with a key of its own. Set `CHAT_AI_API_URL` to the endpoint's base URL, the part before `/chat/completions`, and `CHAT_AI_API_KEY` to its key, both in Infisical (project `janitor`). Without both, the bot is off.
+
+| Setting                    | Default              | Meaning                                                                                |
+| -------------------------- | -------------------- | -------------------------------------------------------------------------------------- |
+| `CHAT_AI_MODEL`            | `openai/gpt-6.1-sol` | The model turns run on, as the endpoint names it                                       |
+| `CHAT_AI_SUBAGENT_MODEL`   | the turn's model     | The model sub-agents run on                                                            |
+| `CHAT_AI_REASONING_EFFORT` | `medium`             | Sent as `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `CHAT_AI_VIA_TAILNET`      | `false`              | Send model calls through the tailnet egress, as `PR_REVIEW_AI_VIA_TAILNET` does        |
+| `CHAT_GATE_MODEL`          | `typesafe/jev-1.13`  | The reply gate's model on OpenRouter, called with labeling's `OPENROUTER_API_KEY`      |
+| `PUBLIC_ORIGIN`            | none                 | The web app's origin, for the status message's transcript link                         |
+
+Janitor enforces no spend cap. The 20-minute turn and the 10 sandboxes bound what a turn can spend, and the only cap on the total is the one you give the key: set a credit limit on `CHAT_AI_API_KEY` at the provider if you want one. Once it runs out, model calls fail, and every turn ends as failed with the provider's error category until the limit is raised.
+
+### The bot's GitHub App and Multica member
+
+The bot acts on GitHub as its own App, separate from janitor's, and in Multica as the Janitor member. The egress proxy hands each sandbox their credentials; without them it hands GitHub and Multica none, so the bot can still read public repositories but can't push or reach Multica.
+
+| Setting                       | Meaning                                                        |
+| ----------------------------- | -------------------------------------------------------------- |
+| `CHAT_GITHUB_APP_ID`          | The bot App's id                                               |
+| `CHAT_GITHUB_APP_PRIVATE_KEY` | The bot App's private key                                      |
+| `CHAT_MULTICA_TOKEN`          | The Janitor member's non-expiring Multica PAT                  |
+| `CHAT_MULTICA_WORKSPACE_ID`   | The Multica workspace the CLI acts in; defaults to Effectful's |
+
+The production App is installed on every repository of Effect-TS and Effectful-Tech, private ones included, with contents, pull requests and issues read and write, and actions, checks, commit statuses and metadata read. The development App is installed only on `Effect-TS/janitor-sandbox`, so a local run never holds write tokens for real repositories. The Janitor member uses the mailbox `tech-ops@effectful.co`. Agents the bot should trigger must be visible to workspace members or list the Janitor user.
 
 ## Slack
 
@@ -46,3 +104,42 @@ The bot only hears channels it is a member of. In a channel, type `/invite @jani
 ### Development
 
 The development stack's `janitor-dev` tunnel forwards `/api/v1/webhooks/slack` to the local Worker, next to the GitHub webhook. Point the development app's request URL at the tunnel's hostname, and keep it in a test channel.
+
+## Discord
+
+Discord comes with "Discord ingress for the chat bot" (EFF-3020). Until then its kill switch exists but no thread uses it.
+
+## Chat sessions page
+
+**Chat sessions**, in the sidebar, lists every session janitor still keeps, latest activity first: the platform, the channel, a link to the thread, who started it, its turn count, the latest turn's status, its last activity and its total tokens. Anyone Cloudflare Access lets into janitor can read every session, private channels and private repositories included.
+
+Each session links to its transcript, which the status message in the thread links to too. It shows the thread's messages and the turns in thread order. Each message shows its author and what the reply gate made of it: a mention, the gate's probability and whether it passed, "stop", context only (outsiders, bots and the backfill) or kept while switched off. Each turn shows its status, model and tokens, its time in the sandbox queue, its resumes, and whether it was told to wrap up, hit the deadline or was stopped, with its steps' tool calls and results collapsed. A running turn shows the steps it has finished. Everything shows as plain text, never as Markdown or HTML. There are no dollar amounts.
+
+**Download JSON** saves the same data, which `GET /api/v1/chat/sessions/:sessionId/transcript` serves, with the session key URL-encoded as `:sessionId`. Once the session has expired or been deleted, the page says the transcript is gone and the endpoint answers `410`.
+
+**Delete session** ends a session early: it cancels a running turn, releases the sandbox and deletes the history. A later message in the thread starts a new session, which reads the thread's last 100 messages again, so a pasted secret has to be deleted in Slack or Discord too.
+
+## Kill switch
+
+The kill switch panel on the chat sessions page turns the bot off for every thread, or for Slack's or Discord's. Anyone with Access can use it. Turning it off for a thread's platform, or for every thread:
+
+- stops its running turns within seconds, their status messages saying "Stopped";
+- starts no new turn;
+- tells each thread once that the bot is switched off, and keeps its messages as context for when it's back.
+
+Off for every thread wins over the platform switches. The switch is stored in Postgres, and sessions read it every few seconds while a turn runs and on every message. Turning it back on starts nothing by itself: the next message that wants a turn starts one.
+
+## Accepted risks
+
+1. A branch the bot pushes runs the repository's workflows, which have secrets and can call scripts the bot changed.
+2. The bot can approve and merge pull requests, the changesets "Version Packages" one included. A prompt injection from repository content, an issue or a web page could lead to a merge and an npm publish.
+3. Where a repository requires approvals, the bot's approval counts towards them.
+4. On Discord, keeping private content out of public replies relies on the prompt alone.
+5. There are no caps per person or on pull requests, issues, comments or pushes, and no loop detector. One person can fill the queue, and a confused turn can open many pull requests or issues before someone says "stop" or uses the kill switch. Each turn logs its action count.
+6. Everyone with Access can read every transcript, private Slack channels and private repositories included.
+7. An injected instruction the bot merges into `AGENTS.md`, `CLAUDE.md` or a skill folder is read by every later bot session and Multica agent on that repository.
+8. After a resume, a comment the bot already posted may be posted again. Repeated pushes, pull requests and merges fail or do nothing.
+
+## Logs
+
+Logs carry `sessionId` and `turnId`, never message content, tool output or tokens. Each turn's end is logged with its status, action count, resumes and error category, and each kill switch change and web app delete with the session or the switch's new state.

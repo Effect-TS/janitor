@@ -554,3 +554,12 @@ PR review flag or one of its runs changes, so the Settings panel and the
 return a code (`not-connected`, `disconnected`, `access-unavailable` or
 `paused`) instead of a sentence. The cluster and the web app own the wording.
 Labeling activity rows written earlier keep their stored sentences.
+
+## Chat sessions
+
+`0059_chat_sessions.sql` adds the chat sessions page's index and the chat bot's
+kill switch. `chat_sessions` holds one row per chat session, which the
+session's entity keeps up to date and deletes when the session expires or is
+deleted; the transcript stays in the entity's own storage. `chat_kill_switch`
+holds a single row with the global, Slack and Discord switches, all off until
+someone turns one on.

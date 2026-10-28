@@ -1,19 +1,51 @@
 import { JanitorApi } from "@janitor/domain/Api"
+import { TranscriptGone } from "@janitor/domain/Chat/Session"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder"
-
-const notYet = Effect.die("Chat sessions in the web app are not built yet (EFF-3021)")
+import { ChatKillSwitchStore } from "../Chat/KillSwitch.ts"
+import { ChatSessionControl } from "../Chat/Session.ts"
+import { ChatSessionIndex } from "../Chat/SessionIndex.ts"
 
 /**
  * The chat sessions page, a session's transcript and delete, and the kill
- * switch (EFF-3021). Every endpoint dies until "Chat sessions in the web
- * app" builds them.
+ * switch (EFF-3021). Infrastructure failures die: the index, the kill switch
+ * and a session entity that can't be reached. A transcript is never logged.
  */
 export const ChatGroupLayer = HttpApiBuilder.group(JanitorApi, "chat", (handlers) =>
   handlers
-    .handle("listSessions", () => notYet)
-    .handle("getTranscript", () => notYet)
-    .handle("deleteSession", () => notYet)
-    .handle("getKillSwitch", () => notYet)
-    .handle("setKillSwitch", () => notYet),
+    .handle("listSessions", () =>
+      ChatSessionIndex.use((index) => index.list).pipe(
+        Effect.map((sessions) => ({ sessions })),
+        Effect.orDie,
+      ),
+    )
+    .handle("getTranscript", ({ params }) =>
+      Effect.gen(function* () {
+        const { sessionId } = params
+        // Listed first, so an id no session has never wakes an entity.
+        const session = yield* ChatSessionIndex.use((index) => index.get(sessionId)).pipe(
+          Effect.orDie,
+        )
+        if (Option.isNone(session)) return yield* new TranscriptGone({ sessionId })
+        const committed = yield* ChatSessionControl.use((control) => control.transcript(sessionId))
+        if (Option.isNone(committed)) return yield* new TranscriptGone({ sessionId })
+        return { session: session.value, ...committed.value }
+      }),
+    )
+    .handle("deleteSession", ({ params }) =>
+      ChatSessionControl.use((control) => control.delete(params.sessionId)).pipe(
+        Effect.andThen(Effect.logInfo("Chat session deleted from the web app")),
+        Effect.annotateLogs({ sessionId: params.sessionId }),
+      ),
+    )
+    .handle("getKillSwitch", () => ChatKillSwitchStore.use((store) => store.get).pipe(Effect.orDie))
+    .handle("setKillSwitch", ({ payload }) =>
+      Effect.gen(function* () {
+        const store = yield* ChatKillSwitchStore
+        yield* store.set(payload)
+        yield* Effect.logInfo("Chat kill switch set").pipe(Effect.annotateLogs(payload))
+        return yield* store.get
+      }).pipe(Effect.orDie),
+    ),
 )

@@ -395,6 +395,23 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     }),
   )
 
+  /**
+   * Who started the session, for the sessions page: the author of the first
+   * message that mentioned the bot, or of the first message if none did.
+   */
+  const starter = sql<{ message: string }>`
+    SELECT message FROM chat_messages WHERE session_id = ${sessionId}
+    ORDER BY CASE json_extract(gate, '$._tag') WHEN 'Mention' THEN 0 ELSE 1 END, ${chronological}
+    LIMIT 1`.pipe(
+    Effect.flatMap(([row]) =>
+      row === undefined
+        ? Effect.succeed(Option.none<ChatMessage["author"]>())
+        : Effect.map(Schema.decodeEffect(ChatMessageJson)(row.message), (message) =>
+            Option.some(message.author),
+          ),
+    ),
+  )
+
   /** Remembers a user as admitted, with their name, as of `now`. */
   const rememberAdmission = (userId: string, name: string, now: number) =>
     sql`
@@ -437,6 +454,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     commitStep,
     history,
     transcript,
+    starter,
     rememberAdmission,
     admission,
   }

@@ -31,6 +31,7 @@ import type * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as TestClock from "effect/testing/TestClock"
+import type { SessionSummary } from "@janitor/domain/Chat/Session"
 import { ChatKillSwitch, type KillSwitchState } from "../../src/Chat/KillSwitch.ts"
 import {
   type AuthorClass,
@@ -43,6 +44,7 @@ import {
 } from "../../src/Chat/Platform.ts"
 import { ChatSandboxes } from "../../src/Chat/Sandbox/Sandboxes.ts"
 import { ChatSession, ChatSessionLayer } from "../../src/Chat/Session.ts"
+import { ChatSessionIndex } from "../../src/Chat/SessionIndex.ts"
 
 /**
  * The chat session entity under test, the way the cluster runs it: an
@@ -417,6 +419,17 @@ export class FakePlatform {
   }
 }
 
+/** The sessions page's index, in memory. */
+const memoryIndex = () => {
+  const rows = new Map<string, SessionSummary>()
+  return Layer.succeed(ChatSessionIndex, {
+    save: (summary) => Effect.sync(() => void rows.set(summary.sessionId, summary)),
+    remove: (sessionId) => Effect.sync(() => void rows.delete(sessionId)),
+    get: (sessionId) => Effect.sync(() => Option.fromNullishOr(rows.get(sessionId))),
+    list: Effect.sync(() => [...rows.values()]),
+  })
+}
+
 /** One runner with the session entity on it, over the Durable Object's SQLite file. */
 const makeRunner = (options: {
   readonly filename: string
@@ -425,6 +438,7 @@ const makeRunner = (options: {
     | ChatPlatform
     | ChatSandboxes
     | ChatKillSwitch
+    | ChatSessionIndex
     | LanguageModel.LanguageModel
     | Model.ProviderName
     | Model.ModelName
@@ -484,6 +498,7 @@ export const makeSessionHarness = Effect.gen(function* () {
       platform.layer,
       sandboxes.layer,
       Layer.succeed(ChatKillSwitch, { get: Effect.sync(() => ({ ...killSwitch })) }),
+      memoryIndex(),
       model.layer,
       gate.layer,
     ),

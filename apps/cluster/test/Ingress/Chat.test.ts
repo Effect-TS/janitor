@@ -22,8 +22,7 @@ import { MigratedPostgresLayer } from "../support/Postgres.ts"
 
 /**
  * The chat sessions API (EFF-3021) over the Postgres session index and kill
- * switch, with the session entities faked. Every test is marked `.fails`
- * until "Chat sessions in the web app" lands (EFF-3021).
+ * switch, with the session entities faked.
  */
 
 interface Committed {
@@ -137,7 +136,7 @@ const Services = Layer.mergeAll(ChatSessionIndex.layer, ChatKillSwitchStore.laye
 )
 
 layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
-  it.effect.fails("lists the sessions, latest activity first", () =>
+  it.effect("lists the sessions, latest activity first", () =>
     Effect.gen(function* () {
       const api = yield* client
       const index = yield* ChatSessionIndex
@@ -171,7 +170,7 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
     }),
   )
 
-  it.effect.fails("serves a session's transcript, which Download JSON saves as it is", () =>
+  it.effect("serves a session's transcript, which Download JSON saves as it is", () =>
     Effect.gen(function* () {
       const api = yield* client
       const session = summary("1761641000.000100", 9)
@@ -183,7 +182,7 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
     }),
   )
 
-  it.effect.fails("a session that expired, was deleted or never existed is gone", () =>
+  it.effect("a session that expired, was deleted or never existed is gone", () =>
     Effect.gen(function* () {
       const api = yield* client
       const expired = summary("1761641000.000200", 9)
@@ -201,7 +200,7 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
     }),
   )
 
-  it.effect.fails("deleting a session sends its entity Delete", () =>
+  it.effect("deleting a session sends its entity Delete", () =>
     Effect.gen(function* () {
       const api = yield* client
       const session = summary("1761642000.000100", 9)
@@ -213,7 +212,7 @@ layer(Services, { timeout: "2 minutes" })("ChatGroup", (it) => {
     }),
   )
 
-  it.effect.fails("the kill switch is off until someone turns it on, and stays as set", () =>
+  it.effect("the kill switch is off until someone turns it on, and stays as set", () =>
     Effect.gen(function* () {
       const api = yield* client
       const off = { global: false, slack: false, discord: false }

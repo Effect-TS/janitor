@@ -134,9 +134,10 @@ import {
   chatSandboxInit,
 } from "./Chat/Config.ts"
 import { ReplyGate } from "./Chat/Gate.ts"
-import { ChatKillSwitch } from "./Chat/KillSwitch.ts"
+import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
 import { ChatPlatform } from "./Chat/Platform.ts"
-import { ChatSession, ChatSessionLayer } from "./Chat/Session.ts"
+import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
+import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
 import { SlackConfig, slackSettings } from "./Chat/Slack/Config.ts"
 import { SlackSessions, SlackWebhookRoutesLayer } from "./Chat/Slack/Ingress.ts"
 import * as SlackPlatform from "./Chat/Slack/Platform.ts"
@@ -388,8 +389,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
                 ),
             }),
           ),
-          // The web app (EFF-3021) replaces this.
-          Layer.provide(ChatKillSwitch.off),
+          Layer.provide(ChatKillSwitch.stored),
         )
       : Layer.empty
     const ClusterLayer = Layer.mergeAll(
@@ -406,6 +406,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       PullRequestSchedulerLayer,
       RepositoryDisabler.layer,
       RunTranscripts.layer,
+      chatBot ? ChatSessionControl.layer : ChatSessionControl.unavailable,
       ChatLayer,
       PullRequestReviewRunLayer.pipe(
         Layer.provide(RunPublisherLayer),
@@ -444,6 +445,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           LabelingOverview.layer,
           ActivityReader.layer,
           PullRequestReviewStore.layer,
+          ChatSessionIndex.layer,
+          ChatKillSwitchStore.layer,
         ),
       ),
       Layer.provideMerge(Policies.layer),

@@ -70,9 +70,18 @@ const available = (transcript: TranscriptResult) => {
   return transcript
 }
 
-/** The transcript's turns, without their generated ids and their history. */
+/** The transcript's turns, without their generated ids, their times and their history. */
 const turns = (transcript: TranscriptResult) =>
-  available(transcript).turns.map(({ turnId: _, messages: _messages, ...turn }) => turn)
+  available(transcript).turns.map(
+    ({
+      turnId: _,
+      queuedAt: _queuedAt,
+      startedAt: _startedAt,
+      finishedAt: _finishedAt,
+      messages: _messages,
+      ...turn
+    }) => turn,
+  )
 
 /** Each stored message's id and gate outcome. */
 const stored = (transcript: TranscriptResult) =>

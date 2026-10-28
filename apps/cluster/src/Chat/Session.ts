@@ -29,7 +29,7 @@ import {
   threadMessages,
   wrapUpMessage,
 } from "@janitor/domain/Chat/Prompt"
-import type { SessionTranscriptTurn, TranscriptMessage } from "@janitor/domain/Chat/Session"
+import { SessionTranscriptTurn, TranscriptMessage } from "@janitor/domain/Chat/Session"
 import type { HistoryChange } from "../AgentLoop.ts"
 import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agent.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
@@ -37,12 +37,12 @@ import { GATE_CONTEXT, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
 import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
+import { ChatSessionIndex } from "./SessionIndex.ts"
 import {
   GateOutcome,
   makeSessionStorage,
   type SessionState,
   type StoredMessage,
-  TranscriptTurn,
   type TurnState,
   type TurnStatus,
   type TurnUsage,
@@ -122,14 +122,8 @@ export const Expire = Rpc.make("Expire", { payload: ExpirePayload })
 export const TranscriptResult = Schema.TaggedUnion({
   Expired: {},
   Available: {
-    messages: Schema.Array(Schema.Struct({ ...ChatMessage.fields, gate: GateOutcome })),
-    turns: Schema.Array(
-      Schema.Struct({
-        ...TranscriptTurn.fields,
-        /** The agent history the turn added, without the system message. */
-        messages: Schema.Array(Prompt.Message),
-      }),
-    ),
+    messages: Schema.Array(TranscriptMessage),
+    turns: Schema.Array(SessionTranscriptTurn),
   },
 })
 export type TranscriptResult = typeof TranscriptResult.Type
@@ -137,10 +131,7 @@ export type TranscriptResult = typeof TranscriptResult.Type
 /** Reads the session's transcript as committed so far. */
 export const Transcript = Rpc.make("Transcript", { success: TranscriptResult })
 
-/**
- * What the web app's API asks of the session entities (EFF-3021). The
- * cluster's client implements it in "Chat sessions in the web app".
- */
+/** What the web app's API asks of the session entities (EFF-3021). */
 export class ChatSessionControl extends Context.Service<
   ChatSessionControl,
   {
@@ -154,7 +145,42 @@ export class ChatSessionControl extends Context.Service<
     /** Sends the session `Delete`: it cancels the turn, releases the sandbox and deletes the history. */
     readonly delete: (sessionId: string) => Effect.Effect<void>
   }
->()("@janitor/cluster/Chat/Session/ChatSessionControl") {}
+>()("@janitor/cluster/Chat/Session/ChatSessionControl") {
+  /** The session entities, through the cluster's client. An entity that can't be reached dies. */
+  static readonly layer: Layer.Layer<ChatSessionControl, never, Sharding.Sharding> = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const context = yield* Effect.context<Sharding.Sharding>()
+      const session = <A, E>(
+        sessionId: string,
+        call: (
+          client: ReturnType<Effect.Success<typeof ChatSession.client>>,
+        ) => Effect.Effect<A, E, Sharding.Sharding>,
+      ) =>
+        Effect.flatMap(ChatSession.client, (client) => call(client(sessionId))).pipe(
+          Effect.provideContext(context),
+          Effect.orDie,
+        )
+      return {
+        transcript: (sessionId) =>
+          session(sessionId, (client) => client.Transcript()).pipe(
+            Effect.map((result) =>
+              result._tag === "Expired"
+                ? Option.none()
+                : Option.some({ messages: result.messages, turns: result.turns }),
+            ),
+          ),
+        delete: (sessionId) => session(sessionId, (client) => client.Delete({})),
+      }
+    }),
+  )
+
+  /** No session entities: the chat bot is off, so every session is gone already. */
+  static readonly unavailable = Layer.succeed(this, {
+    transcript: () => Effect.succeed(Option.none()),
+    delete: () => Effect.void,
+  })
+}
 
 export const ChatSession = Entity.fromRpcGroup(
   "ChatSession",
@@ -292,6 +318,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const platform = yield* ChatPlatform
     const sandboxes = yield* ChatSandboxes
     const killSwitch = yield* ChatKillSwitch
+    const index = yield* ChatSessionIndex
     const agent = yield* ChatAgent
     const gate = yield* ReplyGate
     const self = (yield* ChatSession.client)(entityId)
@@ -302,6 +329,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const inbox = yield* Semaphore.make(1)
     /** Starting and finishing turns, and steering, one at a time. */
     const transitions = yield* Semaphore.make(1)
+    /** The session's index row is saved and removed one at a time, so a save never outlives a drop. */
+    const indexing = yield* Semaphore.make(1)
 
     let current: Running | undefined
     let keptAlive = false
@@ -310,6 +339,42 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
 
     const withLogs = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.annotateLogs(effect, { sessionId: entityId })
+
+    /**
+     * Saves the session's row in the sessions page's index, as it stands now.
+     * The index only serves the page, so a failure is logged and the session
+     * goes on.
+     */
+    const saveIndex = Semaphore.withPermits(
+      indexing,
+      1,
+    )(
+      Effect.gen(function* () {
+        if (dropped) return
+        const session = yield* storage.loadSession
+        const starter = yield* storage.starter
+        if (Option.isNone(session) || Option.isNone(starter)) return
+        const turns = yield* storage.turns
+        yield* index.save({
+          sessionId: entityId,
+          thread: session.value.thread,
+          startedBy: { id: starter.value.id, name: starter.value.name },
+          turns: turns.length,
+          status: turns.at(-1)?.status ?? null,
+          lastActivityAt: DateTime.makeUnsafe(
+            Math.max(
+              session.value.lastMessageAt,
+              ...turns.map((turn) => turn.finishedAt ?? turn.startedAt ?? turn.createdAt),
+            ),
+          ),
+          usage: turns.reduce<TurnUsage | null>((total, turn) => addUsage(total, turn.usage), null),
+        })
+      }),
+    ).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Couldn't save the chat session's index row", cause),
+      ),
+    )
 
     const keepAlive = (enabled: boolean) =>
       Effect.suspend(() => {
@@ -393,8 +458,9 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           )
         }
         if ((yield* storage.hasWanted) && !switchedOff(yield* killSwitch.get, running.thread))
-          return yield* startTurn(running.thread)
-        yield* keepAlive(false)
+          yield* startTurn(running.thread)
+        else yield* keepAlive(false)
+        yield* saveIndex
       })
 
     /** Steers every message the model hasn't seen into the running loop, if one wants a turn. */
@@ -947,7 +1013,19 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const drop = Effect.gen(function* () {
       yield* stopTurn
       yield* storage.drop
-      dropped = true
+      yield* Semaphore.withPermits(
+        indexing,
+        1,
+      )(
+        Effect.suspend(() => {
+          dropped = true
+          return index.remove(entityId)
+        }),
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Couldn't remove the chat session's index row", cause),
+        ),
+      )
       yield* keepAlive(false)
     })
 
@@ -1027,6 +1105,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               { discard: true },
             )
             yield* handle(thread, message)
+            yield* saveIndex
           }),
         ).pipe(withLogs, Effect.orDie),
 
@@ -1113,6 +1192,9 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               model: turn.model,
               actions: turn.actions,
               usage: turn.usage,
+              queuedAt: DateTime.makeUnsafe(turn.createdAt),
+              startedAt: turn.startedAt === null ? null : DateTime.makeUnsafe(turn.startedAt),
+              finishedAt: turn.finishedAt === null ? null : DateTime.makeUnsafe(turn.finishedAt),
               messages: history.get(turn.turnId) ?? [],
             })),
           } as const
@@ -1133,6 +1215,7 @@ export const ChatSessionLayer: Layer.Layer<
   | ChatPlatform
   | ChatSandboxes
   | ChatKillSwitch
+  | ChatSessionIndex
   | LanguageModel.LanguageModel
   | Model.ProviderName
   | Model.ModelName

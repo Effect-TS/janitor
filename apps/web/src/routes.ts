@@ -31,6 +31,8 @@ export const AppRoute = Route.defineRouteUnion({
   PullRequestReviews: repository,
   PullRequestReviewTranscript: { ...repository, runId: Schema.String },
   Settings: repository,
+  ChatSessions: {},
+  ChatSessionTranscript: { sessionId: Schema.String },
   DesignSystem: {},
   Account: { section: AccountSection },
   AccountReturn: {
@@ -139,6 +141,15 @@ export const settings = pipe(
   Route.slash(Route.literal("settings")),
   Route.mapTo(AppRoute.Settings),
 )
+const chatBase = pipe(Route.literal("chat"), Route.slash(Route.literal("sessions")))
+/** Deployment-wide, like Account: the chat bot's sessions aren't a repository's. */
+export const chatSessions = pipe(chatBase, Route.mapTo(AppRoute.ChatSessions))
+/** `sessionId` is the session key, one encoded segment: the bot's status message links here. */
+export const chatSessionTranscript = pipe(
+  chatBase,
+  Route.slash(idSegment("sessionId")),
+  Route.mapTo(AppRoute.ChatSessionTranscript),
+)
 /** Every primitive in every state, in both themes. A deliverable, not a page users visit. */
 export const designSystem = pipe(Route.literal("design-system"), Route.mapTo(AppRoute.DesignSystem))
 const isAccountSection = (segment: string): segment is AccountSection =>
@@ -197,6 +208,8 @@ export const parse = Route.parseUrlWithFallback(
     pullRequestReviewTranscript,
     pullRequestReviews,
     settings,
+    chatSessionTranscript,
+    chatSessions,
     designSystem,
     accountReturn,
     account,
@@ -219,6 +232,8 @@ export const path = (route: AppRoute): string =>
     PullRequestReviews: pullRequestReviews,
     PullRequestReviewTranscript: pullRequestReviewTranscript,
     Settings: settings,
+    ChatSessions: chatSessions,
+    ChatSessionTranscript: chatSessionTranscript,
     DesignSystem: designSystem,
     Account: account,
     AccountReturn: accountReturn,

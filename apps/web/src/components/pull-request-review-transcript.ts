@@ -2,20 +2,20 @@ import { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { LoopRecord } from "@janitor/domain/PullRequestReview/Finding"
 import { RunId } from "@janitor/domain/PullRequestReview/Run"
 import { RunTranscript, type RunEntry } from "@janitor/domain/PullRequestReview/Settings"
-import type * as Prompt from "effect/ai/Prompt"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Command from "foldkit/command"
-import type { Html, HtmlBuilder } from "foldkit/html"
+import type { HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
 import type * as Update from "foldkit/update"
-import { ChevronRight, Download, RotateCw } from "lucide"
+import { Download, RotateCw } from "lucide"
 import type { RepositoryOverview } from "@janitor/domain/Labeling/Reconciliation"
 import { describeDuration, outcome, timestamp, triggerLabel } from "./pull-request-reviews"
 import * as Button from "./ui/button"
 import { chip } from "./ui/chip"
+import { messageView, prose, type RoleLabels, status } from "./transcript"
 import * as Page from "./ui/page"
 import { ApiClient } from "@/lib/api-client"
 import * as Icon from "@/lib/icons"
@@ -167,102 +167,12 @@ export const update = (model: Model, message: Message): Return =>
 
 // VIEW
 
-const summaryClass =
-  "flex cursor-pointer list-none items-center gap-1.5 text-body-sm font-medium text-ink-muted marker:hidden [&::-webkit-details-marker]:hidden"
-
-/** Untrusted text, verbatim: mono, preformatted, never parsed. */
-const verbatim = <M>(h: HtmlBuilder<M>, text: string) =>
-  h.pre(
-    [
-      h.Class(
-        "max-h-96 overflow-auto rounded-xs border border-border-subtle bg-surface-muted p-2 font-mono text-mono-sm whitespace-pre-wrap wrap-anywhere",
-      ),
-    ],
-    [text],
-  )
-
-/** Prose the model or the pull request wrote, verbatim but in the body font. */
-const prose = <M>(h: HtmlBuilder<M>, text: string) =>
-  h.pre([h.Class("font-sans text-body-md whitespace-pre-wrap wrap-anywhere")], [text])
-
-/** A collapsed block: tool calls and results are long, and the prose around them says what they did. */
-const disclosure = <M>(h: HtmlBuilder<M>, title: string, body: Html) =>
-  h.details(
-    [h.Class("group/disclosure")],
-    [
-      h.summary(
-        [h.Class(summaryClass)],
-        [
-          Icon.view(
-            h,
-            ChevronRight,
-            "size-3.5 shrink-0 transition-transform group-open/disclosure:rotate-90",
-          ),
-          title,
-        ],
-      ),
-      h.div([h.Class("mt-1.5")], [body]),
-    ],
-  )
-
-const json = (value: unknown) => {
-  if (typeof value === "string") return value
-  try {
-    return JSON.stringify(value, null, 2) ?? String(value)
-  } catch {
-    return String(value)
-  }
-}
-
-const partView = <M>(h: HtmlBuilder<M>, part: Prompt.Part): Html => {
-  switch (part.type) {
-    case "text":
-      return prose(h, part.text)
-    case "reasoning":
-      // The model's working, not the review's conclusion.
-      return disclosure(h, "Reasoning", verbatim(h, part.text))
-    case "file":
-      return h.p([h.Class("text-body-sm text-ink-muted")], [`File · ${part.mediaType}`])
-    case "tool-call":
-      return disclosure(h, `Tool call · ${part.name}`, verbatim(h, json(part.params)))
-    case "tool-result":
-      return disclosure(
-        h,
-        `Tool result · ${part.name}${part.isFailure ? " · failed" : ""}`,
-        verbatim(h, json(part.result)),
-      )
-    case "tool-approval-request":
-    case "tool-approval-response":
-      return h.p([h.Class("text-body-sm text-ink-muted")], [`Tool approval · ${part.approvalId}`])
-  }
-}
-
-const roleLabel: Record<Prompt.Message["role"], string> = {
+const roleLabel: RoleLabels = {
   system: "System",
   user: "Janitor",
   assistant: "Agent",
   tool: "Tool",
 }
-
-const messageView = <M>(h: HtmlBuilder<M>, message: Prompt.Message, index: number) =>
-  h.li(
-    [
-      h.Class("flex flex-col gap-2 rounded-md border border-border bg-card p-3"),
-      h.DataAttribute("role", message.role),
-    ],
-    [
-      h.div(
-        [h.Class("flex items-center gap-2 text-caption font-medium text-ink-subtle")],
-        [
-          h.span([], [roleLabel[message.role]]),
-          h.span([h.Class("font-mono tabular-nums")], [`#${index + 1}`]),
-        ],
-      ),
-      ...(typeof message.content === "string"
-        ? [prose(h, message.content)]
-        : message.content.map((part) => partView(h, part))),
-    ],
-  )
 
 const recordView = <M>(h: HtmlBuilder<M>, record: LoopRecord) =>
   record._tag === "FindingReported"
@@ -346,15 +256,6 @@ const kept = (transcript: RunTranscript) =>
     ? "Kept while the run is going, then for the retention period after it ends."
     : `Kept until ${timestamp(transcript.expiresAt)} UTC.`
 
-const status = <M>(h: HtmlBuilder<M>, text: string) =>
-  h.p(
-    [
-      h.Role("status"),
-      h.Class("rounded-lg border border-border bg-card px-4 py-3 text-body-sm text-ink-muted"),
-    ],
-    [text],
-  )
-
 export const view = Submodel.defineView<
   Model,
   Message,
@@ -432,7 +333,7 @@ export const view = Submodel.defineView<
           )
         : h.ol(
             [h.Class("flex flex-col gap-3"), h.AriaLabel("Messages")],
-            transcript.messages.map((message, index) => messageView(h, message, index)),
+            transcript.messages.map((message, index) => messageView(h, message, index, roleLabel)),
           )
       : model.expired
         ? status(
