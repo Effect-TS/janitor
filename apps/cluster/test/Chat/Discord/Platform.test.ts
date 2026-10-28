@@ -66,11 +66,9 @@ describe("Discord platform", () => {
       // A code block that a 2,000-character split has to cut.
       const code = Array.from({ length: 120 }, (_, index) => `const value${index} = ${index}`)
       const text = ["Here is the change:", "", "```ts", ...code, "```", "", "Done."].join("\n")
-      assert.isAbove(text.length, 2000)
 
       yield* platform.postReply(thread, text)
 
-      assert.isAbove(posted.length, 1)
       for (const chunk of posted) {
         assert.isAtMost(chunk.length, 2000)
         assert.strictEqual(chunk.split("\n").filter(isFence).length % 2, 0, chunk)

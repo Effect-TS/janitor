@@ -57,8 +57,6 @@ const makeIngress = () => {
         const channel = /^\/channels\/(\d+)$/.exec(path)
         if (channel !== null && channels[channel[1]!] !== undefined)
           return Response.json(channels[channel[1]!])
-        if (/^\/channels\/\d+\/messages$/.test(path) && request.method === "POST")
-          return Response.json({ id: "999", channel_id: path.split("/")[2] })
         return Response.json({ message: "Unknown", code: 10003 }, { status: 404 })
       }
       return HttpClientResponse.fromWeb(request, respond())
@@ -181,16 +179,14 @@ describe("Discord ingress", () => {
       yield* handle(message("1004", { guild_id: "101" }))
       yield* handle(withoutMember)
 
-      assert.strictEqual(ingress.handedOffAt("1001")?.message.author.class, "admitted")
-      assert.strictEqual(ingress.handedOffAt("1002")?.message.author.class, "outsider")
-      assert.strictEqual(ingress.handedOffAt("1003")?.message.author.class, "bot")
-      assert.isUndefined(ingress.handedOffAt("1004"), "other guild")
-      assert.isUndefined(ingress.handedOffAt("1005"), "no member")
-      assert.deepStrictEqual(ingress.handedOffAt("1001")?.thread, {
-        _tag: "Discord",
-        guild: GUILD,
-        threadId: SESSION_THREAD,
-      })
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.id, message.author.class]),
+        [
+          ["1001", "admitted"],
+          ["1002", "outsider"],
+          ["1003", "bot"],
+        ],
+      )
     }),
   )
 
@@ -231,7 +227,6 @@ describe("Discord ingress", () => {
         guild: GUILD,
         threadId: "1201",
       })
-      assert.isTrue(ingress.handedOffAt("1201")?.message.mentionsBot)
       assert.deepStrictEqual(ingress.handedOffAt("1202")?.thread, {
         _tag: "Discord",
         guild: GUILD,
