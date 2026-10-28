@@ -8,7 +8,7 @@ import {
   makeChatWorkspace,
   type ChatWorkspaceState,
 } from "../../../src/Chat/Sandbox/Workspace.ts"
-import { ChatSkills } from "../../../src/Chat/Sandbox/Skills.ts"
+import { ChatSkills, MULTICA_SKILL } from "../../../src/Chat/Sandbox/Skills.ts"
 import { makeState } from "./support.ts"
 
 /** A workspace without the bot's credentials: its egress hands out no token. */
@@ -27,6 +27,31 @@ const acquireInput = (generation: number) => ({
 })
 
 describe("chat workspace", () => {
+  it.effect("a warm reacquire keeps the skills its sandbox was first provisioned with", () =>
+    Effect.gen(function* () {
+      const state = makeState()
+      let loads = 0
+      const skills = Layer.succeed(ChatSkills, {
+        load: Effect.sync(() => {
+          loads++
+          return [MULTICA_SKILL, { name: "triage", files: [{ path: "SKILL.md", content: "" }] }]
+        }),
+      })
+      const workspace = yield* makeChatWorkspace(state).pipe(
+        Effect.provide(Layer.mergeAll(ChatCredentials.disabled, skills)),
+      )
+      yield* workspace.acquire(acquireInput(1))
+      // The container is still running and healthy: the next turn finds it warm.
+      yield* workspace.acquire(acquireInput(2))
+
+      assert.strictEqual(loads, 1)
+      assert.deepStrictEqual(
+        state.container.provisions.flatMap((request) => request.skills.map((skill) => skill.name)),
+        [MULTICA_SKILL.name, "triage"],
+      )
+    }),
+  )
+
   it.effect("executor calls from a superseded grant are refused", () =>
     Effect.gen(function* () {
       const workspace = yield* makeWorkspace(makeState())
