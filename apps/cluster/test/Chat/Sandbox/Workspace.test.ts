@@ -1,17 +1,21 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Layer from "effect/Layer"
 import { ChatCredentials } from "../../../src/Chat/Egress/BotApp.ts"
 import {
   CHAT_GENERATION_HEADER,
   makeChatWorkspace,
   type ChatWorkspaceState,
 } from "../../../src/Chat/Sandbox/Workspace.ts"
+import { ChatSkills } from "../../../src/Chat/Sandbox/Skills.ts"
 import { makeState } from "./support.ts"
 
 /** A workspace without the bot's credentials: its egress hands out no token. */
 const makeWorkspace = (state: ChatWorkspaceState) =>
-  makeChatWorkspace(state).pipe(Effect.provide(ChatCredentials.disabled))
+  makeChatWorkspace(state).pipe(
+    Effect.provide(Layer.mergeAll(ChatCredentials.disabled, ChatSkills.bundled)),
+  )
 
 const acquireInput = (generation: number) => ({
   sessionId: "slack/T1/C1/1700000000.000100",

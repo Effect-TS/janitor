@@ -7,6 +7,7 @@ import { BotAppError, ChatCredentials, type BotApp } from "../../../src/Chat/Egr
 import { makeEgressContext } from "../../../src/Chat/Egress/Client.ts"
 import { handleChatEgress } from "../../../src/Chat/Egress/Egress.ts"
 import { makeChatWorkspace } from "../../../src/Chat/Sandbox/Workspace.ts"
+import { ChatSkills } from "../../../src/Chat/Sandbox/Skills.ts"
 import { makeState } from "../Sandbox/support.ts"
 
 const GITHUB = "https://api.github.com/repos/Effect-TS/effect/pulls"
@@ -32,7 +33,12 @@ const setup = (app: BotApp) =>
   Effect.gen(function* () {
     const state = makeState()
     const workspace = yield* makeChatWorkspace(state).pipe(
-      Effect.provide(Layer.succeed(ChatCredentials, { app, multicaToken: "mul_janitor" })),
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(ChatCredentials, { app, multicaToken: "mul_janitor" }),
+          ChatSkills.bundled,
+        ),
+      ),
     )
     const send = (url: string) =>
       Effect.gen(function* () {

@@ -7,6 +7,7 @@ import { chatBotGate } from "../Config.ts"
 import { ChatCredentials } from "../Egress/BotApp.ts"
 import { EGRESS_CONTROL_HEADER } from "../Egress/Session.ts"
 import { ChatSandbox } from "./ChatSandbox.ts"
+import { ChatSkills } from "./Skills.ts"
 import {
   makeChatWorkspace,
   type ChatAcquired,
@@ -59,10 +60,13 @@ export const ChatWorkspaceLive = ChatWorkspace.make(
     if (yield* chatBotGate.pipe(Effect.orElseSucceed(() => false))) yield* ChatSandbox
     const state = yield* Cloudflare.DurableObjectState
     const credentials = yield* ChatCredentials
+    // Shared by every workspace in the isolate, so its cache spares GitHub.
+    const skills = yield* ChatSkills
 
     return Effect.gen(function* () {
       const workspace = yield* makeChatWorkspace(state.raw as unknown as ChatWorkspaceState).pipe(
         Effect.provideService(ChatCredentials, credentials),
+        Effect.provideService(ChatSkills, skills),
       )
       return {
         acquire: (input: ChatAcquireInput) => workspace.acquire(input),

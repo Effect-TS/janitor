@@ -18,7 +18,8 @@ import {
   makeEgressSession,
   type ChatEgressProps,
 } from "../Egress/Session.ts"
-import { provisionRequest } from "./Provision.ts"
+import { provisionRequest, type Skill } from "./Provision.ts"
+import { ChatSkills } from "./Skills.ts"
 
 /**
  * One chat session's sandbox, driven from its workspace Durable Object
@@ -29,6 +30,7 @@ import { provisionRequest } from "./Provision.ts"
  * - `acquire` finds the session's warm container still running and
  *   provisions it again, or starts a fresh one without internet, routes its
  *   egress to the `ChatEgress` entrypoint, and provisions it. Either way the
+ *   sandbox gets the skills `ChatSkills` loads at that moment, and the
  *   container is held with the warm window as its inactivity timeout, so an
  *   abandoned sandbox stops on its own. Then the turn's GitHub tokens are
  *   minted (EFF-3017).
@@ -119,6 +121,7 @@ export const CHAT_GENERATION_HEADER = "x-janitor-chat-generation"
 export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspaceState) {
   const { container } = state
   const credentials = yield* ChatCredentials
+  const skills = yield* ChatSkills
   const control = makeContainerControl(container)
   const locked = Semaphore.withPermits(yield* Semaphore.make(1), 1)
   const egress = yield* makeEgressSession(credentials)
@@ -146,7 +149,7 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
     })
 
   /** Routes the container's egress, then posts one provisioning request. */
-  const provisionOnce = (input: ChatAcquireInput) =>
+  const provisionOnce = (input: ChatAcquireInput, provisioned: ReadonlyArray<Skill>) =>
     Effect.gen(function* () {
       const proxy = state.exports.ChatEgress({
         props: {
@@ -165,7 +168,7 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
           .fetch("http://container/provision", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify(provisionRequest(input.multicaWorkspaceId)),
+            body: JSON.stringify(provisionRequest(input.multicaWorkspaceId, provisioned)),
           })
         return response.status
       }).pipe(
@@ -181,8 +184,9 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
 
   const provision = (input: ChatAcquireInput) =>
     Effect.gen(function* () {
+      const provisioned = yield* skills.load
       for (let retry = 0; ; retry++) {
-        const failure = yield* provisionOnce(input).pipe(
+        const failure = yield* provisionOnce(input, provisioned).pipe(
           Effect.as(undefined),
           Effect.catch((reason) => Effect.succeed(reason)),
         )

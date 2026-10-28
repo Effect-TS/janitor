@@ -2,7 +2,6 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import { MULTICA_SKILL_FILES, MULTICA_SKILL_NAME } from "./MulticaSkill.ts"
 
 /**
  * Provisioning a chat sandbox (EFF-3016): the Worker posts the sandbox's
@@ -83,10 +82,13 @@ export const sandboxEnvironment = (multicaWorkspaceId: string): Record<string, s
   MULTICA_WORKSPACE_ID: multicaWorkspaceId,
 })
 
-/** What the Worker posts to `/provision`: the sandbox environment and the bundled `multica-platform` skill. */
-export const provisionRequest = (multicaWorkspaceId: string): ProvisionRequest => ({
+/** What the Worker posts to `/provision`: the sandbox environment and its skills (`Skills.ts`). */
+export const provisionRequest = (
+  multicaWorkspaceId: string,
+  skills: ReadonlyArray<Skill>,
+): ProvisionRequest => ({
   environment: sandboxEnvironment(multicaWorkspaceId),
-  skills: [{ name: MULTICA_SKILL_NAME, files: MULTICA_SKILL_FILES }],
+  skills,
 })
 
 /**
