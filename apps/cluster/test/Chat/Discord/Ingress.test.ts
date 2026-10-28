@@ -29,7 +29,7 @@ const channels: Record<string, object> = {
   [SESSION_THREAD]: { id: SESSION_THREAD, type: 11, guild_id: GUILD, parent_id: CHANNEL },
 }
 
-const makeIngress = () => {
+const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
   const handedOff: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
   /** The threads ingress started, by the channel and message they started from. */
   const threadsStarted: Array<{
@@ -49,6 +49,8 @@ const makeIngress = () => {
       const respond = (): Response => {
         if (path === "/users/@me")
           return Response.json({ id: BOT_USER, username: "janitor", bot: true })
+        if (path === `/guilds/${GUILD}/roles` && options.rolesRefused === true)
+          return Response.json({ message: "Missing Access", code: 50001 }, { status: 403 })
         if (path === `/guilds/${GUILD}/roles`)
           return Response.json([
             { id: ROLE, name: "Core", managed: false },
@@ -240,6 +242,21 @@ describe("Discord ingress", () => {
         ],
       )
     }),
+  )
+
+  it.effect(
+    "hands on a session thread's message that mentions a role when roles can't be read",
+    () =>
+      Effect.gen(function* () {
+        const ingress = makeIngress({ rolesRefused: true })
+        const handle = yield* ingress.instance
+        yield* handle(message("1261", { content: `<@&${ROLE}> hello`, mention_roles: [ROLE] }))
+
+        assert.deepStrictEqual(
+          ingress.handedOff.map(({ thread, message }) => [thread, message.id]),
+          [[{ _tag: "Discord", guild: GUILD, threadId: SESSION_THREAD }, "1261"]],
+        )
+      }),
   )
 
   it.effect("starts a thread from a channel mention, and uses an existing one", () =>

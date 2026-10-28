@@ -27,6 +27,34 @@ const posted: Array<{
   readonly attachments?: ReadonlyArray<{ readonly id: string; readonly filename: string }>
 }> = []
 
+/** The thread's history, newest first, as `GET /channels/{id}/messages` returns it. */
+const threadMessages = [
+  {
+    id: "1001",
+    type: 0,
+    channel_id: thread.threadId,
+    author: { id: "600", username: "ada", global_name: null },
+    content: "<@&301> what changed?",
+    timestamp: "2026-10-28T12:00:00.000Z",
+    mentions: [],
+    mention_roles: ["301"],
+    attachments: [],
+  },
+]
+
+/** Discord's answers to the reads the platform makes, by path. */
+const respond = (path: string): Response => {
+  if (path === "/users/@me") return Response.json({ id: "300", username: "janitor", bot: true })
+  if (path === "/guilds/100/roles")
+    return Response.json([
+      { id: "200", name: "Core", managed: false },
+      { id: "301", name: "Janitor", managed: true, tags: { bot_id: "300" } },
+    ])
+  if (path === `/channels/${thread.threadId}/messages`) return Response.json(threadMessages)
+  if (path === "/guilds/100/members/600") return Response.json({ nick: null, roles: ["200"] })
+  return Response.json({ id: "1" })
+}
+
 const services = DiscordPlatform.layer.pipe(
   Layer.provide(restLayer(Redacted.make("bot-token"))),
   Layer.provide([
@@ -63,7 +91,7 @@ const services = DiscordPlatform.layer.pipe(
               }),
             )
           }
-          return HttpClientResponse.fromWeb(request, Response.json({ id: "1" }))
+          return HttpClientResponse.fromWeb(request, respond(path))
         }),
       ),
     ),
@@ -152,4 +180,16 @@ describe("Discord platform", () => {
       }).pipe(Effect.provide(services)),
     )
   }
+
+  it.effect("reads a managed bot role mention in the history as a bot mention", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      const history = yield* platform.history(thread, 10)
+
+      assert.deepStrictEqual(
+        history.map(({ id, text, mentionsBot }) => ({ id, text, mentionsBot })),
+        [{ id: "1001", text: "what changed?", mentionsBot: true }],
+      )
+    }).pipe(Effect.provide(services)),
+  )
 })
