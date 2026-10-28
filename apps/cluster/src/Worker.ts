@@ -132,6 +132,7 @@ import {
   chatEgressSecrets,
   chatGateModel,
   chatSandboxInit,
+  chatSkillsConfig,
 } from "./Chat/Config.ts"
 import { ReplyGate } from "./Chat/Gate.ts"
 import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
@@ -149,6 +150,7 @@ import * as SlackPlatform from "./Chat/Slack/Platform.ts"
 import { ChatCredentials } from "./Chat/Egress/BotApp.ts"
 import { ChatSandboxPool, ChatSandboxPoolLive } from "./Chat/Sandbox/PoolObject.ts"
 import { ChatSandboxes } from "./Chat/Sandbox/Sandboxes.ts"
+import { ChatSkills, SkillsGitHub } from "./Chat/Sandbox/Skills.ts"
 import {
   ChatWorkspace,
   ChatWorkspaceLive,
@@ -285,6 +287,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const chatSecrets: ChatEgressSecrets = chatBot
       ? yield* chatEgressSecrets
       : { app: Option.none(), multicaToken: Option.none() }
+    // The repository the bot's skills come from, read through janitor's App;
+    // unset, the bot gets only the bundled `multica-platform` skill.
+    const chatSkills = chatBot ? yield* chatSkillsConfig : Option.none()
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),
@@ -346,6 +351,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Effect.provide(
         ChatWorkspaceLive.pipe(
           Layer.provide(ChatCredentials.layerFrom(chatSecrets)),
+          Layer.provide(
+            ChatSkills.layerFrom(chatSkills).pipe(
+              Layer.provide(SkillsGitHub.layer),
+              Layer.provide(GitHubAuthLayer),
+            ),
+          ),
           Layer.provide(FetchHttpClient.layer),
         ),
       ),

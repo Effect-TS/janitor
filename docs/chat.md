@@ -65,6 +65,27 @@ The bot acts on GitHub as its own App, separate from janitor's, and in Multica a
 
 The production App is installed on every repository of Effect-TS and Effectful-Tech, private ones included, with contents, pull requests and issues read and write, and actions, checks, commit statuses and metadata read. The development App is installed only on `Effect-TS/janitor-sandbox`, so a local run never holds write tokens for real repositories. The Janitor member uses the mailbox `tech-ops@effectful.co`. Agents the bot should trigger must be visible to workspace members or list the Janitor user.
 
+### The bot's skills
+
+Every sandbox gets the `multica-platform` skill bundled with janitor. To give the bot more, point it at a GitHub repository that holds one folder per skill under `.agents/skills`, each with a `SKILL.md` and any supporting files, for example `.agents/skills/triage/SKILL.md`. That is where `npx skills add` installs vendored skills, and custom skills go next to them. Every folder with a valid `SKILL.md` is a skill. A `skills-lock.json` at the repository's root is optional: it helps keep vendored skills up to date, and janitor never reads it. Changes merged there reach every sandbox started after the merge, with no janitor deploy. A warm sandbox keeps the skills it started with, so a session picks up a change once its sandbox is replaced. Effect's deployment sets `CHAT_SKILLS_REPOSITORY` to `Effect-TS/janitor-skills` in Infisical (project `janitor`).
+
+| Setting                  | Default            | Meaning                                            |
+| ------------------------ | ------------------ | -------------------------------------------------- |
+| `CHAT_SKILLS_REPOSITORY` | none               | The skills repository, as `owner/name`             |
+| `CHAT_SKILLS_DIRECTORY`  | `.agents/skills`   | The directory in it that holds the skill folders   |
+| `CHAT_SKILLS_REF`        | the default branch | The branch, tag or commit the skills are read from |
+
+With `CHAT_SKILLS_REPOSITORY` unset, the bot gets only `multica-platform`. A bad value fails the deploy, as other chat settings do.
+
+Janitor reads the repository through its own GitHub App, not the bot's, so install janitor's App on it. Each time a sandbox starts, janitor resolves the ref to a commit and logs the repository and the commit's SHA, so a reply can be traced back to the skills it ran with. The skills are read from GitHub once per commit and kept in memory after that.
+
+- `multica-platform` describes the CLI baked into the image, so it always wins: a folder of that name in the repository is skipped.
+- A folder without a `SKILL.md`, or with a name or file path the sandbox won't accept, is skipped. Names are lowercase letters, digits and dashes. Files directly in the skills directory are ignored.
+- The skills may hold at most 200 files and 1 MiB.
+- When the repository can't be read, for example because the App isn't installed, the repository is missing, GitHub is rate limiting, or the skills are over the cap, the sandbox gets `multica-platform` only and janitor logs a warning. Chat keeps working.
+
+Whoever can merge to the skills repository is giving instructions to a bot that acts as its GitHub App and Multica member, so protect its branch the way you protect janitor's.
+
 ### Keeping the multica CLI and skill in sync
 
 The `Bump multica CLI` workflow runs daily at 05:23 UTC and can be dispatched manually

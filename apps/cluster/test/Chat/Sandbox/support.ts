@@ -1,4 +1,5 @@
 import type { ChatEgressProps } from "../../../src/Chat/Egress/Session.ts"
+import type { ProvisionRequest } from "../../../src/Chat/Sandbox/Provision.ts"
 import type { ChatWorkspaceState } from "../../../src/Chat/Sandbox/Workspace.ts"
 import type {
   Fetcher,
@@ -10,6 +11,10 @@ export class FakeContainer implements WorkspaceContainer {
   running = false
   /** The path of every request the container got. */
   readonly requests: Array<string> = []
+  /** The body of every `/provision` request, in order. */
+  readonly provisions: Array<ProvisionRequest> = []
+  /** What `/provision` answers. */
+  provisionStatus = 204
   start() {
     this.running = true
   }
@@ -22,11 +27,16 @@ export class FakeContainer implements WorkspaceContainer {
   }
   getTcpPort(): Fetcher {
     return {
-      fetch: (input) => {
+      fetch: (input, init) => {
         const url = new URL(input instanceof Request ? input.url : String(input))
         this.requests.push(url.pathname)
+        if (url.pathname === "/provision" && typeof init?.body === "string") {
+          this.provisions.push(JSON.parse(init.body))
+        }
         return Promise.resolve(
-          new Response(null, { status: url.pathname === "/provision" ? 204 : 200 }),
+          new Response(null, {
+            status: url.pathname === "/provision" ? this.provisionStatus : 200,
+          }),
         )
       },
     }

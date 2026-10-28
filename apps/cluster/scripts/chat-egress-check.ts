@@ -35,6 +35,7 @@ import { join } from "node:path"
 import { Readable } from "node:stream"
 import * as Effect from "effect/Effect"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import { chatEgressSecrets, chatMulticaWorkspaceId } from "../src/Chat/Config.ts"
@@ -42,6 +43,7 @@ import { ChatCredentials } from "../src/Chat/Egress/BotApp.ts"
 import { makeEgressContext } from "../src/Chat/Egress/Client.ts"
 import { handleChatEgress, type GitHubTokens } from "../src/Chat/Egress/Egress.ts"
 import type { ChatEgressProps } from "../src/Chat/Egress/Session.ts"
+import { ChatSkills } from "../src/Chat/Sandbox/Skills.ts"
 import { makeChatWorkspace, type ChatWorkspaceState } from "../src/Chat/Sandbox/Workspace.ts"
 import type { Fetcher } from "../src/PullRequestReview/Sandbox/Container.ts"
 
@@ -108,7 +110,7 @@ const multicaWorkspaceId = await Effect.runPromise(chatMulticaWorkspaceId)
 
 const workspace = await Effect.runPromise(
   makeChatWorkspace(state).pipe(
-    Effect.provide(ChatCredentials.layerFrom(secrets)),
+    Effect.provide(Layer.mergeAll(ChatCredentials.layerFrom(secrets), ChatSkills.bundled)),
     Effect.provide(FetchHttpClient.layer),
   ),
 )

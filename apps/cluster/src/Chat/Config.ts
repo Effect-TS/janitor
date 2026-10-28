@@ -110,6 +110,36 @@ export const chatSandboxConfig = Config.all({
   multicaWorkspaceId: chatMulticaWorkspaceId,
 })
 
+/** The repository the chat bot's skills come from, besides the bundled `multica-platform` (EFF-3085). */
+export interface ChatSkillsSettings {
+  /** `CHAT_SKILLS_REPOSITORY`: the repository, as `owner/name`. */
+  readonly repository: string
+  /** `CHAT_SKILLS_DIRECTORY`: the directory in it holding one folder per skill. */
+  readonly directory: string
+  /** `CHAT_SKILLS_REF`: the branch, tag or commit to read; the repository's default branch when unset. */
+  readonly ref: Option.Option<string>
+}
+
+const RepositoryName = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/, { expected: "a repository as owner/name" }),
+)
+
+/**
+ * The chat skills repository settings; none until `CHAT_SKILLS_REPOSITORY` is
+ * set, and then the bot gets only `multica-platform`. Read at the Worker's
+ * init, so alchemy binds them.
+ */
+export const chatSkillsConfig: Config.Config<Option.Option<ChatSkillsSettings>> = Config.option(
+  Config.all({
+    repository: Config.schema(RepositoryName, "CHAT_SKILLS_REPOSITORY"),
+    directory: Config.NonEmptyString("CHAT_SKILLS_DIRECTORY").pipe(
+      Config.withDefault(".agents/skills"),
+      Config.map((directory) => directory.replace(/^\/+|\/+$/g, "")),
+    ),
+    ref: Config.option(Config.NonEmptyString("CHAT_SKILLS_REF")),
+  }),
+)
+
 /**
  * Reads the chat sandbox settings for the Worker's init, so alchemy binds
  * them into the deployed environment (as `pullRequestReviewInit` does).
