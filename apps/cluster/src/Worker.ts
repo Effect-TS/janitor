@@ -292,7 +292,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // unset, the bot gets only the bundled `multica-platform` skill.
     const chatSkills: ChatSkillsSettings = chatBot
       ? yield* chatSkillsConfig
-      : { repository: Option.none(), directory: "skills", ref: Option.none() }
+      : { repository: Option.none(), directory: ".agents/skills", ref: Option.none() }
     const cacheTtl = yield* aiCacheTtlConfig
     const inputBudget = yield* Config.schema(
       Schema.Int.check(Schema.isBetween({ minimum: 4000, maximum: 64000 })),

@@ -66,12 +66,12 @@ The production App is installed on every repository of Effect-TS and Effectful-T
 
 ### The bot's skills
 
-Every sandbox gets the `multica-platform` skill bundled with janitor. To give the bot more, point it at a GitHub repository that holds one folder per skill, each with a `SKILL.md` and any supporting files, the same layout as `.agents/skills`. Changes merged there reach the next sandbox provisioned, with no janitor deploy. Effect's deployment sets `CHAT_SKILLS_REPOSITORY` to `Effect-TS/janitor-skills` in Infisical (project `janitor`).
+Every sandbox gets the `multica-platform` skill bundled with janitor. To give the bot more, point it at a GitHub repository that holds one folder per skill under `.agents/skills`, each with a `SKILL.md` and any supporting files. That is the layout janitor's own repository uses, with vendored skills pinned by hash in `skills-lock.json`. Changes merged there reach the next sandbox provisioned, with no janitor deploy. Effect's deployment sets `CHAT_SKILLS_REPOSITORY` to `Effect-TS/janitor-skills` in Infisical (project `janitor`).
 
 | Setting                  | Default            | Meaning                                            |
 | ------------------------ | ------------------ | -------------------------------------------------- |
 | `CHAT_SKILLS_REPOSITORY` | none               | The skills repository, as `owner/name`             |
-| `CHAT_SKILLS_DIRECTORY`  | `skills`           | The directory in it that holds the skill folders   |
+| `CHAT_SKILLS_DIRECTORY`  | `.agents/skills`   | The directory in it that holds the skill folders   |
 | `CHAT_SKILLS_REF`        | the default branch | The branch, tag or commit the skills are read from |
 
 With `CHAT_SKILLS_REPOSITORY` unset, the bot gets only `multica-platform`. A bad value fails the deploy, as other chat settings do.

@@ -117,7 +117,7 @@ const RepositoryName = Schema.String.check(
 export const chatSkillsConfig: Config.Config<ChatSkillsSettings> = Config.all({
   repository: Config.option(Config.schema(RepositoryName, "CHAT_SKILLS_REPOSITORY")),
   directory: Config.NonEmptyString("CHAT_SKILLS_DIRECTORY").pipe(
-    Config.withDefault("skills"),
+    Config.withDefault(".agents/skills"),
     Config.map((directory) => directory.replace(/^\/+|\/+$/g, "")),
   ),
   ref: Config.option(Config.NonEmptyString("CHAT_SKILLS_REF")),

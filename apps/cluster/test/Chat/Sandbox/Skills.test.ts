@@ -17,8 +17,8 @@ const SHA = "d".repeat(40)
 const MULTICA = { name: MULTICA_SKILL_NAME, files: MULTICA_SKILL_FILES }
 const TRIAGE = "---\nname: triage\ndescription: Triage new issues\n---\n"
 const TRIAGE_FILES: ReadonlyArray<RepositoryFile> = [
-  { path: "skills/triage/SKILL.md", content: TRIAGE },
-  { path: "skills/triage/labels/area.md", content: "area labels" },
+  { path: ".agents/skills/triage/SKILL.md", content: TRIAGE },
+  { path: ".agents/skills/triage/labels/area.md", content: "area labels" },
 ]
 const TRIAGE_SKILL = {
   name: "triage",
@@ -39,7 +39,9 @@ const github = (
         ? Effect.succeed(SHA)
         : Effect.fail(new SkillsReadError({ reason: "not found" })),
     readDirectory: (repository, sha, path) =>
-      Effect.succeed(repository === REPOSITORY && sha === SHA && path === "skills" ? files : []),
+      Effect.succeed(
+        repository === REPOSITORY && sha === SHA && path === ".agents/skills" ? files : [],
+      ),
     ...overrides,
   })
 
@@ -116,7 +118,7 @@ describe("chat sandbox skills", () => {
         configured,
         github([
           ...TRIAGE_FILES,
-          { path: "skills/triage/big.md", content: "x".repeat(MAX_SKILLS_BYTES) },
+          { path: ".agents/skills/triage/big.md", content: "x".repeat(MAX_SKILLS_BYTES) },
         ]),
       )
       assert.deepStrictEqual(skills, [MULTICA])
@@ -130,10 +132,10 @@ describe("chat sandbox skills", () => {
         configured,
         github([
           ...TRIAGE_FILES,
-          { path: "skills/README.md", content: "the skills" },
-          { path: "skills/multica-platform/SKILL.md", content: "an older CLI" },
-          { path: "skills/Bad_Name/SKILL.md", content: "bad name" },
-          { path: "skills/notes/README.md", content: "no SKILL.md" },
+          { path: ".agents/skills/README.md", content: "the skills" },
+          { path: ".agents/skills/multica-platform/SKILL.md", content: "an older CLI" },
+          { path: ".agents/skills/Bad_Name/SKILL.md", content: "bad name" },
+          { path: ".agents/skills/notes/README.md", content: "no SKILL.md" },
         ]),
       )
       assert.deepStrictEqual(skills, [MULTICA, TRIAGE_SKILL])
