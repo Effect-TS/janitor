@@ -151,26 +151,35 @@ const make = Effect.gen(function* () {
       flags: SUPPRESS_EMBEDS,
     })
 
+  const drop = (reason: string) =>
+    Effect.logDebug("Discord ingress dropped a message").pipe(Effect.annotateLogs({ reason }))
+
   /** Hands the message on, or drops it; fails only with what a replay could fix. */
   const route = Effect.fnUntraced(function* (message: Discord.GatewayMessageCreateDispatchData) {
     const bot = yield* botUserId
-    if (message.author.id === bot || !MESSAGE_TYPES.has(message.type)) return
+    if (message.author.id === bot) return yield* drop("the bot's own message")
+    if (!MESSAGE_TYPES.has(message.type)) return yield* drop(`message type ${message.type}`)
     if (message.guild_id === undefined) {
       if (message.author.bot !== true) yield* directMessage(message)
+      else yield* drop("a direct message from a bot")
       return
     }
+    if (message.guild_id !== config.guildId) return yield* drop("another guild")
     // Webhooks and system messages have no member.
-    if (message.guild_id !== config.guildId || message.member === undefined) return
+    if (message.member === undefined) return yield* drop("no member")
     const chatMessage = toChatMessage(message, message.member, config.roleId, bot)
     // Only an admitted user's mention starts a session.
     const starts = chatMessage.mentionsBot && chatMessage.author.class === "admitted"
+    const notStarting = chatMessage.mentionsBot ? "the author lacks the role" : "no bot mention"
     const type = yield* channelType(message.channel_id)
     let thread: ChatThread
     if (THREAD_TYPES.has(type)) {
       thread = { _tag: "Discord", guild: message.guild_id, threadId: message.channel_id }
-      if (!starts && !(yield* sessions.exists(thread))) return
+      if (!starts && !(yield* sessions.exists(thread)))
+        return yield* drop(`a thread with no session, and ${notStarting}`)
     } else {
-      if (!starts || !THREAD_PARENT_TYPES.has(type)) return
+      if (!starts) return yield* drop(notStarting)
+      if (!THREAD_PARENT_TYPES.has(type)) return yield* drop(`channel type ${type}`)
       thread = {
         _tag: "Discord",
         guild: message.guild_id,
@@ -189,7 +198,7 @@ const make = Effect.gen(function* () {
   return DiscordIngress.of({
     handle: (message) =>
       Effect.gen(function* () {
-        if (yield* seen.has(message.id)) return
+        if (yield* seen.has(message.id)) return yield* drop("already handled")
         yield* route(message).pipe(
           Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
           Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
