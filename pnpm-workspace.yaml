@@ -48,6 +48,7 @@ catalog:
   alchemy: 2.0.0-beta.80
   "@distilled.cloud/cloudflare": 1.0.0-rc.13
   clanka: 0.13.2
+  dfx: 1.1.1
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@667feb75dcf5259c4d9eafe51476487b18b8de01
   happy-dom: ^20.0.0
