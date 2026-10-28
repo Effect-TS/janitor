@@ -1,7 +1,7 @@
 import type { GitHubWebhookDeliveryId } from "@janitor/domain/GitHub/Id"
 import { GitHubWebhookEnvelopeV1 } from "@janitor/domain/GitHub/WebhookEnvelope"
 import type { RuntimeContext } from "alchemy/RuntimeContext"
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"

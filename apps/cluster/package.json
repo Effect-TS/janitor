@@ -11,6 +11,9 @@
     "graphql:check": "graphqlgen --check"
   },
   "dependencies": {
+    "@alchemy.run/cloudflare": "catalog:",
+    "@alchemy.run/docker": "catalog:",
+    "@alchemy.run/sql": "catalog:",
     "@effect/ai-openai-compat": "catalog:",
     "@effect/ai-openrouter": "catalog:",
     "@effect/platform-cloudflare": "catalog:",

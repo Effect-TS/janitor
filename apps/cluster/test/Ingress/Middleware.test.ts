@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as RuntimeContext from "alchemy/RuntimeContext"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -207,6 +207,8 @@ describe("AccessMiddleware", () => {
     waitUntil: () => Effect.void,
     passThroughOnException: () => Effect.void,
     cache: { purge: () => Effect.die("unused") },
+    props: Effect.succeed({}),
+    exports: {},
     access: Effect.succeed(
       access === undefined
         ? undefined
@@ -523,6 +525,8 @@ describe("MembershipMiddleware", () => {
     waitUntil: () => Effect.void,
     passThroughOnException: () => Effect.void,
     cache: { purge: () => Effect.die("unused") },
+    props: Effect.succeed({}),
+    exports: {},
     access: Effect.succeed(
       access === undefined
         ? undefined

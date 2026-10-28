@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Effect from "effect/Effect"
 import * as HttpBody from "effect/http/HttpBody"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
@@ -17,11 +17,9 @@ export class TailnetEgress extends Cloudflare.DurableObject<TailnetEgress, {}>()
 
 export const TailnetEgressLive = TailnetEgress.make(
   Effect.gen(function* () {
-    // Attaches the container application to this class. The handle alchemy
-    // would start is not used: the egress drives `ctx.container` itself.
-    yield* (TailnetEgressContainer as unknown as Record<string, Effect.Effect<unknown>>)[
-      "~alchemy/Container/Binding"
-    ]!
+    // Attaches the container application to this class. The returned handle
+    // is not used: the egress drives `ctx.container` itself.
+    yield* TailnetEgressContainer
     const state = yield* Cloudflare.DurableObjectState
 
     return Effect.gen(function* () {

@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as Effect from "effect/Effect"
 import * as HttpBody from "effect/http/HttpBody"
 import * as HttpServerRequest from "effect/http/HttpServerRequest"
@@ -54,12 +54,9 @@ export const ChatWorkspaceLive = ChatWorkspace.make(
     // Attaches the container application to this class, only while the chat
     // bot is on: off, no chat image is built and no application deployed.
     // The class itself stays declared, so turning the bot off never takes a
-    // migration that deletes its storage. The handle alchemy would start is
-    // not used: the workspace drives `ctx.container` itself.
-    if (yield* chatBotGate.pipe(Effect.orElseSucceed(() => false)))
-      yield* (ChatSandbox as unknown as Record<string, Effect.Effect<unknown>>)[
-        "~alchemy/Container/Binding"
-      ]!
+    // migration that deletes its storage. The returned handle is not used:
+    // the workspace drives `ctx.container` itself.
+    if (yield* chatBotGate.pipe(Effect.orElseSucceed(() => false))) yield* ChatSandbox
     const state = yield* Cloudflare.DurableObjectState
     const credentials = yield* ChatCredentials
 

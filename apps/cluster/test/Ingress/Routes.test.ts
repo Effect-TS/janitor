@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as RuntimeContext from "alchemy/RuntimeContext"
 import { Stack } from "alchemy/Stack"
 import { Stage } from "alchemy/Stage"
@@ -70,6 +70,8 @@ const WorkerLayer = Layer.mergeAll(
     waitUntil: () => Effect.void,
     passThroughOnException: () => Effect.void,
     cache: { purge: () => Effect.die("unused") },
+    props: Effect.succeed({}),
+    exports: {},
     access: Effect.succeed(undefined),
   }),
   // The webhook routes bind a queue and a bucket when the layer is built;

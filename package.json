@@ -7,6 +7,10 @@
     "prepare": "effect-tsgo patch --oxlint"
   },
   "devDependencies": {
+    "@alchemy.run/cloudflare": "catalog:",
+    "@alchemy.run/docker": "catalog:",
+    "@alchemy.run/github": "catalog:",
+    "@alchemy.run/infisical": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",
     "@effect/tsgo": "catalog:",

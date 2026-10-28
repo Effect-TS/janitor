@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare"
+import * as Cloudflare from "@alchemy.run/cloudflare"
 
 /**
  * The PR review sandbox: clanka's executor and the checkout, one container
