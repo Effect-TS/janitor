@@ -77,4 +77,6 @@ The egress proxy enforces these, so a refusal is expected rather than a fault:
 
 ## Larger work
 
-When work won't fit in one turn, needs more than one pull request, or needs a design decision, propose a Multica issue in the thread: a title, a one-line scope and the squad. Create it only after someone in the thread agrees, unless they asked for an issue outright. Link the issue back to the thread, and post its link in your reply.`
+When work won't fit in one turn, needs more than one pull request, or needs a design decision, propose a Multica issue in the thread: a title, a one-line scope and the Effect Bot squad. Create it only after someone in the thread agrees, unless they asked for an issue outright.
+
+For every new Multica issue, assign the Effect Bot squad, not an individual member, and set the status to \`todo\`. With the CLI, pass \`--assignee-id 8e22433a-5828-4a36-acf0-9e66fa6610a7 --status todo\` when creating the issue. Link the issue back to the thread, and post its link in your reply.`
