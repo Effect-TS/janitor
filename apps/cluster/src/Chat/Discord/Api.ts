@@ -43,6 +43,37 @@ export const rememberBotUserId = (
   )
 }
 
+/**
+ * The bot's managed role, identified by Discord's tag rather than its display
+ * name. Only a mention of it needs the role, so when Discord refuses to list
+ * the roles there is none for now: a mention of the bot user still works, and
+ * the next read asks again.
+ */
+export const rememberBotRoleId = (rest: DiscordREST["Service"], guildId: string) => {
+  let roleId: string | undefined
+  const unreadRoles = (error: DiscordRESTError) =>
+    Effect.logWarning("Discord refused to list the guild's roles").pipe(
+      Effect.annotateLogs({ reason: error.message }),
+      Effect.as(undefined),
+    )
+  return (
+    botUserId: string,
+  ): Effect.Effect<
+    string | undefined,
+    Exclude<DiscordRESTError, { readonly _tag: "ErrorResponse" | "RatelimitedResponse" }>
+  > =>
+    Effect.suspend(() =>
+      roleId !== undefined
+        ? Effect.succeed(roleId)
+        : Effect.map(
+            rest.listGuildRoles(guildId),
+            (roles) => (roleId = roles.find((role) => role.tags?.bot_id === botUserId)?.id),
+          ).pipe(
+            Effect.catchTags({ ErrorResponse: unreadRoles, RatelimitedResponse: unreadRoles }),
+          ),
+    )
+}
+
 /** Discord's error code for a refusal, such as 10003 for an unknown channel. */
 export const errorCode = (error: DiscordRESTError): number | undefined =>
   error._tag === "ErrorResponse" ? error.data.code : undefined
@@ -73,6 +104,7 @@ export type DiscordMessage = Pick<
 > & {
   readonly author: Discord.UserResponse
   readonly mentions: ReadonlyArray<{ readonly id: string }>
+  readonly mention_roles: ReadonlyArray<string>
 }
 
 /** The author's membership: `member` on a gateway message, a guild member read over REST, or none. */
@@ -94,25 +126,31 @@ export const toChatMessage = (
   member: DiscordMember | undefined,
   roleId: string,
   botUserId: string,
-): ChatMessage => ({
-  id: message.id,
-  author: {
-    id: message.author.id,
-    name: member?.nick ?? message.author.global_name ?? message.author.username,
-    class:
-      message.author.bot === true
-        ? "bot"
-        : member?.roles?.includes(roleId) === true
-          ? "admitted"
-          : "outsider",
-  },
-  text: message.content.replace(botMention(botUserId), "").trim(),
-  mentionsBot: message.mentions.some((user) => user.id === botUserId),
-  sentAt: DateTime.makeUnsafe(message.timestamp),
-  attachments: message.attachments.map((attachment) => ({
-    id: attachmentId(message.channel_id, message.id, attachment.id),
-    name: attachment.filename,
-    mediaType: attachment.content_type ?? "application/octet-stream",
-    size: attachment.size,
-  })),
-})
+  botRoleId?: string,
+): ChatMessage => {
+  const mentionsBotRole = botRoleId !== undefined && message.mention_roles.includes(botRoleId)
+  return {
+    id: message.id,
+    author: {
+      id: message.author.id,
+      name: member?.nick ?? message.author.global_name ?? message.author.username,
+      class:
+        message.author.bot === true
+          ? "bot"
+          : member?.roles?.includes(roleId) === true
+            ? "admitted"
+            : "outsider",
+    },
+    text: (mentionsBotRole ? message.content.replaceAll(`<@&${botRoleId}>`, "") : message.content)
+      .replace(botMention(botUserId), "")
+      .trim(),
+    mentionsBot: message.mentions.some((user) => user.id === botUserId) || mentionsBotRole,
+    sentAt: DateTime.makeUnsafe(message.timestamp),
+    attachments: message.attachments.map((attachment) => ({
+      id: attachmentId(message.channel_id, message.id, attachment.id),
+      name: attachment.filename,
+      mediaType: attachment.content_type ?? "application/octet-stream",
+      size: attachment.size,
+    })),
+  }
+}

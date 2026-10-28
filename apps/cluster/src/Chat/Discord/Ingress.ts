@@ -10,6 +10,7 @@ import { sessionClient } from "../Session.ts"
 import {
   errorCode,
   MESSAGE_TYPES,
+  rememberBotRoleId,
   rememberBotUserId,
   SUPPRESS_EMBEDS,
   THREAD_PARENT_TYPES,
@@ -119,6 +120,7 @@ const make = Effect.gen(function* () {
   const rest = yield* DiscordREST
 
   const botUserId = rememberBotUserId(rest)
+  const botRoleId = rememberBotRoleId(rest, config.guildId)
   /** Channel types never change, so each is looked up once per instance. */
   const channelTypes = new Map<string, number>()
   const channelType = (channelId: string) =>
@@ -169,7 +171,13 @@ const make = Effect.gen(function* () {
     if (message.guild_id !== config.guildId) return yield* drop("another guild")
     // Webhooks and system messages have no member.
     if (message.member === undefined) return yield* drop("no member")
-    const chatMessage = toChatMessage(message, message.member, config.roleId, bot)
+    const chatMessage = toChatMessage(
+      message,
+      message.member,
+      config.roleId,
+      bot,
+      message.mention_roles.length > 0 ? yield* botRoleId(bot) : undefined,
+    )
     // Only an admitted user's mention starts a session.
     const starts = chatMessage.mentionsBot && chatMessage.author.class === "admitted"
     const notStarting = chatMessage.mentionsBot ? "the author lacks the role" : "no bot mention"

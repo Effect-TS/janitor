@@ -12,6 +12,7 @@ import {
   errorCode,
   MESSAGE_TYPES,
   parseAttachmentId,
+  rememberBotRoleId,
   rememberBotUserId,
   SUPPRESS_EMBEDS,
   toChatMessage,
@@ -52,6 +53,7 @@ const make = Effect.gen(function* () {
   const http = yield* HttpClient.HttpClient
 
   const botUserId = rememberBotUserId(rest)
+  const botRoleId = rememberBotRoleId(rest, config.guildId)
 
   const post = (
     thread: ChatThread,
@@ -96,6 +98,9 @@ const make = Effect.gen(function* () {
         before = page.at(-1)!.id
       }
       messages.reverse()
+      const managedRole = messages.some((message) => message.mention_roles.length > 0)
+        ? yield* botRoleId(bot)
+        : undefined
       // REST messages carry no member, so each person's roles are read once.
       const people = new Set(
         messages.filter((message) => message.author.bot !== true).map(({ author }) => author.id),
@@ -115,7 +120,7 @@ const make = Effect.gen(function* () {
         ),
       )
       return messages.map((message) =>
-        toChatMessage(message, members.get(message.author.id), config.roleId, bot),
+        toChatMessage(message, members.get(message.author.id), config.roleId, bot, managedRole),
       )
     }).pipe(Effect.mapError(platformError))
 

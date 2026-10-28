@@ -18,6 +18,7 @@ import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
 const GUILD = "100"
 const ROLE = "200"
 const BOT_USER = "300"
+const BOT_ROLE = "301"
 const CHANNEL = "400"
 /** A thread under `CHANNEL` that has a session. */
 const SESSION_THREAD = "500"
@@ -28,7 +29,7 @@ const channels: Record<string, object> = {
   [SESSION_THREAD]: { id: SESSION_THREAD, type: 11, guild_id: GUILD, parent_id: CHANNEL },
 }
 
-const makeIngress = () => {
+const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
   const handedOff: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
   /** The threads ingress started, by the channel and message they started from. */
   const threadsStarted: Array<{
@@ -48,6 +49,13 @@ const makeIngress = () => {
       const respond = (): Response => {
         if (path === "/users/@me")
           return Response.json({ id: BOT_USER, username: "janitor", bot: true })
+        if (path === `/guilds/${GUILD}/roles` && options.rolesRefused === true)
+          return Response.json({ message: "Missing Access", code: 50001 }, { status: 403 })
+        if (path === `/guilds/${GUILD}/roles`)
+          return Response.json([
+            { id: ROLE, name: "Core", managed: false },
+            { id: BOT_ROLE, name: "Janitor", managed: true, tags: { bot_id: BOT_USER } },
+          ])
         const thread = /^\/channels\/(\d+)\/messages\/(\d+)\/threads$/.exec(path)
         if (thread !== null && request.method === "POST") {
           threadsStarted.push({ channel: thread[1]!, message: thread[2]!, body })
@@ -203,6 +211,65 @@ describe("Discord ingress", () => {
       assert.deepStrictEqual(
         ingress.handedOff.map(({ message }) => message.id),
         ["1101", "1102"],
+      )
+    }),
+  )
+
+  it.effect("starts a thread from a managed bot role mention and strips it from the message", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress()
+      const handle = yield* ingress.instance
+      yield* handle(
+        message("1251", {
+          channel_id: CHANNEL,
+          content: `<@&${BOT_ROLE}> hello`,
+          mention_roles: [BOT_ROLE],
+        }),
+      )
+
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ thread, message }) => ({
+          thread,
+          mentionsBot: message.mentionsBot,
+          text: message.text,
+        })),
+        [
+          {
+            thread: { _tag: "Discord", guild: GUILD, threadId: "1251" },
+            mentionsBot: true,
+            text: "hello",
+          },
+        ],
+      )
+    }),
+  )
+
+  it.effect(
+    "hands on a session thread's message that mentions a role when roles can't be read",
+    () =>
+      Effect.gen(function* () {
+        const ingress = makeIngress({ rolesRefused: true })
+        const handle = yield* ingress.instance
+        yield* handle(message("1261", { content: `<@&${ROLE}> hello`, mention_roles: [ROLE] }))
+
+        assert.deepStrictEqual(
+          ingress.handedOff.map(({ thread, message }) => [thread, message.id]),
+          [[{ _tag: "Discord", guild: GUILD, threadId: SESSION_THREAD }, "1261"]],
+        )
+      }),
+  )
+
+  it.effect("keeps the bot role's mention syntax that doesn't mention the role", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress()
+      const handle = yield* ingress.instance
+      // Discord doesn't parse a mention in inline code.
+      const content = `<@&${ROLE}> the bot's role is \`<@&${BOT_ROLE}>\``
+      yield* handle(message("1271", { content, mention_roles: [ROLE] }))
+
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.text, message.mentionsBot]),
+        [[content, false]],
       )
     }),
   )
