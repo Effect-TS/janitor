@@ -1,3 +1,71 @@
+diff --git a/lib/Containers/ContainerBundle.js b/lib/Containers/ContainerBundle.js
+index 3d321c6acd07a7c1cc5da8f9a963925ac0ce5b73..77b72c0844cf38d844c0eec1cfa23afae5107bc0 100644
+--- a/lib/Containers/ContainerBundle.js
++++ b/lib/Containers/ContainerBundle.js
+@@ -165,12 +165,13 @@ export const buildFinalDockerfile = (envPreamble, runtime, external = [], autoIn
+         "",
+         "WORKDIR /app",
+         ...(installStep ? [installStep, ""] : []),
+-        "COPY index.mjs /app/index.mjs",
++        // Linked copies can reuse registry base layers without pulling them locally.
++        "COPY --link index.mjs /app/index.mjs",
+         // Copy any additional rolldown chunks (`chunk-XXX.js`,
+         // `BunServices-YYY.js`, …). The glob matches zero or more files;
+         // non-trivial bundles always emit at least one chunk, minimal
+         // bundles emit none and the COPY no-ops.
+-        "COPY *.js /app/",
++        "COPY --link *.js /app/",
+         "EXPOSE 3000",
+         `ENTRYPOINT ["${runtimeBin}", "/app/index.mjs"]`,
+         "",
+diff --git a/lib/Containers/ContainerProvider.js b/lib/Containers/ContainerProvider.js
+index a426d605e2545a516269f3a98d8ed233daeead20..ed643985460436b243a596a4d07609092b132fb4 100644
+--- a/lib/Containers/ContainerProvider.js
++++ b/lib/Containers/ContainerProvider.js
+@@ -443,7 +443,7 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+                 platform,
+                 file: build.dockerfile,
+             }, session, credentials)
+-                .pipe(retryContainerPublication);
++                .pipe(Effect.timeout("3 minutes"), retryContainerPublication);
+         }
+         else {
+             // Effect-native program: materialize the generated Dockerfile and
+@@ -470,7 +470,7 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+                 context: contextDir,
+                 platform,
+             }, session, credentials)
+-                .pipe(retryContainerPublication);
++                .pipe(Effect.timeout("3 minutes"), retryContainerPublication);
+         }
+         // Resolve the pushed manifest digest from the registry itself rather
+         // than scraping `docker push` output: one mechanism for every image
+diff --git a/lib/Containers/ContainerPublication.d.ts b/lib/Containers/ContainerPublication.d.ts
+index 2184f3fb9e3ccb5f3a485fbbcffc14a6f44fb60d..bb7a5cf3a5c06636f4ad1ab6f63199c2dbf8cb6f 100644
+--- a/lib/Containers/ContainerPublication.d.ts
++++ b/lib/Containers/ContainerPublication.d.ts
+@@ -1,4 +1,5 @@
+ import type { DockerImagePublicationError } from "@alchemy.run/docker/RegistryError";
++import type { TimeoutError } from "effect/Cause";
+ import * as Effect from "effect/Effect";
+-export declare const retryContainerPublication: <A, R>(publication: Effect.Effect<A, DockerImagePublicationError, R>) => Effect.Effect<A, DockerImagePublicationError, R>;
++export declare const retryContainerPublication: <A, E extends DockerImagePublicationError | TimeoutError, R>(publication: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+ //# sourceMappingURL=ContainerPublication.d.ts.map
+diff --git a/lib/Containers/ContainerPublication.js b/lib/Containers/ContainerPublication.js
+index 650bc53ffb269f006591040066414080e1ea5d90..30098c2a57ccbd5a1ff8c5d42ed2a99d350a2e35 100644
+--- a/lib/Containers/ContainerPublication.js
++++ b/lib/Containers/ContainerPublication.js
+@@ -1,7 +1,9 @@
+ import * as Effect from "effect/Effect";
+ import * as Schedule from "effect/Schedule";
+ export const retryContainerPublication = (publication) => Effect.retry(publication, {
+-    while: (error) => error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
++    while: (error) => error._tag === "DockerRegistryBlobUnknown" ||
++        error._tag === "DockerRegistryUnavailable" ||
++        error._tag === "TimeoutError",
+     schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
+ });
+ //# sourceMappingURL=ContainerPublication.js.map
 diff --git a/lib/Workers/Sources/Rolldown.js b/lib/Workers/Sources/Rolldown.js
 index af8e61b835b214d6623a8757f431c71788071fac..2771da63bcddd25e989630b3399f0509f5180348 100644
 --- a/lib/Workers/Sources/Rolldown.js
@@ -30,6 +98,71 @@ index af8e61b835b214d6623a8757f431c71788071fac..2771da63bcddd25e989630b3399f0509
  // export class proxy stubs for Durable Objects and Workflows
  ${[
          ...(hasDoClasses
+diff --git a/src/Containers/ContainerBundle.ts b/src/Containers/ContainerBundle.ts
+index 0160e8576bcafc2fdf15b87b97c686ea1638bb10..5f40e9fb034690424d7d23115bd418cb9e376f31 100644
+--- a/src/Containers/ContainerBundle.ts
++++ b/src/Containers/ContainerBundle.ts
+@@ -220,12 +220,13 @@ export const buildFinalDockerfile = (
+     "",
+     "WORKDIR /app",
+     ...(installStep ? [installStep, ""] : []),
+-    "COPY index.mjs /app/index.mjs",
++    // Linked copies can reuse registry base layers without pulling them locally.
++    "COPY --link index.mjs /app/index.mjs",
+     // Copy any additional rolldown chunks (`chunk-XXX.js`,
+     // `BunServices-YYY.js`, …). The glob matches zero or more files;
+     // non-trivial bundles always emit at least one chunk, minimal
+     // bundles emit none and the COPY no-ops.
+-    "COPY *.js /app/",
++    "COPY --link *.js /app/",
+     "EXPOSE 3000",
+     `ENTRYPOINT ["${runtimeBin}", "/app/index.mjs"]`,
+     "",
+diff --git a/src/Containers/ContainerProvider.ts b/src/Containers/ContainerProvider.ts
+index 3ab6a0d153e0f51b7cf79d653e3be922a6b3ae1b..5736b939997b08658c8a82d41b62e8c1093421b0 100644
+--- a/src/Containers/ContainerProvider.ts
++++ b/src/Containers/ContainerProvider.ts
+@@ -610,7 +610,7 @@ export const LiveContainerProvider = () =>
+               session,
+               credentials,
+             )
+-            .pipe(retryContainerPublication);
++            .pipe(Effect.timeout("3 minutes"), retryContainerPublication);
+         } else {
+           // Effect-native program: materialize the generated Dockerfile and
+           // bundled chunks into a stable staging dir, then build.
+@@ -649,7 +649,7 @@ export const LiveContainerProvider = () =>
+               session,
+               credentials,
+             )
+-            .pipe(retryContainerPublication);
++            .pipe(Effect.timeout("3 minutes"), retryContainerPublication);
+         }
+ 
+         // Resolve the pushed manifest digest from the registry itself rather
+diff --git a/src/Containers/ContainerPublication.ts b/src/Containers/ContainerPublication.ts
+index f18e8249309368db0205122c1828b5bef508edba..c9ca1421b30c5d70a03d4cc4f6943d23ee8b11a7 100644
+--- a/src/Containers/ContainerPublication.ts
++++ b/src/Containers/ContainerPublication.ts
+@@ -1,12 +1,15 @@
+ import type { DockerImagePublicationError } from "@alchemy.run/docker/RegistryError";
++import type { TimeoutError } from "effect/Cause";
+ import * as Effect from "effect/Effect";
+ import * as Schedule from "effect/Schedule";
+ 
+-export const retryContainerPublication = <A, R>(
+-  publication: Effect.Effect<A, DockerImagePublicationError, R>,
++export const retryContainerPublication = <A, E extends DockerImagePublicationError | TimeoutError, R>(
++  publication: Effect.Effect<A, E, R>,
+ ) =>
+   Effect.retry(publication, {
+     while: (error) =>
+-      error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
++      error._tag === "DockerRegistryBlobUnknown" ||
++      error._tag === "DockerRegistryUnavailable" ||
++      error._tag === "TimeoutError",
+     schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
+   });
 diff --git a/src/Workers/Sources/Rolldown.ts b/src/Workers/Sources/Rolldown.ts
 index efb0935ecdf910271eddd79fc3ace6ffb54e5a2a..0d4b7e44edea87cac0f614a3ef886d4d9b5a92e5 100644
 --- a/src/Workers/Sources/Rolldown.ts
