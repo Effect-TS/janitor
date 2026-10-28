@@ -29,10 +29,11 @@ import { ChatSkills } from "./Skills.ts"
  *
  * - `acquire` finds the session's warm container still running and
  *   provisions it again, or starts a fresh one without internet, routes its
- *   egress to the `ChatEgress` entrypoint, and provisions it. Either way the
- *   sandbox gets the skills `ChatSkills` loads at that moment, and the
- *   container is held with the warm window as its inactivity timeout, so an
- *   abandoned sandbox stops on its own. Then the turn's GitHub tokens are
+ *   egress to the `ChatEgress` entrypoint, and provisions it. A fresh
+ *   container gets the skills `ChatSkills` loads at that moment; a warm one
+ *   keeps the skills it was first given. Either way the container is held
+ *   with the warm window as its inactivity timeout, so an abandoned sandbox
+ *   stops on its own. Then the turn's GitHub tokens are
  *   minted (EFF-3017).
  * - `release` ends a turn, revokes its tokens, and touches the container, so
  *   the warm window starts at the release.
@@ -112,6 +113,8 @@ const GENERATION_KEY = "generation"
 const WARM_FOR_KEY = "warmFor"
 /** The grant whose turn holds the sandbox; cleared at release. */
 const ACTIVE_KEY = "activeGeneration"
+/** The running container was provisioned with its skills; cleared when a new one starts. */
+const SKILLED_KEY = "skilled"
 
 const decodeEgressQuery = Schema.decodeUnknownEffect(Schema.fromJsonString(EgressQuery))
 
@@ -182,9 +185,10 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
         return yield* Effect.fail(`provisioning answered ${status}`)
     })
 
-  const provision = (input: ChatAcquireInput) =>
+  /** Provisions the container; one that has its skills keeps them, so none are loaded or sent. */
+  const provision = (input: ChatAcquireInput, skilled: boolean) =>
     Effect.gen(function* () {
-      const provisioned = yield* skills.load
+      const provisioned = skilled ? [] : yield* skills.load
       for (let retry = 0; ; retry++) {
         const failure = yield* provisionOnce(input, provisioned).pipe(
           Effect.as(undefined),
@@ -214,9 +218,15 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
         await state.storage.put(WARM_FOR_KEY, input.warmFor)
       }).pipe(Effect.orDie)
       const warm = !input.fresh && container.running && (yield* control.health)
-      if (!warm) yield* control.start(Duration.millis(input.startBudget))
+      // A warm container whose first provisioning failed never got its skills.
+      const skilled = warm && (yield* stored<boolean>(SKILLED_KEY)) === true
+      if (!warm) {
+        yield* promise(() => state.storage.put(SKILLED_KEY, false)).pipe(Effect.orDie)
+        yield* control.start(Duration.millis(input.startBudget))
+      }
       yield* control.hold(Duration.millis(input.warmFor))
-      yield* provision(input)
+      yield* provision(input, skilled)
+      yield* promise(() => state.storage.put(SKILLED_KEY, true)).pipe(Effect.orDie)
       yield* promise(() => state.storage.put(ACTIVE_KEY, input.generation)).pipe(Effect.orDie)
       yield* egress.start(input.generation)
       return { fresh: !warm }
