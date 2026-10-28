@@ -17,6 +17,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Node normally downloads in ~1s; fail fast on a stalled stream so vp retries
+  # instead of hanging until the job timeout.
+  VP_DOWNLOAD_TIMEOUT: "10"
+
 concurrency:
   group: deploy-production
   cancel-in-progress: false
