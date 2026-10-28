@@ -1,4 +1,5 @@
 import type { Attribute, ChildAttribute, Html, HtmlBuilder } from "foldkit/html"
+import * as Button from "./button"
 import { cn } from "@/lib/utils"
 
 /** Page chrome from DESIGN.md § Layout: a scrolling main column at 24px
@@ -124,3 +125,29 @@ export const footerStrip = <M>(
     ],
     [h.span([], left), h.span([h.Class("ml-auto")], right)],
   )
+
+/** Why the page's last load failed, with a retry; nothing while there is no error. */
+export const errorStrip = <M>(
+  h: HtmlBuilder<M>,
+  config: {
+    readonly error: string | null
+    readonly onRetry: M
+    /** A load is in flight, so the retry waits. */
+    readonly isLoading: boolean
+  },
+): Html =>
+  config.error === null
+    ? h.empty
+    : h.div(
+        [h.Role("alert"), h.Class("flex shrink-0 items-center justify-between gap-3 text-body-sm")],
+        [
+          h.span([h.Class("text-destructive")], [config.error]),
+          Button.view(h, {
+            label: "Retry",
+            variant: "secondary",
+            size: "sm",
+            onClick: config.onRetry,
+            isDisabled: config.isLoading,
+          }),
+        ],
+      )

@@ -15,10 +15,10 @@ import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
 import type * as Update from "foldkit/update"
-import { Download, RotateCw, Trash2 } from "lucide"
+import { RotateCw, Trash2 } from "lucide"
 import { channelLabel, platformLabel, statusChip, threadLink, tokens } from "./chat-sessions"
 import { describeDuration, timestamp } from "./pull-request-reviews"
-import { messageView, prose, type RoleLabels, status } from "./transcript"
+import { downloadLink, messageView, prose, type RoleLabels, status } from "./transcript"
 import * as Button from "./ui/button"
 import { chip } from "./ui/chip"
 import * as DialogChrome from "./ui/dialog"
@@ -396,15 +396,10 @@ const deleteWarning =
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const { transcript } = model
   const actions = [
-    h.a(
-      [
-        h.Href(transcriptPath(model.sessionId)),
-        h.Download(`chat-session-${model.sessionId.replaceAll("/", "-")}.json`),
-        h.Class(
-          "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-body-md text-ink-muted hover:bg-surface-muted",
-        ),
-      ],
-      [Icon.view(h, Download, "size-4"), "Download JSON"],
+    downloadLink(
+      h,
+      transcriptPath(model.sessionId),
+      `chat-session-${model.sessionId.replaceAll("/", "-")}.json`,
     ),
     Button.view(h, {
       variant: "secondary",
@@ -419,25 +414,6 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
       isDisabled: model.deleting,
     }),
   ]
-  const error =
-    model.error === null
-      ? h.empty
-      : h.div(
-          [
-            h.Role("alert"),
-            h.Class("flex shrink-0 items-center justify-between gap-3 text-body-sm"),
-          ],
-          [
-            h.span([h.Class("text-destructive")], [model.error]),
-            Button.view(h, {
-              label: "Retry",
-              variant: "secondary",
-              size: "sm",
-              onClick: Message.ClickedRefresh(),
-              isDisabled: model.loading,
-            }),
-          ],
-        )
   const body =
     transcript !== null
       ? h.ol([h.Class("flex flex-col gap-3"), h.AriaLabel("Transcript")], entries(h, transcript))
@@ -472,7 +448,11 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
             : "The thread's messages and the bot's turns, as they were committed. Tool calls and their results are collapsed.",
         actions: transcript === null ? [] : actions,
       }),
-      error,
+      Page.errorStrip(h, {
+        error: model.error,
+        onRetry: Message.ClickedRefresh(),
+        isLoading: model.loading,
+      }),
       body,
       h.submodel({
         slotId: "delete-chat-session-dialog",

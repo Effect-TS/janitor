@@ -157,27 +157,20 @@ export class ChatSessionControl extends Context.Service<
   static readonly layer: Layer.Layer<ChatSessionControl, never, Sharding.Sharding> = Layer.effect(
     this,
     Effect.gen(function* () {
-      const context = yield* Effect.context<Sharding.Sharding>()
-      const session = <A, E>(
-        sessionId: string,
-        call: (
-          client: ReturnType<Effect.Success<typeof ChatSession.client>>,
-        ) => Effect.Effect<A, E, Sharding.Sharding>,
-      ) =>
-        Effect.flatMap(ChatSession.client, (client) => call(client(sessionId))).pipe(
-          Effect.provideContext(context),
-          Effect.orDie,
-        )
+      const client = yield* ChatSession.client
       return {
         transcript: (sessionId) =>
-          session(sessionId, (client) => client.Transcript()).pipe(
-            Effect.map((result) =>
-              result._tag === "Expired"
-                ? Option.none()
-                : Option.some({ messages: result.messages, turns: result.turns }),
+          client(sessionId)
+            .Transcript()
+            .pipe(
+              Effect.orDie,
+              Effect.map((result) =>
+                result._tag === "Expired"
+                  ? Option.none()
+                  : Option.some({ messages: result.messages, turns: result.turns }),
+              ),
             ),
-          ),
-        delete: (sessionId) => session(sessionId, (client) => client.Delete({})),
+        delete: (sessionId) => client(sessionId).Delete({}).pipe(Effect.orDie),
       }
     }),
   )
@@ -425,6 +418,18 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         keptAlive = enabled
         return Entity.keepAlive(enabled).pipe(Effect.provideContext(cluster))
       })
+
+    /** Sends the session its expiry for the message at `lastMessageAt`, due `after` from now. */
+    const scheduleExpiry = (lastMessageAt: number, after: Duration.Duration) =>
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        self.Expire(
+          new ExpirePayload({
+            lastMessageAt,
+            at: DateTime.makeUnsafe(now + Duration.toMillis(after)),
+          }),
+          { discard: true },
+        ),
+      )
 
     const transcriptLink = (origin: Option.Option<string>) =>
       Option.match(origin, {
@@ -1143,13 +1148,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             if (!(yield* storage.addMessage(message, null))) return
             yield* storage.saveSession(state)
             const config = yield* Effect.orDie(chatSessionConfig)
-            yield* self.Expire(
-              new ExpirePayload({
-                lastMessageAt: now,
-                at: DateTime.makeUnsafe(now + Duration.toMillis(config.retention)),
-              }),
-              { discard: true },
-            )
+            yield* scheduleExpiry(now, config.retention)
             yield* handle(thread, message)
             yield* saveIndex
           }),
@@ -1216,23 +1215,14 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             // A later message moved the expiry on.
             if (Option.isNone(session) || session.value.lastMessageAt !== payload.lastMessageAt)
               return
-            const ended = yield* drop.pipe(
-              Effect.as(true),
+            yield* drop.pipe(
+              Effect.andThen(Effect.logInfo("Chat session expired")),
               Effect.catch((error) =>
                 Effect.logWarning(
                   "Couldn't end the expired chat session; trying again later",
                   error,
-                ).pipe(Effect.as(false)),
+                ).pipe(Effect.andThen(scheduleExpiry(payload.lastMessageAt, EXPIRE_RETRY))),
               ),
-            )
-            if (ended) return yield* Effect.logInfo("Chat session expired")
-            const now = yield* Clock.currentTimeMillis
-            yield* self.Expire(
-              new ExpirePayload({
-                lastMessageAt: payload.lastMessageAt,
-                at: DateTime.makeUnsafe(now + Duration.toMillis(EXPIRE_RETRY)),
-              }),
-              { discard: true },
             )
           }),
         ).pipe(withLogs, Effect.orDie),

@@ -1,6 +1,6 @@
 import type * as Prompt from "effect/ai/Prompt"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { ChevronRight } from "lucide"
+import { ChevronRight, Download } from "lucide"
 import * as Icon from "@/lib/icons"
 
 /**
@@ -107,6 +107,19 @@ export const messageView = <M>(
         ? [prose(h, message.content)]
         : message.content.map((part) => partView(h, part))),
     ],
+  )
+
+/** "Download JSON": a link to the API's transcript, which the browser saves as `filename`. */
+export const downloadLink = <M>(h: HtmlBuilder<M>, href: string, filename: string) =>
+  h.a(
+    [
+      h.Href(href),
+      h.Download(filename),
+      h.Class(
+        "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-body-md text-ink-muted hover:bg-surface-muted",
+      ),
+    ],
+    [Icon.view(h, Download, "size-4"), "Download JSON"],
   )
 
 /** The page's one-line state: loading, empty or gone. */

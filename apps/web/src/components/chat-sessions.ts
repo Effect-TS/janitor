@@ -245,17 +245,18 @@ export const threadLink = <M>(h: HtmlBuilder<M>, thread: ChatThread) =>
     [`Open in ${platformLabel(thread)}`],
   )
 
+const statusChips: Record<TurnStatus, { label: string; variant: ChipVariant }> = {
+  running: { label: "Running", variant: "agent" },
+  replied: { label: "Replied", variant: "success" },
+  stopped: { label: "Stopped", variant: "neutral" },
+  deadline: { label: "Deadline", variant: "neutral" },
+  failed: { label: "Failed", variant: "danger" },
+}
+
+/** The latest turn's status; "No turn yet" before the first turn. */
 export const statusChip = <M>(h: HtmlBuilder<M>, status: TurnStatus | null) => {
-  const { label, variant }: { label: string; variant: ChipVariant } =
-    status === null
-      ? { label: "No turn yet", variant: "neutral" }
-      : {
-          running: { label: "Running", variant: "agent" as const },
-          replied: { label: "Replied", variant: "success" as const },
-          stopped: { label: "Stopped", variant: "neutral" as const },
-          deadline: { label: "Deadline", variant: "neutral" as const },
-          failed: { label: "Failed", variant: "danger" as const },
-        }[status]
+  const { label, variant } =
+    status === null ? { label: "No turn yet", variant: "neutral" as const } : statusChips[status]
   return chip(h, { variant, children: [label] })
 }
 
@@ -393,24 +394,11 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
           }),
         ],
       }),
-      model.error === null
-        ? h.empty
-        : h.div(
-            [
-              h.Role("alert"),
-              h.Class("flex shrink-0 items-center justify-between gap-3 text-body-sm"),
-            ],
-            [
-              h.span([h.Class("text-destructive")], [model.error]),
-              Button.view(h, {
-                label: "Retry",
-                variant: "secondary",
-                size: "sm",
-                onClick: Message.ClickedRefresh(),
-                isDisabled: model.loading,
-              }),
-            ],
-          ),
+      Page.errorStrip(h, {
+        error: model.error,
+        onRetry: Message.ClickedRefresh(),
+        isLoading: model.loading,
+      }),
       h.section(
         [
           h.Class("flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card"),
