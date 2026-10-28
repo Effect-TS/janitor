@@ -33,11 +33,10 @@ const decision = Decision.make({
   decisions: {
     addressed: Decision.probability({
       instructions:
-        "This is a team chat thread with a bot called janitor. Using the earlier messages as context, is the newest message addressed to janitor, or does it ask janitor to answer or act? A short reply can answer janitor's question or approve its proposed action without naming it.",
+        "This is a team chat thread with a bot called janitor. Is the newest message addressed to janitor, or does it ask janitor to answer or act?",
       criteria: {
-        true: "The newest message asks janitor something, asks it to act, or answers its question or proposal. For example, Go ahead approves an action janitor just proposed.",
-        false:
-          "The newest message is for other people, or is only an acknowledgement of completed work and asks nothing more of janitor. Approval of another person's proposal is not for janitor.",
+        true: "The newest message is for janitor: it asks janitor something or asks it to do something.",
+        false: "The newest message is for other people, or needs no answer from janitor.",
       },
     }),
   },
