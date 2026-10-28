@@ -20,8 +20,7 @@ import {
 
 /**
  * The Slack Events API webhook, from a signed request to what it hands the
- * chat sessions. The Slack Web API and the sessions are fakes. Every test is
- * marked `.fails` until Slack ingress lands (EFF-3019).
+ * chat sessions. The Slack Web API and the sessions are fakes.
  */
 
 const SIGNING_SECRET = "signing-secret"
@@ -223,7 +222,7 @@ const mention = (ts: string, fields: object = {}) => ({
 })
 
 describe("Slack ingress", () => {
-  it.effect.fails("checks the signature, its timestamp and the envelope", () =>
+  it.effect("checks the signature, its timestamp and the envelope", () =>
     Effect.gen(function* () {
       const ingress = yield* makeIngress()
       const now = Math.floor(Date.now() / 1000)
@@ -264,58 +263,56 @@ describe("Slack ingress", () => {
     }),
   )
 
-  it.effect.fails(
-    "answers only once the message is with its session, and 503 when it can't be",
-    () =>
-      Effect.gen(function* () {
-        const entered = yield* Deferred.make<void>()
-        const release = yield* Deferred.make<void>()
-        const answered = yield* Deferred.make<void>()
-        const received: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
-        const waiting = yield* makeIngress({
-          receive: (thread, message) =>
-            Effect.gen(function* () {
-              received.push({ thread, message })
-              yield* Deferred.succeed(entered, undefined)
-              yield* Deferred.await(release)
-            }),
-        })
-        const answer = yield* waiting.post(eventCallback(mention("1700000001.000100"))).pipe(
-          Effect.tap(() => Deferred.succeed(answered, undefined)),
-          Effect.forkChild,
-        )
-        yield* Deferred.await(entered)
-        assert.isFalse(yield* Deferred.isDone(answered))
-        yield* Deferred.succeed(release, undefined)
-        assert.strictEqual((yield* Fiber.join(answer)).status, 200)
-        assert.lengthOf(received, 1)
-        assert.deepStrictEqual(received[0]!.thread, {
-          _tag: "Slack",
-          team: "T1",
-          channel: "C1",
-          threadTs: "1700000001.000100",
-        })
-        assert.strictEqual(received[0]!.message.id, "1700000001.000100")
-        assert.strictEqual(received[0]!.message.author.class, "admitted")
-        assert.isTrue(received[0]!.message.mentionsBot)
+  it.effect("answers only once the message is with its session, and 503 when it can't be", () =>
+    Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const answered = yield* Deferred.make<void>()
+      const received: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
+      const waiting = yield* makeIngress({
+        receive: (thread, message) =>
+          Effect.gen(function* () {
+            received.push({ thread, message })
+            yield* Deferred.succeed(entered, undefined)
+            yield* Deferred.await(release)
+          }),
+      })
+      const answer = yield* waiting.post(eventCallback(mention("1700000001.000100"))).pipe(
+        Effect.tap(() => Deferred.succeed(answered, undefined)),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(entered)
+      assert.isFalse(yield* Deferred.isDone(answered))
+      yield* Deferred.succeed(release, undefined)
+      assert.strictEqual((yield* Fiber.join(answer)).status, 200)
+      assert.lengthOf(received, 1)
+      assert.deepStrictEqual(received[0]!.thread, {
+        _tag: "Slack",
+        team: "T1",
+        channel: "C1",
+        threadTs: "1700000001.000100",
+      })
+      assert.strictEqual(received[0]!.message.id, "1700000001.000100")
+      assert.strictEqual(received[0]!.message.author.class, "admitted")
+      assert.isTrue(received[0]!.message.mentionsBot)
 
-        const failing = yield* makeIngress({
-          receive: () => Effect.fail(new SlackSessionError({ message: "unavailable" })),
-        })
-        assert.strictEqual(
-          (yield* failing.post(eventCallback(mention("1700000002.000100")))).status,
-          503,
-        )
+      const failing = yield* makeIngress({
+        receive: () => Effect.fail(new SlackSessionError({ message: "unavailable" })),
+      })
+      assert.strictEqual(
+        (yield* failing.post(eventCallback(mention("1700000002.000100")))).status,
+        503,
+      )
 
-        const stuck = yield* makeIngress({ receive: () => Effect.never })
-        assert.strictEqual(
-          (yield* stuck.post(eventCallback(mention("1700000003.000100")))).status,
-          503,
-        )
-      }),
+      const stuck = yield* makeIngress({ receive: () => Effect.never })
+      assert.strictEqual(
+        (yield* stuck.post(eventCallback(mention("1700000003.000100")))).status,
+        503,
+      )
+    }),
   )
 
-  it.effect.fails("passes on only mentions, and replies in a thread with a session", () =>
+  it.effect("passes on only mentions, and replies in a thread with a session", () =>
     Effect.gen(function* () {
       const ingress = yield* makeIngress()
       const dropped = [
@@ -355,7 +352,7 @@ describe("Slack ingress", () => {
     }),
   )
 
-  it.effect.fails("admits full members of the workspace only, and remembers admissions", () =>
+  it.effect("admits full members of the workspace only, and remembers admissions", () =>
     Effect.gen(function* () {
       const ingress = yield* makeIngress()
       const cases = [

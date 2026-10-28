@@ -1,11 +1,28 @@
+import type * as Sharding from "effect/cluster/Sharding"
 import * as Context from "effect/Context"
-import type * as Effect from "effect/Effect"
+import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
-import type * as HttpRouter from "effect/http/HttpRouter"
-import type { ChatMessage, ChatThread } from "../Platform.ts"
-import type { SlackConfig } from "./Config.ts"
+import * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpServerRequest from "effect/http/HttpServerRequest"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import { failureCategory, readBodyBounded } from "../../Ingress/Webhooks.ts"
+import * as WebhookVerifier from "../../Ingress/WebhookVerifier.ts"
+import { type ChatMessage, type ChatThread, sessionKey } from "../Platform.ts"
+import { ChatSession } from "../Session.ts"
+import {
+  decode,
+  lookUpAuthor,
+  MESSAGE_SUBTYPES,
+  mentionsBot,
+  SlackApi,
+  type SlackAuthor,
+  SlackMessage,
+  toChatMessage,
+} from "./Api.ts"
+import { SlackConfig } from "./Config.ts"
 
 export class SlackSessionError extends Schema.TaggedError<SlackSessionError>()(
   "SlackSessionError",
@@ -33,18 +50,228 @@ export class SlackSessions extends Context.Service<
       userId: string,
     ) => Effect.Effect<void, SlackSessionError>
   }
->()("@janitor/cluster/Chat/Slack/Ingress/SlackSessions") {}
+>()("@janitor/cluster/Chat/Slack/Ingress/SlackSessions") {
+  /**
+   * The session entities, through the cluster's client. `provide` is the
+   * cluster handle's: routes are built before any request brings `Sharding`.
+   */
+  static readonly fromCluster = (
+    provide: <A, E>(effect: Effect.Effect<A, E, Sharding.Sharding>) => Effect.Effect<A, E>,
+  ): Layer.Layer<SlackSessions> => {
+    const session = (thread: ChatThread) =>
+      Effect.map(ChatSession.client, (client) => client(sessionKey(thread)))
+    const run = <A, E>(effect: Effect.Effect<A, E, Sharding.Sharding>) =>
+      provide(effect).pipe(
+        Effect.mapError((error) => new SlackSessionError({ message: String(error) })),
+      )
+    return Layer.succeed(this, {
+      receive: (thread, message) =>
+        run(
+          Effect.flatMap(session(thread), (client) =>
+            client.Receive({ thread, message }, { discard: true }),
+          ),
+        ),
+      exists: (thread) => run(Effect.flatMap(session(thread), (client) => client.Exists())),
+      cachedAdmission: (thread, userId) =>
+        run(Effect.flatMap(session(thread), (client) => client.CachedAdmission({ userId }))),
+      rememberAdmission: (thread, userId) =>
+        run(Effect.flatMap(session(thread), (client) => client.RememberAdmission({ userId }))),
+    })
+  }
+}
+
+export const MAX_SLACK_WEBHOOK_BODY_BYTES = 1024 * 1024
+
+/** Slack retries a delivery it has no answer to within 3 seconds. */
+const ANSWER_WITHIN = Duration.millis(2500)
+
+const SLACK_CONNECT_REFUSAL =
+  "I don't work in Slack Connect channels, since they're shared with other organizations."
+const DIRECT_MESSAGE_POINTER = "I only work in channels. Mention me in a channel to start a thread."
+
+const accepted = HttpServerResponse.text("Accepted")
+const invalidSignature = HttpServerResponse.text("Invalid signature", { status: 401 })
+const unavailable = HttpServerResponse.text("Service Unavailable", { status: 503 })
+
+const Envelope = Schema.Struct({
+  type: Schema.String,
+  challenge: Schema.optionalKey(Schema.String),
+  team_id: Schema.optionalKey(Schema.String),
+  api_app_id: Schema.optionalKey(Schema.String),
+  event: Schema.optionalKey(Schema.Unknown),
+})
+
+const Event = Schema.Struct({
+  ...SlackMessage.fields,
+  type: Schema.String,
+  channel: Schema.String,
+  channel_type: Schema.optionalKey(Schema.String),
+})
+type Event = typeof Event.Type
+
+const SlackHeaders = Schema.Struct({
+  "x-slack-signature": Schema.String,
+  "x-slack-request-timestamp": Schema.String,
+})
+
+const Routes = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* SlackConfig
+    const sessions = yield* SlackSessions
+    const api = yield* SlackApi
+    const verifier = yield* WebhookVerifier.SlackWebhookVerifier
+    const decodeEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))
+    const decodeEvent = Schema.decodeUnknownOption(Event)
+    // Names of users seen in this isolate, for admissions the session remembered.
+    const names = new Map<string, string>()
+
+    const reply = (channel: string, threadTs: string | undefined, text: string) =>
+      api
+        .call(
+          "chat.postMessage",
+          { channel, thread_ts: threadTs, text, unfurl_links: false, unfurl_media: false },
+          { write: true },
+        )
+        .pipe(
+          Effect.asVoid,
+          Effect.catchTag("SlackApiError", (error) =>
+            Effect.logWarning("Couldn't reply in Slack").pipe(
+              Effect.annotateLogs({ reason: error.message }),
+            ),
+          ),
+        )
+
+    const isExtShared = (channel: string) =>
+      api.call("conversations.info", { channel }).pipe(
+        Effect.flatMap(
+          decode(
+            "conversations.info",
+            Schema.Struct({
+              channel: Schema.Struct({ is_ext_shared: Schema.optionalKey(Schema.Boolean) }),
+            }),
+          ),
+        ),
+        Effect.map((body) => body.channel.is_ext_shared === true),
+      )
+
+    /** Filters the event, admits its author and hands the message to its session. */
+    const handle = Effect.fnUntraced(function* (event: Event) {
+      if (event.type !== "message" && event.type !== "app_mention") return
+      const user = event.user
+      if (
+        user === undefined ||
+        (event.subtype !== undefined && !MESSAGE_SUBTYPES.has(event.subtype)) ||
+        event.bot_id !== undefined ||
+        event.app_id !== undefined ||
+        event.edited !== undefined
+      )
+        return
+      const botUserId = yield* api.botUserId
+      if (user === botUserId) return
+      if (event.channel_type === "im") {
+        if (event.type === "message") yield* reply(event.channel, undefined, DIRECT_MESSAGE_POINTER)
+        return
+      }
+      const mentioned = event.type === "app_mention" || mentionsBot(event.text ?? "", botUserId)
+      if (!mentioned && event.thread_ts === undefined) return
+      const thread: ChatThread = {
+        _tag: "Slack",
+        team: config.workspaceId,
+        channel: event.channel,
+        threadTs: event.thread_ts ?? event.ts,
+      }
+      const hasSession = yield* Effect.cached(sessions.exists(thread))
+      if (!mentioned && !(yield* hasSession)) return
+
+      const cached = yield* sessions.cachedAdmission(thread, user)
+      const author: SlackAuthor = cached
+        ? { class: "admitted", name: names.get(user) ?? user }
+        : yield* lookUpAuthor(api, config.workspaceId, user)
+      names.set(user, author.name)
+      // Only an admitted user's mention starts a session.
+      if (author.class !== "admitted" && !(yield* hasSession)) return
+      if (
+        author.class === "admitted" &&
+        !(yield* hasSession) &&
+        (yield* isExtShared(event.channel))
+      ) {
+        // Slack also delivers the mention as a message event; refuse once.
+        if (event.type === "app_mention")
+          yield* reply(event.channel, thread.threadTs, SLACK_CONNECT_REFUSAL)
+        return
+      }
+      if (author.class === "admitted" && !cached) yield* sessions.rememberAdmission(thread, user)
+      yield* sessions.receive(
+        thread,
+        toChatMessage(event, { id: user, ...author }, botUserId, mentioned),
+      )
+    })
+
+    return HttpRouter.add(
+      "POST",
+      "/webhooks/slack",
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const headers = Schema.decodeUnknownOption(SlackHeaders)(request.headers)
+        if (headers._tag === "None") return invalidSignature
+        const body = yield* readBodyBounded(request, MAX_SLACK_WEBHOOK_BODY_BYTES).pipe(
+          Effect.catchTag("BodyTooLargeError", () => Effect.undefined),
+        )
+        if (body === undefined) return HttpServerResponse.text("Too large", { status: 413 })
+        const valid = yield* verifier
+          .verify({
+            signature: headers.value["x-slack-signature"],
+            timestamp: headers.value["x-slack-request-timestamp"],
+            body,
+          })
+          .pipe(Effect.catchTag("InvalidSignatureError", () => Effect.succeed(false)))
+        if (!valid) return invalidSignature
+
+        const envelope = decodeEnvelope(new TextDecoder().decode(body))
+        if (envelope._tag === "None")
+          return HttpServerResponse.text("Invalid envelope", { status: 400 })
+        if (envelope.value.type === "url_verification")
+          return HttpServerResponse.text(envelope.value.challenge ?? "")
+        if (envelope.value.type !== "event_callback") return accepted
+        if (
+          envelope.value.team_id !== config.workspaceId ||
+          envelope.value.api_app_id !== config.appId
+        )
+          return HttpServerResponse.text("Wrong app or workspace", { status: 403 })
+        const event = decodeEvent(envelope.value.event)
+        if (event._tag === "None") return accepted
+        return yield* handle(event.value).pipe(Effect.timeout(ANSWER_WITHIN), Effect.as(accepted))
+      }).pipe(
+        // Without an answer Slack retries, and sessions dedupe the retry. Only
+        // the failure's category is logged: errors can quote the message.
+        Effect.catchCause((cause) =>
+          Effect.logError("Slack webhook failed").pipe(
+            Effect.annotateLogs({ error: failureCategory(cause) }),
+            Effect.as(unavailable),
+          ),
+        ),
+      ),
+    )
+  }),
+)
 
 /**
  * `POST /webhooks/slack` (under `/api/v1`): the Events API webhook. It checks
  * the signature and the envelope, filters the event, admits its author with
  * `users.info` and hands the message to its session, then answers 200.
  * Without an answer inside 2.5 seconds it returns 503, so Slack retries.
- *
- * Not implemented yet (EFF-3019): it adds no route.
  */
 export const SlackWebhookRoutesLayer: Layer.Layer<
   never,
   never,
   HttpRouter.HttpRouter | HttpClient.HttpClient | SlackConfig | SlackSessions
-> = Layer.empty
+> = Routes.pipe(
+  Layer.provide(SlackApi.layer),
+  Layer.provide(
+    Layer.unwrap(
+      Effect.map(SlackConfig, (config) =>
+        WebhookVerifier.slackLayerFrom({ secret: config.signingSecret }),
+      ),
+    ),
+  ),
+)

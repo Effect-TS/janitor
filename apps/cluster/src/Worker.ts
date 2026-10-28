@@ -137,6 +137,9 @@ import { ReplyGate } from "./Chat/Gate.ts"
 import { ChatKillSwitch } from "./Chat/KillSwitch.ts"
 import { ChatPlatform } from "./Chat/Platform.ts"
 import { ChatSession, ChatSessionLayer } from "./Chat/Session.ts"
+import { SlackConfig, slackSettings } from "./Chat/Slack/Config.ts"
+import { SlackSessions, SlackWebhookRoutesLayer } from "./Chat/Slack/Ingress.ts"
+import * as SlackPlatform from "./Chat/Slack/Platform.ts"
 import { ChatCredentials } from "./Chat/Egress/BotApp.ts"
 import { ChatSandboxPool, ChatSandboxPoolLive } from "./Chat/Sandbox/PoolObject.ts"
 import { ChatSandboxes } from "./Chat/Sandbox/Sandboxes.ts"
@@ -267,6 +270,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       yield* chatBotInit
     }
     const chatGate = chatBot ? yield* chatGateModel : ""
+    // Slack stays off until all four `SLACK_*` settings are set.
+    const slack = chatBot ? yield* slackSettings : Option.none()
     // The chat bot's GitHub App and Multica PAT, each optional: without them
     // the chat egress proxy hands GitHub and Multica no credential.
     const chatSecrets: ChatEgressSecrets = chatBot
@@ -373,8 +378,17 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
               namespace: liveEnvironment.ChatWorkspace as WorkspaceNamespace,
             }),
           ),
-          // Slack ingress (EFF-3019) and the web app (EFF-3021) replace these.
-          Layer.provide(ChatPlatform.unavailable),
+          Layer.provide(
+            Option.match(slack, {
+              onNone: () => ChatPlatform.unavailable,
+              onSome: (config) =>
+                SlackPlatform.layer.pipe(
+                  Layer.provide(SlackConfig.layerFrom(config)),
+                  Layer.provide(FetchHttpClient.layer),
+                ),
+            }),
+          ),
+          // The web app (EFF-3021) replaces this.
           Layer.provide(ChatKillSwitch.off),
         )
       : Layer.empty
@@ -534,8 +548,17 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // At runtime an empty audience matches no assertion, so a missing binding
     // fails closed rather than open.
     const accessAudience = typeof env.ACCESS_AUD === "string" ? env.ACCESS_AUD : ""
+    const slackRoutes = Option.match(slack, {
+      onNone: () => Layer.empty,
+      onSome: (config) =>
+        SlackWebhookRoutesLayer.pipe(
+          Layer.provide(SlackConfig.layerFrom(config)),
+          Layer.provide(SlackSessions.fromCluster(cluster.provide)),
+          Layer.provide(FetchHttpClient.layer),
+        ),
+    })
     const apiRoutes = yield* HttpRouter.toHttpEffect(
-      makeRoutesLayer(secrets, { localDevAudience }).pipe(
+      makeRoutesLayer(secrets, { localDevAudience }, slackRoutes).pipe(
         Layer.provide(
           AccessJwt.layerFrom({ teamDomain: Access.TEAM_DOMAIN, audience: accessAudience }),
         ),

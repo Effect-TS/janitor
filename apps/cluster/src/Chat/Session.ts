@@ -93,6 +93,12 @@ export const CachedAdmission = Rpc.make("CachedAdmission", {
 })
 
 /**
+ * Whether the thread has a session, for ingress: a reply that doesn't
+ * mention the bot reaches only a thread that has one.
+ */
+export const Exists = Rpc.make("Exists", { success: Schema.Boolean })
+
+/**
  * Sent to itself after each message, for when the session expires. One for
  * an earlier message finds a later one and does nothing.
  */
@@ -134,7 +140,7 @@ export const ChatSession = Entity.fromRpcGroup(
   RpcGroup.make(Receive, Delete, Cancel, RememberAdmission, Expire)
     .annotateRpcs(ClusterSchema.Persisted, true)
     // Reads change nothing, so they aren't stored and replayed like the rest.
-    .add(Transcript, CachedAdmission),
+    .add(Transcript, CachedAdmission, Exists),
 )
 
 /** How often a running turn reads the kill switch, and the status message is edited at most. */
@@ -1031,6 +1037,12 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             onSome: (at) => now - at < Duration.toMillis(ADMISSION_TTL),
           })
         }).pipe(withLogs, Effect.orDie),
+
+      Exists: () =>
+        Effect.suspend(() => (dropped ? Effect.succeed(false) : storage.exists)).pipe(
+          withLogs,
+          Effect.orDie,
+        ),
 
       Expire: ({ payload }) =>
         Semaphore.withPermits(

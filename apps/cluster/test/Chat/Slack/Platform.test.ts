@@ -12,8 +12,7 @@ import { SlackConfig } from "../../../src/Chat/Slack/Config.ts"
 import * as SlackPlatform from "../../../src/Chat/Slack/Platform.ts"
 
 /**
- * Slack's `ChatPlatform` over a fake Slack Web API. Marked `.fails` until
- * Slack ingress lands (EFF-3019).
+ * Slack's `ChatPlatform` over a fake Slack Web API.
  */
 
 const thread: ChatThread = {
@@ -52,7 +51,7 @@ const services = SlackPlatform.layer.pipe(
 )
 
 describe("Slack platform", () => {
-  it.effect.fails(
+  it.effect(
     "retries a rate-limited post after Retry-After, and never an uncertain or refused one",
     () =>
       Effect.gen(function* () {

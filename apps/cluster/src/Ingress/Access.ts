@@ -54,6 +54,16 @@ export const webhookBypass = (domain: string, stage: string) =>
     policies: [{ name: "GitHub deliveries", decision: "bypass", include: ["everyone"] }],
   })
 
+/** Slack can't log in either; this path keeps its signature check. */
+export const slackWebhookBypass = (domain: string, stage: string) =>
+  Cloudflare.Access.Application("SlackWebhookBypass", {
+    type: "self_hosted",
+    name: `Janitor ${stage} Slack webhooks`,
+    domain: `${domain}/api/v1/webhooks/slack`,
+    appLauncherVisible: false,
+    policies: [{ name: "Slack deliveries", decision: "bypass", include: ["everyone"] }],
+  })
+
 /** Provision Access only during deployment; runtime uses the ACCESS_AUD binding. */
 export const declare = Effect.fnUntraced(function* (options: {
   readonly dev: boolean
@@ -64,5 +74,6 @@ export const declare = Effect.fnUntraced(function* (options: {
   const identityProviderId = yield* requiredText("CLOUDFLARE_ACCESS_GITHUB_IDP_ID")
   const app = yield* application(options.domain, options.stage, identityProviderId)
   yield* webhookBypass(options.domain, options.stage)
+  yield* slackWebhookBypass(options.domain, options.stage)
   return app
 })
