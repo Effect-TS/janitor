@@ -79,17 +79,17 @@ export const Delete = Rpc.make("Delete", { payload: {} })
 export const Cancel = Rpc.make("Cancel", { payload: {} })
 
 /**
- * Remembers a Slack user as admitted for an hour, for ingress's admission
- * check. Denials are never remembered.
+ * Remembers a Slack user as admitted for an hour, with their name, for
+ * ingress's admission check. Denials are never remembered.
  */
 export const RememberAdmission = Rpc.make("RememberAdmission", {
-  payload: { userId: Schema.String },
+  payload: { userId: Schema.String, name: Schema.String },
 })
 
-/** Whether the user's admission is remembered and less than an hour old. */
+/** The user's name, when their admission is remembered and less than an hour old. */
 export const CachedAdmission = Rpc.make("CachedAdmission", {
   payload: { userId: Schema.String },
-  success: Schema.Boolean,
+  success: Schema.NullOr(Schema.String),
 })
 
 /**
@@ -980,9 +980,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             const state: SessionState = Option.isSome(session)
               ? { ...session.value, lastMessageAt: now }
               : { thread, lastMessageAt: now, switchedOffNotified: false }
+            // The session row is saved only once the backfill is in: a
+            // restart during it replays this message, which backfills again.
             if (Option.isNone(session)) {
-              yield* storage.saveSession(state)
               yield* backfill(thread, message.id)
+              yield* storage.saveSession(state)
             }
             if (!(yield* storage.addMessage(message, null))) return
             yield* storage.saveSession(state)
@@ -1025,16 +1027,20 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       RememberAdmission: ({ payload }) =>
         Effect.gen(function* () {
           yield* storage.ensureTables
-          yield* storage.rememberAdmission(payload.userId, yield* Clock.currentTimeMillis)
+          yield* storage.rememberAdmission(
+            payload.userId,
+            payload.name,
+            yield* Clock.currentTimeMillis,
+          )
         }).pipe(withLogs, Effect.orDie),
 
       CachedAdmission: ({ payload }) =>
         Effect.gen(function* () {
-          const admittedAt = yield* storage.admittedAt(payload.userId)
+          const admission = yield* storage.admission(payload.userId)
           const now = yield* Clock.currentTimeMillis
-          return Option.match(admittedAt, {
-            onNone: () => false,
-            onSome: (at) => now - at < Duration.toMillis(ADMISSION_TTL),
+          return Option.match(admission, {
+            onNone: () => null,
+            onSome: ({ at, name }) => (now - at < Duration.toMillis(ADMISSION_TTL) ? name : null),
           })
         }).pipe(withLogs, Effect.orDie),
 

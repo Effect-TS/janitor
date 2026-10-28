@@ -5,13 +5,7 @@ import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import {
-  type ChatMessage,
-  ChatPlatform,
-  ChatPlatformError,
-  type ChatThread,
-  readLimited,
-} from "../Platform.ts"
+import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
 import {
   decode,
   lookUpAuthor,
@@ -106,9 +100,11 @@ const slackThread = (
     ? Effect.succeed(thread)
     : Effect.fail(new ChatPlatformError({ message: "Not a Slack thread" }))
 
-/** Thread messages read per `conversations.replies` page, and the most pages read. */
+/**
+ * Thread messages read per `conversations.replies` page. Slack pages a thread
+ * from its start, so the backfill reads to the last page and keeps the latest.
+ */
 const PAGE_SIZE = 200
-const MAX_PAGES = 10
 
 const make = Effect.gen(function* () {
   const api = yield* SlackApi
@@ -172,7 +168,7 @@ const make = Effect.gen(function* () {
       const botUserId = yield* api.botUserId
       const messages: Array<SlackMessage> = []
       let cursor: string | undefined
-      for (let page = 0; page < MAX_PAGES; page++) {
+      for (;;) {
         const body = yield* api
           .call("conversations.replies", { channel, ts: threadTs, limit: PAGE_SIZE, cursor })
           .pipe(
@@ -190,39 +186,45 @@ const make = Effect.gen(function* () {
           )
         for (const raw of body.messages) {
           const message = Schema.decodeUnknownOption(SlackMessage)(raw)
-          if (message._tag === "Some") messages.push(message.value)
+          if (message._tag === "None") continue
+          const { subtype, user, bot_id } = message.value
+          if (subtype !== undefined && subtype !== "bot_message" && !MESSAGE_SUBTYPES.has(subtype))
+            continue
+          if (user === undefined && bot_id === undefined) continue
+          messages.push(message.value)
+          if (messages.length > limit) messages.shift()
         }
         cursor = body.response_metadata?.next_cursor
         if (!cursor) break
       }
-      const authors = new Map<string, SlackAuthor>()
-      const result: Array<ChatMessage> = []
-      for (const message of messages.slice(-limit)) {
-        if (
-          message.subtype !== undefined &&
-          message.subtype !== "bot_message" &&
-          !MESSAGE_SUBTYPES.has(message.subtype)
+      const isBot = (message: SlackMessage) =>
+        message.bot_id !== undefined || message.app_id !== undefined || message.user === botUserId
+      const people = new Set(
+        messages.filter((message) => !isBot(message)).map((message) => message.user!),
+      )
+      const authors = new Map(
+        yield* Effect.forEach(
+          people,
+          (id) =>
+            Effect.map(
+              lookUpAuthor(api, config.workspaceId, id),
+              (author) => [id, author] as const,
+            ),
+          { concurrency: 5 },
+        ),
+      )
+      const result = messages.map((message) => {
+        const id = message.user ?? message.bot_id ?? ""
+        const author: SlackAuthor = isBot(message)
+          ? { class: "bot", name: message.username ?? "bot" }
+          : authors.get(id)!
+        return toChatMessage(
+          message,
+          { id, ...author },
+          botUserId,
+          mentionsBot(message.text ?? "", botUserId),
         )
-          continue
-        const id = message.user ?? message.bot_id
-        if (id === undefined) continue
-        let author: SlackAuthor
-        if (message.bot_id !== undefined || message.app_id !== undefined || id === botUserId)
-          author = { class: "bot", name: message.username ?? "bot" }
-        else {
-          const known = authors.get(id)
-          author = known ?? (yield* lookUpAuthor(api, config.workspaceId, id))
-          authors.set(id, author)
-        }
-        result.push(
-          toChatMessage(
-            message,
-            { id, ...author },
-            botUserId,
-            mentionsBot(message.text ?? "", botUserId),
-          ),
-        )
-      }
+      })
       return result
     }).pipe(Effect.mapError(platformError))
 

@@ -313,6 +313,37 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
+  it.effect("a restart during a new session's backfill backfills again", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const earlier = yield* harness.message("The README changed yesterday.", {
+          author: "Grace",
+        })
+        harness.platform.threadHistory = [earlier]
+        harness.platform.holdHistory = true
+        const asked = yield* harness.message("What changed?", { mention: true })
+        yield* harness.store(slackThread, asked)
+        yield* harness.until(
+          Effect.sync(() => harness.platform.historyReads > 0),
+          "the backfill to start",
+        )
+        yield* harness.restart
+        harness.platform.holdHistory = false
+        yield* harness.until(
+          Effect.map(
+            harness.transcript(slackThread),
+            (transcript) => transcript._tag === "Available" && transcript.messages.length === 2,
+          ),
+          "the backfill",
+        )
+        assert.deepStrictEqual(stored(yield* harness.transcript(slackThread)), [
+          [earlier.id, { _tag: "Context" }],
+          [asked.id, { _tag: "Mention" }],
+        ])
+      }),
+    ),
+  )
+
   it.effect(
     "a lost sandbox or a restart resumes the turn in a new sandbox, three times at most",
     () =>

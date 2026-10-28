@@ -3,6 +3,7 @@ import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
 import * as HttpRouter from "effect/http/HttpRouter"
@@ -40,14 +41,15 @@ export class SlackSessions extends Context.Service<
     ) => Effect.Effect<void, SlackSessionError>
     /** Whether the thread has a session, so a reply without a mention reaches it. */
     readonly exists: (thread: ChatThread) => Effect.Effect<boolean, SlackSessionError>
-    /** Whether the session remembers the user as admitted within the hour. */
+    /** The user's name, when the session remembers them as admitted within the hour. */
     readonly cachedAdmission: (
       thread: ChatThread,
       userId: string,
-    ) => Effect.Effect<boolean, SlackSessionError>
+    ) => Effect.Effect<Option.Option<string>, SlackSessionError>
     readonly rememberAdmission: (
       thread: ChatThread,
       userId: string,
+      name: string,
     ) => Effect.Effect<void, SlackSessionError>
   }
 >()("@janitor/cluster/Chat/Slack/Ingress/SlackSessions") {
@@ -73,9 +75,13 @@ export class SlackSessions extends Context.Service<
         ),
       exists: (thread) => run(Effect.flatMap(session(thread), (client) => client.Exists())),
       cachedAdmission: (thread, userId) =>
-        run(Effect.flatMap(session(thread), (client) => client.CachedAdmission({ userId }))),
-      rememberAdmission: (thread, userId) =>
-        run(Effect.flatMap(session(thread), (client) => client.RememberAdmission({ userId }))),
+        run(Effect.flatMap(session(thread), (client) => client.CachedAdmission({ userId }))).pipe(
+          Effect.map(Option.fromNullishOr),
+        ),
+      rememberAdmission: (thread, userId, name) =>
+        run(
+          Effect.flatMap(session(thread), (client) => client.RememberAdmission({ userId, name })),
+        ),
     })
   }
 }
@@ -122,8 +128,6 @@ const Routes = Layer.unwrap(
     const verifier = yield* WebhookVerifier.SlackWebhookVerifier
     const decodeEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))
     const decodeEvent = Schema.decodeUnknownOption(Event)
-    // Names of users seen in this isolate, for admissions the session remembered.
-    const names = new Map<string, string>()
 
     const reply = (channel: string, threadTs: string | undefined, text: string) =>
       api
@@ -184,23 +188,22 @@ const Routes = Layer.unwrap(
       if (!mentioned && !(yield* hasSession)) return
 
       const cached = yield* sessions.cachedAdmission(thread, user)
-      const author: SlackAuthor = cached
-        ? { class: "admitted", name: names.get(user) ?? user }
+      const author: SlackAuthor = Option.isSome(cached)
+        ? { class: "admitted", name: cached.value }
         : yield* lookUpAuthor(api, config.workspaceId, user)
-      names.set(user, author.name)
       // Only an admitted user's mention starts a session.
       if (author.class !== "admitted" && !(yield* hasSession)) return
-      if (
-        author.class === "admitted" &&
-        !(yield* hasSession) &&
-        (yield* isExtShared(event.channel))
-      ) {
-        // Slack also delivers the mention as a message event; refuse once.
+      // An admitted message can start or steer a turn, whose replies a Slack
+      // Connect channel shows outside the workspace. A channel can become
+      // shared after its session started, so every one is checked.
+      if (author.class === "admitted" && (yield* isExtShared(event.channel))) {
+        // Slack also delivers a mention as a message event; refuse once.
         if (event.type === "app_mention")
           yield* reply(event.channel, thread.threadTs, SLACK_CONNECT_REFUSAL)
         return
       }
-      if (author.class === "admitted" && !cached) yield* sessions.rememberAdmission(thread, user)
+      if (author.class === "admitted" && Option.isNone(cached))
+        yield* sessions.rememberAdmission(thread, user, author.name)
       yield* sessions.receive(
         thread,
         toChatMessage(event, { id: user, ...author }, botUserId, mentioned),
@@ -240,8 +243,10 @@ const Routes = Layer.unwrap(
           return HttpServerResponse.text("Wrong app or workspace", { status: 403 })
         const event = decodeEvent(envelope.value.event)
         if (event._tag === "None") return accepted
-        return yield* handle(event.value).pipe(Effect.timeout(ANSWER_WITHIN), Effect.as(accepted))
+        return yield* handle(event.value).pipe(Effect.as(accepted))
       }).pipe(
+        // The whole request, a slowly streamed body included.
+        Effect.timeout(ANSWER_WITHIN),
         // Without an answer Slack retries, and sessions dedupe the retry. Only
         // the failure's category is logged: errors can quote the message.
         Effect.catchCause((cause) =>

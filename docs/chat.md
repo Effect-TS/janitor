@@ -10,21 +10,21 @@ The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API
 
 - A mention of the bot from an admitted user starts a session on the thread under the mention. When the bot joins a thread that already has messages, it reads the last 100 as context.
 - In a thread with a session, every message from an admitted user reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot always starts or steers a turn.
-- Admitted users are full members of our workspace: `users.info` reports our `team_id`, and none of `is_restricted`, `is_ultra_restricted`, `is_stranger`, `deleted` or `is_bot`. Guests, Slack Connect users and strangers are outsiders. Their messages in a thread with a session reach the model as context only, and their mentions start nothing. A failed lookup also makes the author an outsider. An admission is remembered in the session for an hour.
+- Admitted users are full members of our workspace: `users.info` reports our `team_id`, and none of `is_restricted`, `is_ultra_restricted`, `is_stranger`, `deleted` or `is_bot`. Guests, Slack Connect users and strangers are outsiders. Their messages in a thread with a session reach the model as context only, and their mentions start nothing. A failed lookup also makes the author an outsider. An admission is remembered in the session for an hour, with the user's name.
 - Messages from bots, janitor's own included, are context only. Edits, deletions and other message subtypes are ignored, except messages with files and thread replies also sent to the channel.
-- In a Slack Connect channel the bot replies once that it doesn't work there, and starts nothing.
+- In a Slack Connect channel the bot answers each mention to say it doesn't work there, and starts nothing. Every admitted message is checked, so a channel that becomes shared after a session started stops reaching that session.
+- A direct message gets a one-line pointer to a channel, and starts nothing.
 - Replies are posted as Markdown, up to 12,000 characters a message and a second apart. A reply that would need more than three messages is uploaded as `reply.md`. The bot's posts never unfurl links, and they carry `janitor_output` message metadata.
 
 ### Creating the Slack app
 
 Create one app for production and one for development, each in our workspace.
 
-1. Under **OAuth & Permissions**, add these bot token scopes: `app_mentions:read`, `channels:history`, `groups:history`, `channels:read`, `groups:read`, `users:read`, `chat:write`, `files:read` and `files:write`.
-2. Under **Event Subscriptions**, turn events on and set the request URL to `https://<janitor host>/api/v1/webhooks/slack`. Slack sends a `url_verification` challenge, which the route answers only once the deployment has the Slack settings below. Subscribe to the bot events `app_mention`, `message.channels` and `message.groups`.
+1. Under **OAuth & Permissions**, add these bot token scopes: `app_mentions:read`, `channels:history`, `groups:history`, `channels:read`, `groups:read`, `users:read`, `chat:write`, `files:read`, `files:write` and `im:history`.
+2. Under **Event Subscriptions**, turn events on and set the request URL to `https://<janitor host>/api/v1/webhooks/slack`. Slack sends a `url_verification` challenge, which the route answers only once the deployment has the Slack settings below. Subscribe to the bot events `app_mention`, `message.channels`, `message.groups` and `message.im`.
 3. Leave **Interactivity** and **Socket Mode** off.
-4. Install the app to the workspace.
-
-The app doesn't subscribe to `message.im`, so Slack never sends it direct messages. If it ever does, the bot answers with a one-line pointer to a channel.
+4. Under **App Home**, allow users to send messages from the **Messages** tab, so people can DM the bot and get the pointer.
+5. Install the app to the workspace.
 
 ### Settings
 

@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import type * as HttpClientRequest from "effect/http/HttpClientRequest"
@@ -73,6 +74,8 @@ const makeIngress = Effect.fnUntraced(function* (
 ) {
   const handedOff: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
   const remembered: Array<string> = []
+  /** The `chat.postMessage` calls ingress made itself, by channel and text. */
+  const posted: Array<{ readonly channel: string | null; readonly text: string | null }> = []
   const lookups: Array<string> = []
 
   const slackApi = HttpClient.make((request) =>
@@ -86,7 +89,11 @@ const makeIngress = Effect.fnUntraced(function* (
           case "conversations.info":
             return {
               ok: true,
-              channel: { id: params.get("channel"), is_channel: true, is_ext_shared: false },
+              channel: {
+                id: params.get("channel"),
+                is_channel: true,
+                is_ext_shared: params.get("channel") === "C-shared",
+              },
             }
           case "users.info": {
             const id = params.get("user") ?? ""
@@ -94,6 +101,9 @@ const makeIngress = Effect.fnUntraced(function* (
             const user = users[id]
             return user === undefined ? { ok: false, error: "user_not_found" } : { ok: true, user }
           }
+          case "chat.postMessage":
+            posted.push({ channel: params.get("channel"), text: params.get("text") })
+            return { ok: true, ts: "1700000099.000100" }
           default:
             return { ok: false, error: "unknown_method" }
         }
@@ -111,7 +121,8 @@ const makeIngress = Effect.fnUntraced(function* (
         })),
     exists: (thread) =>
       Effect.succeed(thread._tag === "Slack" && thread.threadTs === SESSION_THREAD),
-    cachedAdmission: (_thread, userId) => Effect.succeed(userId === "U-cached"),
+    cachedAdmission: (_thread, userId) =>
+      Effect.succeed(userId === "U-cached" ? Option.some("grace") : Option.none()),
     rememberAdmission: (_thread, userId) =>
       Effect.sync(() => {
         remembered.push(userId)
@@ -165,7 +176,7 @@ const makeIngress = Effect.fnUntraced(function* (
   /** The message handed off with Slack `ts` `ts`, if any. */
   const handedOffAt = (ts: string) => handedOff.find(({ message }) => message.id === ts)
 
-  return { post, handedOff, handedOffAt, remembered, lookups }
+  return { post, handedOff, handedOffAt, remembered, lookups, posted }
 })
 
 const sign = (timestamp: number, body: string) =>
@@ -340,6 +351,14 @@ describe("Slack ingress", () => {
       yield* ingress.post(
         eventCallback(message("1700000021.000100", { thread_ts: SESSION_THREAD })),
       )
+      // A message with files, and a thread reply also sent to the channel.
+      for (const [ts, subtype] of [
+        ["1700000022.000100", "file_share"],
+        ["1700000023.000100", "thread_broadcast"],
+      ])
+        yield* ingress.post(eventCallback(message(ts, { thread_ts: SESSION_THREAD, subtype })))
+      assert.isDefined(ingress.handedOffAt("1700000022.000100"), "file_share")
+      assert.isDefined(ingress.handedOffAt("1700000023.000100"), "thread_broadcast")
       assert.isTrue(ingress.handedOffAt("1700000020.000100")?.message.mentionsBot)
       const reply = ingress.handedOffAt("1700000021.000100")
       assert.isFalse(reply?.message.mentionsBot)
@@ -373,9 +392,32 @@ describe("Slack ingress", () => {
         assert.strictEqual(ingress.handedOffAt(ts)?.message.author.class, expected, user)
       }
       assert.notInclude(ingress.lookups, "U-cached")
+      assert.strictEqual(ingress.handedOffAt("1700000108.000100")?.message.author.name, "grace")
       assert.deepStrictEqual(
         ingress.remembered.filter((user) => user !== "U-cached"),
         ["U-member"],
+      )
+    }),
+  )
+
+  it.effect("answers a direct message and a Slack Connect channel without a session", () =>
+    Effect.gen(function* () {
+      const ingress = yield* makeIngress()
+      yield* ingress.post(
+        eventCallback(message("1700000030.000100", { channel: "D1", channel_type: "im" })),
+      )
+      // A mention starts nothing in a shared channel, and a channel shared after
+      // its session started no longer reaches it.
+      yield* ingress.post(eventCallback(mention("1700000031.000100", { channel: "C-shared" })))
+      yield* ingress.post(
+        eventCallback(
+          message("1700000032.000100", { channel: "C-shared", thread_ts: SESSION_THREAD }),
+        ),
+      )
+      assert.deepStrictEqual(ingress.handedOff, [])
+      assert.deepStrictEqual(
+        ingress.posted.map(({ channel }) => channel),
+        ["D1", "C-shared"],
       )
     }),
   )

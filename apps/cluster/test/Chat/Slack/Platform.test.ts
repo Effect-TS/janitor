@@ -26,6 +26,34 @@ const thread: ChatThread = {
 let respond = (_post: number): Response => Response.json({ ok: true, ts: "1700000001.000100" })
 let posts = 0
 
+/** The thread's replies, which `conversations.replies` pages two at a time: 31 pages. */
+const replies = Array.from({ length: 61 }, (_, index) => ({
+  ts: `17000${String(index).padStart(5, "0")}.000100`,
+  user: "U1",
+  text: `reply ${index}`,
+}))
+
+/** Answers the other methods: `auth.test`, `users.info` and `conversations.replies`. */
+const answer = (method: string, params: URLSearchParams): Response => {
+  switch (method) {
+    case "auth.test":
+      return Response.json({ ok: true, user_id: "UBOT" })
+    case "users.info":
+      return Response.json({ ok: true, user: { team_id: "T1", name: "ada" } })
+    case "conversations.replies": {
+      const start = Number(params.get("cursor") ?? 0)
+      const next = start + 2 < replies.length ? String(start + 2) : ""
+      return Response.json({
+        ok: true,
+        messages: replies.slice(start, start + 2),
+        response_metadata: { next_cursor: next },
+      })
+    }
+    default:
+      return Response.json({ ok: true })
+  }
+}
+
 const services = SlackPlatform.layer.pipe(
   Layer.provide([
     Layer.succeed(SlackConfig, {
@@ -37,14 +65,16 @@ const services = SlackPlatform.layer.pipe(
     Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
-        Effect.sync(() =>
-          HttpClientResponse.fromWeb(
+        Effect.sync(() => {
+          const method = new URL(request.url).pathname.replace("/api/", "")
+          const params = new URLSearchParams(
+            request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "",
+          )
+          return HttpClientResponse.fromWeb(
             request,
-            new URL(request.url).pathname === "/api/chat.postMessage"
-              ? respond(++posts)
-              : Response.json({ ok: true }),
-          ),
-        ),
+            method === "chat.postMessage" ? respond(++posts) : answer(method, params),
+          )
+        }),
       ),
     ),
   ]),
@@ -81,5 +111,16 @@ describe("Slack platform", () => {
           assert.strictEqual(posts, 1)
         }
       }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("the backfill reads the thread to its last page and keeps the latest messages", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      const messages = yield* platform.history(thread, 3)
+      assert.deepStrictEqual(
+        messages.map((message) => message.text),
+        ["reply 58", "reply 59", "reply 60"],
+      )
+    }).pipe(Effect.provide(services)),
   )
 })

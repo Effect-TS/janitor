@@ -338,6 +338,10 @@ export class FakePlatform {
   failReplies = false
   /** The thread's earlier messages, which the backfill reads. */
   threadHistory: ReadonlyArray<ChatMessage> = []
+  /** Reads of the thread's history so far. */
+  historyReads = 0
+  /** While set, reading the thread's history never finishes. */
+  holdHistory = false
   /** Each attachment's bytes, by attachment id. */
   readonly files = new Map<string, Uint8Array>()
   /** The ids of the attachments downloaded, in order. */
@@ -399,7 +403,11 @@ export class FakePlatform {
             }),
           )
         }),
-      history: () => Effect.sync(() => this.threadHistory),
+      history: () =>
+        Effect.suspend(() => {
+          this.historyReads += 1
+          return this.holdHistory ? Effect.never : Effect.succeed(this.threadHistory)
+        }),
     })
   }
 }
@@ -535,6 +543,12 @@ export const makeSessionHarness = Effect.gen(function* () {
 
     deliver,
 
+    /** Delivers `message` as Slack ingress does: done once it is stored, before the session decides it. */
+    store: (thread: ChatThread, message: ChatMessage) =>
+      Effect.flatMap(client(thread), (session) =>
+        stepping(use(session.Receive({ thread, message }, { discard: true })), "Receive stored"),
+      ),
+
     /** Delivers `message` twice at once, as a Slack retry racing the first delivery does. */
     deliverTwiceAtOnce: (thread: ChatThread, message: ChatMessage) =>
       Effect.flatMap(client(thread), (session) =>
@@ -558,13 +572,15 @@ export const makeSessionHarness = Effect.gen(function* () {
     /** Remembers `userId` as admitted, as Slack ingress does after `users.info`. */
     admit: (thread: ChatThread, userId: string) =>
       Effect.flatMap(client(thread), (session) =>
-        stepping(use(session.RememberAdmission({ userId })), "RememberAdmission"),
+        stepping(use(session.RememberAdmission({ userId, name: userId })), "RememberAdmission"),
       ),
 
     /** Whether the session remembers `userId` as admitted. */
     admitted: (thread: ChatThread, userId: string) =>
       Effect.flatMap(client(thread), (session) =>
-        use(Effect.orDie(session.CachedAdmission({ userId }))),
+        use(Effect.orDie(session.CachedAdmission({ userId }))).pipe(
+          Effect.map((name) => name !== null),
+        ),
       ),
 
     transcript: (thread: ChatThread) =>

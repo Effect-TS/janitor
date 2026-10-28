@@ -162,8 +162,8 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
         session_id TEXT NOT NULL, turn_id TEXT NOT NULL, seq INTEGER NOT NULL, message TEXT NOT NULL,
         PRIMARY KEY (session_id, turn_id, seq))`,
       sql`CREATE TABLE IF NOT EXISTS chat_admissions (
-        session_id TEXT NOT NULL, user_id TEXT NOT NULL, admitted_at INTEGER NOT NULL,
-        PRIMARY KEY (session_id, user_id))`,
+        session_id TEXT NOT NULL, user_id TEXT NOT NULL, name TEXT NOT NULL,
+        admitted_at INTEGER NOT NULL, PRIMARY KEY (session_id, user_id))`,
     ],
     { discard: true },
   )
@@ -433,25 +433,26 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     }),
   )
 
-  /** Remembers a user as admitted, as of `now`. */
-  const rememberAdmission = (userId: string, now: number) =>
+  /** Remembers a user as admitted, with their name, as of `now`. */
+  const rememberAdmission = (userId: string, name: string, now: number) =>
     sql`
-      INSERT INTO chat_admissions (session_id, user_id, admitted_at)
-      VALUES (${sessionId}, ${userId}, ${now})
-      ON CONFLICT (session_id, user_id) DO UPDATE SET admitted_at = excluded.admitted_at`.pipe(
-      Effect.asVoid,
-    )
+      INSERT INTO chat_admissions (session_id, user_id, name, admitted_at)
+      VALUES (${sessionId}, ${userId}, ${name}, ${now})
+      ON CONFLICT (session_id, user_id)
+      DO UPDATE SET name = excluded.name, admitted_at = excluded.admitted_at`.pipe(Effect.asVoid)
 
-  /** When the user was last remembered as admitted, if they were; no tables means never. */
-  const admittedAt = (userId: string) =>
+  /** When the user was last remembered as admitted and as whom, if they were; no tables means never. */
+  const admission = (userId: string) =>
     Effect.gen(function* () {
       const [table] = yield* sql`
         SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chat_admissions'`
-      if (table === undefined) return Option.none<number>()
-      const [row] = yield* sql<{ admitted_at: number }>`
-        SELECT admitted_at FROM chat_admissions
+      if (table === undefined) return Option.none<{ readonly at: number; readonly name: string }>()
+      const [row] = yield* sql<{ admitted_at: number; name: string }>`
+        SELECT admitted_at, name FROM chat_admissions
         WHERE session_id = ${sessionId} AND user_id = ${userId}`
-      return Option.fromNullishOr(row?.admitted_at)
+      return row === undefined
+        ? Option.none()
+        : Option.some({ at: row.admitted_at, name: row.name })
     })
 
   return {
@@ -475,7 +476,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     history,
     transcript,
     rememberAdmission,
-    admittedAt,
+    admission,
   }
 }
 
