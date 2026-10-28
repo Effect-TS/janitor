@@ -87,6 +87,9 @@ export class DiscordIngress extends Context.Service<
   }
 >()("@janitor/cluster/Chat/Discord/Ingress/DiscordIngress") {}
 
+/** The message ingress logs at Debug for each message it drops, with the reason. */
+export const DROPPED = "Discord ingress dropped a message"
+
 const DIRECT_MESSAGE_POINTER = "I only work in servers. Mention me in a channel to start a thread."
 
 /** Threads keep a day of quiet before Discord archives them. */
@@ -151,8 +154,7 @@ const make = Effect.gen(function* () {
       flags: SUPPRESS_EMBEDS,
     })
 
-  const drop = (reason: string) =>
-    Effect.logDebug("Discord ingress dropped a message").pipe(Effect.annotateLogs({ reason }))
+  const drop = (reason: string) => Effect.logDebug(DROPPED).pipe(Effect.annotateLogs({ reason }))
 
   /** Hands the message on, or drops it; fails only with what a replay could fix. */
   const route = Effect.fnUntraced(function* (message: Discord.GatewayMessageCreateDispatchData) {
@@ -187,6 +189,9 @@ const make = Effect.gen(function* () {
       }
     }
     yield* sessions.receive(thread, chatMessage)
+    yield* Effect.logInfo("Discord ingress handed a message to its session").pipe(
+      Effect.annotateLogs({ threadId: thread.threadId, author: chatMessage.author.class }),
+    )
   })
 
   /** A refusal from Discord won't change on a replay: it's logged and the message dropped. */
