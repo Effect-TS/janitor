@@ -66,7 +66,7 @@ The production App is installed on every repository of Effect-TS and Effectful-T
 
 ### The bot's skills
 
-Every sandbox gets the `multica-platform` skill bundled with janitor. To give the bot more, point it at a GitHub repository that holds one folder per skill under `.agents/skills`, each with a `SKILL.md` and any supporting files. That is the layout janitor's own repository uses, with vendored skills pinned by hash in `skills-lock.json`. Changes merged there reach the next sandbox provisioned, with no janitor deploy. Effect's deployment sets `CHAT_SKILLS_REPOSITORY` to `Effect-TS/janitor-skills` in Infisical (project `janitor`).
+Every sandbox gets the `multica-platform` skill bundled with janitor. To give the bot more, point it at a GitHub repository that holds one folder per skill under `.agents/skills`, each with a `SKILL.md` and any supporting files, for example `.agents/skills/triage/SKILL.md`. That is where `npx skills add` installs vendored skills, and custom skills go next to them. Every folder with a valid `SKILL.md` is a skill. A `skills-lock.json` at the repository's root is optional: it helps keep vendored skills up to date, and janitor never reads it. Changes merged there reach the next sandbox provisioned, with no janitor deploy. Effect's deployment sets `CHAT_SKILLS_REPOSITORY` to `Effect-TS/janitor-skills` in Infisical (project `janitor`).
 
 | Setting                  | Default            | Meaning                                            |
 | ------------------------ | ------------------ | -------------------------------------------------- |
