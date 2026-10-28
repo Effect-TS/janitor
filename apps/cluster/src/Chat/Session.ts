@@ -40,7 +40,7 @@ import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agen
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { GATE_CONTEXT, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
-import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread } from "./Platform.ts"
+import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread, sessionKey } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
 import { ChatSessionIndex } from "./SessionIndex.ts"
 import {
@@ -1291,3 +1291,23 @@ export const ChatSessionLayer: Layer.Layer<
   | DecisionModel.DecisionModel
   | Sharding.Sharding
 > = ChatSessionEntityLayer.pipe(Layer.provide([ChatAgentLayer, ReplyGate.layer]))
+
+/**
+ * Calls a thread's session entity through the cluster's client, for the
+ * platform ingresses. `provide` is the cluster handle's: ingress is built
+ * before any request brings `Sharding`. Every failure becomes `onError`'s.
+ */
+export const sessionClient =
+  <E2>(
+    provide: <A, E>(effect: Effect.Effect<A, E, Sharding.Sharding>) => Effect.Effect<A, E>,
+    onError: (error: unknown) => E2,
+  ) =>
+  <A, E>(
+    thread: ChatThread,
+    call: (
+      client: ReturnType<Effect.Success<typeof ChatSession.client>>,
+    ) => Effect.Effect<A, E, Sharding.Sharding>,
+  ): Effect.Effect<A, E2> =>
+    provide(Effect.flatMap(ChatSession.client, (client) => call(client(sessionKey(thread))))).pipe(
+      Effect.mapError(onError),
+    )

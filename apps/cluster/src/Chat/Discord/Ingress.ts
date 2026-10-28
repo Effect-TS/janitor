@@ -5,15 +5,12 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import { type ChatMessage, type ChatThread, sessionKey } from "../Platform.ts"
-import { ChatSession } from "../Session.ts"
+import type { ChatMessage, ChatThread } from "../Platform.ts"
+import { sessionClient } from "../Session.ts"
 import {
-  authorName,
-  classify,
   errorCode,
-  isRefusal,
   MESSAGE_TYPES,
-  mentionsBot,
+  rememberBotUserId,
   SUPPRESS_EMBEDS,
   THREAD_PARENT_TYPES,
   THREAD_TYPES,
@@ -39,22 +36,14 @@ export class DiscordSessions extends Context.Service<
     readonly exists: (thread: ChatThread) => Effect.Effect<boolean, DiscordSessionError>
   }
 >()("@janitor/cluster/Chat/Discord/Ingress/DiscordSessions") {
-  /**
-   * The session entities, through the cluster's client. `provide` is the
-   * cluster handle's.
-   */
+  /** The session entities, through the cluster's client. `provide` is the cluster handle's. */
   static readonly fromCluster = (
     provide: <A, E>(effect: Effect.Effect<A, E, Sharding.Sharding>) => Effect.Effect<A, E>,
   ): Layer.Layer<DiscordSessions> => {
-    const session = <A, E>(
-      thread: ChatThread,
-      call: (
-        client: ReturnType<Effect.Success<typeof ChatSession.client>>,
-      ) => Effect.Effect<A, E, Sharding.Sharding>,
-    ) =>
-      provide(
-        Effect.flatMap(ChatSession.client, (client) => call(client(sessionKey(thread)))),
-      ).pipe(Effect.mapError((error) => new DiscordSessionError({ message: String(error) })))
+    const session = sessionClient(
+      provide,
+      (error) => new DiscordSessionError({ message: String(error) }),
+    )
     return Layer.succeed(this, {
       receive: (thread, message) =>
         session(thread, (client) => client.Receive({ thread, message }, { discard: true })),
@@ -113,9 +102,8 @@ const threadName = (text: string): string => {
   const line =
     text
       .split("\n")
-      .find((line) => line.trim().length > 0)
-      ?.trim() ?? ""
-  if (line.length === 0) return "janitor"
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "janitor"
   return line.length <= THREAD_NAME_CHARACTERS
     ? line
     : `${line.slice(0, THREAD_NAME_CHARACTERS - 1)}…`
@@ -127,19 +115,7 @@ const make = Effect.gen(function* () {
   const seen = yield* SeenMessages
   const rest = yield* DiscordREST
 
-  // Kept once read; a failed read is tried again with the next message.
-  let botId: string | undefined
-  const botUserId = Effect.suspend(() =>
-    botId !== undefined
-      ? Effect.succeed(botId)
-      : Effect.tap(
-          Effect.map(rest.getMyUser(), (user) => user.id),
-          (id) =>
-            Effect.sync(() => {
-              botId = id
-            }),
-        ),
-  )
+  const botUserId = rememberBotUserId(rest)
   /** Channel types never change, so each is looked up once per instance. */
   const channelTypes = new Map<string, number>()
   const channelType = (channelId: string) =>
@@ -185,20 +161,16 @@ const make = Effect.gen(function* () {
     }
     // Webhooks and system messages have no member.
     if (message.guild_id !== config.guildId || message.member === undefined) return
-    const author = {
-      name: authorName(message.author, message.member.nick),
-      class: classify(message.author, message.member.roles, config.roleId),
-    }
-    const chatMessage = toChatMessage(message, author, bot)
-    const mentioned = mentionsBot(message, bot)
+    const chatMessage = toChatMessage(message, message.member, config.roleId, bot)
+    // Only an admitted user's mention starts a session.
+    const starts = chatMessage.mentionsBot && chatMessage.author.class === "admitted"
     const type = yield* channelType(message.channel_id)
     let thread: ChatThread
     if (THREAD_TYPES.has(type)) {
       thread = { _tag: "Discord", guild: message.guild_id, threadId: message.channel_id }
-      // Only an admitted user's mention starts a session.
-      if (!(mentioned && author.class === "admitted") && !(yield* sessions.exists(thread))) return
+      if (!starts && !(yield* sessions.exists(thread))) return
     } else {
-      if (!mentioned || author.class !== "admitted" || !THREAD_PARENT_TYPES.has(type)) return
+      if (!starts || !THREAD_PARENT_TYPES.has(type)) return
       thread = {
         _tag: "Discord",
         guild: message.guild_id,
@@ -219,11 +191,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         if (yield* seen.has(message.id)) return
         yield* route(message).pipe(
-          Effect.catchIf(
-            (error): error is DiscordRESTError =>
-              error._tag !== "DiscordSessionError" && isRefusal(error),
-            refused,
-          ),
+          Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
           Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
         )
         yield* seen.add(message.id)

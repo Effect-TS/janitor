@@ -11,8 +11,8 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import { failureCategory, readBodyBounded } from "../../Ingress/Webhooks.ts"
 import * as WebhookVerifier from "../../Ingress/WebhookVerifier.ts"
-import { type ChatMessage, type ChatThread, sessionKey } from "../Platform.ts"
-import { ChatSession } from "../Session.ts"
+import type { ChatMessage, ChatThread } from "../Platform.ts"
+import { sessionClient } from "../Session.ts"
 import {
   isExtShared,
   lookUpAuthor,
@@ -61,15 +61,10 @@ export class SlackSessions extends Context.Service<
   static readonly fromCluster = (
     provide: <A, E>(effect: Effect.Effect<A, E, Sharding.Sharding>) => Effect.Effect<A, E>,
   ): Layer.Layer<SlackSessions> => {
-    const session = <A, E>(
-      thread: ChatThread,
-      call: (
-        client: ReturnType<Effect.Success<typeof ChatSession.client>>,
-      ) => Effect.Effect<A, E, Sharding.Sharding>,
-    ) =>
-      provide(
-        Effect.flatMap(ChatSession.client, (client) => call(client(sessionKey(thread)))),
-      ).pipe(Effect.mapError((error) => new SlackSessionError({ message: String(error) })))
+    const session = sessionClient(
+      provide,
+      (error) => new SlackSessionError({ message: String(error) }),
+    )
     return Layer.succeed(this, {
       receive: (thread, message) =>
         session(thread, (client) => client.Receive({ thread, message }, { discard: true })),

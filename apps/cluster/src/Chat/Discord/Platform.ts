@@ -9,11 +9,10 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
 import { chunkMarkdown } from "../Slack/Platform.ts"
 import {
-  authorName,
-  classify,
   errorCode,
   MESSAGE_TYPES,
   parseAttachmentId,
+  rememberBotUserId,
   SUPPRESS_EMBEDS,
   toChatMessage,
 } from "./Api.ts"
@@ -52,18 +51,7 @@ const make = Effect.gen(function* () {
   const config = yield* DiscordBotConfig
   const http = yield* HttpClient.HttpClient
 
-  let botId: string | undefined
-  const botUserId = Effect.suspend(() =>
-    botId !== undefined
-      ? Effect.succeed(botId)
-      : Effect.tap(
-          Effect.map(rest.getMyUser(), (user) => user.id),
-          (id) =>
-            Effect.sync(() => {
-              botId = id
-            }),
-        ),
-  )
+  const botUserId = rememberBotUserId(rest)
 
   const post = (
     thread: ChatThread,
@@ -130,17 +118,9 @@ const make = Effect.gen(function* () {
           { concurrency: 5 },
         ),
       )
-      return messages.map((message) => {
-        const member = members.get(message.author.id)
-        return toChatMessage(
-          message,
-          {
-            name: authorName(message.author, member?.nick),
-            class: classify(message.author, member?.roles, config.roleId),
-          },
-          bot,
-        )
-      })
+      return messages.map((message) =>
+        toChatMessage(message, members.get(message.author.id), config.roleId, bot),
+      )
     }).pipe(Effect.mapError(platformError))
 
   return ChatPlatform.of({

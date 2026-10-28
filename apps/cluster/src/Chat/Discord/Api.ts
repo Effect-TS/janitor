@@ -3,15 +3,16 @@ import { type DiscordREST, type DiscordRESTError, DiscordRESTLive } from "dfx/Di
 import { MemoryRateLimitStoreLive } from "dfx/RateLimit"
 import type * as Discord from "dfx/types"
 import * as DateTime from "effect/DateTime"
+import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type * as Redacted from "effect/Redacted"
 import type * as HttpClient from "effect/http/HttpClient"
-import type { AuthorClass, ChatMessage } from "../Platform.ts"
+import type { ChatMessage } from "../Platform.ts"
 
 /**
  * What Discord ingress and Discord's `ChatPlatform` share (EFF-3020): dfx's
- * REST client, how an author is classified and how a Discord message becomes
- * a `ChatMessage`.
+ * REST client, the bot's own id and how a Discord message becomes a
+ * `ChatMessage`.
  */
 
 /** dfx's REST client with the bot token, rate limited in memory. */
@@ -30,26 +31,17 @@ export const MESSAGE_TYPES: ReadonlySet<number> = new Set([0, 19])
 /** Ask Discord for no link previews on the bot's posts. */
 export const SUPPRESS_EMBEDS = 1 << 2
 
-/**
- * An admitted author has the role in `member.roles`. A bot account, the
- * janitor bot included, is context only whatever its roles.
- */
-export const classify = (
-  author: { readonly bot?: boolean | undefined },
-  roles: ReadonlyArray<string> | undefined,
-  roleId: string,
-): AuthorClass =>
-  author.bot === true ? "bot" : roles?.includes(roleId) === true ? "admitted" : "outsider"
-
-/** The name the thread shows: the server nickname, else the display name, else the username. */
-export const authorName = (
-  author: { readonly username: string; readonly global_name: string | null },
-  nick: string | null | undefined,
-): string => nick ?? author.global_name ?? author.username
-
-/** Whether a Discord error is Discord refusing the request, as opposed to a transport failure. */
-export const isRefusal = (error: DiscordRESTError): boolean =>
-  error._tag === "ErrorResponse" || error._tag === "RatelimitedResponse"
+/** The bot's own user id, read once; a failed read is tried again next time. */
+export const rememberBotUserId = (
+  rest: DiscordREST["Service"],
+): Effect.Effect<string, DiscordRESTError> => {
+  let botId: string | undefined
+  return Effect.suspend(() =>
+    botId !== undefined
+      ? Effect.succeed(botId)
+      : Effect.map(rest.getMyUser(), (user) => (botId = user.id)),
+  )
+}
 
 /** Discord's error code for a refusal, such as 10003 for an unknown channel. */
 export const errorCode = (error: DiscordRESTError): number | undefined =>
@@ -83,21 +75,39 @@ export type DiscordMessage = Pick<
   readonly mentions: ReadonlyArray<{ readonly id: string }>
 }
 
+/** The author's membership: `member` on a gateway message, a guild member read over REST, or none. */
+export interface DiscordMember {
+  readonly nick?: string | null | undefined
+  readonly roles?: ReadonlyArray<string> | undefined
+}
+
 /** Mentions of the bot, `<@id>` or the older `<@!id>`. */
 const botMention = (botUserId: string) => new RegExp(`<@!?${botUserId}>`, "g")
 
-export const mentionsBot = (message: DiscordMessage, botUserId: string): boolean =>
-  message.mentions.some((user) => user.id === botUserId)
-
+/**
+ * The author is admitted with the role in `member.roles`; a bot account,
+ * the janitor bot included, is context only whatever its roles. The name is
+ * the server nickname, else the display name, else the username.
+ */
 export const toChatMessage = (
   message: DiscordMessage,
-  author: { readonly name: string; readonly class: AuthorClass },
+  member: DiscordMember | undefined,
+  roleId: string,
   botUserId: string,
 ): ChatMessage => ({
   id: message.id,
-  author: { id: message.author.id, ...author },
+  author: {
+    id: message.author.id,
+    name: member?.nick ?? message.author.global_name ?? message.author.username,
+    class:
+      message.author.bot === true
+        ? "bot"
+        : member?.roles?.includes(roleId) === true
+          ? "admitted"
+          : "outsider",
+  },
   text: message.content.replace(botMention(botUserId), "").trim(),
-  mentionsBot: mentionsBot(message, botUserId),
+  mentionsBot: message.mentions.some((user) => user.id === botUserId),
   sentAt: DateTime.makeUnsafe(message.timestamp),
   attachments: message.attachments.map((attachment) => ({
     id: attachmentId(message.channel_id, message.id, attachment.id),

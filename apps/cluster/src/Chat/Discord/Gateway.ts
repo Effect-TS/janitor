@@ -5,6 +5,7 @@ import { Shard, ShardLive } from "dfx/DiscordGateway/Shard"
 import { DispatchHook } from "dfx/DiscordGateway/Shard/DispatchHook"
 import { type ShardState, ShardStateStore } from "dfx/DiscordGateway/Shard/StateStore"
 import { MemoryRateLimitStoreLive } from "dfx/RateLimit"
+import { GatewayIntentBits } from "dfx/types"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -43,7 +44,11 @@ export const GATEWAY_NAME = "gateway"
  * `GUILDS`, `GUILD_MESSAGES`, `DIRECT_MESSAGES` (for the pointer) and the
  * privileged `MESSAGE_CONTENT`.
  */
-export const INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15)
+export const INTENTS =
+  GatewayIntentBits.Guilds |
+  GatewayIntentBits.GuildMessages |
+  GatewayIntentBits.DirectMessages |
+  GatewayIntentBits.MessageContent
 
 /** How long without any payload before the alarm treats the socket as dead. */
 const STALE_AFTER_MS = 3 * 60_000
