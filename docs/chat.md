@@ -91,7 +91,6 @@ in the sandbox or install an unpinned binary while the image builds.
 - In a thread with a session, every message from an admitted user reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot always starts or steers a turn.
 - Admitted users are full members of our workspace: `users.info` reports our `team_id`, and none of `is_restricted`, `is_ultra_restricted`, `is_stranger`, `deleted` or `is_bot`. Guests, Slack Connect users and strangers are outsiders. Their messages in a thread with a session reach the model as context only, and their mentions start nothing. A failed lookup also makes the author an outsider. An admission is remembered in the session for an hour, with the user's name.
 - Messages from bots, janitor's own included, are context only. Edits, deletions and other message subtypes are ignored, except messages with files and thread replies also sent to the channel.
-- In a Slack Connect channel the bot answers each mention to say it doesn't work there, and starts nothing. Every admitted message is checked, so a channel that becomes shared after a session started stops reaching that session. The bot's posts check too, at most once a minute per channel, so a running turn stops posting there.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
 - Replies are posted as Markdown, up to 12,000 characters a message and a second apart. A reply that would need more than three messages is uploaded as `reply.md`. The bot's posts never unfurl links, and they carry `janitor_output` message metadata.
 
@@ -113,10 +112,10 @@ Slack is on once all four of these are set, and off while any of them is missing
 | ---------------------- | -------------------------------------------------------------- |
 | `SLACK_SIGNING_SECRET` | **Basic Information**, **Signing Secret**                      |
 | `SLACK_BOT_TOKEN`      | **OAuth & Permissions**, **Bot User OAuth Token** (`xoxb-...`) |
-| `SLACK_WORKSPACE_ID`   | The workspace's team id (`T...`), the `team_id` events carry   |
+| `SLACK_WORKSPACE_ID`   | The workspace's team id (`T...`)                               |
 | `SLACK_APP_ID`         | **Basic Information**, **App ID** (`A...`)                     |
 
-The webhook path skips Cloudflare Access, like GitHub's, and relies on the signature: an HMAC-SHA-256 of `v0:{timestamp}:{body}` with the signing secret, within 300 seconds of the request's timestamp. Each event's `team_id` and `api_app_id` must match the settings. The route answers within 2.5 seconds, or answers 503 so Slack delivers the event again, and sessions ignore a message they already have.
+The webhook path skips Cloudflare Access, like GitHub's, and relies on the signature: an HMAC-SHA-256 of `v0:{timestamp}:{body}` with the signing secret, within 300 seconds of the request's timestamp. Each event's `api_app_id` must match the settings, and its `team_id` too unless `authorizations` lists our workspace, as it does for a Slack Connect channel another organization hosts. The route answers within 2.5 seconds, or answers 503 so Slack delivers the event again, and sessions ignore a message they already have.
 
 ### Inviting the bot
 
@@ -204,7 +203,7 @@ Off for every thread wins over the platform switches. Each change sets one switc
 1. A branch the bot pushes runs the repository's workflows, which have secrets and can call scripts the bot changed.
 2. The bot can approve and merge pull requests, the changesets "Version Packages" one included. A prompt injection from repository content, an issue or a web page could lead to a merge and an npm publish.
 3. Where a repository requires approvals, the bot's approval counts towards them.
-4. On Discord, keeping private content out of public replies relies on the prompt alone.
+4. On Discord, keeping private content out of public replies relies on the prompt alone. So does keeping it out of replies in Slack Connect channels, which another organization reads.
 5. There are no caps per person or on pull requests, issues, comments or pushes, and no loop detector. One person can fill the queue, and a confused turn can open many pull requests or issues before someone says "stop" or uses the kill switch. Each turn logs its action count.
 6. Everyone with Access can read every transcript, private Slack channels and private repositories included.
 7. An injected instruction the bot merges into `AGENTS.md`, `CLAUDE.md` or a skill folder is read by every later bot session and Multica agent on that repository.
