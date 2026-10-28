@@ -5,7 +5,7 @@ import { Shard, ShardLive } from "dfx/DiscordGateway/Shard"
 import { DispatchHook } from "dfx/DiscordGateway/Shard/DispatchHook"
 import { type ShardState, ShardStateStore } from "dfx/DiscordGateway/Shard/StateStore"
 import { MemoryRateLimitStoreLive } from "dfx/RateLimit"
-import { GatewayIntentBits } from "dfx/types"
+import { GatewayIntentBits, GatewayOpcodes } from "dfx/types"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -95,13 +95,22 @@ interface GatewayStorage {
   deleteAlarm(): Promise<void>
 }
 
-/** The close code in dfx's "Got socket error, reconnecting" log, if it was a close. */
-const closeCode = (cause: Cause.Cause<unknown>): number | undefined => {
+/** The close in dfx's "Got socket error, reconnecting" log: its code if it was a close, and why. */
+const describeClose = (
+  cause: Cause.Cause<unknown>,
+): { readonly code: number | undefined; readonly reason: string } => {
   const error = Cause.squash(cause) as {
-    readonly reason?: { readonly _tag?: string; readonly code?: number }
+    readonly reason?: { readonly _tag?: string; readonly code?: number; readonly message?: string }
+    readonly message?: string
   }
-  return error?.reason?._tag === "SocketCloseError" ? error.reason.code : undefined
+  return {
+    code: error?.reason?._tag === "SocketCloseError" ? error.reason.code : undefined,
+    reason: String(error?.reason?.message ?? error?.message ?? Cause.pretty(cause)).slice(0, 500),
+  }
 }
+
+/** dfx's shard phases, by the number its "phase transition" log carries. */
+const PHASES = ["connecting", "handshake", "connected"] as const
 
 /**
  * The gateway object. `sessions` reaches the chat session entities; the
@@ -198,6 +207,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
           ),
         )
 
+        const instanceStartedAt = Date.now()
         let lastSeenAt = Date.now()
         let shardFiber: Fiber.Fiber<void> | undefined
 
@@ -207,33 +217,108 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
           return fiber === undefined ? Effect.void : Fiber.interrupt(fiber)
         })
 
-        // dfx logs every payload at Trace, which tells the alarm the socket
-        // is alive, and a socket close at Debug, after which it reconnects
-        // whatever the code. Closes that a reconnect can't fix stop the shard
-        // instead. The rest of dfx's logs pass on from Info up.
+        // What the socket has done, for the alarm to report: the shard runs
+        // outside any event, so its own log lines may never reach the
+        // Workers logs, and the alarm's always do.
+        let phase: number | undefined
+        let socketsOpened = 0
+        let lastExit: string | undefined
+        let lastClose:
+          | { readonly at: number; readonly code: number | undefined; readonly reason: string }
+          | undefined
+
+        // dfx logs every payload and phase change at Trace, which tells the
+        // alarm the socket is alive, and a socket close or a failed write at
+        // Debug, after which it reconnects whatever the code. Those are
+        // reported here; closes that a reconnect can't fix stop the shard
+        // instead. The rest of the shard's logs pass on from the Worker's
+        // minimum level up, which puts ingress's dropped messages at Debug.
         const loggers = yield* References.CurrentLoggers
+        const minimumLevel = yield* References.MinimumLogLevel
+        const report = (
+          level: LogLevel.Severity,
+          message: string,
+          annotations: Record<string, unknown>,
+          cause: Cause.Cause<unknown> = Cause.empty,
+        ) => {
+          Effect.runFork(
+            Effect.logWithLevel(level)(message, cause).pipe(
+              Effect.annotateLogs(annotations),
+              Effect.provideService(References.CurrentLoggers, loggers),
+            ),
+          )
+        }
+        const onPayload = (payload: {
+          readonly op: number
+          readonly t?: string | null
+          readonly d?: unknown
+        }) => {
+          lastSeenAt = Date.now()
+          switch (payload.op) {
+            case GatewayOpcodes.Hello: {
+              socketsOpened++
+              const resuming = kvGet("shard-state") !== undefined
+              report("Info", "Discord gateway socket opened", {
+                handshake: resuming ? "resume" : "identify",
+              })
+              return
+            }
+            case GatewayOpcodes.Dispatch: {
+              if (payload.t === "READY") {
+                const ready = payload.d as { readonly session_id?: string }
+                report("Info", "Discord gateway READY", { sessionId: ready?.session_id })
+              } else if (payload.t === "RESUMED") report("Info", "Discord gateway RESUMED", {})
+              return
+            }
+            case GatewayOpcodes.InvalidSession: {
+              report("Warn", "Discord invalidated the gateway session", {
+                resumable: payload.d === true,
+              })
+              return
+            }
+            case GatewayOpcodes.Reconnect: {
+              report("Info", "Discord asked the gateway to reconnect", {})
+              return
+            }
+          }
+        }
+        const onClose = (cause: Cause.Cause<unknown>) => {
+          const { code, reason } = describeClose(cause)
+          lastClose = { at: Date.now(), code, reason }
+          const fatal = code === undefined ? undefined : FATAL_CLOSE_CODES.get(code)
+          if (fatal !== undefined) {
+            kvSet("fatal-until", String(Date.now() + FATAL_BACKOFF_MS))
+            report(
+              "Error",
+              `Discord closed the gateway with ${code}: ${fatal}. Trying again in an hour.`,
+              { closeCode: code },
+            )
+            Effect.runFork(stopShard)
+          } else
+            report("Warn", "Discord gateway socket closed, reconnecting", {
+              closeCode: code ?? "none",
+              reason,
+            })
+        }
         const watcher = Logger.make<unknown, void>((options) => {
           const single =
             Array.isArray(options.message) && options.message.length === 1
               ? options.message[0]
               : options.message
           if (typeof single === "object" && single !== null && "op" in single)
-            lastSeenAt = Date.now()
-          else if (single === "Got socket error, reconnecting") {
-            const code = closeCode(options.cause)
-            const reason = code === undefined ? undefined : FATAL_CLOSE_CODES.get(code)
-            if (code !== undefined && reason !== undefined) {
-              kvSet("fatal-until", String(Date.now() + FATAL_BACKOFF_MS))
-              console.error(
-                JSON.stringify({
-                  message: `Discord closed the gateway with ${code}: ${reason}. Trying again in an hour.`,
-                  closeCode: code,
-                }),
-              )
-              Effect.runFork(stopShard)
-            }
+            return onPayload(single as Parameters<typeof onPayload>[0])
+          if (single === "phase transition") {
+            const next = options.fiber.getRef(References.CurrentLogAnnotations)["phase"]
+            if (typeof next === "number") phase = next
+            return
           }
-          if (LogLevel.isGreaterThanOrEqualTo(options.logLevel, "Info"))
+          if (single === "Got socket error, reconnecting") return onClose(options.cause)
+          if (
+            options.logLevel === "Debug" &&
+            options.fiber.getRef(References.CurrentLogAnnotations)["channel"] === "outbound"
+          )
+            return report("Warn", "Discord gateway couldn't write to the socket", {}, options.cause)
+          if (LogLevel.isGreaterThanOrEqualTo(options.logLevel, minimumLevel))
             for (const logger of loggers) logger.log(options)
         })
 
@@ -260,11 +345,11 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
           ),
           Effect.provideService(References.MinimumLogLevel, "Trace"),
           Effect.provideService(References.CurrentLoggers, new Set([watcher])),
-          Effect.catchCause((cause) =>
-            Cause.hasInterruptsOnly(cause)
-              ? Effect.void
-              : Effect.logError("Discord gateway shard exited", cause),
-          ),
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) return Effect.void
+            lastExit = Cause.pretty(cause).slice(0, 500)
+            return Effect.logError("Discord gateway shard exited", cause)
+          }),
         )
 
         const running = Effect.sync(
@@ -279,6 +364,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
               Effect.annotateLogs({ why, resuming: kvGet("shard-state") !== undefined }),
             )
             lastSeenAt = Date.now()
+            phase = undefined
             // The init closure's scope closes once the instance is built, so
             // the shard runs as a detached fiber the object tracks itself.
             shardFiber = yield* Effect.forkDetach(runShard)
@@ -286,16 +372,39 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
 
         const arm = Effect.promise(() => storage.setAlarm(Date.now() + ALARM_EVERY_MS))
 
-        /** Restarts a shard that died or went quiet, and forgets old message ids. */
+        /** Reports the shard, restarts it if it died or went quiet, and forgets old message ids. */
         const check = Effect.gen(function* () {
           sql.exec(`DELETE FROM seen WHERE at < ?`, Date.now() - SEEN_FOR_MS)
-          if (!(yield* running)) yield* startShard("not running")
-          else if (Date.now() - lastSeenAt > STALE_AFTER_MS) yield* startShard("socket quiet")
+          const isRunning = yield* running
+          const quietFor = Date.now() - lastSeenAt
+          const fatalUntil = Number(kvGet("fatal-until") ?? 0)
+          yield* Effect.logInfo("Discord gateway alarm").pipe(
+            Effect.annotateLogs({
+              running: isRunning,
+              phase: phase === undefined ? "none" : (PHASES[phase] ?? phase),
+              sinceLastPayloadMs: quietFor,
+              socketsOpened,
+              lastClose:
+                lastClose === undefined
+                  ? "none"
+                  : `${lastClose.code ?? "no code"} (${lastClose.reason}) ${Date.now() - lastClose.at}ms ago`,
+              lastExit: lastExit ?? "none",
+              shardState: kvGet("shard-state") !== undefined,
+              fatalUntil: Date.now() < fatalUntil ? new Date(fatalUntil).toISOString() : "none",
+              instanceAgeMs: Date.now() - instanceStartedAt,
+            }),
+          )
+          if (!isRunning) yield* startShard("not running")
+          else if (quietFor > STALE_AFTER_MS) yield* startShard("socket quiet")
         })
 
         // A rebuilt instance picks the socket back up straight away; the
         // alarm that woke it only has to check.
-        if (kvGet("enabled") === "1") yield* startShard("instance")
+        const enabled = kvGet("enabled") === "1"
+        yield* Effect.logInfo("Discord gateway instance started").pipe(
+          Effect.annotateLogs({ enabled }),
+        )
+        if (enabled) yield* startShard("instance")
 
         return {
           start: () =>
