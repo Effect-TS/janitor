@@ -1,0 +1,79 @@
+name: Bump multica CLI
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VP_DOWNLOAD_TIMEOUT: "10"
+
+concurrency:
+  group: bump-multica-cli
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # App-authenticated pushes and PRs trigger Check; GITHUB_TOKEN would not.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        with:
+          app-id: ${{ secrets.MULTICA_BUMP_APP_ID }}
+          private-key: ${{ secrets.MULTICA_BUMP_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          token: ${{ steps.app.outputs.token }}
+      - uses: voidzero-dev/setup-vp@27ddd5a8e32d89312fdd2c227d7d1613ca5465b0 # v1.16.1
+        with:
+          version: "0.3.0"
+          node-version: "24.22.1"
+          run-install: false
+          cache: true
+      - run: vp install --frozen-lockfile
+      - name: Bump version and checksum
+        id: bump
+        run: |
+          vp run chat:multica-cli-bump
+          if git diff --quiet -- apps/cluster/src/Chat/Sandbox/MulticaCli.ts; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Copy the skill from the pinned release
+        if: steps.bump.outputs.changed == 'true'
+        run: vp run chat:multica-skill
+      - name: Create or update the bump PR
+        if: steps.bump.outputs.changed == 'true'
+        id: pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app.outputs.token }}
+          base: main
+          branch: bump/multica-cli
+          delete-branch: true
+          add-paths: |
+            apps/cluster/src/Chat/Sandbox/MulticaCli.ts
+            apps/cluster/src/Chat/Sandbox/MulticaSkill.ts
+          commit-message: "chore: bump multica CLI and bundled skill"
+          title: "chore: bump multica CLI and bundled skill"
+          body: |
+            Updates the pinned multica CLI version, its linux-amd64 SHA-256 from
+            checksums.txt, and the bundled multica-platform skill from the same tag.
+
+            Auto-merge waits for the required Check before deployment from main.
+      - name: Enable auto-merge
+        if: steps.pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
+        run: gh pr merge --repo "$GITHUB_REPOSITORY" --squash --auto "$PR_NUMBER"

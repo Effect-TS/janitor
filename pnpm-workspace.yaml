@@ -53,6 +53,7 @@ catalog:
   "@alchemy.run/sql": 2.0.0-beta.84
   "@distilled.cloud/cloudflare": 1.0.0-rc.17
   clanka: 0.13.2
+  dfx: 1.1.1
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@2646b53aebe919d6994449d36c65a4aaaff5b974
   happy-dom: ^20.0.0

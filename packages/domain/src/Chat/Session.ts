@@ -24,7 +24,10 @@ export type AuthorClass = typeof AuthorClass.Type
 
 /** A file attached to a thread message. */
 export const ChatAttachment = Schema.Struct({
-  /** The platform's file id: the Slack file id or the Discord attachment id. */
+  /**
+   * The platform's file id: the Slack file id, or the Discord channel,
+   * message and attachment ids as `{channel}/{message}/{attachment}`.
+   */
   id: Schema.String,
   name: Schema.String,
   mediaType: Schema.String,
