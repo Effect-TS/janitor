@@ -49,6 +49,17 @@ export const chatMulticaWorkspaceId: Config.Config<string> = Config.NonEmptyStri
   "CHAT_MULTICA_WORKSPACE_ID",
 ).pipe(Config.withDefault(DEFAULT_MULTICA_WORKSPACE_ID))
 
+/** The Multica workspace's slug: Effectful's. A slug can't change after creation. */
+const DEFAULT_MULTICA_WORKSPACE_SLUG = "tim-smart-f28a5191"
+
+/**
+ * `CHAT_MULTICA_WORKSPACE_SLUG`: the slug of the `CHAT_MULTICA_WORKSPACE_ID`
+ * workspace, for the issue links the bot posts.
+ */
+export const chatMulticaWorkspaceSlug: Config.Config<string> = Config.NonEmptyString(
+  "CHAT_MULTICA_WORKSPACE_SLUG",
+).pipe(Config.withDefault(DEFAULT_MULTICA_WORKSPACE_SLUG))
+
 /**
  * `CHAT_SANDBOX_WARM_SECONDS`: how long a session's sandbox stays warm after
  * its turn ends, so the next turn finds its clones and edits.
@@ -185,6 +196,7 @@ export const chatSessionConfig = Config.all({
   retention: count("CHAT_SESSION_RETENTION_DAYS", 30).pipe(Config.map(Duration.days)),
   /** `PUBLIC_ORIGIN`: the web app, for the status message's transcript link. */
   publicOrigin: Config.option(Config.NonEmptyString("PUBLIC_ORIGIN")),
+  multicaWorkspaceSlug: chatMulticaWorkspaceSlug,
 })
 
 /**
