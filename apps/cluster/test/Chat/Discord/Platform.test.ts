@@ -21,6 +21,7 @@ const posted: Array<{
   readonly message_reference?: { readonly message_id: string; readonly fail_if_not_exists: boolean }
   readonly allowed_mentions: {
     readonly parse: ReadonlyArray<string>
+    readonly users?: ReadonlyArray<string>
     readonly replied_user?: boolean
   }
   readonly attachments?: ReadonlyArray<{ readonly id: string; readonly filename: string }>
@@ -97,12 +98,19 @@ describe("Discord platform", () => {
   )
 
   // Exercise postReply through the same Discord HTTP boundary for both delivery modes.
-  for (const { name, replyTo, reference } of [
-    { name: "the thread starter", replyTo: "500", reference: undefined },
+  // Without a reference, only a mention in the content pings the author.
+  for (const { name, replyTo, reference, mentioned } of [
+    {
+      name: "the thread starter",
+      replyTo: { messageId: "500", authorId: "600" },
+      reference: undefined,
+      mentioned: true,
+    },
     {
       name: "a later message",
-      replyTo: "501",
+      replyTo: { messageId: "501", authorId: "600" },
       reference: { message_id: "501", fail_if_not_exists: false },
+      mentioned: false,
     },
   ]) {
     it.effect(`chunked replies to ${name} use only a resolvable reply preview`, () =>
@@ -120,6 +128,8 @@ describe("Discord platform", () => {
           posted.map((message) => message.message_reference),
           [reference, undefined],
         )
+        assert.strictEqual(posted[0]!.content!.startsWith("<@600>"), mentioned)
+        assert.notInclude(posted[1]!.content, "<@600>")
       }).pipe(Effect.provide(services)),
     )
 
@@ -133,6 +143,12 @@ describe("Discord platform", () => {
         assert.lengthOf(posted, 1)
         assert.deepStrictEqual(posted[0]!.attachments, [{ id: "0", filename: "reply.md" }])
         assert.deepStrictEqual(posted[0]!.message_reference, reference)
+        if (mentioned) {
+          assert.strictEqual(posted[0]!.content, "<@600>")
+          assert.deepStrictEqual(posted[0]!.allowed_mentions, { parse: [], users: ["600"] })
+        } else {
+          assert.isUndefined(posted[0]!.content)
+        }
       }).pipe(Effect.provide(services)),
     )
   }
