@@ -39,6 +39,8 @@ import * as AccessJwt from "./Ingress/AccessJwt.ts"
 import { makeRoutesLayer } from "./Ingress/Routes.ts"
 import * as Config from "effect/Config"
 import * as OpenRouterClient from "@effect/ai-openrouter/OpenRouterClient"
+import * as AiError from "effect/ai/AiError"
+import * as DecisionModel from "effect/ai/DecisionModel"
 import * as OpenRouterDecisionModel from "@effect/ai-openrouter/OpenRouterDecisionModel"
 import * as Cause from "effect/Cause"
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable"
@@ -124,7 +126,17 @@ import {
   ReviewWorkspaceLive,
 } from "./PullRequestReview/Sandbox/WorkspaceObject.ts"
 import type { TailnetEgressNamespace } from "./PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
-import { chatEgressSecrets, chatSandboxInit } from "./Chat/Config.ts"
+import { ChatModelLayer } from "./Chat/Agent.ts"
+import {
+  chatBotGate,
+  chatBotInit,
+  chatEgressSecrets,
+  chatGateModel,
+  chatSandboxInit,
+} from "./Chat/Config.ts"
+import { ChatKillSwitch } from "./Chat/KillSwitch.ts"
+import { ChatPlatform } from "./Chat/Platform.ts"
+import { ChatSession, ChatSessionLayer } from "./Chat/Session.ts"
 import { ChatCredentials } from "./Chat/Egress/BotApp.ts"
 import { ChatSandboxPool, ChatSandboxPoolLive } from "./Chat/Sandbox/PoolObject.ts"
 import { ChatSandboxes } from "./Chat/Sandbox/Sandboxes.ts"
@@ -247,6 +259,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // here is what binds them.
     yield* pullRequestReviewInit
     yield* chatSandboxInit
+    // The chat bot is off for the whole deployment until `CHAT_AI_API_URL` and
+    // `CHAT_AI_API_KEY` are set; until then no other chat bot setting is read
+    // and no chat session is bound.
+    const chatBot = yield* chatBotGate
+    if (chatBot) yield* chatBotInit
+    const chatGate = chatBot ? yield* chatGateModel : ""
     // The chat bot's GitHub App and Multica PAT, each optional: without them
     // the chat egress proxy hands GitHub and Multica no credential.
     const chatSecrets = yield* chatEgressSecrets
@@ -333,6 +351,44 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const publicOrigin =
       typeof liveEnvironment.PUBLIC_ORIGIN === "string" ? liveEnvironment.PUBLIC_ORIGIN : ""
     let notifyOutbox: Effect.Effect<void> = Effect.void
+    // The reply gate asks Jev with labeling's OpenRouter key. Without one every
+    // gate call fails, and a message that doesn't mention the bot starts nothing.
+    const ChatGateLayer = Option.match(ai.apiKey, {
+      onNone: () =>
+        Layer.effect(
+          DecisionModel.DecisionModel,
+          DecisionModel.make({
+            decide: () =>
+              Effect.fail(
+                AiError.make({
+                  module: "ChatGate",
+                  method: "decide",
+                  reason: new AiError.UnknownError({
+                    description: "OPENROUTER_API_KEY is not set",
+                  }),
+                }),
+              ),
+          }),
+        ),
+      onSome: (apiKey) =>
+        OpenRouterDecisionModel.layer({ model: chatGate }).pipe(
+          Layer.provide(OpenRouterClient.layer({ apiKey })),
+          Layer.provide(FetchHttpClient.layer),
+        ),
+    })
+    const ChatLayer = chatBot
+      ? ChatSessionLayer.pipe(
+          Layer.provide(
+            ChatModelLayer(
+              liveEnvironment.PullRequestReviewTailnetEgress as TailnetEgressNamespace,
+            ),
+          ),
+          Layer.provide(ChatGateLayer),
+          // Slack ingress (EFF-3019) and the web app (EFF-3021) replace these.
+          Layer.provide(ChatPlatform.unavailable),
+          Layer.provide(ChatKillSwitch.off),
+        )
+      : Layer.empty
     const ClusterLayer = Layer.mergeAll(
       DiscoverInstallationsLayer,
       ProjectGitHubWebhookLayer,
@@ -347,6 +403,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       PullRequestSchedulerLayer,
       RepositoryDisabler.layer,
       RunTranscripts.layer,
+      ChatLayer,
       PullRequestReviewRunLayer.pipe(
         Layer.provide(RunPublisherLayer),
         Layer.provide(
@@ -441,7 +498,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
-      entities: [PullRequestScheduler, PullRequestReviewRun],
+      entities: chatBot
+        ? [PullRequestScheduler, PullRequestReviewRun, ChatSession]
+        : [PullRequestScheduler, PullRequestReviewRun],
       layer: ClusterLayer,
     })
     const wakeOutboxDispatch = cluster.wake(WorkflowOutboxCronName)

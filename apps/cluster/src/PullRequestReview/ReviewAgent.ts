@@ -111,7 +111,9 @@ export const ReviewModelLayer = (
  * to the layer instead isn't enough: the Worker shares `FetchHttpClient.layer`
  * across its layers, so its client is built once with the global fetch.
  */
-const tailnetHttpClient = (egress: TailnetEgressNamespace): Layer.Layer<HttpClient.HttpClient> =>
+export const tailnetHttpClient = (
+  egress: TailnetEgressNamespace,
+): Layer.Layer<HttpClient.HttpClient> =>
   Layer.effect(
     HttpClient.HttpClient,
     Effect.map(
@@ -362,7 +364,7 @@ const baseOnly = (executor: Layer.Layer<AgentExecutor.AgentExecutor>) =>
   ).pipe(Layer.provide(executor))
 
 /** A defect from the executor's transport: its container or the connection to it is gone. */
-const isSandboxLoss = (cause: Cause.Cause<unknown>) =>
+export const isSandboxLoss = (cause: Cause.Cause<unknown>) =>
   cause.reasons.some(
     (reason) => Cause.isDieReason(reason) && Schema.is(RpcClientError)(reason.defect),
   )

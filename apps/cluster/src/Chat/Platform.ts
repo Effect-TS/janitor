@@ -1,5 +1,6 @@
 import * as Context from "effect/Context"
-import type * as Effect from "effect/Effect"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 
 /**
@@ -76,4 +77,20 @@ export class ChatPlatform extends Context.Service<
       limit: number,
     ) => Effect.Effect<ReadonlyArray<ChatMessage>, ChatPlatformError>
   }
->()("@janitor/cluster/Chat/Platform/ChatPlatform") {}
+>()("@janitor/cluster/Chat/Platform/ChatPlatform") {
+  /**
+   * No platform connected: every post fails and threads have no history.
+   * The Worker binds it until Slack ingress (EFF-3019) supplies a platform.
+   */
+  static readonly unavailable = Layer.succeed(this, {
+    postStatus: () =>
+      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
+    editStatus: () =>
+      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
+    postReply: () =>
+      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
+    uploadFile: () =>
+      Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" })),
+    history: () => Effect.succeed([]),
+  })
+}

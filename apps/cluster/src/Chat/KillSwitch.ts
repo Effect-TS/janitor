@@ -1,5 +1,6 @@
 import * as Context from "effect/Context"
-import type * as Effect from "effect/Effect"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 
 /**
  * The chat bot's kill switch (EFF-3012): on for every thread, or for one
@@ -17,4 +18,12 @@ export interface KillSwitchState {
 export class ChatKillSwitch extends Context.Service<
   ChatKillSwitch,
   { readonly get: Effect.Effect<KillSwitchState> }
->()("@janitor/cluster/Chat/KillSwitch/ChatKillSwitch") {}
+>()("@janitor/cluster/Chat/KillSwitch/ChatKillSwitch") {
+  /**
+   * A switch that is never on. The Worker binds it until "Chat sessions in
+   * the web app" (EFF-3021) stores the real one.
+   */
+  static readonly off = Layer.succeed(this, {
+    get: Effect.succeed({ global: false, slack: false, discord: false }),
+  })
+}

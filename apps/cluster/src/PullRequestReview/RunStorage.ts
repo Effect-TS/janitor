@@ -182,7 +182,7 @@ const placeholderOnly = (message: Prompt.Message): Prompt.Message => {
  * Encodes one history message as a row. A message over the row cap is stored
  * as the placeholder; the live loop keeps the original.
  */
-const encodeMessage = Effect.fnUntraced(function* (message: Prompt.Message) {
+export const encodeMessage = Effect.fnUntraced(function* (message: Prompt.Message) {
   const encode = Schema.encodeEffect(MessageJson)
   const json = yield* encode(message)
   if (bytes(json) <= MAX_MESSAGE_BYTES) return json
