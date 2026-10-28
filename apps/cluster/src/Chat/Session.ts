@@ -336,6 +336,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
 
     /** Messages are handled one at a time, in arrival order. */
     const inbox = yield* Semaphore.make(1)
+    /** A visible reply is recorded before a follow-up can read the gate context. */
+    const replyContext = yield* Semaphore.make(1)
     /** Starting and finishing turns, and steering, one at a time. */
     const transitions = yield* Semaphore.make(1)
     /** The session's index row is saved and removed one at a time, so a save never outlives a drop. */
@@ -868,17 +870,25 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         switch (result._tag) {
           case "Replied": {
             running.ending = true
-            // Never retried here: the transport retries what is safe to retry.
-            const posted = yield* platform
-              .postReply(running.thread, result.text)
-              .pipe(Effect.result)
-            if (posted._tag === "Failure") {
-              yield* Effect.logError("Couldn't post a chat reply").pipe(
-                Effect.annotateLogs({ reason: posted.failure.message }),
-              )
-              return { status: "failed", errorCategory: "reply_failed" } satisfies TurnEnd
-            }
-            return { status: "replied" } satisfies TurnEnd
+            return yield* Semaphore.withPermits(
+              replyContext,
+              1,
+            )(
+              Effect.gen(function* () {
+                // Never retried here: the transport retries what is safe to retry.
+                const posted = yield* platform
+                  .postReply(running.thread, result.text)
+                  .pipe(Effect.result)
+                if (posted._tag === "Failure") {
+                  yield* Effect.logError("Couldn't post a chat reply").pipe(
+                    Effect.annotateLogs({ reason: posted.failure.message }),
+                  )
+                  return { status: "failed", errorCategory: "reply_failed" } satisfies TurnEnd
+                }
+                yield* storage.addReply(running.turnId, result.text, posted.success)
+                return { status: "replied" } satisfies TurnEnd
+              }),
+            )
           }
           case "Interrupted":
             return { status: "deadline" } satisfies TurnEnd
@@ -1010,8 +1020,14 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         let outcome: GateOutcome
         if (message.mentionsBot) outcome = { _tag: "Mention" }
         else {
+          const recent = yield* Semaphore.withPermits(
+            replyContext,
+            1,
+          )(storage.recent(GATE_CONTEXT, message))
           const decided = yield* gate
-            .decide(yield* storage.recent(GATE_CONTEXT))
+            // A posted reply can share the incoming message's timestamp. The
+            // message being gated must still be the newest one in the input.
+            .decide([...recent.filter((earlier) => earlier.id !== message.id), message])
             .pipe(Effect.result)
           if (decided._tag === "Failure") {
             yield* Effect.logWarning("Chat reply gate failed; starting nothing")
@@ -1083,6 +1099,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     // A rebuilt entity picks up where it was: a running turn resumes, and a
     // message stored but not yet gated is gated now.
     if (!dropped) {
+      yield* storage.ensureTables.pipe(Effect.orDie)
       const turns = yield* storage.turns.pipe(Effect.orDie)
       const session = yield* storage.loadSession.pipe(Effect.orDie)
       const running = turns.find((turn) => turn.status === "running")

@@ -79,6 +79,7 @@ const decodeRow = (row: MessageRow) =>
 const TABLES = [
   "chat_session",
   "chat_messages",
+  "chat_replies",
   "chat_turns",
   "chat_history",
   "chat_transcript",
@@ -113,6 +114,9 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
         wants_turn INTEGER NOT NULL DEFAULT 0,
         delivered INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (session_id, seq), UNIQUE (session_id, message_id))`,
+      sql`CREATE TABLE IF NOT EXISTS chat_replies (
+        session_id TEXT NOT NULL, message_id TEXT NOT NULL, sent_at INTEGER NOT NULL,
+        message TEXT NOT NULL, PRIMARY KEY (session_id, message_id))`,
       sql`CREATE TABLE IF NOT EXISTS chat_turns (
         session_id TEXT NOT NULL, seq INTEGER NOT NULL, turn_id TEXT NOT NULL, state TEXT NOT NULL,
         PRIMARY KEY (session_id, seq), UNIQUE (session_id, turn_id))`,
@@ -209,17 +213,45 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     Effect.flatMap(Effect.forEach(decodeRow)),
   )
 
-  /** The thread's latest `limit` messages by when they were sent, oldest first. */
-  const recent = (limit: number) =>
-    sql<MessageRow>`
-      SELECT message, gate, wants_turn FROM (
-        SELECT sent_at, message_id, message, gate, wants_turn FROM chat_messages
-        WHERE session_id = ${sessionId}
+  /**
+   * Posted replies are gate context only: the agent already has them in its
+   * history, and the transcript already shows them under their turn.
+   */
+  const addReply = (turnId: string, text: string, sentAt: DateTime.Utc) =>
+    Effect.gen(function* () {
+      const id = `reply/${turnId}`
+      const json = yield* Schema.encodeEffect(ChatMessageJson)({
+        id,
+        author: { id: "janitor", name: "janitor", class: "bot" },
+        text,
+        mentionsBot: false,
+        sentAt,
+        attachments: [],
+      })
+      yield* sql`
+        INSERT INTO chat_replies (session_id, message_id, sent_at, message)
+        VALUES (${sessionId}, ${id}, ${DateTime.toEpochMillis(sentAt)}, ${json})
+        ON CONFLICT (session_id, message_id) DO NOTHING`
+    })
+
+  /** The latest `limit` messages at or before `before`, including posted replies, oldest first. */
+  const recent = (limit: number, before: ChatMessage) => {
+    const at = DateTime.toEpochMillis(before.sentAt)
+    return sql<{ message: string }>`
+      SELECT message FROM (
+        SELECT * FROM (
+          SELECT sent_at, message_id, message FROM chat_messages
+          WHERE session_id = ${sessionId}
+            AND (sent_at, length(message_id), message_id) <= (${at}, ${before.id.length}, ${before.id})
+          UNION ALL
+          SELECT sent_at, message_id, message FROM chat_replies
+          WHERE session_id = ${sessionId} AND sent_at <= ${at}
+        )
         ORDER BY sent_at DESC, length(message_id) DESC, message_id DESC LIMIT ${limit}
       ) ORDER BY ${chronological}`.pipe(
-      Effect.flatMap(Effect.forEach(decodeRow)),
-      Effect.map((rows) => rows.map((row) => row.message)),
+      Effect.flatMap(Effect.forEach((row) => Schema.decodeEffect(ChatMessageJson)(row.message))),
     )
+  }
 
   /** Gated messages the model hasn't seen yet, oldest first. */
   const undelivered = sql<MessageRow>`
@@ -441,6 +473,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     loadSession,
     saveSession,
     addMessage,
+    addReply,
     setGate,
     ungated,
     recent,

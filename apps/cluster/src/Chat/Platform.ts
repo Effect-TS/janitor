@@ -1,4 +1,5 @@
 import * as Context from "effect/Context"
+import type * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
@@ -72,8 +73,11 @@ export class ChatPlatform extends Context.Service<
       messageId: string,
       text: string,
     ) => Effect.Effect<void, ChatPlatformError>
-    /** Posts a reply, split into as many messages as the platform needs. */
-    readonly postReply: (thread: ChatThread, text: string) => Effect.Effect<void, ChatPlatformError>
+    /** Posts a reply and returns when its final part was published. */
+    readonly postReply: (
+      thread: ChatThread,
+      text: string,
+    ) => Effect.Effect<DateTime.Utc, ChatPlatformError>
     readonly uploadFile: (
       thread: ChatThread,
       file: { readonly name: string; readonly content: string },
