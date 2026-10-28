@@ -156,27 +156,6 @@ const make = Effect.gen(function* () {
       flags: SUPPRESS_EMBEDS,
     })
 
-  const unreadRoles = (error: DiscordRESTError) =>
-    Effect.logWarning("Discord refused to list the guild's roles").pipe(
-      Effect.annotateLogs({ reason: error.message }),
-      Effect.as(undefined),
-    )
-
-  /**
-   * The bot's managed role, when the message mentions a role. A refused
-   * lookup has nothing to do with the message, so it counts as no role:
-   * mentioning the bot user still works, and the next message asks again.
-   */
-  const mentionedBotRole = (message: Discord.GatewayMessageCreateDispatchData, bot: string) =>
-    message.mention_roles.length === 0
-      ? Effect.undefined
-      : botRoleId(bot).pipe(
-          Effect.catchTags({
-            ErrorResponse: unreadRoles,
-            RatelimitedResponse: unreadRoles,
-          }),
-        )
-
   const drop = (reason: string) => Effect.logDebug(DROPPED).pipe(Effect.annotateLogs({ reason }))
 
   /** Hands the message on, or drops it; fails only with what a replay could fix. */
@@ -197,7 +176,7 @@ const make = Effect.gen(function* () {
       message.member,
       config.roleId,
       bot,
-      yield* mentionedBotRole(message, bot),
+      message.mention_roles.length > 0 ? yield* botRoleId(bot) : undefined,
     )
     // Only an admitted user's mention starts a session.
     const starts = chatMessage.mentionsBot && chatMessage.author.class === "admitted"
