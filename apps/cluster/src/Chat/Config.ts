@@ -84,7 +84,7 @@ export const chatQueueTimeout: Config.Config<Duration.Duration> = seconds(
  */
 export const chatTurnDeadline: Config.Config<Duration.Duration> = seconds(
   "CHAT_TURN_DEADLINE_SECONDS",
-  1200,
+  2400,
 )
 
 /**
@@ -93,7 +93,7 @@ export const chatTurnDeadline: Config.Config<Duration.Duration> = seconds(
  */
 export const chatWrapUpAfter: Config.Config<Duration.Duration> = seconds(
   "CHAT_WRAP_UP_AFTER_SECONDS",
-  1020,
+  2220,
 )
 
 /** How long past the turn deadline the pool waits for a release before taking the turn as dead. */

@@ -10,5 +10,9 @@ describe("systemPrompt", () => {
     })
 
     assert.include(prompt, "https://multica.ai/acme-1234/issues/<identifier>")
+    assert.include(prompt, "Delegate larger work to the Effect Bot squad in Multica")
+    assert.include(prompt, "adversarial review and simplification happen in separate runs")
+    assert.include(prompt, "Before starting larger work, propose a Multica issue")
+    assert.include(prompt, "hand off through that issue rather than implementing it in this chat")
   })
 })
