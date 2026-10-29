@@ -247,7 +247,7 @@ _Avoid_: Run (for chat), job
 A Discord member holding the configured role, or a full member of our Slack workspace (not a guest, not a Slack Connect user). Only admitted users start or steer turns. Messages from outsiders and from any bot account are context only.
 
 **Reply gate**:
-The Jev decision that judges whether a thread message that doesn't mention the bot is addressed to it. At a probability of 0.5 or above a turn starts; a rejected message stays as context, and a failed gate call starts nothing.
+The Jev decision that judges whether a thread message that doesn't mention the bot needs the bot to answer or act. It reads the recent messages and two signals off the thread's structure: whether the message comes straight after the bot's reply to its author, and how many people have spoken. At a probability of 0.5 or above a turn starts; a rejected message stays as context, and a failed gate call starts nothing. On Discord, a reply to one of the bot's messages counts as a mention.
 
 **Chat sandbox**:
 The container a chat session's turns run in, from a pool separate from PR review's. It stays warm between turns for a while, so a follow-up finds its clones and edits; durable work is pushed work.

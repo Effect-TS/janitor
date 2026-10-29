@@ -30,13 +30,12 @@ import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import type { ChatMessage } from "@janitor/domain/Chat/Session"
 import { chatGateModel } from "../src/Chat/Config.ts"
-import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "../src/Chat/Gate.ts"
+import { GATE_CONTEXT, GATE_PASS, gateSignals, ReplyGate } from "../src/Chat/Gate.ts"
 import {
   cases as checkedIn,
   threads as checkedInThreads,
   GateEvalCorpus,
   type GateEvalCase,
-  type GateEvalMessage,
 } from "./chat-gate-eval-cases.ts"
 
 const args = process.argv.slice(2)
@@ -86,31 +85,12 @@ const contextOf = (evalCase: GateEvalCase): ReadonlyArray<ChatMessage> => {
     mentionsBot: message.mentionsBot,
     sentAt: DateTime.add(start, { minutes: index }),
     attachments: [],
+    ...(message.answers === undefined ? {} : { answers: message.answers }),
   }))
 }
 
-/**
- * The structural signals the issue proposes, read off the gate's context
- * window: whether the newest message comes straight after janitor's reply to
- * its author, and how many admitted people spoke in the window.
- */
-const signalsOf = (evalCase: GateEvalCase) => {
-  const thread = threadsByName.get(evalCase.thread)!
-  const end = thread.messages.findIndex((message) => message.id === evalCase.newest)
-  const window: ReadonlyArray<GateEvalMessage> = thread.messages
-    .slice(0, end + 1)
-    .slice(-GATE_CONTEXT)
-  const newest = window.at(-1)!
-  const previous = window.at(-2)
-  const followsBotReplyTo =
-    previous !== undefined &&
-    previous.author.id === "janitor" &&
-    previous.answers === newest.author.id
-  const humansInThread = new Set(
-    window.filter((message) => message.class === "admitted").map((message) => message.author.id),
-  ).size
-  return { followsBotReplyTo, humansInThread }
-}
+/** The structural signals the gate reads off the case's context window. */
+const signalsOf = (evalCase: GateEvalCase) => gateSignals(contextOf(evalCase).slice(-GATE_CONTEXT))
 
 // ---- the replay
 

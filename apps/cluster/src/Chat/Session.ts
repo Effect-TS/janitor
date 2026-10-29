@@ -906,7 +906,12 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                   )
                   return { status: "failed", errorCategory: "reply_failed" } satisfies TurnEnd
                 }
-                yield* storage.addReply(running.turnId, result.text, posted.success)
+                yield* storage.addReply(
+                  running.turnId,
+                  result.text,
+                  posted.success,
+                  replyTo?.authorId,
+                )
                 return { status: "replied" } satisfies TurnEnd
               }),
             )

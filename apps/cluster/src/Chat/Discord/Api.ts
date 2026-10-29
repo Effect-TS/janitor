@@ -105,6 +105,8 @@ export type DiscordMessage = Pick<
   readonly author: Discord.UserResponse
   readonly mentions: ReadonlyArray<{ readonly id: string }>
   readonly mention_roles: ReadonlyArray<string>
+  /** The message a reply answers; null once it is deleted. */
+  readonly referenced_message?: { readonly author: { readonly id: string } } | null | undefined
 }
 
 /** The author's membership: `member` on a gateway message, a guild member read over REST, or none. */
@@ -119,7 +121,9 @@ const botMention = (botUserId: string) => new RegExp(`<@!?${botUserId}>`, "g")
 /**
  * The author is admitted with the role in `member.roles`; a bot account,
  * the janitor bot included, is context only whatever its roles. The name is
- * the server nickname, else the display name, else the username.
+ * the server nickname, else the display name, else the username. A reply to
+ * one of the bot's messages counts as a mention: it is addressed to the
+ * bot whether or not the reply pings (EFF-3137).
  */
 export const toChatMessage = (
   message: DiscordMessage,
@@ -129,6 +133,7 @@ export const toChatMessage = (
   botRoleId?: string,
 ): ChatMessage => {
   const mentionsBotRole = botRoleId !== undefined && message.mention_roles.includes(botRoleId)
+  const answers = message.referenced_message?.author.id
   return {
     id: message.id,
     author: {
@@ -144,7 +149,10 @@ export const toChatMessage = (
     text: (mentionsBotRole ? message.content.replaceAll(`<@&${botRoleId}>`, "") : message.content)
       .replace(botMention(botUserId), "")
       .trim(),
-    mentionsBot: message.mentions.some((user) => user.id === botUserId) || mentionsBotRole,
+    mentionsBot:
+      message.mentions.some((user) => user.id === botUserId) ||
+      mentionsBotRole ||
+      answers === botUserId,
     sentAt: DateTime.makeUnsafe(message.timestamp),
     attachments: message.attachments.map((attachment) => ({
       id: attachmentId(message.channel_id, message.id, attachment.id),
@@ -152,5 +160,6 @@ export const toChatMessage = (
       mediaType: attachment.content_type ?? "application/octet-stream",
       size: attachment.size,
     })),
+    ...(answers === undefined ? {} : { answers }),
   }
 }

@@ -216,8 +216,10 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
   /**
    * Posted replies are gate context only: the agent already has them in its
    * history, and the transcript already shows them under their turn.
+   * `answers` is the author of the message the reply answered, so the gate
+   * can tell whose follow-up comes next.
    */
-  const addReply = (turnId: string, text: string, sentAt: DateTime.Utc) =>
+  const addReply = (turnId: string, text: string, sentAt: DateTime.Utc, answers?: string) =>
     Effect.gen(function* () {
       const id = `reply/${turnId}`
       const json = yield* Schema.encodeEffect(ChatMessageJson)({
@@ -227,6 +229,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
         mentionsBot: false,
         sentAt,
         attachments: [],
+        ...(answers === undefined ? {} : { answers }),
       })
       yield* sql`
         INSERT INTO chat_replies (session_id, message_id, sent_at, message)
