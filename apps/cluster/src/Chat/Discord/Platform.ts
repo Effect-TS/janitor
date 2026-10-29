@@ -9,6 +9,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
 import { chunkMarkdown } from "../Slack/Platform.ts"
 import {
+  type DiscordMessage,
   errorCode,
   MESSAGE_TYPES,
   parseAttachmentId,
@@ -30,6 +31,12 @@ const PAGE_SIZE = 100
 
 /** Discord's code for "Unknown Member". */
 const UNKNOWN_MEMBER = 10007
+
+/** Discord's code for "Unknown Message". */
+const UNKNOWN_MESSAGE = 10008
+
+/** The message a thread started from a message opens with, pointing at it. */
+const THREAD_STARTER_MESSAGE = 21
 
 /** Status messages and file uploads ping nobody. */
 const noMentions = { parse: [] }
@@ -80,24 +87,59 @@ const make = Effect.gen(function* () {
       ...fields,
     }).pipe(rest.withFiles([new File([file.content], file.name, { type: "text/markdown" })]))
 
+  /**
+   * The message a thread was started from. It lives in the parent channel,
+   * and the thread holds only Discord's thread starter pointing at it, with
+   * the message itself unless Discord left it out. Gone when it was deleted.
+   */
+  const openingMessage = (starter: Discord.MessageResponse) => {
+    if (starter.referenced_message !== undefined) return Effect.succeed(starter.referenced_message)
+    const reference = starter.message_reference
+    if (reference?.message_id === undefined) return Effect.succeed(null)
+    return rest.getMessage(reference.channel_id, reference.message_id).pipe(
+      Effect.catchIf(
+        (error) => errorCode(error) === UNKNOWN_MESSAGE,
+        () => Effect.succeed(null),
+      ),
+    )
+  }
+
   const history = (thread: ChatThread, limit: number) =>
     Effect.gen(function* () {
       const { guild, threadId } = yield* discordThread(thread)
       const bot = yield* botUserId
-      // Newest first, a page at a time.
-      const messages: Array<Discord.MessageResponse> = []
+      // Newest first, a page at a time, until the limit or the thread's start.
+      const messages: Array<DiscordMessage & { readonly type: number }> = []
+      let starter: Discord.MessageResponse | undefined
+      let reachedStart = false
       let before: string | undefined
       while (messages.length < limit) {
-        const page =
-          (yield* rest.listMessages(threadId, {
-            limit: Math.min(PAGE_SIZE, limit - messages.length),
-            before,
-          })) ?? []
+        const requested = Math.min(PAGE_SIZE, limit - messages.length)
+        const page = (yield* rest.listMessages(threadId, { limit: requested, before })) ?? []
+        starter ??= page.find((message) => message.type === THREAD_STARTER_MESSAGE)
         messages.push(...page.filter((message) => MESSAGE_TYPES.has(message.type)))
-        if (page.length < PAGE_SIZE) break
+        if (page.length < requested) {
+          reachedStart = true
+          break
+        }
         before = page.at(-1)!.id
       }
       messages.reverse()
+      // The limit can stop short of the thread's start, so its oldest
+      // message is read on its own: a thread starter, or the post that
+      // opens a forum thread.
+      if (starter === undefined && !reachedStart) {
+        const [oldest] = (yield* rest.listMessages(threadId, { after: "0", limit: 1 })) ?? []
+        if (oldest?.type === THREAD_STARTER_MESSAGE) starter = oldest
+        else if (
+          oldest !== undefined &&
+          MESSAGE_TYPES.has(oldest.type) &&
+          !messages.some(({ id }) => id === oldest.id)
+        )
+          messages.unshift(oldest)
+      }
+      const opening = starter === undefined ? null : yield* openingMessage(starter)
+      if (opening !== null && MESSAGE_TYPES.has(opening.type)) messages.unshift(opening)
       const managedRole = messages.some((message) => message.mention_roles.length > 0)
         ? yield* botRoleId(bot)
         : undefined
@@ -217,7 +259,8 @@ const make = Effect.gen(function* () {
  * the turn, or mentioning its author when that message started the thread;
  * one that needs more than five messages is uploaded as `reply.md`. Replies
  * may ping users only, and no post unfurls links. The backfill reads each
- * author's roles, since REST messages carry no member.
+ * author's roles, since REST messages carry no member, and always includes
+ * the message that opened the thread, even one in the parent channel.
  */
 export const layer: Layer.Layer<
   ChatPlatform,
