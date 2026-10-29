@@ -50,6 +50,12 @@ export const ChatMessage = Schema.Struct({
   mentionsBot: Schema.Boolean,
   sentAt: Schema.DateTimeUtc,
   attachments: Schema.Array(ChatAttachment),
+  /**
+   * The id of the author this message answers: on janitor's replies, whose
+   * message started or steered the turn; on a Discord reply, the referenced
+   * message's author. The reply gate reads it (EFF-3137).
+   */
+  answers: Schema.optionalKey(Schema.String),
 })
 export type ChatMessage = typeof ChatMessage.Type
 

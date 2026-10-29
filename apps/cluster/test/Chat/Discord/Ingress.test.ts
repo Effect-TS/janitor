@@ -274,6 +274,28 @@ describe("Discord ingress", () => {
     }),
   )
 
+  it.effect("counts a reply to the bot's message as a mention, ping or not", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress()
+      const handle = yield* ingress.instance
+      yield* handle(
+        message("1281", {
+          type: 19,
+          referenced_message: message("1280", { author: user(BOT_USER, "janitor", { bot: true }) }),
+        }),
+      )
+      yield* handle(message("1283", { type: 19, referenced_message: message("1282") }))
+
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.id, message.mentionsBot]),
+        [
+          ["1281", true],
+          ["1283", false],
+        ],
+      )
+    }),
+  )
+
   it.effect("starts a thread from a channel mention, and uses an existing one", () =>
     Effect.gen(function* () {
       const ingress = makeIngress()

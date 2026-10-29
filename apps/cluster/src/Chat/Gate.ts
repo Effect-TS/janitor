@@ -15,12 +15,21 @@ import type { ChatMessage } from "./Platform.ts"
 
 /**
  * The reply gate (EFF-2959): whether a thread message that doesn't mention
- * the bot is addressed to it. Jev answers one probability question about the
- * last 20 thread messages, each tagged with its author's class.
+ * the bot needs the bot to answer or act. Jev answers one probability
+ * question about the last 20 thread messages, each tagged with its author's
+ * class, and two signals read off the thread's structure (EFF-3137): whether
+ * the newest message comes straight after janitor's reply to its author, and
+ * how many people have spoken.
  */
 
 /** Thread messages the gate reads, the new one included. */
 export const GATE_CONTEXT = 20
+
+/** The gate passes a message at this probability or above. */
+export const GATE_PASS = 0.5
+
+/** The author id of janitor's own replies in a session, as `chat_replies` stores them. */
+export const BOT_AUTHOR_ID = "janitor"
 
 /** Characters of each message's text the gate reads. */
 const TEXT_CAP = 500
@@ -33,14 +42,45 @@ const decision = Decision.make({
   decisions: {
     addressed: Decision.probability({
       instructions:
-        "This is a team chat thread with a bot called janitor. Is the newest message addressed to janitor, or does it ask janitor to answer or act?",
+        "This is a team chat thread with a bot called janitor. Does the newest message need janitor to answer or act? followsBotReplyTo means the newest message comes straight after janitor's reply to its author: such a message is usually a follow-up for janitor, unless it speaks to someone else. humansInThread is how many people, bots aside, have spoken in the last 20 messages.",
       criteria: {
-        true: "The newest message is for janitor: it asks janitor something or asks it to do something.",
-        false: "The newest message is for other people, or needs no answer from janitor.",
+        true: "The newest message asks janitor something, tells it to do something, including what to do about another person or their request, or answers a question janitor asked, including approving what janitor proposed.",
+        false:
+          "The newest message speaks to someone other than janitor, even straight after janitor's reply, or carries on a conversation between people. Or it needs nothing from janitor: it only acknowledges janitor (thanks, good bot) or turns down what janitor proposed (no thanks, leave it as is).",
       },
     }),
   },
 })
+
+/** The structural signals the gate passes to Jev next to the transcript. */
+export interface GateSignals {
+  /** The newest message comes straight after janitor's reply to its author. */
+  readonly followsBotReplyTo: boolean
+  /** How many people, admitted or outsiders, have spoken in the window. */
+  readonly humansInThread: number
+}
+
+/**
+ * Reads the signals off the gate's window, `thread` oldest first with the
+ * message being gated last. Only janitor's own replies count, by their
+ * author id: another bot's reply carries `answers` too, and a backfilled
+ * copy of janitor's doesn't, so neither reads as janitor's follow-up.
+ */
+export const gateSignals = (thread: ReadonlyArray<ChatMessage>): GateSignals => {
+  const newest = thread.at(-1)
+  const previous = thread.at(-2)
+  return {
+    followsBotReplyTo:
+      newest !== undefined &&
+      previous !== undefined &&
+      previous.author.id === BOT_AUTHOR_ID &&
+      previous.answers !== undefined &&
+      previous.answers === newest.author.id,
+    humansInThread: new Set(
+      thread.filter((message) => message.author.class !== "bot").map((m) => m.author.id),
+    ).size,
+  }
+}
 
 export class ReplyGateError extends Data.TaggedError("ReplyGateError")<{
   readonly cause: unknown
@@ -75,6 +115,7 @@ export class ReplyGate extends Context.Service<
               input: {
                 earlier: recent.slice(0, -1).map(tagged),
                 newest: tagged(recent.at(-1)!),
+                ...gateSignals(recent),
               },
             })
             .pipe(

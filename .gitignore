@@ -45,3 +45,6 @@ dist-ssr
 
 # Alchemy
 .alchemy
+
+# The reply gate eval's private corpus (EFF-3137): real conversations, never committed
+apps/cluster/scripts/chat-gate-eval.private.json

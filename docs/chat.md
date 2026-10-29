@@ -7,7 +7,7 @@ The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API
 ## What it does
 
 - A mention of the bot starts a session on its thread, and the session's first turn. When the bot joins a thread that already has messages, it reads the last 100 as context.
-- In a thread with a session, the reply gate decides whether a message without a mention is meant for the bot. It asks Jev, with the last 20 messages as context, and a message passes at a probability of one half or more. A mention always skips the gate.
+- In a thread with a session, the reply gate decides whether a message without a mention needs the bot to answer or act. It asks Jev, with the last 20 messages as context and two signals read off the thread (whether the message comes straight after the bot's reply to its author, and how many people, bots aside, have spoken), and a message passes at a probability of one half or more. Acknowledgements and refusals of what the bot proposed are meant to stay below it. A mention always skips the gate, and on Discord a reply to one of the bot's messages counts as a mention.
 - A message that passes while a turn is running steers it: the model sees it between its steps. A message that is only "stop" stops the running turn before any model sees it.
 - Each turn runs clanka in a chat sandbox, a container of its own class so chat can't starve PR review. Nothing is checked out up front: the model clones what it needs into `/workspace/<org>/<repo>`. It can push to any branch except protected ones, open and merge pull requests, and use the `multica` CLI as the Janitor member, for example to hand larger work to a squad as an issue. The egress proxy adds the credentials; the sandbox holds none.
 - The thread gets a status message that the bot edits as the turn goes, with a link to the session's transcript, and then the reply. A plain reply ends the turn.
@@ -48,6 +48,8 @@ Chat turns and their sub-agents request OpenAI priority processing with `service
 | `CHAT_AI_VIA_TAILNET`      | `false`              | Send model calls through the tailnet egress, as `PR_REVIEW_AI_VIA_TAILNET` does        |
 | `CHAT_GATE_MODEL`          | `typesafe/jev-1.13`  | The reply gate's model on OpenRouter, called with labeling's `OPENROUTER_API_KEY`      |
 | `PUBLIC_ORIGIN`            | none                 | The web app's origin, for the status message's transcript link                         |
+
+The reply gate has an eval set, `apps/cluster/scripts/chat-gate-eval-cases.ts`: real Slack and Discord threads (pseudonymised) and handwritten ones, each with the verdict the gate should reach on its newest message. `node apps/cluster/scripts/chat-gate-eval.ts` replays it through the real gate with `OPENROUTER_API_KEY` and reports the misses, a threshold sweep and drift from production. Rerun it when the prompt, model or threshold changes, and add a case whenever the gate gets a message wrong (EFF-3137).
 
 Janitor enforces no spend cap. The 20-minute turn and the 10 sandboxes bound what a turn can spend, and the only cap on the total is the one you give the key: set a credit limit on `CHAT_AI_API_KEY` at the provider if you want one. Once it runs out, model calls fail, and every turn ends as failed with the provider's error category until the limit is raised.
 
@@ -152,7 +154,7 @@ The development stack's `janitor-dev` tunnel forwards `/api/v1/webhooks/slack` t
 ### What it does
 
 - A mention of the bot from an admitted user in a text or announcement channel starts a thread from that message, archived after a day of quiet, and a session on it. A mention inside an existing thread uses that thread. When the bot joins a thread that already has messages, it reads the last 100 as context.
-- In a thread with a session, every message from the configured server reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot always starts or steers a turn.
+- In a thread with a session, every message from the configured server reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot, or replies to one of the bot's messages, always starts or steers a turn.
 - Admitted users are those with the configured role in `member.roles` on the message. A revoked role counts from the author's next message. Everyone else in the server is an outsider: their messages in a thread with a session reach the model as context only, and their mentions start nothing. Messages from other servers, and messages with no member, such as webhooks, are ignored.
 - Messages from other bots are context only. janitor's own replies are already in the session, so the gateway skips them, and the backfill reads them as bot messages. Edits, deletions, and system messages such as joins and pins are ignored.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
