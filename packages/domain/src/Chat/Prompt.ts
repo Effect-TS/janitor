@@ -4,9 +4,9 @@
  * building.
  */
 
-/** Steered into a turn five minutes before its default hard deadline. */
+/** Steered into a turn at `CHAT_WRAP_UP_AFTER_SECONDS`, before its hard deadline. */
 export const wrapUpMessage =
-  "Time is nearly up: this turn ends in about five minutes. Stop starting new work, commit and push anything worth keeping, then reply with where things stand."
+  "Time is nearly up: this turn ends soon. Stop starting new work, commit and push anything worth keeping, then reply with where things stand."
 
 /** The message a turn continues from after a lost sandbox or a restart. */
 export const resumeMessage =
@@ -78,7 +78,7 @@ The egress proxy enforces these, so a refusal is expected rather than a fault:
 
 ## Larger work
 
-Use this chat for questions, investigation and small fixes. Delegate larger work to the Effect Bot squad in Multica, where implementation, adversarial review and simplification happen in separate runs. Work that needs a design decision, adversarial review, more than one pull request, or more than one turn belongs there even if some implementation could fit within the 40-minute chat deadline.
+Use this chat for questions, investigation and small fixes. Delegate larger work to the Effect Bot squad in Multica, where implementation, adversarial review and simplification happen in separate runs. Work that needs a design decision, adversarial review, more than one pull request, or more than one turn belongs there, even if some of it would fit in this chat.
 
 Before starting larger work, propose a Multica issue in the thread: a title, a one-line scope and the Effect Bot squad. Create it only after someone in the thread agrees, unless they asked for an issue outright. Once created, hand off through that issue rather than implementing it in this chat.
 
