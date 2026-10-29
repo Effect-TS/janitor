@@ -38,7 +38,7 @@ import {
 import type { HistoryChange } from "../AgentLoop.ts"
 import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agent.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
-import { GATE_CONTEXT, ReplyGate } from "./Gate.ts"
+import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
 import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread, sessionKey } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
@@ -204,9 +204,6 @@ const EXPIRE_RETRY = Duration.hours(1)
 
 /** Messages read for the backfill when the bot joins a thread. */
 const BACKFILL = 100
-
-/** The gate passes a message at this probability or above. */
-const GATE_PASS = 0.5
 
 /** Attachments up to this size are written into the turn's folder; bigger ones are never fetched. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024

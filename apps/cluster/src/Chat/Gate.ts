@@ -22,6 +22,9 @@ import type { ChatMessage } from "./Platform.ts"
 /** Thread messages the gate reads, the new one included. */
 export const GATE_CONTEXT = 20
 
+/** The gate passes a message at this probability or above. */
+export const GATE_PASS = 0.5
+
 /** Characters of each message's text the gate reads. */
 const TEXT_CAP = 500
 

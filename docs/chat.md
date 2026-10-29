@@ -49,6 +49,8 @@ Chat turns and their sub-agents request OpenAI priority processing with `service
 | `CHAT_GATE_MODEL`          | `typesafe/jev-1.13`  | The reply gate's model on OpenRouter, called with labeling's `OPENROUTER_API_KEY`      |
 | `PUBLIC_ORIGIN`            | none                 | The web app's origin, for the status message's transcript link                         |
 
+The reply gate has an eval set, `apps/cluster/scripts/chat-gate-eval-cases.ts`: real Slack and Discord threads (pseudonymised) and handwritten ones, each with the verdict the gate should reach on its newest message. `node apps/cluster/scripts/chat-gate-eval.ts` replays it through the real gate with `OPENROUTER_API_KEY` and reports the misses, a threshold sweep and drift from production. Rerun it when the prompt, model or threshold changes, and add a case whenever the gate gets a message wrong (EFF-3137).
+
 Janitor enforces no spend cap. The 20-minute turn and the 10 sandboxes bound what a turn can spend, and the only cap on the total is the one you give the key: set a credit limit on `CHAT_AI_API_KEY` at the provider if you want one. Once it runs out, model calls fail, and every turn ends as failed with the provider's error category until the limit is raised.
 
 ### The bot's GitHub App and Multica member
