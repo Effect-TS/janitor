@@ -42,6 +42,53 @@ const threadMessages = [
   },
 ]
 
+/**
+ * A thread another member started from a message in channel 400: the thread
+ * shares the message's id, and its oldest message is Discord's thread starter
+ * (type 21), pointing at the opening message in the parent channel.
+ */
+const startedThread: ChatThread = { _tag: "Discord", guild: "100", threadId: "700" }
+
+const openingMessage = {
+  id: "700",
+  type: 0,
+  channel_id: "400",
+  author: { id: "610", username: "gcanti", global_name: null },
+  content: "<@620> is there a reason why StreamSse doesn't call toCodecJson on data?",
+  timestamp: "2026-10-30T08:53:00.000Z",
+  mentions: [{ id: "620" }],
+  mention_roles: [],
+  attachments: [],
+}
+
+/** Newest first, as `GET /channels/700/messages` returns it. */
+const startedThreadMessages = [
+  {
+    id: "701",
+    type: 0,
+    channel_id: startedThread.threadId,
+    author: { id: "620", username: "tim", global_name: null },
+    content: "<@300> can you confirm",
+    timestamp: "2026-10-30T09:01:00.000Z",
+    mentions: [{ id: "300" }],
+    mention_roles: [],
+    attachments: [],
+  },
+  {
+    id: "702",
+    type: 21,
+    channel_id: startedThread.threadId,
+    author: { id: "610", username: "gcanti", global_name: null },
+    content: "",
+    timestamp: "2026-10-30T08:53:00.000Z",
+    mentions: [],
+    mention_roles: [],
+    attachments: [],
+    message_reference: { channel_id: "400", guild_id: "100", message_id: "700" },
+    referenced_message: openingMessage,
+  },
+]
+
 /** Discord's answers to the reads the platform makes, by path. */
 const respond = (path: string, options: { readonly rolesRefused?: boolean }): Response => {
   if (path === "/users/@me") return Response.json({ id: "300", username: "janitor", bot: true })
@@ -54,6 +101,11 @@ const respond = (path: string, options: { readonly rolesRefused?: boolean }): Re
     ])
   if (path === `/channels/${thread.threadId}/messages`) return Response.json(threadMessages)
   if (path === "/guilds/100/members/600") return Response.json({ nick: null, roles: ["200"] })
+  if (path === `/channels/${startedThread.threadId}/messages`)
+    return Response.json(startedThreadMessages)
+  if (path === "/channels/400/messages/700") return Response.json(openingMessage)
+  if (path === "/guilds/100/members/610") return Response.json({ nick: null, roles: [] })
+  if (path === "/guilds/100/members/620") return Response.json({ nick: null, roles: ["200"] })
   return Response.json({ id: "1" })
 }
 
@@ -210,5 +262,24 @@ describe("Discord platform", () => {
         [{ id: "1001", text: "<@&301> what changed?", mentionsBot: false }],
       )
     }).pipe(Effect.provide(makeServices({ rolesRefused: true }))),
+  )
+
+  it.effect("reads the opening message of a thread started from a message", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      const history = yield* platform.history(startedThread, 10)
+
+      assert.deepStrictEqual(
+        history.map(({ id, author, text }) => ({ id, author: author.name, text })),
+        [
+          {
+            id: "700",
+            author: "gcanti",
+            text: "<@620> is there a reason why StreamSse doesn't call toCodecJson on data?",
+          },
+          { id: "701", author: "tim", text: "can you confirm" },
+        ],
+      )
+    }).pipe(Effect.provide(services)),
   )
 })
