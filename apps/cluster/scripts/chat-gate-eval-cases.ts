@@ -221,6 +221,68 @@ const slackClosePullRequest: GateEvalThread = {
   ],
 }
 
+// ---- messages between people straight after janitor's reply
+
+/**
+ * Janitor answered Ada; Ada's next message hands something to Bruno by
+ * mention. The real one scored 0.51–0.53 once the gate read signals.
+ */
+const handsOver: GateEvalThread = {
+  name: "hw-slack-hands-over",
+  messages: [
+    says("1", ada, "can you check the website issues in multica?", true),
+    replies(
+      "2",
+      "The website project has 11 issues, all marked done: nothing open or blocked. The most recently updated were the title colour fix and the preview deployment check.",
+    ),
+    says("3", ada, "<@U0BRUNO> I hand over the keys to you"),
+  ],
+}
+
+/**
+ * Two people talk about janitor itself in its thread, between Ada's mention
+ * and janitor's reply. The real one scored 0.54 once the gate read signals.
+ */
+const aboutJanitor: GateEvalThread = {
+  name: "hw-slack-about-janitor",
+  messages: [
+    says("1", ada, "open an issue to fix it", true),
+    replies(
+      "2",
+      "Created <https://issues.example/EFF-3131|EFF-3131>, assigned to Effect Bot in todo.",
+    ),
+    says(
+      "3",
+      ada,
+      "I think we can lift the janitor timeout to 40 minutes. But it's supposed to delegate larger work to multica, where there is adversarial review",
+    ),
+    says("4", ada, "can you make that change", true),
+    says("5", bruno, "Isn't it developed on Multica?"),
+    says("6", ada, "No, it runs on the cloudflare cluster using clanka"),
+  ],
+}
+
+/** An outsider and Ada talk after janitor's reply to Ada. */
+const withOutsider: GateEvalThread = {
+  name: "hw-discord-outsider",
+  messages: [
+    says(
+      "1",
+      gus,
+      "the nightly build fails on my machine with ERR_MODULE_NOT_FOUND",
+      false,
+      "outsider",
+    ),
+    says("2", ada, "can you check whether the nightly publishes the platform-node package?", true),
+    replies(
+      "3",
+      "It does: last night's run published every package, platform-node included, at 4.1.0-nightly.12. The error is more likely a stale lockfile on the machine.",
+    ),
+    says("4", gus, "ok let me try a clean install", false, "outsider"),
+    says("5", ada, "Gus, delete node_modules first, the lockfile pins the old version"),
+  ],
+}
+
 // ---- the set
 
 export const threads: ReadonlyArray<GateEvalThread> = [
@@ -252,6 +314,9 @@ export const threads: ReadonlyArray<GateEvalThread> = [
   },
   discordFollowUp,
   slackClosePullRequest,
+  handsOver,
+  aboutJanitor,
+  withOutsider,
 ]
 
 const handwritten = (
@@ -335,5 +400,31 @@ export const cases: ReadonlyArray<GateEvalCase> = [
     true,
     "the shape of the other confirmed false negative: an instruction about janitor's PR after other people chatted and janitor answered one of them; the real one scored 0.47 before PR #148",
     { thread: "hw-slack-close-pr" },
+  ),
+  handwritten(
+    "hw-slack-hands-over",
+    "3",
+    false,
+    "mentions another person straight after janitor's reply to the author",
+  ),
+  handwritten(
+    "hw-slack-about-janitor/bruno",
+    "5",
+    false,
+    "another person asks the author about janitor, in janitor's thread",
+    { thread: "hw-slack-about-janitor" },
+  ),
+  handwritten(
+    "hw-slack-about-janitor/ada",
+    "6",
+    false,
+    "the author answers the other person about janitor",
+    { thread: "hw-slack-about-janitor" },
+  ),
+  handwritten(
+    "hw-discord-outsider",
+    "5",
+    false,
+    "the author answers an outsider by name after janitor's reply",
   ),
 ]

@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema"
 import type * as SqlClient from "effect/sql/SqlClient"
 import { decodeMessage, encodeMessage } from "../AgentHistory.ts"
 import type { HistoryChange } from "../AgentLoop.ts"
+import { BOT_AUTHOR_ID } from "./Gate.ts"
 import { ChatMessage, ChatThread, GateOutcome, TranscriptTurn } from "@janitor/domain/Chat/Session"
 
 export { GateOutcome, TranscriptTurn, TurnStatus, TurnUsage } from "@janitor/domain/Chat/Session"
@@ -224,7 +225,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
       const id = `reply/${turnId}`
       const json = yield* Schema.encodeEffect(ChatMessageJson)({
         id,
-        author: { id: "janitor", name: "janitor", class: "bot" },
+        author: { id: BOT_AUTHOR_ID, name: "janitor", class: "bot" },
         text,
         mentionsBot: false,
         sentAt,
