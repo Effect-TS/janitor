@@ -311,11 +311,41 @@ describe("Repositories", () => {
   })
 
   it("opens editors and the bench from the tables", () => {
+    const candidates = {
+      _tag: "Ready" as const,
+      items: [
+        {
+          number: 12,
+          kind: "pull_request" as const,
+          title: "Update docs",
+          authorLogin: "octocat",
+          labels: [],
+          baseRef: "main",
+          draft: false,
+          evaluation: null,
+          plan: null,
+        },
+      ],
+    }
     Story.story(
       Workspace.update,
       Story.given(opened()),
       Story.message(Workspace.Message.ClickedNewRule()),
-      Story.model((next) => expect(next.panel._tag).toBe("RuleEditor")),
+      Story.model((next) => {
+        expect(next.panel._tag).toBe("RuleEditor")
+        if (next.panel._tag === "RuleEditor")
+          expect(next.panel.editor.testCandidates).toEqual({ _tag: "Loading" })
+      }),
+      // The open items read GitHub, so only an editor asks for them.
+      Story.Command.resolve(
+        Workspace.FetchCandidates({ requestId: 1, repositoryId: "701" }),
+        Workspace.Message.GotCandidates({ requestId: 1, repositoryId: "701", candidates }),
+      ),
+      Story.model((next) => {
+        if (next.panel._tag === "RuleEditor")
+          expect(next.panel.editor.testCandidates).toEqual(candidates)
+      }),
+      // A second editor reuses them without another request.
       Story.message(Workspace.Message.ClickedNewPolicy()),
       Story.model((next) => {
         expect(next.panel._tag).toBe("PolicyEditor")
@@ -323,6 +353,7 @@ describe("Repositories", () => {
           expect(next.panel.editor.source.referencePolicies).toEqual([
             { name: "Base is main", target: "pull_request" },
           ])
+          expect(next.panel.editor.testCandidates).toEqual(candidates)
         }
       }),
     )

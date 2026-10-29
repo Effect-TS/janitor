@@ -1800,29 +1800,34 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                               [h.Class("text-body-sm text-destructive")],
                               ["Could not load test items. Retrying on the next refresh."],
                             )
-                          : testItems(model).length === 0
+                          : model.testCandidates._tag === "Loading"
                             ? h.p(
-                                [h.Class("text-body-sm text-ink-muted")],
-                                [
-                                  policy || model.ai
-                                    ? "No open items are available for this policy."
-                                    : "Select a policy to choose a test item.",
-                                ],
+                                [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+                                ["Loading open items from GitHub…"],
                               )
-                            : selectField(h, {
-                                id: "rule-test-item",
-                                label:
-                                  (model.ai?.target ?? policy?.target) === "issue"
-                                    ? "Issue"
-                                    : "Pull request",
-                                value: String(selectedTestItem(model)?.number ?? ""),
-                                options: testItems(model).map((item) => [
-                                  String(item.number),
-                                  `#${item.number} · ${item.title}`,
-                                ]),
-                                onChange: (value) =>
-                                  Message.SelectedTestItem({ number: Number(value) }),
-                              }),
+                            : testItems(model).length === 0
+                              ? h.p(
+                                  [h.Class("text-body-sm text-ink-muted")],
+                                  [
+                                    policy || model.ai
+                                      ? "No open items are available for this policy."
+                                      : "Select a policy to choose a test item.",
+                                  ],
+                                )
+                              : selectField(h, {
+                                  id: "rule-test-item",
+                                  label:
+                                    (model.ai?.target ?? policy?.target) === "issue"
+                                      ? "Issue"
+                                      : "Pull request",
+                                  value: String(selectedTestItem(model)?.number ?? ""),
+                                  options: testItems(model).map((item) => [
+                                    String(item.number),
+                                    `#${item.number} · ${item.title}`,
+                                  ]),
+                                  onChange: (value) =>
+                                    Message.SelectedTestItem({ number: Number(value) }),
+                                }),
                         Button.view(h, {
                           variant: "secondary",
                           size: "sm",
@@ -1905,17 +1910,21 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
   },
 )
 
-export const reflectConfiguration = (
-  model: Model,
-  configuration: ConfigurationView,
-  testCandidates?: TestCandidates,
-): Model => {
-  const next = modifyFields(model, {
-    labels: () => configuration.labels,
-    policies: () => configuration.policies,
-    rules: () => configuration.rules,
-    testCandidates: () => testCandidates ?? model.testCandidates,
-  })
+export const reflectConfiguration = (model: Model, configuration: ConfigurationView): Model =>
+  resetChangedTest(
+    model,
+    modifyFields(model, {
+      labels: () => configuration.labels,
+      policies: () => configuration.policies,
+      rules: () => configuration.rules,
+    }),
+  )
+
+export const withTestCandidates = (model: Model, testCandidates: TestCandidates): Model =>
+  resetChangedTest(model, modifyFields(model, { testCandidates: () => testCandidates }))
+
+/** A different policy version or test item makes the shown result stale. */
+const resetChangedTest = (model: Model, next: Model): Model => {
   const changed =
     selectedPolicy(model)?.publishedVersionId !== selectedPolicy(next)?.publishedVersionId ||
     selectedTestItem(model)?.number !== selectedTestItem(next)?.number

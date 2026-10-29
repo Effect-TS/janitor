@@ -443,10 +443,10 @@ layer(Services, { timeout: "2 minutes" })("Direct pull request labeling", (it) =
       const five = items.find((item) => item.number === 5)
       assert.deepStrictEqual(
         [five?.kind, five?.baseRef, five?.draft, five?.source, five?.labelNames],
-        ["pull_request", "main", true, "github", { "11": "bug" }],
+        ["pull_request", null, null, "github", { "11": "bug" }],
       )
-      // Listing needs no collections; a preview reads only what its subject needs.
-      assert.isFalse(github.reads.some((request) => request.url.includes("/pulls/5/files")))
+      // Listing is one request; a preview reads only what its subject needs.
+      assert.strictEqual(github.reads.length, 1)
       const writes = github.writes.length
       const preview = yield* bench.run(repositoryId, {
         subject: { _tag: "Draft", source: touchesSource },

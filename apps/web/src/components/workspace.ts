@@ -63,7 +63,6 @@ export type { PolicyDetail } from "@janitor/domain/Labeling/Policy/Configuration
 export const RepositoryDetail = Schema.Struct({
   configuration: ConfigurationView,
   reconciliations: Schema.Array(ReconciliationRecord),
-  testCandidates: Schema.optionalKey(TestCandidates),
 })
 export type RepositoryDetail = typeof RepositoryDetail.Type
 
@@ -122,6 +121,12 @@ export const Model = Schema.Struct({
   dataRepositoryId: Schema.Option(Schema.String),
   detail: Schema.Option(RepositoryDetail),
   detailError: Schema.Option(Schema.String),
+  /**
+   * The open items the editors test against. Listing them reads GitHub, so
+   * they load when an editor first needs them, not with the detail.
+   */
+  candidates: Schema.Option(TestCandidates),
+  maybeCandidatesRequest: Schema.Option(Schema.Int),
   maybeConsent: Schema.Option(AiConsent),
   /** The "PR review" panel on the Settings page. */
   pullRequestReview: PullRequestReviewSettings.Model,
@@ -147,6 +152,7 @@ export const Message = defineMessageUnion({
   FlushLive: {},
   GotDetail: { repositoryId: Schema.String, detail: RepositoryDetail, requestId: Schema.Int },
   FailedDetail: { repositoryId: Schema.String, reason: Schema.String, requestId: Schema.Int },
+  GotCandidates: { repositoryId: Schema.String, candidates: TestCandidates, requestId: Schema.Int },
   GotConsent: { repositoryId: Schema.String, consent: AiConsent, requestId: Schema.Int },
   FailedConsent: { repositoryId: Schema.String, reason: Schema.String, requestId: Schema.Int },
   ClickedRetryConsent: {},
@@ -228,34 +234,40 @@ export const FetchDetail = FoldkitCommand.define("FetchDetail", {
   args: { repositoryId: Schema.String, requestId: Schema.Int },
   messages: [Message.GotDetail, Message.FailedDetail],
   execute: ({ repositoryId, requestId }) =>
-    Effect.all(
-      {
-        configuration: ApiClient.use((api) =>
-          api.labeling.getConfiguration({ params: repository(repositoryId) }),
-        ),
-        testCandidates: ApiClient.use((api) =>
-          api.testBench.listItems({ params: repository(repositoryId) }),
-        ).pipe(
-          Effect.map((items): TestCandidates => ({ _tag: "Ready", items })),
-          Effect.catchTag("RepositoryNotFound", () =>
-            Effect.succeed<TestCandidates>({ _tag: "Failed", reason: UNAVAILABLE }),
-          ),
-          Effect.orElseSucceed((): TestCandidates => ({
-            _tag: "Failed",
-            reason: "The open items couldn't load. Please retry.",
-          })),
-        ),
-        reconciliations: Effect.succeed([]),
-      },
-      { concurrency: 2 },
+    ApiClient.use((api) =>
+      api.labeling.getConfiguration({ params: repository(repositoryId) }),
     ).pipe(
-      Effect.map((detail) => Message.GotDetail({ repositoryId, detail, requestId })),
+      Effect.map((configuration) =>
+        Message.GotDetail({
+          repositoryId,
+          detail: { configuration, reconciliations: [] },
+          requestId,
+        }),
+      ),
       Effect.catchTag("RepositoryNotFound", () =>
         Effect.succeed(Message.FailedDetail({ repositoryId, reason: UNAVAILABLE, requestId })),
       ),
       Effect.orElseSucceed(() =>
         Message.FailedDetail({ repositoryId, reason: "Please retry.", requestId }),
       ),
+    ),
+})
+
+/** The open items the editors test against: one GitHub listing request. */
+export const FetchCandidates = FoldkitCommand.define("FetchCandidates", {
+  args: { repositoryId: Schema.String, requestId: Schema.Int },
+  messages: [Message.GotCandidates],
+  execute: ({ repositoryId, requestId }) =>
+    ApiClient.use((api) => api.testBench.listItems({ params: repository(repositoryId) })).pipe(
+      Effect.map((items): TestCandidates => ({ _tag: "Ready", items })),
+      Effect.catchTag("RepositoryNotFound", () =>
+        Effect.succeed<TestCandidates>({ _tag: "Failed", reason: UNAVAILABLE }),
+      ),
+      Effect.orElseSucceed((): TestCandidates => ({
+        _tag: "Failed",
+        reason: "The open items couldn't load. Please retry.",
+      })),
+      Effect.map((candidates) => Message.GotCandidates({ repositoryId, candidates, requestId })),
     ),
 })
 
@@ -481,6 +493,8 @@ export const init = (): UpdateReturn => ({
       dataRepositoryId: Option.none(),
       detail: Option.none(),
       detailError: Option.none(),
+      candidates: Option.none(),
+      maybeCandidatesRequest: Option.none(),
       maybeConsent: Option.none(),
       pullRequestReview: PullRequestReviewSettings.init(),
       panel: { _tag: "Closed" },
@@ -533,16 +547,76 @@ const refresh = (model: Model, force = true): Step => {
   const detail = force || Option.isNone(model.maybeDetailRequest)
   const consent = force || Option.isNone(model.maybeConsentRequest)
   const requestId = model.nextRequestId
+  const next = modifyFields(model, {
+    nextRequestId: () => requestId + 2,
+    maybeDetailRequest: (current) => (detail ? Option.some(requestId) : current),
+    maybeConsentRequest: (current) => (consent ? Option.some(requestId + 1) : current),
+  })
+  // Open items are reread only for an open editor; otherwise the next editor reloads them.
+  const candidates = !hasEditor(next)
+    ? {
+        model: modifyFields(next, {
+          candidates: () => Option.none(),
+          maybeCandidatesRequest: () => Option.none(),
+        }),
+      }
+    : force || Option.isNone(next.maybeCandidatesRequest)
+      ? fetchCandidates(next)
+      : { model: next }
   return {
-    model: modifyFields(model, {
-      nextRequestId: () => requestId + 2,
-      maybeDetailRequest: (current) => (detail ? Option.some(requestId) : current),
-      maybeConsentRequest: (current) => (consent ? Option.some(requestId + 1) : current),
-    }),
+    model: candidates.model,
     commands: [
       ...(detail ? [FetchDetail({ repositoryId, requestId })] : []),
       ...(consent ? [FetchConsent({ repositoryId, requestId: requestId + 1 })] : []),
+      ...(candidates.commands ?? []),
     ],
+  }
+}
+
+const hasEditor = (model: Model) =>
+  model.panel._tag === "PolicyEditor" || model.panel._tag === "RuleEditor"
+
+const loadingCandidates: TestCandidates = { _tag: "Loading" }
+
+const withEditorCandidates = (model: Model, candidates: TestCandidates): Model =>
+  modifyFields(model, {
+    panel: (panel) =>
+      panel._tag === "PolicyEditor"
+        ? { ...panel, editor: PolicyEditor.withTestCandidates(panel.editor, candidates) }
+        : panel._tag === "RuleEditor"
+          ? { ...panel, editor: RuleEditor.withTestCandidates(panel.editor, candidates) }
+          : panel,
+  })
+
+/** Rereads the open items; the editors keep the current ones until the answer arrives. */
+const fetchCandidates = (model: Model): Step => {
+  if (Option.isNone(model.dataRepositoryId)) return { model }
+  const requestId = model.nextRequestId
+  const next = modifyFields(model, {
+    nextRequestId: () => requestId + 1,
+    maybeCandidatesRequest: () => Option.some(requestId),
+    candidates: (current) => (Option.isSome(current) ? current : Option.some(loadingCandidates)),
+  })
+  return {
+    model: Option.isNone(model.candidates) ? withEditorCandidates(next, loadingCandidates) : next,
+    commands: [FetchCandidates({ repositoryId: model.dataRepositoryId.value, requestId })],
+  }
+}
+
+/** Loads the open items once an editor is open and nothing has asked for them yet. */
+const ensureCandidates = (result: UpdateReturn): UpdateReturn => {
+  const model = result.model
+  if (
+    !hasEditor(model) ||
+    Option.isSome(model.candidates) ||
+    Option.isSome(model.maybeCandidatesRequest)
+  )
+    return result
+  const fetched = fetchCandidates(model)
+  return {
+    ...result,
+    model: fetched.model,
+    commands: [...(result.commands ?? []), ...(fetched.commands ?? [])],
   }
 }
 
@@ -575,11 +649,7 @@ const updateConfiguration = (
         : panel._tag === "RuleEditor" && Option.isSome(detail)
           ? {
               ...panel,
-              editor: RuleEditor.reflectConfiguration(
-                panel.editor,
-                detail.value.configuration,
-                detail.value.testCandidates,
-              ),
+              editor: RuleEditor.reflectConfiguration(panel.editor, detail.value.configuration),
             }
           : panel,
     repositories: Option.map((rows) =>
@@ -637,7 +707,7 @@ const openPolicyEditor = (model: Model, existing: Option.Option<PolicyDetail>): 
             repositoryId,
             configuration: detail.configuration,
             catalog: model.catalog,
-            testCandidates: detail.testCandidates,
+            testCandidates: Option.getOrElse(model.candidates, () => loadingCandidates),
             existing,
           }),
         }),
@@ -668,7 +738,7 @@ const openRuleEditor = (
             policies: detail.configuration.policies,
             rules: detail.configuration.rules,
             existing: rule,
-            testCandidates: detail.testCandidates,
+            testCandidates: Option.getOrElse(model.candidates, () => loadingCandidates),
           }),
         }),
       })
@@ -839,6 +909,9 @@ const foldPullRequestReview = (
 }
 
 export const update = (model: Model, message: Message): UpdateReturn =>
+  ensureCandidates(updateMessage(model, message))
+
+const updateMessage = (model: Model, message: Message): UpdateReturn =>
   Message.match<UpdateReturn>(message, {
     UpdatedPolicySearch: ({ value }) => ({
       model: modifyFields(model, { policySearch: () => value }),
@@ -1042,28 +1115,31 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 panel._tag === "PolicyEditor"
                   ? {
                       ...panel,
-                      editor: PolicyEditor.reflectConfiguration(
-                        PolicyEditor.withTestCandidates(
-                          panel.editor,
-                          detail.testCandidates ?? panel.editor.testCandidates,
-                        ),
-                        detail.configuration,
-                      ),
+                      editor: PolicyEditor.reflectConfiguration(panel.editor, detail.configuration),
                     }
                   : panel._tag === "RuleEditor"
                     ? {
                         ...panel,
-                        editor: RuleEditor.reflectConfiguration(
-                          panel.editor,
-                          detail.configuration,
-                          detail.testCandidates,
-                        ),
+                        editor: RuleEditor.reflectConfiguration(panel.editor, detail.configuration),
                       }
                     : panel,
             }),
           }
         : { model }
     },
+    GotCandidates: ({ repositoryId, candidates, requestId }) =>
+      Option.contains(model.dataRepositoryId, repositoryId) &&
+      Option.contains(model.maybeCandidatesRequest, requestId)
+        ? {
+            model: withEditorCandidates(
+              modifyFields(model, {
+                candidates: () => Option.some(candidates),
+                maybeCandidatesRequest: () => Option.none(),
+              }),
+              candidates,
+            ),
+          }
+        : { model },
     FailedDetail: ({ repositoryId, reason, requestId }) =>
       Option.contains(model.dataRepositoryId, repositoryId) &&
       Option.contains(model.maybeDetailRequest, requestId)
@@ -2858,7 +2934,10 @@ export const openRoute = (
       next = modifyFields(next, { panel: () => ({ _tag: "PolicyEditor" as const, editor }) })
     }
   }
-  return { model: next, commands: [...routeCommands, ...(result.commands ?? [])] }
+  return ensureCandidates({
+    model: next,
+    commands: [...routeCommands, ...(result.commands ?? [])],
+  })
 }
 
 /** Save-button visibility includes unpublished drafts; navigation warns only about unsaved input. */
