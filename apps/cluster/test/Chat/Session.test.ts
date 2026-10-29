@@ -529,7 +529,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect("a turn is told to wrap up at minute 37 and stopped at minute 40", () =>
+  it.effect("a turn is told to wrap up at minute 35 and stopped at minute 40", () =>
     test((harness) =>
       Effect.gen(function* () {
         const startedAt = yield* Clock.currentTimeMillis
@@ -540,13 +540,13 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           )
         yield* longTurn(harness, slackThread, "Upgrade every dependency.")
 
-        yield* at(36, 50)
+        yield* at(34, 50)
         harness.sandboxes.finishScripts()
         yield* modelCalls(harness, 2)
         assert.notInclude(seen(harness.model.last), wrapUpMessage)
         harness.model.answer(run("pnpm build"))
 
-        yield* at(37, 10)
+        yield* at(35, 10)
         harness.sandboxes.finishScripts()
         yield* modelCalls(harness, 3)
         assert.include(seen(harness.model.last), wrapUpMessage)

@@ -4,9 +4,9 @@
  * building.
  */
 
-/** Steered into a turn three minutes before its default hard deadline. */
+/** Steered into a turn five minutes before its default hard deadline. */
 export const wrapUpMessage =
-  "Time is nearly up: this turn ends in about three minutes. Stop starting new work, commit and push anything worth keeping, then reply with where things stand."
+  "Time is nearly up: this turn ends in about five minutes. Stop starting new work, commit and push anything worth keeping, then reply with where things stand."
 
 /** The message a turn continues from after a lost sandbox or a restart. */
 export const resumeMessage =
