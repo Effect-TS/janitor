@@ -13,7 +13,7 @@ The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API
 - The thread gets a status message that the bot edits as the turn goes, with a link to the session's transcript, and then the reply. A plain reply ends the turn.
 - After a turn, the sandbox stays warm for 30 minutes, so a follow-up finds its clones and edits. Durable work is pushed work: anything not pushed is gone once the sandbox is.
 - A turn that loses its sandbox, or is cut off by a restart, resumes on a fresh one, up to three times. The model is told the sandbox is new and to check what it already pushed, opened or commented before redoing a step.
-- At 17 minutes the turn is told to wrap up, and at 20 it stops. Time spent waiting for a sandbox doesn't count. When all 10 sandboxes are running turns, a turn waits in one queue shared by every platform, and gives up after 15 minutes with a message that the bot is busy.
+- At 35 minutes the turn is told to wrap up, and at 40 it stops. Time spent waiting for a sandbox doesn't count. When all 10 sandboxes are running turns, a turn waits in one queue shared by every platform, and gives up after 15 minutes with a message that the bot is busy.
 - When the model provider fails once clanka's retries run out (quota, auth, 5xx), the turn ends, and the status message gives the error's category.
 - A session expires 30 days after its last message, and its storage and transcript go with it. A later message starts a new session with a fresh backfill.
 
@@ -21,8 +21,8 @@ The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API
 
 | Setting                        | Default | Meaning                                                                |
 | ------------------------------ | ------- | ---------------------------------------------------------------------- |
-| `CHAT_TURN_DEADLINE_SECONDS`   | 1200    | A turn's hard deadline, from its start and across resumes              |
-| `CHAT_WRAP_UP_AFTER_SECONDS`   | 1020    | When a turn is told to wrap up, from its start                         |
+| `CHAT_TURN_DEADLINE_SECONDS`   | 2400    | A turn's hard deadline, from its start and across resumes              |
+| `CHAT_WRAP_UP_AFTER_SECONDS`   | 2100    | When a turn is told to wrap up, from its start                         |
 | `CHAT_COMMAND_TIMEOUT_SECONDS` | 300     | The longest one `bash` command or `execute` script may run             |
 | `CHAT_MAX_RESUMES`             | 3       | How often one turn may resume after a lost sandbox or a restart        |
 | `CHAT_SANDBOX_WARM_SECONDS`    | 1800    | How long a session's sandbox stays warm after its turn                 |

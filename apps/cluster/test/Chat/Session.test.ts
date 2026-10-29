@@ -529,7 +529,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect("a turn is told to wrap up at minute 17 and stopped at minute 20", () =>
+  it.effect("a turn is told to wrap up at minute 35 and stopped at minute 40", () =>
     test((harness) =>
       Effect.gen(function* () {
         const startedAt = yield* Clock.currentTimeMillis
@@ -540,21 +540,21 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           )
         yield* longTurn(harness, slackThread, "Upgrade every dependency.")
 
-        yield* at(16, 50)
+        yield* at(34, 50)
         harness.sandboxes.finishScripts()
         yield* modelCalls(harness, 2)
         assert.notInclude(seen(harness.model.last), wrapUpMessage)
         harness.model.answer(run("pnpm build"))
 
-        yield* at(17, 10)
+        yield* at(35, 10)
         harness.sandboxes.finishScripts()
         yield* modelCalls(harness, 3)
         assert.include(seen(harness.model.last), wrapUpMessage)
         harness.model.answer(run("pnpm test"))
 
-        yield* at(19, 50)
+        yield* at(39, 50)
         assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
-        yield* at(20, 10)
+        yield* at(40, 10)
         assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
           finished({ status: "deadline", wrappedUp: true, actions: 3 }),
         ])
@@ -722,7 +722,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect("a turn still ends at minute 20 when its sandbox is lost and no new one comes", () =>
+  it.effect("a turn still ends at minute 40 when its sandbox is lost and no new one comes", () =>
     test((harness) =>
       Effect.gen(function* () {
         const startedAt = yield* Clock.currentTimeMillis
@@ -732,16 +732,16 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           )
         yield* longTurn(harness, slackThread, "Upgrade every dependency.")
 
-        yield* at(18, 50)
+        yield* at(38, 50)
         harness.sandboxes.holdAcquires = true
         harness.sandboxes.loseScripts()
         yield* harness.until(
           Effect.sync(() => harness.sandboxes.acquires.length === 2),
           "the second acquire",
         )
-        yield* at(19, 50)
+        yield* at(39, 50)
         assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
-        yield* at(20, 10)
+        yield* at(40, 10)
         assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
       }),
     ),
@@ -869,7 +869,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
-  it.effect("a stalled attachment download doesn't keep the turn past minute 20", () =>
+  it.effect("a stalled attachment download doesn't keep the turn past minute 40", () =>
     test((harness) =>
       Effect.gen(function* () {
         const startedAt = yield* Clock.currentTimeMillis
@@ -886,9 +886,9 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           Effect.sync(() => harness.platform.downloads.length === 1),
           "the download to start",
         )
-        yield* at(19, 50)
+        yield* at(39, 50)
         assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "running")
-        yield* at(20, 10)
+        yield* at(40, 10)
         assert.strictEqual((yield* lastTurn(harness, slackThread))?.status, "deadline")
       }),
     ),
