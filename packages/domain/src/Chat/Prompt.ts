@@ -4,9 +4,9 @@
  * building.
  */
 
-/** Steered into a turn at `CHAT_WRAP_UP_AFTER_SECONDS`, before its hard deadline. */
+/** Steered into a turn at `CHAT_WRAP_UP_AFTER_SECONDS`. */
 export const wrapUpMessage =
-  "Time is nearly up: this turn ends soon. Stop starting new work, commit and push anything worth keeping, then reply with where things stand."
+  "Time is nearly up. Stop starting new work, commit and push anything worth keeping, then reply with where things stand."
 
 /** The message a turn continues from after a lost sandbox or a restart. */
 export const resumeMessage =
