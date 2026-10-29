@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import * as UrlParams from "effect/http/UrlParams"
 import { restLayer } from "../../../src/Chat/Discord/Api.ts"
 import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
 import * as DiscordPlatform from "../../../src/Chat/Discord/Platform.ts"
@@ -42,8 +43,111 @@ const threadMessages = [
   },
 ]
 
+/**
+ * A thread another member started from a message in channel 400: the thread
+ * shares the message's id, and its oldest message is Discord's thread starter
+ * (type 21), pointing at the opening message in the parent channel.
+ */
+const startedThread: ChatThread = { _tag: "Discord", guild: "100", threadId: "700" }
+
+const openingMessage = {
+  id: "700",
+  type: 0,
+  channel_id: "400",
+  author: { id: "610", username: "gcanti", global_name: null },
+  content: "<@620> is there a reason why StreamSse doesn't call toCodecJson on data?",
+  timestamp: "2026-10-30T08:53:00.000Z",
+  mentions: [{ id: "620" }],
+  mention_roles: [],
+  attachments: [],
+}
+
+/** Newest first, as `GET /channels/700/messages` returns it. */
+const startedThreadMessages = [
+  {
+    id: "701",
+    type: 0,
+    channel_id: startedThread.threadId,
+    author: { id: "620", username: "tim", global_name: null },
+    content: "<@300> can you confirm",
+    timestamp: "2026-10-30T09:01:00.000Z",
+    mentions: [{ id: "300" }],
+    mention_roles: [],
+    attachments: [],
+  },
+  {
+    id: "702",
+    type: 21,
+    channel_id: startedThread.threadId,
+    author: { id: "610", username: "gcanti", global_name: null },
+    content: "",
+    timestamp: "2026-10-30T08:53:00.000Z",
+    mentions: [],
+    mention_roles: [],
+    attachments: [],
+    message_reference: { channel_id: "400", guild_id: "100", message_id: "700" },
+    referenced_message: openingMessage,
+  },
+]
+
+/** A plain message, or another type such as a join (7), from ada in a thread. */
+const threadMessage = (channelId: string, id: string, type = 0) => ({
+  id,
+  type,
+  channel_id: channelId,
+  author: { id: "600", username: "ada", global_name: null },
+  content: `message ${id}`,
+  timestamp: "2026-10-30T09:00:00.000Z",
+  mentions: [],
+  mention_roles: [],
+  attachments: [],
+})
+
+/** The starter of a thread started from message 800 in channel 400. */
+const longThreadStarter = {
+  ...threadMessage("800", "801", 21),
+  content: "",
+  message_reference: { channel_id: "400", guild_id: "100", message_id: "800" },
+  referenced_message: threadMessage("400", "800"),
+}
+
+/**
+ * Threads read a page at a time, oldest first: one started from message 800
+ * in channel 400, longer than the histories read from it, with a join among
+ * its latest messages; and a forum thread, whose post opens it in the thread.
+ */
+const pagedThreads: Record<string, ReadonlyArray<{ readonly id: string }>> = {
+  "800": [
+    longThreadStarter,
+    ...["802", "803", "804", "805", "806"].map((id) => threadMessage("800", id)),
+    threadMessage("800", "807", 7),
+    threadMessage("800", "808"),
+    threadMessage("800", "809"),
+  ],
+  "820": ["820", "821", "822"].map((id) => threadMessage("820", id)),
+}
+
+/** `GET /channels/{id}/messages` over a paged thread: `limit` messages before or after an id, newest first. */
+const page = (messages: ReadonlyArray<{ readonly id: string }>, params: URLSearchParams) => {
+  const limit = Number(params.get("limit") ?? 50)
+  const before = params.get("before")
+  const after = params.get("after")
+  const selected =
+    after !== null
+      ? messages.filter(({ id }) => BigInt(id) > BigInt(after)).slice(0, limit)
+      : messages.filter(({ id }) => before === null || BigInt(id) < BigInt(before)).slice(-limit)
+  return [...selected].reverse()
+}
+
 /** Discord's answers to the reads the platform makes, by path. */
-const respond = (path: string, options: { readonly rolesRefused?: boolean }): Response => {
+const respond = (
+  path: string,
+  params: URLSearchParams,
+  options: { readonly rolesRefused?: boolean },
+): Response => {
+  const paged = /^\/channels\/(\d+)\/messages$/.exec(path)?.[1]
+  if (paged !== undefined && paged in pagedThreads)
+    return Response.json(page(pagedThreads[paged]!, params))
   if (path === "/users/@me") return Response.json({ id: "300", username: "janitor", bot: true })
   if (path === "/guilds/100/roles" && options.rolesRefused === true)
     return Response.json({ message: "Missing Access", code: 50001 }, { status: 403 })
@@ -54,6 +158,11 @@ const respond = (path: string, options: { readonly rolesRefused?: boolean }): Re
     ])
   if (path === `/channels/${thread.threadId}/messages`) return Response.json(threadMessages)
   if (path === "/guilds/100/members/600") return Response.json({ nick: null, roles: ["200"] })
+  if (path === `/channels/${startedThread.threadId}/messages`)
+    return Response.json(startedThreadMessages)
+  if (path === "/channels/400/messages/700") return Response.json(openingMessage)
+  if (path === "/guilds/100/members/610") return Response.json({ nick: null, roles: [] })
+  if (path === "/guilds/100/members/620") return Response.json({ nick: null, roles: ["200"] })
   return Response.json({ id: "1" })
 }
 
@@ -71,6 +180,7 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
         HttpClient.make((request) =>
           Effect.gen(function* () {
             const path = new URL(request.url).pathname.replace(/^\/api\/v10/, "")
+            const params = new URLSearchParams(UrlParams.toString(request.urlParams))
             if (request.method === "POST" && path === `/channels/${thread.threadId}/messages`) {
               const body = request.body
               let json: string
@@ -96,7 +206,7 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
                 }),
               )
             }
-            return HttpClientResponse.fromWeb(request, respond(path, options))
+            return HttpClientResponse.fromWeb(request, respond(path, params, options))
           }),
         ),
       ),
@@ -210,5 +320,49 @@ describe("Discord platform", () => {
         [{ id: "1001", text: "<@&301> what changed?", mentionsBot: false }],
       )
     }).pipe(Effect.provide(makeServices({ rolesRefused: true }))),
+  )
+
+  it.effect("reads the opening message of a thread started from a message", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      const history = yield* platform.history(startedThread, 10)
+
+      assert.deepStrictEqual(
+        history.map(({ id, author, text }) => ({ id, author: author.name, text })),
+        [
+          {
+            id: "700",
+            author: "gcanti",
+            text: "<@620> is there a reason why StreamSse doesn't call toCodecJson on data?",
+          },
+          { id: "701", author: "tim", text: "can you confirm" },
+        ],
+      )
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("reads the opening message of a thread longer than the history", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      // The join on the first page leaves it a message short of the limit.
+      const history = yield* platform.history({ _tag: "Discord", guild: "100", threadId: "800" }, 3)
+
+      assert.deepStrictEqual(
+        history.map(({ id }) => id),
+        ["800", "806", "808", "809"],
+      )
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("reads a forum thread's opening post once when the history reaches it", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      const history = yield* platform.history({ _tag: "Discord", guild: "100", threadId: "820" }, 3)
+
+      assert.deepStrictEqual(
+        history.map(({ id }) => id),
+        ["820", "821", "822"],
+      )
+    }).pipe(Effect.provide(services)),
   )
 })
