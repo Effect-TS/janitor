@@ -42,11 +42,11 @@ const decision = Decision.make({
   decisions: {
     addressed: Decision.probability({
       instructions:
-        "This is a team chat thread with a bot called janitor. Does the newest message need janitor to answer or act? followsBotReplyTo means the newest message comes straight after janitor's reply to its author. humansInThread is how many people, bots aside, have spoken in the last 20 messages.",
+        "This is a team chat thread with a bot called janitor. Does the newest message need janitor to answer or act? followsBotReplyTo means the newest message comes straight after janitor's reply to its author: such a message is usually a follow-up for janitor, unless it speaks to someone else. humansInThread is how many people, bots aside, have spoken in the last 20 messages.",
       criteria: {
-        true: "The newest message asks janitor something, tells it to do something, or answers a question janitor asked, including approving what janitor proposed.",
+        true: "The newest message asks janitor something, tells it to do something, including what to do about another person or their request, or answers a question janitor asked, including approving what janitor proposed.",
         false:
-          "The newest message is for someone else, even straight after janitor's reply: it mentions or names another person, or carries on a conversation between people. Or it needs nothing from janitor: it only acknowledges janitor (thanks, good bot) or turns down what janitor proposed (no thanks, leave it as is).",
+          "The newest message speaks to someone other than janitor, even straight after janitor's reply, or carries on a conversation between people. Or it needs nothing from janitor: it only acknowledges janitor (thanks, good bot) or turns down what janitor proposed (no thanks, leave it as is).",
       },
     }),
   },
