@@ -52,18 +52,23 @@ interface TestItem {
   readonly facts: FactSnapshot
 }
 
+const entityOf = (
+  issue: GitHubIssueApi,
+  pullRequest: ReadItem["pullRequest"],
+): TestItem["entity"] => ({
+  number: issue.number,
+  kind: itemKind(issue),
+  title: issue.title,
+  authorLogin: authorLogin(issue),
+  baseRef: pullRequest?.base.ref ?? null,
+  draft: pullRequest?.draft ?? null,
+  labels: issue.labels.map((label) => label.id),
+  labelNames: Object.fromEntries(issue.labels.map((label) => [label.id, label.name])),
+  source: "github",
+})
+
 const fromItem = (item: ReadItem): TestItem => ({
-  entity: {
-    number: item.issue.number,
-    kind: itemKind(item.issue),
-    title: item.issue.title,
-    authorLogin: authorLogin(item.issue),
-    baseRef: item.pullRequest?.base.ref ?? null,
-    draft: item.pullRequest?.draft ?? null,
-    labels: item.issue.labels.map((label) => label.id),
-    labelNames: Object.fromEntries(item.issue.labels.map((label) => [label.id, label.name])),
-    source: "github",
-  },
+  entity: entityOf(item.issue, item.pullRequest),
   facts: itemFacts(item),
 })
 
@@ -305,8 +310,16 @@ export class LabelingTest extends Context.Service<
       repositoryId: GitHubRepositoryDatabaseId,
     ) {
       yield* configuration.requireRepository(repositoryId)
-      const views = yield* items(repositoryId, [], [])
-      return views.map((item) => describe(item, null, null))
+      // One listing request: the editors' pickers show the number and title,
+      // and a test rereads its items in full, so pull requests are not read
+      // here and carry no base ref or draft state.
+      const repository = yield* target(repositoryId)
+      const issues = yield* github(fetchOpenItems(repository, MAX_TEST_ENTITIES))
+      return issues.map((issue): TestEntity => ({
+        ...entityOf(issue, null),
+        evaluation: null,
+        plan: null,
+      }))
     })
     return { run, items: list }
   }),

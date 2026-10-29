@@ -1197,46 +1197,51 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>(
                                 " Retrying with the next repository refresh.",
                               ],
                             )
-                          : testItems(model).length === 0
+                          : model.testCandidates._tag === "Loading"
                             ? h.p(
-                                [h.Class("text-body-sm text-ink-muted")],
-                                ["No open items are available for this policy's target."],
+                                [h.Role("status"), h.Class("text-body-sm text-ink-muted")],
+                                ["Loading open items from GitHub…"],
                               )
-                            : h.div(
-                                [h.Class("flex flex-col gap-1")],
-                                [
-                                  h.label(
-                                    [
-                                      h.For("policy-test-choice"),
-                                      h.Class("text-body-sm text-ink-muted"),
-                                    ],
-                                    [
-                                      Option.exists(
-                                        parsedSource(model),
-                                        (source) => source.target === "issue",
-                                      )
-                                        ? "Issues"
-                                        : "Pull Requests",
-                                    ],
-                                  ),
-                                  h.select(
-                                    [
-                                      h.Id("policy-test-choice"),
-                                      h.Class(selectClass),
-                                      h.Value(String(selectedTestItem(model)?.number ?? "")),
-                                      h.OnChange((value) =>
-                                        Message.SelectedTestItem({ number: Number(value) }),
-                                      ),
-                                    ],
-                                    testItems(model).map((item) =>
-                                      h.option(
-                                        [h.Value(String(item.number))],
-                                        [`#${item.number} · ${item.title}`],
+                            : testItems(model).length === 0
+                              ? h.p(
+                                  [h.Class("text-body-sm text-ink-muted")],
+                                  ["No open items are available for this policy's target."],
+                                )
+                              : h.div(
+                                  [h.Class("flex flex-col gap-1")],
+                                  [
+                                    h.label(
+                                      [
+                                        h.For("policy-test-choice"),
+                                        h.Class("text-body-sm text-ink-muted"),
+                                      ],
+                                      [
+                                        Option.exists(
+                                          parsedSource(model),
+                                          (source) => source.target === "issue",
+                                        )
+                                          ? "Issues"
+                                          : "Pull Requests",
+                                      ],
+                                    ),
+                                    h.select(
+                                      [
+                                        h.Id("policy-test-choice"),
+                                        h.Class(selectClass),
+                                        h.Value(String(selectedTestItem(model)?.number ?? "")),
+                                        h.OnChange((value) =>
+                                          Message.SelectedTestItem({ number: Number(value) }),
+                                        ),
+                                      ],
+                                      testItems(model).map((item) =>
+                                        h.option(
+                                          [h.Value(String(item.number))],
+                                          [`#${item.number} · ${item.title}`],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
                         Option.match(model.maybeTestBench, {
                           onNone: () =>
                             h.div(

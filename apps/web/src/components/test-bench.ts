@@ -46,6 +46,7 @@ export const TestSubject = Schema.Union([
 export type TestSubject = typeof TestSubject.Type
 
 export const TestCandidates = Schema.Union([
+  Schema.TaggedStruct("Loading", {}),
   Schema.TaggedStruct("Ready", { items: Schema.Array(TestEntity) }),
   Schema.TaggedStruct("Failed", { reason: Schema.String }),
 ])
