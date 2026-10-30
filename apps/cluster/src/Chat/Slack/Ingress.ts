@@ -11,9 +11,10 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest"
 import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import { failureCategory, readBodyBounded } from "../../Ingress/Webhooks.ts"
 import * as WebhookVerifier from "../../Ingress/WebhookVerifier.ts"
-import type { ChatMessage, ChatThread } from "../Platform.ts"
+import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
 import { sessionClient } from "../Session.ts"
 import {
+  decode,
   lookUpAuthor,
   MESSAGE_SUBTYPES,
   mentionsBot,
@@ -21,6 +22,8 @@ import {
   SlackApi,
   type SlackAuthor,
   SlackMessage,
+  sentAt,
+  Timestamp,
   toChatMessage,
 } from "./Api.ts"
 import { SlackConfig } from "./Config.ts"
@@ -109,6 +112,25 @@ const Event = Schema.Struct({
 })
 type Event = typeof Event.Type
 
+/** A `reaction_added` event. Its item names the message, but not the message's thread. */
+const Reaction = Schema.Struct({
+  type: Schema.Literal("reaction_added"),
+  user: Schema.String,
+  reaction: Schema.String,
+  /** Who wrote the message; missing for one without a user, such as a webhook's. */
+  item_user: Schema.optionalKey(Schema.String),
+  item: Schema.Struct({
+    type: Schema.String,
+    channel: Schema.optionalKey(Schema.String),
+    ts: Schema.optionalKey(Timestamp),
+  }),
+  event_ts: Timestamp,
+})
+type Reaction = typeof Reaction.Type
+
+/** 👍 with any skin tone. Slack names it `+1`, and `thumbsup` is its alias. */
+const THUMBS_UP = /^(\+1|thumbsup)(::skin-tone-[2-6])?$/
+
 const SlackHeaders = Schema.Struct({
   "x-slack-signature": Schema.String,
   "x-slack-request-timestamp": Schema.String,
@@ -122,6 +144,7 @@ const Routes = Layer.unwrap(
     const verify = yield* WebhookVerifier.slackVerifier({ secret: config.signingSecret })
     const decodeEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))
     const decodeEvent = Schema.decodeUnknownOption(Event)
+    const decodeReaction = Schema.decodeUnknownOption(Reaction)
 
     /**
      * Whether the event is for our workspace. In a Slack Connect channel the
@@ -147,6 +170,78 @@ const Routes = Layer.unwrap(
             ),
           ),
         )
+
+    /** Admits a Slack user, from the session's memory or `users.info`, and remembers an admission. */
+    const admit = Effect.fnUntraced(function* (thread: ChatThread, user: string) {
+      const cached = yield* sessions.cachedAdmission(thread, user)
+      if (Option.isSome(cached)) {
+        const remembered: SlackAuthor = { class: "admitted", name: cached.value }
+        return remembered
+      }
+      const author = yield* lookUpAuthor(api, config.workspaceId, user)
+      if (author.class === "admitted") yield* sessions.rememberAdmission(thread, user, author.name)
+      return author
+    })
+
+    /**
+     * The root of the thread a message is in. `conversations.replies` takes
+     * any message of a thread and answers with the thread, the root first;
+     * each threaded message carries the root's `ts` as `thread_ts`, and a
+     * message outside any thread has none. A message Slack won't show, gone
+     * or in a channel the bot left, has no thread.
+     */
+    const threadOf = (channel: string, ts: string) =>
+      api.call("conversations.replies", { channel, ts, limit: 1 }, { retry: false }).pipe(
+        Effect.flatMap(
+          decode(
+            "conversations.replies",
+            Schema.Struct({
+              messages: Schema.Array(Schema.Struct({ thread_ts: SlackMessage.fields.thread_ts })),
+            }),
+          ),
+        ),
+        Effect.map(({ messages }) => messages[0]?.thread_ts),
+        Effect.catchIf(
+          (error) => error.disposition === "denied",
+          (error) =>
+            Effect.logWarning("Couldn't read a Slack message's thread").pipe(
+              Effect.annotateLogs({ reason: error.message }),
+              Effect.as(undefined),
+            ),
+        ),
+      )
+
+    /**
+     * Hands an admitted user's 👍 on the bot's message in a thread with a
+     * session to it as an approval (EFF-3163). A reaction never starts a
+     * session, and anyone else's is ignored, not kept as context.
+     */
+    const handleReaction = Effect.fnUntraced(function* (event: Reaction) {
+      const { channel, ts } = event.item
+      if (
+        !THUMBS_UP.test(event.reaction) ||
+        event.item.type !== "message" ||
+        channel === undefined ||
+        ts === undefined
+      )
+        return
+      const botUserId = yield* api.botUserId
+      if (event.item_user !== botUserId || event.user === botUserId) return
+      const threadTs = yield* threadOf(channel, ts)
+      if (threadTs === undefined) return
+      const thread: ChatThread = { _tag: "Slack", team: config.workspaceId, channel, threadTs }
+      if (!(yield* sessions.exists(thread))) return
+      const author = yield* admit(thread, event.user)
+      if (author.class !== "admitted") return
+      yield* sessions.receive(thread, {
+        id: approvalMessageId(ts, event.user),
+        author: { id: event.user, name: author.name, class: author.class },
+        text: APPROVAL_TEXT,
+        mentionsBot: true,
+        sentAt: sentAt(event.event_ts),
+        attachments: [],
+      })
+    })
 
     /** Filters the event, admits its author and hands the message to its session. */
     const handle = Effect.fnUntraced(function* (event: Event) {
@@ -177,14 +272,9 @@ const Routes = Layer.unwrap(
       const hasSession = yield* Effect.cached(sessions.exists(thread))
       if (!mentioned && !(yield* hasSession)) return
 
-      const cached = yield* sessions.cachedAdmission(thread, user)
-      const author: SlackAuthor = Option.isSome(cached)
-        ? { class: "admitted", name: cached.value }
-        : yield* lookUpAuthor(api, config.workspaceId, user)
+      const author = yield* admit(thread, user)
       // Only an admitted user's mention starts a session.
       if (author.class !== "admitted" && !(yield* hasSession)) return
-      if (author.class === "admitted" && Option.isNone(cached))
-        yield* sessions.rememberAdmission(thread, user, author.name)
       yield* sessions.receive(
         thread,
         toChatMessage(event, { id: user, ...author }, botUserId, mentioned),
@@ -217,6 +307,9 @@ const Routes = Layer.unwrap(
         if (envelope.value.type !== "event_callback") return accepted
         if (!forWorkspace(envelope.value) || envelope.value.api_app_id !== config.appId)
           return HttpServerResponse.text("Wrong app or workspace", { status: 403 })
+        const reaction = decodeReaction(envelope.value.event)
+        if (reaction._tag === "Some")
+          return yield* handleReaction(reaction.value).pipe(Effect.as(accepted))
         const event = decodeEvent(envelope.value.event)
         if (event._tag === "None") return accepted
         return yield* handle(event.value).pipe(Effect.as(accepted))
@@ -239,7 +332,8 @@ const Routes = Layer.unwrap(
 /**
  * `POST /webhooks/slack` (under `/api/v1`): the Events API webhook. It checks
  * the signature and the envelope, filters the event, admits its author with
- * `users.info` and hands the message to its session, then answers 200.
+ * `users.info` and hands the message to its session, then answers 200. A
+ * `reaction_added` of 👍 on the bot's message is handed on as an approval.
  * Without an answer inside 2.5 seconds it returns 503, so Slack retries.
  */
 export const SlackWebhookRoutesLayer: Layer.Layer<

@@ -115,15 +115,29 @@ export interface DiscordMember {
   readonly roles?: ReadonlyArray<string> | undefined
 }
 
+/**
+ * The author is admitted with the role in `member.roles`; a bot account,
+ * the janitor bot included, is context only whatever its roles. The name is
+ * the server nickname, else the display name, else the username.
+ */
+export const toAuthor = (
+  user: Pick<Discord.UserResponse, "id" | "username" | "global_name" | "bot">,
+  member: DiscordMember | undefined,
+  roleId: string,
+): ChatMessage["author"] => ({
+  id: user.id,
+  name: member?.nick ?? user.global_name ?? user.username,
+  class:
+    user.bot === true ? "bot" : member?.roles?.includes(roleId) === true ? "admitted" : "outsider",
+})
+
 /** Mentions of the bot, `<@id>` or the older `<@!id>`. */
 const botMention = (botUserId: string) => new RegExp(`<@!?${botUserId}>`, "g")
 
 /**
- * The author is admitted with the role in `member.roles`; a bot account,
- * the janitor bot included, is context only whatever its roles. The name is
- * the server nickname, else the display name, else the username. A reply to
- * one of the bot's messages counts as a mention: it is addressed to the
- * bot whether or not the reply pings (EFF-3137).
+ * The author as `toAuthor` classes them. A reply to one of the bot's
+ * messages counts as a mention: it is addressed to the bot whether or not
+ * the reply pings (EFF-3137).
  */
 export const toChatMessage = (
   message: DiscordMessage,
@@ -136,16 +150,7 @@ export const toChatMessage = (
   const answers = message.referenced_message?.author.id
   return {
     id: message.id,
-    author: {
-      id: message.author.id,
-      name: member?.nick ?? message.author.global_name ?? message.author.username,
-      class:
-        message.author.bot === true
-          ? "bot"
-          : member?.roles?.includes(roleId) === true
-            ? "admitted"
-            : "outsider",
-    },
+    author: toAuthor(message.author, member, roleId),
     text: (mentionsBotRole ? message.content.replaceAll(`<@&${botRoleId}>`, "") : message.content)
       .replace(botMention(botUserId), "")
       .trim(),

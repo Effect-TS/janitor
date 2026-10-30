@@ -35,6 +35,9 @@ const UNKNOWN_MEMBER = 10007
 /** Discord's code for "Unknown Message". */
 const UNKNOWN_MESSAGE = 10008
 
+/** A Discord id. */
+const SNOWFLAKE = /^\d+$/
+
 /** The message a thread started from a message opens with, pointing at it. */
 const THREAD_STARTER_MESSAGE = 21
 
@@ -191,10 +194,15 @@ const make = Effect.gen(function* () {
       const replyTo = options?.replyTo
       // A thread started from a message shares its id, and that message
       // lives in the parent channel, where a reply from inside the thread
-      // can't point: it would show "Message could not be loaded". Its
-      // author is mentioned instead, so they are still pinged.
+      // can't point: it would show "Message could not be loaded". An
+      // approval's id (EFF-3163) is no message's, and Discord refuses it.
+      // The author is mentioned instead, so they are still pinged.
       const starter =
-        thread._tag === "Discord" && replyTo?.messageId === thread.threadId ? replyTo : undefined
+        thread._tag === "Discord" &&
+        replyTo !== undefined &&
+        (replyTo.messageId === thread.threadId || !SNOWFLAKE.test(replyTo.messageId))
+          ? replyTo
+          : undefined
       const reference =
         replyTo === undefined || starter !== undefined
           ? undefined

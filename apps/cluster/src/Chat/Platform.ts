@@ -21,6 +21,17 @@ export const sessionKey = (thread: ChatThread): string =>
     ? `slack/${thread.team}/${thread.channel}/${thread.threadTs}`
     : `discord/${thread.guild}/${thread.threadId}`
 
+/**
+ * What an admitted user's 👍 on one of the bot's messages hands the session
+ * (EFF-3163): a message that counts as a mention, so a yes/no question or a
+ * request for approval can be answered with a reaction.
+ */
+export const APPROVAL_TEXT = "👍 (reacted with a thumbs up to your message: approved)"
+
+/** An approval's message id, unlike any platform message id, so sessions store each once. */
+export const approvalMessageId = (messageId: string, userId: string): string =>
+  `reaction/${messageId}/${userId}`
+
 export class ChatPlatformError extends Schema.TaggedError<ChatPlatformError>()(
   "ChatPlatformError",
   { message: Schema.String },
