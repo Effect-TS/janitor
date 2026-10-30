@@ -112,24 +112,21 @@ const Event = Schema.Struct({
 })
 type Event = typeof Event.Type
 
-/** A `reaction_added` event. Its item names the message, but not the message's thread. */
-const Reaction = Schema.Struct({
+/**
+ * A `reaction_added` of 👍, any skin tone, on a message: Slack names the
+ * emoji `+1`, with `thumbsup` as its alias. The item names the message, but
+ * not the message's thread.
+ */
+const ThumbsUp = Schema.Struct({
   type: Schema.Literal("reaction_added"),
   user: Schema.String,
-  reaction: Schema.String,
+  reaction: Schema.String.check(Schema.isPattern(/^(\+1|thumbsup)(::skin-tone-[2-6])?$/)),
   /** Who wrote the message; missing for one without a user, such as a webhook's. */
   item_user: Schema.optionalKey(Schema.String),
-  item: Schema.Struct({
-    type: Schema.String,
-    channel: Schema.optionalKey(Schema.String),
-    ts: Schema.optionalKey(Timestamp),
-  }),
+  item: Schema.Struct({ type: Schema.Literal("message"), channel: Schema.String, ts: Timestamp }),
   event_ts: Timestamp,
 })
-type Reaction = typeof Reaction.Type
-
-/** 👍 with any skin tone. Slack names it `+1`, and `thumbsup` is its alias. */
-const THUMBS_UP = /^(\+1|thumbsup)(::skin-tone-[2-6])?$/
+type ThumbsUp = typeof ThumbsUp.Type
 
 const SlackHeaders = Schema.Struct({
   "x-slack-signature": Schema.String,
@@ -144,7 +141,7 @@ const Routes = Layer.unwrap(
     const verify = yield* WebhookVerifier.slackVerifier({ secret: config.signingSecret })
     const decodeEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(Envelope))
     const decodeEvent = Schema.decodeUnknownOption(Event)
-    const decodeReaction = Schema.decodeUnknownOption(Reaction)
+    const decodeThumbsUp = Schema.decodeUnknownOption(ThumbsUp)
 
     /**
      * Whether the event is for our workspace. In a Slack Connect channel the
@@ -174,10 +171,8 @@ const Routes = Layer.unwrap(
     /** Admits a Slack user, from the session's memory or `users.info`, and remembers an admission. */
     const admit = Effect.fnUntraced(function* (thread: ChatThread, user: string) {
       const cached = yield* sessions.cachedAdmission(thread, user)
-      if (Option.isSome(cached)) {
-        const remembered: SlackAuthor = { class: "admitted", name: cached.value }
-        return remembered
-      }
+      if (Option.isSome(cached))
+        return { class: "admitted", name: cached.value } satisfies SlackAuthor
       const author = yield* lookUpAuthor(api, config.workspaceId, user)
       if (author.class === "admitted") yield* sessions.rememberAdmission(thread, user, author.name)
       return author
@@ -216,15 +211,8 @@ const Routes = Layer.unwrap(
      * session to it as an approval (EFF-3163). A reaction never starts a
      * session, and anyone else's is ignored, not kept as context.
      */
-    const handleReaction = Effect.fnUntraced(function* (event: Reaction) {
+    const handleReaction = Effect.fnUntraced(function* (event: ThumbsUp) {
       const { channel, ts } = event.item
-      if (
-        !THUMBS_UP.test(event.reaction) ||
-        event.item.type !== "message" ||
-        channel === undefined ||
-        ts === undefined
-      )
-        return
       const botUserId = yield* api.botUserId
       if (event.item_user !== botUserId || event.user === botUserId) return
       const threadTs = yield* threadOf(channel, ts)
@@ -235,7 +223,7 @@ const Routes = Layer.unwrap(
       if (author.class !== "admitted") return
       yield* sessions.receive(thread, {
         id: approvalMessageId(ts, event.user),
-        author: { id: event.user, name: author.name, class: author.class },
+        author: { id: event.user, ...author },
         text: APPROVAL_TEXT,
         mentionsBot: true,
         sentAt: sentAt(event.event_ts),
@@ -307,9 +295,9 @@ const Routes = Layer.unwrap(
         if (envelope.value.type !== "event_callback") return accepted
         if (!forWorkspace(envelope.value) || envelope.value.api_app_id !== config.appId)
           return HttpServerResponse.text("Wrong app or workspace", { status: 403 })
-        const reaction = decodeReaction(envelope.value.event)
-        if (reaction._tag === "Some")
-          return yield* handleReaction(reaction.value).pipe(Effect.as(accepted))
+        const thumbsUp = decodeThumbsUp(envelope.value.event)
+        if (thumbsUp._tag === "Some")
+          return yield* handleReaction(thumbsUp.value).pipe(Effect.as(accepted))
         const event = decodeEvent(envelope.value.event)
         if (event._tag === "None") return accepted
         return yield* handle(event.value).pipe(Effect.as(accepted))

@@ -219,15 +219,14 @@ const make = Effect.gen(function* () {
    * Hands an admitted member's 👍 on the bot's message in a thread with a
    * session to it as an approval, or drops it. A reaction never starts a
    * session, and anyone else's is dropped, not kept as context. Only an
-   * approval handed on is recorded as seen: a dropped reaction, another
-   * emoji say, mustn't suppress a later 👍 from the same user.
+   * approval handed on is recorded as seen: a dropped reaction, an
+   * outsider's say, mustn't suppress a later 👍 from the same user.
    */
   const routeReaction = Effect.fnUntraced(function* (
     reaction: Discord.GatewayMessageReactionAddDispatchData,
     id: string,
   ) {
     const bot = yield* botUserId
-    if (!isThumbsUp(reaction.emoji)) return yield* drop("a reaction other than a thumbs up")
     if (reaction.message_author_id !== bot) return yield* drop("a reaction to another's message")
     if (reaction.guild_id !== config.guildId) return yield* drop("a reaction outside the guild")
     if (reaction.member === undefined) return yield* drop("no member")
@@ -262,24 +261,26 @@ const make = Effect.gen(function* () {
       Effect.annotateLogs({ reason: error.message }),
     )
 
+  /** Routes, dropping what Discord refuses; any other failure is for the replay. */
+  const attempt = (routed: Effect.Effect<void, DiscordRESTError | DiscordSessionError>) =>
+    routed.pipe(
+      Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
+      Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
+    )
+
   return DiscordIngress.of({
     handle: (message) =>
       Effect.gen(function* () {
         if (yield* seen.has(message.id)) return yield* drop("already handled")
-        yield* route(message).pipe(
-          Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
-          Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
-        )
+        yield* attempt(route(message))
         yield* seen.add(message.id)
       }).pipe(Effect.annotateLogs({ discordMessageId: message.id })),
     handleReaction: (reaction) =>
       Effect.gen(function* () {
+        if (!isThumbsUp(reaction.emoji)) return yield* drop("a reaction other than a thumbs up")
         const id = approvalMessageId(reaction.message_id, reaction.user_id)
         if (yield* seen.has(id)) return yield* drop("already handled")
-        yield* routeReaction(reaction, id).pipe(
-          Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
-          Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
-        )
+        yield* attempt(routeReaction(reaction, id))
       }).pipe(Effect.annotateLogs({ discordMessageId: reaction.message_id })),
   })
 })

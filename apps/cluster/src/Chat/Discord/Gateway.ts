@@ -32,10 +32,11 @@ import * as Ingress from "./Ingress.ts"
  *
  * It is ingress only: each `MESSAGE_CREATE` and `MESSAGE_REACTION_ADD` goes
  * through `Ingress` before its sequence is stored, so a message that
- * couldn't reach its session comes back with the RESUME, and the message ids already handled are kept here to
- * drop the ones a RESUME replays. A 12-hour spike measured two evictions with
- * a live socket in six hours, each healed by the alarm within a minute, and
- * every reconnect was a RESUME.
+ * couldn't reach its session comes back with the RESUME, and the message
+ * ids already handled are kept here to drop the ones a RESUME replays. A
+ * 12-hour spike measured two evictions with a live socket in six hours,
+ * each healed by the alarm within a minute, and every reconnect was a
+ * RESUME.
  */
 
 export const GATEWAY_NAME = "gateway"
