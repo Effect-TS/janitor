@@ -8,7 +8,7 @@ import * as UrlParams from "effect/http/UrlParams"
 import { restLayer } from "../../../src/Chat/Discord/Api.ts"
 import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
 import * as DiscordPlatform from "../../../src/Chat/Discord/Platform.ts"
-import { ChatPlatform, type ChatThread } from "../../../src/Chat/Platform.ts"
+import { approvalMessageId, ChatPlatform, type ChatThread } from "../../../src/Chat/Platform.ts"
 
 /**
  * Discord's `ChatPlatform` over a fake Discord REST API.
@@ -256,6 +256,13 @@ describe("Discord platform", () => {
       replyTo: { messageId: "501", authorId: "600" },
       reference: { message_id: "501", fail_if_not_exists: false },
       mentioned: false,
+    },
+    // An approval's id is no Discord message's, and Discord refuses a reference to it.
+    {
+      name: "an approval",
+      replyTo: { messageId: approvalMessageId("501", "600"), authorId: "600" },
+      reference: undefined,
+      mentioned: true,
     },
   ]) {
     it.effect(`chunked replies to ${name} use only a resolvable reply preview`, () =>
