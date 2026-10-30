@@ -218,7 +218,9 @@ const make = Effect.gen(function* () {
   /**
    * Hands an admitted member's 👍 on the bot's message in a thread with a
    * session to it as an approval, or drops it. A reaction never starts a
-   * session, and anyone else's is dropped, not kept as context.
+   * session, and anyone else's is dropped, not kept as context. Only an
+   * approval handed on is recorded as seen: a dropped reaction, another
+   * emoji say, mustn't suppress a later 👍 from the same user.
    */
   const routeReaction = Effect.fnUntraced(function* (
     reaction: Discord.GatewayMessageReactionAddDispatchData,
@@ -248,6 +250,7 @@ const make = Effect.gen(function* () {
       sentAt: yield* DateTime.now,
       attachments: [],
     })
+    yield* seen.add(id)
     yield* Effect.logInfo("Discord ingress handed an approval to its session").pipe(
       Effect.annotateLogs({ threadId: thread.threadId }),
     )
@@ -277,7 +280,6 @@ const make = Effect.gen(function* () {
           Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
           Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
         )
-        yield* seen.add(id)
       }).pipe(Effect.annotateLogs({ discordMessageId: reaction.message_id })),
   })
 })
