@@ -401,4 +401,18 @@ describe("Discord ingress", () => {
         assert.lengthOf(new Set(ids), 2)
       }),
   )
+
+  it.effect("hands on a 👍 that follows another reaction to the same message", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress()
+      const handleReaction = yield* ingress.reactions
+      yield* handleReaction(reaction("1311", { emoji: emoji("👀") }))
+      yield* handleReaction(reaction("1311"))
+
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.author.id, message.mentionsBot]),
+        [["600", true]],
+      )
+    }),
+  )
 })
