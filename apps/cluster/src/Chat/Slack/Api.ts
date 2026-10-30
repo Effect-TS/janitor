@@ -226,7 +226,12 @@ export const SlackFile = Schema.Struct({
   size: Schema.optionalKey(Schema.Finite),
 })
 
-const Timestamp = Schema.String.check(Schema.isPattern(/^\d+\.\d+$/))
+/** A Slack `ts`: a message's id and the time it was sent. */
+export const Timestamp = Schema.String.check(Schema.isPattern(/^\d+\.\d+$/))
+
+/** When a Slack `ts` was sent. */
+export const sentAt = (ts: string): DateTime.Utc =>
+  DateTime.makeUnsafe(Math.floor(Number(ts) * 1000))
 
 /** The fields of a Slack message that janitor reads, in an event or a thread's history. */
 export const SlackMessage = Schema.Struct({
@@ -266,7 +271,7 @@ export const toChatMessage = (
   author: { id: author.id, name: author.name, class: author.class },
   text: (message.text ?? "").replace(mentionPattern(botUserId), "").replace(/^\s+/, ""),
   mentionsBot: mentioned,
-  sentAt: DateTime.makeUnsafe(Math.floor(Number(message.ts) * 1000)),
+  sentAt: sentAt(message.ts),
   attachments: (message.files ?? []).map((file) => ({
     id: file.id,
     name: file.name ?? file.id,

@@ -28,6 +28,15 @@ const SIGNING_SECRET = "signing-secret"
 const BOT_USER = "UBOT"
 /** The root of the one thread that has a session. */
 const SESSION_THREAD = "1700000000.000100"
+/** The root of a thread without a session. */
+const OTHER_THREAD = "1700000000.000900"
+
+/** The thread each reply is in, for `conversations.replies`. */
+const replies: Record<string, string> = {
+  "1700000050.000100": SESSION_THREAD,
+  "1700000051.000100": SESSION_THREAD,
+  "1700000052.000100": OTHER_THREAD,
+}
 
 /** `users.info` answers by user id; anyone else is `user_not_found`. */
 const users: Record<string, object> = {
@@ -100,6 +109,16 @@ const makeIngress = Effect.fnUntraced(function* (
             lookups.push(id)
             const user = users[id]
             return user === undefined ? { ok: false, error: "user_not_found" } : { ok: true, user }
+          }
+          case "conversations.replies": {
+            // Given a reply's ts, Slack answers with its thread, the root first.
+            const thread = replies[params.get("ts") ?? ""]
+            return thread === undefined
+              ? { ok: false, error: "thread_not_found" }
+              : {
+                  ok: true,
+                  messages: [{ type: "message", user: "U-member", ts: thread, thread_ts: thread }],
+                }
           }
           case "chat.postMessage":
             posted.push({ channel: params.get("channel"), text: params.get("text") })
@@ -229,6 +248,17 @@ const mention = (ts: string, fields: object = {}) => ({
   text: `<@${BOT_USER}> hello`,
   ts,
   event_ts: ts,
+  ...fields,
+})
+
+/** A `reaction_added` event: the member's 👍 on the bot's reply `ts` in `C1`. */
+const reaction = (ts: string, fields: object = {}) => ({
+  type: "reaction_added",
+  user: "U-member",
+  reaction: "+1",
+  item_user: BOT_USER,
+  item: { type: "message", channel: "C1", ts },
+  event_ts: "1700000099.000100",
   ...fields,
 })
 
@@ -428,5 +458,50 @@ describe("Slack ingress", () => {
       )
       assert.deepStrictEqual(ingress.posted, [])
     }),
+  )
+
+  it.effect(
+    "hands on an admitted member's 👍 on the bot's reply in a session thread as approval",
+    () =>
+      Effect.gen(function* () {
+        const ingress = yield* makeIngress()
+        const events = [
+          reaction("1700000050.000100"),
+          reaction("1700000051.000100", { reaction: "+1::skin-tone-3" }),
+          // Not an approval: another emoji, someone else's message, a guest, a
+          // bot, a thread without a session.
+          reaction("1700000050.000100", { reaction: "-1" }),
+          reaction("1700000050.000100", { item_user: "U-member" }),
+          reaction("1700000050.000100", { user: "U-multi-guest" }),
+          reaction("1700000050.000100", { user: "U-bot" }),
+          reaction("1700000052.000100"),
+        ]
+        for (const event of events)
+          assert.strictEqual((yield* ingress.post(eventCallback(event))).status, 200)
+
+        const thread: ChatThread = {
+          _tag: "Slack",
+          team: "T1",
+          channel: "C1",
+          threadTs: SESSION_THREAD,
+        }
+        assert.deepStrictEqual(
+          ingress.handedOff.map(({ thread, message }) => ({
+            thread,
+            author: [message.author.id, message.author.class],
+            mentionsBot: message.mentionsBot,
+          })),
+          [
+            { thread, author: ["U-member", "admitted"], mentionsBot: true },
+            { thread, author: ["U-member", "admitted"], mentionsBot: true },
+          ],
+        )
+        // Sessions store each message once by id: an approval mustn't take
+        // the id of the message it approves, or of another approval.
+        const ids = ingress.handedOff.map(({ message }) => message.id)
+        assert.notInclude(ids, "1700000050.000100")
+        assert.notInclude(ids, "1700000051.000100")
+        assert.lengthOf(new Set(ids), 2)
+      }),
   )
 })

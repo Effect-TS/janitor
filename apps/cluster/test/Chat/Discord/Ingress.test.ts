@@ -22,11 +22,14 @@ const BOT_ROLE = "301"
 const CHANNEL = "400"
 /** A thread under `CHANNEL` that has a session. */
 const SESSION_THREAD = "500"
+/** A thread under `CHANNEL` without a session. */
+const OTHER_THREAD = "501"
 
 /** `GET /channels/{id}`: `CHANNEL` is a text channel, `SESSION_THREAD` a public thread. */
 const channels: Record<string, object> = {
   [CHANNEL]: { id: CHANNEL, type: 0, guild_id: GUILD },
   [SESSION_THREAD]: { id: SESSION_THREAD, type: 11, guild_id: GUILD, parent_id: CHANNEL },
+  [OTHER_THREAD]: { id: OTHER_THREAD, type: 11, guild_id: GUILD, parent_id: CHANNEL },
 }
 
 const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
@@ -102,14 +105,17 @@ const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
    * A fresh instance of the ingress, as a rebuilt Durable Object builds,
    * over the same sessions and storage.
    */
-  const instance = Effect.gen(function* () {
-    return (yield* DiscordIngress.DiscordIngress).handle
+  const ingress = Effect.gen(function* () {
+    const { handle, handleReaction } = yield* DiscordIngress.DiscordIngress
+    return { handle, handleReaction }
   }).pipe(Effect.provide(DiscordIngress.layer.pipe(Layer.provide(services))))
+  const instance = Effect.map(ingress, ({ handle }) => handle)
+  const reactions = Effect.map(ingress, ({ handleReaction }) => handleReaction)
 
   /** The message handed off with id `id`, if any. */
   const handedOffAt = (id: string) => handedOff.find(({ message }) => message.id === id)
 
-  return { instance, handedOff, handedOffAt, threadsStarted }
+  return { instance, reactions, handedOff, handedOffAt, threadsStarted }
 }
 
 const user = (id: string, username: string, fields: { readonly bot?: boolean } = {}) => ({
@@ -161,6 +167,30 @@ const message = (
   pinned: false,
   flags: 0,
   components: [],
+  ...fields,
+})
+
+/**
+ * A Unicode emoji as the gateway sends it, with a null id; dfx types a
+ * reaction's emoji as a custom one.
+ */
+const emoji = (name: string) => ({ id: null, name }) as unknown as Discord.APIEmoji
+
+/** A 👍 `MESSAGE_REACTION_ADD` from a member with the role, on the bot's message in the session's thread. */
+const reaction = (
+  messageId: string,
+  fields: Partial<Discord.GatewayMessageReactionAddDispatchData> = {},
+): Discord.GatewayMessageReactionAddDispatchData => ({
+  user_id: "600",
+  channel_id: SESSION_THREAD,
+  message_id: messageId,
+  guild_id: GUILD,
+  member: { ...member([ROLE]), user: user("600", "ada") },
+  emoji: emoji("👍"),
+  message_author_id: BOT_USER,
+  burst: false,
+  burst_colors: [],
+  type: 0,
   ...fields,
 })
 
@@ -321,6 +351,68 @@ describe("Discord ingress", () => {
         guild: GUILD,
         threadId: SESSION_THREAD,
       })
+    }),
+  )
+
+  it.effect(
+    "hands on an admitted member's 👍 on the bot's message in a session thread as approval",
+    () =>
+      Effect.gen(function* () {
+        const ingress = makeIngress()
+        const handleReaction = yield* ingress.reactions
+        yield* handleReaction(reaction("1301"))
+        yield* handleReaction(reaction("1302", { emoji: emoji("👍🏽") }))
+        // Not an approval: another emoji, someone else's message, an author
+        // without the role, a bot, another guild, a thread without a session.
+        yield* handleReaction(reaction("1303", { emoji: emoji("👎") }))
+        yield* handleReaction(reaction("1304", { message_author_id: "601" }))
+        yield* handleReaction(
+          reaction("1305", {
+            user_id: "602",
+            member: { ...member(["201"]), user: user("602", "bo") },
+          }),
+        )
+        yield* handleReaction(
+          reaction("1306", {
+            user_id: "603",
+            member: { ...member([ROLE]), user: user("603", "other-bot", { bot: true }) },
+          }),
+        )
+        yield* handleReaction(reaction("1307", { guild_id: "101" }))
+        yield* handleReaction(reaction("1308", { channel_id: OTHER_THREAD }))
+
+        const thread: ChatThread = { _tag: "Discord", guild: GUILD, threadId: SESSION_THREAD }
+        assert.deepStrictEqual(
+          ingress.handedOff.map(({ thread, message }) => ({
+            thread,
+            author: [message.author.id, message.author.class],
+            mentionsBot: message.mentionsBot,
+          })),
+          [
+            { thread, author: ["600", "admitted"], mentionsBot: true },
+            { thread, author: ["600", "admitted"], mentionsBot: true },
+          ],
+        )
+        // Sessions store each message once by id: an approval mustn't take
+        // the id of the message it approves, or of another approval.
+        const ids = ingress.handedOff.map(({ message }) => message.id)
+        assert.notInclude(ids, "1301")
+        assert.notInclude(ids, "1302")
+        assert.lengthOf(new Set(ids), 2)
+      }),
+  )
+
+  it.effect("hands on a 👍 that follows another reaction to the same message", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress()
+      const handleReaction = yield* ingress.reactions
+      yield* handleReaction(reaction("1311", { emoji: emoji("👀") }))
+      yield* handleReaction(reaction("1311"))
+
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.author.id, message.mentionsBot]),
+        [["600", true]],
+      )
     }),
   )
 })

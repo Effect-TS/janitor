@@ -8,6 +8,7 @@ The bot is off for the whole deployment until `CHAT_AI_API_URL` and `CHAT_AI_API
 
 - A mention of the bot starts a session on its thread, and the session's first turn. When the bot joins a thread that already has messages, it reads the last 100 as context.
 - In a thread with a session, the reply gate decides whether a message without a mention needs the bot to answer or act. It asks Jev, with the last 20 messages as context and two signals read off the thread (whether the message comes straight after the bot's reply to its author, and how many people, bots aside, have spoken), and a message passes at a probability of one half or more. Acknowledgements and refusals of what the bot proposed are meant to stay below it. A mention always skips the gate, and on Discord a reply to one of the bot's messages counts as a mention.
+- A 👍 reaction, any skin tone, from an admitted user on one of the bot's messages in a thread with a session counts as approval: the session gets it as a message from that user saying they approved, which counts as a mention. So a yes/no question or a request for approval can be answered with a thumbs up. Other reactions, reactions from anyone else and reactions in a thread without a session are ignored, and a reaction never starts a session.
 - A message that passes while a turn is running steers it: the model sees it between its steps. A message that is only "stop" stops the running turn before any model sees it.
 - Each turn runs clanka in a chat sandbox, a container of its own class so chat can't starve PR review. Nothing is checked out up front: the model clones what it needs into `/workspace/<org>/<repo>`. It can push to any branch except protected ones, open and merge pull requests, and use the `multica` CLI as the Janitor member, for example to hand larger work to a squad as an issue. The egress proxy adds the credentials; the sandbox holds none.
 - The thread gets a status message that the bot edits as the turn goes, with a link to the session's transcript, and then the reply. A plain reply ends the turn.
@@ -115,6 +116,7 @@ in the sandbox or install an unpinned binary while the image builds.
 - In a thread with a session, every message from an admitted user reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot always starts or steers a turn.
 - Admitted users are full members of our workspace: `users.info` reports our `team_id`, and none of `is_restricted`, `is_ultra_restricted`, `is_stranger`, `deleted` or `is_bot`. Guests, Slack Connect users and strangers are outsiders. Their messages in a thread with a session reach the model as context only, and their mentions start nothing. A failed lookup also makes the author an outsider. An admission is remembered in the session for an hour, with the user's name.
 - Messages from bots, janitor's own included, are context only. Edits, deletions and other message subtypes are ignored, except messages with files and thread replies also sent to the channel.
+- A 👍 (`+1` or `thumbsup`, any skin tone) from an admitted user on one of the bot's messages is an approval. A `reaction_added` event names the message but not its thread, so ingress reads the thread with `conversations.replies`, and ignores the reaction when the message is in no thread or Slack won't show it.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
 - Replies are posted as Markdown, up to 12,000 characters a message and a second apart. A reply that would need more than three messages is uploaded as `reply.md`. The bot's posts never unfurl links, and they carry `janitor_output` message metadata.
 
@@ -122,11 +124,11 @@ in the sandbox or install an unpinned binary while the image builds.
 
 Create one app for production and one for development, each in our workspace.
 
-1. Under **OAuth & Permissions**, add these bot token scopes: `app_mentions:read`, `channels:history`, `groups:history`, `channels:read`, `groups:read`, `users:read`, `chat:write`, `files:read`, `files:write` and `im:history`.
-2. Under **Event Subscriptions**, turn events on and set the request URL to `https://<janitor host>/api/v1/webhooks/slack`. Slack sends a `url_verification` challenge, which the route answers only once the deployment has the Slack settings below. Subscribe to the bot events `app_mention`, `message.channels`, `message.groups` and `message.im`.
+1. Under **OAuth & Permissions**, add these bot token scopes: `app_mentions:read`, `channels:history`, `groups:history`, `channels:read`, `groups:read`, `users:read`, `chat:write`, `files:read`, `files:write`, `im:history` and `reactions:read`.
+2. Under **Event Subscriptions**, turn events on and set the request URL to `https://<janitor host>/api/v1/webhooks/slack`. Slack sends a `url_verification` challenge, which the route answers only once the deployment has the Slack settings below. Subscribe to the bot events `app_mention`, `message.channels`, `message.groups`, `message.im` and `reaction_added`.
 3. Leave **Interactivity** and **Socket Mode** off.
 4. Under **App Home**, allow users to send messages from the **Messages** tab, so people can DM the bot and get the pointer.
-5. Install the app to the workspace.
+5. Install the app to the workspace. After adding a scope to an installed app, such as `reactions:read` for approvals, reinstall it.
 
 ### Settings
 
@@ -157,13 +159,14 @@ The development stack's `janitor-dev` tunnel forwards `/api/v1/webhooks/slack` t
 - In a thread with a session, every message from the configured server reaches the session, and the reply gate decides whether it is meant for the bot. A message that mentions the bot, or replies to one of the bot's messages, always starts or steers a turn.
 - Admitted users are those with the configured role in `member.roles` on the message. A revoked role counts from the author's next message. Everyone else in the server is an outsider: their messages in a thread with a session reach the model as context only, and their mentions start nothing. Messages from other servers, and messages with no member, such as webhooks, are ignored.
 - Messages from other bots are context only. janitor's own replies are already in the session, so the gateway skips them, and the backfill reads them as bot messages. Edits, deletions, and system messages such as joins and pins are ignored.
+- A 👍, any skin tone, from an admitted user on one of the bot's messages in a thread with a session is an approval. Admission reads the reaction's `member.roles`, as for a message.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
-- Replies are posted as Markdown, up to 2,000 characters a message, with code fences kept balanced. The first one answers the message that started the turn. A reply that would need more than five messages is uploaded as `reply.md`. Replies can ping users, never a role, `@everyone` or `@here`. Status messages ping nobody, and no post unfurls links.
+- Replies are posted as Markdown, up to 2,000 characters a message, with code fences kept balanced. The first one answers the message that started the turn, or mentions its author when an approval started it. A reply that would need more than five messages is uploaded as `reply.md`. Replies can ping users, never a role, `@everyone` or `@here`. Status messages ping nobody, and no post unfurls links.
 - Attachments from admitted users are fetched from Discord's CDN for the turn, up to 20 MB each.
 
 ### The gateway
 
-Discord has no webhook for messages, so one Durable Object, `ChatDiscordGateway`, holds the bot's gateway socket with dfx's shard. The Worker's one-minute cron starts it, and its own 60-second alarm restarts the shard if it dies or goes quiet for three minutes. The shard's session is kept in the object's storage, so after an eviction or a deploy the object resumes the session, and Discord replays what arrived while the socket was down. The object remembers the message ids it handled for a day and drops the replays.
+Discord has no webhook for messages, so one Durable Object, `ChatDiscordGateway`, holds the bot's gateway socket with dfx's shard. The Worker's one-minute cron starts it, and its own 60-second alarm restarts the shard if it dies or goes quiet for three minutes. The shard's session is kept in the object's storage, so after an eviction or a deploy the object resumes the session, and Discord replays what arrived while the socket was down. The object remembers the message and approval ids it handled for a day and drops the replays.
 
 A message is handled before the shard stores its sequence number. If its session can't be reached, the shard reconnects and the RESUME delivers the message again. A request Discord refuses, such as a thread the bot lacks permission to create, is logged and the message dropped.
 
@@ -175,7 +178,7 @@ If Discord closes the socket with 4014, the app isn't allowed an intent it asks 
 
 Create one app for production and one for development, in the [Discord developer portal](https://discord.com/developers/applications). The development app goes in a private test server.
 
-1. Under **Bot**, turn on the **Message Content** intent. Leave the other privileged intents off. The bot also asks for `GUILDS`, `GUILD_MESSAGES` and `DIRECT_MESSAGES`, which need no toggle.
+1. Under **Bot**, turn on the **Message Content** intent. Leave the other privileged intents off. The bot also asks for `GUILDS`, `GUILD_MESSAGES`, `GUILD_MESSAGE_REACTIONS` and `DIRECT_MESSAGES`, which need no toggle.
 2. Under **Bot**, reset the token and copy it.
 3. Under **OAuth2**, **URL Generator**, pick the `bot` scope and the permissions **View Channels**, **Send Messages**, **Send Messages in Threads**, **Create Public Threads**, **Read Message History** and **Attach Files**. Open the URL and add the bot to the server.
 4. Create the role whose holders may use the bot, or pick an existing one.

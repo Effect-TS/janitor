@@ -2,10 +2,11 @@ import { DiscordREST, type DiscordRESTError } from "dfx/DiscordREST"
 import type * as Discord from "dfx/types"
 import type * as Sharding from "effect/cluster/Sharding"
 import * as Context from "effect/Context"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import type { ChatMessage, ChatThread } from "../Platform.ts"
+import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
 import { sessionClient } from "../Session.ts"
 import {
   errorCode,
@@ -15,6 +16,7 @@ import {
   SUPPRESS_EMBEDS,
   THREAD_PARENT_TYPES,
   THREAD_TYPES,
+  toAuthor,
   toChatMessage,
 } from "./Api.ts"
 import { DiscordBotConfig } from "./Config.ts"
@@ -54,10 +56,10 @@ export class DiscordSessions extends Context.Service<
 }
 
 /**
- * The message ids the gateway has handed on, kept in the gateway Durable
- * Object's storage. A RESUME replays what arrived while the socket was dark,
- * and a rebuilt instance reads the same storage, so a replayed message is
- * dropped.
+ * The message ids the gateway has handed on, approvals' included, kept in
+ * the gateway Durable Object's storage. A RESUME replays what arrived while
+ * the socket was dark, and a rebuilt instance reads the same storage, so a
+ * replayed message is dropped.
  */
 export class SeenMessages extends Context.Service<
   SeenMessages,
@@ -77,7 +79,8 @@ export class DiscordIngressError extends Schema.TaggedError<DiscordIngressError>
 /**
  * The gateway Durable Object's ingress: it filters a `MESSAGE_CREATE`,
  * admits its author by `member.roles` and hands the message to its thread's
- * session, creating the thread for a channel mention.
+ * session, creating the thread for a channel mention. A `MESSAGE_REACTION_ADD`
+ * of 👍 on the bot's message becomes an approval (EFF-3163).
  */
 export class DiscordIngress extends Context.Service<
   DiscordIngress,
@@ -85,11 +88,21 @@ export class DiscordIngress extends Context.Service<
     readonly handle: (
       message: Discord.GatewayMessageCreateDispatchData,
     ) => Effect.Effect<void, DiscordIngressError>
+    readonly handleReaction: (
+      reaction: Discord.GatewayMessageReactionAddDispatchData,
+    ) => Effect.Effect<void, DiscordIngressError>
   }
 >()("@janitor/cluster/Chat/Discord/Ingress/DiscordIngress") {}
 
 /** The message ingress logs at Debug for each message it drops, with the reason. */
 export const DROPPED = "Discord ingress dropped a message"
+
+/**
+ * 👍 with any skin tone. Discord sends a Unicode emoji with a null id,
+ * though dfx types a reaction's emoji as a custom one, which has an id.
+ */
+const isThumbsUp = (emoji: { readonly id: string | null; readonly name: string | null }) =>
+  emoji.id === null && emoji.name?.startsWith("👍") === true
 
 const DIRECT_MESSAGE_POINTER = "I only work in servers. Mention me in a channel to start a thread."
 
@@ -202,22 +215,73 @@ const make = Effect.gen(function* () {
     )
   })
 
+  /**
+   * Hands an admitted member's 👍 on the bot's message in a thread with a
+   * session to it as an approval, or drops it. A reaction never starts a
+   * session, and anyone else's is dropped, not kept as context. Only an
+   * approval handed on is recorded as seen: a dropped reaction, an
+   * outsider's say, mustn't suppress a later 👍 from the same user.
+   */
+  const routeReaction = Effect.fnUntraced(function* (
+    reaction: Discord.GatewayMessageReactionAddDispatchData,
+    id: string,
+  ) {
+    const bot = yield* botUserId
+    if (reaction.message_author_id !== bot) return yield* drop("a reaction to another's message")
+    if (reaction.guild_id !== config.guildId) return yield* drop("a reaction outside the guild")
+    if (reaction.member === undefined) return yield* drop("no member")
+    const author = toAuthor(reaction.member.user, reaction.member, config.roleId)
+    if (author.class !== "admitted") return yield* drop(`a reaction from a ${author.class}`)
+    if (!THREAD_TYPES.has(yield* channelType(reaction.channel_id)))
+      return yield* drop("a reaction outside a thread")
+    const thread: ChatThread = {
+      _tag: "Discord",
+      guild: reaction.guild_id,
+      threadId: reaction.channel_id,
+    }
+    if (!(yield* sessions.exists(thread)))
+      return yield* drop("a reaction in a thread with no session")
+    yield* sessions.receive(thread, {
+      id,
+      author,
+      text: APPROVAL_TEXT,
+      mentionsBot: true,
+      sentAt: yield* DateTime.now,
+      attachments: [],
+    })
+    yield* seen.add(id)
+    yield* Effect.logInfo("Discord ingress handed an approval to its session").pipe(
+      Effect.annotateLogs({ threadId: thread.threadId }),
+    )
+  })
+
   /** A refusal from Discord won't change on a replay: it's logged and the message dropped. */
   const refused = (error: DiscordRESTError) =>
     Effect.logWarning("Discord refused a request for an inbound message").pipe(
       Effect.annotateLogs({ reason: error.message }),
     )
 
+  /** Routes, dropping what Discord refuses; any other failure is for the replay. */
+  const attempt = (routed: Effect.Effect<void, DiscordRESTError | DiscordSessionError>) =>
+    routed.pipe(
+      Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
+      Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
+    )
+
   return DiscordIngress.of({
     handle: (message) =>
       Effect.gen(function* () {
         if (yield* seen.has(message.id)) return yield* drop("already handled")
-        yield* route(message).pipe(
-          Effect.catchTags({ ErrorResponse: refused, RatelimitedResponse: refused }),
-          Effect.mapError((error) => new DiscordIngressError({ message: error.message })),
-        )
+        yield* attempt(route(message))
         yield* seen.add(message.id)
       }).pipe(Effect.annotateLogs({ discordMessageId: message.id })),
+    handleReaction: (reaction) =>
+      Effect.gen(function* () {
+        if (!isThumbsUp(reaction.emoji)) return yield* drop("a reaction other than a thumbs up")
+        const id = approvalMessageId(reaction.message_id, reaction.user_id)
+        if (yield* seen.has(id)) return yield* drop("already handled")
+        yield* attempt(routeReaction(reaction, id))
+      }).pipe(Effect.annotateLogs({ discordMessageId: reaction.message_id })),
   })
 })
 
@@ -227,6 +291,8 @@ const make = Effect.gen(function* () {
  * mention starts a thread from the message and hands it to that thread's
  * session; in a thread, a message reaches the session when it has one or
  * when an admitted user mentions the bot. A direct message gets a pointer.
+ * An admitted user's 👍 on the bot's message in a thread with a session is
+ * handed to it as an approval that counts as a mention.
  */
 export const layer: Layer.Layer<
   DiscordIngress,
