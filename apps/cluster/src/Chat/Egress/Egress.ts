@@ -621,6 +621,47 @@ const apiCredential = (
       : none
   })
 
+/** Upstream answers worth chasing: auth failures, rate limits and server errors. */
+const isUpstreamError = (status: number) =>
+  status === 401 || status === 403 || status === 429 || status >= 500
+
+/** The only response headers an upstream error's log line carries, under its annotation names. */
+const UPSTREAM_ERROR_HEADERS = [
+  ["requestId", "x-github-request-id"],
+  ["retryAfter", "retry-after"],
+  ["rateLimitRemaining", "x-ratelimit-remaining"],
+  ["rateLimitReset", "x-ratelimit-reset"],
+  ["rateLimitResource", "x-ratelimit-resource"],
+] as const
+
+/**
+ * Logs an upstream error on a GitHub or Multica request with the credential
+ * that was actually sent. Never the token, the body or the request headers,
+ * and no query string.
+ */
+const logUpstreamError = (
+  request: Request,
+  url: URL,
+  credential: "read" | "write" | "multica" | "none",
+  response: Response,
+) => {
+  if (!isUpstreamError(response.status)) return Effect.void
+  const annotations: Record<string, unknown> = {
+    method: request.method,
+    host: url.host,
+    path: url.pathname,
+    credential,
+    status: response.status,
+  }
+  for (const [name, header] of UPSTREAM_ERROR_HEADERS) {
+    const value = response.headers.get(header)
+    if (value !== null) annotations[name] = value
+  }
+  return Effect.logWarning("Chat egress got an error from upstream").pipe(
+    Effect.annotateLogs(annotations),
+  )
+}
+
 const refusal = (request: Request, url: URL, reason: string) =>
   new Response(
     `janitor's egress proxy refused ${request.method} ${url.host}${url.pathname}: ${reason}\n`,
@@ -654,7 +695,9 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
     if (url.protocol === "https:" && url.hostname === MULTICA_HOST) {
       const token = yield* egress.multicaToken
       if (token !== undefined) headers.set("authorization", `Bearer ${token}`)
-      return yield* forward()
+      const response = yield* forward()
+      yield* logUpstreamError(request, url, token === undefined ? "none" : "multica", response)
+      return response
     }
     if (!isGitHubRequest(url)) return yield* forward()
 
@@ -672,9 +715,11 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
     )
     if (decided instanceof Refused) return refusal(request, url, decided.reason)
     const { credential, body } = decided
+    let sent: "read" | "write" | "none" = "none"
     if (credential !== undefined) {
       const tokens = yield* egress.githubTokens(credential.owner)
       if (tokens !== undefined) {
+        sent = credential.access
         const token = credential.access === "read" ? tokens.read : tokens.write
         headers.set(
           "authorization",
@@ -684,5 +729,7 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
         )
       }
     }
-    return yield* forward(body)
+    const response = yield* forward(body)
+    yield* logUpstreamError(request, url, sent, response)
+    return response
   }).pipe(Effect.annotateLogs({ sessionId: egress.sessionId, turnId: egress.turnId }))

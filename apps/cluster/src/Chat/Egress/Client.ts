@@ -54,18 +54,24 @@ export const makeEgressContext = (
     answers.set(key, asked)
     return asked
   }
+  /** A credential the workspace couldn't hand out: the request goes on without one, and says so. */
+  const withoutCredential = (op: EgressQuery["op"]) => (error: LookupFailed) =>
+    Effect.logWarning(
+      "Chat egress couldn't get a credential from the workspace",
+      error.reason,
+    ).pipe(Effect.annotateLogs({ op }), Effect.as(undefined))
   return {
     sessionId: props.sessionId,
     turnId: props.turnId,
     // A workspace that can't be reached hands out no token: the request goes without one.
     multicaToken: ask({ op: "multica" }).pipe(
       Effect.map((token) => (token as string | null) ?? undefined),
-      Effect.orElseSucceed(() => undefined),
+      Effect.catch(withoutCredential("multica")),
     ),
     githubTokens: (owner) =>
       ask({ op: "tokens", owner }).pipe(
         Effect.map((tokens) => (tokens as GitHubTokens | null) ?? undefined),
-        Effect.orElseSucceed(() => undefined),
+        Effect.catch(withoutCredential("tokens")),
       ),
     github: {
       repository: (repository) =>

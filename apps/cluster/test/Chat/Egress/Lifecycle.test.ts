@@ -3,6 +3,7 @@ import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import { BotAppError, ChatCredentials, type BotApp } from "../../../src/Chat/Egress/BotApp.ts"
 import { makeEgressContext } from "../../../src/Chat/Egress/Client.ts"
 import { handleChatEgress } from "../../../src/Chat/Egress/Egress.ts"
@@ -167,5 +168,58 @@ describe("chat egress credential lifecycle", () => {
 
         assert.strictEqual(authorization, null)
       }),
+  )
+
+  it.effect("a workspace that can't be asked hands out no credential, and the proxy says so", () =>
+    Effect.gen(function* () {
+      const logs: Array<string> = []
+      const capture = Logger.make((options) => {
+        logs.push(Logger.formatJson.log(options))
+      })
+      const context = makeEgressContext(
+        { sessionId: acquireInput.sessionId, generation: 1, turnId: "turn-1" },
+        { fetch: () => Promise.reject(new Error("the object is unreachable")) },
+      )
+      let authorization: string | null = null
+      yield* handleChatEgress(new Request(GITHUB), {
+        ...context,
+        upstream: (request) =>
+          Effect.sync(() => {
+            authorization = request.headers.get("authorization")
+            return new Response("upstream")
+          }),
+      }).pipe(Effect.provide(Logger.layer([capture])))
+
+      const warnings = logs
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              level: string
+              message: unknown
+              annotations: Record<string, unknown>
+            },
+        )
+        .filter((entry) => entry.level === "WARN")
+      assert.deepStrictEqual(
+        {
+          authorization,
+          warnings: warnings.map((entry) => ({
+            annotations: entry.annotations,
+            saysWhy: JSON.stringify(entry.message).includes(
+              "the sandbox's workspace couldn't be reached",
+            ),
+          })),
+        },
+        {
+          authorization: null,
+          warnings: [
+            {
+              annotations: { sessionId: acquireInput.sessionId, turnId: "turn-1", op: "tokens" },
+              saysWhy: true,
+            },
+          ],
+        },
+      )
+    }),
   )
 })
