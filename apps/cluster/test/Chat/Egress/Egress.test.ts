@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Logger from "effect/Logger"
 import {
   handleChatEgress,
   LookupFailed,
@@ -47,9 +48,12 @@ const key = (repository: Repository) => `${repository.owner}/${repository.name}`
 
 /**
  * A sandbox's egress against the GitHub above. Every forwarded request is
- * recorded and answered 200.
+ * recorded and answered 200, unless `answer` says otherwise.
  */
-const makeEgress = (forwarded: Array<Request>): ChatEgress => ({
+const makeEgress = (
+  forwarded: Array<Request>,
+  answer: () => Response = () => new Response("upstream"),
+): ChatEgress => ({
   sessionId: "slack/T1/C1/1730000000.000100",
   turnId: "turn-1",
   githubTokens: (owner) => Effect.succeed(TOKENS[owner.toLowerCase()]),
@@ -77,7 +81,7 @@ const makeEgress = (forwarded: Array<Request>): ChatEgress => ({
   upstream: (request) =>
     Effect.sync(() => {
       forwarded.push(request)
-      return new Response("upstream")
+      return answer()
     }),
 })
 
@@ -667,5 +671,72 @@ describe("chat egress proxy", () => {
         "write:Effect-TS",
       ),
     ]),
+  )
+
+  it.effect(
+    "an upstream error on a push is logged with what it takes to chase it, never the token",
+    () =>
+      Effect.gen(function* () {
+        const logs: Array<string> = []
+        const capture = Logger.make((options) => {
+          logs.push(Logger.formatJson.log(options))
+        })
+        const limited = () =>
+          new Response("Too Many Requests", {
+            status: 429,
+            headers: {
+              "retry-after": "60",
+              "x-github-request-id": "ABCD:1234:5678",
+              "x-ratelimit-remaining": "0",
+              "x-ratelimit-reset": "1730000060",
+              "x-ratelimit-resource": "git",
+            },
+          })
+        const request = () =>
+          new Request("https://github.com/Effect-TS/effect.git/git-receive-pack", {
+            method: "POST",
+            body: receivePack([update("refs/heads/feature")]),
+          })
+        const forwarded: Array<Request> = []
+        yield* handleChatEgress(request(), makeEgress(forwarded, limited)).pipe(
+          Effect.andThen(handleChatEgress(request(), makeEgress(forwarded))),
+          Effect.provide(Logger.layer([capture])),
+        )
+
+        const entries = logs.map(
+          (line) => JSON.parse(line) as { level: string; annotations: Record<string, unknown> },
+        )
+        assert.deepStrictEqual(
+          {
+            forwarded: forwarded.length,
+            logged: entries.map(({ level, annotations }) => ({ level, annotations })),
+            leaked: logs.some((line) => line.includes(TOKENS["effect-ts"]!.write)),
+          },
+          {
+            forwarded: 2,
+            // The 429 is logged once; the 200 that followed is not.
+            logged: [
+              {
+                level: "WARN",
+                annotations: {
+                  sessionId: "slack/T1/C1/1730000000.000100",
+                  turnId: "turn-1",
+                  method: "POST",
+                  host: "github.com",
+                  path: "/Effect-TS/effect.git/git-receive-pack",
+                  credential: "write",
+                  status: 429,
+                  requestId: "ABCD:1234:5678",
+                  retryAfter: "60",
+                  rateLimitRemaining: "0",
+                  rateLimitReset: "1730000060",
+                  rateLimitResource: "git",
+                },
+              },
+            ],
+            leaked: false,
+          },
+        )
+      }),
   )
 })
