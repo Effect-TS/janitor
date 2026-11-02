@@ -922,9 +922,10 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           case "Interrupted":
             return { status: "deadline" } satisfies TurnEnd
           case "Failed":
-            // The provider rejected the request. If a file in it is why, every
-            // later turn would replay it and fail the same way.
-            if (result.category === "InvalidRequestError") yield* storage.omitFiles(running.turnId)
+            // The provider rejected the request: every later turn would replay
+            // what it rejected and fail the same way.
+            if (result.category === "InvalidRequestError")
+              yield* storage.rollBackTurn(running.turnId)
             return { status: "failed", errorCategory: result.category } satisfies TurnEnd
           case "SandboxLost":
             return "SandboxLost" as const

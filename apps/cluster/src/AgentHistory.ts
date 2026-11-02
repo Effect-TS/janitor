@@ -1,6 +1,5 @@
 import * as Prompt from "effect/ai/Prompt"
 import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 /**
@@ -114,30 +113,3 @@ export const encodeMessage = Effect.fnUntraced(function* (message: Prompt.Messag
 
 /** Decodes a history row. */
 export const decodeMessage = Schema.decodeEffect(MessageJson)
-
-/** The message with each file part as the placeholder, or none if it has no files. */
-export const withoutFiles = (message: Prompt.Message): Option.Option<Prompt.Message> => {
-  switch (message.role) {
-    case "user":
-      return message.content.some((part) => part.type === "file")
-        ? Option.some(
-            Prompt.makeMessage("user", {
-              content: message.content.map((part) => (part.type === "file" ? omittedText : part)),
-              options: message.options,
-            }),
-          )
-        : Option.none()
-    case "assistant":
-      return message.content.some((part) => part.type === "file")
-        ? Option.some(
-            Prompt.makeMessage("assistant", {
-              content: message.content.map((part) => (part.type === "file" ? omittedText : part)),
-              options: message.options,
-            }),
-          )
-        : Option.none()
-    case "system":
-    case "tool":
-      return Option.none()
-  }
-}
