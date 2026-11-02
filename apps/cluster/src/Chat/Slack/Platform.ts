@@ -36,6 +36,9 @@ const CHUNK_CHARACTERS = 12_000
 /** A reply that needs more messages than this is uploaded as a `.md` file instead. */
 const MAX_CHUNKS = 3
 
+/** Slack truncates a message's text past this. */
+const MAX_MESSAGE_CHARACTERS = 40_000
+
 const BETWEEN_POSTS = Duration.seconds(1)
 
 /** Marks janitor's own posts, so they read as the bot's in a thread's history. */
@@ -75,7 +78,8 @@ export const toMrkdwn = (markdown: string): string =>
               (_, star: string | undefined, under: string) => `*${star ?? under}*`,
             )
             .replace(/~~(.+?)~~/g, "~$1~")
-            .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, "<$2|$1>"),
+            // A URL may hold one level of parentheses; a link this can't read stays as written.
+            .replace(/\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g, "<$2|$1>"),
     )
     .join("")
 
@@ -311,7 +315,11 @@ const make = Effect.gen(function* () {
     postReply: (thread, text, options) => {
       const files = options?.files ?? []
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
-      const overflow = chunks.length > MAX_CHUNKS
+      const overflow =
+        chunks.length > MAX_CHUNKS ||
+        // The files' message takes its text in mrkdwn, which escaping can grow
+        // past what Slack keeps: the reply then goes as `reply.md` instead.
+        (files.length > 0 && toMrkdwn(chunks.at(-1) ?? "").length > MAX_MESSAGE_CHARACTERS)
       /** Posts `chunks` a second apart, and after an earlier message; succeeds with the last one's time. */
       const postChunks = (chunks: ReadonlyArray<string>, afterEarlier = false) =>
         Effect.forEach(chunks, (chunk, index) =>
