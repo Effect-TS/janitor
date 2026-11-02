@@ -59,7 +59,7 @@ const setup = (app: BotApp) =>
         })
         return authorization
       })
-    return { workspace, send }
+    return { workspace, state, send }
   })
 
 describe("chat egress credential lifecycle", () => {
@@ -86,6 +86,42 @@ describe("chat egress credential lifecycle", () => {
           { during: ["Bearer ghs_read", "Bearer mul_janitor"], after: [null, null] },
         )
       }),
+  )
+
+  it.effect("a sandbox left running after its turn can't run Browser Run Quick Actions", () =>
+    Effect.gen(function* () {
+      const { workspace, state } = yield* setup({
+        mint: () => Effect.succeed(undefined),
+        revoke: () => Effect.void,
+      })
+      let runs = 0
+      const screenshot = () =>
+        handleChatEgress(
+          new Request("http://browser-run.internal/screenshot", {
+            method: "POST",
+            body: JSON.stringify({ url: "https://effect.website" }),
+          }),
+          makeEgressContext(
+            state.egress.at(-1)!,
+            {
+              fetch: (input, init) =>
+                Effect.runPromise(workspace.egressControl(new Request(input, init))),
+            },
+            {
+              quickAction: async () => {
+                runs++
+                return new Response("png")
+              },
+            },
+          ),
+        ).pipe(Effect.map((response) => response.status))
+      yield* workspace.acquire(acquireInput)
+      const during = yield* screenshot()
+      yield* workspace.release(acquireInput.generation)
+      const after = yield* screenshot()
+
+      assert.deepStrictEqual({ during, after, runs }, { during: 200, after: 403, runs: 1 })
+    }),
   )
 
   it.effect("a token minted after its turn ended is never handed out, and is revoked", () =>
