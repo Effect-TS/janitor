@@ -643,6 +643,38 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
+  it.effect(
+    "a turn the provider rejects with a 400 over its text doesn't make the next turn fail",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          // No file this time: the provider rejects every request that carries this message.
+          const rejected = "Here's the payload the provider won't take."
+          harness.model.rejects = (prompt) => seen(prompt).includes(rejected)
+          yield* send(harness, slackThread, rejected, { mention: true })
+          yield* turnEnded(harness, slackThread)
+
+          yield* send(harness, slackThread, "Never mind. Are you there?", { mention: true })
+          yield* modelCalls(harness, 2)
+          harness.model.answer(say("I'm here."))
+          yield* harness.until(
+            Effect.map(
+              harness.transcript(slackThread),
+              (transcript) =>
+                available(transcript).turns.length === 2 &&
+                available(transcript).turns[1]!.status !== "running",
+            ),
+            "the second turn to end",
+          )
+
+          assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+            finished({ status: "failed", errorCategory: "InvalidRequestError" }),
+            finished({}),
+          ])
+        }),
+      ),
+  )
+
   it.effect("a busy turn keeps its status message without posting a reply", () =>
     test((harness) =>
       Effect.gen(function* () {
