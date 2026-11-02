@@ -35,8 +35,11 @@ const replies = Array.from({ length: 61 }, (_, index) => ({
 
 /** The `markdown_text` of every `chat.postMessage` call. */
 const postedTexts: Array<string | null> = []
-/** While set, Slack refuses file uploads, as without the `files:write` scope. */
-let refuseFiles = false
+/**
+ * Where Slack refuses a reply's files, if anywhere: staging them, as without
+ * the `files:write` scope, or sharing them once they are uploaded.
+ */
+let refuseFiles: "staging" | "sharing" | undefined
 
 /** Every file uploaded to an upload URL, with its content type. */
 const uploads: Array<{ readonly type: string; readonly content: Uint8Array }> = []
@@ -54,7 +57,7 @@ const answer = (method: string, params: URLSearchParams): Response => {
         channel: { is_ext_shared: params.get("channel") === "C-shared" },
       })
     case "files.getUploadURLExternal":
-      if (refuseFiles) return Response.json({ ok: false, error: "missing_scope" })
+      if (refuseFiles === "staging") return Response.json({ ok: false, error: "missing_scope" })
       return Response.json({
         ok: true,
         upload_url: `https://files.slack.test/upload/${params.get("filename")}`,
@@ -62,6 +65,7 @@ const answer = (method: string, params: URLSearchParams): Response => {
       })
     case "files.completeUploadExternal":
       completed.push(params)
+      if (refuseFiles === "sharing") return Response.json({ ok: false, error: "not_in_channel" })
       return Response.json({ ok: true })
     case "users.info":
       return Response.json({ ok: true, user: { team_id: "T1", name: "ada" } })
@@ -184,32 +188,33 @@ describe("Slack platform", () => {
       assert.strictEqual(message!.get("channel_id"), "C1")
       assert.strictEqual(message!.get("thread_ts"), thread.threadTs)
       assert.deepStrictEqual(shared(message!), [{ id: "F-plot.png", title: "plot.png" }])
-      // The text goes with the files, as `initial_comment` or as blocks.
-      assert.include([...message!.values()].join("\n"), "Here's the **plot**.")
+      assert.strictEqual(message!.get("initial_comment"), "Here's the *plot*.")
     }).pipe(Effect.provide(services)),
   )
 
-  it.effect("a reply whose files are refused goes out once as text, naming them", () =>
-    Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
-      postedTexts.length = 0
-      completed.length = 0
-      refuseFiles = true
+  for (const refused of ["staging", "sharing"] as const) {
+    it.effect(`a reply whose files are refused ${refused} goes out once as text, naming them`, () =>
+      Effect.gen(function* () {
+        const platform = yield* ChatPlatform
+        respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
+        postedTexts.length = 0
+        completed.length = 0
+        refuseFiles = refused
 
-      const reply = yield* platform
-        .postReply(thread, `${"a".repeat(11_990)}\n${"b".repeat(100)}`, { files: [plot] })
-        .pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = false))), Effect.forkChild)
-      yield* TestClock.adjust("10 seconds")
-      yield* Fiber.join(reply)
+        const reply = yield* platform
+          .postReply(thread, `${"a".repeat(11_990)}\n${"b".repeat(100)}`, { files: [plot] })
+          .pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = undefined))), Effect.forkChild)
+        yield* TestClock.adjust("10 seconds")
+        yield* Fiber.join(reply)
 
-      assert.lengthOf(completed, 0)
-      assert.deepStrictEqual(postedTexts, [
-        "a".repeat(11_990),
-        `${"b".repeat(100)}\n\n(Couldn't attach plot.png.)`,
-      ])
-    }).pipe(Effect.provide(services)),
-  )
+        assert.lengthOf(completed, refused === "sharing" ? 1 : 0)
+        assert.deepStrictEqual(postedTexts, [
+          "a".repeat(11_990),
+          `${"b".repeat(100)}\n\n(Couldn't attach plot.png.)`,
+        ])
+      }).pipe(Effect.provide(services)),
+    )
+  }
 
   it.effect("uploads an overflowing reply as reply.md in one message with its files", () =>
     Effect.gen(function* () {
