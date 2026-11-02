@@ -33,8 +33,8 @@ const replies = Array.from({ length: 61 }, (_, index) => ({
   text: `reply ${index}`,
 }))
 
-/** The `markdown_text` of every `chat.postMessage` call. */
-const postedTexts: Array<string | null> = []
+/** The `markdown_text` of every `chat.postMessage` call, and each `files.completeUploadExternal`, in order. */
+const sent: Array<string | null> = []
 /**
  * Where Slack refuses a reply's files, if anywhere: staging them, as without
  * the `files:write` scope, or sharing them once they are uploaded.
@@ -65,6 +65,7 @@ const answer = (method: string, params: URLSearchParams): Response => {
       })
     case "files.completeUploadExternal":
       completed.push(params)
+      sent.push("files.completeUploadExternal")
       if (refuseFiles === "sharing") return Response.json({ ok: false, error: "not_in_channel" })
       return Response.json({ ok: true })
     case "users.info":
@@ -108,7 +109,7 @@ const services = SlackPlatform.layer.pipe(
           return HttpClientResponse.fromWeb(
             request,
             method === "chat.postMessage"
-              ? (postedTexts.push(params.get("markdown_text")), respond(++posts))
+              ? (sent.push(params.get("markdown_text")), respond(++posts))
               : answer(method, params),
           )
         }),
@@ -179,7 +180,13 @@ describe("Slack platform", () => {
       uploads.length = 0
       completed.length = 0
 
-      yield* platform.postReply(thread, "Here's the **plot**.", { files: [plot] })
+      yield* platform.postReply(
+        thread,
+        "Here's the **plot**, from [run 7](https://ci.test/runs(7)).",
+        {
+          files: [plot],
+        },
+      )
 
       assert.strictEqual(posts, 0)
       assert.deepStrictEqual(uploads, [{ type: "image/png", content: plot.content }])
@@ -188,7 +195,10 @@ describe("Slack platform", () => {
       assert.strictEqual(message!.get("channel_id"), "C1")
       assert.strictEqual(message!.get("thread_ts"), thread.threadTs)
       assert.deepStrictEqual(shared(message!), [{ id: "F-plot.png", title: "plot.png" }])
-      assert.strictEqual(message!.get("initial_comment"), "Here's the *plot*.")
+      assert.strictEqual(
+        message!.get("initial_comment"),
+        "Here's the *plot*, from <https://ci.test/runs(7)|run 7>.",
+      )
     }).pipe(Effect.provide(services)),
   )
 
@@ -197,8 +207,7 @@ describe("Slack platform", () => {
       Effect.gen(function* () {
         const platform = yield* ChatPlatform
         respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
-        postedTexts.length = 0
-        completed.length = 0
+        sent.length = 0
         refuseFiles = refused
 
         const reply = yield* platform
@@ -207,38 +216,43 @@ describe("Slack platform", () => {
         yield* TestClock.adjust("10 seconds")
         yield* Fiber.join(reply)
 
-        assert.lengthOf(completed, refused === "sharing" ? 1 : 0)
-        assert.deepStrictEqual(postedTexts, [
+        // Shared only after the first chunk went out, and nothing posted twice.
+        assert.deepStrictEqual(sent, [
           "a".repeat(11_990),
+          ...(refused === "sharing" ? ["files.completeUploadExternal"] : []),
           `${"b".repeat(100)}\n\n(Couldn't attach plot.png.)`,
         ])
       }).pipe(Effect.provide(services)),
     )
   }
 
-  it.effect("uploads an overflowing reply as reply.md in one message with its files", () =>
-    Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      posts = 0
-      respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
-      uploads.length = 0
-      completed.length = 0
-      const text = "a".repeat(40_000)
+  // Too many chunks, or one whose mrkdwn would pass Slack's 40,000 characters: `&` becomes `&amp;`.
+  for (const text of ["a".repeat(40_000), "&".repeat(11_000)]) {
+    it.effect(
+      `uploads a ${text.length}-character reply of ${text[0]} as reply.md in one message with its files`,
+      () =>
+        Effect.gen(function* () {
+          const platform = yield* ChatPlatform
+          posts = 0
+          respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
+          uploads.length = 0
+          completed.length = 0
 
-      yield* platform.postReply(thread, text, { files: [plot] })
+          yield* platform.postReply(thread, text, { files: [plot] })
 
-      assert.strictEqual(posts, 0)
-      assert.deepStrictEqual(uploads, [
-        { type: "text/markdown", content: new TextEncoder().encode(text) },
-        { type: "image/png", content: plot.content },
-      ])
-      assert.lengthOf(completed, 1)
-      assert.deepStrictEqual(shared(completed[0]!), [
-        { id: "F-reply.md", title: "reply.md" },
-        { id: "F-plot.png", title: "plot.png" },
-      ])
-    }).pipe(Effect.provide(services)),
-  )
+          assert.strictEqual(posts, 0)
+          assert.deepStrictEqual(uploads, [
+            { type: "text/markdown", content: new TextEncoder().encode(text) },
+            { type: "image/png", content: plot.content },
+          ])
+          assert.lengthOf(completed, 1)
+          assert.deepStrictEqual(shared(completed[0]!), [
+            { id: "F-reply.md", title: "reply.md" },
+            { id: "F-plot.png", title: "plot.png" },
+          ])
+        }).pipe(Effect.provide(services)),
+    )
+  }
 
   it.effect("posts to a channel shared with another organization", () =>
     Effect.gen(function* () {
