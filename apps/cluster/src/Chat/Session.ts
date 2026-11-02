@@ -43,6 +43,7 @@ import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
 import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread, sessionKey } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
+import { makeReplyFiles } from "./ReplyFiles.ts"
 import { ChatSessionIndex } from "./SessionIndex.ts"
 import {
   GateOutcome,
@@ -830,6 +831,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         if (prompt === "") return { status: "replied" } satisfies TurnEnd
         running.inFlight.length = 0
         running.inFlight.push({ text: prompt, ids: pending.map(({ message }) => message.id) })
+        // This sandbox's attached files; a resume in a new sandbox starts without them.
+        const replyFiles = makeReplyFiles(sandbox)
         const base = { actions: turn.actions, usage: turn.usage }
         const loop = yield* agent.start({
           instructions: systemPrompt({
@@ -842,6 +845,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           prompt,
           images: prepared.images,
           onStep: (change) => commitStep(running, change),
+          attachFile: replyFiles.attachFile,
           onProgress: (progress) =>
             Effect.gen(function* () {
               const actions = base.actions + progress.actions
@@ -899,9 +903,10 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 const replyTo = Option.isSome(message)
                   ? { messageId: message.value.id, authorId: message.value.author.id }
                   : undefined
-                // Never retried here: the transport retries what is safe to retry.
+                // Never retried here: the transport retries what is safe to retry,
+                // and the platform delivers a reply whose files it refuses as text.
                 const posted = yield* platform
-                  .postReply(running.thread, result.text, { replyTo })
+                  .postReply(running.thread, result.text, { replyTo, files: replyFiles.files() })
                   .pipe(Effect.result)
                 if (posted._tag === "Failure") {
                   yield* Effect.logError("Couldn't post a chat reply").pipe(
@@ -909,10 +914,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                   )
                   return { status: "failed", errorCategory: "reply_failed" } satisfies TurnEnd
                 }
+                // What the thread shows, so a note the platform added is kept too.
                 yield* storage.addReply(
                   running.turnId,
-                  result.text,
-                  posted.success,
+                  posted.success.text,
+                  posted.success.postedAt,
                   replyTo?.authorId,
                 )
                 return { status: "replied" } satisfies TurnEnd

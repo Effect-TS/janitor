@@ -36,13 +36,14 @@ import { ChatKillSwitch, type KillSwitchState } from "../../src/Chat/KillSwitch.
 import {
   type AuthorClass,
   type ChatAttachment,
+  type ChatFile,
   type ChatMessage,
   ChatPlatform,
   ChatPlatformError,
   type ChatThread,
   sessionKey,
 } from "../../src/Chat/Platform.ts"
-import { ChatSandboxes } from "../../src/Chat/Sandbox/Sandboxes.ts"
+import { ChatSandboxes, SandboxReadFailed } from "../../src/Chat/Sandbox/Sandboxes.ts"
 import { SandboxBusy } from "../../src/Chat/Sandbox/Pool.ts"
 import { ChatSession, ChatSessionLayer } from "../../src/Chat/Session.ts"
 import { ChatSessionIndex } from "../../src/Chat/SessionIndex.ts"
@@ -127,6 +128,27 @@ export const run =
       { type: "tool-call", id: `call-${++calls}`, name: "execute", params: { script } },
       ...finish("tool-calls", usage),
     ])
+
+/**
+ * Calls the loop-side tool `tool` with `params` from a script, as the model
+ * would: `await tool(params)`. The fake executor runs it and records how it
+ * ended in `FakeSandboxes.toolOutcomes`.
+ */
+export const callTool =
+  (tool: string, params: Record<string, unknown>, usage?: TokenUsage): Answer =>
+  () =>
+    Stream.fromIterable<Response.StreamPartEncoded>([
+      {
+        type: "tool-call",
+        id: `call-${++calls}`,
+        name: "execute",
+        params: { script: `await ${tool}(${JSON.stringify(params)})` },
+      },
+      ...finish("tool-calls", usage),
+    ])
+
+/** A script that is one loop-side tool call: `await name({...})`. */
+const toolScript = /^await (\w+)\((.*)\)$/s
 
 /** A provider failure clanka doesn't retry. */
 export const quotaExhausted: Answer = () =>
@@ -261,6 +283,10 @@ export class FakeSandboxes {
   readonly scripts: Array<string> = []
   /** Every file written into a sandbox, as attachments are. */
   readonly written: Array<{ readonly path: string; readonly content: Uint8Array }> = []
+  /** The files a sandbox holds for `readFile`, by absolute path. */
+  readonly files = new Map<string, Uint8Array>()
+  /** How each loop-side tool call ended, in order: `ok`, or `failed: <message>`. */
+  readonly toolOutcomes: Array<string> = []
   /** How many more scripts find their sandbox gone. */
   lose = 0
   /** While set, a script runs until `finishScripts` or `loseScripts`, as a long build would. */
@@ -302,10 +328,27 @@ export class FakeSandboxes {
           tools: [],
         }),
       ),
-      execute: ({ script }) =>
+      execute: ({ script, loopTools }) =>
         Stream.unwrap(
           Effect.suspend(() => {
             this.scripts.push(script)
+            const call = toolScript.exec(script)
+            if (call !== null) {
+              const handler = loopTools?.[call[1]!]
+              const outcome =
+                handler === undefined
+                  ? Effect.succeed(`failed: no loop-side tool ${call[1]}`)
+                  : handler(JSON.parse(call[2]!)).pipe(
+                      Effect.match({
+                        onFailure: (message) => `failed: ${message}`,
+                        onSuccess: () => "ok",
+                      }),
+                    )
+              return Effect.map(outcome, (result) => {
+                this.toolOutcomes.push(result)
+                return Stream.make(result)
+              })
+            }
             if (this.lose > 0) {
               this.lose -= 1
               return Effect.succeed(Stream.die(lostSandbox))
@@ -335,6 +378,15 @@ export class FakeSandboxes {
               Effect.sync(() => {
                 this.written.push({ path, content })
               }),
+            readFile: (path: string, maxBytes: number) =>
+              Effect.suspend(() => {
+                const content = this.files.get(path)
+                if (content === undefined)
+                  return Effect.fail(new SandboxReadFailed({ reason: "not found" }))
+                return content.length > maxBytes
+                  ? Effect.fail(new SandboxReadFailed({ reason: `larger than ${maxBytes} bytes` }))
+                  : Effect.succeed(content)
+              }),
           }
           return this.holdAcquires ? Effect.never : Effect.succeed(sandbox)
         }),
@@ -360,6 +412,9 @@ export class FakePlatform {
   /** While set, deleting a status fails, as a denied delete does. */
   failStatusDeletes = false
   readonly replies: Array<{ readonly thread: ChatThread; readonly text: string }> = []
+  /** The files posted with each reply that carried any, with that reply's text. */
+  readonly replyFiles: Array<{ readonly text: string; readonly files: ReadonlyArray<ChatFile> }> =
+    []
   /** Replies still being posted. */
   posting = 0
   /** While set, posting a reply waits for it. */
@@ -424,15 +479,17 @@ export class FakePlatform {
         Effect.sync(() => {
           this.statuses[Number(messageId)]!.texts.push(text)
         }),
-      postReply: (thread, text) =>
+      postReply: (thread, text, options) =>
         Effect.gen({ self: this }, function* () {
           this.posting += 1
           if (this.holdReplies !== undefined) yield* Deferred.await(this.holdReplies)
           this.posting -= 1
           if (this.failReplies)
             return yield* new ChatPlatformError({ message: "channel_not_found" })
+          const files = options?.files ?? []
           this.replies.push({ thread, text })
-          return yield* DateTime.now
+          if (files.length > 0) this.replyFiles.push({ text, files })
+          return { postedAt: yield* DateTime.now, text }
         }),
       uploadFile: () => Effect.die("unexpected file upload"),
       download: (_thread, attachment, maxBytes) =>

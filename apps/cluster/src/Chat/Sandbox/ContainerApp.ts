@@ -6,6 +6,7 @@ import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import { errorFields } from "../../PullRequestReview/Log.ts"
 import { WORKSPACE_DIRECTORY } from "../../PullRequestReview/Sandbox/ContainerApp.ts"
+import type { WorkspaceFileRejected } from "./Files.ts"
 import { ProvisionRequest } from "./Provision.ts"
 
 /**
@@ -21,6 +22,9 @@ import { ProvisionRequest } from "./Provision.ts"
  * - `PUT /files?path=<absolute path>`: writes the body to a file under
  *   `/workspace`, creating its directories, and answers 204. A path outside
  *   `/workspace` gets 400. The session writes a turn's attachments this way.
+ * - `GET /files?path=<absolute path>&maxBytes=<n>`: answers 200 with the
+ *   file's bytes, or 422 with the reason as text when `readFile` rejects it.
+ *   The agent's `attachFile` reads the files it attaches this way.
  */
 /** An absolute path under `/workspace`, with no `.` or `..` segment to climb out of it. */
 const insideWorkspace = (path: string) =>
@@ -39,6 +43,11 @@ export const makeChatContainerApp = (options: {
   readonly provision: (request: ProvisionRequest) => Effect.Effect<void, unknown>
   /** Writes `content` to `path`, already checked to be under `/workspace`. */
   readonly writeFile: (path: string, content: Uint8Array) => Effect.Effect<void, unknown>
+  /** Reads the file at `path`, checking it resolves under `/workspace` and fits `maxBytes`. */
+  readonly readFile: (
+    path: string,
+    maxBytes: number,
+  ) => Effect.Effect<Uint8Array, WorkspaceFileRejected>
 }): Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
@@ -62,8 +71,19 @@ export const makeChatContainerApp = (options: {
         return HttpServerResponse.empty({ status: 204 })
       }
       case "/files": {
-        if (request.method !== "PUT") return HttpServerResponse.empty({ status: 405 })
         const target = url.searchParams.get("path") ?? ""
+        if (request.method === "GET") {
+          const maxBytes = Number(url.searchParams.get("maxBytes"))
+          if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+            return HttpServerResponse.empty({ status: 400 })
+          return yield* options.readFile(target, maxBytes).pipe(
+            Effect.match({
+              onFailure: (rejected) => HttpServerResponse.text(rejected.reason, { status: 422 }),
+              onSuccess: (content) => HttpServerResponse.uint8Array(content),
+            }),
+          )
+        }
+        if (request.method !== "PUT") return HttpServerResponse.empty({ status: 405 })
         if (!insideWorkspace(target)) return HttpServerResponse.empty({ status: 400 })
         yield* options.writeFile(target, new Uint8Array(yield* request.arrayBuffer))
         return HttpServerResponse.empty({ status: 204 })

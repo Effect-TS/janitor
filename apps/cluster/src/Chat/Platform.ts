@@ -69,6 +69,38 @@ export const readLimited = <E>(
     )
   })
 
+/** A file posted to a thread: its name as the thread shows it, its bytes and their content type. */
+export interface ChatFile {
+  readonly name: string
+  readonly contentType: string
+  readonly content: Uint8Array
+}
+
+/** A reply too long for messages, as the file it is uploaded as instead. */
+export const replyMarkdown = (text: string): ChatFile => ({
+  name: "reply.md",
+  contentType: "text/markdown",
+  content: new TextEncoder().encode(text),
+})
+
+/** `text` ending in a note naming the files that couldn't be posted with it. */
+export const notingUnattached = (text: string, files: ReadonlyArray<ChatFile>): string => {
+  const note = `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
+  return text === "" ? note : `${text}\n\n${note}`
+}
+
+/** Logs that a platform refused a reply's files, so the reply goes out without them. */
+export const logUnattached = (error: ChatPlatformError) =>
+  Effect.logWarning("Couldn't post a chat reply's files").pipe(
+    Effect.annotateLogs({ reason: error.message }),
+  )
+
+/** A posted reply: when its final part was published, and its text as posted, notes included. */
+export interface PostedReply {
+  readonly postedAt: DateTime.Utc
+  readonly text: string
+}
+
 const noPlatform = Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" }))
 
 export class ChatPlatform extends Context.Service<
@@ -90,20 +122,27 @@ export class ChatPlatform extends Context.Service<
       messageId: string,
     ) => Effect.Effect<void, ChatPlatformError>
     /**
-     * Posts a reply and returns when its final part was published. On
-     * Discord it answers `replyTo`, the message that started the turn, or
-     * mentions its author when that message started the thread.
+     * Posts a reply and returns when its final part was published, with the
+     * text that went out. On Discord it answers `replyTo`, the message that
+     * started the turn, or mentions its author when that message started the
+     * thread. `files` go in the same message as the reply's last part, or
+     * with its `reply.md`. When the platform refuses them, whatever of the
+     * reply isn't out yet goes as text instead, `notingUnattached`, and the
+     * text returned ends with the note. Nothing already posted is posted
+     * again, so a failure after a lost answer fails the reply.
      */
     readonly postReply: (
       thread: ChatThread,
       text: string,
       options?: {
         readonly replyTo?: { readonly messageId: string; readonly authorId: string } | undefined
+        readonly files?: ReadonlyArray<ChatFile> | undefined
       },
-    ) => Effect.Effect<DateTime.Utc, ChatPlatformError>
+    ) => Effect.Effect<PostedReply, ChatPlatformError>
+    /** Posts `file` to the thread on its own. */
     readonly uploadFile: (
       thread: ChatThread,
-      file: { readonly name: string; readonly content: string },
+      file: ChatFile,
     ) => Effect.Effect<void, ChatPlatformError>
     /**
      * An attachment's bytes. Reading stops past `maxBytes`, and a longer

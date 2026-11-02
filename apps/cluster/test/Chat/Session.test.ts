@@ -17,6 +17,7 @@ import {
 } from "../../src/Chat/Platform.ts"
 import { landedInputs, type TranscriptResult, type TranscriptTurn } from "../../src/Chat/Session.ts"
 import {
+  callTool,
   discordThread,
   makeSessionHarness,
   quotaExhausted,
@@ -832,6 +833,89 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
         assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
           finished({ status: "failed", errorCategory: "reply_failed" }),
         ])
+      }),
+    ),
+  )
+
+  it.effect("files the agent attaches go out with its reply, each with its content type", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        const plot = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+        const snapshot = new Uint8Array([0, 255, 1, 254])
+        harness.sandboxes.files.set("/workspace/out/plot.png", plot)
+        harness.sandboxes.files.set("/workspace/heap.snapshot", snapshot)
+        yield* send(harness, slackThread, "Plot this week's build times.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(
+          callTool("attachFile", { path: "/workspace/out/plot.png", name: "build-times.png" }),
+          callTool("attachFile", { path: "/workspace/heap.snapshot" }),
+          say("Here's the plot."),
+        )
+        yield* turnEnded(harness, slackThread)
+
+        assert.deepStrictEqual(harness.sandboxes.toolOutcomes, ["ok", "ok"])
+        assert.deepStrictEqual(harness.platform.replies, [
+          { thread: slackThread, text: "Here's the plot." },
+        ])
+        assert.deepStrictEqual(harness.platform.replyFiles, [
+          {
+            text: "Here's the plot.",
+            files: [
+              { name: "build-times.png", contentType: "image/png", content: plot },
+              { name: "heap.snapshot", contentType: "application/octet-stream", content: snapshot },
+            ],
+          },
+        ])
+      }),
+    ),
+  )
+
+  it.effect("attachFile refuses a file over 9 MiB and a tenth file", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        harness.sandboxes.files.set("/workspace/heap.bin", new Uint8Array(9 * 1024 * 1024 + 1))
+        harness.sandboxes.files.set("/workspace/plot.png", new Uint8Array([137, 80]))
+        yield* send(harness, slackThread, "Plot every benchmark.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(
+          callTool("attachFile", { path: "/workspace/heap.bin" }),
+          ...Array.from({ length: 10 }, () =>
+            callTool("attachFile", { path: "/workspace/plot.png" }),
+          ),
+          say("Here are the plots."),
+        )
+        yield* turnEnded(harness, slackThread)
+
+        const [huge, ...plots] = harness.sandboxes.toolOutcomes
+        assert.isTrue(huge!.startsWith("failed: "), huge)
+        assert.deepStrictEqual(plots.slice(0, 9), Array(9).fill("ok"))
+        assert.isTrue(plots[9]!.startsWith("failed: "), plots[9])
+        assert.lengthOf(harness.platform.replyFiles[0]!.files, 9)
+      }),
+    ),
+  )
+
+  it.effect("files attached in a turn that ends without a reply are never posted", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        harness.sandboxes.files.set("/workspace/plot.png", new Uint8Array([137, 80]))
+        yield* send(harness, slackThread, "Plot the build times.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(
+          callTool("attachFile", { path: "/workspace/plot.png" }),
+          quotaExhausted,
+        )
+        yield* turnEnded(harness, slackThread)
+        assert.deepStrictEqual(harness.sandboxes.toolOutcomes, ["ok"])
+
+        yield* send(harness, slackThread, "Are you there?", { mention: true })
+        yield* modelCalls(harness, 3)
+        harness.model.answer(say("I'm here."))
+        yield* harness.until(
+          Effect.sync(() => harness.platform.replies.length === 1),
+          "the next turn's reply",
+        )
+        assert.deepStrictEqual(harness.platform.replyFiles, [])
       }),
     ),
   )

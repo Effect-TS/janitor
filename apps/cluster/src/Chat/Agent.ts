@@ -25,6 +25,7 @@ import {
 import { invalidModel, openAiCompatibleModel } from "../AgentModel.ts"
 import type { TailnetEgressNamespace } from "../PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
 import { chatModelConfig } from "./Config.ts"
+import { type AttachFileParameters, ChatTools } from "./ReplyFiles.ts"
 
 /**
  * The chat bot's agent (EFF-3018): clanka's `Agent.makeWith` in the Worker,
@@ -76,6 +77,8 @@ export interface ChatTurnStart {
   /** Commits a history change. The loop waits for it before its next model call. */
   readonly onStep: (history: HistoryChange) => Effect.Effect<void>
   readonly onProgress: (progress: ChatProgress) => Effect.Effect<void>
+  /** The `attachFile` tool: succeeds or fails with what the model is told. */
+  readonly attachFile: (input: typeof AttachFileParameters.Type) => Effect.Effect<string, string>
 }
 
 /** An attached image the model sees with the prompt. */
@@ -222,7 +225,10 @@ const make = Effect.gen(function* () {
     return yield* startLoop({
       loop: (ready) =>
         Effect.gen(function* () {
-          const agent = yield* Agent.makeWith({ instructions: Option.some(options.instructions) })
+          const agent = yield* Agent.makeWith({
+            instructions: Option.some(options.instructions),
+            loopTools: ChatTools,
+          })
           if (options.history.length > 0)
             MutableRef.set(agent.history, Prompt.fromMessages(options.history))
           yield* Deferred.succeed(ready, agent)
@@ -232,7 +238,9 @@ const make = Effect.gen(function* () {
           yield* Stream.runForEach(output, onPart)
         }).pipe(
           Effect.scoped,
-          Effect.provide(options.executor),
+          Effect.provide(
+            Layer.merge(options.executor, ChatTools.toLayer({ attachFile: options.attachFile })),
+          ),
           Effect.provideContext(model),
           Option.isSome(subagentModel)
             ? Effect.provideService(Agent.SubagentModel, subagentModel.value)

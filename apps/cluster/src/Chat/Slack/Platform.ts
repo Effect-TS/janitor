@@ -6,7 +6,16 @@ import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
+import {
+  type ChatFile,
+  ChatPlatform,
+  ChatPlatformError,
+  type ChatThread,
+  logUnattached,
+  notingUnattached,
+  readLimited,
+  replyMarkdown,
+} from "../Platform.ts"
 import {
   decode,
   lookUpAuthor,
@@ -27,6 +36,9 @@ const CHUNK_CHARACTERS = 12_000
 /** A reply that needs more messages than this is uploaded as a `.md` file instead. */
 const MAX_CHUNKS = 3
 
+/** Slack truncates a message's text past this. */
+const MAX_MESSAGE_CHARACTERS = 40_000
+
 const BETWEEN_POSTS = Duration.seconds(1)
 
 /** Marks janitor's own posts, so they read as the bot's in a thread's history. */
@@ -36,6 +48,40 @@ const metadata = (kind: "status" | "reply") => ({
 })
 
 const Posted = Schema.Struct({ ts: Schema.String })
+
+/** Escapes mrkdwn's control characters, keeping a `>` that opens a quote. */
+const escapeMrkdwn = (text: string) =>
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/^(\s*)>|>/gm, (match, indent: string | undefined) =>
+      indent === undefined ? "&gt;" : match,
+    )
+
+/**
+ * Markdown as Slack's mrkdwn, for text that can't go as `markdown_text`.
+ * Outside code, headers and bold become `*bold*`, strikethrough `~struck~`
+ * and links `<url|text>`; the rest stays as written.
+ */
+export const toMrkdwn = (markdown: string): string =>
+  markdown
+    // Code spans and fences sit at the odd indices.
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? // mrkdwn shows a fence's language as the code's first line.
+          escapeMrkdwn(part.replace(/^```[\w+#.-]+\n/, "```\n"))
+        : escapeMrkdwn(part)
+            .replace(/^#{1,6}[ \t]+(.+?)[ \t#]*$/gm, "*$1*")
+            .replace(
+              /\*\*(.+?)\*\*|__(.+?)__/g,
+              (_, star: string | undefined, under: string) => `*${star ?? under}*`,
+            )
+            .replace(/~~(.+?)~~/g, "~$1~")
+            // A URL may hold one level of parentheses; a link this can't read stays as written.
+            .replace(/\[([^\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g, "<$2|$1>"),
+    )
+    .join("")
 
 /**
  * Splits Markdown into chunks of at most `max` characters, on line breaks
@@ -93,6 +139,10 @@ export const chunkMarkdown = (text: string, max: number): ReadonlyArray<string> 
 const platformError = (error: SlackApiError | ChatPlatformError) =>
   error._tag === "ChatPlatformError" ? error : new ChatPlatformError({ message: error.message })
 
+/** The call surely didn't land: Slack refused it or rate limited it. Else it may have. */
+const refused = (error: SlackApiError | ChatPlatformError) =>
+  error._tag === "ChatPlatformError" || error.disposition !== "uncertain"
+
 const slackThread = (
   thread: ChatThread,
 ): Effect.Effect<Extract<ChatThread, { readonly _tag: "Slack" }>, ChatPlatformError> =>
@@ -124,15 +174,11 @@ const make = Effect.gen(function* () {
       Effect.mapError(platformError),
     )
 
-  const uploadFile = (
-    thread: ChatThread,
-    file: { readonly name: string; readonly content: string },
-  ) =>
+  /** Uploads `file` to Slack, unshared; succeeds with its file id. */
+  const stage = (file: ChatFile) =>
     Effect.gen(function* () {
-      const { channel, threadTs } = yield* slackThread(thread)
-      const bytes = new TextEncoder().encode(file.content)
       const target = yield* api
-        .call("files.getUploadURLExternal", { filename: file.name, length: bytes.length })
+        .call("files.getUploadURLExternal", { filename: file.name, length: file.content.length })
         .pipe(
           Effect.flatMap(
             decode(
@@ -144,23 +190,40 @@ const make = Effect.gen(function* () {
       yield* api.http
         .execute(
           HttpClientRequest.post(target.upload_url).pipe(
-            HttpClientRequest.bodyUint8Array(bytes, "text/markdown"),
+            HttpClientRequest.bodyUint8Array(file.content, file.contentType),
           ),
         )
         .pipe(
           Effect.flatMap(HttpClientResponse.filterStatusOk),
           Effect.mapError(() => new ChatPlatformError({ message: "The file upload failed" })),
         )
-      yield* api.call(
-        "files.completeUploadExternal",
-        {
-          files: [{ id: target.file_id, title: file.name }],
-          channel_id: channel,
-          thread_ts: threadTs,
-        },
-        { write: true },
-      )
-    }).pipe(Effect.mapError(platformError))
+      return { id: target.file_id, title: file.name }
+    })
+
+  /**
+   * Shares staged files in the thread as one message, with `text` as its
+   * `initial_comment`, in mrkdwn. Slack fails the call with `internal_error`
+   * when it carries a `markdown` block (python-slack-sdk#1756).
+   */
+  const share = (
+    thread: ChatThread,
+    files: ReadonlyArray<{ readonly id: string; readonly title: string }>,
+    text?: string,
+  ) =>
+    slackThread(thread).pipe(
+      Effect.flatMap(({ channel, threadTs }) =>
+        api.call(
+          "files.completeUploadExternal",
+          {
+            files,
+            channel_id: channel,
+            thread_ts: threadTs,
+            initial_comment: text === undefined ? undefined : toMrkdwn(text),
+          },
+          { write: true },
+        ),
+      ),
+    )
 
   const history = (thread: ChatThread, limit: number) =>
     Effect.gen(function* () {
@@ -249,28 +312,75 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.mapError(platformError),
       ),
-    postReply: (thread, text) => {
+    postReply: (thread, text, options) => {
+      const files = options?.files ?? []
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
-      if (chunks.length > MAX_CHUNKS)
-        return uploadFile(thread, { name: "reply.md", content: text }).pipe(
-          // File uploads do not return a message timestamp; completion is a
-          // conservative boundary rather than backdating to the request.
-          Effect.andThen(DateTime.now),
+      const overflow =
+        chunks.length > MAX_CHUNKS ||
+        // The files' message takes its text in mrkdwn, which escaping can grow
+        // past what Slack keeps: the reply then goes as `reply.md` instead.
+        (files.length > 0 && toMrkdwn(chunks.at(-1) ?? "").length > MAX_MESSAGE_CHARACTERS)
+      /** Posts `chunks` a second apart, and after an earlier message; succeeds with the last one's time. */
+      const postChunks = (chunks: ReadonlyArray<string>, afterEarlier = false) =>
+        Effect.forEach(chunks, (chunk, index) =>
+          (index === 0 && !afterEarlier ? Effect.void : Effect.sleep(BETWEEN_POSTS)).pipe(
+            Effect.andThen(post(thread, { markdown_text: chunk, metadata: metadata("reply") })),
+          ),
+        ).pipe(
+          Effect.flatMap((posted) => {
+            const last = posted.at(-1)
+            return last === undefined
+              ? DateTime.now
+              : Effect.succeed(DateTime.makeUnsafe(Math.floor(Number(last) * 1000)))
+          }),
         )
-      return Effect.forEach(chunks, (chunk, index) =>
-        (index === 0 ? Effect.void : Effect.sleep(BETWEEN_POSTS)).pipe(
-          Effect.andThen(post(thread, { markdown_text: chunk, metadata: metadata("reply") })),
-        ),
-      ).pipe(
-        Effect.flatMap((posted) => {
-          const last = posted.at(-1)
-          return last === undefined
-            ? DateTime.now
-            : Effect.succeed(DateTime.makeUnsafe(Math.floor(Number(last) * 1000)))
-        }),
-      )
+      // The files go with the reply's last chunk, or with its `reply.md` when
+      // it is too long for messages.
+      const attached = overflow ? [replyMarkdown(text), ...files] : files
+      if (attached.length === 0)
+        return postChunks(chunks).pipe(Effect.map((postedAt) => ({ postedAt, text })))
+      const earlier = overflow ? [] : chunks.slice(0, -1)
+      const last = overflow ? undefined : chunks.at(-1)
+      return Effect.gen(function* () {
+        // Staged before any text goes out, so a refused upload posts nothing.
+        const staged = yield* Effect.forEach(attached, stage).pipe(Effect.result)
+        if (staged._tag === "Success") {
+          yield* postChunks(earlier)
+          if (earlier.length > 0) yield* Effect.sleep(BETWEEN_POSTS)
+        }
+        const shared =
+          staged._tag === "Failure"
+            ? staged
+            : yield* share(thread, staged.success, last).pipe(Effect.result)
+        // File uploads do not return a message timestamp; completion is a
+        // conservative boundary rather than backdating to the request.
+        if (shared._tag === "Success") return { postedAt: yield* DateTime.now, text }
+        // A lost answer to sharing may have posted the message: never again.
+        // Staging posts nothing, so a lost answer there is safe to recover from.
+        if (files.length === 0 || (staged._tag === "Success" && !refused(shared.failure)))
+          return yield* platformError(shared.failure)
+        // Slack refused the files, so the text not yet out goes out naming
+        // them: the whole reply when staging was refused or it was `reply.md`,
+        // however many messages that takes, else the last chunk. Nothing
+        // already out is posted again.
+        yield* logUnattached(platformError(shared.failure))
+        const noted = notingUnattached(text, files)
+        const out = staged._tag === "Success" ? earlier : []
+        const postedAt = yield* postChunks(
+          out.length === 0
+            ? chunkMarkdown(noted, CHUNK_CHARACTERS)
+            : chunkMarkdown(notingUnattached(last ?? "", files), CHUNK_CHARACTERS),
+          out.length > 0,
+        )
+        return { postedAt, text: noted }
+      })
     },
-    uploadFile,
+    uploadFile: (thread, file) =>
+      stage(file).pipe(
+        Effect.flatMap((staged) => share(thread, [staged])),
+        Effect.asVoid,
+        Effect.mapError(platformError),
+      ),
     download: (_thread, attachment, maxBytes) =>
       Effect.gen(function* () {
         const { file } = yield* api.call("files.info", { file: attachment.id }).pipe(
@@ -305,7 +415,10 @@ const make = Effect.gen(function* () {
  * is unknown (a 5xx or a broken response) is never retried, and one Slack
  * refuses fails at once. Replies go out as `markdown_text`, up to 12,000
  * characters a message and a second apart, with code fences kept balanced;
- * one that needs more than three messages is uploaded as `reply.md`.
+ * one that needs more than three messages is uploaded as `reply.md`. A
+ * reply's files are shared with its last message's text, in mrkdwn since
+ * that message can't take `markdown_text`, or with its `reply.md`, uploaded
+ * before any of its text is posted.
  * janitor's posts carry a metadata marker and never unfurl links.
  */
 export const layer: Layer.Layer<ChatPlatform, never, SlackConfig | HttpClient.HttpClient> =

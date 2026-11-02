@@ -2,11 +2,21 @@ import { DiscordREST, type DiscordRESTError } from "dfx/DiscordREST"
 import type * as Discord from "dfx/types"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import { identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
+import {
+  type ChatFile,
+  ChatPlatform,
+  ChatPlatformError,
+  type ChatThread,
+  logUnattached,
+  notingUnattached,
+  readLimited,
+  replyMarkdown,
+} from "../Platform.ts"
 import { chunkMarkdown } from "../Slack/Platform.ts"
 import {
   type DiscordMessage,
@@ -50,6 +60,10 @@ const userMentions = { parse: ["users" as const], replied_user: true }
 const platformError = (error: DiscordRESTError | ChatPlatformError) =>
   error._tag === "ChatPlatformError" ? error : new ChatPlatformError({ message: error.message })
 
+/** Discord answered, refusing the request: nothing was posted. Else its answer was lost. */
+const refused = (error: DiscordRESTError | ChatPlatformError) =>
+  error._tag === "ChatPlatformError" || error._tag === "ErrorResponse"
+
 const discordThread = (
   thread: ChatThread,
 ): Effect.Effect<Extract<ChatThread, { readonly _tag: "Discord" }>, ChatPlatformError> =>
@@ -65,30 +79,41 @@ const make = Effect.gen(function* () {
   const botUserId = rememberBotUserId(rest)
   const botRoleId = rememberBotRoleId(rest, config.guildId)
 
+  /** Posts a message, with `files` each its own attachment, in one request. */
   const post = (
     thread: ChatThread,
-    fields: Omit<Parameters<typeof rest.createMessage>[1], "flags">,
+    fields: Omit<Parameters<typeof rest.createMessage>[1], "flags" | "attachments">,
+    files: ReadonlyArray<ChatFile> = [],
   ) =>
     discordThread(thread).pipe(
       Effect.flatMap(({ threadId }) =>
-        rest.createMessage(threadId, { ...fields, flags: SUPPRESS_EMBEDS }),
+        rest
+          .createMessage(threadId, {
+            ...fields,
+            flags: SUPPRESS_EMBEDS,
+            ...(files.length === 0
+              ? {}
+              : {
+                  attachments: files.map((file, index) => ({
+                    id: String(index),
+                    filename: file.name,
+                  })),
+                }),
+          })
+          .pipe(
+            files.length === 0
+              ? identity
+              : rest.withFiles(
+                  files.map(
+                    (file) =>
+                      new File([file.content as Uint8Array<ArrayBuffer>], file.name, {
+                        type: file.contentType,
+                      }),
+                  ),
+                ),
+          ),
       ),
-      Effect.mapError(platformError),
     )
-
-  const upload = (
-    thread: ChatThread,
-    file: { readonly name: string; readonly content: string },
-    fields?: Pick<
-      Parameters<typeof rest.createMessage>[1],
-      "content" | "allowed_mentions" | "message_reference"
-    >,
-  ) =>
-    post(thread, {
-      allowed_mentions: noMentions,
-      attachments: [{ id: "0", filename: file.name }],
-      ...fields,
-    }).pipe(rest.withFiles([new File([file.content], file.name, { type: "text/markdown" })]))
 
   /**
    * The message a thread was started from. It lives in the parent channel,
@@ -173,6 +198,7 @@ const make = Effect.gen(function* () {
     postStatus: (thread, text) =>
       post(thread, { content: text, allowed_mentions: noMentions }).pipe(
         Effect.map(({ id }) => id),
+        Effect.mapError(platformError),
       ),
     editStatus: (thread, messageId, text) =>
       discordThread(thread).pipe(
@@ -208,38 +234,84 @@ const make = Effect.gen(function* () {
           ? undefined
           : { message_id: replyTo.messageId, fail_if_not_exists: false }
       const mention = starter === undefined ? undefined : `<@${starter.authorId}>`
-      const chunks = chunkMarkdown(
-        // A fence opening the reply must stay at the start of its line.
-        mention === undefined ? text : `${mention}${/^\s*```/.test(text) ? "\n" : " "}${text}`,
-        CHUNK_CHARACTERS,
-      )
-      if (chunks.length > MAX_CHUNKS)
-        return upload(
-          thread,
-          { name: "reply.md", content: text },
-          {
-            content: mention,
-            allowed_mentions:
-              starter === undefined ? noMentions : { parse: [], users: [starter.authorId] },
-            message_reference: reference,
-          },
-        ).pipe(Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)))
-      return Effect.forEach(chunks, (chunk, index) =>
-        post(thread, {
-          content: chunk,
-          allowed_mentions: userMentions,
-          message_reference: index === 0 ? reference : undefined,
-        }),
-      ).pipe(
-        Effect.flatMap((posted) => {
-          const last = posted.at(-1)
-          return last === undefined
-            ? DateTime.now
-            : Effect.succeed(DateTime.makeUnsafe(last.timestamp))
-        }),
-      )
+      // A fence opening the reply must stay at the start of its line.
+      const chunksOf = (body: string) =>
+        chunkMarkdown(
+          mention === undefined ? body : `${mention}${/^\s*```/.test(body) ? "\n" : " "}${body}`,
+          CHUNK_CHARACTERS,
+        )
+      const files = options?.files ?? []
+      const chunks = chunksOf(text)
+      const overflow = chunks.length > MAX_CHUNKS
+      type Message = Pick<
+        Parameters<typeof rest.createMessage>[1],
+        "content" | "allowed_mentions"
+      > & {
+        readonly files: ReadonlyArray<ChatFile>
+      }
+      const textOnly = (content: string): Message => ({
+        content,
+        allowed_mentions: userMentions,
+        files: [],
+      })
+      // The reply's messages: its chunks, the last carrying the files, or the
+      // mention with `reply.md` and the files when it is too long for messages.
+      const parts = chunks.length === 0 && files.length > 0 ? [mention ?? ""] : chunks
+      const messages: ReadonlyArray<Message> = overflow
+        ? [
+            {
+              content: mention,
+              allowed_mentions:
+                starter === undefined ? noMentions : { parse: [], users: [starter.authorId] },
+              files: [replyMarkdown(text), ...files],
+            },
+          ]
+        : parts.map((content, index) =>
+            index === parts.length - 1 ? { ...textOnly(content), files } : textOnly(content),
+          )
+      /** Posts messages in order, the first answering `replyTo` when it opens the reply. */
+      const postAll = (messages: ReadonlyArray<Message>, opening: boolean) =>
+        Effect.forEach(messages, ({ files, ...fields }, index) =>
+          post(
+            thread,
+            { ...fields, message_reference: opening && index === 0 ? reference : undefined },
+            files,
+          ),
+        )
+      const lastPosted = (posted: ReadonlyArray<{ readonly timestamp: string }>) => {
+        const last = posted.at(-1)
+        return last === undefined
+          ? DateTime.now
+          : Effect.succeed(DateTime.makeUnsafe(last.timestamp))
+      }
+      return Effect.gen(function* () {
+        const earlier = messages.slice(0, -1)
+        const last = messages.at(-1)
+        yield* postAll(earlier, true).pipe(Effect.mapError(platformError))
+        if (last === undefined) return { postedAt: yield* DateTime.now, text }
+        const posted = yield* postAll([last], earlier.length === 0).pipe(Effect.result)
+        if (posted._tag === "Success") return { postedAt: yield* lastPosted(posted.success), text }
+        if (files.length === 0 || !refused(posted.failure))
+          return yield* platformError(posted.failure)
+        // Discord refused the files, so what their message carried goes out as
+        // text, naming them: the whole reply when it was `reply.md`, however
+        // many messages that takes. Nothing already out is posted again.
+        yield* logUnattached(platformError(posted.failure))
+        const noted = notingUnattached(text, files)
+        const asText = overflow
+          ? chunksOf(noted)
+          : chunkMarkdown(notingUnattached(last.content ?? "", files), CHUNK_CHARACTERS)
+        const fallback = yield* postAll(asText.map(textOnly), earlier.length === 0).pipe(
+          Effect.mapError(platformError),
+        )
+        return { postedAt: yield* lastPosted(fallback), text: noted }
+      })
     },
-    uploadFile: (thread, file) => Effect.asVoid(upload(thread, file)),
+    uploadFile: (thread, file) =>
+      post(thread, { allowed_mentions: noMentions }, [file]).pipe(
+        Effect.asVoid,
+        Effect.mapError(platformError),
+      ),
     download: (_thread, attachment, maxBytes) =>
       Effect.gen(function* () {
         const ids = parseAttachmentId(attachment.id)
@@ -265,7 +337,8 @@ const make = Effect.gen(function* () {
  * limits itself. Replies go out in messages of at most 2,000 characters with
  * code fences kept balanced, the first answering the message that started
  * the turn, or mentioning its author when that message started the thread;
- * one that needs more than five messages is uploaded as `reply.md`. Replies
+ * one that needs more than five messages is uploaded as `reply.md`. A
+ * reply's files go with its last message, or with its `reply.md`. Replies
  * may ping users only, and no post unfurls links. The backfill reads each
  * author's roles, since REST messages carry no member, and always includes
  * the message that opened the thread, even one in the parent channel.
