@@ -6,7 +6,13 @@ import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
+import {
+  type ChatFile,
+  ChatPlatform,
+  ChatPlatformError,
+  type ChatThread,
+  readLimited,
+} from "../Platform.ts"
 import {
   decode,
   lookUpAuthor,
@@ -124,15 +130,11 @@ const make = Effect.gen(function* () {
       Effect.mapError(platformError),
     )
 
-  const uploadFile = (
-    thread: ChatThread,
-    file: { readonly name: string; readonly content: string },
-  ) =>
+  /** Uploads `file` to Slack, unshared; succeeds with its file id. */
+  const stage = (file: ChatFile) =>
     Effect.gen(function* () {
-      const { channel, threadTs } = yield* slackThread(thread)
-      const bytes = new TextEncoder().encode(file.content)
       const target = yield* api
-        .call("files.getUploadURLExternal", { filename: file.name, length: bytes.length })
+        .call("files.getUploadURLExternal", { filename: file.name, length: file.content.length })
         .pipe(
           Effect.flatMap(
             decode(
@@ -144,23 +146,47 @@ const make = Effect.gen(function* () {
       yield* api.http
         .execute(
           HttpClientRequest.post(target.upload_url).pipe(
-            HttpClientRequest.bodyUint8Array(bytes, "text/markdown"),
+            HttpClientRequest.bodyUint8Array(file.content, file.contentType),
           ),
         )
         .pipe(
           Effect.flatMap(HttpClientResponse.filterStatusOk),
           Effect.mapError(() => new ChatPlatformError({ message: "The file upload failed" })),
         )
-      yield* api.call(
-        "files.completeUploadExternal",
-        {
-          files: [{ id: target.file_id, title: file.name }],
-          channel_id: channel,
-          thread_ts: threadTs,
-        },
-        { write: true },
-      )
-    }).pipe(Effect.mapError(platformError))
+      return { id: target.file_id, title: file.name }
+    })
+
+  /**
+   * Shares staged files in the thread as one message, with `text` as a
+   * `markdown` block, which renders as `markdown_text` does.
+   */
+  const share = (
+    thread: ChatThread,
+    files: ReadonlyArray<{ readonly id: string; readonly title: string }>,
+    text?: string,
+  ) =>
+    slackThread(thread).pipe(
+      Effect.flatMap(({ channel, threadTs }) =>
+        api.call(
+          "files.completeUploadExternal",
+          {
+            files,
+            channel_id: channel,
+            thread_ts: threadTs,
+            blocks: text === undefined ? undefined : [{ type: "markdown", text }],
+          },
+          { write: true },
+        ),
+      ),
+    )
+
+  /** Uploads `files` and shares them in the thread as one message. */
+  const uploadFiles = (thread: ChatThread, files: ReadonlyArray<ChatFile>, text?: string) =>
+    Effect.forEach(files, stage).pipe(
+      Effect.flatMap((staged) => share(thread, staged, text)),
+      Effect.asVoid,
+      Effect.mapError(platformError),
+    )
 
   const history = (thread: ChatThread, limit: number) =>
     Effect.gen(function* () {
@@ -249,12 +275,31 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.mapError(platformError),
       ),
-    postReply: (thread, text) => {
+    postReply: (thread, text, options) => {
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
+      const files = options?.files ?? []
+      // File uploads do not return a message timestamp; completion is a
+      // conservative boundary rather than backdating to the request.
       if (chunks.length > MAX_CHUNKS)
-        return uploadFile(thread, { name: "reply.md", content: text }).pipe(
-          // File uploads do not return a message timestamp; completion is a
-          // conservative boundary rather than backdating to the request.
+        return uploadFiles(thread, [
+          {
+            name: "reply.md",
+            contentType: "text/markdown",
+            content: new TextEncoder().encode(text),
+          },
+          ...files,
+        ]).pipe(Effect.andThen(DateTime.now))
+      if (files.length > 0)
+        // Uploaded before any text goes out, so a failed upload posts nothing.
+        return Effect.forEach(files, stage).pipe(
+          Effect.flatMap((staged) =>
+            Effect.forEach(chunks.slice(0, -1), (chunk) =>
+              post(thread, { markdown_text: chunk, metadata: metadata("reply") }).pipe(
+                Effect.andThen(Effect.sleep(BETWEEN_POSTS)),
+              ),
+            ).pipe(Effect.andThen(share(thread, staged, chunks.at(-1)))),
+          ),
+          Effect.mapError(platformError),
           Effect.andThen(DateTime.now),
         )
       return Effect.forEach(chunks, (chunk, index) =>
@@ -270,7 +315,7 @@ const make = Effect.gen(function* () {
         }),
       )
     },
-    uploadFile,
+    uploadFile: (thread, file) => uploadFiles(thread, [file]),
     download: (_thread, attachment, maxBytes) =>
       Effect.gen(function* () {
         const { file } = yield* api.call("files.info", { file: attachment.id }).pipe(
@@ -305,7 +350,9 @@ const make = Effect.gen(function* () {
  * is unknown (a 5xx or a broken response) is never retried, and one Slack
  * refuses fails at once. Replies go out as `markdown_text`, up to 12,000
  * characters a message and a second apart, with code fences kept balanced;
- * one that needs more than three messages is uploaded as `reply.md`.
+ * one that needs more than three messages is uploaded as `reply.md`. A
+ * reply's files are shared with its last message's text, or with its
+ * `reply.md`, uploaded before any of its text is posted.
  * janitor's posts carry a metadata marker and never unfurl links.
  */
 export const layer: Layer.Layer<ChatPlatform, never, SlackConfig | HttpClient.HttpClient> =

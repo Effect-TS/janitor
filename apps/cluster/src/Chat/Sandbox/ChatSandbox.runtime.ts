@@ -18,6 +18,7 @@ import { chatCommandTimeout, chatSandboxMaxInstances } from "../Config.ts"
 import { ChatSandbox } from "./ChatSandbox.ts"
 import { makeChatContainerApp } from "./ContainerApp.ts"
 import { MULTICA_CLI_SHA256, MULTICA_CLI_VERSION } from "./MulticaCli.ts"
+import { readWorkspaceFile } from "./Files.ts"
 import { applyProvision } from "./Provision.ts"
 
 /**
@@ -123,6 +124,8 @@ export default ChatSandbox.make(
               yield* fs.writeFile(path, content)
             }),
           ),
+        readFile: (path, maxBytes) =>
+          node(readWorkspaceFile({ workspace: WORKSPACE_DIRECTORY, path, maxBytes })),
       }),
     })
   }),

@@ -47,10 +47,23 @@ export interface ChatSandbox {
   readonly executor: Layer.Layer<AgentExecutor.AgentExecutor>
   /** Writes a file under `/workspace`, creating its directories, as attachments are. */
   readonly writeFile: (path: string, content: Uint8Array) => Effect.Effect<void, SandboxWriteFailed>
+  /**
+   * Reads a file under `/workspace` of at most `maxBytes`. The container
+   * resolves its symlinks and refuses anything outside `/workspace`.
+   */
+  readonly readFile: (
+    path: string,
+    maxBytes: number,
+  ) => Effect.Effect<Uint8Array, SandboxReadFailed>
 }
 
 /** A file couldn't be written into the sandbox. */
 export class SandboxWriteFailed extends Data.TaggedError("SandboxWriteFailed")<{
+  readonly reason: string
+}> {}
+
+/** A file couldn't be read from the sandbox. `reason` is for the model. */
+export class SandboxReadFailed extends Data.TaggedError("SandboxReadFailed")<{
   readonly reason: string
 }> {}
 
@@ -191,6 +204,31 @@ export class ChatSandboxes extends Context.Service<
                       : Effect.fail(new SandboxWriteFailed({ reason: `HTTP ${response.status}` })),
                   ),
                 ),
+              readFile: (path: string, maxBytes: number) =>
+                Effect.gen(function* () {
+                  const unanswered = () =>
+                    new SandboxReadFailed({ reason: "the sandbox didn't answer" })
+                  const response = yield* Effect.tryPromise({
+                    try: () =>
+                      workspace.fetch(
+                        `http://workspace/files?path=${encodeURIComponent(path)}&maxBytes=${maxBytes}`,
+                      ),
+                    catch: unanswered,
+                  })
+                  const body = new Uint8Array(
+                    yield* Effect.tryPromise({
+                      try: () => response.arrayBuffer(),
+                      catch: unanswered,
+                    }),
+                  )
+                  if (response.status === 200 && body.length <= maxBytes) return body
+                  return yield* new SandboxReadFailed({
+                    reason:
+                      response.status === 422
+                        ? new TextDecoder().decode(body)
+                        : `the sandbox answered HTTP ${response.status}`,
+                  })
+                }),
             }
           }),
         ).pipe(Effect.annotateLogs({ sessionId })),

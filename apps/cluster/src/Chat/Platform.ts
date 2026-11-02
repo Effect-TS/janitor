@@ -69,6 +69,13 @@ export const readLimited = <E>(
     )
   })
 
+/** A file posted to a thread: its name as the thread shows it, its bytes and their content type. */
+export interface ChatFile {
+  readonly name: string
+  readonly contentType: string
+  readonly content: Uint8Array
+}
+
 const noPlatform = Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" }))
 
 export class ChatPlatform extends Context.Service<
@@ -92,18 +99,21 @@ export class ChatPlatform extends Context.Service<
     /**
      * Posts a reply and returns when its final part was published. On
      * Discord it answers `replyTo`, the message that started the turn, or
-     * mentions its author when that message started the thread.
+     * mentions its author when that message started the thread. `files` go
+     * in the same message as the reply's last part, or as its `reply.md`.
      */
     readonly postReply: (
       thread: ChatThread,
       text: string,
       options?: {
         readonly replyTo?: { readonly messageId: string; readonly authorId: string } | undefined
+        readonly files?: ReadonlyArray<ChatFile> | undefined
       },
     ) => Effect.Effect<DateTime.Utc, ChatPlatformError>
+    /** Posts `file` to the thread on its own. */
     readonly uploadFile: (
       thread: ChatThread,
-      file: { readonly name: string; readonly content: string },
+      file: ChatFile,
     ) => Effect.Effect<void, ChatPlatformError>
     /**
      * An attachment's bytes. Reading stops past `maxBytes`, and a longer

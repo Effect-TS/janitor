@@ -43,6 +43,7 @@ import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
 import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread, sessionKey } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
+import { makeReplyFiles, unattachedNote } from "./ReplyFiles.ts"
 import { ChatSessionIndex } from "./SessionIndex.ts"
 import {
   GateOutcome,
@@ -830,6 +831,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         if (prompt === "") return { status: "replied" } satisfies TurnEnd
         running.inFlight.length = 0
         running.inFlight.push({ text: prompt, ids: pending.map(({ message }) => message.id) })
+        // This sandbox's attached files; a resume in a new sandbox starts without them.
+        const replyFiles = makeReplyFiles(sandbox)
         const base = { actions: turn.actions, usage: turn.usage }
         const loop = yield* agent.start({
           instructions: systemPrompt({
@@ -842,6 +845,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           prompt,
           images: prepared.images,
           onStep: (change) => commitStep(running, change),
+          attachFile: replyFiles.attachFile,
           onProgress: (progress) =>
             Effect.gen(function* () {
               const actions = base.actions + progress.actions
@@ -900,21 +904,28 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                   ? { messageId: message.value.id, authorId: message.value.author.id }
                   : undefined
                 // Never retried here: the transport retries what is safe to retry.
-                const posted = yield* platform
-                  .postReply(running.thread, result.text, { replyTo })
+                const files = replyFiles.files()
+                let text = result.text
+                let posted = yield* platform
+                  .postReply(running.thread, text, { replyTo, files })
                   .pipe(Effect.result)
+                // The reply still goes out when its files don't, and says which.
+                if (posted._tag === "Failure" && files.length > 0) {
+                  yield* Effect.logWarning("Couldn't post a chat reply's files").pipe(
+                    Effect.annotateLogs({ reason: posted.failure.message }),
+                  )
+                  text = `${result.text}\n\n${unattachedNote(files)}`
+                  posted = yield* platform
+                    .postReply(running.thread, text, { replyTo })
+                    .pipe(Effect.result)
+                }
                 if (posted._tag === "Failure") {
                   yield* Effect.logError("Couldn't post a chat reply").pipe(
                     Effect.annotateLogs({ reason: posted.failure.message }),
                   )
                   return { status: "failed", errorCategory: "reply_failed" } satisfies TurnEnd
                 }
-                yield* storage.addReply(
-                  running.turnId,
-                  result.text,
-                  posted.success,
-                  replyTo?.authorId,
-                )
+                yield* storage.addReply(running.turnId, text, posted.success, replyTo?.authorId)
                 return { status: "replied" } satisfies TurnEnd
               }),
             )

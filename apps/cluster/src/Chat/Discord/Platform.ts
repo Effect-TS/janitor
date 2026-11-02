@@ -6,7 +6,13 @@ import * as Layer from "effect/Layer"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import { ChatPlatform, ChatPlatformError, type ChatThread, readLimited } from "../Platform.ts"
+import {
+  type ChatFile,
+  ChatPlatform,
+  ChatPlatformError,
+  type ChatThread,
+  readLimited,
+} from "../Platform.ts"
 import { chunkMarkdown } from "../Slack/Platform.ts"
 import {
   type DiscordMessage,
@@ -76,9 +82,10 @@ const make = Effect.gen(function* () {
       Effect.mapError(platformError),
     )
 
+  /** Posts a message with `files`, each its own attachment, in one request. */
   const upload = (
     thread: ChatThread,
-    file: { readonly name: string; readonly content: string },
+    files: ReadonlyArray<ChatFile>,
     fields?: Pick<
       Parameters<typeof rest.createMessage>[1],
       "content" | "allowed_mentions" | "message_reference"
@@ -86,9 +93,18 @@ const make = Effect.gen(function* () {
   ) =>
     post(thread, {
       allowed_mentions: noMentions,
-      attachments: [{ id: "0", filename: file.name }],
+      attachments: files.map((file, index) => ({ id: String(index), filename: file.name })),
       ...fields,
-    }).pipe(rest.withFiles([new File([file.content], file.name, { type: "text/markdown" })]))
+    }).pipe(
+      rest.withFiles(
+        files.map(
+          (file) =>
+            new File([file.content as Uint8Array<ArrayBuffer>], file.name, {
+              type: file.contentType,
+            }),
+        ),
+      ),
+    )
 
   /**
    * The message a thread was started from. It lives in the parent channel,
@@ -213,10 +229,18 @@ const make = Effect.gen(function* () {
         mention === undefined ? text : `${mention}${/^\s*```/.test(text) ? "\n" : " "}${text}`,
         CHUNK_CHARACTERS,
       )
+      const files = options?.files ?? []
       if (chunks.length > MAX_CHUNKS)
         return upload(
           thread,
-          { name: "reply.md", content: text },
+          [
+            {
+              name: "reply.md",
+              contentType: "text/markdown",
+              content: new TextEncoder().encode(text),
+            },
+            ...files,
+          ],
           {
             content: mention,
             allowed_mentions:
@@ -224,13 +248,17 @@ const make = Effect.gen(function* () {
             message_reference: reference,
           },
         ).pipe(Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)))
-      return Effect.forEach(chunks, (chunk, index) =>
-        post(thread, {
+      return Effect.forEach(chunks, (chunk, index) => {
+        const fields = {
           content: chunk,
           allowed_mentions: userMentions,
           message_reference: index === 0 ? reference : undefined,
-        }),
-      ).pipe(
+        }
+        // The files go with the last chunk.
+        return index === chunks.length - 1 && files.length > 0
+          ? upload(thread, files, fields)
+          : post(thread, fields)
+      }).pipe(
         Effect.flatMap((posted) => {
           const last = posted.at(-1)
           return last === undefined
@@ -239,7 +267,7 @@ const make = Effect.gen(function* () {
         }),
       )
     },
-    uploadFile: (thread, file) => Effect.asVoid(upload(thread, file)),
+    uploadFile: (thread, file) => Effect.asVoid(upload(thread, [file])),
     download: (_thread, attachment, maxBytes) =>
       Effect.gen(function* () {
         const ids = parseAttachmentId(attachment.id)
@@ -265,7 +293,8 @@ const make = Effect.gen(function* () {
  * limits itself. Replies go out in messages of at most 2,000 characters with
  * code fences kept balanced, the first answering the message that started
  * the turn, or mentioning its author when that message started the thread;
- * one that needs more than five messages is uploaded as `reply.md`. Replies
+ * one that needs more than five messages is uploaded as `reply.md`. A
+ * reply's files go with its last message, or with its `reply.md`. Replies
  * may ping users only, and no post unfurls links. The backfill reads each
  * author's roles, since REST messages carry no member, and always includes
  * the message that opened the thread, even one in the parent channel.
