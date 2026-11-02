@@ -139,11 +139,35 @@ export const quotaExhausted: Answer = () =>
   )
 
 /**
+ * The 400 the provider answers a request it won't take with. Its description
+ * doesn't read as an image rejection, so clanka doesn't retry without the
+ * images, as it didn't in production (EFF-3288).
+ */
+const invalidRequest = AiError.make({
+  module: "OpenAiLanguageModel",
+  method: "streamText",
+  reason: new AiError.InvalidRequestError({
+    description: "Bad Request",
+    http: {
+      request: {
+        method: "POST",
+        url: "https://ai.test/v1/chat/completions",
+        urlParams: [],
+        headers: {},
+      },
+      response: { status: 400, headers: {} },
+    },
+  }),
+})
+
+/**
  * The `CHAT_AI_*` model. Each call is recorded as it arrives, then waits
  * for the test to `answer` it, so a test can act while the model "thinks".
  */
 export class FakeModel {
   readonly prompts: Array<Prompt.Prompt> = []
+  /** While set, a call whose prompt it matches fails at once with a 400, as the provider rejects an invalid request. */
+  rejects: ((prompt: Prompt.Prompt) => boolean) | undefined
   private readonly answers: Array<Answer> = []
   private answered = Deferred.makeUnsafe<void>()
 
@@ -179,6 +203,8 @@ export class FakeModel {
             Stream.unwrap(
               Effect.suspend(() => {
                 this.prompts.push(prompt)
+                if (this.rejects?.(prompt) === true)
+                  return Effect.succeed(Stream.fail(invalidRequest))
                 return Effect.map(this.next, (answer) => answer())
               }),
             ),
