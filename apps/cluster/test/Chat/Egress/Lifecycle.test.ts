@@ -6,7 +6,7 @@ import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import { BotAppError, ChatCredentials, type BotApp } from "../../../src/Chat/Egress/BotApp.ts"
 import { makeEgressContext } from "../../../src/Chat/Egress/Client.ts"
-import { handleChatEgress } from "../../../src/Chat/Egress/Egress.ts"
+import { handleChatEgress, type BrowserRun } from "../../../src/Chat/Egress/Egress.ts"
 import { makeChatWorkspace } from "../../../src/Chat/Sandbox/Workspace.ts"
 import { ChatSkills } from "../../../src/Chat/Sandbox/Skills.ts"
 import { makeState } from "../Sandbox/support.ts"
@@ -27,10 +27,10 @@ const acquireInput = {
 /**
  * A chat workspace with the bot's credentials, and a way to send a container
  * request through the egress its last acquire registered, as the `ChatEgress`
- * entrypoint does. Each send answers the `Authorization` that reached
+ * entrypoint does, with `browserRun` as the Worker's binding. Each send answers the `Authorization` that reached
  * upstream, or `null`.
  */
-const setup = (app: BotApp) =>
+const setup = (app: BotApp, browserRun?: BrowserRun) =>
   Effect.gen(function* () {
     const state = makeState()
     const workspace = yield* makeChatWorkspace(state).pipe(
@@ -41,16 +41,20 @@ const setup = (app: BotApp) =>
         ),
       ),
     )
-    const send = (url: string) =>
-      Effect.gen(function* () {
-        const props = state.egress.at(-1)!
-        const context = makeEgressContext(props, {
+    const context = () =>
+      makeEgressContext(
+        state.egress.at(-1)!,
+        {
           fetch: (input, init) =>
             Effect.runPromise(workspace.egressControl(new Request(input, init))),
-        })
+        },
+        browserRun,
+      )
+    const send = (url: string) =>
+      Effect.gen(function* () {
         let authorization: string | null = null
         yield* handleChatEgress(new Request(url), {
-          ...context,
+          ...context(),
           upstream: (request) =>
             Effect.sync(() => {
               authorization = request.headers.get("authorization")
@@ -59,7 +63,7 @@ const setup = (app: BotApp) =>
         })
         return authorization
       })
-    return { workspace, state, send }
+    return { workspace, context, send }
   })
 
 describe("chat egress credential lifecycle", () => {
@@ -90,30 +94,23 @@ describe("chat egress credential lifecycle", () => {
 
   it.effect("a sandbox left running after its turn can't run Browser Run Quick Actions", () =>
     Effect.gen(function* () {
-      const { workspace, state } = yield* setup({
-        mint: () => Effect.succeed(undefined),
-        revoke: () => Effect.void,
-      })
       let runs = 0
+      const { workspace, context } = yield* setup(
+        { mint: () => Effect.succeed(undefined), revoke: () => Effect.void },
+        {
+          quickAction: () => {
+            runs++
+            return Promise.resolve(new Response("png"))
+          },
+        },
+      )
       const screenshot = () =>
         handleChatEgress(
           new Request("http://browser-run.internal/screenshot", {
             method: "POST",
             body: JSON.stringify({ url: "https://effect.website" }),
           }),
-          makeEgressContext(
-            state.egress.at(-1)!,
-            {
-              fetch: (input, init) =>
-                Effect.runPromise(workspace.egressControl(new Request(input, init))),
-            },
-            {
-              quickAction: async () => {
-                runs++
-                return new Response("png")
-              },
-            },
-          ),
+          context(),
         ).pipe(Effect.map((response) => response.status))
       yield* workspace.acquire(acquireInput)
       const during = yield* screenshot()
