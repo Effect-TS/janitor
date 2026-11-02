@@ -33,6 +33,11 @@ const replies = Array.from({ length: 61 }, (_, index) => ({
   text: `reply ${index}`,
 }))
 
+/** The `markdown_text` of every `chat.postMessage` call. */
+const postedTexts: Array<string | null> = []
+/** While set, Slack refuses file uploads, as without the `files:write` scope. */
+let refuseFiles = false
+
 /** Every file uploaded to an upload URL, with its content type. */
 const uploads: Array<{ readonly type: string; readonly content: Uint8Array }> = []
 /** The parameters of every `files.completeUploadExternal` call. */
@@ -49,6 +54,7 @@ const answer = (method: string, params: URLSearchParams): Response => {
         channel: { is_ext_shared: params.get("channel") === "C-shared" },
       })
     case "files.getUploadURLExternal":
+      if (refuseFiles) return Response.json({ ok: false, error: "missing_scope" })
       return Response.json({
         ok: true,
         upload_url: `https://files.slack.test/upload/${params.get("filename")}`,
@@ -97,7 +103,9 @@ const services = SlackPlatform.layer.pipe(
           )
           return HttpClientResponse.fromWeb(
             request,
-            method === "chat.postMessage" ? respond(++posts) : answer(method, params),
+            method === "chat.postMessage"
+              ? (postedTexts.push(params.get("markdown_text")), respond(++posts))
+              : answer(method, params),
           )
         }),
       ),
@@ -178,6 +186,28 @@ describe("Slack platform", () => {
       assert.deepStrictEqual(shared(message!), [{ id: "F-plot.png", title: "plot.png" }])
       // The text goes with the files, as `initial_comment` or as blocks.
       assert.include([...message!.values()].join("\n"), "Here's the **plot**.")
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("a reply whose files are refused goes out once as text, naming them", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
+      postedTexts.length = 0
+      completed.length = 0
+      refuseFiles = true
+
+      const reply = yield* platform
+        .postReply(thread, `${"a".repeat(11_990)}\n${"b".repeat(100)}`, { files: [plot] })
+        .pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = false))), Effect.forkChild)
+      yield* TestClock.adjust("10 seconds")
+      yield* Fiber.join(reply)
+
+      assert.lengthOf(completed, 0)
+      assert.deepStrictEqual(postedTexts, [
+        "a".repeat(11_990),
+        `${"b".repeat(100)}\n\n(Couldn't attach plot.png.)`,
+      ])
     }).pipe(Effect.provide(services)),
   )
 

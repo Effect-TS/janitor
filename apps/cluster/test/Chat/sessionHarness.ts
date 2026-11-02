@@ -415,8 +415,6 @@ export class FakePlatform {
   /** The files posted with each reply that carried any, with that reply's text. */
   readonly replyFiles: Array<{ readonly text: string; readonly files: ReadonlyArray<ChatFile> }> =
     []
-  /** While set, a reply that carries files fails, as a refused upload does. */
-  failUploads = false
   /** Replies still being posted. */
   posting = 0
   /** While set, posting a reply waits for it. */
@@ -489,8 +487,6 @@ export class FakePlatform {
           if (this.failReplies)
             return yield* new ChatPlatformError({ message: "channel_not_found" })
           const files = options?.files ?? []
-          if (files.length > 0 && this.failUploads)
-            return yield* new ChatPlatformError({ message: "file_upload_failed" })
           this.replies.push({ thread, text })
           if (files.length > 0) this.replyFiles.push({ text, files })
           return { postedAt: yield* DateTime.now, text }

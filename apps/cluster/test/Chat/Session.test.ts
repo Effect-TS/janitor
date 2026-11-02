@@ -920,31 +920,6 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect("a reply whose files can't be uploaded is still posted, naming the files", () =>
-    test((harness) =>
-      Effect.gen(function* () {
-        harness.platform.failUploads = true
-        harness.sandboxes.files.set("/workspace/plot.png", new Uint8Array([137, 80]))
-        yield* send(harness, slackThread, "Plot the build times.", { mention: true })
-        yield* modelCalls(harness, 1)
-        harness.model.answer(
-          callTool("attachFile", { path: "/workspace/plot.png" }),
-          say("Here's the plot."),
-        )
-        yield* turnEnded(harness, slackThread)
-
-        const [reply] = harness.platform.replies
-        assert.lengthOf(harness.platform.replies, 1)
-        assert.include(reply!.text, "Here's the plot.")
-        assert.include(reply!.text, "plot.png")
-        assert.deepStrictEqual(
-          turns(yield* harness.transcript(slackThread)).map((turn) => turn.status),
-          ["replied"],
-        )
-      }),
-    ),
-  )
-
   it.effect(
     "attachments go into the turn's folder in the sandbox, up to 20 MB each, and images reach the model",
     () =>
