@@ -20,11 +20,12 @@ import {
  *   puts the org's read token on git fetches, REST GETs and GraphQL queries,
  *   and its write token on everything else.
  * - `api.multica.ai`: adds the Janitor user's PAT, with no path filter.
- * - `browser-run.internal`: never leaves the Worker. A `POST /<action>` for
- *   one of Browser Run's Quick Actions, matched exactly, is answered by the
- *   Worker's `BROWSER` binding with the JSON body as the action's options,
- *   and the binding's response comes back unchanged. Any other request to
- *   the host is refused.
+ * - `browser-run.internal`: never leaves the Worker. While the turn holds the
+ *   sandbox, a `POST /<action>` for one of Browser Run's Quick Actions,
+ *   matched exactly, is answered by the Worker's `BROWSER` binding with the
+ *   JSON body as the action's options, and the binding's response comes back
+ *   unchanged. Any other request to the host is refused, and so is every
+ *   request between turns.
  * - Everything else, other orgs on GitHub included, passes through with no
  *   credential.
  *
@@ -55,6 +56,14 @@ export interface RepositoryInfo {
 export interface BrowserRun {
   readonly quickAction: (action: string, options: unknown) => Promise<Response>
 }
+
+/**
+ * Thrown by a gated binding's `quickAction` instead of running the action:
+ * the request is refused with this reason.
+ */
+export class BrowserRunRefused extends Data.TaggedError("BrowserRunRefused")<{
+  readonly reason: string
+}> {}
 
 /** Where a GraphQL node id points. */
 export interface GitHubNode {
@@ -101,7 +110,9 @@ export interface ChatEgress {
   readonly multicaToken: Effect.Effect<string | undefined>
   /**
    * The Worker's `BROWSER` binding, or `undefined` when `CHAT_BROWSER_RUN`
-   * turned it off, and then every Browser Run request is refused.
+   * turned it off, and then every Browser Run request is refused. The
+   * entrypoint's binding first asks the workspace whether the turn still
+   * holds the sandbox, and between turns throws `BrowserRunRefused`.
    */
   readonly browserRun: BrowserRun | undefined
   readonly github: GitHubLookup
@@ -163,6 +174,11 @@ const REFUSED_MUTATIONS: ReadonlySet<string> = new Set([
 class Refused extends Data.TaggedError("Refused")<{ readonly reason: string }> {}
 
 const refuse = (reason: string) => new Refused({ reason })
+
+/** The binding couldn't run a Quick Action. The container gets a 502. */
+class QuickActionFailed extends Data.TaggedError("QuickActionFailed")<{
+  readonly cause: unknown
+}> {}
 
 /** Which token a request gets: an owner's read or write token, or none. */
 type Credential = { readonly owner: string; readonly access: "read" | "write" } | undefined
@@ -720,9 +736,15 @@ const quickAction = (request: Request, url: URL, egress: ChatEgress) =>
       try: (): unknown => JSON.parse(decoder.decode(body)),
       catch: () => refuse("its body isn't JSON"),
     })
-    return yield* Effect.tryPromise(() => binding.quickAction(action, options)).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("Chat egress couldn't run a Quick Action", error).pipe(
+    return yield* Effect.tryPromise({
+      try: () => binding.quickAction(action, options),
+      catch: (error) =>
+        error instanceof BrowserRunRefused
+          ? refuse(error.reason)
+          : new QuickActionFailed({ cause: error }),
+    }).pipe(
+      Effect.catchTag("QuickActionFailed", (failed) =>
+        Effect.logWarning("Chat egress couldn't run a Quick Action", failed.cause).pipe(
           Effect.as(
             new Response("janitor's egress proxy couldn't reach Browser Run\n", { status: 502 }),
           ),
