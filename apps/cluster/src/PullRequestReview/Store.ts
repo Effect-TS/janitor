@@ -1,5 +1,6 @@
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -274,11 +275,11 @@ export class PullRequestReviewStore extends Context.Service<
               check_run_id = EXCLUDED.check_run_id, check_run_url = EXCLUDED.check_run_url`
         }).pipe(wrap("finish")),
       addFindings: (runId, findings) =>
-        findings.length === 0
+        !Arr.isReadonlyArrayNonEmpty(findings)
           ? Effect.void
           : sql`
               INSERT INTO pr_review_findings ${sql.insert(
-                findings.map((finding) => ({
+                Arr.map(findings, (finding) => ({
                   run_id: runId,
                   path: finding.path,
                   start_line: finding.startLine,

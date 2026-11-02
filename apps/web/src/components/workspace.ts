@@ -1488,11 +1488,11 @@ const liveRefresh = Subscription.make<Model, Message>()((entry) => ({
 export const subscriptions = Subscription.aggregate<Model, Message>()(
   liveRefresh,
   Subscription.lift(Activity.subscriptions)<Model, Message>({
-    toChildModel: (model) => model.activity,
+    read: (model) => Option.some(model.activity),
     toParentMessage: (message) => Message.GotActivityMessage({ message }),
   }),
   Subscription.lift(PullRequestReviews.subscriptions)<Model, Message>({
-    toChildModel: (model) => model.pullRequestReviews,
+    read: (model) => Option.some(model.pullRequestReviews),
     toParentMessage: (message) => Message.GotPullRequestReviewsMessage({ message }),
   }),
 )

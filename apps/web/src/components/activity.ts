@@ -216,7 +216,7 @@ export const rowHeight = (row: Row) =>
         ? RUN_ROW + 28
         : RUN_ROW + TABLE_HEAD + TABLE_RULE * ruleIds(row.entry).length
 const scrollTop = (model: Model): Return => {
-  const result = VirtualList.scrollToIndexVariable(model[model.mode], rows(model), rowHeight, 0)
+  const result = VirtualList.scrollToIndex(model[model.mode], 0)
   return {
     model: { ...model, [model.mode]: result.model },
     commands: Command.mapMessages(
@@ -352,11 +352,6 @@ export const update = (model: Model, message: Message): Return =>
       }
     },
   })
-const listSubscriptions = (mode: typeof Mode.Type) =>
-  Subscription.lift(VirtualList.subscriptions)<Model, Message>({
-    toChildModel: (model) => model[mode],
-    toParentMessage: (message) => Message.GotList({ mode, message }),
-  })
 const searchChanges = Subscription.make<Model, Message>()((entry) => ({
   searchDebounce: entry(
     { pending: Schema.Boolean, generation: Schema.Int },
@@ -374,11 +369,7 @@ const searchChanges = Subscription.make<Model, Message>()((entry) => ({
     },
   ),
 }))
-export const subscriptions = Subscription.aggregate<Model, Message>()(
-  { journalEvents: listSubscriptions("journal").containerEvents },
-  { groupedEvents: listSubscriptions("grouped").containerEvents },
-  searchChanges,
-)
+export const subscriptions = searchChanges
 export const outcome = (
   entry: ActivityEntry,
 ): { label: string; tone: string; icon: typeof Check } => {

@@ -24,6 +24,7 @@ import type {
 } from "@janitor/domain/GitHub/WebhookEvent/PullRequest"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -527,10 +528,10 @@ export class GitHubReadModel extends Context.Service<
         DELETE FROM github_entity_label
         WHERE repository_id = ${repository.id} AND number = ${pullRequest.number}
       `.pipe(wrap("applyPullRequest"))
-      if (pullRequest.labels.length > 0) {
+      if (Arr.isReadonlyArrayNonEmpty(pullRequest.labels)) {
         yield* sql`
           INSERT INTO github_entity_label ${sql.insert(
-            pullRequest.labels.map((label) => ({
+            Arr.map(pullRequest.labels, (label) => ({
               repository_id: repository.id,
               number: pullRequest.number,
               label_id: label.id,
@@ -826,8 +827,8 @@ export class GitHubReadModel extends Context.Service<
         RETURNING number
       `.pipe(wrap("applyPullRequestCollections"))
         if (inserted.length === 0) return
-        if (collections.files.length > 0) {
-          yield* sql`INSERT INTO github_pull_request_file ${sql.insert(collections.files.map((file) => ({ repository_id: repositoryId, number, path: file.path, status: file.status })))} ON CONFLICT DO NOTHING`.pipe(
+        if (Arr.isReadonlyArrayNonEmpty(collections.files)) {
+          yield* sql`INSERT INTO github_pull_request_file ${sql.insert(Arr.map(collections.files, (file) => ({ repository_id: repositoryId, number, path: file.path, status: file.status })))} ON CONFLICT DO NOTHING`.pipe(
             wrap("applyPullRequestCollections"),
           )
         }

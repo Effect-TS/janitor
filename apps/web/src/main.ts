@@ -15,6 +15,7 @@ import * as Runtime from "foldkit/runtime"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { modifyFields } from "foldkit/struct"
+import * as Dom from "foldkit/dom"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as JanitorIcon from "@/components/janitor-icon"
@@ -967,12 +968,12 @@ export const init: Runtime.RoutingApplicationInit<Model, Message, Flags, AppServ
 }
 
 const sidebarSubscriptions = Subscription.lift(Sidebar.subscriptions)<Model, Message>({
-  toChildModel: (model) => model.sidebar,
+  read: (model) => Option.some(model.sidebar),
   toParentMessage: (message) => Message.GotSidebarMessage({ message }),
 })
 
 const themeSubscriptions = Subscription.lift(ThemeSwitcher.subscriptions)<Model, Message>({
-  toChildModel: (model) => model.theme,
+  read: (model) => Option.some(model.theme),
   toParentMessage: (message) => Message.GotThemeSwitcherMessage({ message }),
 })
 
@@ -1015,27 +1016,27 @@ const liveChannel = (model: Model): string => {
 }
 
 const liveSubscriptions = Subscription.lift(Live.subscriptions)<Model, Message>({
-  toChildModel: (model) => {
+  read: (model) => {
     const repositoryId = liveChannel(model)
-    return {
+    return Option.some({
       ...model.live,
       channel: repositoryId,
       endpoint:
         repositoryId === Live.APPLICATION_CHANNEL
           ? Live.applicationEndpoint
           : Live.repositoryEndpoint(repositoryId),
-    }
+    })
   },
   toParentMessage: (message) => Message.GotLiveMessage({ message }),
 })
 
 const workspaceSubscriptions = Subscription.lift(Workspace.subscriptions)<Model, Message>({
-  toChildModel: (model) => model.workspace,
+  read: (model) => Option.some(model.workspace),
   toParentMessage: (message) => Message.GotWorkspaceMessage({ message }),
 })
 
 const chatSessionsSubscriptions = Subscription.lift(ChatSessions.subscriptions)<Model, Message>({
-  toChildModel: (model) => model.chatSessions,
+  read: (model) => Option.some(model.chatSessions),
   toParentMessage: (message) => Message.GotChatSessionsMessage({ message }),
 })
 
@@ -1043,7 +1044,7 @@ const chatTranscriptSubscriptions = Subscription.lift(ChatSessionTranscript.subs
   Model,
   Message
 >({
-  toChildModel: (model) => model.chatTranscript,
+  read: (model) => Option.some(model.chatTranscript),
   toParentMessage: (message) => Message.GotChatTranscriptMessage({ message }),
 })
 
@@ -1056,7 +1057,7 @@ const navigationSubscriptions = Subscription.make<Model, Message>()((entry) => (
       }),
       dependenciesToStream: ({ dirty }) =>
         dirty
-          ? Subscription.fromEventFilterMapPreventDefault({
+          ? Dom.streamFromEventFilterMapPreventDefault({
               target: () => window,
               type: "beforeunload",
               filterMapEvent: () =>

@@ -12,6 +12,7 @@ import {
   type HtmlBuilder,
 } from "foldkit/html"
 import { modifyFields } from "foldkit/struct"
+import * as Dom from "foldkit/dom"
 import * as Subscription from "foldkit/subscription"
 import { defineView, type View } from "foldkit/submodel"
 import * as Update from "foldkit/update"
@@ -135,7 +136,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
     {
       modelToDependencies: () => ({ isListening: true }),
       dependenciesToStream: ({ isListening }) =>
-        Subscription.keyBindings({
+        Dom.streamFromKeyBindings({
           bindings: [
             {
               keys: SIDEBAR_KEYBOARD_SHORTCUT,
@@ -161,7 +162,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               }),
             ),
           ),
-          Subscription.fromEvent({
+          Dom.streamFromEvent({
             target: () => window.matchMedia(SIDEBAR_MOBILE_MEDIA_QUERY),
             type: "change",
             mapEvent: (event) => Message.SetIsMobile({ isMobile: event.matches }),

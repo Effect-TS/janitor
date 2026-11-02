@@ -2,6 +2,7 @@ import type { GitHubPullRequestApi } from "@janitor/domain/GitHub/Api"
 import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as DateTime from "effect/DateTime"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
 
@@ -25,11 +26,10 @@ export const applyPullRequestBatch = (request: {
     return yield* sql.withTransaction(
       Effect.gen(function* () {
         const identities = pulls.filter((pull) => pull.title !== undefined)
-        const created =
-          identities.length > 0
-            ? yield* sql<{ number: number }>`
+        const created = Arr.isReadonlyArrayNonEmpty(identities)
+          ? yield* sql<{ number: number }>`
       INSERT INTO github_entity ${sql.insert(
-        identities.map((pull) => ({
+        Arr.map(identities, (pull) => ({
           repository_id: repositoryId,
           number: pull.number,
           kind: "pull_request",
@@ -44,7 +44,7 @@ export const applyPullRequestBatch = (request: {
           projected_sequence: sequence,
         })),
       )} ON CONFLICT(repository_id,number) DO NOTHING RETURNING number`
-            : []
+          : []
         const inserted = new Set(created.map((row) => row.number))
         const labels = new Map<string, NonNullable<GitHubPullRequestApi["labels"]>[number]>()
         const associations = identities
@@ -57,20 +57,30 @@ export const applyPullRequestBatch = (request: {
               label_id: labelId,
             }))
           })
-        if (labels.size > 0)
-          yield* sql`INSERT INTO github_label ${sql.insert([...labels.values()].sort((a, b) => a.id.localeCompare(b.id)).map((label) => ({ repository_id: repositoryId, label_id: label.id, node_id: label.nodeId, name: label.name, availability: "available", projected_sequence: sequence })))}
+        const labelRows = [...labels.values()]
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map((label) => ({
+            repository_id: repositoryId,
+            label_id: label.id,
+            node_id: label.nodeId,
+            name: label.name,
+            availability: "available",
+            projected_sequence: sequence,
+          }))
+        if (Arr.isArrayNonEmpty(labelRows))
+          yield* sql`INSERT INTO github_label ${sql.insert(labelRows)}
       ON CONFLICT(repository_id,label_id) DO UPDATE SET node_id=EXCLUDED.node_id,name=EXCLUDED.name,availability='available',projected_sequence=EXCLUDED.projected_sequence,observed_at=CLOCK_TIMESTAMP() WHERE github_label.projected_sequence <= EXCLUDED.projected_sequence`
-        if (associations.length > 0)
+        if (Arr.isArrayNonEmpty(associations))
           yield* sql`INSERT INTO github_entity_label ${sql.insert(associations)} ON CONFLICT DO NOTHING`
         const entities = yield* sql<{
           number: number
         }>`SELECT number FROM github_entity WHERE repository_id=${repositoryId} AND number IN ${sql.in(pulls.map((pull) => pull.number))}`
         const present = new Set(entities.map((row) => row.number))
         const accepted = pulls.filter((pull) => present.has(pull.number))
-        if (accepted.length > 0)
+        if (Arr.isReadonlyArrayNonEmpty(accepted))
           yield* sql`
       INSERT INTO github_pull_request ${sql.insert(
-        accepted.map((pull) => ({
+        Arr.map(accepted, (pull) => ({
           repository_id: repositoryId,
           number: pull.number,
           pull_request_id: pull.id,

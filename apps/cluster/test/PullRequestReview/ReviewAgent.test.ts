@@ -495,12 +495,6 @@ await taskComplete(JSON.stringify([
             reason: new AiError.InternalProviderError({
               description: "upstream said: secret-body",
               http: {
-                request: {
-                  method: "POST",
-                  url: "https://proxy.test/v1/chat/completions",
-                  urlParams: [],
-                  headers: {},
-                },
                 response: { status: 530, headers: {} },
                 body: "secret-body",
               },

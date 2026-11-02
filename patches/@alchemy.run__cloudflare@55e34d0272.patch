@@ -1,0 +1,120 @@
+diff --git a/lib/Containers/ContainerPublication.js b/lib/Containers/ContainerPublication.js
+index ee528bd3c15e598d03c467bfd8b0bf905fa7a2b4..cecaaf3300946abf67c8a3dfbca5a62b95f0e681 100644
+--- a/lib/Containers/ContainerPublication.js
++++ b/lib/Containers/ContainerPublication.js
+@@ -1,10 +1,14 @@
+ import * as Effect from "effect/Effect";
+ import * as Schedule from "effect/Schedule";
+-export const retryContainerPublication = (publication) => Effect.retry(publication, {
+-    while: (error) => error._tag === "DockerRegistryBlobUnknown" ||
+-        error._tag === "DockerRegistryUnavailable" ||
+-        error._tag === "TimeoutError",
+-    schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++export const retryContainerPublication = (publication) => Effect.suspend(() => {
++    // Each timeout already costs three minutes; leave room for the rest of the deploy.
++    let timeoutRetries = 0;
++    return Effect.retry(publication, {
++        while: (error) => error._tag === "TimeoutError"
++            ? timeoutRetries++ < 1
++            : error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
++        schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++    });
+ });
+ /**
+  * Publishes an image build with a deadline per attempt. A stalled BuildKit
+diff --git a/lib/Workers/Sources/Rolldown.js b/lib/Workers/Sources/Rolldown.js
+index d05bcee55db9274620a542609dfb5ca4954d8051..8248f446d3a1edb7ed50e1ea67e0cae669ada2d7 100644
+--- a/lib/Workers/Sources/Rolldown.js
++++ b/lib/Workers/Sources/Rolldown.js
+@@ -277,6 +277,8 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+     const doClasses = [];
+     const wfClasses = [];
+     const migrations = {};
++    // Named `WorkerEntrypoint` classes re-exported from their own module.
++    const entrypointModules = [];
+     for (const [className, entry] of Object.entries(exports)) {
+         if (isDurableObjectExport(entry)) {
+             doClasses.push(className);
+@@ -287,6 +289,9 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+         else if (entry.kind === "sqlMigrations") {
+             migrations[className] = entry.snapshot;
+         }
++        else if (entry.kind === "entrypointModule") {
++            entrypointModules.push(`export { ${entry.exportName} as ${className} } from ${JSON.stringify(entry.module)};`);
++        }
+     }
+     const hasMigrations = Object.keys(migrations).length > 0;
+     const hasDoClasses = doClasses.length > 0;
+@@ -310,6 +315,8 @@ const meta = {
+ 
+ export default makeWorkerBridge(WorkerEntrypoint, meta);
+ 
++${entrypointModules.join("\n")}
++
+ // export class proxy stubs for Durable Objects and Workflows
+ ${[
+         ...(hasDoClasses
+diff --git a/src/Containers/ContainerPublication.ts b/src/Containers/ContainerPublication.ts
+index b8fe861b516976252b27f843da01fcbfac58e4ec..04d8f1e598ed150e79f1285767eb05b9a87f97be 100644
+--- a/src/Containers/ContainerPublication.ts
++++ b/src/Containers/ContainerPublication.ts
+@@ -10,12 +10,16 @@ export const retryContainerPublication = <
+ >(
+   publication: Effect.Effect<A, E, R>,
+ ) =>
+-  Effect.retry(publication, {
+-    while: (error) =>
+-      error._tag === "DockerRegistryBlobUnknown" ||
+-      error._tag === "DockerRegistryUnavailable" ||
+-      error._tag === "TimeoutError",
+-    schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++  Effect.suspend(() => {
++    // Each timeout already costs three minutes; leave room for the rest of the deploy.
++    let timeoutRetries = 0;
++    return Effect.retry(publication, {
++      while: (error) =>
++        error._tag === "TimeoutError"
++          ? timeoutRetries++ < 1
++          : error._tag === "DockerRegistryBlobUnknown" || error._tag === "DockerRegistryUnavailable",
++      schedule: Schedule.max([Schedule.spaced("3 seconds"), Schedule.recurs(5)]),
++    });
+   });
+ 
+ /**
+diff --git a/src/Workers/Sources/Rolldown.ts b/src/Workers/Sources/Rolldown.ts
+index 143147795e8a1f49cb1d5bcf90bd7047f7907ebc..bd18899f71ca9d4fe2d59d429d0a360502ef262b 100644
+--- a/src/Workers/Sources/Rolldown.ts
++++ b/src/Workers/Sources/Rolldown.ts
+@@ -392,6 +392,8 @@ export const makeEffectVirtualEntry = (
+   const doClasses: string[] = [];
+   const wfClasses: string[] = [];
+   const migrations: Record<string, SqlMigrationSnapshot> = {};
++  // Named `WorkerEntrypoint` classes re-exported from their own module.
++  const entrypointModules: string[] = [];
+   for (const [className, entry] of Object.entries(exports)) {
+     if (isDurableObjectExport(entry)) {
+       doClasses.push(className);
+@@ -399,6 +401,14 @@ export const makeEffectVirtualEntry = (
+       wfClasses.push(className);
+     } else if (entry.kind === "sqlMigrations") {
+       migrations[className] = entry.snapshot;
++    } else if ((entry as { kind: string }).kind === "entrypointModule") {
++      const { module, exportName } = entry as unknown as {
++        module: string;
++        exportName: string;
++      };
++      entrypointModules.push(
++        `export { ${exportName} as ${className} } from ${JSON.stringify(module)};`,
++      );
+     }
+   }
+   const hasMigrations = Object.keys(migrations).length > 0;
+@@ -423,6 +433,8 @@ const meta = {
+ 
+ export default makeWorkerBridge(WorkerEntrypoint, meta);
+ 
++${entrypointModules.join("\n")}
++
+ // export class proxy stubs for Durable Objects and Workflows
+ ${[
+   ...(hasDoClasses
