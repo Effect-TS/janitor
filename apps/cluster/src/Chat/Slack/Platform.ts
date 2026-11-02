@@ -317,14 +317,18 @@ const make = Effect.gen(function* () {
         // Staging posts nothing, so a lost answer there is safe to recover from.
         if (files.length === 0 || (staged._tag === "Success" && !refused(shared.failure)))
           return yield* platformError(shared.failure)
-        // Slack refused the files, so what their message carried goes out as
-        // text, naming them: the whole reply when it was `reply.md`, however
-        // many messages that takes. Nothing already out is posted again.
+        // Slack refused the files, so the text not yet out goes out naming
+        // them: the whole reply when staging was refused or it was `reply.md`,
+        // however many messages that takes, else the last chunk. Nothing
+        // already out is posted again.
         yield* logUnattached(platformError(shared.failure))
         const noted = notingUnattached(text, files)
+        const out = staged._tag === "Success" ? earlier : []
         const postedAt = yield* postChunks(
-          chunkMarkdown(overflow ? noted : notingUnattached(last ?? "", files), CHUNK_CHARACTERS),
-          earlier.length > 0,
+          out.length === 0
+            ? chunkMarkdown(noted, CHUNK_CHARACTERS)
+            : chunkMarkdown(notingUnattached(last ?? "", files), CHUNK_CHARACTERS),
+          out.length > 0,
         )
         return { postedAt, text: noted }
       })
