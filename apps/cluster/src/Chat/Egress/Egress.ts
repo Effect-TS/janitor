@@ -21,10 +21,12 @@ import {
  *   and its write token on everything else.
  * - `api.multica.ai`: adds the Janitor user's PAT, with no path filter.
  * - `api.cloudflare.com`: adds the Browser Run token on the configured
- *   account's Quick Actions (`…/browser-run/*`, and the legacy
- *   `…/browser-rendering/*`). Browser sessions (`…/devtools/*`) are refused:
- *   they need WebSockets, which the container's egress doesn't carry. Every
- *   other Cloudflare API path gets no credential.
+ *   account's documented Quick Actions, matched exactly
+ *   (`…/browser-run/<action>`, `…/browser-run/crawl/<job>`, and the same
+ *   under the legacy `…/browser-rendering`). Any other path under those
+ *   prefixes is refused, browser sessions (`…/devtools/*`) included: they
+ *   need WebSockets, which the container's egress doesn't carry. Every other
+ *   Cloudflare API path gets no credential.
  * - Everything else, other orgs on GitHub included, passes through with no
  *   credential.
  *
@@ -124,14 +126,34 @@ const MULTICA_HOST = "api.multica.ai"
 const CLOUDFLARE_HOST = "api.cloudflare.com"
 /** Browser Run's API, under its current name and the one it had before April 2026. */
 const BROWSER_RUN_SEGMENTS: ReadonlySet<string> = new Set(["browser-run", "browser-rendering"])
+/** The documented Quick Actions, the only Browser Run paths that get the token. */
+const QUICK_ACTIONS: ReadonlySet<string> = new Set([
+  "content",
+  "screenshot",
+  "pdf",
+  "markdown",
+  "snapshot",
+  "accessibilityTree",
+  "scrape",
+  "json",
+  "links",
+  "crawl",
+])
+/** A crawl job id. Anything encoded doesn't match. */
+const CRAWL_JOB = /^[A-Za-z0-9-]+$/
 
 /**
- * Whether a Cloudflare API path is a Browser Run call on `accountId`:
- * `"quick-action"` for one the token may make, `"session"` for a
- * `devtools` path, or `undefined` for any other path.
+ * What a Cloudflare API path is to the Browser Run rule on `accountId`:
+ * `"quick-action"` for a documented Quick Action or a crawl job, which gets
+ * the token; `"session"` for a `devtools` path, however it is spelled;
+ * `"unknown"` for any other path under Browser Run's prefix; or `undefined`
+ * for a path outside it, which the rule leaves alone.
  */
-const browserRunPath = (pathname: string, accountId: string) => {
-  const [empty, client, v4, accounts, account, api, action] = pathname.split("/")
+const browserRunPath = (
+  pathname: string,
+  accountId: string,
+): "quick-action" | "session" | "unknown" | undefined => {
+  const [empty, client, v4, accounts, account, api, action, ...rest] = pathname.split("/")
   if (
     empty !== "" ||
     client !== "client" ||
@@ -139,13 +161,24 @@ const browserRunPath = (pathname: string, accountId: string) => {
     accounts !== "accounts" ||
     account !== accountId ||
     api === undefined ||
-    !BROWSER_RUN_SEGMENTS.has(api) ||
-    action === undefined ||
-    action === ""
+    !BROWSER_RUN_SEGMENTS.has(api)
   ) {
     return undefined
   }
-  return action === "devtools" ? "session" : "quick-action"
+  if (action !== undefined && QUICK_ACTIONS.has(action)) {
+    if (rest.length === 0) return "quick-action"
+    if (action === "crawl" && rest.length === 1 && CRAWL_JOB.test(rest[0]!)) return "quick-action"
+  }
+  return isDevtools(action) ? "session" : "unknown"
+}
+
+const isDevtools = (segment: string | undefined) => {
+  if (segment === undefined) return false
+  try {
+    return decodeURIComponent(segment).toLowerCase().startsWith("devtools")
+  } catch {
+    return false
+  }
 }
 
 /** Whether a request is for GitHub over HTTPS, the only traffic that can carry a GitHub token. */
@@ -747,14 +780,16 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
       const browserRun = yield* egress.browserRun
       const path =
         browserRun === undefined ? undefined : browserRunPath(url.pathname, browserRun.accountId)
-      if (path === "session") {
+      if (path === "session" || path === "unknown") {
         yield* Effect.logWarning("Chat egress refused a request").pipe(
           Effect.annotateLogs({ method: request.method, host: url.host }),
         )
         return refusal(
           request,
           url,
-          "Browser Run sessions need WebSockets, which the sandbox can't use; use a Quick Action",
+          path === "session"
+            ? "Browser Run sessions need WebSockets, which the sandbox can't use; use a Quick Action"
+            : `only Browser Run's Quick Actions get through: ${[...QUICK_ACTIONS].join(", ")}, and crawl/<job id>`,
         )
       }
       const token = path === "quick-action" ? browserRun?.token : undefined
