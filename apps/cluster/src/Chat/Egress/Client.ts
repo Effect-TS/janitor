@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect"
 import {
+  BrowserRunRefused,
   LookupFailed,
+  type BrowserRun,
   type ChatEgress as ChatEgressContext,
   type GitHubNode,
   type GitHubTokens,
@@ -22,6 +24,7 @@ import {
 export const makeEgressContext = (
   props: ChatEgressProps,
   workspace: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> },
+  browserRun?: BrowserRun,
 ): ChatEgressContext => {
   const answers = new Map<string, Effect.Effect<unknown, LookupFailed>>()
   const ask = (query: EgressQuery) => {
@@ -60,9 +63,32 @@ export const makeEgressContext = (
       "Chat egress couldn't get a credential from the workspace",
       error.reason,
     ).pipe(Effect.annotateLogs({ op }), Effect.as(undefined))
+  /** Why Browser Run is refused for this grant, or `undefined` while its turn holds the sandbox. */
+  const browserRunRefusal = ask({ op: "held" }).pipe(
+    Effect.map((held) =>
+      held === true
+        ? undefined
+        : "the turn that held the sandbox has ended; Browser Run runs only during a turn",
+    ),
+    Effect.catch((error) =>
+      Effect.succeed(`the sandbox's turn couldn't be checked (${error.reason})`),
+    ),
+  )
   return {
     sessionId: props.sessionId,
     turnId: props.turnId,
+    // Asks the workspace before every Quick Action, so a sandbox left warm
+    // after its turn can't spend browser time.
+    browserRun:
+      browserRun === undefined
+        ? undefined
+        : {
+            quickAction: (action, options) =>
+              Effect.runPromise(browserRunRefusal).then((reason) => {
+                if (reason !== undefined) throw new BrowserRunRefused({ reason })
+                return browserRun.quickAction(action, options)
+              }),
+          },
     // A workspace that can't be reached hands out no token: the request goes without one.
     multicaToken: ask({ op: "multica" }).pipe(
       Effect.map((token) => (token as string | null) ?? undefined),

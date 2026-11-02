@@ -20,6 +20,12 @@ import {
  *   puts the org's read token on git fetches, REST GETs and GraphQL queries,
  *   and its write token on everything else.
  * - `api.multica.ai`: adds the Janitor user's PAT, with no path filter.
+ * - `browser-run.internal`: never leaves the Worker. While the turn holds the
+ *   sandbox, a `POST /<action>` for one of Browser Run's Quick Actions,
+ *   matched exactly, is answered by the Worker's `BROWSER` binding with the
+ *   JSON body as the action's options, and the binding's response comes back
+ *   unchanged. Any other request to the host is refused, and so is every
+ *   request between turns.
  * - Everything else, other orgs on GitHub included, passes through with no
  *   credential.
  *
@@ -45,6 +51,19 @@ export interface RepositoryInfo {
   readonly defaultBranch: string
   readonly private: boolean
 }
+
+/** The Worker's Browser Run binding, as much of it as the proxy calls. */
+export interface BrowserRun {
+  readonly quickAction: (action: string, options: unknown) => Promise<Response>
+}
+
+/**
+ * Thrown by a gated binding's `quickAction` instead of running the action:
+ * the request is refused with this reason.
+ */
+export class BrowserRunRefused extends Data.TaggedError("BrowserRunRefused")<{
+  readonly reason: string
+}> {}
 
 /** Where a GraphQL node id points. */
 export interface GitHubNode {
@@ -89,6 +108,13 @@ export interface ChatEgress {
    * none.
    */
   readonly multicaToken: Effect.Effect<string | undefined>
+  /**
+   * The Worker's `BROWSER` binding, or `undefined` when `CHAT_BROWSER_RUN`
+   * turned it off, and then every Browser Run request is refused. The
+   * entrypoint's binding first asks the workspace whether the turn still
+   * holds the sandbox, and between turns throws `BrowserRunRefused`.
+   */
+  readonly browserRun: BrowserRun | undefined
   readonly github: GitHubLookup
   /** Sends the rewritten request on. */
   readonly upstream: (request: Request) => Effect.Effect<Response>
@@ -103,6 +129,22 @@ const GITHUB_HOSTS: ReadonlySet<string> = new Set([
   "uploads.github.com",
 ])
 const MULTICA_HOST = "api.multica.ai"
+/** The sandbox's name for Browser Run. Only the egress proxy answers it. */
+export const BROWSER_RUN_HOST = "browser-run.internal"
+/** The Quick Actions the binding runs, the only paths on `BROWSER_RUN_HOST` that get through. */
+const QUICK_ACTIONS: ReadonlySet<string> = new Set([
+  "content",
+  "screenshot",
+  "pdf",
+  "markdown",
+  "snapshot",
+  "accessibilityTree",
+  "scrape",
+  "json",
+  "links",
+])
+/** The largest Quick Action options body the proxy reads. */
+const MAX_QUICK_ACTION_BYTES = 1024 * 1024
 
 /** Whether a request is for GitHub over HTTPS, the only traffic that can carry a GitHub token. */
 export const isGitHubRequest = (url: URL): boolean =>
@@ -132,6 +174,11 @@ const REFUSED_MUTATIONS: ReadonlySet<string> = new Set([
 class Refused extends Data.TaggedError("Refused")<{ readonly reason: string }> {}
 
 const refuse = (reason: string) => new Refused({ reason })
+
+/** The binding couldn't run a Quick Action. The container gets a 502. */
+class QuickActionFailed extends Data.TaggedError("QuickActionFailed")<{
+  readonly cause: unknown
+}> {}
 
 /** Which token a request gets: an owner's read or write token, or none. */
 type Credential = { readonly owner: string; readonly access: "read" | "write" } | undefined
@@ -642,7 +689,7 @@ const UPSTREAM_ERROR_HEADERS = [
 const logUpstreamError = (
   request: Request,
   url: URL,
-  credential: "read" | "write" | "multica" | "none",
+  credential: "read" | "write" | "multica" | "browser-run" | "none",
   response: Response,
 ) => {
   if (!isUpstreamError(response.status)) return Effect.void
@@ -667,6 +714,44 @@ const refusal = (request: Request, url: URL, reason: string) =>
     `janitor's egress proxy refused ${request.method} ${url.host}${url.pathname}: ${reason}\n`,
     { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } },
   )
+
+/**
+ * `BROWSER_RUN_HOST`: runs `POST /<action>` on the binding with the body's
+ * JSON as the options. The path must name a Quick Action exactly, so an
+ * encoded or longer path is refused.
+ */
+const quickAction = (request: Request, url: URL, egress: ChatEgress) =>
+  Effect.gen(function* () {
+    const binding = egress.browserRun
+    if (binding === undefined) return yield* refuse("Browser Run is off for this deployment")
+    const action = url.pathname.slice(1)
+    if (!QUICK_ACTIONS.has(action)) {
+      return yield* refuse(
+        `only Browser Run's Quick Actions get through: ${[...QUICK_ACTIONS].join(", ")}`,
+      )
+    }
+    if (request.method !== "POST") return yield* refuse("a Quick Action is a POST")
+    const body = yield* readBody(request, MAX_QUICK_ACTION_BYTES)
+    const options = yield* Effect.try({
+      try: (): unknown => JSON.parse(decoder.decode(body)),
+      catch: () => refuse("its body isn't JSON"),
+    })
+    return yield* Effect.tryPromise({
+      try: () => binding.quickAction(action, options),
+      catch: (error) =>
+        error instanceof BrowserRunRefused
+          ? refuse(error.reason)
+          : new QuickActionFailed({ cause: error }),
+    }).pipe(
+      Effect.catchTag("QuickActionFailed", (failed) =>
+        Effect.logWarning("Chat egress couldn't run a Quick Action", failed.cause).pipe(
+          Effect.as(
+            new Response("janitor's egress proxy couldn't reach Browser Run\n", { status: 502 }),
+          ),
+        ),
+      ),
+    )
+  })
 
 /**
  * Applies the egress policy to one container request and forwards it, or
@@ -698,6 +783,18 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
       const response = yield* forward()
       yield* logUpstreamError(request, url, token === undefined ? "none" : "multica", response)
       return response
+    }
+    if (url.hostname === BROWSER_RUN_HOST) {
+      const answered = yield* quickAction(request, url, egress).pipe(
+        Effect.catchTag("Refused", (refused) =>
+          Effect.logWarning("Chat egress refused a request").pipe(
+            Effect.annotateLogs({ method: request.method, host: url.host }),
+            Effect.as(refusal(request, url, refused.reason)),
+          ),
+        ),
+      )
+      yield* logUpstreamError(request, url, "browser-run", answered)
+      return answered
     }
     if (!isGitHubRequest(url)) return yield* forward()
 

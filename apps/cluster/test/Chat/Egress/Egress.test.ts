@@ -16,6 +16,7 @@ const TOKENS: Record<string, GitHubTokens> = {
   "effectful-tech": { read: "ghs_read_effectful", write: "ghs_write_effectful" },
 }
 const MULTICA_TOKEN = "mul_janitor"
+const BROWSER_RUN = "https://browser-run.internal"
 
 /**
  * What GitHub reports. `Effect-TS/secret` is a private repo on Effect-TS's
@@ -58,6 +59,11 @@ const makeEgress = (
   turnId: "turn-1",
   githubTokens: (owner) => Effect.succeed(TOKENS[owner.toLowerCase()]),
   multicaToken: Effect.succeed(MULTICA_TOKEN),
+  // Answers with what it ran, so a test sees the action, its options and the body unchanged.
+  browserRun: {
+    quickAction: async (action, options) =>
+      new Response(`quick action ${action} ${JSON.stringify(options)}`),
+  },
   github: {
     repository: (repository) => {
       const info = REPOSITORIES[key(repository)]
@@ -512,6 +518,69 @@ const table: ReadonlyArray<Row> = [
     expected: "multica",
   },
 
+  // Browser Run: exact Quick Actions on its internal host, answered by the binding
+  {
+    name: "browser run",
+    method: "POST",
+    url: `${BROWSER_RUN}/screenshot`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: `quick action screenshot ${JSON.stringify({ url: "https://effect.website" })}`,
+  },
+  {
+    name: "browser run",
+    method: "POST",
+    url: `${BROWSER_RUN}/accessibilityTree`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: `quick action accessibilityTree ${JSON.stringify({ url: "https://effect.website" })}`,
+  },
+  {
+    name: "browser run crawl, which the binding doesn't run",
+    method: "POST",
+    url: `${BROWSER_RUN}/crawl`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: "refused",
+  },
+  {
+    name: "browser run session",
+    method: "GET",
+    url: `${BROWSER_RUN}/devtools/browser`,
+    expected: "refused",
+  },
+  {
+    name: "browser run, encoded action",
+    method: "POST",
+    url: `${BROWSER_RUN}/%73creenshot`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: "refused",
+  },
+  {
+    name: "browser run, extra suffix",
+    method: "POST",
+    url: `${BROWSER_RUN}/screenshot/extra`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: "refused",
+  },
+  {
+    name: "browser run, not a POST",
+    method: "GET",
+    url: `${BROWSER_RUN}/markdown`,
+    expected: "refused",
+  },
+  {
+    name: "browser run, a body that isn't JSON",
+    method: "POST",
+    url: `${BROWSER_RUN}/markdown`,
+    body: encoder.encode("url=https://effect.website"),
+    expected: "refused",
+  },
+  {
+    name: "browser run on the Cloudflare API",
+    method: "POST",
+    url: "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/browser-run/screenshot",
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: "anonymous",
+  },
+
   // Everything else: no credential
   { name: "web", method: "GET", url: "https://example.com/", expected: "anonymous" },
   { name: "multica web", method: "GET", url: "https://multica.ai/", expected: "anonymous" },
@@ -560,11 +629,16 @@ const sameBytes = (a: Uint8Array, b: Uint8Array) =>
 
 /**
  * Sends one container request through the proxy and classifies the outcome:
- * `refused` (a 403 with a reason, nothing forwarded), or the credential on
+ * `refused` (a 403 with a reason, nothing forwarded), what the Browser Run
+ * binding answered (nothing forwarded), or the credential on
  * the one forwarded request, which must keep its body intact and not follow
  * redirects.
  */
-const send = (row: Row, headers: Record<string, string> = {}) =>
+const send = (
+  row: Row,
+  headers: Record<string, string> = {},
+  egress: (forwarded: Array<Request>) => ChatEgress = makeEgress,
+) =>
   Effect.gen(function* () {
     const forwarded: Array<Request> = []
     const response = yield* handleChatEgress(
@@ -573,11 +647,12 @@ const send = (row: Row, headers: Record<string, string> = {}) =>
         headers,
         ...(row.body === undefined ? {} : { body: row.body }),
       }),
-      makeEgress(forwarded),
+      egress(forwarded),
     )
     if (forwarded.length === 0) {
-      const reason = yield* Effect.promise(() => response.text())
-      return response.status === 403 && reason.length > 0 ? "refused" : `status ${response.status}`
+      const text = yield* Effect.promise(() => response.text())
+      if (response.status === 200 && text.startsWith("quick action ")) return text
+      return response.status === 403 && text.length > 0 ? "refused" : `status ${response.status}`
     }
     if (forwarded.length > 1) return `forwarded ${forwarded.length} times`
     const request = forwarded[0]!
@@ -591,10 +666,15 @@ const send = (row: Row, headers: Record<string, string> = {}) =>
 
 const describeRow = (row: Row) => `${row.name}: ${row.method} ${row.url}`
 
-const expectOutcomes = (rows: ReadonlyArray<Row>) =>
+const expectOutcomes = (
+  rows: ReadonlyArray<Row>,
+  egress?: (forwarded: Array<Request>) => ChatEgress,
+) =>
   Effect.gen(function* () {
     const outcomes = yield* Effect.forEach(rows, (row) =>
-      send(row).pipe(Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome))),
+      send(row, {}, egress).pipe(
+        Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome)),
+      ),
     )
     assert.deepStrictEqual(
       rows.map((row, index) => `${describeRow(row)} -> ${outcomes[index]}`),
@@ -671,6 +751,21 @@ describe("chat egress proxy", () => {
         "write:Effect-TS",
       ),
     ]),
+  )
+
+  it.effect("Browser Run is refused when its binding is off", () =>
+    expectOutcomes(
+      [
+        {
+          name: "browser run",
+          method: "POST",
+          url: `${BROWSER_RUN}/screenshot`,
+          body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+          expected: "refused",
+        },
+      ],
+      (forwarded) => ({ ...makeEgress(forwarded), browserRun: undefined }),
+    ),
   )
 
   it.effect(

@@ -128,6 +128,7 @@ import { ChatModelLayer } from "./Chat/Agent.ts"
 import {
   chatBotGate,
   chatBotInit,
+  chatBrowserRun,
   type ChatEgressSecrets,
   chatEgressSecrets,
   chatGateModel,
@@ -347,6 +348,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // off, so turning it off never deletes their storage; the workspace has
     // no container then, and nothing acquires one.
     if (chatBot) yield* exportChatEgress
+    // Browser Run's Quick Actions, which `ChatEgress` runs for the sandbox
+    // through this binding, so no Cloudflare token is involved.
+    if (chatBot && (yield* chatBrowserRun)) yield* Cloudflare.Workers.Browser("BROWSER")
     const chatWorkspaces = yield* ChatWorkspace.pipe(
       Effect.provide(
         ChatWorkspaceLive.pipe(
@@ -662,6 +666,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Cloudflare.R2.ReadWriteBucketBinding,
       Cloudflare.R2.WriteBucketBinding,
       Cloudflare.Workers.RateLimitBinding,
+      Cloudflare.Workers.BrowserBinding,
       Cloudflare.Workers.CronEventSourceLive,
     ]),
   ),

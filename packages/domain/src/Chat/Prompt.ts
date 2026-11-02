@@ -74,6 +74,7 @@ ${
 
 - Nothing is checked out at the start. Clone what you need into \`/workspace/<org>/<repo>\`, with \`gh repo clone\` or \`git clone --filter=blob:none\`.
 - The sandbox can be replaced between turns. Durable work is pushed work: at the end of any turn that leaves changes worth keeping, commit and push them to a working branch. Don't push mid-turn just to save work.
+- For a page that needs JavaScript to render, a screenshot, or a page's accessibility tree, use Cloudflare Browser Run as the \`browser-run\` skill describes.
 
 ## Writes
 

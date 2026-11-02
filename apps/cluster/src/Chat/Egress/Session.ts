@@ -26,7 +26,8 @@ import {
  *   and the old one revoked.
  * - `stop` (at release) ends the grant at once and revokes every token. A
  *   mint still in flight for it is revoked when it lands, never handed out.
- *   Between turns GitHub gets no credential, and Multica gets no PAT.
+ *   Between turns GitHub gets no credential, Multica gets no PAT, and
+ *   Browser Run runs nothing.
  *
  * Tokens live only in memory: never in storage, logs or errors. If the
  * object restarts mid-turn, the turn's tokens are minted again on first use,
@@ -42,6 +43,8 @@ const RepositorySchema = Schema.Struct({ owner: Schema.String, name: Schema.Stri
 export const EgressQuery = Schema.Union([
   Schema.Struct({ op: Schema.Literal("tokens"), owner: Schema.String }),
   Schema.Struct({ op: Schema.Literal("multica") }),
+  /** Whether the grant's turn still holds the sandbox. */
+  Schema.Struct({ op: Schema.Literal("held") }),
   Schema.Struct({ op: Schema.Literal("repository"), repository: RepositorySchema }),
   Schema.Struct({
     op: Schema.Literal("branchRuled"),
@@ -365,6 +368,8 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
           return tokens(query.owner, generation).pipe(Effect.map((held) => held ?? null))
         case "multica":
           return multica(generation)
+        case "held":
+          return Effect.sync(() => generation === active)
         case "repository":
           return repository(query.repository, generation)
         case "branchRuled":
