@@ -152,17 +152,39 @@ export type LoopExit =
   | { readonly _tag: "Finished"; readonly summary: string }
   /** The loop ended without the agent finishing. */
   | { readonly _tag: "Incomplete" }
-  /** The provider failed, by error category and HTTP status; never with a body. */
+  /**
+   * The provider failed, by error category and HTTP status, with an excerpt
+   * of the provider's message when it gave one; never with a raw body.
+   */
   | {
       readonly _tag: "ProviderFailed"
       readonly category: string
       readonly status: number | undefined
+      readonly excerpt: string | undefined
     }
   /** The executor's transport or its container went away. */
   | { readonly _tag: "SandboxLost" }
   | { readonly _tag: "Interrupted" }
   /** The loop died on something else, by the defect's kind. */
   | { readonly _tag: "Crashed"; readonly defect: string }
+
+/** The longest excerpt of a provider's error message a log shows. */
+const EXCERPT_CAP = 300
+
+/**
+ * A provider's error message for the logs: one line of at most `EXCERPT_CAP`
+ * characters, with data URLs, bearer tokens and long opaque strings (keys,
+ * base64) redacted, since a provider may echo the request it rejected.
+ */
+export const errorExcerpt = (message: string): string => {
+  const redacted = message
+    .replace(/data:[^\s"')]*/g, "data:[redacted]")
+    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/[A-Za-z0-9+/=_-]{32,}/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+  return redacted.length > EXCERPT_CAP ? `${redacted.slice(0, EXCERPT_CAP)}…` : redacted
+}
 
 export const loopExit = (
   exit: Exit.Exit<void, AgentOutput.AgentFinished | AgentOutput.RetriesExhausted | AiError.AiError>,
@@ -177,6 +199,10 @@ export const loopExit = (
       _tag: "ProviderFailed",
       category: reason._tag,
       status: "http" in reason ? reason.http?.response?.status : undefined,
+      excerpt:
+        "description" in reason && typeof reason.description === "string"
+          ? errorExcerpt(reason.description)
+          : undefined,
     }
   }
   if (isSandboxLoss(exit.cause)) return { _tag: "SandboxLost" }

@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as SqlClient from "effect/sql/SqlClient"
-import { decodeMessage, encodeMessage } from "../AgentHistory.ts"
+import { decodeMessage, encodeMessage, withoutFiles } from "../AgentHistory.ts"
 import type { HistoryChange } from "../AgentLoop.ts"
 import { BOT_AUTHOR_ID } from "./Gate.ts"
 import { ChatMessage, ChatThread, GateOutcome, TranscriptTurn } from "@janitor/domain/Chat/Session"
@@ -410,6 +410,40 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     })
 
   /**
+   * Replaces each file in what a turn added to the history with the omitted
+   * placeholder, after the provider rejected the turn's request: a file it
+   * won't take would fail every later turn that replays it. The turn's
+   * transcript keeps the files, and earlier turns' history is untouched.
+   */
+  const omitFiles = (turnId: string) =>
+    Effect.gen(function* () {
+      const added = new Set(
+        (yield* sql<{ message: string }>`
+          SELECT message FROM chat_transcript
+          WHERE session_id = ${sessionId} AND turn_id = ${turnId}`).map((row) => row.message),
+      )
+      const rows = yield* sql<{ seq: number; message: string }>`
+        SELECT seq, message FROM chat_history WHERE session_id = ${sessionId} ORDER BY seq`
+      const updates: Array<{ readonly seq: number; readonly message: string }> = []
+      for (const row of rows) {
+        if (!added.has(row.message)) continue
+        const omitted = withoutFiles(yield* decodeMessage(row.message))
+        if (Option.isSome(omitted))
+          updates.push({ seq: row.seq, message: yield* encodeMessage(omitted.value) })
+      }
+      if (updates.length === 0) return
+      yield* sql.withTransaction(
+        Effect.forEach(
+          updates,
+          ({ seq, message }) => sql`
+            UPDATE chat_history SET message = ${message}
+            WHERE session_id = ${sessionId} AND seq = ${seq}`,
+          { discard: true },
+        ),
+      )
+    })
+
+  /**
    * The messages with their gate outcomes, the turns, and each turn's
    * transcript messages by turn id, read in one transaction.
    */
@@ -502,6 +536,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     updateTurn,
     commitStep,
     history,
+    omitFiles,
     transcript,
     starter,
     rememberAdmission,

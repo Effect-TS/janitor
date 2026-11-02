@@ -141,7 +141,10 @@ const sumUsage = (usages: ReadonlyArray<AgentOutput.Usage>): ChatUsage | null =>
         cacheWrite: usages.reduce((sum, usage) => sum + usage.cacheWrite, 0),
       }
 
-/** How a loop's exit ends it. Provider failures are logged by category and HTTP status only. */
+/**
+ * How a loop's exit ends it. Provider failures are logged by category, HTTP
+ * status and a short, redacted excerpt of the provider's message.
+ */
 const loopEnd = (
   exit: Exit.Exit<void, AgentOutput.AgentFinished | AgentOutput.RetriesExhausted | AiError.AiError>,
 ): Effect.Effect<ChatLoopEnd> => {
@@ -160,6 +163,7 @@ const loopEnd = (
           Effect.annotateLogs({
             errorCategory: end.category,
             ...(end.status === undefined ? {} : { status: end.status }),
+            ...(end.excerpt === undefined ? {} : { providerMessage: end.excerpt }),
           }),
         ),
         { _tag: "Failed", category: end.category },
