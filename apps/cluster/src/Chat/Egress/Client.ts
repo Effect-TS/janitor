@@ -23,6 +23,7 @@ import {
 export const makeEgressContext = (
   props: ChatEgressProps,
   workspace: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> },
+  browserRun?: BrowserRun,
 ): ChatEgressContext => {
   const answers = new Map<string, Effect.Effect<unknown, LookupFailed>>()
   const ask = (query: EgressQuery) => {
@@ -64,14 +65,11 @@ export const makeEgressContext = (
   return {
     sessionId: props.sessionId,
     turnId: props.turnId,
+    browserRun,
     // A workspace that can't be reached hands out no token: the request goes without one.
     multicaToken: ask({ op: "multica" }).pipe(
       Effect.map((token) => (token as string | null) ?? undefined),
       Effect.catch(withoutCredential("multica")),
-    ),
-    browserRun: ask({ op: "browserRun" }).pipe(
-      Effect.map((browserRun) => (browserRun as BrowserRun | null) ?? undefined),
-      Effect.catch(withoutCredential("browserRun")),
     ),
     githubTokens: (owner) =>
       ask({ op: "tokens", owner }).pipe(

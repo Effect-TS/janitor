@@ -20,13 +20,11 @@ import {
  *   puts the org's read token on git fetches, REST GETs and GraphQL queries,
  *   and its write token on everything else.
  * - `api.multica.ai`: adds the Janitor user's PAT, with no path filter.
- * - `api.cloudflare.com`: adds the Browser Run token on the configured
- *   account's documented Quick Actions, matched exactly
- *   (`…/browser-run/<action>`, `…/browser-run/crawl/<job>`, and the same
- *   under the legacy `…/browser-rendering`). Any other path under those
- *   prefixes is refused, browser sessions (`…/devtools/*`) included: they
- *   need WebSockets, which the container's egress doesn't carry. Every other
- *   Cloudflare API path gets no credential.
+ * - `browser-run.internal`: never leaves the Worker. A `POST /<action>` for
+ *   one of Browser Run's Quick Actions, matched exactly, is answered by the
+ *   Worker's `BROWSER` binding with the JSON body as the action's options,
+ *   and the binding's response comes back unchanged. Any other request to
+ *   the host is refused.
  * - Everything else, other orgs on GitHub included, passes through with no
  *   credential.
  *
@@ -53,11 +51,9 @@ export interface RepositoryInfo {
   readonly private: boolean
 }
 
-/** The Cloudflare account and token Browser Run's Quick Actions are called with. */
+/** The Worker's Browser Run binding, as much of it as the proxy calls. */
 export interface BrowserRun {
-  readonly accountId: string
-  /** An account token with only Browser Run Edit. */
-  readonly token: string
+  readonly quickAction: (action: string, options: unknown) => Promise<Response>
 }
 
 /** Where a GraphQL node id points. */
@@ -104,11 +100,10 @@ export interface ChatEgress {
    */
   readonly multicaToken: Effect.Effect<string | undefined>
   /**
-   * `CHAT_BROWSER_RUN_ACCOUNT_ID` and `CHAT_BROWSER_RUN_TOKEN` while the turn
-   * holds the sandbox; `undefined` between turns or when unset, and then
-   * Cloudflare gets no credential.
+   * The Worker's `BROWSER` binding, or `undefined` when `CHAT_BROWSER_RUN`
+   * turned it off, and then every Browser Run request is refused.
    */
-  readonly browserRun: Effect.Effect<BrowserRun | undefined>
+  readonly browserRun: BrowserRun | undefined
   readonly github: GitHubLookup
   /** Sends the rewritten request on. */
   readonly upstream: (request: Request) => Effect.Effect<Response>
@@ -123,10 +118,9 @@ const GITHUB_HOSTS: ReadonlySet<string> = new Set([
   "uploads.github.com",
 ])
 const MULTICA_HOST = "api.multica.ai"
-const CLOUDFLARE_HOST = "api.cloudflare.com"
-/** Browser Run's API, under its current name and the one it had before April 2026. */
-const BROWSER_RUN_SEGMENTS: ReadonlySet<string> = new Set(["browser-run", "browser-rendering"])
-/** The documented Quick Actions, the only Browser Run paths that get the token. */
+/** The sandbox's name for Browser Run. Only the egress proxy answers it. */
+export const BROWSER_RUN_HOST = "browser-run.internal"
+/** The Quick Actions the binding runs, the only paths on `BROWSER_RUN_HOST` that get through. */
 const QUICK_ACTIONS: ReadonlySet<string> = new Set([
   "content",
   "screenshot",
@@ -137,49 +131,9 @@ const QUICK_ACTIONS: ReadonlySet<string> = new Set([
   "scrape",
   "json",
   "links",
-  "crawl",
 ])
-/** A crawl job id. Anything encoded doesn't match. */
-const CRAWL_JOB = /^[A-Za-z0-9-]+$/
-
-/**
- * What a Cloudflare API path is to the Browser Run rule on `accountId`:
- * `"quick-action"` for a documented Quick Action or a crawl job, which gets
- * the token; `"session"` for a `devtools` path, however it is spelled;
- * `"unknown"` for any other path under Browser Run's prefix; or `undefined`
- * for a path outside it, which the rule leaves alone.
- */
-const browserRunPath = (
-  pathname: string,
-  accountId: string,
-): "quick-action" | "session" | "unknown" | undefined => {
-  const [empty, client, v4, accounts, account, api, action, ...rest] = pathname.split("/")
-  if (
-    empty !== "" ||
-    client !== "client" ||
-    v4 !== "v4" ||
-    accounts !== "accounts" ||
-    account !== accountId ||
-    api === undefined ||
-    !BROWSER_RUN_SEGMENTS.has(api)
-  ) {
-    return undefined
-  }
-  if (action !== undefined && QUICK_ACTIONS.has(action)) {
-    if (rest.length === 0) return "quick-action"
-    if (action === "crawl" && rest.length === 1 && CRAWL_JOB.test(rest[0]!)) return "quick-action"
-  }
-  return isDevtools(action) ? "session" : "unknown"
-}
-
-const isDevtools = (segment: string | undefined) => {
-  if (segment === undefined) return false
-  try {
-    return decodeURIComponent(segment).toLowerCase().startsWith("devtools")
-  } catch {
-    return false
-  }
-}
+/** The largest Quick Action options body the proxy reads. */
+const MAX_QUICK_ACTION_BYTES = 1024 * 1024
 
 /** Whether a request is for GitHub over HTTPS, the only traffic that can carry a GitHub token. */
 export const isGitHubRequest = (url: URL): boolean =>
@@ -746,6 +700,38 @@ const refusal = (request: Request, url: URL, reason: string) =>
   )
 
 /**
+ * `BROWSER_RUN_HOST`: runs `POST /<action>` on the binding with the body's
+ * JSON as the options. The path must name a Quick Action exactly, so an
+ * encoded or longer path is refused.
+ */
+const quickAction = (request: Request, url: URL, egress: ChatEgress) =>
+  Effect.gen(function* () {
+    const binding = egress.browserRun
+    if (binding === undefined) return yield* refuse("Browser Run is off for this deployment")
+    const action = url.pathname.slice(1)
+    if (!QUICK_ACTIONS.has(action)) {
+      return yield* refuse(
+        `only Browser Run's Quick Actions get through: ${[...QUICK_ACTIONS].join(", ")}`,
+      )
+    }
+    if (request.method !== "POST") return yield* refuse("a Quick Action is a POST")
+    const body = yield* readBody(request, MAX_QUICK_ACTION_BYTES)
+    const options = yield* Effect.try({
+      try: (): unknown => JSON.parse(decoder.decode(body)),
+      catch: () => refuse("its body isn't JSON"),
+    })
+    return yield* Effect.tryPromise(() => binding.quickAction(action, options)).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Chat egress couldn't run a Quick Action", error).pipe(
+          Effect.as(
+            new Response("janitor's egress proxy couldn't reach Browser Run\n", { status: 502 }),
+          ),
+        ),
+      ),
+    )
+  })
+
+/**
  * Applies the egress policy to one container request and forwards it, or
  * answers 403. Forwarded requests don't follow redirects, so a redirect
  * target comes back through here and is checked again.
@@ -776,27 +762,17 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
       yield* logUpstreamError(request, url, token === undefined ? "none" : "multica", response)
       return response
     }
-    if (url.protocol === "https:" && url.hostname === CLOUDFLARE_HOST) {
-      const browserRun = yield* egress.browserRun
-      const path =
-        browserRun === undefined ? undefined : browserRunPath(url.pathname, browserRun.accountId)
-      if (path === "session" || path === "unknown") {
-        yield* Effect.logWarning("Chat egress refused a request").pipe(
-          Effect.annotateLogs({ method: request.method, host: url.host }),
-        )
-        return refusal(
-          request,
-          url,
-          path === "session"
-            ? "Browser Run sessions need WebSockets, which the sandbox can't use; use a Quick Action"
-            : `only Browser Run's Quick Actions get through: ${[...QUICK_ACTIONS].join(", ")}, and crawl/<job id>`,
-        )
-      }
-      const token = path === "quick-action" ? browserRun?.token : undefined
-      if (token !== undefined) headers.set("authorization", `Bearer ${token}`)
-      const response = yield* forward()
-      yield* logUpstreamError(request, url, token === undefined ? "none" : "browser-run", response)
-      return response
+    if (url.hostname === BROWSER_RUN_HOST) {
+      const answered = yield* quickAction(request, url, egress).pipe(
+        Effect.catchTag("Refused", (refused) =>
+          Effect.logWarning("Chat egress refused a request").pipe(
+            Effect.annotateLogs({ method: request.method, host: url.host }),
+            Effect.as(refusal(request, url, refused.reason)),
+          ),
+        ),
+      )
+      yield* logUpstreamError(request, url, "browser-run", answered)
+      return answered
     }
     if (!isGitHubRequest(url)) return yield* forward()
 

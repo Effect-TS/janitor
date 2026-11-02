@@ -9,10 +9,10 @@ import * as Schema from "effect/Schema"
  * applies them. Nothing is checked out; the model clones on demand.
  *
  * The environment is what lets `gh` and `multica` run as the bot without
- * holding a credential, and `curl` reach Browser Run: the egress proxy swaps
- * the placeholders for real tokens. Any of the daemon-task variables, or a
- * daemon task marker file, would put the `multica` CLI into daemon-task mode,
- * so the container removes them all, whatever the request says.
+ * holding a credential: the egress proxy swaps the placeholders for real
+ * tokens. Any of the daemon-task variables, or a daemon task marker file,
+ * would put the `multica` CLI into daemon-task mode, so the container removes
+ * them all, whatever the request says.
  */
 
 /** Where the sandbox's `multica` CLI sends its requests. */
@@ -69,14 +69,9 @@ export type ProvisionRequest = typeof ProvisionRequest.Type
 /**
  * The sandbox environment from the spec. The tokens are placeholders: the
  * CLIs need one to send a request at all, and the egress proxy replaces the
- * `Authorization` header they send. `CLOUDFLARE_ACCOUNT_ID` and
- * `CLOUDFLARE_API_TOKEN` are set only when Browser Run is configured, which
- * is how the `browser-run` skill tells whether it is.
+ * `Authorization` header they send.
  */
-export const sandboxEnvironment = (
-  multicaWorkspaceId: string,
-  browserRunAccountId?: string | undefined,
-): Record<string, string> => ({
+export const sandboxEnvironment = (multicaWorkspaceId: string): Record<string, string> => ({
   GIT_AUTHOR_NAME: GIT_NAME,
   GIT_AUTHOR_EMAIL: GIT_EMAIL,
   GIT_COMMITTER_NAME: GIT_NAME,
@@ -85,18 +80,14 @@ export const sandboxEnvironment = (
   MULTICA_TOKEN: "mul_placeholder",
   MULTICA_SERVER_URL,
   MULTICA_WORKSPACE_ID: multicaWorkspaceId,
-  ...(browserRunAccountId === undefined
-    ? {}
-    : { CLOUDFLARE_ACCOUNT_ID: browserRunAccountId, CLOUDFLARE_API_TOKEN: "placeholder" }),
 })
 
 /** What the Worker posts to `/provision`: the sandbox environment and its skills (`Skills.ts`). */
 export const provisionRequest = (
   multicaWorkspaceId: string,
   skills: ReadonlyArray<Skill>,
-  browserRunAccountId?: string | undefined,
 ): ProvisionRequest => ({
-  environment: sandboxEnvironment(multicaWorkspaceId, browserRunAccountId),
+  environment: sandboxEnvironment(multicaWorkspaceId),
   skills,
 })
 

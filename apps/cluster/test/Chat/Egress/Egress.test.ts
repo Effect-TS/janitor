@@ -16,8 +16,7 @@ const TOKENS: Record<string, GitHubTokens> = {
   "effectful-tech": { read: "ghs_read_effectful", write: "ghs_write_effectful" },
 }
 const MULTICA_TOKEN = "mul_janitor"
-const BROWSER_RUN = { accountId: "0123456789abcdef0123456789abcdef", token: "cf_browser_run" }
-const ACCOUNT = `https://api.cloudflare.com/client/v4/accounts/${BROWSER_RUN.accountId}`
+const BROWSER_RUN = "https://browser-run.internal"
 
 /**
  * What GitHub reports. `Effect-TS/secret` is a private repo on Effect-TS's
@@ -60,7 +59,11 @@ const makeEgress = (
   turnId: "turn-1",
   githubTokens: (owner) => Effect.succeed(TOKENS[owner.toLowerCase()]),
   multicaToken: Effect.succeed(MULTICA_TOKEN),
-  browserRun: Effect.succeed(BROWSER_RUN),
+  // Answers with what it ran, so a test sees the action, its options and the body unchanged.
+  browserRun: {
+    quickAction: async (action, options) =>
+      new Response(`quick action ${action} ${JSON.stringify(options)}`),
+  },
   github: {
     repository: (repository) => {
       const info = REPOSITORIES[key(repository)]
@@ -515,73 +518,66 @@ const table: ReadonlyArray<Row> = [
     expected: "multica",
   },
 
-  // Browser Run: the Cloudflare token on the configured account's Quick Actions only
+  // Browser Run: exact Quick Actions on its internal host, answered by the binding
   {
     name: "browser run",
     method: "POST",
-    url: `${ACCOUNT}/browser-run/screenshot`,
+    url: `${BROWSER_RUN}/screenshot`,
     body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
-    expected: "browser-run",
+    expected: `quick action screenshot ${JSON.stringify({ url: "https://effect.website" })}`,
   },
   {
-    name: "browser run, legacy path",
+    name: "browser run",
     method: "POST",
-    url: `${ACCOUNT}/browser-rendering/markdown`,
+    url: `${BROWSER_RUN}/accessibilityTree`,
     body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
-    expected: "browser-run",
+    expected: `quick action accessibilityTree ${JSON.stringify({ url: "https://effect.website" })}`,
+  },
+  {
+    name: "browser run crawl, which the binding doesn't run",
+    method: "POST",
+    url: `${BROWSER_RUN}/crawl`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: "refused",
   },
   {
     name: "browser run session",
     method: "GET",
-    url: `${ACCOUNT}/browser-run/devtools/browser`,
+    url: `${BROWSER_RUN}/devtools/browser`,
     expected: "refused",
   },
   {
-    name: "browser run crawl job",
-    method: "GET",
-    url: `${ACCOUNT}/browser-run/crawl/c7f8s2d9-a8e7-4b6e-8e4d-3d4a1b2c3f4e`,
-    expected: "browser-run",
-  },
-  {
-    name: "browser run session, encoded",
-    method: "GET",
-    url: `${ACCOUNT}/browser-run/%64evtools/browser`,
-    expected: "refused",
-  },
-  {
-    name: "browser run, encoded separators toward another account",
+    name: "browser run, encoded action",
     method: "POST",
-    url: `${ACCOUNT}/browser-run/..%2F..%2Ffedcba9876543210fedcba9876543210%2Fbrowser-run%2Fscreenshot`,
-    expected: "refused",
-  },
-  {
-    name: "browser run, unknown action",
-    method: "POST",
-    url: `${ACCOUNT}/browser-run/history`,
+    url: `${BROWSER_RUN}/%73creenshot`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
     expected: "refused",
   },
   {
     name: "browser run, extra suffix",
     method: "POST",
-    url: `${ACCOUNT}/browser-run/screenshot/extra`,
+    url: `${BROWSER_RUN}/screenshot/extra`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
     expected: "refused",
   },
   {
-    name: "another cloudflare api",
+    name: "browser run, not a POST",
     method: "GET",
-    url: `${ACCOUNT}/workers/scripts`,
-    expected: "anonymous",
+    url: `${BROWSER_RUN}/markdown`,
+    expected: "refused",
   },
   {
-    name: "another account's browser run",
+    name: "browser run, a body that isn't JSON",
     method: "POST",
-    url: "https://api.cloudflare.com/client/v4/accounts/fedcba9876543210fedcba9876543210/browser-run/screenshot",
-    expected: "anonymous",
+    url: `${BROWSER_RUN}/markdown`,
+    body: encoder.encode("url=https://effect.website"),
+    expected: "refused",
   },
   {
-    name: "browser run over plain http",
+    name: "browser run on the Cloudflare API",
     method: "POST",
-    url: `http://api.cloudflare.com/client/v4/accounts/${BROWSER_RUN.accountId}/browser-run/screenshot`,
+    url: "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/browser-run/screenshot",
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
     expected: "anonymous",
   },
 
@@ -614,7 +610,6 @@ const LABELS: ReadonlyArray<readonly [label: string, token: string]> = [
   ["read:Effectful-Tech", TOKENS["effectful-tech"]!.read],
   ["write:Effectful-Tech", TOKENS["effectful-tech"]!.write],
   ["multica", MULTICA_TOKEN],
-  ["browser-run", BROWSER_RUN.token],
 ]
 
 /** Names the credential on a forwarded request: Basic for git on `github.com`, Bearer elsewhere. */
@@ -634,7 +629,8 @@ const sameBytes = (a: Uint8Array, b: Uint8Array) =>
 
 /**
  * Sends one container request through the proxy and classifies the outcome:
- * `refused` (a 403 with a reason, nothing forwarded), or the credential on
+ * `refused` (a 403 with a reason, nothing forwarded), what the Browser Run
+ * binding answered (nothing forwarded), or the credential on
  * the one forwarded request, which must keep its body intact and not follow
  * redirects.
  */
@@ -654,8 +650,9 @@ const send = (
       egress(forwarded),
     )
     if (forwarded.length === 0) {
-      const reason = yield* Effect.promise(() => response.text())
-      return response.status === 403 && reason.length > 0 ? "refused" : `status ${response.status}`
+      const text = yield* Effect.promise(() => response.text())
+      if (response.status === 200 && text.startsWith("quick action ")) return text
+      return response.status === 403 && text.length > 0 ? "refused" : `status ${response.status}`
     }
     if (forwarded.length > 1) return `forwarded ${forwarded.length} times`
     const request = forwarded[0]!
@@ -756,17 +753,18 @@ describe("chat egress proxy", () => {
     ]),
   )
 
-  it.effect("Browser Run gets no credential when its settings are unset", () =>
+  it.effect("Browser Run is refused when its binding is off", () =>
     expectOutcomes(
       [
         {
           name: "browser run",
           method: "POST",
-          url: `${ACCOUNT}/browser-run/screenshot`,
-          expected: "anonymous",
+          url: `${BROWSER_RUN}/screenshot`,
+          body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+          expected: "refused",
         },
       ],
-      (forwarded) => ({ ...makeEgress(forwarded), browserRun: Effect.succeed(undefined) }),
+      (forwarded) => ({ ...makeEgress(forwarded), browserRun: undefined }),
     ),
   )
 

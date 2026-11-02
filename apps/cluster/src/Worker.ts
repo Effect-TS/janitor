@@ -128,6 +128,7 @@ import { ChatModelLayer } from "./Chat/Agent.ts"
 import {
   chatBotGate,
   chatBotInit,
+  chatBrowserRun,
   type ChatEgressSecrets,
   chatEgressSecrets,
   chatGateModel,
@@ -282,12 +283,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const slack = chatBot ? yield* slackSettings : Option.none()
     // Discord stays off until all three `DISCORD_*` settings are set.
     const discord = chatBot ? yield* discordSettings : Option.none()
-    // The chat bot's GitHub App, Multica PAT and Browser Run token, each
-    // optional: without them the chat egress proxy hands GitHub, Multica and
-    // Cloudflare no credential.
+    // The chat bot's GitHub App and Multica PAT, each optional: without them
+    // the chat egress proxy hands GitHub and Multica no credential.
     const chatSecrets: ChatEgressSecrets = chatBot
       ? yield* chatEgressSecrets
-      : { app: Option.none(), multicaToken: Option.none(), browserRun: Option.none() }
+      : { app: Option.none(), multicaToken: Option.none() }
     // The repository the bot's skills come from, read through janitor's App;
     // unset, the bot gets only the bundled `multica-platform` skill.
     const chatSkills = chatBot ? yield* chatSkillsConfig : Option.none()
@@ -348,6 +348,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     // off, so turning it off never deletes their storage; the workspace has
     // no container then, and nothing acquires one.
     if (chatBot) yield* exportChatEgress
+    // Browser Run's Quick Actions, which `ChatEgress` runs for the sandbox
+    // through this binding, so no Cloudflare token is involved.
+    if (chatBot && (yield* chatBrowserRun)) yield* Cloudflare.Workers.Browser("BROWSER")
     const chatWorkspaces = yield* ChatWorkspace.pipe(
       Effect.provide(
         ChatWorkspaceLive.pipe(
@@ -663,6 +666,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       Cloudflare.R2.ReadWriteBucketBinding,
       Cloudflare.R2.WriteBucketBinding,
       Cloudflare.Workers.RateLimitBinding,
+      Cloudflare.Workers.BrowserBinding,
       Cloudflare.Workers.CronEventSourceLive,
     ]),
   ),

@@ -70,16 +70,11 @@ The production App is installed on every repository of Effect-TS and Effectful-T
 
 ### Browser Run
 
-The bot can render pages with Cloudflare Browser Run's Quick Actions: screenshots, markdown of a JavaScript-rendered page, accessibility trees, PDFs, crawls (EFF-3303). The sandbox gets `CLOUDFLARE_ACCOUNT_ID` and a placeholder `CLOUDFLARE_API_TOKEN`, and the egress proxy puts the real token on the documented Quick Actions of that account while a turn holds the sandbox: `https://api.cloudflare.com/client/v4/accounts/<that id>/browser-run/<action>` and `…/browser-run/crawl/<job id>`, matched exactly, and the same under the older `…/browser-rendering`. Any other path under those prefixes is refused, encoded ones included. That covers browser sessions (`…/devtools/*`), because the container's egress doesn't carry WebSockets. Every other Cloudflare API path gets no credential. The `browser-run` skill in the skills repository shows the calls.
+The bot can render pages with Cloudflare Browser Run's Quick Actions: screenshots, markdown of a JavaScript-rendered page, accessibility trees, PDFs, links, scrapes (EFF-3303). The sandbox calls `POST https://browser-run.internal/<action>` with the action's options as JSON. That host never leaves the Worker: the egress proxy runs the action on the Worker's `BROWSER` binding and returns the binding's response unchanged, so no Cloudflare token exists. Only the Quick Actions the binding runs get through, matched exactly: `content`, `screenshot`, `pdf`, `markdown`, `snapshot`, `accessibilityTree`, `scrape`, `json` and `links`. Any other path is refused, encoded ones included. That covers `crawl`, which the binding doesn't offer, and browser sessions, which need WebSockets the container's egress doesn't carry. The `browser-run` skill in the skills repository shows the calls.
 
-Set both settings in Infisical (project `janitor`), or neither. Without them, the sandbox gets no Cloudflare variables and the proxy hands Cloudflare no credential.
+The binding is declared while the chat bot is on. Set `CHAT_BROWSER_RUN` to `false` in Infisical (project `janitor`) to leave it off; the proxy then refuses every Browser Run request. Under `alchemy dev` the binding drives a local Chrome, which doesn't run Quick Actions, so they fail locally.
 
-| Setting                       | Meaning                                                                                                   |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `CHAT_BROWSER_RUN_ACCOUNT_ID` | The Cloudflare account Browser Run is called on                                                           |
-| `CHAT_BROWSER_RUN_TOKEN`      | An account API token with only the Browser Run Edit permission (Browser Rendering Edit before the rename) |
-
-Quick Actions bill browser time only, a few seconds each, against the 10 hours a month Workers Paid includes; past that it is $0.09 an hour. Janitor enforces no spend cap, and the token has none. Usage is on the dashboard's Browser Run page.
+Quick Actions bill browser time only, a few seconds each, against the 10 hours a month Workers Paid includes; past that it is $0.09 an hour. Janitor enforces no spend cap. Usage is on the dashboard's Browser Run page.
 
 ### The bot's skills
 

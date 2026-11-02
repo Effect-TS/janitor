@@ -8,7 +8,6 @@ import type { BotApp, OrgTokens } from "./BotApp.ts"
 import {
   BOT_ORGS,
   LookupFailed,
-  type BrowserRun,
   type GitHubNode,
   type GitHubTokens,
   type Repository,
@@ -27,8 +26,7 @@ import {
  *   and the old one revoked.
  * - `stop` (at release) ends the grant at once and revokes every token. A
  *   mint still in flight for it is revoked when it lands, never handed out.
- *   Between turns GitHub gets no credential, Multica gets no PAT and
- *   Cloudflare no Browser Run token.
+ *   Between turns GitHub gets no credential, and Multica gets no PAT.
  *
  * Tokens live only in memory: never in storage, logs or errors. If the
  * object restarts mid-turn, the turn's tokens are minted again on first use,
@@ -44,7 +42,6 @@ const RepositorySchema = Schema.Struct({ owner: Schema.String, name: Schema.Stri
 export const EgressQuery = Schema.Union([
   Schema.Struct({ op: Schema.Literal("tokens"), owner: Schema.String }),
   Schema.Struct({ op: Schema.Literal("multica") }),
-  Schema.Struct({ op: Schema.Literal("browserRun") }),
   Schema.Struct({ op: Schema.Literal("repository"), repository: RepositorySchema }),
   Schema.Struct({
     op: Schema.Literal("branchRuled"),
@@ -112,8 +109,6 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
   readonly app: BotApp | undefined
   /** `CHAT_MULTICA_TOKEN`, or empty when unset. */
   readonly multicaToken: string
-  /** The Browser Run account and token, or `undefined` when unset. */
-  readonly browserRun?: BrowserRun | undefined
 }) {
   const { app } = credentials
   /** Serializes minting with `start` and `stop`'s revocations. */
@@ -362,12 +357,6 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
       credentials.multicaToken !== "" && generation === active ? credentials.multicaToken : null,
     )
 
-  /** The Browser Run account and token, for the turn holding `generation` only. */
-  const browserRun = (generation: number) =>
-    Effect.sync(() =>
-      credentials.browserRun !== undefined && generation === active ? credentials.browserRun : null,
-    )
-
   /** Answers one control request from the egress entrypoint. */
   const answer = (query: EgressQuery, generation: number): Effect.Effect<EgressAnswer> => {
     const run = (): Effect.Effect<unknown, LookupFailed> => {
@@ -376,8 +365,6 @@ export const makeEgressSession = Effect.fnUntraced(function* (credentials: {
           return tokens(query.owner, generation).pipe(Effect.map((held) => held ?? null))
         case "multica":
           return multica(generation)
-        case "browserRun":
-          return browserRun(generation)
         case "repository":
           return repository(query.repository, generation)
         case "branchRuled":
