@@ -93,6 +93,14 @@ const gates = (transcript: TranscriptResult) =>
 const lastTurn = (harness: SessionHarness, thread: ChatThread) =>
   Effect.map(harness.transcript(thread), (transcript) => available(transcript).turns.at(-1))
 
+/** The media types of the files a prompt sends the model as input. */
+const filesSent = (prompt: Prompt.Prompt) =>
+  prompt.content.flatMap((message) =>
+    message.role === "user"
+      ? message.content.flatMap((part) => (part.type === "file" ? [part.mediaType] : []))
+      : [],
+  )
+
 /** Waits until the thread's latest turn has left `running`. */
 const turnEnded = (harness: SessionHarness, thread: ChatThread) =>
   harness.until(
@@ -601,6 +609,72 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
+  it.effect("a turn the provider rejects with a 400 doesn't make the next turn fail", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        // The provider can't decode this image, so it rejects every request that carries it.
+        const broken = { id: "P1", name: "broken.png", mediaType: "image/png", size: 4 }
+        harness.platform.files.set(broken.id, new Uint8Array([0, 0, 0, 0]))
+        harness.model.rejects = (prompt) => filesSent(prompt).length > 0
+        yield* send(harness, slackThread, "What's in this screenshot?", {
+          mention: true,
+          attachments: [broken],
+        })
+        yield* turnEnded(harness, slackThread)
+
+        yield* send(harness, slackThread, "Never mind. Are you there?", { mention: true })
+        yield* modelCalls(harness, 2)
+        harness.model.answer(say("I'm here."))
+        yield* harness.until(
+          Effect.map(
+            harness.transcript(slackThread),
+            (transcript) =>
+              available(transcript).turns.length === 2 &&
+              available(transcript).turns[1]!.status !== "running",
+          ),
+          "the second turn to end",
+        )
+
+        assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+          finished({ status: "failed", errorCategory: "InvalidRequestError" }),
+          finished({}),
+        ])
+      }),
+    ),
+  )
+
+  it.effect(
+    "a turn the provider rejects with a 400 over its text doesn't make the next turn fail",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          // No file this time: the provider rejects every request that carries this message.
+          const rejected = "Here's the payload the provider won't take."
+          harness.model.rejects = (prompt) => seen(prompt).includes(rejected)
+          yield* send(harness, slackThread, rejected, { mention: true })
+          yield* turnEnded(harness, slackThread)
+
+          yield* send(harness, slackThread, "Never mind. Are you there?", { mention: true })
+          yield* modelCalls(harness, 2)
+          harness.model.answer(say("I'm here."))
+          yield* harness.until(
+            Effect.map(
+              harness.transcript(slackThread),
+              (transcript) =>
+                available(transcript).turns.length === 2 &&
+                available(transcript).turns[1]!.status !== "running",
+            ),
+            "the second turn to end",
+          )
+
+          assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
+            finished({ status: "failed", errorCategory: "InvalidRequestError" }),
+            finished({}),
+          ])
+        }),
+      ),
+  )
+
   it.effect("a busy turn keeps its status message without posting a reply", () =>
     test((harness) =>
       Effect.gen(function* () {
@@ -816,6 +890,33 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           assert.strictEqual(images.length, 1)
         }),
       ),
+  )
+
+  it.effect("an SVG attachment is saved in the sandbox and the turn still gets a reply", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        // The endpoint takes only PNG, JPEG, WebP and GIF as image input, and rejects the rest.
+        const accepted = ["image/png", "image/jpeg", "image/webp", "image/gif"]
+        harness.model.rejects = (prompt) =>
+          filesSent(prompt).some((mediaType) => !accepted.includes(mediaType))
+        const diagram = { id: "S1", name: "T3.svg", mediaType: "image/svg+xml", size: 11 }
+        harness.platform.files.set(diagram.id, new TextEncoder().encode("<svg></svg>"))
+        yield* send(harness, slackThread, "What does this diagram show?", {
+          mention: true,
+          attachments: [diagram],
+        })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(say("A triangle."))
+        yield* turnEnded(harness, slackThread)
+
+        assert.deepStrictEqual(harness.platform.replies, [
+          { thread: slackThread, text: "A triangle." },
+        ])
+        const [saved] = harness.sandboxes.written
+        assert.isTrue(saved!.path.endsWith("/T3.svg"))
+        assert.include(seen(harness.model.last), saved!.path)
+      }),
+    ),
   )
 
   it.effect(

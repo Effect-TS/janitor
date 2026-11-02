@@ -410,6 +410,36 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     })
 
   /**
+   * Deletes what a turn added to the end of the history, after the provider
+   * rejected the turn's request: whatever it wouldn't take, a file or text,
+   * would fail every later turn that replays it. Rows are matched against
+   * the turn's transcript from the end back, at most once per message, so
+   * earlier turns' rows stay. The transcript keeps the turn's messages, and
+   * the thread messages stay delivered, so they aren't sent again.
+   */
+  const rollBackTurn = (turnId: string) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        const added = new Map<string, number>()
+        for (const row of yield* sql<{ message: string }>`
+          SELECT message FROM chat_transcript
+          WHERE session_id = ${sessionId} AND turn_id = ${turnId}`)
+          added.set(row.message, (added.get(row.message) ?? 0) + 1)
+        const rows = yield* sql<{ seq: number; message: string }>`
+          SELECT seq, message FROM chat_history WHERE session_id = ${sessionId} ORDER BY seq DESC`
+        let from: number | undefined
+        for (const row of rows) {
+          const left = added.get(row.message) ?? 0
+          if (left === 0) break
+          added.set(row.message, left - 1)
+          from = row.seq
+        }
+        if (from !== undefined)
+          yield* sql`DELETE FROM chat_history WHERE session_id = ${sessionId} AND seq >= ${from}`
+      }),
+    )
+
+  /**
    * The messages with their gate outcomes, the turns, and each turn's
    * transcript messages by turn id, read in one transaction.
    */
@@ -502,6 +532,7 @@ export const makeSessionStorage = (sql: SqlClient.SqlClient, sessionId: string) 
     updateTurn,
     commitStep,
     history,
+    rollBackTurn,
     transcript,
     starter,
     rememberAdmission,

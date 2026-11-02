@@ -1,4 +1,5 @@
 import * as CloudflareCluster from "@effect/platform-cloudflare/CloudflareCluster"
+import * as Image from "clanka/Image"
 import type * as DecisionModel from "effect/ai/DecisionModel"
 import type * as LanguageModel from "effect/ai/LanguageModel"
 import type * as Model from "effect/ai/Model"
@@ -576,9 +577,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
      * Thread messages as the model sees them, each prefixed with its author.
      * Admitted users' attachments are written into the turn's folder first,
      * one folder per message, up to 20 MB each, and each message says where
-     * its files are. Images come back for image input; a steer is text only,
-     * so a steered image's note says to open it with `readFile`, which shows
-     * it to the model.
+     * its files are. Images the model takes as input (PNG, JPEG, WebP and
+     * GIF) come back for image input; any other image, SVG among them, is
+     * only a file, since the provider rejects the whole request over it. A
+     * steer is text only, so a steered image's note says to open it with
+     * `readFile`, which shows it to the model.
      */
     const prepare = (
       running: Running,
@@ -632,7 +635,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 notes.push(`[${attachment.name}: couldn't be fetched]`)
                 continue
               }
-              const image = attachment.mediaType.startsWith("image/")
+              const image = Image.isImageMediaType(attachment.mediaType)
               notes.push(
                 image && options.steered
                   ? `[attached: ${path}, an image: open it with readFile to see it]`
@@ -919,6 +922,10 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           case "Interrupted":
             return { status: "deadline" } satisfies TurnEnd
           case "Failed":
+            // The provider rejected the request: every later turn would replay
+            // what it rejected and fail the same way.
+            if (result.category === "InvalidRequestError")
+              yield* storage.rollBackTurn(running.turnId)
             return { status: "failed", errorCategory: result.category } satisfies TurnEnd
           case "SandboxLost":
             return "SandboxLost" as const
