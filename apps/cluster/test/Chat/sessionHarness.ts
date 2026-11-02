@@ -149,12 +149,6 @@ const invalidRequest = AiError.make({
   reason: new AiError.InvalidRequestError({
     description: "Bad Request",
     http: {
-      request: {
-        method: "POST",
-        url: "https://ai.test/v1/chat/completions",
-        urlParams: [],
-        headers: {},
-      },
       response: { status: 400, headers: {} },
     },
   }),
