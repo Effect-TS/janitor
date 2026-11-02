@@ -282,11 +282,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const slack = chatBot ? yield* slackSettings : Option.none()
     // Discord stays off until all three `DISCORD_*` settings are set.
     const discord = chatBot ? yield* discordSettings : Option.none()
-    // The chat bot's GitHub App and Multica PAT, each optional: without them
-    // the chat egress proxy hands GitHub and Multica no credential.
+    // The chat bot's GitHub App, Multica PAT and Browser Run token, each
+    // optional: without them the chat egress proxy hands GitHub, Multica and
+    // Cloudflare no credential.
     const chatSecrets: ChatEgressSecrets = chatBot
       ? yield* chatEgressSecrets
-      : { app: Option.none(), multicaToken: Option.none() }
+      : { app: Option.none(), multicaToken: Option.none(), browserRun: Option.none() }
     // The repository the bot's skills come from, read through janitor's App;
     // unset, the bot gets only the bundled `multica-platform` skill.
     const chatSkills = chatBot ? yield* chatSkillsConfig : Option.none()

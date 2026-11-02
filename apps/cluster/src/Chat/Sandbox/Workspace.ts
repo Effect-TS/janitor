@@ -173,7 +173,13 @@ export const makeChatWorkspace = Effect.fnUntraced(function* (state: ChatWorkspa
           .fetch("http://container/provision", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify(provisionRequest(input.multicaWorkspaceId, provisioned)),
+            body: JSON.stringify(
+              provisionRequest(
+                input.multicaWorkspaceId,
+                provisioned,
+                credentials.browserRun?.accountId,
+              ),
+            ),
           })
         return response.status
       }).pipe(

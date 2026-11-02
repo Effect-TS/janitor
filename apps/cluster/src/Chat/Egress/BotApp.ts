@@ -15,13 +15,14 @@ import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import * as GitHubAppAuth from "../../GitHub/AppAuth.ts"
 import type { ChatEgressSecrets } from "../Config.ts"
-import type { GitHubTokens } from "./Egress.ts"
+import type { BrowserRun, GitHubTokens } from "./Egress.ts"
 
 /**
  * The chat bot's credentials (EFF-3017): its own GitHub App, separate from
- * janitor's, and the Janitor user's Multica PAT. Both are optional, so the
- * deployment runs before they exist: without the App, GitHub gets no
- * credential; without the PAT, Multica gets none.
+ * janitor's, the Janitor user's Multica PAT and the Browser Run token. Each is
+ * optional, so the deployment runs before they exist: without the App, GitHub
+ * gets no credential; without the PAT, Multica gets none; without Browser
+ * Run's settings, Cloudflare gets none.
  */
 
 /** An org's two installation tokens, and when the first of them expires, in epoch milliseconds. */
@@ -60,9 +61,11 @@ export class ChatCredentials extends Context.Service<
     readonly app: BotApp | undefined
     /** `CHAT_MULTICA_TOKEN`, or empty when unset. */
     readonly multicaToken: string
+    /** `CHAT_BROWSER_RUN_ACCOUNT_ID` and `CHAT_BROWSER_RUN_TOKEN`, or `undefined` when unset. */
+    readonly browserRun?: BrowserRun | undefined
   }
 >()("@janitor/cluster/Chat/Egress/ChatCredentials") {
-  /** No App and no PAT: GitHub and Multica get no credential. */
+  /** No App, PAT or Browser Run token: GitHub, Multica and Cloudflare get no credential. */
   static readonly disabled = Layer.succeed(ChatCredentials, { app: undefined, multicaToken: "" })
 
   static readonly layerFrom = (
@@ -75,11 +78,15 @@ export class ChatCredentials extends Context.Service<
           onNone: () => "",
           onSome: Redacted.value,
         })
-        if (Option.isNone(secrets.app)) return { app: undefined, multicaToken }
+        const browserRun = Option.match(secrets.browserRun, {
+          onNone: () => undefined,
+          onSome: ({ accountId, token }) => ({ accountId, token: Redacted.value(token) }),
+        })
+        if (Option.isNone(secrets.app)) return { app: undefined, multicaToken, browserRun }
         // An unusable private key is a deployment defect, not a runtime condition.
         const auth = yield* GitHubAppAuth.make(secrets.app.value).pipe(Effect.orDie)
         const app = yield* makeBotApp(auth)
-        return { app, multicaToken }
+        return { app, multicaToken, browserRun }
       }),
     )
 }

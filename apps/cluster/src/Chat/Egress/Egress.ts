@@ -20,6 +20,11 @@ import {
  *   puts the org's read token on git fetches, REST GETs and GraphQL queries,
  *   and its write token on everything else.
  * - `api.multica.ai`: adds the Janitor user's PAT, with no path filter.
+ * - `api.cloudflare.com`: adds the Browser Run token on the configured
+ *   account's Quick Actions (`…/browser-run/*`, and the legacy
+ *   `…/browser-rendering/*`). Browser sessions (`…/devtools/*`) are refused:
+ *   they need WebSockets, which the container's egress doesn't carry. Every
+ *   other Cloudflare API path gets no credential.
  * - Everything else, other orgs on GitHub included, passes through with no
  *   credential.
  *
@@ -44,6 +49,13 @@ export interface GitHubTokens {
 export interface RepositoryInfo {
   readonly defaultBranch: string
   readonly private: boolean
+}
+
+/** The Cloudflare account and token Browser Run's Quick Actions are called with. */
+export interface BrowserRun {
+  readonly accountId: string
+  /** An account token with only Browser Rendering Edit. */
+  readonly token: string
 }
 
 /** Where a GraphQL node id points. */
@@ -89,6 +101,12 @@ export interface ChatEgress {
    * none.
    */
   readonly multicaToken: Effect.Effect<string | undefined>
+  /**
+   * `CHAT_BROWSER_RUN_ACCOUNT_ID` and `CHAT_BROWSER_RUN_TOKEN` while the turn
+   * holds the sandbox; `undefined` between turns or when unset, and then
+   * Cloudflare gets no credential.
+   */
+  readonly browserRun: Effect.Effect<BrowserRun | undefined>
   readonly github: GitHubLookup
   /** Sends the rewritten request on. */
   readonly upstream: (request: Request) => Effect.Effect<Response>
@@ -103,6 +121,32 @@ const GITHUB_HOSTS: ReadonlySet<string> = new Set([
   "uploads.github.com",
 ])
 const MULTICA_HOST = "api.multica.ai"
+const CLOUDFLARE_HOST = "api.cloudflare.com"
+/** Browser Run's API, under its current name and the one it had before April 2026. */
+const BROWSER_RUN_SEGMENTS: ReadonlySet<string> = new Set(["browser-run", "browser-rendering"])
+
+/**
+ * Whether a Cloudflare API path is a Browser Run call on `accountId`:
+ * `"quick-action"` for one the token may make, `"session"` for a
+ * `devtools` path, or `undefined` for any other path.
+ */
+const browserRunPath = (pathname: string, accountId: string) => {
+  const [empty, client, v4, accounts, account, api, action] = pathname.split("/")
+  if (
+    empty !== "" ||
+    client !== "client" ||
+    v4 !== "v4" ||
+    accounts !== "accounts" ||
+    account !== accountId ||
+    api === undefined ||
+    !BROWSER_RUN_SEGMENTS.has(api) ||
+    action === undefined ||
+    action === ""
+  ) {
+    return undefined
+  }
+  return action === "devtools" ? "session" : "quick-action"
+}
 
 /** Whether a request is for GitHub over HTTPS, the only traffic that can carry a GitHub token. */
 export const isGitHubRequest = (url: URL): boolean =>
@@ -642,7 +686,7 @@ const UPSTREAM_ERROR_HEADERS = [
 const logUpstreamError = (
   request: Request,
   url: URL,
-  credential: "read" | "write" | "multica" | "none",
+  credential: "read" | "write" | "multica" | "browser-run" | "none",
   response: Response,
 ) => {
   if (!isUpstreamError(response.status)) return Effect.void
@@ -697,6 +741,26 @@ export const handleChatEgress = (request: Request, egress: ChatEgress): Effect.E
       if (token !== undefined) headers.set("authorization", `Bearer ${token}`)
       const response = yield* forward()
       yield* logUpstreamError(request, url, token === undefined ? "none" : "multica", response)
+      return response
+    }
+    if (url.protocol === "https:" && url.hostname === CLOUDFLARE_HOST) {
+      const browserRun = yield* egress.browserRun
+      const path =
+        browserRun === undefined ? undefined : browserRunPath(url.pathname, browserRun.accountId)
+      if (path === "session") {
+        yield* Effect.logWarning("Chat egress refused a request").pipe(
+          Effect.annotateLogs({ method: request.method, host: url.host }),
+        )
+        return refusal(
+          request,
+          url,
+          "Browser Run sessions need WebSockets, which the sandbox can't use; use a Quick Action",
+        )
+      }
+      const token = path === "quick-action" ? browserRun?.token : undefined
+      if (token !== undefined) headers.set("authorization", `Bearer ${token}`)
+      const response = yield* forward()
+      yield* logUpstreamError(request, url, token === undefined ? "none" : "browser-run", response)
       return response
     }
     if (!isGitHubRequest(url)) return yield* forward()

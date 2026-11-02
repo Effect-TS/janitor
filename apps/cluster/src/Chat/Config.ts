@@ -153,6 +153,15 @@ export interface ChatEgressSecrets {
   readonly app: Option.Option<GitHubAppAuth.GitHubAppCredentials>
   /** `CHAT_MULTICA_TOKEN`: the Janitor Multica user's PAT. */
   readonly multicaToken: Option.Option<Redacted.Redacted<string>>
+  /**
+   * `CHAT_BROWSER_RUN_ACCOUNT_ID` and `CHAT_BROWSER_RUN_TOKEN`: the Cloudflare
+   * account Browser Run is called on, and an account token with only Browser
+   * Rendering Edit. Both or neither.
+   */
+  readonly browserRun: Option.Option<{
+    readonly accountId: string
+    readonly token: Redacted.Redacted<string>
+  }>
 }
 
 /**
@@ -169,6 +178,12 @@ export const chatEgressSecrets: Config.Config<ChatEgressSecrets> = Config.all({
     ),
   ),
   multicaToken: Config.option(Config.Redacted("CHAT_MULTICA_TOKEN")),
+  browserRun: Config.option(
+    Config.all({
+      accountId: Config.NonEmptyString("CHAT_BROWSER_RUN_ACCOUNT_ID"),
+      token: Config.Redacted("CHAT_BROWSER_RUN_TOKEN"),
+    }),
+  ),
 })
 
 const chatAiApiUrl = Config.option(Config.NonEmptyString("CHAT_AI_API_URL"))

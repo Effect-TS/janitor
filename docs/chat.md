@@ -68,6 +68,19 @@ The bot acts on GitHub as its own App, separate from janitor's, and in Multica a
 
 The production App is installed on every repository of Effect-TS and Effectful-Tech, private ones included, with contents, pull requests and issues read and write, and actions, checks, commit statuses and metadata read. The development App is installed only on `Effect-TS/janitor-sandbox`, so a local run never holds write tokens for real repositories. The Janitor member uses the mailbox `tech-ops@effectful.co`. Agents the bot should trigger must be visible to workspace members or list the Janitor user.
 
+### Browser Run
+
+The bot can render pages with Cloudflare Browser Run's Quick Actions: screenshots, markdown of a JavaScript-rendered page, accessibility trees, PDFs, crawls (EFF-3303). The sandbox gets `CLOUDFLARE_ACCOUNT_ID` and a placeholder `CLOUDFLARE_API_TOKEN`, and the egress proxy puts the real token on `https://api.cloudflare.com/client/v4/accounts/<that id>/browser-run/*` (and the older `…/browser-rendering/*`) while a turn holds the sandbox. Every other Cloudflare API path gets no credential. Browser sessions (`…/devtools/*`) are refused, because the container's egress doesn't carry WebSockets. The `browser-run` skill in the skills repository shows the calls.
+
+Set both settings in Infisical (project `janitor`), or neither. Without them, the sandbox gets no Cloudflare variables and the proxy hands Cloudflare no credential.
+
+| Setting                       | Meaning                                                              |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `CHAT_BROWSER_RUN_ACCOUNT_ID` | The Cloudflare account Browser Run is called on                      |
+| `CHAT_BROWSER_RUN_TOKEN`      | An account API token with only the Browser Rendering Edit permission |
+
+Quick Actions bill browser time only, a few seconds each, against the 10 hours a month Workers Paid includes; past that it is $0.09 an hour. Janitor enforces no spend cap, and the token has none. Usage is on the dashboard's Browser Run page.
+
 ### The bot's skills
 
 Every sandbox gets the `multica-platform` skill bundled with janitor. To give the bot more, point it at a GitHub repository that holds one folder per skill under `.agents/skills`, each with a `SKILL.md` and any supporting files, for example `.agents/skills/triage/SKILL.md`. That is where `npx skills add` installs vendored skills, and custom skills go next to them. Every folder with a valid `SKILL.md` is a skill. A `skills-lock.json` at the repository's root is optional: it helps keep vendored skills up to date, and janitor never reads it. Changes merged there reach every sandbox started after the merge, with no janitor deploy. A warm sandbox keeps the skills it started with, so a session picks up a change once its sandbox is replaced. Effect's deployment sets `CHAT_SKILLS_REPOSITORY` to `Effect-TS/janitor-skills` in Infisical (project `janitor`).

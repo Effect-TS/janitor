@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect"
 import {
   LookupFailed,
+  type BrowserRun,
   type ChatEgress as ChatEgressContext,
   type GitHubNode,
   type GitHubTokens,
@@ -67,6 +68,10 @@ export const makeEgressContext = (
     multicaToken: ask({ op: "multica" }).pipe(
       Effect.map((token) => (token as string | null) ?? undefined),
       Effect.catch(withoutCredential("multica")),
+    ),
+    browserRun: ask({ op: "browserRun" }).pipe(
+      Effect.map((browserRun) => (browserRun as BrowserRun | null) ?? undefined),
+      Effect.catch(withoutCredential("browserRun")),
     ),
     githubTokens: (owner) =>
       ask({ op: "tokens", owner }).pipe(
