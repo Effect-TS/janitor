@@ -54,7 +54,7 @@ export interface RepositoryInfo {
 /** The Cloudflare account and token Browser Run's Quick Actions are called with. */
 export interface BrowserRun {
   readonly accountId: string
-  /** An account token with only Browser Rendering Edit. */
+  /** An account token with only Browser Run Edit. */
   readonly token: string
 }
 

@@ -74,10 +74,10 @@ The bot can render pages with Cloudflare Browser Run's Quick Actions: screenshot
 
 Set both settings in Infisical (project `janitor`), or neither. Without them, the sandbox gets no Cloudflare variables and the proxy hands Cloudflare no credential.
 
-| Setting                       | Meaning                                                              |
-| ----------------------------- | -------------------------------------------------------------------- |
-| `CHAT_BROWSER_RUN_ACCOUNT_ID` | The Cloudflare account Browser Run is called on                      |
-| `CHAT_BROWSER_RUN_TOKEN`      | An account API token with only the Browser Rendering Edit permission |
+| Setting                       | Meaning                                                                                                   |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `CHAT_BROWSER_RUN_ACCOUNT_ID` | The Cloudflare account Browser Run is called on                                                           |
+| `CHAT_BROWSER_RUN_TOKEN`      | An account API token with only the Browser Run Edit permission (Browser Rendering Edit before the rename) |
 
 Quick Actions bill browser time only, a few seconds each, against the 10 hours a month Workers Paid includes; past that it is $0.09 an hour. Janitor enforces no spend cap, and the token has none. Usage is on the dashboard's Browser Run page.
 
