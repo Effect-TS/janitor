@@ -537,6 +537,36 @@ const table: ReadonlyArray<Row> = [
     expected: "refused",
   },
   {
+    name: "browser run crawl job",
+    method: "GET",
+    url: `${ACCOUNT}/browser-run/crawl/c7f8s2d9-a8e7-4b6e-8e4d-3d4a1b2c3f4e`,
+    expected: "browser-run",
+  },
+  {
+    name: "browser run session, encoded",
+    method: "GET",
+    url: `${ACCOUNT}/browser-run/%64evtools/browser`,
+    expected: "refused",
+  },
+  {
+    name: "browser run, encoded separators toward another account",
+    method: "POST",
+    url: `${ACCOUNT}/browser-run/..%2F..%2Ffedcba9876543210fedcba9876543210%2Fbrowser-run%2Fscreenshot`,
+    expected: "refused",
+  },
+  {
+    name: "browser run, unknown action",
+    method: "POST",
+    url: `${ACCOUNT}/browser-run/history`,
+    expected: "refused",
+  },
+  {
+    name: "browser run, extra suffix",
+    method: "POST",
+    url: `${ACCOUNT}/browser-run/screenshot/extra`,
+    expected: "refused",
+  },
+  {
     name: "another cloudflare api",
     method: "GET",
     url: `${ACCOUNT}/workers/scripts`,
