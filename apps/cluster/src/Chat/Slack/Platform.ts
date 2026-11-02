@@ -21,7 +21,7 @@ import {
   mentionsBot,
   noUnfurls,
   SlackApi,
-  type SlackApiError,
+  SlackApiError,
   type SlackAuthor,
   SlackMessage,
   toChatMessage,
@@ -134,7 +134,24 @@ const make = Effect.gen(function* () {
           { write: true },
         ),
       ),
-      Effect.flatMap(decode("chat.postMessage", Posted)),
+      Effect.flatMap((json) =>
+        decode(
+          "chat.postMessage",
+          Posted,
+        )(json).pipe(
+          // Slack said ok, so the message may well be up: an answer without
+          // its `ts` is no proof that nothing was posted.
+          Effect.mapError(
+            (error) =>
+              new SlackApiError({
+                method: error.method,
+                message: error.message,
+                disposition: "uncertain",
+                retryAfter: error.retryAfter,
+              }),
+          ),
+        ),
+      ),
       Effect.map(({ ts }) => ts),
     )
 
@@ -289,6 +306,8 @@ const make = Effect.gen(function* () {
     postReply: (thread, text, options) => {
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
       const files = options?.files ?? []
+      const noted = `${text}\n\n${unattachedNote(files)}`
+      const sent = (body: string) => (postedAt: DateTime.Utc) => ({ postedAt, text: body })
       /** Posts `chunks` a second apart; succeeds with the last one's time. */
       const postChunks = (chunks: ReadonlyArray<string>) =>
         Effect.forEach(chunks, (chunk, index) =>
@@ -312,23 +331,26 @@ const make = Effect.gen(function* () {
       // File uploads do not return a message timestamp; completion is a
       // conservative boundary rather than backdating to the request.
       if (chunks.length > MAX_CHUNKS && files.length === 0)
-        return uploadFiles(thread, [replyMd]).pipe(Effect.andThen(DateTime.now))
+        return uploadFiles(thread, [replyMd]).pipe(
+          Effect.andThen(DateTime.now),
+          Effect.map(sent(text)),
+        )
       if (chunks.length > MAX_CHUNKS)
         return Effect.gen(function* () {
           // Uploads refused: a reply.md alone would be too. The reply goes
           // out as text, however many messages that takes.
-          const asText = postChunks(
-            chunkMarkdown(`${text}\n\n${unattachedNote(files)}`, CHUNK_CHARACTERS),
+          const asText = postChunks(chunkMarkdown(noted, CHUNK_CHARACTERS)).pipe(
+            Effect.map(sent(noted)),
           )
           const staged = yield* Effect.forEach([replyMd, ...files], stage).pipe(Effect.result)
           if (staged._tag === "Failure") return yield* asText
           const shared = yield* share(thread, staged.success).pipe(Effect.result)
-          if (shared._tag === "Success") return yield* DateTime.now
+          if (shared._tag === "Success") return sent(text)(yield* DateTime.now)
           return yield* refused(shared.failure)
             ? asText
             : Effect.fail(replyError(shared.failure, true))
         })
-      if (files.length === 0) return postChunks(chunks)
+      if (files.length === 0) return postChunks(chunks).pipe(Effect.map(sent(text)))
       return Effect.gen(function* () {
         // Uploaded before any text goes out, so a failed upload posts nothing.
         const staged = yield* Effect.forEach(files, stage).pipe(
@@ -339,7 +361,7 @@ const make = Effect.gen(function* () {
         yield* postChunks(earlier)
         if (earlier.length > 0) yield* Effect.sleep(BETWEEN_POSTS)
         const shared = yield* share(thread, staged, last).pipe(Effect.result)
-        if (shared._tag === "Success") return yield* DateTime.now
+        if (shared._tag === "Success") return sent(text)(yield* DateTime.now)
         if (!refused(shared.failure)) return yield* replyError(shared.failure, true)
         // Refused first: nothing is out, and the caller posts the reply again
         // without the files.
@@ -351,6 +373,7 @@ const make = Effect.gen(function* () {
           Effect.mapError(
             (error) => new ChatPlatformError({ message: error.message, partial: true }),
           ),
+          Effect.map(sent(noted)),
         )
       })
     },

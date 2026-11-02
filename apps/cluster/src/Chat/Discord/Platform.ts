@@ -279,16 +279,19 @@ const make = Effect.gen(function* () {
             message_reference: reference,
           },
         ).pipe(
-          Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)),
+          Effect.map(({ timestamp }) => ({ postedAt: DateTime.makeUnsafe(timestamp), text })),
           Effect.catch((error) =>
             files.length > 0 && refused(error)
               ? // Uploads refused: a reply.md alone would be too. The reply goes
                 // out as text, however many messages that takes.
-                postChunks(chunksOf(noted))
+                postChunks(chunksOf(noted)).pipe(
+                  Effect.map((postedAt) => ({ postedAt, text: noted })),
+                )
               : Effect.fail(replyError(error, !refused(error))),
           ),
         )
-      if (files.length === 0) return postChunks(chunks)
+      if (files.length === 0)
+        return postChunks(chunks).pipe(Effect.map((postedAt) => ({ postedAt, text })))
       // The files go with the last chunk, or alone when there is no text.
       const parts = chunks.length === 0 ? [mention ?? ""] : chunks
       return Effect.gen(function* () {
@@ -301,6 +304,7 @@ const make = Effect.gen(function* () {
           message_reference: index === 0 ? reference : undefined,
         }).pipe(
           Effect.flatMap((posted) => lastPosted([posted])),
+          Effect.map((postedAt) => ({ postedAt, text })),
           Effect.catch((error) =>
             // Refused with the earlier chunks out: the last goes again without
             // the files, noting them. Refused first: nothing is out, and the
@@ -312,6 +316,7 @@ const make = Effect.gen(function* () {
                 ).pipe(
                   Effect.mapError((error) => replyError(error, true)),
                   Effect.flatMap(lastPosted),
+                  Effect.map((postedAt) => ({ postedAt, text: noted })),
                 )
               : Effect.fail(replyError(error, index > 0 || !refused(error))),
           ),

@@ -85,6 +85,12 @@ export interface ChatFile {
 export const unattachedNote = (files: ReadonlyArray<ChatFile>): string =>
   `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
 
+/** A posted reply: when its final part was published, and its text as posted, notes included. */
+export interface PostedReply {
+  readonly postedAt: DateTime.Utc
+  readonly text: string
+}
+
 const noPlatform = Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" }))
 
 export class ChatPlatform extends Context.Service<
@@ -106,13 +112,15 @@ export class ChatPlatform extends Context.Service<
       messageId: string,
     ) => Effect.Effect<void, ChatPlatformError>
     /**
-     * Posts a reply and returns when its final part was published. On
+     * Posts a reply and returns when its final part was published, with the
+     * text that went out. On
      * Discord it answers `replyTo`, the message that started the turn, or
      * mentions its author when that message started the thread. `files` go
      * in the same message as the reply's last part, or with its `reply.md`.
      * When the platform refuses the files after some of the reply is out,
      * or refuses an overflowing reply's upload, the rest of the reply goes
-     * out as text with `unattachedNote`. A refusal before anything went out
+     * out as text with `unattachedNote`, and the text returned ends with it.
+     * A refusal before anything went out
      * fails without `partial`, so the reply can be posted again without them.
      */
     readonly postReply: (
@@ -122,7 +130,7 @@ export class ChatPlatform extends Context.Service<
         readonly replyTo?: { readonly messageId: string; readonly authorId: string } | undefined
         readonly files?: ReadonlyArray<ChatFile> | undefined
       },
-    ) => Effect.Effect<DateTime.Utc, ChatPlatformError>
+    ) => Effect.Effect<PostedReply, ChatPlatformError>
     /** Posts `file` to the thread on its own. */
     readonly uploadFile: (
       thread: ChatThread,

@@ -493,7 +493,7 @@ export class FakePlatform {
             return yield* new ChatPlatformError({ message: "file_upload_failed" })
           this.replies.push({ thread, text })
           if (files.length > 0) this.replyFiles.push({ text, files })
-          return yield* DateTime.now
+          return { postedAt: yield* DateTime.now, text }
         }),
       uploadFile: () => Effect.die("unexpected file upload"),
       download: (_thread, attachment, maxBytes) =>

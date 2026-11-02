@@ -6,14 +6,15 @@ import * as Stream from "effect/Stream"
 
 /**
  * Reading a file the chat agent attaches to its reply (EFF-3309). The bot
- * posts to public channels, so an attachment is only ever a file under
- * `/workspace`: no path or symlink reaches the rest of the container.
+ * posts to public channels, so a path or symlink that resolves outside
+ * `/workspace` is refused.
  *
- * It is not a boundary against the agent's own scripts, which run as root
- * in the same container: they can copy any file into `/workspace`, so a
- * symlink swapped in during the read gains them nothing. What keeps
- * credentials out of a post is that the container holds none; the egress
- * proxy swaps in the real tokens.
+ * This is a path filter, not isolation from the agent's own scripts. They
+ * run as root in the same container, and a symlink they swap in between the
+ * check and the read can still point outside. That gains them nothing: they
+ * can copy any file into `/workspace` anyway. What keeps credentials out of
+ * a post is that the container holds none; the egress proxy swaps in the
+ * real tokens.
  */
 
 /** A file the agent asked for that it can't attach. `reason` is for the model. */
