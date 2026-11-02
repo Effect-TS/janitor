@@ -5,7 +5,9 @@ packages:
 
 catalogMode: prefer
 
-# Allow the commit-pinned Effect snapshot URLs in transitive dependencies.
+# Allow the commit-pinned Effect snapshot URLs in transitive dependencies, and
+# the pkg.alchemy.run tarball URLs the Alchemy preview builds pin their own
+# dependencies by. Keep this until both are back on npm releases.
 blockExoticSubdeps: false
 
 catalog:
@@ -45,12 +47,18 @@ catalog:
   "@tailwindcss/vite": ^4.3.3
   "@testcontainers/postgresql": 12.1.0
   "@types/node": ^24.13.3
-  alchemy: 2.0.0-beta.84
-  "@alchemy.run/cloudflare": 2.0.0-beta.84
-  "@alchemy.run/docker": 2.0.0-beta.84
-  "@alchemy.run/github": 2.0.0-beta.84
-  "@alchemy.run/infisical": 2.0.0-beta.84
-  "@alchemy.run/sql": 2.0.0-beta.84
+  # Preview builds of alchemy-run/alchemy main at 52419745b5, addressed by
+  # content hash. The shared Cloudflare state store speaks protocol v8, which
+  # no npm release supports yet: beta.84 expects v7 and would redeploy the
+  # store at v7 under `--yes`. Later main commits need Effect 4.1, which the
+  # Effect snapshot below doesn't have yet. Move back to npm once a release
+  # supports v8. See patches/README.md.
+  alchemy: https://pkg.alchemy.run/alchemy/-/eae7a7a93cd1b2e64d5ef9b95c56bf7c8e22edd6ff7cf2d67a3c8ddce9fbde2e.tgz
+  "@alchemy.run/cloudflare": https://pkg.alchemy.run/@alchemy.run/cloudflare/-/16d40c8a030855ad66f5035cf895fbacc33292e8984e048e549b277c46445701.tgz
+  "@alchemy.run/docker": https://pkg.alchemy.run/@alchemy.run/docker/-/ef46ca3965f27aa716d1c45cce29317dacb3d778bba47c4b02db3ee8491cecbe.tgz
+  "@alchemy.run/github": https://pkg.alchemy.run/@alchemy.run/github/-/a0f6c020e4a6d7dfb21c75d64457526c8b5fbfd4517e5d02a3c4ac25ec973c1e.tgz
+  "@alchemy.run/infisical": https://pkg.alchemy.run/@alchemy.run/infisical/-/d4dc194cc01da1f3565620dd712ae6aa316e658b9afd6ec0fc8495b8a69a1fa6.tgz
+  "@alchemy.run/sql": https://pkg.alchemy.run/@alchemy.run/sql/-/fa9659d3d58200728f1f3a37ae1f78d1a43c4998fe6bb1c1c9bdb397fc2c028e.tgz
   "@distilled.cloud/cloudflare": 1.0.0-rc.17
   clanka: 0.13.2
   dfx: 1.1.1
@@ -122,6 +130,8 @@ minimumReleaseAgeExclude:
   - foldkit
   - clanka@0.13.2
 
+# The Alchemy preview builds report version 2.0.0-beta.84, the same as the npm
+# release they replace; the patch files are named for the commit they target.
 patchedDependencies:
-  alchemy@2.0.0-beta.84: patches/alchemy@2.0.0-beta.84.patch
-  "@alchemy.run/cloudflare@2.0.0-beta.84": patches/@alchemy.run__cloudflare@2.0.0-beta.84.patch
+  alchemy@2.0.0-beta.84: patches/alchemy@52419745b5.patch
+  "@alchemy.run/cloudflare@2.0.0-beta.84": patches/@alchemy.run__cloudflare@52419745b5.patch

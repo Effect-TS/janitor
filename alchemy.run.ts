@@ -6,7 +6,6 @@ import * as Command from "alchemy/Command"
 import * as Docker from "@alchemy.run/docker"
 import * as Infisical from "@alchemy.run/infisical"
 import * as Provider from "alchemy/Provider"
-import { Resource } from "alchemy/Resource"
 import * as Secrets from "alchemy/Secrets"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -28,21 +27,11 @@ const DockerProviders = Layer.effect(
   Layer.provideMerge(Docker.DockerLive),
 )
 
-// Production state still records the retained Neon project. Alchemy plans its
-// removal as an orphan, which drops the state row without calling the provider,
-// but planning still requires a provider for the type. Remove this once a
-// production deploy has run without Neon.
-const RetiredNeonProject = Provider.succeed(Resource("Neon.Project"), {
-  reconcile: () => Effect.die("Neon.Project is retired; production uses Azure Postgres"),
-  delete: () => Effect.void,
-}) as Layer.Layer<never>
-
 const Providers = Layer.mergeAll(
   Cloudflare.providers(),
   Command.providers(),
   DockerProviders,
   PostgresMigrationsProvider,
-  RetiredNeonProject,
 )
 
 export default Alchemy.Stack(

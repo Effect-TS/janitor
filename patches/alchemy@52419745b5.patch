@@ -1,5 +1,5 @@
 diff --git a/lib/Command/Memo.js b/lib/Command/Memo.js
-index 2a7735eef730bc07c6608f7e1ed88f32a18cd1bf..ef4fdfd43dea972e2595e5f18a28962703d41ab7 100644
+index 25aec41af9ce507bb4a86b7b0369535dfe794915..63c486902c48a312188f1b0740e679a0625c339c 100644
 --- a/lib/Command/Memo.js
 +++ b/lib/Command/Memo.js
 @@ -2,7 +2,6 @@ import * as Effect from "effect/Effect";
@@ -31,7 +31,7 @@ index 2a7735eef730bc07c6608f7e1ed88f32a18cd1bf..ef4fdfd43dea972e2595e5f18a289627
          const excludeRuntime = !isPathWithin(dotAlchemy, options.cwd, runtimeBase);
          const [files, lockfile] = yield* Effect.all([
 diff --git a/src/Command/Memo.ts b/src/Command/Memo.ts
-index 0b758a171fc6b31c3eb7bfaa8413067291bf9daf..b70839c14f18495ffd3dddd1397b168e1d7eaf65 100644
+index f89f42d4180f70d2cd42da25deec574b6e5066d4..4ba26ba8ca28d4e55e0703d032ac715fa3466a65 100644
 --- a/src/Command/Memo.ts
 +++ b/src/Command/Memo.ts
 @@ -3,7 +3,6 @@ import * as FileSystem from "effect/FileSystem";

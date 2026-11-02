@@ -1,12 +1,12 @@
 import { assert, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import { scratchStack } from "alchemy/Test/Core"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Redacted from "effect/Redacted"
 import * as SqlClient from "effect/sql/SqlClient"
 import { PostgresMigrations, PostgresMigrationsProvider } from "../src/PostgresMigrations.ts"
 import { emptyDatabase, usingDatabase } from "./support/Postgres.ts"
+import { scratchStack } from "./support/ScratchStack.ts"
 
 const MIGRATIONS = "apps/cluster/migrations"
 
@@ -14,7 +14,7 @@ it.live(
   "a second deploy applies no migrations",
   () =>
     Effect.gen(function* () {
-      const stack = scratchStack({ providers: PostgresMigrationsProvider }, "PostgresMigrations")
+      const stack = scratchStack(PostgresMigrationsProvider, "PostgresMigrations")
       const { url } = yield* emptyDatabase
       const server = new URL(url)
       const deploy = stack

@@ -1,8 +1,8 @@
 diff --git a/lib/Containers/ContainerBundle.js b/lib/Containers/ContainerBundle.js
-index 3d321c6acd07a7c1cc5da8f9a963925ac0ce5b73..77b72c0844cf38d844c0eec1cfa23afae5107bc0 100644
+index 9735b80bbd135e2d58384dad4263d71fee6f98a6..ee234b26ac8008cd8185cb8126cfea6ae0b06d52 100644
 --- a/lib/Containers/ContainerBundle.js
 +++ b/lib/Containers/ContainerBundle.js
-@@ -165,12 +165,13 @@ export const buildFinalDockerfile = (envPreamble, runtime, external = [], autoIn
+@@ -170,12 +170,13 @@ export const buildFinalDockerfile = (envPreamble, runtime, external = [], autoIn
          "",
          "WORKDIR /app",
          ...(installStep ? [installStep, ""] : []),
@@ -19,19 +19,19 @@ index 3d321c6acd07a7c1cc5da8f9a963925ac0ce5b73..77b72c0844cf38d844c0eec1cfa23afa
          `ENTRYPOINT ["${runtimeBin}", "/app/index.mjs"]`,
          "",
 diff --git a/lib/Containers/ContainerProvider.js b/lib/Containers/ContainerProvider.js
-index a426d605e2545a516269f3a98d8ed233daeead20..ed643985460436b243a596a4d07609092b132fb4 100644
+index feee7270cd5423a535b00c431e402021ae0e22c4..51c80019af7f757f3763668ad4f26e1473ae538c 100644
 --- a/lib/Containers/ContainerProvider.js
 +++ b/lib/Containers/ContainerProvider.js
-@@ -443,7 +443,7 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
-                 platform,
-                 file: build.dockerfile,
+@@ -471,7 +471,7 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+                 "build-arg": build.buildArgs,
+                 secrets: build.buildSecrets,
              }, session, credentials)
 -                .pipe(retryContainerPublication);
 +                .pipe(Effect.timeout("3 minutes"), retryContainerPublication);
          }
          else {
              // Effect-native program: materialize the generated Dockerfile and
-@@ -470,7 +470,7 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+@@ -498,7 +498,7 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
                  context: contextDir,
                  platform,
              }, session, credentials)
@@ -41,7 +41,7 @@ index a426d605e2545a516269f3a98d8ed233daeead20..ed643985460436b243a596a4d0760909
          // Resolve the pushed manifest digest from the registry itself rather
          // than scraping `docker push` output: one mechanism for every image
 diff --git a/lib/Containers/ContainerPublication.d.ts b/lib/Containers/ContainerPublication.d.ts
-index 2184f3fb9e3ccb5f3a485fbbcffc14a6f44fb60d..bb7a5cf3a5c06636f4ad1ab6f63199c2dbf8cb6f 100644
+index 2184f3fb9e3ccb5f3a485fbbcffc14a6f44fb60d..bd63a26fdaed5d4a279ca9dbc5f89518b5bc1793 100644
 --- a/lib/Containers/ContainerPublication.d.ts
 +++ b/lib/Containers/ContainerPublication.d.ts
 @@ -1,4 +1,5 @@
@@ -51,8 +51,9 @@ index 2184f3fb9e3ccb5f3a485fbbcffc14a6f44fb60d..bb7a5cf3a5c06636f4ad1ab6f63199c2
 -export declare const retryContainerPublication: <A, R>(publication: Effect.Effect<A, DockerImagePublicationError, R>) => Effect.Effect<A, DockerImagePublicationError, R>;
 +export declare const retryContainerPublication: <A, E extends DockerImagePublicationError | TimeoutError, R>(publication: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
  //# sourceMappingURL=ContainerPublication.d.ts.map
+\ No newline at end of file
 diff --git a/lib/Containers/ContainerPublication.js b/lib/Containers/ContainerPublication.js
-index 650bc53ffb269f006591040066414080e1ea5d90..440bad543b64f8a5270cdbafc9af2fa510b869e5 100644
+index 650bc53ffb269f006591040066414080e1ea5d90..08d9c9cff9794abbcfec6f09c78db32938865b8a 100644
 --- a/lib/Containers/ContainerPublication.js
 +++ b/lib/Containers/ContainerPublication.js
 @@ -1,7 +1,13 @@
@@ -72,6 +73,7 @@ index 650bc53ffb269f006591040066414080e1ea5d90..440bad543b64f8a5270cdbafc9af2fa5
 +    });
  });
  //# sourceMappingURL=ContainerPublication.js.map
+\ No newline at end of file
 diff --git a/lib/Workers/Sources/Rolldown.js b/lib/Workers/Sources/Rolldown.js
 index af8e61b835b214d6623a8757f431c71788071fac..2771da63bcddd25e989630b3399f0509f5180348 100644
 --- a/lib/Workers/Sources/Rolldown.js
@@ -105,10 +107,10 @@ index af8e61b835b214d6623a8757f431c71788071fac..2771da63bcddd25e989630b3399f0509
  ${[
          ...(hasDoClasses
 diff --git a/src/Containers/ContainerBundle.ts b/src/Containers/ContainerBundle.ts
-index 0160e8576bcafc2fdf15b87b97c686ea1638bb10..5f40e9fb034690424d7d23115bd418cb9e376f31 100644
+index 4b0315518ffe0633b356d16b41283da51c0d01a8..47d37e8a0388bb8ab49d6e44252b621dff172fe2 100644
 --- a/src/Containers/ContainerBundle.ts
 +++ b/src/Containers/ContainerBundle.ts
-@@ -220,12 +220,13 @@ export const buildFinalDockerfile = (
+@@ -233,12 +233,13 @@ export const buildFinalDockerfile = (
      "",
      "WORKDIR /app",
      ...(installStep ? [installStep, ""] : []),
@@ -125,10 +127,10 @@ index 0160e8576bcafc2fdf15b87b97c686ea1638bb10..5f40e9fb034690424d7d23115bd418cb
      `ENTRYPOINT ["${runtimeBin}", "/app/index.mjs"]`,
      "",
 diff --git a/src/Containers/ContainerProvider.ts b/src/Containers/ContainerProvider.ts
-index 3ab6a0d153e0f51b7cf79d653e3be922a6b3ae1b..5736b939997b08658c8a82d41b62e8c1093421b0 100644
+index ea3295b63c0b1e5f5497020e68214556c1ee4673..71195f89999e6a7572e91fb342d8f02b6b7f77df 100644
 --- a/src/Containers/ContainerProvider.ts
 +++ b/src/Containers/ContainerProvider.ts
-@@ -610,7 +610,7 @@ export const LiveContainerProvider = () =>
+@@ -653,7 +653,7 @@ export const LiveContainerProvider = () =>
                session,
                credentials,
              )
@@ -137,7 +139,7 @@ index 3ab6a0d153e0f51b7cf79d653e3be922a6b3ae1b..5736b939997b08658c8a82d41b62e8c1
          } else {
            // Effect-native program: materialize the generated Dockerfile and
            // bundled chunks into a stable staging dir, then build.
-@@ -649,7 +649,7 @@ export const LiveContainerProvider = () =>
+@@ -692,7 +692,7 @@ export const LiveContainerProvider = () =>
                session,
                credentials,
              )
