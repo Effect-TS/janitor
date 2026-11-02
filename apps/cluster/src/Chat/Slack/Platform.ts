@@ -46,6 +46,39 @@ const metadata = (kind: "status" | "reply") => ({
 
 const Posted = Schema.Struct({ ts: Schema.String })
 
+/** Escapes mrkdwn's control characters, keeping a `>` that opens a quote. */
+const escapeMrkdwn = (text: string) =>
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/^(\s*)>|>/gm, (match, indent: string | undefined) =>
+      indent === undefined ? "&gt;" : match,
+    )
+
+/**
+ * Markdown as Slack's mrkdwn, for text that can't go as `markdown_text`.
+ * Outside code, headers and bold become `*bold*`, strikethrough `~struck~`
+ * and links `<url|text>`; the rest stays as written.
+ */
+export const toMrkdwn = (markdown: string): string =>
+  markdown
+    // Code spans and fences sit at the odd indices.
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? // mrkdwn shows a fence's language as the code's first line.
+          escapeMrkdwn(part.replace(/^```[\w+#.-]+\n/, "```\n"))
+        : escapeMrkdwn(part)
+            .replace(/^#{1,6}[ \t]+(.+?)[ \t#]*$/gm, "*$1*")
+            .replace(
+              /\*\*(.+?)\*\*|__(.+?)__/g,
+              (_, star: string | undefined, under: string) => `*${star ?? under}*`,
+            )
+            .replace(/~~(.+?)~~/g, "~$1~")
+            .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, "<$2|$1>"),
+    )
+    .join("")
+
 /**
  * Splits Markdown into chunks of at most `max` characters, on line breaks
  * where it can. A code fence open at a split is closed at the end of the
@@ -164,8 +197,9 @@ const make = Effect.gen(function* () {
     })
 
   /**
-   * Shares staged files in the thread as one message, with `text` as a
-   * `markdown` block, which renders as `markdown_text` does.
+   * Shares staged files in the thread as one message, with `text` as its
+   * `initial_comment`, in mrkdwn. Slack fails the call with `internal_error`
+   * when it carries a `markdown` block (python-slack-sdk#1756).
    */
   const share = (
     thread: ChatThread,
@@ -180,7 +214,7 @@ const make = Effect.gen(function* () {
             files,
             channel_id: channel,
             thread_ts: threadTs,
-            blocks: text === undefined ? undefined : [{ type: "markdown", text }],
+            initial_comment: text === undefined ? undefined : toMrkdwn(text),
           },
           { write: true },
         ),
@@ -374,8 +408,9 @@ const make = Effect.gen(function* () {
  * refuses fails at once. Replies go out as `markdown_text`, up to 12,000
  * characters a message and a second apart, with code fences kept balanced;
  * one that needs more than three messages is uploaded as `reply.md`. A
- * reply's files are shared with its last message's text, or with its
- * `reply.md`, uploaded before any of its text is posted.
+ * reply's files are shared with its last message's text, in mrkdwn since
+ * that message can't take `markdown_text`, or with its `reply.md`, uploaded
+ * before any of its text is posted.
  * janitor's posts carry a metadata marker and never unfurl links.
  */
 export const layer: Layer.Layer<ChatPlatform, never, SlackConfig | HttpClient.HttpClient> =
