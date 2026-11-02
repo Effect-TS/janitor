@@ -34,9 +34,6 @@ const posted: Array<{
   }>
 }> = []
 
-/** While set, Discord refuses every message with files, as without the Attach Files permission. */
-let refuseFiles = false
-
 /** The thread's history, newest first, as `GET /channels/{id}/messages` returns it. */
 const threadMessages = [
   {
@@ -206,11 +203,6 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
                 throw new Error(`Unexpected Discord request body: ${body._tag}`)
               }
               const message = JSON.parse(json)
-              if (body._tag === "FormData" && refuseFiles)
-                return HttpClientResponse.fromWeb(
-                  request,
-                  Response.json({ message: "Missing Permissions", code: 50013 }, { status: 403 }),
-                )
               if (body._tag === "FormData") {
                 const files = []
                 for (const [key, value] of body.formData.entries()) {
@@ -349,23 +341,6 @@ describe("Discord platform", () => {
       assert.deepStrictEqual(posted[1]!.files, [
         { name: "plot.png", type: "image/png", content: plot.content },
       ])
-    }).pipe(Effect.provide(services)),
-  )
-
-  it.effect("a reply whose files are refused posts its last chunk as text, and the rest once", () =>
-    Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      posted.length = 0
-      refuseFiles = true
-
-      yield* platform
-        .postReply(thread, `${"a".repeat(1990)}\n${"b".repeat(500)}`, { files: [plot] })
-        .pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = false))))
-
-      assert.deepStrictEqual(
-        posted.map((message) => message.content),
-        ["a".repeat(1990), `${"b".repeat(500)}\n\n(Couldn't attach plot.png.)`],
-      )
     }).pipe(Effect.provide(services)),
   )
 

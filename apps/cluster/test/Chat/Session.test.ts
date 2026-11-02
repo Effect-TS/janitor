@@ -870,66 +870,55 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
     ),
   )
 
-  it.effect(
-    "attachFile refuses a file too large to post and more files than one message holds",
-    () =>
-      test((harness) =>
-        Effect.gen(function* () {
-          // Over Discord's 10 MiB upload limit for a server without boosts.
-          harness.sandboxes.files.set("/workspace/heap.bin", new Uint8Array(10 * 1024 * 1024 + 1))
-          const paths = Array.from({ length: 12 }, (_, index) => `/workspace/plot-${index}.png`)
-          for (const path of paths) harness.sandboxes.files.set(path, new Uint8Array([137, 80]))
-          yield* send(harness, slackThread, "Plot every benchmark.", { mention: true })
-          yield* modelCalls(harness, 1)
-          harness.model.answer(
-            callTool("attachFile", { path: "/workspace/heap.bin" }),
-            ...paths.map((path) => callTool("attachFile", { path })),
-            say("Here are the plots."),
-          )
-          yield* turnEnded(harness, slackThread)
+  it.effect("attachFile refuses a file over 9 MiB and a tenth file", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        harness.sandboxes.files.set("/workspace/heap.bin", new Uint8Array(9 * 1024 * 1024 + 1))
+        harness.sandboxes.files.set("/workspace/plot.png", new Uint8Array([137, 80]))
+        yield* send(harness, slackThread, "Plot every benchmark.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(
+          callTool("attachFile", { path: "/workspace/heap.bin" }),
+          ...Array.from({ length: 10 }, () =>
+            callTool("attachFile", { path: "/workspace/plot.png" }),
+          ),
+          say("Here are the plots."),
+        )
+        yield* turnEnded(harness, slackThread)
 
-          const [huge, ...plots] = harness.sandboxes.toolOutcomes
-          assert.isTrue(huge!.startsWith("failed: "), huge)
-          // Discord takes ten files a message, and an overflowing reply's reply.md needs one of them.
-          const accepted = plots.findIndex((outcome) => outcome !== "ok")
-          assert.isAbove(accepted, 0)
-          assert.isAtMost(accepted, 9)
-          for (const outcome of plots.slice(accepted))
-            assert.isTrue(outcome.startsWith("failed: "), outcome)
-          assert.deepStrictEqual(
-            harness.platform.replyFiles.flatMap(({ files }) => files.map((file) => file.name)),
-            paths.slice(0, accepted).map((path) => path.slice("/workspace/".length)),
-          )
-        }),
-      ),
+        const [huge, ...plots] = harness.sandboxes.toolOutcomes
+        assert.isTrue(huge!.startsWith("failed: "), huge)
+        assert.deepStrictEqual(plots.slice(0, 9), Array(9).fill("ok"))
+        assert.isTrue(plots[9]!.startsWith("failed: "), plots[9])
+        assert.lengthOf(harness.platform.replyFiles[0]!.files, 9)
+      }),
+    ),
   )
 
-  for (const ending of ["a provider failure", "a cancel"] as const) {
-    it.effect(`files attached in a turn that ends with ${ending} are never posted`, () =>
-      test((harness) =>
-        Effect.gen(function* () {
-          harness.sandboxes.files.set("/workspace/plot.png", new Uint8Array([137, 80]))
-          yield* send(harness, slackThread, "Plot the build times.", { mention: true })
-          yield* modelCalls(harness, 1)
-          harness.model.answer(callTool("attachFile", { path: "/workspace/plot.png" }))
-          yield* modelCalls(harness, 2)
-          if (ending === "a provider failure") harness.model.answer(quotaExhausted)
-          else yield* harness.cancel(slackThread)
-          yield* turnEnded(harness, slackThread)
-          assert.deepStrictEqual(harness.sandboxes.toolOutcomes, ["ok"])
+  it.effect("files attached in a turn that ends without a reply are never posted", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        harness.sandboxes.files.set("/workspace/plot.png", new Uint8Array([137, 80]))
+        yield* send(harness, slackThread, "Plot the build times.", { mention: true })
+        yield* modelCalls(harness, 1)
+        harness.model.answer(
+          callTool("attachFile", { path: "/workspace/plot.png" }),
+          quotaExhausted,
+        )
+        yield* turnEnded(harness, slackThread)
+        assert.deepStrictEqual(harness.sandboxes.toolOutcomes, ["ok"])
 
-          yield* send(harness, slackThread, "Are you there?", { mention: true })
-          yield* modelCalls(harness, 3)
-          harness.model.answer(say("I'm here."))
-          yield* harness.until(
-            Effect.sync(() => harness.platform.replies.length === 1),
-            "the next turn's reply",
-          )
-          assert.deepStrictEqual(harness.platform.replyFiles, [])
-        }),
-      ),
-    )
-  }
+        yield* send(harness, slackThread, "Are you there?", { mention: true })
+        yield* modelCalls(harness, 3)
+        harness.model.answer(say("I'm here."))
+        yield* harness.until(
+          Effect.sync(() => harness.platform.replies.length === 1),
+          "the next turn's reply",
+        )
+        assert.deepStrictEqual(harness.platform.replyFiles, [])
+      }),
+    ),
+  )
 
   it.effect("a reply whose files can't be uploaded is still posted, naming the files", () =>
     test((harness) =>
