@@ -41,14 +41,7 @@ import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agen
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
-import {
-  ChatMessage,
-  ChatPlatform,
-  ChatPlatformError,
-  ChatThread,
-  sessionKey,
-  unattachedNote,
-} from "./Platform.ts"
+import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread, sessionKey } from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
 import { makeReplyFiles } from "./ReplyFiles.ts"
 import { ChatSessionIndex } from "./SessionIndex.ts"
@@ -910,28 +903,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 const replyTo = Option.isSome(message)
                   ? { messageId: message.value.id, authorId: message.value.author.id }
                   : undefined
-                // Never retried here: the transport retries what is safe to retry.
-                const files = replyFiles.files()
-                let text = result.text
-                let posted = yield* platform
-                  .postReply(running.thread, text, { replyTo, files })
+                // Never retried here: the transport retries what is safe to retry,
+                // and the platform delivers a reply whose files it refuses as text.
+                const posted = yield* platform
+                  .postReply(running.thread, result.text, { replyTo, files: replyFiles.files() })
                   .pipe(Effect.result)
-                // A reply refused with its files before any of it went out still
-                // goes out, without them, saying which. One partly posted isn't
-                // posted again: the platform finished it as text if it could.
-                if (
-                  posted._tag === "Failure" &&
-                  files.length > 0 &&
-                  posted.failure.partial !== true
-                ) {
-                  yield* Effect.logWarning("Couldn't post a chat reply's files").pipe(
-                    Effect.annotateLogs({ reason: posted.failure.message }),
-                  )
-                  text = `${result.text}\n\n${unattachedNote(files)}`
-                  posted = yield* platform
-                    .postReply(running.thread, text, { replyTo })
-                    .pipe(Effect.result)
-                }
                 if (posted._tag === "Failure") {
                   yield* Effect.logError("Couldn't post a chat reply").pipe(
                     Effect.annotateLogs({ reason: posted.failure.message }),

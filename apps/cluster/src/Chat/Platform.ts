@@ -32,14 +32,9 @@ export const APPROVAL_TEXT = "👍 (reacted with a thumbs up to your message: ap
 export const approvalMessageId = (messageId: string, userId: string): string =>
   `reaction/${messageId}/${userId}`
 
-/**
- * A failed call. `partial` marks a reply that may be partly posted, when
- * some of its messages went out or the platform's answer was lost: posting
- * it again could repeat them.
- */
 export class ChatPlatformError extends Schema.TaggedError<ChatPlatformError>()(
   "ChatPlatformError",
-  { message: Schema.String, partial: Schema.optionalKey(Schema.Boolean) },
+  { message: Schema.String },
 ) {}
 
 /**
@@ -81,9 +76,24 @@ export interface ChatFile {
   readonly content: Uint8Array
 }
 
-/** What a reply says in place of files that couldn't be posted with it. */
-export const unattachedNote = (files: ReadonlyArray<ChatFile>): string =>
-  `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
+/** A reply too long for messages, as the file it is uploaded as instead. */
+export const replyMarkdown = (text: string): ChatFile => ({
+  name: "reply.md",
+  contentType: "text/markdown",
+  content: new TextEncoder().encode(text),
+})
+
+/** `text` ending in a note naming the files that couldn't be posted with it. */
+export const notingUnattached = (text: string, files: ReadonlyArray<ChatFile>): string => {
+  const note = `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
+  return text === "" ? note : `${text}\n\n${note}`
+}
+
+/** Logs that a platform refused a reply's files, so the reply goes out without them. */
+export const logUnattached = (error: ChatPlatformError) =>
+  Effect.logWarning("Couldn't post a chat reply's files").pipe(
+    Effect.annotateLogs({ reason: error.message }),
+  )
 
 /** A posted reply: when its final part was published, and its text as posted, notes included. */
 export interface PostedReply {
@@ -113,15 +123,13 @@ export class ChatPlatform extends Context.Service<
     ) => Effect.Effect<void, ChatPlatformError>
     /**
      * Posts a reply and returns when its final part was published, with the
-     * text that went out. On
-     * Discord it answers `replyTo`, the message that started the turn, or
-     * mentions its author when that message started the thread. `files` go
-     * in the same message as the reply's last part, or with its `reply.md`.
-     * When the platform refuses the files after some of the reply is out,
-     * or refuses an overflowing reply's upload, the rest of the reply goes
-     * out as text with `unattachedNote`, and the text returned ends with it.
-     * A refusal before anything went out
-     * fails without `partial`, so the reply can be posted again without them.
+     * text that went out. On Discord it answers `replyTo`, the message that
+     * started the turn, or mentions its author when that message started the
+     * thread. `files` go in the same message as the reply's last part, or
+     * with its `reply.md`. When the platform refuses them, whatever of the
+     * reply isn't out yet goes as text instead, `notingUnattached`, and the
+     * text returned ends with the note. Nothing already posted is posted
+     * again, so a failure after a lost answer fails the reply.
      */
     readonly postReply: (
       thread: ChatThread,
