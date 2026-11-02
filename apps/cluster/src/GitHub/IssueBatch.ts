@@ -2,6 +2,7 @@ import type { GitHubIssueApi } from "@janitor/domain/GitHub/Api"
 import type { GitHubRepositoryDatabaseId } from "@janitor/domain/GitHub/Id"
 import type { GitHubWebhookJournalSequence } from "@janitor/domain/GitHub/WebhookJournal"
 import * as DateTime from "effect/DateTime"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as SqlClient from "effect/sql/SqlClient"
 
@@ -21,12 +22,12 @@ export const applyIssueBatch = (request: {
         unique.set(issue.number, issue)
     }
     const issues = [...unique.values()].sort((a, b) => a.number - b.number)
-    if (issues.length === 0) return [] as Array<number>
+    if (!Arr.isReadonlyArrayNonEmpty(issues)) return [] as Array<number>
     return yield* sql.withTransaction(
       Effect.gen(function* () {
         const accepted = yield* sql<{ number: number }>`
       INSERT INTO github_entity ${sql.insert(
-        issues.map((issue) => ({
+        Arr.map(issues, (issue) => ({
           repository_id: repositoryId,
           number: issue.number,
           kind: issue.pullRequest === undefined ? "issue" : "pull_request",
@@ -55,10 +56,7 @@ export const applyIssueBatch = (request: {
         const applied = issues.filter((issue) => numbers.has(issue.number))
         const labels = new Map<string, GitHubIssueApi["labels"][number]>()
         for (const issue of applied) for (const label of issue.labels) labels.set(label.id, label)
-        if (labels.size > 0)
-          yield* sql`
-      INSERT INTO github_label ${sql.insert(
-        [...labels.values()]
+        const labelRows = [...labels.values()]
           .sort((a, b) => a.id.localeCompare(b.id))
           .map((label) => ({
             repository_id: repositoryId,
@@ -68,8 +66,10 @@ export const applyIssueBatch = (request: {
             color: label.color ?? null,
             availability: "available",
             projected_sequence: sequence,
-          })),
-      )}
+          }))
+        if (Arr.isArrayNonEmpty(labelRows))
+          yield* sql`
+      INSERT INTO github_label ${sql.insert(labelRows)}
       ON CONFLICT (repository_id,label_id) DO UPDATE SET node_id=EXCLUDED.node_id,name=EXCLUDED.name,
         color=COALESCE(EXCLUDED.color,github_label.color),
         availability='available',projected_sequence=EXCLUDED.projected_sequence,observed_at=CLOCK_TIMESTAMP()
@@ -82,7 +82,7 @@ export const applyIssueBatch = (request: {
             label_id: labelId,
           })),
         )
-        if (associations.length > 0)
+        if (Arr.isArrayNonEmpty(associations))
           yield* sql`INSERT INTO github_entity_label ${sql.insert(associations)} ON CONFLICT DO NOTHING`
         return [...numbers]
       }),

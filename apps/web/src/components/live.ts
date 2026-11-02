@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Socket from "effect/socket/Socket"
 import * as HttpClient from "effect/http/HttpClient"
+import * as Dom from "foldkit/dom"
 import * as Subscription from "foldkit/subscription"
 import { defineMessageUnion } from "foldkit/message"
 
@@ -185,7 +186,7 @@ export const subscriptions = Subscription.make<State, Message, HttpClient.HttpCl
         dependenciesToStream: () =>
           Stream.concat(
             Stream.fromEffect(Effect.sync(() => Message.Visibility({ visible: !document.hidden }))),
-            Subscription.fromEvent({
+            Dom.streamFromEvent({
               target: () => document,
               type: "visibilitychange",
               mapEvent: () => Message.Visibility({ visible: !document.hidden }),

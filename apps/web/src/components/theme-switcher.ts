@@ -12,6 +12,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { modifyFields } from "foldkit/struct"
 import * as Submodel from "foldkit/submodel"
+import * as Dom from "foldkit/dom"
 import * as Subscription from "foldkit/subscription"
 import * as Update from "foldkit/update"
 import * as Icon from "@/lib/icons"
@@ -219,7 +220,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
         Stream.callback<Message>(() => applyTheme(resolvedTheme)),
     },
   ),
-  systemTheme: Subscription.persistent(
+  systemTheme: Subscription.persistentEntry(
     Stream.concat(
       // Reconcile any changes that occurred after flags were read
       Stream.fromEffect(
@@ -227,7 +228,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
           systemThemeMessage(globalThis.window.matchMedia(THEME_MEDIA_QUERY).matches),
         ),
       ),
-      Subscription.fromEvent({
+      Dom.streamFromEvent({
         target: () => globalThis.window.matchMedia(THEME_MEDIA_QUERY),
         type: "change",
         mapEvent: (event) => systemThemeMessage(event.matches),
