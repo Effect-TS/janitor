@@ -26,6 +26,12 @@ const posted: Array<{
     readonly replied_user?: boolean
   }
   readonly attachments?: ReadonlyArray<{ readonly id: string; readonly filename: string }>
+  /** The files uploaded with the message, in form order. */
+  files?: ReadonlyArray<{
+    readonly name: string
+    readonly type: string
+    readonly content: Uint8Array
+  }>
 }> = []
 
 /** The thread's history, newest first, as `GET /channels/{id}/messages` returns it. */
@@ -196,7 +202,17 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
               } else {
                 throw new Error(`Unexpected Discord request body: ${body._tag}`)
               }
-              posted.push(JSON.parse(json))
+              const message = JSON.parse(json)
+              if (body._tag === "FormData") {
+                const files = []
+                for (const [key, value] of body.formData.entries()) {
+                  if (key === "payload_json" || typeof value === "string") continue
+                  const content = new Uint8Array(yield* Effect.promise(() => value.arrayBuffer()))
+                  files.push({ name: value.name, type: value.type, content })
+                }
+                message.files = files
+              }
+              posted.push(message)
               return HttpClientResponse.fromWeb(
                 request,
                 Response.json({
@@ -304,6 +320,49 @@ describe("Discord platform", () => {
       }).pipe(Effect.provide(services)),
     )
   }
+
+  const plot = {
+    name: "plot.png",
+    contentType: "image/png",
+    content: new Uint8Array([137, 80, 78, 71, 0, 255]),
+  }
+
+  it.effect("posts a reply's files with its last chunk, with their content type", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+
+      yield* platform.postReply(thread, "a".repeat(2500), { files: [plot] })
+
+      assert.lengthOf(posted, 2)
+      assert.isUndefined(posted[0]!.attachments)
+      assert.isUndefined(posted[0]!.files)
+      assert.deepStrictEqual(posted[1]!.attachments, [{ id: "0", filename: "plot.png" }])
+      assert.deepStrictEqual(posted[1]!.files, [
+        { name: "plot.png", type: "image/png", content: plot.content },
+      ])
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("uploads an overflowing reply as reply.md in one message with its files", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+      const text = "a".repeat(11000)
+
+      yield* platform.postReply(thread, text, { files: [plot] })
+
+      assert.lengthOf(posted, 1)
+      assert.deepStrictEqual(posted[0]!.attachments, [
+        { id: "0", filename: "reply.md" },
+        { id: "1", filename: "plot.png" },
+      ])
+      assert.deepStrictEqual(posted[0]!.files, [
+        { name: "reply.md", type: "text/markdown", content: new TextEncoder().encode(text) },
+        { name: "plot.png", type: "image/png", content: plot.content },
+      ])
+    }).pipe(Effect.provide(services)),
+  )
 
   it.effect("reads a managed bot role mention in the history as a bot mention", () =>
     Effect.gen(function* () {

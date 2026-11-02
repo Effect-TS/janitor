@@ -33,6 +33,11 @@ const replies = Array.from({ length: 61 }, (_, index) => ({
   text: `reply ${index}`,
 }))
 
+/** Every file uploaded to an upload URL, with its content type. */
+const uploads: Array<{ readonly type: string; readonly content: Uint8Array }> = []
+/** The parameters of every `files.completeUploadExternal` call. */
+const completed: Array<URLSearchParams> = []
+
 /** Answers the other methods. Channel `C-shared` is a Slack Connect channel. */
 const answer = (method: string, params: URLSearchParams): Response => {
   switch (method) {
@@ -43,6 +48,15 @@ const answer = (method: string, params: URLSearchParams): Response => {
         ok: true,
         channel: { is_ext_shared: params.get("channel") === "C-shared" },
       })
+    case "files.getUploadURLExternal":
+      return Response.json({
+        ok: true,
+        upload_url: `https://files.slack.test/upload/${params.get("filename")}`,
+        file_id: `F-${params.get("filename")}`,
+      })
+    case "files.completeUploadExternal":
+      completed.push(params)
+      return Response.json({ ok: true })
     case "users.info":
       return Response.json({ ok: true, user: { team_id: "T1", name: "ada" } })
     case "conversations.replies": {
@@ -71,7 +85,13 @@ const services = SlackPlatform.layer.pipe(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
         Effect.sync(() => {
-          const method = new URL(request.url).pathname.replace("/api/", "")
+          const url = new URL(request.url)
+          if (url.hostname === "files.slack.test") {
+            if (request.body._tag === "Uint8Array")
+              uploads.push({ type: request.body.contentType, content: request.body.body })
+            return HttpClientResponse.fromWeb(request, new Response("OK"))
+          }
+          const method = url.pathname.replace("/api/", "")
           const params = new URLSearchParams(
             request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "",
           )
@@ -126,6 +146,62 @@ describe("Slack platform", () => {
         messages.map((message) => message.text),
         ["reply 58", "reply 59", "reply 60"],
       )
+    }).pipe(Effect.provide(services)),
+  )
+
+  const plot = {
+    name: "plot.png",
+    contentType: "image/png",
+    content: new Uint8Array([137, 80, 78, 71, 0, 255]),
+  }
+
+  /** The files a `files.completeUploadExternal` call shares, by id and title. */
+  const shared = (params: URLSearchParams) =>
+    JSON.parse(params.get("files") ?? "[]") as ReadonlyArray<{ id: string; title: string }>
+
+  it.effect("posts a reply with its files as one message in the thread", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posts = 0
+      respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
+      uploads.length = 0
+      completed.length = 0
+
+      yield* platform.postReply(thread, "Here's the **plot**.", { files: [plot] })
+
+      assert.strictEqual(posts, 0)
+      assert.deepStrictEqual(uploads, [{ type: "image/png", content: plot.content }])
+      assert.lengthOf(completed, 1)
+      const [message] = completed
+      assert.strictEqual(message!.get("channel_id"), "C1")
+      assert.strictEqual(message!.get("thread_ts"), thread.threadTs)
+      assert.deepStrictEqual(shared(message!), [{ id: "F-plot.png", title: "plot.png" }])
+      // The text goes with the files, as `initial_comment` or as blocks.
+      assert.include([...message!.values()].join("\n"), "Here's the **plot**.")
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("uploads an overflowing reply as reply.md in one message with its files", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posts = 0
+      respond = () => Response.json({ ok: true, ts: "1700000001.000100" })
+      uploads.length = 0
+      completed.length = 0
+      const text = "a".repeat(40_000)
+
+      yield* platform.postReply(thread, text, { files: [plot] })
+
+      assert.strictEqual(posts, 0)
+      assert.deepStrictEqual(uploads, [
+        { type: "text/markdown", content: new TextEncoder().encode(text) },
+        { type: "image/png", content: plot.content },
+      ])
+      assert.lengthOf(completed, 1)
+      assert.deepStrictEqual(shared(completed[0]!), [
+        { id: "F-reply.md", title: "reply.md" },
+        { id: "F-plot.png", title: "plot.png" },
+      ])
     }).pipe(Effect.provide(services)),
   )
 
