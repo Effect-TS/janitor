@@ -32,9 +32,14 @@ export const APPROVAL_TEXT = "👍 (reacted with a thumbs up to your message: ap
 export const approvalMessageId = (messageId: string, userId: string): string =>
   `reaction/${messageId}/${userId}`
 
+/**
+ * A failed call. `partial` marks a reply that may be partly posted, when
+ * some of its messages went out or the platform's answer was lost: posting
+ * it again could repeat them.
+ */
 export class ChatPlatformError extends Schema.TaggedError<ChatPlatformError>()(
   "ChatPlatformError",
-  { message: Schema.String },
+  { message: Schema.String, partial: Schema.optionalKey(Schema.Boolean) },
 ) {}
 
 /**
@@ -76,6 +81,10 @@ export interface ChatFile {
   readonly content: Uint8Array
 }
 
+/** What a reply says in place of files that couldn't be posted with it. */
+export const unattachedNote = (files: ReadonlyArray<ChatFile>): string =>
+  `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
+
 const noPlatform = Effect.fail(new ChatPlatformError({ message: "No chat platform is connected" }))
 
 export class ChatPlatform extends Context.Service<
@@ -100,7 +109,11 @@ export class ChatPlatform extends Context.Service<
      * Posts a reply and returns when its final part was published. On
      * Discord it answers `replyTo`, the message that started the turn, or
      * mentions its author when that message started the thread. `files` go
-     * in the same message as the reply's last part, or as its `reply.md`.
+     * in the same message as the reply's last part, or with its `reply.md`.
+     * When the platform refuses the files after some of the reply is out,
+     * or refuses an overflowing reply's upload, the rest of the reply goes
+     * out as text with `unattachedNote`. A refusal before anything went out
+     * fails without `partial`, so the reply can be posted again without them.
      */
     readonly postReply: (
       thread: ChatThread,

@@ -41,9 +41,16 @@ import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agen
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
-import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread, sessionKey } from "./Platform.ts"
+import {
+  ChatMessage,
+  ChatPlatform,
+  ChatPlatformError,
+  ChatThread,
+  sessionKey,
+  unattachedNote,
+} from "./Platform.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
-import { makeReplyFiles, unattachedNote } from "./ReplyFiles.ts"
+import { makeReplyFiles } from "./ReplyFiles.ts"
 import { ChatSessionIndex } from "./SessionIndex.ts"
 import {
   GateOutcome,
@@ -909,8 +916,14 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 let posted = yield* platform
                   .postReply(running.thread, text, { replyTo, files })
                   .pipe(Effect.result)
-                // The reply still goes out when its files don't, and says which.
-                if (posted._tag === "Failure" && files.length > 0) {
+                // A reply refused with its files before any of it went out still
+                // goes out, without them, saying which. One partly posted isn't
+                // posted again: the platform finished it as text if it could.
+                if (
+                  posted._tag === "Failure" &&
+                  files.length > 0 &&
+                  posted.failure.partial !== true
+                ) {
                   yield* Effect.logWarning("Couldn't post a chat reply's files").pipe(
                     Effect.annotateLogs({ reason: posted.failure.message }),
                   )

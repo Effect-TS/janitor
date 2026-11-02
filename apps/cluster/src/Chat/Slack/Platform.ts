@@ -12,6 +12,7 @@ import {
   ChatPlatformError,
   type ChatThread,
   readLimited,
+  unattachedNote,
 } from "../Platform.ts"
 import {
   decode,
@@ -99,6 +100,14 @@ export const chunkMarkdown = (text: string, max: number): ReadonlyArray<string> 
 const platformError = (error: SlackApiError | ChatPlatformError) =>
   error._tag === "ChatPlatformError" ? error : new ChatPlatformError({ message: error.message })
 
+/** The call surely didn't land: Slack refused it or rate limited it. Else it may have. */
+const refused = (error: SlackApiError | ChatPlatformError) =>
+  error._tag === "ChatPlatformError" || error.disposition !== "uncertain"
+
+/** A reply's error, `partial` once any of it may be out. */
+const replyError = (error: SlackApiError | ChatPlatformError, partial: boolean) =>
+  new ChatPlatformError({ message: platformError(error).message, ...(partial ? { partial } : {}) })
+
 const slackThread = (
   thread: ChatThread,
 ): Effect.Effect<Extract<ChatThread, { readonly _tag: "Slack" }>, ChatPlatformError> =>
@@ -116,7 +125,7 @@ const make = Effect.gen(function* () {
   const api = yield* SlackApi
   const config = yield* SlackConfig
 
-  const post = (thread: ChatThread, fields: Record<string, unknown>) =>
+  const send = (thread: ChatThread, fields: Record<string, unknown>) =>
     slackThread(thread).pipe(
       Effect.flatMap(({ channel, threadTs }) =>
         api.call(
@@ -127,8 +136,10 @@ const make = Effect.gen(function* () {
       ),
       Effect.flatMap(decode("chat.postMessage", Posted)),
       Effect.map(({ ts }) => ts),
-      Effect.mapError(platformError),
     )
+
+  const post = (thread: ChatThread, fields: Record<string, unknown>) =>
+    send(thread, fields).pipe(Effect.mapError(platformError))
 
   /** Uploads `file` to Slack, unshared; succeeds with its file id. */
   const stage = (file: ChatFile) =>
@@ -278,42 +289,70 @@ const make = Effect.gen(function* () {
     postReply: (thread, text, options) => {
       const chunks = chunkMarkdown(text, CHUNK_CHARACTERS)
       const files = options?.files ?? []
+      /** Posts `chunks` a second apart; succeeds with the last one's time. */
+      const postChunks = (chunks: ReadonlyArray<string>) =>
+        Effect.forEach(chunks, (chunk, index) =>
+          (index === 0 ? Effect.void : Effect.sleep(BETWEEN_POSTS)).pipe(
+            Effect.andThen(send(thread, { markdown_text: chunk, metadata: metadata("reply") })),
+            Effect.mapError((error) => replyError(error, index > 0 || !refused(error))),
+          ),
+        ).pipe(
+          Effect.flatMap((posted) => {
+            const last = posted.at(-1)
+            return last === undefined
+              ? DateTime.now
+              : Effect.succeed(DateTime.makeUnsafe(Math.floor(Number(last) * 1000)))
+          }),
+        )
+      const replyMd = {
+        name: "reply.md",
+        contentType: "text/markdown",
+        content: new TextEncoder().encode(text),
+      }
       // File uploads do not return a message timestamp; completion is a
       // conservative boundary rather than backdating to the request.
+      if (chunks.length > MAX_CHUNKS && files.length === 0)
+        return uploadFiles(thread, [replyMd]).pipe(Effect.andThen(DateTime.now))
       if (chunks.length > MAX_CHUNKS)
-        return uploadFiles(thread, [
-          {
-            name: "reply.md",
-            contentType: "text/markdown",
-            content: new TextEncoder().encode(text),
-          },
-          ...files,
-        ]).pipe(Effect.andThen(DateTime.now))
-      if (files.length > 0)
+        return Effect.gen(function* () {
+          // Uploads refused: a reply.md alone would be too. The reply goes
+          // out as text, however many messages that takes.
+          const asText = postChunks(
+            chunkMarkdown(`${text}\n\n${unattachedNote(files)}`, CHUNK_CHARACTERS),
+          )
+          const staged = yield* Effect.forEach([replyMd, ...files], stage).pipe(Effect.result)
+          if (staged._tag === "Failure") return yield* asText
+          const shared = yield* share(thread, staged.success).pipe(Effect.result)
+          if (shared._tag === "Success") return yield* DateTime.now
+          return yield* refused(shared.failure)
+            ? asText
+            : Effect.fail(replyError(shared.failure, true))
+        })
+      if (files.length === 0) return postChunks(chunks)
+      return Effect.gen(function* () {
         // Uploaded before any text goes out, so a failed upload posts nothing.
-        return Effect.forEach(files, stage).pipe(
-          Effect.flatMap((staged) =>
-            Effect.forEach(chunks.slice(0, -1), (chunk) =>
-              post(thread, { markdown_text: chunk, metadata: metadata("reply") }).pipe(
-                Effect.andThen(Effect.sleep(BETWEEN_POSTS)),
-              ),
-            ).pipe(Effect.andThen(share(thread, staged, chunks.at(-1)))),
-          ),
-          Effect.mapError(platformError),
-          Effect.andThen(DateTime.now),
+        const staged = yield* Effect.forEach(files, stage).pipe(
+          Effect.mapError((error) => replyError(error, false)),
         )
-      return Effect.forEach(chunks, (chunk, index) =>
-        (index === 0 ? Effect.void : Effect.sleep(BETWEEN_POSTS)).pipe(
-          Effect.andThen(post(thread, { markdown_text: chunk, metadata: metadata("reply") })),
-        ),
-      ).pipe(
-        Effect.flatMap((posted) => {
-          const last = posted.at(-1)
-          return last === undefined
-            ? DateTime.now
-            : Effect.succeed(DateTime.makeUnsafe(Math.floor(Number(last) * 1000)))
-        }),
-      )
+        const earlier = chunks.slice(0, -1)
+        const last = chunks.at(-1)
+        yield* postChunks(earlier)
+        if (earlier.length > 0) yield* Effect.sleep(BETWEEN_POSTS)
+        const shared = yield* share(thread, staged, last).pipe(Effect.result)
+        if (shared._tag === "Success") return yield* DateTime.now
+        if (!refused(shared.failure)) return yield* replyError(shared.failure, true)
+        // Refused first: nothing is out, and the caller posts the reply again
+        // without the files.
+        if (earlier.length === 0) return yield* replyError(shared.failure, false)
+        // Refused with the earlier chunks out: the last goes as text, noting the files.
+        return yield* postChunks(
+          chunkMarkdown(`${last}\n\n${unattachedNote(files)}`, CHUNK_CHARACTERS),
+        ).pipe(
+          Effect.mapError(
+            (error) => new ChatPlatformError({ message: error.message, partial: true }),
+          ),
+        )
+      })
     },
     uploadFile: (thread, file) => uploadFiles(thread, [file]),
     download: (_thread, attachment, maxBytes) =>

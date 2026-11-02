@@ -12,6 +12,7 @@ import {
   ChatPlatformError,
   type ChatThread,
   readLimited,
+  unattachedNote,
 } from "../Platform.ts"
 import { chunkMarkdown } from "../Slack/Platform.ts"
 import {
@@ -56,6 +57,14 @@ const userMentions = { parse: ["users" as const], replied_user: true }
 const platformError = (error: DiscordRESTError | ChatPlatformError) =>
   error._tag === "ChatPlatformError" ? error : new ChatPlatformError({ message: error.message })
 
+/** Discord answered, refusing the request: nothing was posted. Else its answer was lost. */
+const refused = (error: DiscordRESTError | ChatPlatformError) =>
+  error._tag === "ChatPlatformError" || error._tag === "ErrorResponse"
+
+/** A reply's error, `partial` once any of it may be out. */
+const replyError = (error: DiscordRESTError | ChatPlatformError, partial: boolean) =>
+  new ChatPlatformError({ message: platformError(error).message, ...(partial ? { partial } : {}) })
+
 const discordThread = (
   thread: ChatThread,
 ): Effect.Effect<Extract<ChatThread, { readonly _tag: "Discord" }>, ChatPlatformError> =>
@@ -71,7 +80,7 @@ const make = Effect.gen(function* () {
   const botUserId = rememberBotUserId(rest)
   const botRoleId = rememberBotRoleId(rest, config.guildId)
 
-  const post = (
+  const send = (
     thread: ChatThread,
     fields: Omit<Parameters<typeof rest.createMessage>[1], "flags">,
   ) =>
@@ -79,8 +88,12 @@ const make = Effect.gen(function* () {
       Effect.flatMap(({ threadId }) =>
         rest.createMessage(threadId, { ...fields, flags: SUPPRESS_EMBEDS }),
       ),
-      Effect.mapError(platformError),
     )
+
+  const post = (
+    thread: ChatThread,
+    fields: Omit<Parameters<typeof rest.createMessage>[1], "flags">,
+  ) => send(thread, fields).pipe(Effect.mapError(platformError))
 
   /** Posts a message with `files`, each its own attachment, in one request. */
   const upload = (
@@ -91,7 +104,7 @@ const make = Effect.gen(function* () {
       "content" | "allowed_mentions" | "message_reference"
     >,
   ) =>
-    post(thread, {
+    send(thread, {
       allowed_mentions: noMentions,
       attachments: files.map((file, index) => ({ id: String(index), filename: file.name })),
       ...fields,
@@ -224,12 +237,30 @@ const make = Effect.gen(function* () {
           ? undefined
           : { message_id: replyTo.messageId, fail_if_not_exists: false }
       const mention = starter === undefined ? undefined : `<@${starter.authorId}>`
-      const chunks = chunkMarkdown(
-        // A fence opening the reply must stay at the start of its line.
-        mention === undefined ? text : `${mention}${/^\s*```/.test(text) ? "\n" : " "}${text}`,
-        CHUNK_CHARACTERS,
-      )
+      // A fence opening the reply must stay at the start of its line.
+      const chunksOf = (body: string) =>
+        chunkMarkdown(
+          mention === undefined ? body : `${mention}${/^\s*```/.test(body) ? "\n" : " "}${body}`,
+          CHUNK_CHARACTERS,
+        )
+      const lastPosted = (posted: ReadonlyArray<{ readonly timestamp: string }>) => {
+        const last = posted.at(-1)
+        return last === undefined
+          ? DateTime.now
+          : Effect.succeed(DateTime.makeUnsafe(last.timestamp))
+      }
+      /** Posts `chunks` as messages, the first answering `replyTo`. */
+      const postChunks = (chunks: ReadonlyArray<string>) =>
+        Effect.forEach(chunks, (chunk, index) =>
+          send(thread, {
+            content: chunk,
+            allowed_mentions: userMentions,
+            message_reference: index === 0 ? reference : undefined,
+          }).pipe(Effect.mapError((error) => replyError(error, index > 0 || !refused(error)))),
+        ).pipe(Effect.flatMap(lastPosted))
+      const chunks = chunksOf(text)
       const files = options?.files ?? []
+      const noted = `${text}\n\n${unattachedNote(files)}`
       if (chunks.length > MAX_CHUNKS)
         return upload(
           thread,
@@ -247,27 +278,48 @@ const make = Effect.gen(function* () {
               starter === undefined ? noMentions : { parse: [], users: [starter.authorId] },
             message_reference: reference,
           },
-        ).pipe(Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)))
-      return Effect.forEach(chunks, (chunk, index) => {
-        const fields = {
-          content: chunk,
+        ).pipe(
+          Effect.map(({ timestamp }) => DateTime.makeUnsafe(timestamp)),
+          Effect.catch((error) =>
+            files.length > 0 && refused(error)
+              ? // Uploads refused: a reply.md alone would be too. The reply goes
+                // out as text, however many messages that takes.
+                postChunks(chunksOf(noted))
+              : Effect.fail(replyError(error, !refused(error))),
+          ),
+        )
+      if (files.length === 0) return postChunks(chunks)
+      // The files go with the last chunk, or alone when there is no text.
+      const parts = chunks.length === 0 ? [mention ?? ""] : chunks
+      return Effect.gen(function* () {
+        yield* postChunks(parts.slice(0, -1))
+        const index = parts.length - 1
+        const last = parts[index]!
+        return yield* upload(thread, files, {
+          content: last,
           allowed_mentions: userMentions,
           message_reference: index === 0 ? reference : undefined,
-        }
-        // The files go with the last chunk.
-        return index === chunks.length - 1 && files.length > 0
-          ? upload(thread, files, fields)
-          : post(thread, fields)
-      }).pipe(
-        Effect.flatMap((posted) => {
-          const last = posted.at(-1)
-          return last === undefined
-            ? DateTime.now
-            : Effect.succeed(DateTime.makeUnsafe(last.timestamp))
-        }),
-      )
+        }).pipe(
+          Effect.flatMap((posted) => lastPosted([posted])),
+          Effect.catch((error) =>
+            // Refused with the earlier chunks out: the last goes again without
+            // the files, noting them. Refused first: nothing is out, and the
+            // caller posts the reply again without them.
+            index > 0 && refused(error)
+              ? Effect.forEach(
+                  chunkMarkdown(`${last}\n\n${unattachedNote(files)}`, CHUNK_CHARACTERS),
+                  (chunk) => send(thread, { content: chunk, allowed_mentions: userMentions }),
+                ).pipe(
+                  Effect.mapError((error) => replyError(error, true)),
+                  Effect.flatMap(lastPosted),
+                )
+              : Effect.fail(replyError(error, index > 0 || !refused(error))),
+          ),
+        )
+      })
     },
-    uploadFile: (thread, file) => Effect.asVoid(upload(thread, [file])),
+    uploadFile: (thread, file) =>
+      upload(thread, [file]).pipe(Effect.asVoid, Effect.mapError(platformError)),
     download: (_thread, attachment, maxBytes) =>
       Effect.gen(function* () {
         const ids = parseAttachmentId(attachment.id)

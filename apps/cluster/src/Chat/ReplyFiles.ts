@@ -79,10 +79,6 @@ export const contentTypeOf = (name: string): string => {
 
 const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 
-/** The note a reply gets in place of files that couldn't be posted. */
-export const unattachedNote = (files: ReadonlyArray<ChatFile>): string =>
-  `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
-
 /**
  * One loop's attached files, read from its sandbox. A loop in a new sandbox
  * starts a new list: files from a lost one may be gone or out of date.
