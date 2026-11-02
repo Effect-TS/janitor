@@ -16,6 +16,8 @@ const TOKENS: Record<string, GitHubTokens> = {
   "effectful-tech": { read: "ghs_read_effectful", write: "ghs_write_effectful" },
 }
 const MULTICA_TOKEN = "mul_janitor"
+const BROWSER_RUN = { accountId: "0123456789abcdef0123456789abcdef", token: "cf_browser_run" }
+const ACCOUNT = `https://api.cloudflare.com/client/v4/accounts/${BROWSER_RUN.accountId}`
 
 /**
  * What GitHub reports. `Effect-TS/secret` is a private repo on Effect-TS's
@@ -58,6 +60,7 @@ const makeEgress = (
   turnId: "turn-1",
   githubTokens: (owner) => Effect.succeed(TOKENS[owner.toLowerCase()]),
   multicaToken: Effect.succeed(MULTICA_TOKEN),
+  browserRun: Effect.succeed(BROWSER_RUN),
   github: {
     repository: (repository) => {
       const info = REPOSITORIES[key(repository)]
@@ -512,6 +515,46 @@ const table: ReadonlyArray<Row> = [
     expected: "multica",
   },
 
+  // Browser Run: the Cloudflare token on the configured account's Quick Actions only
+  {
+    name: "browser run",
+    method: "POST",
+    url: `${ACCOUNT}/browser-run/screenshot`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: "browser-run",
+  },
+  {
+    name: "browser run, legacy path",
+    method: "POST",
+    url: `${ACCOUNT}/browser-rendering/markdown`,
+    body: encoder.encode(JSON.stringify({ url: "https://effect.website" })),
+    expected: "browser-run",
+  },
+  {
+    name: "browser run session",
+    method: "GET",
+    url: `${ACCOUNT}/browser-run/devtools/browser`,
+    expected: "refused",
+  },
+  {
+    name: "another cloudflare api",
+    method: "GET",
+    url: `${ACCOUNT}/workers/scripts`,
+    expected: "anonymous",
+  },
+  {
+    name: "another account's browser run",
+    method: "POST",
+    url: "https://api.cloudflare.com/client/v4/accounts/fedcba9876543210fedcba9876543210/browser-run/screenshot",
+    expected: "anonymous",
+  },
+  {
+    name: "browser run over plain http",
+    method: "POST",
+    url: `http://api.cloudflare.com/client/v4/accounts/${BROWSER_RUN.accountId}/browser-run/screenshot`,
+    expected: "anonymous",
+  },
+
   // Everything else: no credential
   { name: "web", method: "GET", url: "https://example.com/", expected: "anonymous" },
   { name: "multica web", method: "GET", url: "https://multica.ai/", expected: "anonymous" },
@@ -541,6 +584,7 @@ const LABELS: ReadonlyArray<readonly [label: string, token: string]> = [
   ["read:Effectful-Tech", TOKENS["effectful-tech"]!.read],
   ["write:Effectful-Tech", TOKENS["effectful-tech"]!.write],
   ["multica", MULTICA_TOKEN],
+  ["browser-run", BROWSER_RUN.token],
 ]
 
 /** Names the credential on a forwarded request: Basic for git on `github.com`, Bearer elsewhere. */
@@ -564,7 +608,11 @@ const sameBytes = (a: Uint8Array, b: Uint8Array) =>
  * the one forwarded request, which must keep its body intact and not follow
  * redirects.
  */
-const send = (row: Row, headers: Record<string, string> = {}) =>
+const send = (
+  row: Row,
+  headers: Record<string, string> = {},
+  egress: (forwarded: Array<Request>) => ChatEgress = makeEgress,
+) =>
   Effect.gen(function* () {
     const forwarded: Array<Request> = []
     const response = yield* handleChatEgress(
@@ -573,7 +621,7 @@ const send = (row: Row, headers: Record<string, string> = {}) =>
         headers,
         ...(row.body === undefined ? {} : { body: row.body }),
       }),
-      makeEgress(forwarded),
+      egress(forwarded),
     )
     if (forwarded.length === 0) {
       const reason = yield* Effect.promise(() => response.text())
@@ -591,10 +639,15 @@ const send = (row: Row, headers: Record<string, string> = {}) =>
 
 const describeRow = (row: Row) => `${row.name}: ${row.method} ${row.url}`
 
-const expectOutcomes = (rows: ReadonlyArray<Row>) =>
+const expectOutcomes = (
+  rows: ReadonlyArray<Row>,
+  egress?: (forwarded: Array<Request>) => ChatEgress,
+) =>
   Effect.gen(function* () {
     const outcomes = yield* Effect.forEach(rows, (row) =>
-      send(row).pipe(Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome))),
+      send(row, {}, egress).pipe(
+        Effect.map((sent) => (typeof sent === "string" ? sent : sent.outcome)),
+      ),
     )
     assert.deepStrictEqual(
       rows.map((row, index) => `${describeRow(row)} -> ${outcomes[index]}`),
@@ -671,6 +724,20 @@ describe("chat egress proxy", () => {
         "write:Effect-TS",
       ),
     ]),
+  )
+
+  it.effect("Browser Run gets no credential when its settings are unset", () =>
+    expectOutcomes(
+      [
+        {
+          name: "browser run",
+          method: "POST",
+          url: `${ACCOUNT}/browser-run/screenshot`,
+          expected: "anonymous",
+        },
+      ],
+      (forwarded) => ({ ...makeEgress(forwarded), browserRun: Effect.succeed(undefined) }),
+    ),
   )
 
   it.effect(
