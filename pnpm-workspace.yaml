@@ -59,7 +59,7 @@ catalog:
   "@alchemy.run/infisical": https://pkg.alchemy.run/@alchemy.run/infisical/-/4c70f8cbd7aca310b5d78660fdd733bacc31f0b8f83fb33ab6f3a77e47be792f.tgz
   "@alchemy.run/sql": https://pkg.alchemy.run/@alchemy.run/sql/-/7b97560aba68677888362a314915c15e930ce2022caac5fa932f8b970fc6116b.tgz
   "@distilled.cloud/cloudflare": 1.0.0-rc.17
-  clanka: 0.13.2
+  clanka: 0.18.2
   dfx: 1.1.1
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8
@@ -127,7 +127,7 @@ minimumReleaseAgeExclude:
   - "@foldkit/*"
   - alchemy
   - foldkit
-  - clanka@0.13.2
+  - clanka@0.18.2
 
 # The Alchemy preview builds report version 2.0.0-beta.84, the same as the npm
 # release they replace; the patch files are named for the commit they target.

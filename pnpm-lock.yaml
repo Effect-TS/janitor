@@ -287,8 +287,8 @@ catalogs:
       specifier: https://pkg.alchemy.run/alchemy/-/a2ab0b905a1019317f999b820778c9f6b9d8fdbeedaee02fd825d977423a4412.tgz
       version: 2.0.0-beta.84
     clanka:
-      specifier: 0.13.2
-      version: 0.13.2
+      specifier: 0.18.2
+      version: 0.18.2
     clsx:
       specifier: ^2.1.1
       version: 2.1.1
@@ -437,7 +437,7 @@ importers:
         version: https://pkg.alchemy.run/alchemy/-/a2ab0b905a1019317f999b820778c9f6b9d8fdbeedaee02fd825d977423a4412.tgz(patch_hash=5ea6ecd1abb427764ea62af01183c971cc776464162dbe41ab2e249e8c664c89)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)(ws@8.22.1)
       clanka:
         specifier: 'catalog:'
-        version: 0.13.2(708f95aadda0f8547096fb684b86ffe6)
+        version: 0.18.2(f7d28a4d8fb551c861d6cd8b77ac9249)
       dfx:
         specifier: 'catalog:'
         version: 1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)
@@ -672,6 +672,67 @@ packages:
       mysql2:
         optional: true
       pg:
+        optional: true
+
+  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.316':
+    resolution: {integrity: sha512-1I1oJ/YGqq4pFQvJqycD2e8pbsUQLLR+DwEzG9jQAGCoSKkxP1TBfHpjSik/0byCixyzpYObrYXPC0PKBIR91g==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.316':
+    resolution: {integrity: sha512-gzNncKrID/6yJIKCAuF/pY1kfygQZ4dU0J+MNFl0bU+iQW65ERoIyoghYVfrAQ/gH2fuvnQtWxa8LQNScHgNMA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.316':
+    resolution: {integrity: sha512-1qqaEdsAs6eipEQQ4bMAWiwDjIouyA/YN5KQWS0/+kuPb+GKS8rUVW2dty2elV703hsMovb4IhMP4cv5K7R9YA==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.316':
+    resolution: {integrity: sha512-+lm9XSw/em14yMZ41fbo80kfblbylfBQc9nYS6GgLoZVvgT3wSeEbv88v+mEK/jFw9g3VCH4ZI01sjNM34o7uw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.316':
+    resolution: {integrity: sha512-pMG9MRkjxMMbIxpwg/cKz6JorNjZtJOA9l/fifRQ/A01zGTKrRIaSCWoGg+Asmc64QBOa3aA4vzE/od9B1R0Tw==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.316':
+    resolution: {integrity: sha512-+csYyGkHziNp4It+ZykqTmXRZBuNrieTiBnji+zwAxNmLLCWz8xEWjNmwhaLPIMpUiaYREkDhZXt/AS6xXta5w==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.316':
+    resolution: {integrity: sha512-Xj4iTS8NsB6isGhnZEnaIXIpUcSspv/lyIVnfPZjVGwuttaVHjq4IxfDopsPaVsPuTKd+L7DLAaBram1k85U2g==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.316':
+    resolution: {integrity: sha512-FzQA1zHbYJTtLR9nn1McwkGYeiEmroTmYjIg7xZqo5eweJ8U/DESZKR/QdfF04MXe2DF23oLL8WHjEa+WxbGQw==}
+    cpu: [x64]
+    os: [win32]
+
+  '@anthropic-ai/claude-agent-sdk@0.3.316':
+    resolution: {integrity: sha512-mCMr0que5kIy80JslJub6WFDB2+GYRGWNeVgSZaBpkBwXrr4wnRMnnGHitkA2BEJ5QP5xWyc6YH/6do/edxCWg==}
+    engines: {node: '>=18.14.0'}
+    peerDependencies:
+      '@anthropic-ai/sdk': '>=0.93.0'
+      '@modelcontextprotocol/sdk': ^1.29.0
+      zod: ^4.0.0
+
+  '@anthropic-ai/sdk@1.3.0':
+    resolution: {integrity: sha512-k7z9BlLLPxfZH+ov7dS6EnaN/wiZeV8YNT1LZfrpAHIy7oY7pHr4UzirF9f2OlHtFEnRBOX+AZQ91Y5fK+TPTw==}
+    hasBin: true
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      zod:
         optional: true
 
   '@babel/code-frame@7.29.7':
@@ -1483,6 +1544,9 @@ packages:
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
 
+  '@isaacs/nonrecursive-glob-match@1.0.3':
+    resolution: {integrity: sha512-SI7kyKHq4XXDRozw+r9GlRZkia1ZkFrpLW98r2IC2Bpr8YkFGE3fvjzmxCG0x78A++69HmDNrDvSMYBZmHGpKA==}
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -1526,8 +1590,8 @@ packages:
   '@mixmark-io/domino@2.2.0':
     resolution: {integrity: sha512-Y28PR25bHXUg88kCV7nivXrP2Nj2RueZ3/l/jdx6J9f8J4nsEGcgX0Qe6lt7Pa+J79+kPiJU3LguR6O/6zrLOw==}
 
-  '@modelcontextprotocol/sdk@1.32.1':
-    resolution: {integrity: sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==}
+  '@modelcontextprotocol/sdk@1.32.2':
+    resolution: {integrity: sha512-SWsVtH/0vULSQStoZ6xxH2K09Li8fXYTMC64ZeogCdpZ3XSi1eCPOByV1OpuJxuI3OcmHhosDWYyii07tpPsLw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -2016,6 +2080,9 @@ packages:
 
   '@silvia-odwyer/photon-node@0.3.4':
     resolution: {integrity: sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA==}
+
+  '@stablelib/base64@1.0.1':
+    resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -2884,8 +2951,8 @@ packages:
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
 
-  clanka@0.13.2:
-    resolution: {integrity: sha512-8upWpqqWgJvuHlEGUj0hSiglPRPx5Pa1zNHebk6r5Y2KVa1ne7Z2m/rpHj7UtUXw+NB/axO19tXZkQ2D86yyjA==}
+  clanka@0.18.2:
+    resolution: {integrity: sha512-tLoDTKIQOPGEg1ZGgcxXIZx61FWLmj2Lbu8bu3JlQ5t888DVJTxwLSJBBf2vLDTzKxZCMXBRZK5xtARvvtF1yQ==}
     hasBin: true
     peerDependencies:
       '@effect/ai-openai': ^4.0.0
@@ -3146,6 +3213,9 @@ packages:
   fast-fifo@1.3.2:
     resolution: {integrity: sha512-/d9sfos4yxzpwkDkuN7k2SqFKtYNmCTzgfEpz82x34IM9/zc8KGxQoXg1liNC/izpRM/MBdt44Nmx41ZWqk+FQ==}
 
+  fast-sha256@1.3.0:
+    resolution: {integrity: sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==}
+
   fast-uri@3.1.8:
     resolution: {integrity: sha512-GZMtZUTNRpOVIECoXwLNZS5xUGE+mVNbTB8h/7Rwh2TFWcBQiPzTgyZi05BF9UMZKkLJv8XBRJTlU7zg8+ZfMg==}
 
@@ -3224,8 +3294,8 @@ packages:
     deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
-  glob@13.0.6:
-    resolution: {integrity: sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==}
+  glob@14.0.3:
+    resolution: {integrity: sha512-A1vjIwC3qpdCso45Iw127gnp7sPhqgY8lUQhDrArIs+GbmfaaVPFuoyy7WyLT9EPZCRZ7j7aLdwUhQmHWesEow==}
     engines: {node: 18 || 20 || >=22}
 
   gopd@1.2.0:
@@ -3306,6 +3376,10 @@ packages:
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
+
+  json-schema-to-ts@3.1.1:
+    resolution: {integrity: sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==}
+    engines: {node: '>=16'}
 
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
@@ -3525,8 +3599,8 @@ packages:
     engines: {node: '>=16'}
     hasBin: true
 
-  minimatch@10.2.6:
-    resolution: {integrity: sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==}
+  minimatch@11.0.3:
+    resolution: {integrity: sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==}
     engines: {node: 18 || 20 || >=22}
 
   minimatch@5.1.9:
@@ -3651,8 +3725,8 @@ packages:
     resolution: {integrity: sha512-Xa4Nw17FS9ApQFJ9umLiJS4orGjm7ZzwUrwamcGQuHSzDyth9boKDaycYdDcZDuqYATXw4HFXgaqWTctW/v1HA==}
     engines: {node: '>=16 || 14 >=14.18'}
 
-  path-scurry@2.0.2:
-    resolution: {integrity: sha512-3O/iVVsJAPsOnpwWIeD+d6z/7PmqApyQePUtCndjatj/9I5LylHvt5qluFaBT3I5h3r1ejfR056c+FCv+NnNXg==}
+  path-scurry@3.0.0:
+    resolution: {integrity: sha512-1pTbQqH1wIwMi/eleQ5leFTTCkzFsPcgXNjwOA8YGGW/W4/kHT3dssE7Z6NH+zuqNLOzOB0uaD61yl7cAcVhgg==}
     engines: {node: 18 || 20 || >=22}
 
   path-to-regexp@8.4.2:
@@ -3948,6 +4022,9 @@ packages:
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
 
+  standardwebhooks@1.1.1:
+    resolution: {integrity: sha512-bCbX9ZEyFkWPsRz7Bl3NuQUJohmwGSev/yhr7vhaGPlc4AfIrspIRa6cPTBuI1ItmrTDJ4d/S2hCsfe4+vQGnQ==}
+
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
@@ -4077,6 +4154,9 @@ packages:
 
   tree-sitter@0.21.1:
     resolution: {integrity: sha512-7dxoA6kYvtgWw80265MyqJlkRl4yawIjO7S5MigytjELkX43fV2WsAXzsNfO7sBpPPCF5Gp0+XzHk0DwLCq3xQ==}
+
+  ts-algebra@2.0.0:
+    resolution: {integrity: sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw==}
 
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
@@ -4467,6 +4547,53 @@ snapshots:
     optionalDependencies:
       '@effect/sql-pg': https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)
       pg: 8.23.0
+
+  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.316':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk@0.3.316(@anthropic-ai/sdk@1.3.0(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(zod@4.6.7)':
+    dependencies:
+      '@anthropic-ai/sdk': 1.3.0(zod@4.6.7)
+      '@modelcontextprotocol/sdk': 1.32.2(supports-color@10.2.2)(zod@4.6.7)
+      zod: 4.6.7
+    optionalDependencies:
+      '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.316
+      '@anthropic-ai/claude-agent-sdk-darwin-x64': 0.3.316
+      '@anthropic-ai/claude-agent-sdk-linux-arm64': 0.3.316
+      '@anthropic-ai/claude-agent-sdk-linux-arm64-musl': 0.3.316
+      '@anthropic-ai/claude-agent-sdk-linux-x64': 0.3.316
+      '@anthropic-ai/claude-agent-sdk-linux-x64-musl': 0.3.316
+      '@anthropic-ai/claude-agent-sdk-win32-arm64': 0.3.316
+      '@anthropic-ai/claude-agent-sdk-win32-x64': 0.3.316
+
+  '@anthropic-ai/sdk@1.3.0(zod@4.6.7)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      json-schema-to-ts: 3.1.1
+      standardwebhooks: 1.1.1
+    optionalDependencies:
+      zod: 4.6.7
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -5053,6 +5180,8 @@ snapshots:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
+  '@isaacs/nonrecursive-glob-match@1.0.3': {}
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -5102,7 +5231,7 @@ snapshots:
 
   '@mixmark-io/domino@2.2.0': {}
 
-  '@modelcontextprotocol/sdk@1.32.1(supports-color@10.2.2)(zod@4.6.7)':
+  '@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7)':
     dependencies:
       '@hono/node-server': 1.19.9(hono@4.11.4)
       ajv: 8.20.0
@@ -5124,8 +5253,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@opentelemetry/api@1.9.1':
-    optional: true
+  '@opentelemetry/api@1.9.1': {}
 
   '@oxc-project/runtime@0.146.0': {}
 
@@ -5371,6 +5499,8 @@ snapshots:
   '@rolldown/pluginutils@1.0.1': {}
 
   '@silvia-odwyer/photon-node@0.3.4': {}
+
+  '@stablelib/base64@1.0.1': {}
 
   '@standard-schema/spec@1.1.0': {}
 
@@ -6176,24 +6306,26 @@ snapshots:
 
   chownr@1.1.4: {}
 
-  clanka@0.13.2(708f95aadda0f8547096fb684b86ffe6):
+  clanka@0.18.2(f7d28a4d8fb551c861d6cd8b77ac9249):
     dependencies:
+      '@anthropic-ai/claude-agent-sdk': 0.3.316(@anthropic-ai/sdk@1.3.0(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(zod@4.6.7)
       '@effect/ai-openai': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)
       '@effect/ai-openai-compat': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)
       '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/sql-sqlite-node': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)
-      '@modelcontextprotocol/sdk': 1.32.1(supports-color@10.2.2)(zod@4.6.7)
+      '@modelcontextprotocol/sdk': 1.32.2(supports-color@10.2.2)(zod@4.6.7)
       '@silvia-odwyer/photon-node': 0.3.4
       '@vscode/ripgrep': 1.18.0
       chalk: 6.0.1
       effect: https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8
-      glob: 13.0.6
+      glob: 14.0.3
       sqlite-vec: 0.1.9
       tree-sitter: 0.21.1
       tree-sitter-javascript: 0.23.1(tree-sitter@0.21.1)
       tree-sitter-typescript: 0.23.2(tree-sitter@0.21.1)
       turndown: 7.2.4
     transitivePeerDependencies:
+      - '@anthropic-ai/sdk'
       - '@cfworker/json-schema'
       - supports-color
       - zod
@@ -6501,6 +6633,8 @@ snapshots:
 
   fast-fifo@1.3.2: {}
 
+  fast-sha256@1.3.0: {}
+
   fast-uri@3.1.8: {}
 
   fdir@6.5.0(picomatch@4.0.7):
@@ -6580,11 +6714,11 @@ snapshots:
       package-json-from-dist: 1.0.1
       path-scurry: 1.11.1
 
-  glob@13.0.6:
+  glob@14.0.3:
     dependencies:
-      minimatch: 10.2.6
+      minimatch: 11.0.3
       minipass: 7.1.3
-      path-scurry: 2.0.2
+      path-scurry: 3.0.0
 
   gopd@1.2.0: {}
 
@@ -6654,6 +6788,11 @@ snapshots:
   jose@6.2.12: {}
 
   js-tokens@4.0.0: {}
+
+  json-schema-to-ts@3.1.1:
+    dependencies:
+      '@babel/runtime': 7.29.7
+      ts-algebra: 2.0.0
 
   json-schema-traverse@1.0.0: {}
 
@@ -6803,8 +6942,9 @@ snapshots:
 
   mime@4.1.1: {}
 
-  minimatch@10.2.6:
+  minimatch@11.0.3:
     dependencies:
+      '@isaacs/nonrecursive-glob-match': 1.0.3
       brace-expansion: 5.0.12
 
   minimatch@5.1.9:
@@ -6978,7 +7118,7 @@ snapshots:
       lru-cache: 10.4.3
       minipass: 7.1.3
 
-  path-scurry@2.0.2:
+  path-scurry@3.0.0:
     dependencies:
       lru-cache: 11.5.3
       minipass: 7.1.3
@@ -7364,6 +7504,11 @@ snapshots:
 
   stackback@0.0.2: {}
 
+  standardwebhooks@1.1.1:
+    dependencies:
+      '@stablelib/base64': 1.0.1
+      fast-sha256: 1.3.0
+
   statuses@2.0.2: {}
 
   std-env@4.2.0: {}
@@ -7539,6 +7684,8 @@ snapshots:
     dependencies:
       node-addon-api: 8.9.2
       node-gyp-build: 4.8.4
+
+  ts-algebra@2.0.0: {}
 
   tslib@2.8.1:
     optional: true
