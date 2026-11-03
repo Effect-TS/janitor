@@ -1,3 +1,37 @@
+diff --git a/lib/Containers/ContainerProvider.js b/lib/Containers/ContainerProvider.js
+index 4c610bb..752c583 100644
+--- a/lib/Containers/ContainerProvider.js
++++ b/lib/Containers/ContainerProvider.js
+@@ -6,7 +6,7 @@ import * as Containers from "@distilled.cloud/cloudflare/containers";
+ import { Unowned, Unresolved, UnresolvedIdentity } from "alchemy/AdoptPolicy";
+ import { AlchemyContext } from "alchemy/AlchemyContext";
+ import { getStableContextDir } from "alchemy/Bundle/TempRoot";
+-import { deepEqual, isResolved } from "alchemy/Diff";
++import { deepEqual, isResolved, stripEffects } from "alchemy/Diff";
+ import * as Provider from "alchemy/Provider";
+ import {} from "alchemy/Resource";
+ import { sha256Object } from "alchemy/Util/sha256";
+@@ -865,7 +865,12 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+     };
+     return ContainerPlatform.Provider.of({
+         stables: ["accountId", "applicationId"],
+-        diff: Effect.fn(function* ({ id, olds = {}, news = {}, output, newBindings, oldBindings }) {
++        diff: Effect.fn(function* ({ id, olds = {}, news: desired = {}, output, newBindings, oldBindings, }) {
++            // An Effect-native (`main`) Container's props carry its program as
++            // an Effect in `exports`, which `isResolved` reads as unresolved.
++            // Without stripping it, diff always returns early and a changed
++            // bundle never reaches the image hash comparison.
++            const news = stripEffects(desired);
+             if (!isResolved(news))
+                 return;
+             yield* validateContainerConfiguration(news, output?.schedulingPolicy);
+@@ -1334,4 +1339,4 @@ const toAttributes = (application) => {
+         dev: undefined,
+     };
+ };
+-//# sourceMappingURL=ContainerProvider.js.map
+\ No newline at end of file
++//# sourceMappingURL=ContainerProvider.js.map
 diff --git a/lib/Containers/ContainerPublication.js b/lib/Containers/ContainerPublication.js
 index ee528bd3c15e598d03c467bfd8b0bf905fa7a2b4..cecaaf3300946abf67c8a3dfbca5a62b95f0e681 100644
 --- a/lib/Containers/ContainerPublication.js
@@ -54,6 +88,40 @@ index d05bcee55db9274620a542609dfb5ca4954d8051..8248f446d3a1edb7ed50e1ea67e0cae6
  // export class proxy stubs for Durable Objects and Workflows
  ${[
          ...(hasDoClasses
+diff --git a/src/Containers/ContainerProvider.ts b/src/Containers/ContainerProvider.ts
+index 0bdeeec..12931b2 100644
+--- a/src/Containers/ContainerProvider.ts
++++ b/src/Containers/ContainerProvider.ts
+@@ -6,7 +6,7 @@ import * as Containers from "@distilled.cloud/cloudflare/containers";
+ import { Unowned, Unresolved, UnresolvedIdentity } from "alchemy/AdoptPolicy";
+ import { AlchemyContext } from "alchemy/AlchemyContext";
+ import { getStableContextDir } from "alchemy/Bundle/TempRoot";
+-import { deepEqual, isResolved } from "alchemy/Diff";
++import { deepEqual, isResolved, stripEffects } from "alchemy/Diff";
+ import * as Provider from "alchemy/Provider";
+ import type { ScopedPlanStatusSession } from "alchemy/Report";
+ import { type ResourceBinding } from "alchemy/Resource";
+@@ -1266,7 +1266,19 @@ export const LiveContainerProvider = () =>
+ 
+       return ContainerPlatform.Provider.of({
+         stables: ["accountId", "applicationId"],
+-        diff: Effect.fn(function* ({ id, olds = {}, news = {}, output, newBindings, oldBindings }) {
++        diff: Effect.fn(function* ({
++          id,
++          olds = {},
++          news: desired = {},
++          output,
++          newBindings,
++          oldBindings,
++        }) {
++          // An Effect-native (`main`) Container's props carry its program as
++          // an Effect in `exports`, which `isResolved` reads as unresolved.
++          // Without stripping it, diff always returns early and a changed
++          // bundle never reaches the image hash comparison.
++          const news = stripEffects(desired);
+           if (!isResolved(news)) return;
+           yield* validateContainerConfiguration(news, output?.schedulingPolicy);
+           if (!isResolved(newBindings)) return;
 diff --git a/src/Containers/ContainerPublication.ts b/src/Containers/ContainerPublication.ts
 index b8fe861b516976252b27f843da01fcbfac58e4ec..04d8f1e598ed150e79f1285767eb05b9a87f97be 100644
 --- a/src/Containers/ContainerPublication.ts

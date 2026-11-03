@@ -26,6 +26,12 @@ Upstream builds container images with linked bundle copies and a three-minute ti
 
 Remove this part of the patch when upstream bounds timeout retries.
 
+## Alchemy container change detection
+
+An Effect-native container (one with `main`) keeps its program as an Effect in `props.exports`. The container provider's `diff` returns early when `isResolved(news)` is false, and that Effect always makes it false. The engine then compares props without Effects, finds them equal, and plans `noop`. So a change to guest code alone never rebuilt the chat or PR review sandbox image: both stayed on the image from 2026-10-28 until this patch. The Cloudflare patch runs `stripEffects` on `news` before that check, as the Worker provider already does, so the bundle hash reaches the image comparison. It covers both TypeScript and shipped JavaScript.
+
+Remove this part of the patch when upstream strips Effects in the container `diff`.
+
 ## Effect snapshot
 
 `@effect/platform-cloudflare` is not published yet, so every Effect package comes from a pkg.pr.new snapshot of Effect PR 7322 (`eff-698-cloudflare-cluster`). The pinned commit `111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8` is the head of `eff-698-cloudflare-cluster-4.1.2`: the PR branch as of `2646b53` (the earlier `eff-698-cloudflare-cluster-4.0.7` pin) rebased onto Effect `4.1.2`, plus one commit adapting it to 4.1. The snapshot packages report version `4.1.2`, which satisfies Alchemy's and Foldkit's `4.1` peer ranges. Sharing one snapshot keeps janitor and clanka on the same Effect build. To move forward, rebase the branch onto the next release, let the Effect `Snapshot` workflow publish the new head, and update every catalog URL. Switch to registry packages once the PR is released. The root catalog and overrides keep every Effect package on one version, including `@effect/sql-d1` and `@effect/sql-sqlite-do`, which Alchemy depends on.
