@@ -147,8 +147,12 @@ export const callTool =
       ...finish("tool-calls", usage),
     ])
 
-/** A script that is one loop-side tool call: `await name({...})`. */
-const toolScript = /^await (\w+)\((.*)\)$/s
+/**
+ * A script that is one loop-side tool call: `await name({...})`, or
+ * `await mcp.server.tool({...})` for an MCP tool, whose handler clanka keys
+ * `server.tool`.
+ */
+const toolScript = /^await (?:mcp\.)?([\w.]+)\((.*)\)$/s
 
 /** A provider failure clanka doesn't retry. */
 export const quotaExhausted: Answer = () =>
@@ -530,7 +534,7 @@ const memoryIndex = () => {
 }
 
 /** One runner with the session entity on it, over the Durable Object's SQLite file. */
-const makeRunner = (options: {
+const makeRunner = <Extra>(options: {
   readonly filename: string
   readonly storage: Context.Context<MessageStorage.MemoryDriver>
   readonly services: Layer.Layer<
@@ -542,6 +546,7 @@ const makeRunner = (options: {
     | Model.ProviderName
     | Model.ModelName
     | DecisionModel.DecisionModel
+    | Extra
   >
 }) => {
   const Cluster = Sharding.layer.pipe(
@@ -572,8 +577,13 @@ const yieldToIo = TestClock.withLive(Effect.sleep(Duration.millis(1)))
 
 let messages = 0
 
-/** Builds the harness for one test, with its own Durable Object storage. */
-export const makeSessionHarness = Effect.gen(function* () {
+/**
+ * Builds the harness for one test, with its own Durable Object storage.
+ * `extra` adds services the session takes, or replaces the fakes'.
+ */
+export const makeSessionHarnessWith = Effect.fnUntraced(function* <Extra>(
+  extra: Layer.Layer<Extra>,
+) {
   const platform = new FakePlatform()
   const model = new FakeModel()
   const gate = new FakeGate()
@@ -600,6 +610,7 @@ export const makeSessionHarness = Effect.gen(function* () {
       memoryIndex(),
       model.layer,
       gate.layer,
+      extra,
     ),
   })
 
@@ -743,5 +754,8 @@ export const makeSessionHarness = Effect.gen(function* () {
     ),
   }
 })
+
+/** The harness with only the fakes. */
+export const makeSessionHarness = makeSessionHarnessWith(Layer.empty)
 
 export type SessionHarness = Effect.Success<typeof makeSessionHarness>
