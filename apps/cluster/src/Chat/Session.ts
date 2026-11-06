@@ -334,6 +334,15 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const mcpServers = yield* Effect.serviceOption(ChatMcpServers)
     const self = (yield* ChatSession.client)(entityId)
     const entityScope = yield* Scope.Scope
+    /**
+     * Forks work that outlives the message that started it, such as a turn,
+     * into the entity's scope, and runs it with that scope as its `Scope`.
+     * A handler's own scope closes when its request ends, and Postgres pools
+     * are kept per scope: one left from a finished request is shut, and
+     * every query on it is interrupted.
+     */
+    const forkInEntity = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.forkIn(Scope.provide(effect, entityScope), entityScope)
     const cluster = yield* Effect.context<Entity.CurrentAddress | Sharding.Sharding>()
 
     /** Messages are handled one at a time, in arrival order. */
@@ -410,14 +419,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       }
       if (trailingProgress) return
       trailingProgress = true
-      yield* Effect.forkIn(
+      yield* forkInEntity(
         Effect.gen(function* () {
           yield* Effect.sleep(Duration.millis(wait))
           trailingProgress = false
           indexedProgressAt = yield* Clock.currentTimeMillis
           yield* saveIndex
         }),
-        entityScope,
       )
     })
 
@@ -704,9 +712,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           view: "Starting",
         }
         current = running
-        running.fiber = yield* Effect.forkIn(
+        running.fiber = yield* forkInEntity(
           withLogs(runTurn(running)).pipe(Effect.annotateLogs({ turnId })),
-          entityScope,
         )
       })
 
@@ -969,14 +976,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           if (switchedOff(yield* killSwitch.get, running.thread)) {
             yield* Effect.logInfo("Chat kill switch is on; stopping the turn")
             // Not from this fiber: stopping the turn interrupts it.
-            yield* Effect.forkIn(
+            yield* forkInEntity(
               withLogs(
                 Effect.andThen(
                   stopTurn,
                   Semaphore.withPermits(inbox, 1)(announceSwitchedOff(running.thread)),
                 ),
               ),
-              entityScope,
             )
             return
           }
@@ -1169,7 +1175,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             transitions,
             1,
           )(resumeTurn(running.turnId, thread, running.claimed)).pipe(withLogs, Effect.orDie)
-        yield* Effect.forkIn(
+        yield* forkInEntity(
           Semaphore.withPermits(
             inbox,
             1,
@@ -1192,7 +1198,6 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               )
             }),
           ).pipe(withLogs, Effect.orDie),
-          entityScope,
         )
       }
     }
