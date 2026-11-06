@@ -10,6 +10,7 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { attioSettings, ChatAttio } from "../../src/Chat/Attio.ts"
+import { type AttioCredential, AttioUnavailable } from "../../src/Chat/AttioCredential.ts"
 import type { ChatThread } from "../../src/Chat/Platform.ts"
 import { SlackConfig } from "../../src/Chat/Slack/Config.ts"
 import {
@@ -26,11 +27,43 @@ import {
  * of its tools, in Slack channels that hold no one from outside the
  * workspace. Slack and Attio are one fake behind the `HttpClient` the
  * integration is given, so the bearer header is checked on the HTTP requests
- * themselves. Every fixture is synthetic.
+ * themselves. The access tokens come from a fake credential, which
+ * `AttioCredential.test.ts` stands in for. Every fixture is synthetic.
  */
 
-const TOKEN = "attio-synthetic-token-7f3a"
 const MCP_URL = "https://mcp.attio.test/mcp"
+
+/**
+ * Hands out `attio-access-<n>`. `fresh` issues a new token on every call, as
+ * a refresh between two requests would; otherwise the token changes only when
+ * the current one is reported rejected. `unavailable` fails every call.
+ */
+class FakeCredential implements AttioCredential {
+  readonly issued: Array<string> = []
+  readonly rejected: Array<string> = []
+
+  constructor(readonly mode: "fresh" | "stable" | "unavailable") {}
+
+  private issue() {
+    const token = `attio-access-${this.issued.length + 1}`
+    this.issued.push(token)
+    return token
+  }
+
+  readonly token = (rejected?: Redacted.Redacted<string>) =>
+    Effect.suspend(() => {
+      if (this.mode === "unavailable") return Effect.fail(new AttioUnavailable())
+      if (rejected !== undefined) this.rejected.push(Redacted.value(rejected))
+      const current = this.issued.at(-1)
+      const token =
+        current === undefined ||
+        this.mode === "fresh" ||
+        (rejected !== undefined && Redacted.value(rejected) === current)
+          ? this.issue()
+          : current
+      return Effect.succeed(Redacted.make(token))
+    })
+}
 
 /** `conversations.info`'s flags for a channel no one outside the workspace is in. */
 const internal = {
@@ -90,6 +123,10 @@ interface McpRequest {
 class FakeHttp {
   readonly mcp: Array<McpRequest> = []
   readonly lookups: Array<string> = []
+  /** A `tools/call` bearing this token is answered 401, as Attio does once it revoked it. */
+  rejectCallsWith: string | undefined
+
+  constructor(readonly credential: FakeCredential) {}
 
   private answerMcp(method: string, authorization: string | null, body: string): Response {
     if (method !== "POST") {
@@ -102,7 +139,12 @@ class FakeHttp {
       readonly params?: { readonly protocolVersion?: string }
     }
     this.mcp.push({ method, authorization, rpc: message.method, params: message.params })
-    if (authorization !== `Bearer ${TOKEN}`)
+    const token = authorization?.match(/^Bearer (.+)$/)?.[1]
+    if (
+      token === undefined ||
+      !this.credential.issued.includes(token) ||
+      (message.method === "tools/call" && token === this.rejectCallsWith)
+    )
       return new Response(null, {
         status: 401,
         headers: { "www-authenticate": 'Bearer scope="mcp"' },
@@ -175,7 +217,7 @@ const slackConfig = SlackConfig.layerFrom({
 
 /** The integration on `http`, as the Worker builds it once Slack and Attio are both set. */
 const attio = (http: FakeHttp) =>
-  ChatAttio.layer({ token: Redacted.make(TOKEN), url: MCP_URL }).pipe(
+  ChatAttio.layer({ url: MCP_URL, credential: http.credential }).pipe(
     Layer.provide([slackConfig, http.layer]),
   )
 
@@ -187,17 +229,40 @@ const inChannel = (channel: string): ChatThread => ({
 })
 
 describe("attioSettings", () => {
-  it.effect("is off without ATTIO_MCP_TOKEN, and defaults ATTIO_MCP_URL to Attio's server", () =>
+  const read = (env: Record<string, string>) =>
+    attioSettings.pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))))
+  const client = { ATTIO_MCP_CLIENT_ID: "attio-client-synthetic" }
+  const seed = { ATTIO_MCP_REFRESH_TOKEN: "attio-seed-refresh-3c1d" }
+
+  const off: ReadonlyArray<readonly [string, Record<string, string>]> = [
+    ["nothing", {}],
+    ["only the client id", client],
+    ["only the refresh token", seed],
+    ["only the old static ATTIO_MCP_TOKEN", { ATTIO_MCP_TOKEN: "attio-static-token" }],
+  ]
+  for (const [name, env] of off)
+    it.effect(`is off with ${name}`, () =>
+      Effect.gen(function* () {
+        assert.isTrue(Option.isNone(yield* read({ ...env, ATTIO_MCP_URL: MCP_URL })))
+      }),
+    )
+
+  it.effect("defaults the MCP and token URLs to Attio's, and the client secret to none", () =>
     Effect.gen(function* () {
-      const read = (env: Record<string, string>) =>
-        attioSettings.pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))))
-
-      assert.isTrue(Option.isNone(yield* read({})))
-      assert.isTrue(Option.isNone(yield* read({ ATTIO_MCP_URL: "https://mcp.attio.test/mcp" })))
-
-      const settings = Option.getOrThrow(yield* read({ ATTIO_MCP_TOKEN: TOKEN }))
-      assert.strictEqual(Redacted.value(settings.token), TOKEN)
+      const settings = Option.getOrThrow(yield* read({ ...client, ...seed }))
+      assert.strictEqual(settings.clientId, "attio-client-synthetic")
+      assert.strictEqual(Redacted.value(settings.refreshToken), "attio-seed-refresh-3c1d")
+      assert.isTrue(Option.isNone(settings.clientSecret))
       assert.strictEqual(settings.url, "https://mcp.attio.com/mcp")
+      assert.strictEqual(settings.tokenUrl, "https://app.attio.com/oidc/token")
+
+      const confidential = Option.getOrThrow(
+        yield* read({ ...client, ...seed, ATTIO_MCP_CLIENT_SECRET: "attio-client-secret-9b2e" }),
+      )
+      assert.strictEqual(
+        Redacted.value(Option.getOrThrow(confidential.clientSecret)),
+        "attio-client-secret-9b2e",
+      )
     }),
   )
 })
@@ -221,7 +286,7 @@ describe("ChatAttio.allowed", () => {
   for (const [name, thread, expected] of cases)
     it.effect(`${expected ? "allows" : "denies"} ${name}`, () =>
       Effect.gen(function* () {
-        const http = new FakeHttp()
+        const http = new FakeHttp(new FakeCredential("fresh"))
         const allowed = yield* Effect.gen(function* () {
           const service = yield* ChatAttio
           return yield* service.allowed(thread)
@@ -245,9 +310,17 @@ const Services = NodeServices.layer.pipe(
 )
 
 layer(Services, { timeout: "2 minutes" })("Attio in a chat session", (it) => {
-  /** One turn in `thread` whose script calls Attio's `whoami`, with the logs it wrote. */
-  const whoamiTurn = (thread: ChatThread) => {
-    const http = new FakeHttp()
+  /**
+   * One turn in `thread` whose scripts call Attio's `whoami` `calls` times
+   * before replying, with the logs it wrote.
+   */
+  const whoamiTurn = (
+    thread: ChatThread,
+    credential: FakeCredential,
+    options: { readonly calls?: number; readonly rejectCallsWith?: string } = {},
+  ) => {
+    const http = new FakeHttp(credential)
+    http.rejectCallsWith = options.rejectCallsWith
     const logs: Array<string> = []
     const capture = Logger.layer([
       Logger.make((options) => {
@@ -262,7 +335,10 @@ layer(Services, { timeout: "2 minutes" })("Attio in a chat session", (it) => {
         Effect.sync(() => harness.model.prompts.length >= 1),
         "the first model call",
       )
-      harness.model.answer(callTool("mcp.attio.whoami", {}), say("Done."))
+      harness.model.answer(
+        ...Array.from({ length: options.calls ?? 1 }, () => callTool("mcp.attio.whoami", {})),
+        say("Done."),
+      )
       yield* harness.until(
         Effect.sync(() => harness.platform.replies.length > 0),
         "the reply",
@@ -271,24 +347,27 @@ layer(Services, { timeout: "2 minutes" })("Attio in a chat session", (it) => {
     }).pipe(Effect.scoped, Effect.provide(capture))
   }
 
+  const toolCalls = (http: FakeHttp) => http.mcp.filter((request) => request.rpc === "tools/call")
+
   it.effect(
-    "an internal channel's turn calls Attio's tools with the bearer token, which stays in the Worker",
+    "an internal channel's turn calls Attio's tools with a token fetched for each request, which stays in the Worker",
     () =>
       Effect.gen(function* () {
-        const { harness, http, logs } = yield* whoamiTurn(inChannel("CPUBLIC"))
+        const credential = new FakeCredential("fresh")
+        const { harness, http, logs } = yield* whoamiTurn(inChannel("CPUBLIC"), credential)
 
         assert.deepStrictEqual(harness.sandboxes.toolOutcomes, ["ok"])
-        const calls = http.mcp.filter((request) => request.rpc === "tools/call")
+        const calls = toolCalls(http)
         assert.deepStrictEqual(
           calls.map((request) => request.params),
           [{ name: "whoami", arguments: {} }],
         )
-        for (const request of http.mcp)
-          assert.strictEqual(
-            request.authorization,
-            `Bearer ${TOKEN}`,
-            request.rpc ?? request.method,
-          )
+        const initialize = http.mcp.find((request) => request.rpc === "initialize")
+        assert.notStrictEqual(
+          calls[0]!.authorization,
+          initialize?.authorization,
+          "a token that changed after initialize is the one tools/call sends",
+        )
 
         const exposed = [
           ...harness.model.prompts.map(seen),
@@ -296,18 +375,46 @@ layer(Services, { timeout: "2 minutes" })("Attio in a chat session", (it) => {
           ...harness.sandboxes.written.map((file) => new TextDecoder().decode(file.content)),
           ...logs,
         ]
-        for (const text of exposed) assert.notInclude(text, TOKEN)
+        assert.isNotEmpty(credential.issued)
+        for (const text of exposed)
+          for (const token of credential.issued) assert.notInclude(text, token)
       }),
   )
 
-  it.effect("a shared channel's turn has no Attio tools and never reaches Attio", () =>
-    Effect.gen(function* () {
-      const { harness, http } = yield* whoamiTurn(inChannel("C-is_ext_shared"))
+  it.effect(
+    "a rejected token fails that tool call once, without a retry, and the next call uses a new token",
+    () =>
+      Effect.gen(function* () {
+        const credential = new FakeCredential("stable")
+        const { harness, http } = yield* whoamiTurn(inChannel("CPUBLIC"), credential, {
+          calls: 2,
+          rejectCallsWith: "attio-access-1",
+        })
 
-      assert.deepStrictEqual(harness.sandboxes.toolOutcomes, [
-        "failed: no loop-side tool attio.whoami",
-      ])
-      assert.deepStrictEqual(http.mcp, [])
-    }),
+        assert.strictEqual(harness.sandboxes.toolOutcomes.length, 2)
+        assert.match(harness.sandboxes.toolOutcomes[0]!, /^failed: /)
+        assert.strictEqual(harness.sandboxes.toolOutcomes[1], "ok")
+        assert.deepStrictEqual(
+          toolCalls(http).map((request) => request.authorization),
+          ["Bearer attio-access-1", "Bearer attio-access-2"],
+        )
+        assert.deepStrictEqual(credential.rejected, ["attio-access-1"])
+      }),
   )
+
+  const withoutAttio: ReadonlyArray<readonly [string, ChatThread, FakeCredential["mode"]]> = [
+    ["a shared channel's turn", inChannel("C-is_ext_shared"), "fresh"],
+    ["a turn without an access token", inChannel("CPUBLIC"), "unavailable"],
+  ]
+  for (const [name, thread, mode] of withoutAttio)
+    it.effect(`${name} has no Attio tools and never reaches Attio`, () =>
+      Effect.gen(function* () {
+        const { harness, http } = yield* whoamiTurn(thread, new FakeCredential(mode))
+
+        assert.deepStrictEqual(harness.sandboxes.toolOutcomes, [
+          "failed: no loop-side tool attio.whoami",
+        ])
+        assert.deepStrictEqual(http.mcp, [])
+      }),
+    )
 })
