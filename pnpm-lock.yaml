@@ -271,6 +271,9 @@ catalogs:
     '@lezer/common':
       specifier: 1.5.2
       version: 1.5.2
+    '@modelcontextprotocol/sdk':
+      specifier: 1.32.2
+      version: 1.32.2
     '@tailwindcss/vite':
       specifier: ^4.3.3
       version: 4.3.3
@@ -432,6 +435,9 @@ importers:
       '@janitor/domain':
         specifier: workspace:^
         version: link:../../packages/domain
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.32.2(supports-color@10.2.2)(zod@4.6.7)
       alchemy:
         specifier: 'catalog:'
         version: https://pkg.alchemy.run/alchemy/-/a2ab0b905a1019317f999b820778c9f6b9d8fdbeedaee02fd825d977423a4412.tgz(patch_hash=5ea6ecd1abb427764ea62af01183c971cc776464162dbe41ab2e249e8c664c89)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8)(ws@8.22.1)

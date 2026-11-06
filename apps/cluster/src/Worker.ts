@@ -138,6 +138,7 @@ import {
 import { ReplyGate } from "./Chat/Gate.ts"
 import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
 import { ChatPlatform } from "./Chat/Platform.ts"
+import { attioSettings, ChatAttio } from "./Chat/Attio.ts"
 import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
 import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
 import { restLayer as discordRestLayer } from "./Chat/Discord/Api.ts"
@@ -283,6 +284,9 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const slack = chatBot ? yield* slackSettings : Option.none()
     // Discord stays off until all three `DISCORD_*` settings are set.
     const discord = chatBot ? yield* discordSettings : Option.none()
+    // Attio's MCP server needs Slack, for the channel check, and its own
+    // credential; read only once Slack is on.
+    const attio = Option.isSome(slack) ? yield* attioSettings : Option.none()
     // The chat bot's GitHub App and Multica PAT, each optional: without them
     // the chat egress proxy hands GitHub and Multica no credential.
     const chatSecrets: ChatEgressSecrets = chatBot
@@ -423,6 +427,16 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             }),
           ),
           Layer.provide(ChatKillSwitch.stored),
+          Layer.provide(
+            Option.match(Option.all({ slack, attio }), {
+              onNone: () => Layer.empty,
+              onSome: ({ slack, attio }) =>
+                ChatAttio.layer(attio).pipe(
+                  Layer.provide(SlackConfig.layerFrom(slack)),
+                  Layer.provide(FetchHttpClient.layer),
+                ),
+            }),
+          ),
         )
       : Layer.empty
     const ClusterLayer = Layer.mergeAll(

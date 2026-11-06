@@ -60,6 +60,7 @@ catalog:
   "@alchemy.run/sql": https://pkg.alchemy.run/@alchemy.run/sql/-/7b97560aba68677888362a314915c15e930ce2022caac5fa932f8b970fc6116b.tgz
   "@distilled.cloud/cloudflare": 1.0.0-rc.17
   clanka: 0.18.2
+  "@modelcontextprotocol/sdk": 1.32.2
   dfx: 1.1.1
   clsx: ^2.1.1
   effect: https://pkg.pr.new/Effect-TS/effect/effect@111d7cfdd4fb15079fcb0b56b98d2290e40cd5b8

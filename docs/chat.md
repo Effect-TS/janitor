@@ -211,6 +211,54 @@ The bot hears every channel it can view. Restrict it with channel permissions: r
 
 The gateway is an outbound socket, so the development app needs no tunnel. A local `alchemy dev` run with the three settings from Infisical's development environment connects within a minute, on the cron's first tick. Only one process should hold the development app's gateway at a time: two would each get every message.
 
+## Attio
+
+### What it does
+
+Turns in Slack can use Attio's hosted MCP server, `https://mcp.attio.com/mcp`, to look up, create, update and delete CRM records, notes, tasks and lists (EFF-3443). Every tool the server lists is offered, as `mcp.attio.<tool>`, to the turn and its sub-agents. Everyone admitted to the bot can use them. The existing Attio Slack bot is separate and unchanged.
+
+- Attio is offered only in Slack channels of our workspace that hold no one from outside it. Before a session's first turn, the session asks Slack's `conversations.info` about the thread's channel. It allows the channel only when `is_shared`, `is_ext_shared`, `is_org_shared` and `is_pending_ext_shared` are all present and false, and the name doesn't start with `effectful-x-`. Public and private channels both qualify.
+- Discord never gets Attio. Neither does a channel whose lookup fails, a rate limit included: the turn goes on without Attio, and the next turn asks again.
+- A yes is kept for the session. Later turns don't ask again, so a channel that becomes shared keeps Attio for its existing sessions until they end or the Worker restarts them.
+- The MCP connection runs in the Worker and is opened for each turn. The Worker adds the bearer token to each request, so the sandbox, the model's prompts, tool results and logs never see it.
+
+### Settings
+
+Attio is on once Slack is on and `ATTIO_MCP_TOKEN` is set, in Infisical (project `janitor`). Without either, nothing is read or bound.
+
+| Setting           | Default                     | Meaning                                       |
+| ----------------- | --------------------------- | --------------------------------------------- |
+| `ATTIO_MCP_TOKEN` | none                        | The bearer token sent to Attio's MCP server   |
+| `ATTIO_MCP_URL`   | `https://mcp.attio.com/mcp` | The MCP endpoint, for a test server elsewhere |
+
+### Credentials: not ready to enable
+
+Leave `ATTIO_MCP_TOKEN` unset in every deployment for now. Attio's MCP server accepts OAuth access tokens. Its metadata, at `https://mcp.attio.com/.well-known/oauth-authorization-server`, offers only the `authorization_code` and `refresh_token` grants, with PKCE, dynamic client registration and the scopes `mcp`, `offline_access` and `openid`. Its access tokens are signed JWTs that name one Attio user and workspace and carry an expiry (`exp`). Janitor sends the token it is given and never refreshes it, so once the token expires, turns lose Attio and the server shows as failed.
+
+Before turning Attio on:
+
+1. Janitor needs to refresh tokens: keep the refresh token, swap it for access tokens, and store the new refresh token whenever Attio rotates it. Alternatively, Attio could confirm that a workspace API key works as an MCP bearer token; Attio's MCP documentation mentions only OAuth.
+2. An Attio member the bot acts as, such as `tech-ops@effectful.co`, has to authorise the client once. Every Attio call then has that member's permissions, and Attio's audit log shows that member.
+
+### Revocation
+
+- To turn Attio off, remove `ATTIO_MCP_TOKEN` from Infisical and deploy. The kill switch stops every turn, Attio's included, without a deploy.
+- To revoke the credential, end the bot member's session in Attio's account settings, or revoke the token at `https://app.attio.com/oidc/revoke`.
+
+### Rollout
+
+1. Run the development stack with the development Slack app in a test channel, and ask the bot for `whoami`. That read is the smoke test: no CRM writes.
+2. Set the production credential, and use Attio in one private core-team channel.
+3. Once it behaves there, keep it on for every internal channel.
+
+### Limits
+
+- Every tool is offered, writes and deletes included, with no confirmation of janitor's own. Attio's own confirmation of writes relies on an MCP client that asks the user, and the bot doesn't ask.
+- A turn with Attio keeps GitHub, Multica and internet access. Nothing stops CRM data from leaving through them.
+- Attio's results are in the session's transcript, which everyone with Access can read.
+- The channel is checked once per session, so a sharing change goes unnoticed for that session.
+- The sharing flags say nothing about guests: a guest in an internal channel can read the bot's replies there.
+
 ## Chat sessions page
 
 **Chat sessions**, in the sidebar, lists every session janitor still keeps, latest activity first: the platform, the channel, a link to the thread, who started it, its turn count, the latest turn's status, its last activity and its total tokens. Anyone Cloudflare Access lets into janitor can read every session, private channels and private repositories included.
