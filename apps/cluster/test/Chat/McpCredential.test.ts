@@ -14,6 +14,7 @@ import {
 import {
   type Answer,
   CLIENT_SECRET,
+  type Endpoints,
   FakeAuthorizationServer,
   TOKEN_URL,
 } from "../support/OAuthServer.ts"
@@ -103,6 +104,40 @@ describe("an MCP server's credential", () => {
       yield* restarted.token()
     }),
   )
+
+  /** Endpoints the authorisation server's metadata can name that Connect must never use. */
+  const unsafe: ReadonlyArray<readonly [string, Endpoints]> = [
+    [
+      "an http authorisation endpoint",
+      { authorization_endpoint: "http://auth.mcp.test/authorize" },
+    ],
+    ["an http token endpoint", { token_endpoint: "http://auth.mcp.test/token" }],
+    ["an http registration endpoint", { registration_endpoint: "http://auth.mcp.test/register" }],
+    ["a javascript: authorisation endpoint", { authorization_endpoint: "javascript:alert(1)//" }],
+  ]
+  for (const [name, endpoints] of unsafe)
+    it.effect(`Connect refuses ${name}, sending nothing to it and storing nothing`, () =>
+      Effect.gen(function* () {
+        const auth = new FakeAuthorizationServer(MCP_URL)
+        auth.endpoints = endpoints
+        const storage = new MemoryStorage()
+        const credential = yield* make(auth, storage)
+
+        const started = yield* credential.startOAuth({ redirectUri: REDIRECT_URI }).pipe(
+          Effect.map((url) => `started, at ${url}`),
+          Effect.catch((error) => Effect.succeed(error._tag)),
+        )
+        assert.strictEqual(started, "McpOAuthUnavailable")
+        assert.deepStrictEqual(
+          auth.seen.filter((request) => !request.includes(" https://")),
+          [],
+          "every request went over https",
+        )
+        assert.deepStrictEqual(auth.tokenRequests, [])
+        assert.isUndefined(storage.value, "no pending Connect to finish")
+        assert.strictEqual(yield* credential.status, "no-credential")
+      }),
+    )
 
   const clients: ReadonlyArray<readonly [string, boolean]> = [
     ["a public client", false],
@@ -343,6 +378,76 @@ describe("an MCP server's credential", () => {
 
       assert.strictEqual(yield* kept.status, "connected")
       assert.strictEqual(yield* value(kept.token()), "access-1")
+    }),
+  )
+
+  /**
+   * Holds a refresh of a connected credential at the token endpoint.
+   * `release` lets it through, answered with `access-stale` and a
+   * rotated refresh token, and waits for the caller that started it.
+   */
+  const holdRefresh = (auth: FakeAuthorizationServer, credential: McpCredential) =>
+    Effect.gen(function* () {
+      const gate = yield* Deferred.make<void>()
+      auth.answerRefresh = () =>
+        Effect.as(
+          Deferred.await(gate),
+          Response.json({
+            access_token: "access-stale",
+            token_type: "Bearer",
+            expires_in: 3600,
+            refresh_token: "rotated-stale",
+          }),
+        )
+      yield* TestClock.adjust(STALE)
+      const caller = yield* Effect.forkChild(Effect.exit(credential.token()))
+      yield* settle
+      assert.strictEqual(auth.refreshes.length, 1, "the refresh is under way")
+      const release = Effect.gen(function* () {
+        auth.answerRefresh = () => Effect.succeed(auth.grant({ expires_in: 3600 }))
+        yield* Deferred.succeed(gate, undefined)
+        yield* Fiber.join(caller)
+        yield* settle
+      })
+      return { release }
+    })
+
+  it.effect("a refresh under way when the credential is wiped doesn't bring it back", () =>
+    Effect.gen(function* () {
+      const auth = new FakeAuthorizationServer(MCP_URL)
+      const storage = new MemoryStorage()
+      const credential = yield* connected(auth, storage)
+      const { release } = yield* holdRefresh(auth, credential)
+
+      const wiping = yield* Effect.forkChild(credential.wipe)
+      yield* settle
+      yield* release
+      yield* Fiber.join(wiping)
+
+      assert.isUndefined(storage.value)
+      assert.strictEqual(yield* credential.status, "no-credential")
+      assert.strictEqual(yield* unavailable(credential.token()), "McpUnavailable")
+      assert.strictEqual(yield* (yield* make(auth, storage)).status, "no-credential")
+    }),
+  )
+
+  it.effect("a refresh under way when Connect runs again doesn't replace the new consent", () =>
+    Effect.gen(function* () {
+      const auth = new FakeAuthorizationServer(MCP_URL)
+      const storage = new MemoryStorage()
+      const credential = yield* connected(auth, storage)
+      const { release } = yield* holdRefresh(auth, credential)
+
+      const reconnecting = yield* Effect.forkChild(connect(auth, credential))
+      yield* settle
+      yield* release
+      yield* Fiber.join(reconnecting)
+
+      assert.strictEqual(yield* credential.status, "connected")
+      assert.notStrictEqual(yield* value(credential.token()), "access-stale")
+      // A restart has no access token, so it refreshes with what's stored.
+      yield* (yield* make(auth, storage)).token()
+      assert.strictEqual(auth.refreshes.at(-1)?.params.refresh_token, "refresh-code-2")
     }),
   )
 })

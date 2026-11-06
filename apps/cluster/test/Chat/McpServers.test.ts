@@ -169,8 +169,18 @@ class FakeHttp {
   readonly mcp: Array<McpRequest> = []
   /** A `tools/call` bearing this token is answered 401, as a server does once it revoked it. */
   rejectCallsWith: string | undefined
+  /** crm's requests for this JSON-RPC method are answered with this status, as a failing server does. */
+  failCrm: { readonly rpc: string; readonly status: number } | undefined
 
   constructor(readonly credentials: Credentials) {}
+
+  /** An error body that echoes the request's credential, as some servers' errors do. */
+  private echo(status: number, authorization: string | null, headers?: Record<string, string>) {
+    return new Response(`upstream failed for authorization: ${authorization}`, {
+      status,
+      ...(headers === undefined ? {} : { headers }),
+    })
+  }
 
   private answerMcp(
     server: McpServerConfig,
@@ -201,16 +211,15 @@ class FakeHttp {
       params: message.params,
     })
     const token = authorization?.match(/^Bearer (.+)$/)?.[1]
+    if (server.name === "crm" && message.method === this.failCrm?.rpc)
+      return this.echo(this.failCrm.status, authorization)
     if (
       server.auth !== "none" &&
       (token === undefined ||
         !this.credentials[server.name as keyof Credentials].issued.includes(token) ||
         (message.method === "tools/call" && token === this.rejectCallsWith))
     )
-      return new Response(null, {
-        status: 401,
-        headers: { "www-authenticate": 'Bearer scope="mcp"' },
-      })
+      return this.echo(401, authorization, { "www-authenticate": 'Bearer scope="mcp"' })
     if (message.id === undefined) return new Response(null, { status: 202 })
     const result =
       message.method === "initialize"
@@ -369,10 +378,12 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
       readonly credentials?: Credentials
       readonly stored?: Stored
       readonly rejectCallsWith?: string
+      readonly failCrm?: FakeHttp["failCrm"]
     } = {},
   ) => {
     const http = new FakeHttp(options.credentials ?? credentialsFor())
     http.rejectCallsWith = options.rejectCallsWith
+    http.failCrm = options.failCrm
     const logs: Array<string> = []
     const capture = Logger.layer([
       Logger.make((options) => {
@@ -403,6 +414,23 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
 
   const toolCalls = (http: FakeHttp, server: string) =>
     http.mcp.filter((request) => request.server === server && request.rpc === "tools/call")
+
+  /** Asserts none of `credentials`' tokens reached the model, the sandbox or the logs. */
+  const assertNoTokenLeft = (
+    { harness, logs }: { readonly harness: SessionHarness; readonly logs: ReadonlyArray<string> },
+    credentials: Credentials,
+  ) => {
+    const exposed = [
+      ...harness.model.prompts.map(seen),
+      ...harness.sandboxes.scripts,
+      ...harness.sandboxes.written.map((file) => new TextDecoder().decode(file.content)),
+      ...harness.sandboxes.toolOutcomes,
+      ...logs,
+    ]
+    const tokens = [...credentials.crm.issued, ...credentials.docs.issued]
+    assert.isNotEmpty(credentials.crm.issued)
+    for (const text of exposed) for (const token of tokens) assert.notInclude(text, token)
+  }
 
   const outcome = (name: string, offered: boolean) =>
     offered ? "ok" : `failed: no loop-side tool ${name}.whoami`
@@ -479,26 +507,17 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
           [[null, { name: "whoami", arguments: {} }]],
           "auth: none sends no credential",
         )
-
-        const exposed = [
-          ...harness.model.prompts.map(seen),
-          ...harness.sandboxes.scripts,
-          ...harness.sandboxes.written.map((file) => new TextDecoder().decode(file.content)),
-          ...logs,
-        ]
-        const tokens = [...credentials.crm.issued, ...credentials.docs.issued]
-        assert.isNotEmpty(credentials.crm.issued)
         assert.isNotEmpty(credentials.docs.issued)
-        for (const text of exposed) for (const token of tokens) assert.notInclude(text, token)
+        assertNoTokenLeft({ harness, logs }, credentials)
       }),
   )
 
   it.effect(
-    "a rejected token fails that tool call once, without a retry, and the next call uses a new token",
+    "a rejected token fails that tool call once, without a retry or a leak, and the next call uses a new token",
     () =>
       Effect.gen(function* () {
         const credentials = credentialsFor({ crm: "stable" })
-        const { harness, http } = yield* whoamiTurn(inChannel("CPUBLIC"), ["crm", "crm"], {
+        const { harness, http, logs } = yield* whoamiTurn(inChannel("CPUBLIC"), ["crm", "crm"], {
           credentials,
           rejectCallsWith: "crm-access-1",
         })
@@ -512,6 +531,31 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
         )
         assert.deepStrictEqual(credentials.crm.rejected, ["crm-access-1"])
         assert.deepStrictEqual(credentials.docs.rejected, [])
+        assertNoTokenLeft({ harness, logs }, credentials)
       }),
   )
+
+  /** crm failing with an error body that echoes its token; docs still answers. */
+  const failures: ReadonlyArray<readonly [string, NonNullable<FakeHttp["failCrm"]>]> = [
+    ["a tool call answered 500", { rpc: "tools/call", status: 500 }],
+    ["a connection answered 500", { rpc: "initialize", status: 500 }],
+  ]
+  for (const [name, failCrm] of failures)
+    it.effect(
+      `${name} fails crm's call without a retry, and its body never leaves the Worker`,
+      () =>
+        Effect.gen(function* () {
+          const credentials = credentialsFor()
+          const turn = yield* whoamiTurn(inChannel("CPUBLIC"), ["crm", "docs"], {
+            credentials,
+            failCrm,
+          })
+
+          assert.match(turn.harness.sandboxes.toolOutcomes[0]!, /^failed: /)
+          assert.strictEqual(turn.harness.sandboxes.toolOutcomes[1], "ok")
+          assert.isAtMost(toolCalls(turn.http, "crm").length, 1)
+          assert.deepStrictEqual(credentials.crm.rejected, [], "only a 401 rejects a token")
+          assertNoTokenLeft(turn, credentials)
+        }),
+    )
 })

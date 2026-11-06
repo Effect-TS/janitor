@@ -38,6 +38,11 @@ export interface TokenRequest {
 
 export type Answer = (params: Record<string, string>) => Effect.Effect<Response, "network">
 
+/** The endpoints authorisation server metadata names. */
+export type Endpoints = Partial<
+  Record<"authorization_endpoint" | "token_endpoint" | "registration_endpoint", string>
+>
+
 interface Grant {
   readonly clientId: string
   readonly redirectUri: string
@@ -59,6 +64,12 @@ export class FakeAuthorizationServer {
   readonly seen: Array<string> = []
   /** Registers clients with `CLIENT_SECRET` while set; otherwise as public clients. */
   confidential = false
+  /**
+   * Endpoints the metadata names instead of its own, as a hostile or
+   * misconfigured server's can. The server still answers on its host over
+   * `http:`, so a request sent to one shows in `seen`.
+   */
+  endpoints: Endpoints = {}
   private issued = 0
   private readonly clients = new Map<string, ReadonlyArray<string>>()
   private readonly grants = new Map<string, Grant>()
@@ -174,7 +185,8 @@ export class FakeAuthorizationServer {
             return yield* respond(
               Response.json({ resource: this.resource, authorization_servers: [ISSUER] }),
             )
-          if (url.origin !== ISSUER) return yield* respond(new Response(null, { status: 404 }))
+          if (url.host !== new URL(ISSUER).host)
+            return yield* respond(new Response(null, { status: 404 }))
           if (
             url.pathname.startsWith("/.well-known/oauth-authorization-server") ||
             url.pathname.startsWith("/.well-known/openid-configuration")
@@ -185,6 +197,7 @@ export class FakeAuthorizationServer {
                 authorization_endpoint: AUTHORIZE_URL,
                 token_endpoint: TOKEN_URL,
                 registration_endpoint: `${ISSUER}/register`,
+                ...this.endpoints,
                 response_types_supported: ["code"],
                 grant_types_supported: ["authorization_code", "refresh_token"],
                 code_challenge_methods_supported: ["S256"],
@@ -197,7 +210,8 @@ export class FakeAuthorizationServer {
             )
           if (url.pathname === "/register" && web.method === "POST")
             return yield* respond(this.register(decodeRegistration(body)))
-          if (url.href !== TOKEN_URL) return yield* respond(new Response(null, { status: 404 }))
+          if (url.pathname !== new URL(TOKEN_URL).pathname)
+            return yield* respond(new Response(null, { status: 404 }))
 
           const params = Object.fromEntries(new URLSearchParams(body))
           const basic = web.headers.get("authorization")?.match(/^Basic (.+)$/)?.[1]
