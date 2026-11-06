@@ -1,59 +1,55 @@
 import type { McpServer } from "@janitor/domain/Chat/McpServer"
-import { Scene } from "foldkit/test"
+import { Scene, Story } from "foldkit/test"
 import { describe, it } from "vite-plus/test"
 import * as ChatSessions from "@/components/chat-sessions"
+import * as McpServers from "@/components/mcp-servers"
 
 /**
- * The chat sessions page's MCP servers panel (EFF-3443), next to the kill
- * switch: each configured server with its status, and the add form.
+ * The chat sessions page embeds the MCP servers panel (EFF-3443), next to the
+ * kill switch; the panel's own behaviour is in `mcp-servers.test.ts`.
  */
 
-const server = (name: string, status: McpServer["status"]): McpServer => ({
-  id: `srv-${name}`,
-  name,
-  url: `https://mcp.${name}.test/mcp`,
+const crm: McpServer = {
+  id: "srv-crm",
+  name: "crm",
+  url: "https://mcp.crm.test/mcp",
   auth: "oauth",
   private: true,
   enabled: true,
-  status,
-})
+  status: "needs-consent",
+}
 
-/** Each status, and the words the panel shows for it. */
-const statuses: ReadonlyArray<readonly [McpServer, string]> = [
-  [server("crm", "connected"), "Connected"],
-  [server("tickets", "needs-consent"), "Needs consent"],
-  [server("docs", "unavailable"), "Unavailable"],
-  [server("wiki", "no-credential"), "No credential"],
-]
+const panel = (message: McpServers.Message) =>
+  ChatSessions.Message.GotMcpServersMessage({ message })
 
-const loaded = ChatSessions.update(
-  ChatSessions.update(ChatSessions.init(), ChatSessions.Message.Activated({ active: true })).model,
-  ChatSessions.Message.LoadedMcpServers({
-    list: { servers: statuses.map(([server]) => server) },
-  }),
+const active = ChatSessions.update(
+  ChatSessions.init(),
+  ChatSessions.Message.Activated({ active: true }),
 ).model
 
 const page = { update: ChatSessions.update, view: ChatSessions.view }
 
-describe("MCP servers panel", () => {
-  it("shows each server with its status", () => {
+describe("Chat sessions page", () => {
+  it("shows the MCP servers panel", () => {
     Scene.scene(
       page,
-      Scene.given(loaded),
+      Scene.given(
+        ChatSessions.update(active, panel(McpServers.Message.Loaded({ list: { servers: [crm] } })))
+          .model,
+      ),
       Scene.expect(Scene.text("MCP servers")).toExist(),
-      ...statuses.flatMap(([server, status]) => [
-        Scene.expect(Scene.text(server.name)).toExist(),
-        Scene.expect(Scene.text(status)).toExist(),
-      ]),
+      Scene.expect(Scene.text("crm")).toExist(),
+      Scene.expect(Scene.text("Needs consent")).toExist(),
     )
   })
 
-  it("adds a server as Private unless unchecked", () => {
-    Scene.scene(
-      page,
-      Scene.given(loaded),
-      Scene.click(Scene.role("button", { name: "Add server" })),
-      Scene.expect(Scene.role("switch", { name: "Private" })).toBeChecked(),
+  it("sends the browser to the authorisation page the panel's Connect got", () => {
+    const url = "https://auth.mcp.test/authorize?client_id=client-1&state=s"
+    Story.story(
+      ChatSessions.update,
+      Story.given(active),
+      Story.message(panel(McpServers.Message.GotAuthorization({ authorizationUrl: url }))),
+      Story.expectOutMessage(ChatSessions.OutMessage.OpenAuthorization({ url })),
     )
   })
 })
