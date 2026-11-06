@@ -139,6 +139,11 @@ import { ReplyGate } from "./Chat/Gate.ts"
 import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
 import { ChatPlatform } from "./Chat/Platform.ts"
 import { attioSettings, ChatAttio } from "./Chat/Attio.ts"
+import {
+  AttioCredentialLive,
+  AttioCredentialObject,
+  attioCredentialFrom,
+} from "./Chat/AttioCredentialObject.ts"
 import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
 import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
 import { restLayer as discordRestLayer } from "./Chat/Discord/Api.ts"
@@ -370,6 +375,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
     )
     const chatPools = yield* ChatSandboxPool.pipe(Effect.provide(ChatSandboxPoolLive))
+    // Attio's OAuth credential: one object holding the refresh token for every
+    // session. Declared even while Attio is off, so its storage survives that.
+    const attioCredentials = yield* AttioCredentialObject.pipe(
+      Effect.provide(AttioCredentialLive.pipe(Layer.provide(FetchHttpClient.layer))),
+    )
     // The PR review model's way onto the tailnet, when PR_REVIEW_AI_VIA_TAILNET is on.
     yield* TailnetEgress.pipe(Effect.provide(TailnetEgressLive))
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
@@ -431,7 +441,10 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             Option.match(Option.all({ slack, attio }), {
               onNone: () => Layer.empty,
               onSome: ({ slack, attio }) =>
-                ChatAttio.layer(attio).pipe(
+                ChatAttio.layer({
+                  url: attio.url,
+                  credential: attioCredentialFrom(attioCredentials),
+                }).pipe(
                   Layer.provide(SlackConfig.layerFrom(slack)),
                   Layer.provide(FetchHttpClient.layer),
                 ),

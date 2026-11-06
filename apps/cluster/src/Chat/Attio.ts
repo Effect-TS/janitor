@@ -13,6 +13,7 @@ import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import type { AttioCredential } from "./AttioCredential.ts"
 import type { ChatThread } from "./Platform.ts"
 import { decode, SlackApi } from "./Slack/Api.ts"
 import { SlackConfig } from "./Slack/Config.ts"
@@ -20,24 +21,37 @@ import { SlackConfig } from "./Slack/Config.ts"
 /**
  * Attio's hosted MCP server in chat turns (EFF-3443). Every tool the server
  * lists is offered, to the turn and its sub-agents, in Slack channels no one
- * outside the workspace is in. The bearer token stays in the Worker: the MCP
- * transport sends its requests through the Worker's `HttpClient`, which adds
- * it.
+ * outside the workspace is in. The access tokens stay in the Worker: the MCP
+ * transport sends its requests through the Worker's `HttpClient`, and each
+ * request gets the current token from the credential (`AttioCredential.ts`).
  */
 
 export interface AttioSettings {
-  readonly token: Redacted.Redacted<string>
+  /** The OAuth client registered with Attio. */
+  readonly clientId: string
+  /** Only for a client registered as confidential. */
+  readonly clientSecret: Option.Option<Redacted.Redacted<string>>
+  /** The refresh token from the one-time consent: the seed the stored one descends from. */
+  readonly refreshToken: Redacted.Redacted<string>
   readonly url: string
+  readonly tokenUrl: string
 }
 
 /**
- * `ATTIO_MCP_TOKEN` and `ATTIO_MCP_URL`, which defaults to Attio's server.
- * Attio is off while the token is unset.
+ * `ATTIO_MCP_CLIENT_ID` and `ATTIO_MCP_REFRESH_TOKEN`, both required, and the
+ * optional `ATTIO_MCP_CLIENT_SECRET`, `ATTIO_MCP_URL` and
+ * `ATTIO_OAUTH_TOKEN_URL`, whose defaults are Attio's. Attio is off until
+ * the client id and the refresh token are both set.
  */
 export const attioSettings: Config.Config<Option.Option<AttioSettings>> = Config.option(
   Config.all({
-    token: Config.Redacted("ATTIO_MCP_TOKEN"),
+    clientId: Config.String("ATTIO_MCP_CLIENT_ID"),
+    clientSecret: Config.option(Config.Redacted("ATTIO_MCP_CLIENT_SECRET")),
+    refreshToken: Config.Redacted("ATTIO_MCP_REFRESH_TOKEN"),
     url: Config.String("ATTIO_MCP_URL").pipe(Config.withDefault("https://mcp.attio.com/mcp")),
+    tokenUrl: Config.String("ATTIO_OAUTH_TOKEN_URL").pipe(
+      Config.withDefault("https://app.attio.com/oidc/token"),
+    ),
   }),
 )
 
@@ -58,13 +72,22 @@ const ChannelInfo = Schema.Struct({
   }),
 })
 
+/** Thrown by `fetchVia` when there's no access token: the MCP request fails, unsent. */
+const UNAVAILABLE = "Attio's credential is unavailable"
+
 /**
- * A `fetch` over `http`, for the MCP SDK's transport. Each response lives
+ * A `fetch` over `http`, for the MCP SDK's transport, that sends each
+ * request with the credential's current access token. Each response lives
  * until the transport aborts the request's signal, which it does on close, so
  * an open event stream ends with the turn.
+ *
+ * A 401 reports the token rejected, so the next request gets a new one, and
+ * is handed back as it is: the request is never sent again, so no write
+ * reaches Attio twice. The SDK fails that request, and a `tools/call` becomes
+ * a tool error the model sees.
  */
 const fetchVia =
-  (http: HttpClient.HttpClient): typeof globalThis.fetch =>
+  (http: HttpClient.HttpClient, credential: AttioCredential): typeof globalThis.fetch =>
   (input, init) => {
     const request = new Request(input, init)
     const scope = Scope.makeUnsafe()
@@ -73,11 +96,15 @@ const fetchVia =
     else request.signal.addEventListener("abort", release, { once: true })
     return Effect.runPromise(
       Effect.gen(function* () {
+        const token = yield* credential
+          .token()
+          .pipe(Effect.catchTag("AttioUnavailable", () => Effect.die(new Error(UNAVAILABLE))))
         const body =
           request.body === null ? undefined : yield* Effect.tryPromise(() => request.text())
         const outgoing = HttpClientRequest.make(request.method as "GET")(request.url, {
           headers: request.headers,
         }).pipe(
+          HttpClientRequest.bearerToken(token),
           body === undefined
             ? (self) => self
             : HttpClientRequest.bodyText(body, request.headers.get("content-type") ?? undefined),
@@ -85,6 +112,7 @@ const fetchVia =
         const response = yield* HttpClient.withScope(http)
           .execute(outgoing)
           .pipe(Scope.provide(scope))
+        if (response.status === 401) yield* Effect.ignore(credential.token(token))
         return Option.getOrElse(
           HttpClientResponse.toWeb(response),
           () =>
@@ -114,17 +142,17 @@ export class ChatAttio extends Context.Service<
     readonly servers: Layer.Layer<McpServers.McpServers>
   }
 >()("@janitor/cluster/Chat/Attio/ChatAttio") {
-  static readonly layer = (
-    settings: AttioSettings,
-  ): Layer.Layer<ChatAttio, never, SlackConfig | HttpClient.HttpClient> =>
+  /** `credential` is the Worker's handle on the credential's Durable Object. */
+  static readonly layer = (options: {
+    readonly url: string
+    readonly credential: AttioCredential
+  }): Layer.Layer<ChatAttio, never, SlackConfig | HttpClient.HttpClient> =>
     Layer.effect(
       this,
       Effect.gen(function* () {
         const slack = yield* SlackConfig
         const api = yield* SlackApi
-        const http = (yield* HttpClient.HttpClient).pipe(
-          HttpClient.mapRequest(HttpClientRequest.bearerToken(Redacted.value(settings.token))),
-        )
+        const http = yield* HttpClient.HttpClient
 
         const allowed = (thread: ChatThread): Effect.Effect<boolean> =>
           thread._tag !== "Slack" || thread.team !== slack.workspaceId
@@ -150,7 +178,9 @@ export class ChatAttio extends Context.Service<
         const servers = McpServers.layerTransports({
           [SERVER]: {
             transport: () =>
-              new StreamableHTTPClientTransport(new URL(settings.url), { fetch: fetchVia(http) }),
+              new StreamableHTTPClientTransport(new URL(options.url), {
+                fetch: fetchVia(http, options.credential),
+              }),
           },
         })
 
