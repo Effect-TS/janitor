@@ -32,9 +32,23 @@ const UNAVAILABLE = "The MCP server's credential is unavailable"
  * becomes a tool error the model sees.
  */
 export const fetchVia =
-  (http: HttpClient.HttpClient, credential?: McpCredential): typeof globalThis.fetch =>
+  (
+    http: HttpClient.HttpClient,
+    options: {
+      /** Sends each request with this credential's current token. */
+      readonly credential?: McpCredential | undefined
+      /**
+       * Hands a failed response back with no body. The SDK puts an error
+       * body in its exception, which reaches the logs and the model, and a
+       * server can echo the request there, token included. The OAuth helpers
+       * need the body to read the OAuth error code, so it's the transport's.
+       */
+      readonly withoutErrorBodies?: boolean | undefined
+    } = {},
+  ): typeof globalThis.fetch =>
   (input, init) => {
     const request = new Request(input, init)
+    const { credential, withoutErrorBodies = false } = options
     const streaming = init?.signal != null
     const scope = Scope.makeUnsafe()
     const release = () => Effect.runFork(Scope.close(scope, Exit.void))
@@ -69,11 +83,15 @@ export const fetchVia =
           status: response.status,
           headers: response.headers as Record<string, string>,
         }
-        const empty = response.status === 204 || response.status === 304
-        if (!streaming) return new Response(empty ? null : yield* response.arrayBuffer, init)
+        const empty =
+          response.status === 204 ||
+          response.status === 304 ||
+          (withoutErrorBodies && (response.status < 200 || response.status >= 300))
+        if (empty) return new Response(null, init)
+        if (!streaming) return new Response(yield* response.arrayBuffer, init)
         return Option.getOrElse(
           HttpClientResponse.toWeb(response),
-          () => new Response(empty ? null : Stream.toReadableStream(response.stream), init),
+          () => new Response(Stream.toReadableStream(response.stream), init),
         )
       }).pipe(streaming ? (self) => self : Effect.ensuring(Scope.close(scope, Exit.void))),
       streaming ? { signal: request.signal } : undefined,

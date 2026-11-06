@@ -116,7 +116,7 @@ function make(internal: (thread: ChatThread) => Effect.Effect<boolean>) {
         (credential) => ({
           transport: () =>
             new StreamableHTTPClientTransport(new URL(server.url), {
-              fetch: fetchVia(http, credential),
+              fetch: fetchVia(http, { credential, withoutErrorBodies: true }),
             }),
         }),
       )

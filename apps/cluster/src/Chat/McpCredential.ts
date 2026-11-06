@@ -156,6 +156,9 @@ const sdkClient = (client: OAuthClient) => ({
   clientInformation: client.information as OAuthClientInformationMixed,
 })
 
+/** An absolute `https:` URL. */
+const isHttps = (url: string) => URL.canParse(url) && new URL(url).protocol === "https:"
+
 const randomState = () =>
   btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
     .replaceAll("+", "-")
@@ -217,6 +220,20 @@ export const makeMcpCredential = (
     let cached: Cached | undefined
     let failedAt: number | undefined
     let inflight: Deferred.Deferred<Redacted.Redacted<string>, McpUnavailable> | undefined
+    /**
+     * Counts the changes that replace the credential: a wipe, a bearer token
+     * and a successful Connect. A refresh that started under an older count
+     * keeps none of its results, so it can't bring back a wiped credential or
+     * overwrite a newer one.
+     */
+    let generation = 0
+    /** Starts a new generation: the refresh in flight, if any, is left to finish unheard. */
+    const replaced = () => {
+      generation += 1
+      inflight = undefined
+      cached = undefined
+      failedAt = undefined
+    }
 
     /** Storage's state; empty when storage is empty or unreadable. */
     const load = Effect.suspend(() =>
@@ -264,9 +281,12 @@ export const makeMcpCredential = (
         return Redacted.make(granted.access_token)
       })
 
-    /** Refreshes the access token, storing a rotated refresh token before handing it out. */
-    const refresh: Effect.Effect<Redacted.Redacted<string>, McpUnavailable> = Effect.gen(
-      function* () {
+    /**
+     * Refreshes the access token, storing a rotated refresh token before
+     * handing it out, unless the credential was replaced meanwhile.
+     */
+    const refresh = (started: number): Effect.Effect<Redacted.Redacted<string>, McpUnavailable> =>
+      Effect.gen(function* () {
         const current = yield* load
         const oauth = current.oauth
         if (oauth === undefined || oauth.needsConsent) return yield* new McpUnavailable()
@@ -281,38 +301,42 @@ export const makeMcpCredential = (
             fetchFn,
           }),
         )
-        if (granted.refresh_token !== undefined && granted.refresh_token !== oauth.refreshToken)
+        if (started !== generation) return yield* new McpUnavailable()
+        if (granted.refresh_token !== undefined && granted.refresh_token !== oauth.refreshToken) {
+          // The latest state, so a Connect started meanwhile keeps its pending state.
+          const latest = yield* load
           yield* save({
-            ...current,
+            ...latest,
             oauth: { ...oauth, refreshToken: granted.refresh_token },
           }).pipe(Effect.mapError((): Failure => ({ _tag: "Transient", reason: "storage" })))
+        }
         return yield* cache(granted)
-      },
-    ).pipe(
-      Effect.catchIf(
-        (error): error is Failure => error._tag !== "McpUnavailable",
-        (failure) =>
-          Effect.gen(function* () {
-            cached = undefined
-            if (failure._tag === "Consent") {
-              yield* Effect.logError(
-                "An MCP server's authorisation server refused the refresh token; Connect it again",
-              ).pipe(Effect.annotateLogs({ error: failure.error }))
-              const current = yield* load
-              if (current.oauth !== undefined)
-                yield* save({ ...current, oauth: { ...current.oauth, needsConsent: true } }).pipe(
-                  Effect.ignore,
+      }).pipe(
+        Effect.catchIf(
+          (error): error is Failure => error._tag !== "McpUnavailable",
+          (failure) =>
+            Effect.gen(function* () {
+              if (started !== generation) return yield* new McpUnavailable()
+              cached = undefined
+              if (failure._tag === "Consent") {
+                yield* Effect.logError(
+                  "An MCP server's authorisation server refused the refresh token; Connect it again",
+                ).pipe(Effect.annotateLogs({ error: failure.error }))
+                const current = yield* load
+                if (current.oauth !== undefined)
+                  yield* save({ ...current, oauth: { ...current.oauth, needsConsent: true } }).pipe(
+                    Effect.ignore,
+                  )
+              } else {
+                failedAt = yield* Clock.currentTimeMillis
+                yield* Effect.logWarning("Couldn't refresh an MCP server's access token").pipe(
+                  Effect.annotateLogs({ reason: failure.reason }),
                 )
-            } else {
-              failedAt = yield* Clock.currentTimeMillis
-              yield* Effect.logWarning("Couldn't refresh an MCP server's access token").pipe(
-                Effect.annotateLogs({ reason: failure.reason }),
-              )
-            }
-            return yield* new McpUnavailable()
-          }),
-      ),
-    )
+              }
+              return yield* new McpUnavailable()
+            }),
+        ),
+      )
 
     /** Read through a function, so a check after a wait isn't narrowed away. */
     const running = () => inflight
@@ -343,11 +367,12 @@ export const makeMcpCredential = (
         // leaves the others waiting or a rotated refresh token unstored.
         const done = Deferred.makeUnsafe<Redacted.Redacted<string>, McpUnavailable>()
         inflight = done
-        yield* refresh.pipe(
+        yield* refresh(generation).pipe(
           Effect.exit,
           Effect.flatMap((exit) =>
             Effect.suspend(() => {
-              inflight = undefined
+              // A newer generation may have started its own refresh since.
+              if (inflight === done) inflight = undefined
               return Deferred.done(done, exit)
             }),
           ),
@@ -365,8 +390,7 @@ export const makeMcpCredential = (
 
     const setBearer = (bearer: Redacted.Redacted<string>) =>
       Effect.gen(function* () {
-        cached = undefined
-        failedAt = undefined
+        replaced()
         yield* save({ bearer: Redacted.value(bearer) }).pipe(Effect.orDie)
       })
 
@@ -376,6 +400,19 @@ export const makeMcpCredential = (
         // that metadata, its own origin is taken to be one.
         const info = yield* sdk((fetchFn) => discoverOAuthServerInfo(options.url, { fetchFn }))
         const metadata = info.authorizationServerMetadata
+        // Every endpoint the code, verifier and secrets go to is https,
+        // checked before anything is sent to them: the registration, the
+        // browser's authorisation URL and the token requests.
+        const endpoints =
+          metadata === undefined
+            ? [info.authorizationServerUrl]
+            : [
+                info.authorizationServerUrl,
+                metadata.authorization_endpoint,
+                metadata.token_endpoint,
+                metadata.registration_endpoint ?? info.authorizationServerUrl,
+              ]
+        if (!endpoints.every(isHttps)) return yield* Effect.fail("insecure endpoint" as const)
         const scope = info.resourceMetadata?.scopes_supported?.join(" ")
         const information = yield* sdk((fetchFn) =>
           registerClient(info.authorizationServerUrl, {
@@ -452,6 +489,7 @@ export const makeMcpCredential = (
             fetchFn,
           }),
         )
+        replaced()
         yield* save({
           oauth: {
             client: pending.client,
@@ -470,9 +508,8 @@ export const makeMcpCredential = (
       )
 
     const wipe = Effect.gen(function* () {
+      replaced()
       state = empty
-      cached = undefined
-      failedAt = undefined
       yield* options.storage.clear.pipe(Effect.orDie)
     })
 
