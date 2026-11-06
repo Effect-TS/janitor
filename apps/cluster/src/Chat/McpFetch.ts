@@ -1,0 +1,81 @@
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Option from "effect/Option"
+import * as Scope from "effect/Scope"
+import * as Stream from "effect/Stream"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientRequest from "effect/http/HttpClientRequest"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import type { McpCredential } from "./McpCredential.ts"
+
+/**
+ * A `fetch` over an Effect `HttpClient`, for the MCP SDK (EFF-3443): its
+ * streamable HTTP transport in turns, and its OAuth helpers in **Connect**
+ * and refresh. Every MCP request goes through the client the Worker gives.
+ */
+
+/** Thrown when there's no token: the MCP request fails, unsent. */
+const UNAVAILABLE = "The MCP server's credential is unavailable"
+
+/**
+ * Sends each request through `http`, with `credential`'s current token when
+ * one is given.
+ *
+ * A request with a signal, as the transport's are, keeps its response open
+ * until the signal aborts, which the transport does on close, so an open
+ * event stream ends with the turn. A request without one, as the OAuth
+ * helpers' are, gets its body read at once and its connection released.
+ *
+ * A 401 reports the token rejected, so the next request gets a new one, and
+ * is handed back as it is: the request is never sent again, so no write
+ * reaches the server twice. The SDK fails that request, and a `tools/call`
+ * becomes a tool error the model sees.
+ */
+export const fetchVia =
+  (http: HttpClient.HttpClient, credential?: McpCredential): typeof globalThis.fetch =>
+  (input, init) => {
+    const request = new Request(input, init)
+    const streaming = init?.signal != null
+    const scope = Scope.makeUnsafe()
+    const release = () => Effect.runFork(Scope.close(scope, Exit.void))
+    if (streaming) {
+      if (request.signal.aborted) release()
+      else request.signal.addEventListener("abort", release, { once: true })
+    }
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const token =
+          credential === undefined
+            ? undefined
+            : yield* credential
+                .token()
+                .pipe(Effect.catchTag("McpUnavailable", () => Effect.die(new Error(UNAVAILABLE))))
+        const body =
+          request.body === null ? undefined : yield* Effect.tryPromise(() => request.text())
+        const outgoing = HttpClientRequest.make(request.method as "GET")(request.url, {
+          headers: request.headers,
+        }).pipe(
+          token === undefined ? (self) => self : HttpClientRequest.bearerToken(token),
+          body === undefined
+            ? (self) => self
+            : HttpClientRequest.bodyText(body, request.headers.get("content-type") ?? undefined),
+        )
+        const response = yield* HttpClient.withScope(http)
+          .execute(outgoing)
+          .pipe(Scope.provide(scope))
+        if (response.status === 401 && credential !== undefined && token !== undefined)
+          yield* Effect.ignore(credential.token(token))
+        const init = {
+          status: response.status,
+          headers: response.headers as Record<string, string>,
+        }
+        const empty = response.status === 204 || response.status === 304
+        if (!streaming) return new Response(empty ? null : yield* response.arrayBuffer, init)
+        return Option.getOrElse(
+          HttpClientResponse.toWeb(response),
+          () => new Response(empty ? null : Stream.toReadableStream(response.stream), init),
+        )
+      }).pipe(streaming ? (self) => self : Effect.ensuring(Scope.close(scope, Exit.void))),
+      streaming ? { signal: request.signal } : undefined,
+    )
+  }

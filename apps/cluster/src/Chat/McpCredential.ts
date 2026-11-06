@@ -4,6 +4,23 @@ import {
   McpOAuthUnavailable,
   type McpServerStatus,
 } from "@janitor/domain/Chat/McpServer"
+import {
+  discoverOAuthServerInfo,
+  exchangeAuthorization,
+  refreshAuthorization,
+  registerClient,
+  startAuthorization,
+} from "@modelcontextprotocol/sdk/client/auth.js"
+import {
+  InvalidClientError,
+  InvalidGrantError,
+  OAuthError,
+} from "@modelcontextprotocol/sdk/server/auth/errors.js"
+import type {
+  AuthorizationServerMetadata,
+  OAuthClientInformationMixed,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
@@ -12,8 +29,7 @@ import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import type * as HttpClientResponse from "effect/http/HttpClientResponse"
+import { fetchVia } from "./McpFetch.ts"
 
 /**
  * An MCP server's credential (EFF-3443), one per server configured on the
@@ -22,7 +38,9 @@ import type * as HttpClientResponse from "effect/http/HttpClientResponse"
  * dashboard, or what **Connect** got from the server's OAuth authorisation
  * server: the registered client and a refresh token, which it swaps for
  * short-lived access tokens ahead of expiry, one refresh at a time, storing
- * a rotated refresh token before handing out the access token.
+ * a rotated refresh token before handing out the access token. The OAuth
+ * protocol itself (discovery, registration, PKCE, client authentication and
+ * token requests) is the MCP SDK's; this keeps only what is janitor's.
  *
  * No token, client secret, PKCE verifier or code is ever logged or put in an
  * error.
@@ -91,14 +109,17 @@ const BACKOFF = Duration.seconds(30)
 /** How long a **Connect** may take between its start and its callback. */
 const CONSENT_WINDOW = Duration.minutes(10)
 
-const AuthMethod = Schema.Literals(["none", "client_secret_post", "client_secret_basic"])
+/** JSON the MCP SDK produced and reads back: its client registration and server metadata. */
+const Json = Schema.Record(Schema.String, Schema.Unknown)
 
-/** A client registered with the authorisation server. */
+/** A client registered with an authorisation server, as the SDK's helpers take it. */
 const OAuthClient = Schema.Struct({
-  clientId: Schema.String,
-  clientSecret: Schema.optional(Schema.String),
-  authMethod: AuthMethod,
-  tokenUrl: Schema.String,
+  /** The authorisation server's URL. */
+  server: Schema.String,
+  /** Its metadata, when discovery found it. */
+  metadata: Schema.optional(Json),
+  /** The registration the server answered, client secret included. */
+  information: Json,
 })
 type OAuthClient = typeof OAuthClient.Type
 
@@ -127,60 +148,19 @@ type Stored = typeof Stored.Type
 
 const decodeStored = Schema.decodeUnknownEffect(Stored)
 
-const TokenResponse = Schema.Struct({
-  access_token: Schema.NonEmptyString,
-  expires_in: Schema.optional(Schema.Finite),
-  refresh_token: Schema.optional(Schema.NonEmptyString),
+/** The SDK's view of a stored client. */
+const sdkClient = (client: OAuthClient) => ({
+  ...(client.metadata === undefined
+    ? {}
+    : { metadata: client.metadata as AuthorizationServerMetadata }),
+  clientInformation: client.information as OAuthClientInformationMixed,
 })
-type TokenResponse = typeof TokenResponse.Type
-const decodeTokenResponse = Schema.decodeUnknownEffect(TokenResponse)
 
-const ErrorResponse = Schema.Struct({ error: Schema.String })
-const decodeErrorResponse = Schema.decodeUnknownEffect(ErrorResponse)
-
-const ResourceMetadata = Schema.Struct({
-  authorization_servers: Schema.optional(Schema.Array(Schema.String)),
-  scopes_supported: Schema.optional(Schema.Array(Schema.String)),
-})
-const decodeResourceMetadata = Schema.decodeUnknownEffect(ResourceMetadata)
-
-const ServerMetadata = Schema.Struct({
-  authorization_endpoint: Schema.String,
-  token_endpoint: Schema.String,
-  registration_endpoint: Schema.optional(Schema.String),
-  code_challenge_methods_supported: Schema.optional(Schema.Array(Schema.String)),
-})
-const decodeServerMetadata = Schema.decodeUnknownEffect(ServerMetadata)
-
-const Registration = Schema.Struct({
-  client_id: Schema.String,
-  client_secret: Schema.optional(Schema.String),
-  token_endpoint_auth_method: Schema.optional(Schema.String),
-})
-const decodeRegistration = Schema.decodeUnknownEffect(Registration)
-
-/** The OAuth errors that mean the refresh token or the client is gone for good. */
-const CONSENT_ERRORS = new Set(["invalid_grant", "invalid_client"])
-
-const base64url = (bytes: Uint8Array) =>
-  btoa(String.fromCharCode(...bytes))
+const randomState = () =>
+  btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "")
-
-const randomToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)))
-
-const challengeFor = (verifier: string) =>
-  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))).pipe(
-    Effect.map((digest) => base64url(new Uint8Array(digest))),
-  )
-
-/** RFC 8414 and RFC 9728's well-known URL: the suffix goes between the host and the path. */
-const wellKnown = (base: string, suffix: string) => {
-  const url = new URL(base)
-  const path = url.pathname === "/" ? "" : url.pathname.replace(/\/$/, "")
-  return `${url.origin}/.well-known/${suffix}${path}`
-}
 
 interface Cached {
   readonly token: string
@@ -192,16 +172,38 @@ type Failure =
   | { readonly _tag: "Consent"; readonly error: string }
   | { readonly _tag: "Transient"; readonly reason: string }
 
-const transient = (reason: string): Failure => ({ _tag: "Transient", reason })
+/**
+ * What the SDK's error says, by category only: an OAuth error code, the
+ * error's name, or a timeout. Its message can echo a response body, so it's
+ * never kept.
+ */
+const failureOf = (error: unknown): Failure =>
+  error instanceof InvalidGrantError || error instanceof InvalidClientError
+    ? { _tag: "Consent", error: error.errorCode }
+    : {
+        _tag: "Transient",
+        reason:
+          error === "timeout"
+            ? "timeout"
+            : error instanceof OAuthError
+              ? error.errorCode
+              : error instanceof Error
+                ? error.name
+                : "unknown",
+      }
 
 const empty: Stored = {}
 
 /** A failure's category, for the log: never its content. */
 const describe = (reason: unknown): string =>
-  typeof reason === "string"
-    ? reason
-    : typeof reason === "object" && reason !== null && "_tag" in reason
-      ? String(reason._tag)
+  typeof reason === "object" && reason !== null && "_tag" in reason
+    ? reason._tag === "Consent" && "error" in reason
+      ? String(reason.error)
+      : "reason" in reason
+        ? String(reason.reason)
+        : String(reason._tag)
+    : typeof reason === "string"
+      ? reason
       : "unknown"
 
 export const makeMcpCredential = (
@@ -239,72 +241,19 @@ export const makeMcpCredential = (
         return options.storage.save(next)
       })
 
-    /** A JSON GET or POST, answered only when it succeeds. */
-    const fetchJson = (request: HttpClientRequest.HttpClientRequest) =>
-      HttpClient.filterStatusOk(http)
-        .execute(HttpClientRequest.acceptJson(request))
-        .pipe(
-          Effect.flatMap((response) => response.json),
-          Effect.scoped,
-          Effect.timeout(REQUEST_TIMEOUT),
-        )
+    const fetchFn = fetchVia(http)
 
-    /** A form-encoded request to the token endpoint, authenticated as `client`. */
-    const tokenRequest = (client: OAuthClient, params: Record<string, string>) => {
-      const secret = client.clientSecret
-      const basic = client.authMethod === "client_secret_basic" && secret !== undefined
-      const request = HttpClientRequest.post(client.tokenUrl).pipe(
-        HttpClientRequest.acceptJson,
-        HttpClientRequest.bodyUrlParams({
-          ...params,
-          ...(basic ? {} : { client_id: client.clientId }),
-          ...(client.authMethod === "client_secret_post" && secret !== undefined
-            ? { client_secret: secret }
-            : {}),
-        }),
-      )
-      return basic
-        ? HttpClientRequest.basicAuth(
-            request,
-            encodeURIComponent(client.clientId),
-            encodeURIComponent(secret),
-          )
-        : request
-    }
-
-    /** The token endpoint's answer: tokens, or why not. */
-    const tokens = (response: HttpClientResponse.HttpClientResponse) =>
-      response.status >= 200 && response.status < 300
-        ? response.json.pipe(
-            Effect.flatMap(decodeTokenResponse),
-            Effect.mapError(() => transient("malformed")),
-          )
-        : response.json.pipe(
-            Effect.flatMap(decodeErrorResponse),
-            Effect.option,
-            Effect.flatMap((body) =>
-              Effect.fail<Failure>(
-                body._tag === "Some" && CONSENT_ERRORS.has(body.value.error)
-                  ? { _tag: "Consent", error: body.value.error }
-                  : transient(`status ${response.status}`),
-              ),
-            ),
-          )
-
-    /** Sends a token request, within the timeout. */
-    const grant = (client: OAuthClient, params: Record<string, string>) =>
-      http.execute(tokenRequest(client, params)).pipe(
-        Effect.flatMap(tokens),
-        Effect.scoped,
+    /** One SDK call over `http`, within the timeout; its failures by category. */
+    const sdk = <A>(call: (fetch: typeof fetchFn) => Promise<A>) =>
+      Effect.tryPromise({ try: () => call(fetchFn), catch: failureOf }).pipe(
         Effect.timeoutOrElse({
           duration: REQUEST_TIMEOUT,
-          orElse: () => Effect.fail(transient("timeout")),
+          orElse: () => Effect.fail(failureOf("timeout")),
         }),
-        Effect.catchTag("HttpClientError", () => Effect.fail(transient("network"))),
       )
 
     /** Keeps the access token in memory only. */
-    const cache = (granted: TokenResponse) =>
+    const cache = (granted: OAuthTokens) =>
       Effect.map(Clock.currentTimeMillis, (now) => {
         const lifetime =
           granted.expires_in === undefined
@@ -323,16 +272,20 @@ export const makeMcpCredential = (
         if (oauth === undefined || oauth.needsConsent) return yield* new McpUnavailable()
         if (oauth.refreshToken === null)
           return yield* Effect.fail<Failure>({ _tag: "Consent", error: "no_refresh_token" })
-        const granted = yield* grant(oauth.client, {
-          grant_type: "refresh_token",
-          refresh_token: oauth.refreshToken,
-          resource: options.url,
-        })
+        const refreshToken = oauth.refreshToken
+        const granted = yield* sdk((fetchFn) =>
+          refreshAuthorization(oauth.client.server, {
+            ...sdkClient(oauth.client),
+            refreshToken,
+            resource: options.url,
+            fetchFn,
+          }),
+        )
         if (granted.refresh_token !== undefined && granted.refresh_token !== oauth.refreshToken)
           yield* save({
             ...current,
             oauth: { ...oauth, refreshToken: granted.refresh_token },
-          }).pipe(Effect.mapError(() => transient("storage")))
+          }).pipe(Effect.mapError((): Failure => ({ _tag: "Transient", reason: "storage" })))
         return yield* cache(granted)
       },
     ).pipe(
@@ -419,83 +372,51 @@ export const makeMcpCredential = (
 
     const startOAuth = ({ redirectUri }: { readonly redirectUri: string }) =>
       Effect.gen(function* () {
-        // RFC 9728: the MCP server names its authorisation server. Without
+        // The MCP server names its authorisation server (RFC 9728); without
         // that metadata, its own origin is taken to be one.
-        const resource = yield* fetchJson(
-          HttpClientRequest.get(wellKnown(options.url, "oauth-protected-resource")),
-        ).pipe(
-          Effect.catch(() =>
-            fetchJson(
-              HttpClientRequest.get(
-                wellKnown(new URL(options.url).origin, "oauth-protected-resource"),
-              ),
-            ),
-          ),
-          Effect.flatMap(decodeResourceMetadata),
-          Effect.orElseSucceed(() => ResourceMetadata.make({})),
-        )
-        const issuer = resource.authorization_servers?.[0] ?? new URL(options.url).origin
-        const metadata = yield* fetchJson(
-          HttpClientRequest.get(wellKnown(issuer, "oauth-authorization-server")),
-        ).pipe(
-          Effect.catch(() =>
-            fetchJson(HttpClientRequest.get(wellKnown(issuer, "openid-configuration"))),
-          ),
-          Effect.flatMap(decodeServerMetadata),
-        )
-        if (
-          metadata.registration_endpoint === undefined ||
-          (metadata.code_challenge_methods_supported !== undefined &&
-            !metadata.code_challenge_methods_supported.includes("S256"))
-        )
-          return yield* Effect.fail("unsupported" as const)
-        const scope = resource.scopes_supported?.join(" ")
-
-        const registered = yield* fetchJson(
-          HttpClientRequest.post(metadata.registration_endpoint).pipe(
-            HttpClientRequest.bodyJsonUnsafe({
+        const info = yield* sdk((fetchFn) => discoverOAuthServerInfo(options.url, { fetchFn }))
+        const metadata = info.authorizationServerMetadata
+        const scope = info.resourceMetadata?.scopes_supported?.join(" ")
+        const information = yield* sdk((fetchFn) =>
+          registerClient(info.authorizationServerUrl, {
+            ...(metadata === undefined ? {} : { metadata }),
+            clientMetadata: {
               client_name: "janitor",
               redirect_uris: [redirectUri],
               grant_types: ["authorization_code", "refresh_token"],
               response_types: ["code"],
               token_endpoint_auth_method: "none",
-              ...(scope === undefined ? {} : { scope }),
-            }),
-          ),
-        ).pipe(Effect.flatMap(decodeRegistration))
-        const authMethod = Schema.is(AuthMethod)(registered.token_endpoint_auth_method)
-          ? registered.token_endpoint_auth_method
-          : registered.client_secret === undefined
-            ? "none"
-            : "client_secret_post"
+            },
+            ...(scope === undefined ? {} : { scope }),
+            fetchFn,
+          }),
+        )
         const client: OAuthClient = {
-          clientId: registered.client_id,
-          ...(registered.client_secret === undefined
-            ? {}
-            : { clientSecret: registered.client_secret }),
-          authMethod,
-          tokenUrl: metadata.token_endpoint,
+          server: info.authorizationServerUrl,
+          ...(metadata === undefined ? {} : { metadata: { ...metadata } }),
+          information: { ...information },
         }
-
-        const verifier = randomToken()
-        const state = randomToken()
+        const state = randomState()
+        const { authorizationUrl, codeVerifier } = yield* sdk(() =>
+          startAuthorization(client.server, {
+            ...sdkClient(client),
+            redirectUrl: redirectUri,
+            state,
+            resource: options.url,
+            ...(scope === undefined ? {} : { scope }),
+          }),
+        )
         const startedAt = yield* Clock.currentTimeMillis
         const current = yield* load
-        yield* save({ ...current, pending: { state, verifier, redirectUri, startedAt, client } })
-
-        const url = new URL(metadata.authorization_endpoint)
-        url.searchParams.set("response_type", "code")
-        url.searchParams.set("client_id", client.clientId)
-        url.searchParams.set("redirect_uri", redirectUri)
-        url.searchParams.set("code_challenge", yield* challengeFor(verifier))
-        url.searchParams.set("code_challenge_method", "S256")
-        url.searchParams.set("state", state)
-        url.searchParams.set("resource", options.url)
-        if (scope !== undefined) url.searchParams.set("scope", scope)
-        return url.href
+        yield* save({
+          ...current,
+          pending: { state, verifier: codeVerifier, redirectUri, startedAt, client },
+        })
+        return authorizationUrl.href
       }).pipe(
-        Effect.catch(() =>
+        Effect.catch((reason) =>
           Effect.logWarning("Couldn't start an MCP server's Connect").pipe(
+            Effect.annotateLogs({ reason: describe(reason) }),
             Effect.andThen(Effect.fail(new McpOAuthUnavailable())),
           ),
         ),
@@ -521,13 +442,16 @@ export const makeMcpCredential = (
         // Used up before the exchange, so a replayed callback can't try twice.
         const { pending: _, ...rest } = current
         yield* save(rest)
-        const granted = yield* grant(pending.client, {
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: pending.redirectUri,
-          code_verifier: pending.verifier,
-          resource: options.url,
-        })
+        const granted = yield* sdk((fetchFn) =>
+          exchangeAuthorization(pending.client.server, {
+            ...sdkClient(pending.client),
+            authorizationCode: code,
+            codeVerifier: pending.verifier,
+            redirectUri: pending.redirectUri,
+            resource: options.url,
+            fetchFn,
+          }),
+        )
         yield* save({
           oauth: {
             client: pending.client,

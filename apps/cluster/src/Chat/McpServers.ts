@@ -3,16 +3,11 @@ import type { McpServerConfig } from "@janitor/domain/Chat/McpServer"
 import * as McpServersLayer from "clanka/McpServers"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
 import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import { type McpCredential, McpCredentials } from "./McpCredential.ts"
+import { McpCredentials } from "./McpCredential.ts"
+import { fetchVia } from "./McpFetch.ts"
 import { McpServerStore } from "./McpServerStore.ts"
 import type { ChatThread } from "./Platform.ts"
 import { decode, SlackApi } from "./Slack/Api.ts"
@@ -41,66 +36,6 @@ const ChannelInfo = Schema.Struct({
     is_pending_ext_shared: Schema.Boolean,
   }),
 })
-
-/** Thrown by `fetchVia` when there's no token: the MCP request fails, unsent. */
-const UNAVAILABLE = "The MCP server's credential is unavailable"
-
-/**
- * A `fetch` over `http`, for the MCP SDK's transport, that sends each
- * request with `credential`'s current token, if the server has one. Each
- * response lives until the transport aborts the request's signal, which it
- * does on close, so an open event stream ends with the turn.
- *
- * A 401 reports the token rejected, so the next request gets a new one, and
- * is handed back as it is: the request is never sent again, so no write
- * reaches the server twice. The SDK fails that request, and a `tools/call`
- * becomes a tool error the model sees.
- */
-const fetchVia =
-  (http: HttpClient.HttpClient, credential: McpCredential | undefined): typeof globalThis.fetch =>
-  (input, init) => {
-    const request = new Request(input, init)
-    const scope = Scope.makeUnsafe()
-    const release = () => Effect.runFork(Scope.close(scope, Exit.void))
-    if (request.signal.aborted) release()
-    else request.signal.addEventListener("abort", release, { once: true })
-    return Effect.runPromise(
-      Effect.gen(function* () {
-        const token =
-          credential === undefined
-            ? undefined
-            : yield* credential
-                .token()
-                .pipe(Effect.catchTag("McpUnavailable", () => Effect.die(new Error(UNAVAILABLE))))
-        const body =
-          request.body === null ? undefined : yield* Effect.tryPromise(() => request.text())
-        const outgoing = HttpClientRequest.make(request.method as "GET")(request.url, {
-          headers: request.headers,
-        }).pipe(
-          token === undefined ? (self) => self : HttpClientRequest.bearerToken(token),
-          body === undefined
-            ? (self) => self
-            : HttpClientRequest.bodyText(body, request.headers.get("content-type") ?? undefined),
-        )
-        const response = yield* HttpClient.withScope(http)
-          .execute(outgoing)
-          .pipe(Scope.provide(scope))
-        if (response.status === 401 && credential !== undefined && token !== undefined)
-          yield* Effect.ignore(credential.token(token))
-        return Option.getOrElse(
-          HttpClientResponse.toWeb(response),
-          () =>
-            new Response(
-              response.status === 204 || response.status === 304
-                ? null
-                : Stream.toReadableStream(response.stream),
-              { status: response.status, headers: response.headers as Record<string, string> },
-            ),
-        )
-      }),
-      { signal: request.signal },
-    )
-  }
 
 export class ChatMcpServers extends Context.Service<
   ChatMcpServers,
