@@ -15,6 +15,7 @@ import {
 import { AccountGroupLayer } from "./Account.ts"
 import { ChatGroupLayer } from "./Chat.ts"
 import { LabelingGroupLayer } from "./Labeling.ts"
+import { McpServersGroupLayer } from "./McpServers.ts"
 import { ConnectionsGroupLayer } from "./Connections.ts"
 import { SyncGroupLayer } from "./Sync.ts"
 import { ReadinessRoutesLayer } from "./Readiness.ts"
@@ -47,6 +48,7 @@ const makeHttpApiLayer = (middleware: AccessMiddlewareOptions) =>
         TestBenchGroupLayer,
         LabelingGroupLayer,
         ChatGroupLayer,
+        McpServersGroupLayer,
       ),
     ),
     Layer.provide(makeApiMiddlewareLayer(middleware)),

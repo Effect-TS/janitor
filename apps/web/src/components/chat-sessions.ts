@@ -10,6 +10,7 @@ import {
 } from "@janitor/domain/Chat/Session"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Command from "foldkit/command"
@@ -17,10 +18,11 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
-import type * as Update from "foldkit/update"
+import * as Update from "foldkit/update"
 import { RotateCw } from "lucide"
 import { timestamp } from "./pull-request-reviews"
 import * as Button from "./ui/button"
+import * as McpServers from "./mcp-servers"
 import { chip, type ChipVariant } from "./ui/chip"
 import * as Page from "./ui/page"
 import * as Switch from "./ui/switch"
@@ -33,7 +35,7 @@ import * as Routes from "@/routes"
  * The chat sessions page (EFF-3021): every chat session still kept, latest
  * activity first, each linking to its transcript, and the chat bot's kill
  * switch. Deployment-wide, like Account. Anyone signed in may use the kill
- * switch.
+ * switch. Next to it, the MCP servers panel (EFF-3443), its own component.
  */
 
 export const Model = Schema.Struct({
@@ -50,6 +52,7 @@ export const Model = Schema.Struct({
   killSwitchError: Schema.NullOr(Schema.String),
   /** Fences responses from an earlier activation. */
   generation: Schema.Int,
+  mcpServers: McpServers.Model,
 })
 export type Model = typeof Model.Type
 
@@ -65,8 +68,15 @@ export const Message = defineMessageUnion({
   FailedSaveKillSwitch: { reason: Schema.String },
   /** `on` engages the kill switch: the bot stops there. */
   ToggledKillSwitch: { key: KillSwitchKey, on: Schema.Boolean },
+  GotMcpServersMessage: { message: McpServers.Message },
 })
 export type Message = typeof Message.Type
+
+export const OutMessage = defineMessageUnion({
+  /** Send the browser to an MCP server's authorisation page. */
+  OpenAuthorization: { url: Schema.String },
+})
+export type OutMessage = typeof OutMessage.Type
 
 export const init = (): Model => ({
   active: false,
@@ -79,6 +89,7 @@ export const init = (): Model => ({
   killSwitchRevision: 0,
   killSwitchError: null,
   generation: 0,
+  mcpServers: McpServers.init(),
 })
 
 /** How often the open page reads the sessions again: chat has no live updates. */
@@ -127,7 +138,7 @@ export const SetKillSwitch = Command.define("SetChatKillSwitch", {
     ),
 })
 
-type Return = Update.Return<Model, Message, ApiClient>
+type Return = Update.ReturnWithOutMessage<Model, Message, OutMessage, ApiClient>
 
 const fetch = (model: Model): Return =>
   !model.active || model.loading
@@ -149,17 +160,37 @@ const withKillSwitchRead = (step: Return): Return =>
         ],
       }
 
+const foldMcpServers = Update.foldChild({
+  update: McpServers.update,
+  read: (model: Model) => Option.some(model.mcpServers),
+  write: (model, mcpServers) => ({ ...model, mcpServers }),
+  toParentMessage: (message) => Message.GotMcpServersMessage({ message }),
+  toParentOutMessage: (outMessage) =>
+    McpServers.OutMessage.match<OutMessage | undefined>(outMessage, {
+      OpenAuthorization: ({ url }) => OutMessage.OpenAuthorization({ url }),
+    }),
+})
+
+/** Hands the MCP servers panel the page's own message too, after the page's step. */
+const withMcpServers = (step: Return, message: McpServers.Message): Return => {
+  const panel = foldMcpServers(step.model, message)
+  return { ...panel, commands: [...(step.commands ?? []), ...(panel.commands ?? [])] }
+}
+
 export const update = (model: Model, message: Message): Return =>
   Message.match(message, {
     Activated: ({ active }) => {
       if (model.active === active) return { model }
       // Fence responses when leaving and refresh on return.
       const fenced = { ...model, active, loading: false, generation: model.generation + 1 }
-      if (!active) return { model: fenced }
-      return withKillSwitchRead(fetch(fenced))
+      return withMcpServers(
+        active ? withKillSwitchRead(fetch(fenced)) : { model: fenced },
+        McpServers.Message.Activated({ active }),
+      )
     },
     Polled: () => fetch(model),
-    ClickedRefresh: () => withKillSwitchRead(fetch(model)),
+    ClickedRefresh: () =>
+      withMcpServers(withKillSwitchRead(fetch(model)), McpServers.Message.ClickedRefresh()),
     Loaded: ({ generation, list }) =>
       generation !== model.generation || !model.active
         ? { model }
@@ -202,6 +233,7 @@ export const update = (model: Model, message: Message): Return =>
             },
             commands: [SetKillSwitch({ change: { switch: key, on } })],
           },
+    GotMcpServersMessage: ({ message }) => foldMcpServers(model, message),
   })
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
@@ -432,6 +464,14 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
         ],
       ),
     ],
-    inspector: [Page.inspectorCard(h, { heading: "Kill switch", children: killSwitch(h, model) })],
+    inspector: [
+      Page.inspectorCard(h, { heading: "Kill switch", children: killSwitch(h, model) }),
+      h.submodel({
+        slotId: "chat-mcp-servers",
+        model: model.mcpServers,
+        view: McpServers.view,
+        toParentMessage: (message) => Message.GotMcpServersMessage({ message }),
+      }),
+    ],
   }),
 )

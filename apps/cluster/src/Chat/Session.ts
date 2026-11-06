@@ -38,6 +38,7 @@ import {
 } from "@janitor/domain/Chat/Session"
 import type { HistoryChange } from "../AgentLoop.ts"
 import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agent.ts"
+import { ChatMcpServers } from "./McpServers.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
@@ -329,6 +330,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const index = yield* ChatSessionIndex
     const agent = yield* ChatAgent
     const gate = yield* ReplyGate
+    /** The MCP servers configured on the dashboard (EFF-3443). */
+    const mcpServers = yield* Effect.serviceOption(ChatMcpServers)
     const self = (yield* ChatSession.client)(entityId)
     const entityScope = yield* Scope.Scope
     const cluster = yield* Effect.context<Entity.CurrentAddress | Sharding.Sharding>()
@@ -343,6 +346,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const indexing = yield* Semaphore.make(1)
 
     let current: Running | undefined
+    /**
+     * Set once the thread's channel was found to hold no one from outside
+     * the workspace. A no, a failed lookup included, is asked again next turn.
+     */
+    let internal = false
     let keptAlive = false
     /** Set once the session's tables are dropped; `Receive` makes them again. */
     let dropped = !(yield* storage.exists.pipe(Effect.orDie))
@@ -834,6 +842,17 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         // This sandbox's attached files; a resume in a new sandbox starts without them.
         const replyFiles = makeReplyFiles(sandbox)
         const base = { actions: turn.actions, usage: turn.usage }
+        const mcp = Option.isNone(mcpServers)
+          ? undefined
+          : yield* mcpServers.value.forTurn(
+              internal
+                ? Effect.succeed(true)
+                : Effect.tap(mcpServers.value.internal(running.thread), (yes) =>
+                    Effect.sync(() => {
+                      internal = yes
+                    }),
+                  ),
+            )
         const loop = yield* agent.start({
           instructions: systemPrompt({
             audience: running.thread._tag === "Slack" ? "slack" : "discord",
@@ -846,6 +865,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           images: prepared.images,
           onStep: (change) => commitStep(running, change),
           attachFile: replyFiles.attachFile,
+          mcp,
           onProgress: (progress) =>
             Effect.gen(function* () {
               const actions = base.actions + progress.actions

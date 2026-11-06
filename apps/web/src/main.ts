@@ -375,11 +375,19 @@ const foldAccount = Update.foldChild({
   foldOutMessage: foldAccountOutMessage,
 })
 
+const foldChatSessionsOutMessage =
+  (outMessage: ChatSessions.OutMessage): Update.Step<Model, Message, AppServices> =>
+  (model) =>
+    ChatSessions.OutMessage.match(outMessage, {
+      OpenAuthorization: ({ url }) => requestNavigation(model, url, false, false, true),
+    })
+
 const foldChatSessions = Update.foldChild({
   update: ChatSessions.update,
   read: (model: Model) => Option.some(model.chatSessions),
   write: (model, next) => modifyFields(model, { chatSessions: () => next }),
   toParentMessage: (message) => Message.GotChatSessionsMessage({ message }),
+  foldOutMessage: foldChatSessionsOutMessage,
 })
 
 const foldChatTranscriptOutMessage =

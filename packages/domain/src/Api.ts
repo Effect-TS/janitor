@@ -3,6 +3,7 @@ import { AccountGroup } from "./Api/Account.ts"
 import { ChatGroup } from "./Api/Chat.ts"
 import { ConnectionsGroup } from "./Api/Connections.ts"
 import { LabelingGroup } from "./Api/Labeling.ts"
+import { McpServersGroup } from "./Api/McpServers.ts"
 import { PoliciesGroup } from "./Api/Policies.ts"
 import { PullRequestReviewGroup } from "./Api/PullRequestReview.ts"
 import { RulesGroup } from "./Api/Rules.ts"
@@ -23,4 +24,5 @@ export class JanitorApi extends HttpApi.make("janitor")
   .add(TestBenchGroup)
   .add(LabelingGroup)
   .add(ChatGroup)
+  .add(McpServersGroup)
   .prefix("/api/v1") {}

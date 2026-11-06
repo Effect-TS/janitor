@@ -1,6 +1,7 @@
 import * as Agent from "clanka/Agent"
 import type * as AgentExecutor from "clanka/AgentExecutor"
 import type * as AgentOutput from "clanka/AgentOutput"
+import type * as McpServers from "clanka/McpServers"
 import type * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
 import * as Model from "effect/ai/Model"
@@ -79,6 +80,8 @@ export interface ChatTurnStart {
   readonly onProgress: (progress: ChatProgress) => Effect.Effect<void>
   /** The `attachFile` tool: succeeds or fails with what the model is told. */
   readonly attachFile: (input: typeof AttachFileParameters.Type) => Effect.Effect<string, string>
+  /** MCP servers the loop and its sub-agents get, connected for the loop's lifetime. */
+  readonly mcp?: Layer.Layer<McpServers.McpServers> | undefined
 }
 
 /** An attached image the model sees with the prompt. */
@@ -239,7 +242,11 @@ const make = Effect.gen(function* () {
         }).pipe(
           Effect.scoped,
           Effect.provide(
-            Layer.merge(options.executor, ChatTools.toLayer({ attachFile: options.attachFile })),
+            Layer.mergeAll(
+              options.executor,
+              ChatTools.toLayer({ attachFile: options.attachFile }),
+              options.mcp ?? Layer.empty,
+            ),
           ),
           Effect.provideContext(model),
           Option.isSome(subagentModel)

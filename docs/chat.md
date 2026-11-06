@@ -211,6 +211,59 @@ The bot hears every channel it can view. Restrict it with channel permissions: r
 
 The gateway is an outbound socket, so the development app needs no tunnel. A local `alchemy dev` run with the three settings from Infisical's development environment connects within a minute, on the cron's first tick. Only one process should hold the development app's gateway at a time: two would each get every message.
 
+## MCP servers
+
+### What it does
+
+Turns can use MCP servers configured on the dashboard, in the **MCP servers** panel of the chat sessions page (EFF-3443). Every tool of each enabled server is offered, as `mcp.<name>.<tool>`, to the turn and its sub-agents. Anyone Cloudflare Access lets into janitor can add, change, connect and delete servers, the same people who can use the kill switch.
+
+- A **private** server, the default, is offered only in Slack channels of our workspace that hold no one from outside it. Before a session's first turn that has a private server to offer, the session asks Slack's `conversations.info` about the thread's channel. It allows the channel only when `is_shared`, `is_ext_shared`, `is_org_shared` and `is_pending_ext_shared` are all present and false, and the name doesn't start with `effectful-x-`. Public and private channels both qualify.
+- Discord never gets private servers. Neither does a channel whose lookup fails, a rate limit included: the turn goes on with only the other servers, and the next turn asks again. A yes is kept for the session.
+- A server that isn't private is offered in every thread, Discord and Slack Connect channels included.
+- The list is read from Postgres at the start of each turn. If that read fails, the turn gets no servers, so a private server is never offered unchecked. Changes on the dashboard apply from the next turn; a running turn keeps the servers it started with.
+- The connections run in the Worker and are opened for each turn. Each request fetches its token from the server's credential and adds it there, so the sandbox, the model's prompts, tool results and logs never see it. A server whose credential has no token for the turn doesn't connect, and the turn goes on without it.
+- A 401 from a server marks its token as rejected, so the next request gets a new one. The request that got the 401 is never sent again, so a write can't reach the server twice; the model sees that tool call fail.
+
+### Authentication and credentials
+
+Each server has one of three kinds of authentication, fixed when it's added:
+
+- `none`: requests carry no credential.
+- `bearer`: a token entered on the dashboard, sent as `Authorization: Bearer`. It can be replaced but never read back.
+- `oauth`: **Connect** on the dashboard discovers the server's authorisation server from its OAuth metadata, registers a client for janitor, and sends the browser to consent with PKCE (S256). The authorisation server sends the browser back to `/api/v1/chat/mcp-servers/<id>/oauth/callback`, which exchanges the code within 10 minutes of the start, once. Connect needs `PUBLIC_ORIGIN`, which every deployment sets.
+
+Bearer tokens and OAuth state live only in the server's own Durable Object (`McpCredential`, one per server, named by its id), never in Postgres, Infisical, API responses or logs. The object refreshes OAuth access tokens one at a time, across every session, and stores a rotated refresh token before it hands out the new access token. After a failed refresh it waits 30 seconds before trying again. If the authorisation server answers `invalid_grant` or `invalid_client`, the server shows **Needs consent** until someone runs Connect again.
+
+An access token is reused while more than five minutes of it are left. With hour-long tokens that's one refresh every 55 minutes. A token that lives five minutes or less, or an answer without `expires_in`, which is taken to mean five minutes, is refreshed for every MCP request: one token request, and one refresh token rotation, per request. If a provider issues tokens that short, the window should scale with the token's lifetime instead.
+
+If the authorisation server rotates the refresh token and its answer is lost (a timeout, or the object restarting before the write), the next refresh gets `invalid_grant` and the server needs Connect again.
+
+### Attio
+
+Attio's hosted server is the first one to add:
+
+1. Add a server named `attio`, URL `https://mcp.attio.com/mcp`, authentication `oauth`, with Private on.
+2. Click **Connect** while signed in to Attio as the member the bot should act as, such as `tech-ops@effectful.co`. Every Attio call then has that member's permissions, and Attio's audit log shows that member.
+3. In a development deployment, ask the bot for Attio's `whoami` in a test channel. That read is the smoke test: no CRM writes.
+4. In production, try it in one private core-team channel before relying on it elsewhere.
+
+The existing Attio Slack bot is separate and unchanged.
+
+### Revocation
+
+- To stop a server, switch it off on the dashboard, or delete it, which also wipes its credential. The kill switch stops every turn without either.
+- To revoke an OAuth grant at the provider, end the member's session there. For Attio, that's the member's account settings, or `https://app.attio.com/oidc/revoke`. To revoke a bearer token, revoke it at the provider and clear or delete the server.
+
+### Limits
+
+- Every tool is offered, writes and deletes included, with no confirmation of janitor's own. Confirmations a server asks for through its MCP client go unanswered.
+- A turn with MCP servers keeps GitHub, Multica and internet access. Nothing stops their data from leaving through them.
+- Tool results are in the session's transcript, which everyone with Access can read.
+- The channel is checked once per session, so a sharing change goes unnoticed for that session.
+- The sharing flags say nothing about guests: a guest in an internal channel can read the bot's replies there.
+- A server that isn't private is reachable from public Discord channels.
+- Anyone with Access can add a server that every thread can use.
+
 ## Chat sessions page
 
 **Chat sessions**, in the sidebar, lists every session janitor still keeps, latest activity first: the platform, the channel, a link to the thread, who started it, its turn count, the latest turn's status, its last activity and its total tokens. Anyone Cloudflare Access lets into janitor can read every session, private channels and private repositories included.

@@ -31,6 +31,8 @@ import { RuleTestJobs } from "../../src/Labeling/RuleTestJob.ts"
 import { LabelingTest } from "../../src/Labeling/Test.ts"
 import { RunTranscripts } from "../../src/PullRequestReview/RunEntity.ts"
 import { ChatKillSwitchStore } from "../../src/Chat/KillSwitch.ts"
+import { McpCredentials } from "../../src/Chat/McpCredential.ts"
+import { McpServerStore } from "../../src/Chat/McpServerStore.ts"
 import { ChatSessionControl } from "../../src/Chat/Session.ts"
 import { ChatSessionIndex } from "../../src/Chat/SessionIndex.ts"
 import { RepositoryDisabler } from "../../src/PullRequestReview/Scheduler.ts"
@@ -141,6 +143,8 @@ const requestContext = Context.merge(
   Context.make(ChatKillSwitchStore, unused(ChatKillSwitchStore)).pipe(
     Context.add(ChatSessionControl, unused(ChatSessionControl)),
     Context.add(ChatSessionIndex, unused(ChatSessionIndex)),
+    Context.add(McpServerStore, unused(McpServerStore)),
+    Context.add(McpCredentials, unused(McpCredentials)),
   ),
 )
 

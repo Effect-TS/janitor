@@ -1,8 +1,7 @@
 diff --git a/lib/Containers/ContainerProvider.js b/lib/Containers/ContainerProvider.js
-index 4c610bb..752c583 100644
 --- a/lib/Containers/ContainerProvider.js
 +++ b/lib/Containers/ContainerProvider.js
-@@ -6,7 +6,7 @@ import * as Containers from "@distilled.cloud/cloudflare/containers";
+@@ -6,7 +6,7 @@
  import { Unowned, Unresolved, UnresolvedIdentity } from "alchemy/AdoptPolicy";
  import { AlchemyContext } from "alchemy/AlchemyContext";
  import { getStableContextDir } from "alchemy/Bundle/TempRoot";
@@ -11,7 +10,7 @@ index 4c610bb..752c583 100644
  import * as Provider from "alchemy/Provider";
  import {} from "alchemy/Resource";
  import { sha256Object } from "alchemy/Util/sha256";
-@@ -865,7 +865,12 @@ export const LiveContainerProvider = () => Provider.effect(ContainerPlatform, Ef
+@@ -883,7 +883,12 @@
      };
      return ContainerPlatform.Provider.of({
          stables: ["accountId", "applicationId"],
@@ -25,7 +24,7 @@ index 4c610bb..752c583 100644
              if (!isResolved(news))
                  return;
              yield* validateContainerConfiguration(news, output?.schedulingPolicy);
-@@ -1334,4 +1339,4 @@ const toAttributes = (application) => {
+@@ -1352,4 +1357,4 @@
          dev: undefined,
      };
  };
@@ -33,7 +32,6 @@ index 4c610bb..752c583 100644
 \ No newline at end of file
 +//# sourceMappingURL=ContainerProvider.js.map
 diff --git a/lib/Containers/ContainerPublication.js b/lib/Containers/ContainerPublication.js
-index ee528bd3c15e598d03c467bfd8b0bf905fa7a2b4..cecaaf3300946abf67c8a3dfbca5a62b95f0e681 100644
 --- a/lib/Containers/ContainerPublication.js
 +++ b/lib/Containers/ContainerPublication.js
 @@ -1,10 +1,14 @@
@@ -57,10 +55,9 @@ index ee528bd3c15e598d03c467bfd8b0bf905fa7a2b4..cecaaf3300946abf67c8a3dfbca5a62b
  /**
   * Publishes an image build with a deadline per attempt. A stalled BuildKit
 diff --git a/lib/Workers/Sources/Rolldown.js b/lib/Workers/Sources/Rolldown.js
-index d05bcee55db9274620a542609dfb5ca4954d8051..8248f446d3a1edb7ed50e1ea67e0cae669ada2d7 100644
 --- a/lib/Workers/Sources/Rolldown.js
 +++ b/lib/Workers/Sources/Rolldown.js
-@@ -277,6 +277,8 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+@@ -296,6 +296,8 @@
      const doClasses = [];
      const wfClasses = [];
      const migrations = {};
@@ -69,7 +66,7 @@ index d05bcee55db9274620a542609dfb5ca4954d8051..8248f446d3a1edb7ed50e1ea67e0cae6
      for (const [className, entry] of Object.entries(exports)) {
          if (isDurableObjectExport(entry)) {
              doClasses.push(className);
-@@ -287,6 +289,9 @@ export const makeEffectVirtualEntry = (exports, stack) => {
+@@ -306,6 +308,9 @@
          else if (entry.kind === "sqlMigrations") {
              migrations[className] = entry.snapshot;
          }
@@ -79,7 +76,7 @@ index d05bcee55db9274620a542609dfb5ca4954d8051..8248f446d3a1edb7ed50e1ea67e0cae6
      }
      const hasMigrations = Object.keys(migrations).length > 0;
      const hasDoClasses = doClasses.length > 0;
-@@ -310,6 +315,8 @@ const meta = {
+@@ -329,6 +334,8 @@
  
  export default makeWorkerBridge(WorkerEntrypoint, meta);
  
@@ -89,10 +86,9 @@ index d05bcee55db9274620a542609dfb5ca4954d8051..8248f446d3a1edb7ed50e1ea67e0cae6
  ${[
          ...(hasDoClasses
 diff --git a/src/Containers/ContainerProvider.ts b/src/Containers/ContainerProvider.ts
-index 0bdeeec..12931b2 100644
 --- a/src/Containers/ContainerProvider.ts
 +++ b/src/Containers/ContainerProvider.ts
-@@ -6,7 +6,7 @@ import * as Containers from "@distilled.cloud/cloudflare/containers";
+@@ -6,7 +6,7 @@
  import { Unowned, Unresolved, UnresolvedIdentity } from "alchemy/AdoptPolicy";
  import { AlchemyContext } from "alchemy/AlchemyContext";
  import { getStableContextDir } from "alchemy/Bundle/TempRoot";
@@ -101,7 +97,7 @@ index 0bdeeec..12931b2 100644
  import * as Provider from "alchemy/Provider";
  import type { ScopedPlanStatusSession } from "alchemy/Report";
  import { type ResourceBinding } from "alchemy/Resource";
-@@ -1266,7 +1266,19 @@ export const LiveContainerProvider = () =>
+@@ -1306,7 +1306,19 @@
  
        return ContainerPlatform.Provider.of({
          stables: ["accountId", "applicationId"],
@@ -123,10 +119,9 @@ index 0bdeeec..12931b2 100644
            yield* validateContainerConfiguration(news, output?.schedulingPolicy);
            if (!isResolved(newBindings)) return;
 diff --git a/src/Containers/ContainerPublication.ts b/src/Containers/ContainerPublication.ts
-index b8fe861b516976252b27f843da01fcbfac58e4ec..04d8f1e598ed150e79f1285767eb05b9a87f97be 100644
 --- a/src/Containers/ContainerPublication.ts
 +++ b/src/Containers/ContainerPublication.ts
-@@ -10,12 +10,16 @@ export const retryContainerPublication = <
+@@ -10,12 +10,16 @@
  >(
    publication: Effect.Effect<A, E, R>,
  ) =>
@@ -150,10 +145,9 @@ index b8fe861b516976252b27f843da01fcbfac58e4ec..04d8f1e598ed150e79f1285767eb05b9
  
  /**
 diff --git a/src/Workers/Sources/Rolldown.ts b/src/Workers/Sources/Rolldown.ts
-index 143147795e8a1f49cb1d5bcf90bd7047f7907ebc..bd18899f71ca9d4fe2d59d429d0a360502ef262b 100644
 --- a/src/Workers/Sources/Rolldown.ts
 +++ b/src/Workers/Sources/Rolldown.ts
-@@ -392,6 +392,8 @@ export const makeEffectVirtualEntry = (
+@@ -416,6 +416,8 @@
    const doClasses: string[] = [];
    const wfClasses: string[] = [];
    const migrations: Record<string, SqlMigrationSnapshot> = {};
@@ -162,7 +156,7 @@ index 143147795e8a1f49cb1d5bcf90bd7047f7907ebc..bd18899f71ca9d4fe2d59d429d0a3605
    for (const [className, entry] of Object.entries(exports)) {
      if (isDurableObjectExport(entry)) {
        doClasses.push(className);
-@@ -399,6 +401,14 @@ export const makeEffectVirtualEntry = (
+@@ -423,6 +425,14 @@
        wfClasses.push(className);
      } else if (entry.kind === "sqlMigrations") {
        migrations[className] = entry.snapshot;
@@ -177,7 +171,7 @@ index 143147795e8a1f49cb1d5bcf90bd7047f7907ebc..bd18899f71ca9d4fe2d59d429d0a3605
      }
    }
    const hasMigrations = Object.keys(migrations).length > 0;
-@@ -423,6 +433,8 @@ const meta = {
+@@ -447,6 +457,8 @@
  
  export default makeWorkerBridge(WorkerEntrypoint, meta);
  

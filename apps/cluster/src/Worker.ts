@@ -138,6 +138,10 @@ import {
 import { ReplyGate } from "./Chat/Gate.ts"
 import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
 import { ChatPlatform } from "./Chat/Platform.ts"
+import { mcpCredentialsFrom } from "./Chat/McpCredentialClient.ts"
+import { McpCredentialLive, McpCredentialObject } from "./Chat/McpCredentialObject.ts"
+import { ChatMcpServers } from "./Chat/McpServers.ts"
+import { McpServerStore } from "./Chat/McpServerStore.ts"
 import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
 import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
 import { restLayer as discordRestLayer } from "./Chat/Discord/Api.ts"
@@ -366,6 +370,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       ),
     )
     const chatPools = yield* ChatSandboxPool.pipe(Effect.provide(ChatSandboxPoolLive))
+    // Each dashboard MCP server's credential: one object per server, named by
+    // its id. Declared even while the bot is off, so its storage survives that.
+    const mcpCredentialObjects = yield* McpCredentialObject.pipe(
+      Effect.provide(McpCredentialLive.pipe(Layer.provide(FetchHttpClient.layer))),
+    )
     // The PR review model's way onto the tailnet, when PR_REVIEW_AI_VIA_TAILNET is on.
     yield* TailnetEgress.pipe(Effect.provide(TailnetEgressLive))
     const GitHubTransportLayer = GitHubTransport.layer.pipe(
@@ -423,6 +432,15 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
             }),
           ),
           Layer.provide(ChatKillSwitch.stored),
+          // Private servers need Slack, for the channel check; without it
+          // only the other servers are offered.
+          Layer.provide(
+            Option.match(slack, {
+              onNone: () => ChatMcpServers.layerWithoutSlack,
+              onSome: (config) =>
+                ChatMcpServers.layer.pipe(Layer.provide(SlackConfig.layerFrom(config))),
+            }).pipe(Layer.provide(FetchHttpClient.layer)),
+          ),
         )
       : Layer.empty
     const ClusterLayer = Layer.mergeAll(
@@ -480,6 +498,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           PullRequestReviewStore.layer,
           ChatSessionIndex.layer,
           ChatKillSwitchStore.layer,
+          McpServerStore.layer,
+          mcpCredentialsFrom(mcpCredentialObjects),
         ),
       ),
       Layer.provideMerge(Policies.layer),
