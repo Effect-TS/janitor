@@ -70,6 +70,10 @@ export class FakeAuthorizationServer {
    * `http:`, so a request sent to one shows in `seen`.
    */
   endpoints: Endpoints = {}
+  /** While set, the token endpoint answers 307 with this `Location`. */
+  tokenRedirect: string | undefined
+  /** Awaited before the token endpoint answers a code grant, so a test can hold the exchange. */
+  beforeExchange: Effect.Effect<void> = Effect.void
   private issued = 0
   private readonly clients = new Map<string, ReadonlyArray<string>>()
   private readonly grants = new Map<string, Grant>()
@@ -165,81 +169,97 @@ export class FakeAuthorizationServer {
     )
   }
 
+  /** Every request to the MCP server's host and the authorisation server's. */
+  private answer(web: Request): Effect.Effect<Response, "network"> {
+    return Effect.gen({ self: this }, function* () {
+      const body = yield* Effect.promise(() => web.text())
+      const url = new URL(web.url)
+      this.seen.push(`${web.method} ${url.href}`)
+      const resource = new URL(this.resource)
+      const respond = Effect.succeed<Response>
+
+      if (
+        url.origin === resource.origin &&
+        url.pathname.startsWith("/.well-known/oauth-protected-resource")
+      )
+        return yield* respond(
+          Response.json({ resource: this.resource, authorization_servers: [ISSUER] }),
+        )
+      if (url.host !== new URL(ISSUER).host)
+        return yield* respond(new Response(null, { status: 404 }))
+      if (
+        url.pathname.startsWith("/.well-known/oauth-authorization-server") ||
+        url.pathname.startsWith("/.well-known/openid-configuration")
+      )
+        return yield* respond(
+          Response.json({
+            issuer: ISSUER,
+            authorization_endpoint: AUTHORIZE_URL,
+            token_endpoint: TOKEN_URL,
+            registration_endpoint: `${ISSUER}/register`,
+            ...this.endpoints,
+            response_types_supported: ["code"],
+            grant_types_supported: ["authorization_code", "refresh_token"],
+            code_challenge_methods_supported: ["S256"],
+            token_endpoint_auth_methods_supported: [
+              "none",
+              "client_secret_post",
+              "client_secret_basic",
+            ],
+          }),
+        )
+      if (url.pathname === "/register" && web.method === "POST")
+        return yield* respond(this.register(decodeRegistration(body)))
+      if (url.pathname !== new URL(TOKEN_URL).pathname)
+        return yield* respond(new Response(null, { status: 404 }))
+      if (this.tokenRedirect !== undefined && url.href === TOKEN_URL)
+        return yield* respond(
+          new Response(null, { status: 307, headers: { location: this.tokenRedirect } }),
+        )
+
+      const params = Object.fromEntries(new URLSearchParams(body))
+      const basic = web.headers.get("authorization")?.match(/^Basic (.+)$/)?.[1]
+      if (basic !== undefined) {
+        const [id, secret] = atob(basic).split(":").map(decodeURIComponent)
+        if (id !== undefined) params.client_id = id
+        if (secret !== undefined) params.client_secret = secret
+      }
+      this.tokenRequests.push({
+        url: web.url,
+        method: web.method,
+        contentType: web.headers.get("content-type"),
+        params,
+      })
+      if (params.grant_type !== "authorization_code") return yield* this.answerRefresh(params)
+      yield* this.beforeExchange
+      return yield* this.exchange(params)
+    })
+  }
+
+  /** The server behind an `HttpClient`. */
   get layer() {
     return Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
-        Effect.gen({ self: this }, function* () {
-          const web = yield* Effect.orDie(HttpClientRequest.toWeb(request))
-          const body = yield* Effect.promise(() => web.text())
-          const url = new URL(web.url)
-          this.seen.push(`${web.method} ${url.href}`)
-          const resource = new URL(this.resource)
-          const respond = (response: Response) =>
-            Effect.succeed(HttpClientResponse.fromWeb(request, response))
-
-          if (
-            url.origin === resource.origin &&
-            url.pathname.startsWith("/.well-known/oauth-protected-resource")
-          )
-            return yield* respond(
-              Response.json({ resource: this.resource, authorization_servers: [ISSUER] }),
-            )
-          if (url.host !== new URL(ISSUER).host)
-            return yield* respond(new Response(null, { status: 404 }))
-          if (
-            url.pathname.startsWith("/.well-known/oauth-authorization-server") ||
-            url.pathname.startsWith("/.well-known/openid-configuration")
-          )
-            return yield* respond(
-              Response.json({
-                issuer: ISSUER,
-                authorization_endpoint: AUTHORIZE_URL,
-                token_endpoint: TOKEN_URL,
-                registration_endpoint: `${ISSUER}/register`,
-                ...this.endpoints,
-                response_types_supported: ["code"],
-                grant_types_supported: ["authorization_code", "refresh_token"],
-                code_challenge_methods_supported: ["S256"],
-                token_endpoint_auth_methods_supported: [
-                  "none",
-                  "client_secret_post",
-                  "client_secret_basic",
-                ],
+        Effect.orDie(HttpClientRequest.toWeb(request)).pipe(
+          Effect.flatMap((web) => this.answer(web)),
+          Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
+          Effect.mapError(
+            () =>
+              new HttpClientError.HttpClientError({
+                reason: new HttpClientError.TransportError({ request }),
               }),
-            )
-          if (url.pathname === "/register" && web.method === "POST")
-            return yield* respond(this.register(decodeRegistration(body)))
-          if (url.pathname !== new URL(TOKEN_URL).pathname)
-            return yield* respond(new Response(null, { status: 404 }))
-
-          const params = Object.fromEntries(new URLSearchParams(body))
-          const basic = web.headers.get("authorization")?.match(/^Basic (.+)$/)?.[1]
-          if (basic !== undefined) {
-            const [id, secret] = atob(basic).split(":").map(decodeURIComponent)
-            if (id !== undefined) params.client_id = id
-            if (secret !== undefined) params.client_secret = secret
-          }
-          this.tokenRequests.push({
-            url: web.url,
-            method: web.method,
-            contentType: web.headers.get("content-type"),
-            params,
-          })
-          const response =
-            params.grant_type === "authorization_code"
-              ? yield* this.exchange(params)
-              : yield* this.answerRefresh(params).pipe(
-                  Effect.mapError(
-                    () =>
-                      new HttpClientError.HttpClientError({
-                        reason: new HttpClientError.TransportError({ request }),
-                      }),
-                  ),
-                )
-          return HttpClientResponse.fromWeb(request, response)
-        }),
+          ),
+        ),
       ),
     )
   }
+
+  /** The server for `fetch`, which rejects as `fetch` does when the network fails. */
+  readonly fetch = (request: Request) =>
+    Effect.runPromise(
+      this.answer(request).pipe(
+        Effect.catch(() => Effect.die(new TypeError("Network connection lost"))),
+      ),
+    )
 }

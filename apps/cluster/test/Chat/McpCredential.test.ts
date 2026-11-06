@@ -3,9 +3,11 @@ import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Inspectable from "effect/Inspectable"
+import type * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
+import type * as HttpClient from "effect/http/HttpClient"
 import {
   type McpCredential,
   type McpCredentialOptions,
@@ -18,6 +20,7 @@ import {
   FakeAuthorizationServer,
   TOKEN_URL,
 } from "../support/OAuthServer.ts"
+import { fetchClient } from "../support/Fetch.ts"
 
 /**
  * An MCP server's credential (EFF-3443), one per configured server: what
@@ -52,8 +55,11 @@ class MemoryStorage {
   }
 }
 
-const make = (auth: FakeAuthorizationServer, storage: MemoryStorage) =>
-  makeMcpCredential({ url: MCP_URL, storage: storage.storage }).pipe(Effect.provide(auth.layer))
+const make = (
+  auth: FakeAuthorizationServer,
+  storage: MemoryStorage,
+  http: Layer.Layer<HttpClient.HttpClient> = auth.layer,
+) => makeMcpCredential({ url: MCP_URL, storage: storage.storage }).pipe(Effect.provide(http))
 
 /** **Connect**: start, the user's consent at the authorisation server, then the callback. */
 const connect = (auth: FakeAuthorizationServer, credential: McpCredential) =>
@@ -77,6 +83,10 @@ const settle = Effect.forEach(Array.from({ length: 10 }), () => Effect.yieldNow,
 
 const value = <E, R>(self: Effect.Effect<Redacted.Redacted<string>, E, R>) =>
   Effect.map(self, Redacted.value)
+
+/** What `self` gave, or the tag of its failure. */
+const outcome = <A, R>(self: Effect.Effect<A, { readonly _tag: string }, R>) =>
+  Effect.catch(self, (error) => Effect.succeed(error._tag))
 
 const unavailable = <A, R>(self: Effect.Effect<A, { readonly _tag: string }, R>) =>
   Effect.map(Effect.flip(self), (error) => error._tag)
@@ -137,6 +147,43 @@ describe("an MCP server's credential", () => {
         assert.isUndefined(storage.value, "no pending Connect to finish")
         assert.strictEqual(yield* credential.status, "no-credential")
       }),
+    )
+
+  /**
+   * Where the token endpoint redirects, and whether that may be followed:
+   * only within its origin, as the SDK allows, on the Worker's real
+   * `FetchHttpClient`.
+   */
+  const redirects: ReadonlyArray<readonly [string, string, boolean]> = [
+    ["plain http on its host", "http://auth.mcp.test/token", false],
+    ["another origin", "https://elsewhere.test/token", false],
+    ["its own origin", `${TOKEN_URL}?moved=1`, true],
+  ]
+  for (const [name, target, followed] of redirects)
+    it.effect(
+      `a token endpoint redirecting to ${name} is ${followed ? "followed" : "sent nothing"}, on refresh and on Connect`,
+      () =>
+        Effect.gen(function* () {
+          const auth = new FakeAuthorizationServer(MCP_URL)
+          const client = yield* fetchClient(auth.fetch)
+          const credential = yield* make(auth, new MemoryStorage(), client.layer)
+          yield* connect(auth, credential)
+          auth.tokenRedirect = target
+
+          yield* TestClock.adjust(STALE)
+          const refreshed = yield* outcome(value(credential.token()))
+          const reconnected = yield* outcome(Effect.as(connect(auth, credential), "connected"))
+          assert.deepStrictEqual(
+            [refreshed, reconnected],
+            followed ? ["access-2", "connected"] : ["McpUnavailable", "McpOAuthRefused"],
+          )
+          assert.strictEqual(
+            auth.seen.some((request) => request.endsWith(` ${target}`)),
+            followed,
+            "the redirect target got a request",
+          )
+          assert.deepStrictEqual(client.escaped, [], "every request went through the given fetch")
+        }),
     )
 
   const clients: ReadonlyArray<readonly [string, boolean]> = [
@@ -450,4 +497,51 @@ describe("an MCP server's credential", () => {
       assert.strictEqual(auth.refreshes.at(-1)?.params.refresh_token, "refresh-code-2")
     }),
   )
+
+  /** What replaces a credential while a Connect callback waits on its code exchange. */
+  const replacements: ReadonlyArray<
+    readonly [
+      string,
+      (credential: McpCredential) => Effect.Effect<void>,
+      { readonly status: string; readonly token: string },
+    ]
+  > = [
+    [
+      "wiped",
+      (credential) => credential.wipe,
+      { status: "no-credential", token: "McpUnavailable" },
+    ],
+    [
+      "given a bearer token",
+      (credential) => credential.setBearer(Redacted.make("bearer-replacement")),
+      { status: "connected", token: "bearer-replacement" },
+    ],
+  ]
+  for (const [name, replace, expected] of replacements)
+    it.effect(`a Connect callback under way when the credential is ${name} is refused`, () =>
+      Effect.gen(function* () {
+        const auth = new FakeAuthorizationServer(MCP_URL)
+        const storage = new MemoryStorage()
+        const credential = yield* make(auth, storage)
+        const gate = yield* Deferred.make<void>()
+        auth.beforeExchange = Deferred.await(gate)
+        const authorizationUrl = yield* credential.startOAuth({ redirectUri: REDIRECT_URI })
+        const finishing = yield* Effect.forkChild(
+          outcome(Effect.as(credential.finishOAuth(auth.approve(authorizationUrl)), "finished")),
+        )
+        yield* settle
+        assert.strictEqual(auth.exchanges.length, 1, "the exchange is under way")
+
+        const replacing = yield* Effect.forkChild(replace(credential))
+        yield* settle
+        yield* Deferred.succeed(gate, undefined)
+        assert.strictEqual(yield* Fiber.join(finishing), "McpOAuthRefused")
+        yield* Fiber.join(replacing)
+
+        for (const current of [credential, yield* make(auth, storage)]) {
+          assert.strictEqual(yield* current.status, expected.status)
+          assert.strictEqual(yield* outcome(value(current.token())), expected.token)
+        }
+      }),
+    )
 })

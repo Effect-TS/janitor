@@ -23,6 +23,7 @@ import {
   say,
   seen,
 } from "./sessionHarness.ts"
+import { fetchClient } from "../support/Fetch.ts"
 
 /**
  * The MCP servers configured on the dashboard, in chat turns (EFF-3443).
@@ -171,6 +172,10 @@ class FakeHttp {
   rejectCallsWith: string | undefined
   /** crm's requests for this JSON-RPC method are answered with this status, as a failing server does. */
   failCrm: { readonly rpc: string; readonly status: number } | undefined
+  /** crm's `tools/call` is answered 307 with this `Location`, as a hostile server can. */
+  redirectCrm: string | undefined
+  /** Requests to anywhere but Slack and the MCP servers, as `METHOD url`. */
+  readonly elsewhere: Array<string> = []
 
   constructor(readonly credentials: Credentials) {}
 
@@ -211,6 +216,8 @@ class FakeHttp {
       params: message.params,
     })
     const token = authorization?.match(/^Bearer (.+)$/)?.[1]
+    if (server.name === "crm" && message.method === "tools/call" && this.redirectCrm !== undefined)
+      return new Response(null, { status: 307, headers: { location: this.redirectCrm } })
     if (server.name === "crm" && message.method === this.failCrm?.rpc)
       return this.echo(this.failCrm.status, authorization)
     if (
@@ -248,32 +255,36 @@ class FakeHttp {
     )
   }
 
+  /** Every request, from the `HttpClient` or from `fetch`. */
+  private answer(web: Request): Effect.Effect<Response> {
+    return Effect.gen({ self: this }, function* () {
+      const body = yield* Effect.promise(() => web.text())
+      const url = new URL(web.url)
+      const mcpServer = configured.find((server) => server.url === url.href)
+      if (mcpServer !== undefined)
+        return this.answerMcp(mcpServer, web.method, web.headers.get("authorization"), body)
+      if (url.hostname === "slack.com" && url.pathname === "/api/conversations.info") {
+        const answer = channels[new URLSearchParams(body).get("channel") ?? ""]
+        return answer === undefined
+          ? Response.json({ ok: false, error: "channel_not_found" })
+          : answer()
+      }
+      this.elsewhere.push(`${web.method} ${url.href}`)
+      return Response.json({ ok: true })
+    })
+  }
+
+  /** The fakes for `fetch`. */
+  readonly fetch = (web: Request) => Effect.runPromise(this.answer(web))
+
   get layer() {
     return Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
-        Effect.gen({ self: this }, function* () {
-          const web = yield* Effect.orDie(HttpClientRequest.toWeb(request))
-          const body = yield* Effect.promise(() => web.text())
-          const url = new URL(web.url)
-          const mcpServer = configured.find((server) => server.url === url.href)
-          if (mcpServer !== undefined)
-            return HttpClientResponse.fromWeb(
-              request,
-              this.answerMcp(mcpServer, web.method, web.headers.get("authorization"), body),
-            )
-          if (url.hostname === "slack.com" && url.pathname === "/api/conversations.info") {
-            const channel = new URLSearchParams(body).get("channel") ?? ""
-            const answer = channels[channel]
-            return HttpClientResponse.fromWeb(
-              request,
-              answer === undefined
-                ? Response.json({ ok: false, error: "channel_not_found" })
-                : answer(),
-            )
-          }
-          return HttpClientResponse.fromWeb(request, Response.json({ ok: true }))
-        }),
+        Effect.orDie(HttpClientRequest.toWeb(request)).pipe(
+          Effect.flatMap((web) => this.answer(web)),
+          Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
+        ),
       ),
     )
   }
@@ -290,11 +301,15 @@ const slackConfig = SlackConfig.layerFrom({
 type Stored = ReadonlyArray<McpServerConfig> | "failing"
 
 /** The integration on `http`, as the Worker builds it once chat is on. */
-const mcpServers = (http: FakeHttp, stored: Stored = configured) =>
+const mcpServers = (
+  http: FakeHttp,
+  stored: Stored = configured,
+  client: Layer.Layer<HttpClient.HttpClient> = http.layer,
+) =>
   ChatMcpServers.layer.pipe(
     Layer.provide([
       slackConfig,
-      http.layer,
+      client,
       Layer.mock(McpServerStore)({
         list:
           stored === "failing"
@@ -379,11 +394,15 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
       readonly stored?: Stored
       readonly rejectCallsWith?: string
       readonly failCrm?: FakeHttp["failCrm"]
+      readonly redirectCrm?: string
+      /** Sends through the Worker's real `FetchHttpClient`, not straight to the fakes. */
+      readonly fetch?: boolean
     } = {},
   ) => {
     const http = new FakeHttp(options.credentials ?? credentialsFor())
     http.rejectCallsWith = options.rejectCallsWith
     http.failCrm = options.failCrm
+    http.redirectCrm = options.redirectCrm
     const logs: Array<string> = []
     const capture = Logger.layer([
       Logger.make((options) => {
@@ -391,8 +410,9 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
       }),
     ])
     return Effect.gen(function* () {
+      const client = options.fetch ? yield* fetchClient(http.fetch) : undefined
       const harness: SessionHarness = yield* makeSessionHarnessWith(
-        mcpServers(http, options.stored),
+        mcpServers(http, options.stored, client?.layer),
       )
       const message = yield* harness.message("Who is janitor in each tool?", { mention: true })
       yield* harness.deliver(thread, message)
@@ -408,7 +428,7 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
         Effect.sync(() => harness.platform.replies.length > 0),
         "the reply",
       )
-      return { harness, http, logs }
+      return { harness, http, logs, escaped: client?.escaped ?? [] }
     }).pipe(Effect.scoped, Effect.provide(capture))
   }
 
@@ -558,4 +578,27 @@ layer(Services, { timeout: "2 minutes" })("MCP servers in a chat session", (it) 
           assertNoTokenLeft(turn, credentials)
         }),
     )
+
+  it.effect(
+    "a tool call redirected to another origin fails once, and nothing is sent there, on the real FetchHttpClient",
+    () =>
+      Effect.gen(function* () {
+        const credentials = credentialsFor()
+        const turn = yield* whoamiTurn(inChannel("CPUBLIC"), ["crm", "docs"], {
+          credentials,
+          redirectCrm: "https://elsewhere.test/mcp",
+          fetch: true,
+        })
+
+        assert.deepStrictEqual(turn.http.elsewhere, [], "the redirect target got a request")
+        assert.match(turn.harness.sandboxes.toolOutcomes[0]!, /^failed: /)
+        assert.strictEqual(turn.harness.sandboxes.toolOutcomes[1], "ok")
+        assert.strictEqual(toolCalls(turn.http, "crm").length, 1)
+        assert.deepStrictEqual(
+          turn.escaped.filter((url) => configured.some((server) => server.url === url)),
+          [],
+          "every MCP request went through the given fetch",
+        )
+      }),
+  )
 })
