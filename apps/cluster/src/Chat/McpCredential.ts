@@ -258,7 +258,7 @@ export const makeMcpCredential = (
         return options.storage.save(next)
       })
 
-    const fetchFn = fetchVia(http)
+    const fetchFn = fetchVia(http, yield* Effect.context<never>())
 
     /** One SDK call over `http`, within the timeout; its failures by category. */
     const sdk = <A>(call: (fetch: typeof fetchFn) => Promise<A>) =>
@@ -398,6 +398,7 @@ export const makeMcpCredential = (
       Effect.gen(function* () {
         // The MCP server names its authorisation server (RFC 9728); without
         // that metadata, its own origin is taken to be one.
+        const begun = generation
         const info = yield* sdk((fetchFn) => discoverOAuthServerInfo(options.url, { fetchFn }))
         const metadata = info.authorizationServerMetadata
         // Every endpoint the code, verifier and secrets go to is https,
@@ -443,6 +444,8 @@ export const makeMcpCredential = (
             ...(scope === undefined ? {} : { scope }),
           }),
         )
+        // A wipe meanwhile leaves no pending Connect behind in its storage.
+        if (begun !== generation) return yield* Effect.fail("superseded" as const)
         const startedAt = yield* Clock.currentTimeMillis
         const current = yield* load
         yield* save({
@@ -479,6 +482,9 @@ export const makeMcpCredential = (
         // Used up before the exchange, so a replayed callback can't try twice.
         const { pending: _, ...rest } = current
         yield* save(rest)
+        // A wipe, a bearer token or another Connect during the exchange wins:
+        // this callback then stores nothing, so it can't undo a deletion.
+        const started = generation
         const granted = yield* sdk((fetchFn) =>
           exchangeAuthorization(pending.client.server, {
             ...sdkClient(pending.client),
@@ -489,6 +495,7 @@ export const makeMcpCredential = (
             fetchFn,
           }),
         )
+        if (started !== generation) return yield* Effect.fail("superseded" as const)
         replaced()
         yield* save({
           oauth: {

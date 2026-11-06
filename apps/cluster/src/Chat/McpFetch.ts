@@ -1,8 +1,10 @@
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
@@ -34,6 +36,11 @@ const UNAVAILABLE = "The MCP server's credential is unavailable"
 export const fetchVia =
   (
     http: HttpClient.HttpClient,
+    /**
+     * The services the caller was built with, which each request runs with:
+     * a `FetchHttpClient`'s `Fetch` and `RequestInit` among them.
+     */
+    services: Context.Context<never>,
     options: {
       /** Sends each request with this credential's current token. */
       readonly credential?: McpCredential | undefined
@@ -56,7 +63,19 @@ export const fetchVia =
       if (request.signal.aborted) release()
       else request.signal.addEventListener("abort", release, { once: true })
     }
-    return Effect.runPromise(
+    // The SDK asks for `redirect: "manual"` so it can follow a redirect only
+    // within the request's origin and refuse the rest, https to http
+    // included. `fetch` would otherwise follow any redirect itself, re-sending
+    // the body (a code, verifier, refresh token or tool call) wherever it led.
+    // The SDK asks for `redirect: "manual"` so it can follow a redirect only
+    // within the request's origin and refuse the rest, https to http
+    // included. `fetch` would otherwise follow any redirect itself, re-sending
+    // the body (a code, verifier, refresh token or tool call) wherever it led.
+    const requestInit = {
+      ...Context.getOrUndefined(services, FetchHttpClient.RequestInit),
+      redirect: request.redirect,
+    }
+    return Effect.runPromiseWith(services)(
       Effect.gen(function* () {
         const token =
           credential === undefined
@@ -93,7 +112,10 @@ export const fetchVia =
           HttpClientResponse.toWeb(response),
           () => new Response(Stream.toReadableStream(response.stream), init),
         )
-      }).pipe(streaming ? (self) => self : Effect.ensuring(Scope.close(scope, Exit.void))),
+      }).pipe(
+        Effect.provideService(FetchHttpClient.RequestInit, requestInit),
+        streaming ? (self) => self : Effect.ensuring(Scope.close(scope, Exit.void)),
+      ),
       streaming ? { signal: request.signal } : undefined,
     )
   }

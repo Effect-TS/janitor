@@ -109,6 +109,8 @@ function make(internal: (thread: ChatThread) => Effect.Effect<boolean>) {
     const http = yield* HttpClient.HttpClient
     const store = yield* McpServerStore
     const credentials = yield* McpCredentials
+    /** What the layer was built with, which each MCP request runs with. */
+    const services = yield* Effect.context<never>()
 
     const transport = (server: McpServerConfig) =>
       Effect.map(
@@ -116,7 +118,7 @@ function make(internal: (thread: ChatThread) => Effect.Effect<boolean>) {
         (credential) => ({
           transport: () =>
             new StreamableHTTPClientTransport(new URL(server.url), {
-              fetch: fetchVia(http, { credential, withoutErrorBodies: true }),
+              fetch: fetchVia(http, services, { credential, withoutErrorBodies: true }),
             }),
         }),
       )
