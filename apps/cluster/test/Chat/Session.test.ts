@@ -6,9 +6,12 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Prompt from "effect/ai/Prompt"
 import { resumeMessage, switchedOffMessage, wrapUpMessage } from "@janitor/domain/Chat/Prompt"
+import { ChatKillSwitch } from "../../src/Chat/KillSwitch.ts"
 import {
   ChatPlatformError,
   type ChatThread,
@@ -20,6 +23,7 @@ import {
   callTool,
   discordThread,
   makeSessionHarness,
+  makeSessionHarnessWith,
   quotaExhausted,
   run,
   say,
@@ -697,6 +701,33 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
         assert.deepStrictEqual(turns(yield* harness.transcript(slackThread)), [
           finished({ status: "failed", errorCategory: "busy" }),
         ])
+      }),
+    ),
+  )
+
+  it.effect("a turn's status keeps updating after the message that started it is handled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        // Production Postgres keeps a pool per `Scope`, and a closed scope's
+        // pool is shut: every query on it is interrupted rather than failed.
+        const harness = yield* makeSessionHarnessWith(
+          Layer.succeed(ChatKillSwitch, {
+            get: Effect.gen(function* () {
+              const scope = yield* Effect.serviceOption(Scope.Scope)
+              if (Option.isSome(scope) && scope.value.state._tag === "Closed")
+                return yield* Effect.interrupt
+              return { global: false, slack: false, discord: false }
+            }),
+          }),
+        )
+        yield* longTurn(harness, slackThread, "Run the tests.")
+        yield* harness.until(
+          Effect.sync(
+            () => harness.platform.statusTexts(slackThread)[0]?.startsWith("Working") ?? false,
+          ),
+          "a Working status",
+        )
+        assert.match(harness.platform.statusTexts(slackThread)[0]!, /^Working · 1 action · /)
       }),
     ),
   )
