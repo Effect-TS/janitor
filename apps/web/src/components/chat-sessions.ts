@@ -8,18 +8,9 @@ import {
   type TurnStatus,
   type TurnUsage,
 } from "@janitor/domain/Chat/Session"
-import {
-  McpServer,
-  McpServerAuth,
-  McpServerChange,
-  McpServerList,
-  McpServerName,
-  McpServerUrl,
-  NewMcpServer,
-} from "@janitor/domain/Chat/McpServer"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Redacted from "effect/Redacted"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as Command from "foldkit/command"
@@ -27,14 +18,13 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Submodel from "foldkit/submodel"
 import * as Subscription from "foldkit/subscription"
-import type * as Update from "foldkit/update"
+import * as Update from "foldkit/update"
 import { RotateCw } from "lucide"
 import { timestamp } from "./pull-request-reviews"
 import * as Button from "./ui/button"
+import * as McpServers from "./mcp-servers"
 import { chip, type ChipVariant } from "./ui/chip"
-import * as Input from "./ui/input"
 import * as Page from "./ui/page"
-import * as Select from "./ui/select"
 import * as Switch from "./ui/switch"
 import * as Table from "./ui/table"
 import { ApiClient } from "@/lib/api-client"
@@ -45,17 +35,8 @@ import * as Routes from "@/routes"
  * The chat sessions page (EFF-3021): every chat session still kept, latest
  * activity first, each linking to its transcript, and the chat bot's kill
  * switch. Deployment-wide, like Account. Anyone signed in may use the kill
- * switch. Next to it, the MCP servers chat turns can use (EFF-3443).
+ * switch. Next to it, the MCP servers panel (EFF-3443), its own component.
  */
-
-/** The add form. */
-export const McpServerDraft = Schema.Struct({
-  name: Schema.String,
-  url: Schema.String,
-  auth: McpServerAuth,
-  private: Schema.Boolean,
-})
-export type McpServerDraft = typeof McpServerDraft.Type
 
 export const Model = Schema.Struct({
   active: Schema.Boolean,
@@ -71,17 +52,7 @@ export const Model = Schema.Struct({
   killSwitchError: Schema.NullOr(Schema.String),
   /** Fences responses from an earlier activation. */
   generation: Schema.Int,
-  mcpServers: Schema.NullOr(Schema.Array(McpServer)),
-  mcpLoading: Schema.Boolean,
-  /** Set when a change starts, so a read already in flight never overwrites what it set. */
-  mcpStale: Schema.Boolean,
-  /** The server a change is in flight for, `new` for an add; the others wait for it. */
-  mcpBusy: Schema.NullOr(Schema.String),
-  mcpError: Schema.NullOr(Schema.String),
-  /** Bearer tokens being typed, by server id; each is dropped once sent. */
-  mcpTokens: Schema.Record(Schema.String, Schema.String),
-  mcpDraft: Schema.NullOr(McpServerDraft),
-  mcpDraftError: Schema.NullOr(Schema.String),
+  mcpServers: McpServers.Model,
 })
 export type Model = typeof Model.Type
 
@@ -97,27 +68,7 @@ export const Message = defineMessageUnion({
   FailedSaveKillSwitch: { reason: Schema.String },
   /** `on` engages the kill switch: the bot stops there. */
   ToggledKillSwitch: { key: KillSwitchKey, on: Schema.Boolean },
-  LoadedMcpServers: { list: McpServerList },
-  FailedMcpServers: { reason: Schema.String },
-  ToggledMcpServer: { id: Schema.String, change: McpServerChange },
-  ClickedDeleteMcpServer: { id: Schema.String },
-  RemovedMcpServer: { id: Schema.String },
-  ChangedMcpToken: { id: Schema.String, token: Schema.String },
-  ClickedSetMcpToken: { id: Schema.String },
-  ClickedConnectMcpServer: { id: Schema.String },
-  GotMcpAuthorization: { authorizationUrl: Schema.String },
-  /** A change answered with the server as it is now. */
-  SavedMcpServer: { server: McpServer },
-  FailedMcpChange: { reason: Schema.String },
-  ClickedAddMcpServer: {},
-  ChangedMcpDraftName: { name: Schema.String },
-  ChangedMcpDraftUrl: { url: Schema.String },
-  ChangedMcpDraftAuth: { auth: McpServerAuth },
-  ToggledMcpDraftPrivate: { private: Schema.Boolean },
-  ClickedCancelMcpDraft: {},
-  ClickedSaveMcpDraft: {},
-  CreatedMcpServer: { server: McpServer },
-  FailedCreateMcpServer: { reason: Schema.String },
+  GotMcpServersMessage: { message: McpServers.Message },
 })
 export type Message = typeof Message.Type
 
@@ -138,14 +89,7 @@ export const init = (): Model => ({
   killSwitchRevision: 0,
   killSwitchError: null,
   generation: 0,
-  mcpServers: null,
-  mcpLoading: false,
-  mcpStale: false,
-  mcpBusy: null,
-  mcpError: null,
-  mcpTokens: {},
-  mcpDraft: null,
-  mcpDraftError: null,
+  mcpServers: McpServers.init(),
 })
 
 /** How often the open page reads the sessions again: chat has no live updates. */
@@ -194,98 +138,6 @@ export const SetKillSwitch = Command.define("SetChatKillSwitch", {
     ),
 })
 
-export const FetchMcpServers = Command.define("FetchChatMcpServers", {
-  messages: [Message.LoadedMcpServers, Message.FailedMcpServers],
-  execute: ApiClient.use((api) => api.mcpServers.list()).pipe(
-    Effect.timeout("15 seconds"),
-    Effect.map((list) => Message.LoadedMcpServers({ list })),
-    Effect.orElseSucceed(() =>
-      Message.FailedMcpServers({ reason: "The MCP servers could not be loaded." }),
-    ),
-  ),
-})
-
-const changeFailed = () =>
-  Message.FailedMcpChange({ reason: "The MCP server didn't change. Please retry." })
-
-export const UpdateMcpServer = Command.define("UpdateChatMcpServer", {
-  args: { id: Schema.String, change: McpServerChange },
-  messages: [Message.SavedMcpServer, Message.FailedMcpChange],
-  execute: ({ id, change }) =>
-    ApiClient.use((api) => api.mcpServers.update({ params: { id }, payload: change })).pipe(
-      Effect.timeout("15 seconds"),
-      Effect.map((server) => Message.SavedMcpServer({ server })),
-      Effect.orElseSucceed(changeFailed),
-    ),
-})
-
-export const RemoveMcpServer = Command.define("RemoveChatMcpServer", {
-  args: { id: Schema.String },
-  messages: [Message.RemovedMcpServer, Message.FailedMcpChange],
-  execute: ({ id }) =>
-    ApiClient.use((api) => api.mcpServers.remove({ params: { id } })).pipe(
-      Effect.timeout("15 seconds"),
-      Effect.as(Message.RemovedMcpServer({ id })),
-      Effect.orElseSucceed(() =>
-        Message.FailedMcpChange({ reason: "The MCP server wasn't deleted. Please retry." }),
-      ),
-    ),
-})
-
-/** The token stays redacted from here on: the model no longer holds it. */
-export const SetMcpBearer = Command.define("SetChatMcpBearer", {
-  args: { id: Schema.String, token: Schema.Redacted(Schema.String) },
-  messages: [Message.SavedMcpServer, Message.FailedMcpChange],
-  execute: ({ id, token }) =>
-    ApiClient.use((api) => api.mcpServers.setBearer({ params: { id }, payload: { token } })).pipe(
-      Effect.timeout("15 seconds"),
-      Effect.map((server) => Message.SavedMcpServer({ server })),
-      Effect.orElseSucceed(() =>
-        Message.FailedMcpChange({ reason: "The token wasn't saved. Please enter it again." }),
-      ),
-    ),
-})
-
-export const StartMcpOAuth = Command.define("StartChatMcpOAuth", {
-  args: { id: Schema.String },
-  messages: [Message.GotMcpAuthorization, Message.FailedMcpChange],
-  execute: ({ id }) =>
-    ApiClient.use((api) => api.mcpServers.startOAuth({ params: { id } })).pipe(
-      Effect.timeout("15 seconds"),
-      Effect.map(({ authorizationUrl }) => Message.GotMcpAuthorization({ authorizationUrl })),
-      Effect.catchTag("McpOAuthUnavailable", () =>
-        Effect.succeed(
-          Message.FailedMcpChange({
-            reason: "Connect couldn't start: the server's sign-in couldn't be reached.",
-          }),
-        ),
-      ),
-      Effect.orElseSucceed(() =>
-        Message.FailedMcpChange({ reason: "Connect couldn't start. Please retry." }),
-      ),
-    ),
-})
-
-export const CreateMcpServer = Command.define("CreateChatMcpServer", {
-  args: { server: NewMcpServer },
-  messages: [Message.CreatedMcpServer, Message.FailedCreateMcpServer],
-  execute: ({ server }) =>
-    ApiClient.use((api) => api.mcpServers.create({ payload: server })).pipe(
-      Effect.timeout("15 seconds"),
-      Effect.map((created) => Message.CreatedMcpServer({ server: created })),
-      Effect.catchTag("McpServerNameTaken", () =>
-        Effect.succeed(
-          Message.FailedCreateMcpServer({
-            reason: `A server named ${server.name} already exists.`,
-          }),
-        ),
-      ),
-      Effect.orElseSucceed(() =>
-        Message.FailedCreateMcpServer({ reason: "The server wasn't added. Please retry." }),
-      ),
-    ),
-})
-
 type Return = Update.ReturnWithOutMessage<Model, Message, OutMessage, ApiClient>
 
 const fetch = (model: Model): Return =>
@@ -308,47 +160,22 @@ const withKillSwitchRead = (step: Return): Return =>
         ],
       }
 
-/** Reads the MCP servers too, unless a read or a change is in flight. */
-const withMcpRead = (step: Return): Return =>
-  step.model.mcpLoading || step.model.mcpBusy !== null
-    ? step
-    : {
-        ...step,
-        model: { ...step.model, mcpLoading: true, mcpStale: false },
-        commands: [...(step.commands ?? []), FetchMcpServers()],
-      }
+const foldMcpServers = Update.foldChild({
+  update: McpServers.update,
+  read: (model: Model) => Option.some(model.mcpServers),
+  write: (model, mcpServers) => ({ ...model, mcpServers }),
+  toParentMessage: (message) => Message.GotMcpServersMessage({ message }),
+  toParentOutMessage: (outMessage) =>
+    McpServers.OutMessage.match<OutMessage | undefined>(outMessage, {
+      OpenAuthorization: ({ url }) => OutMessage.OpenAuthorization({ url }),
+    }),
+})
 
-/** Starts a change to one server; the others wait for it. */
-const beginMcpChange = (
-  model: Model,
-  busy: string,
-  command: Command.Command<Message, never, ApiClient>,
-): Return =>
-  model.mcpBusy !== null
-    ? { model }
-    : {
-        model: { ...model, mcpBusy: busy, mcpStale: true, mcpError: null },
-        commands: [command],
-      }
-
-const withoutToken = (tokens: Model["mcpTokens"], id: string) =>
-  Object.fromEntries(Object.entries(tokens).filter(([key]) => key !== id))
-
-/** The add form as it opens: private unless unchecked. */
-const emptyDraft: McpServerDraft = { name: "", url: "", auth: "none", private: true }
-
-const editDraft = (model: Model, edit: Partial<McpServerDraft>): Return =>
-  model.mcpDraft === null
-    ? { model }
-    : { model: { ...model, mcpDraft: { ...model.mcpDraft, ...edit } } }
-
-/** Why the draft can't be added, in the API's words; `null` when it can. */
-const draftError = (draft: McpServerDraft): string | null =>
-  !Schema.is(McpServerName)(draft.name)
-    ? "Name: use 1 to 32 lowercase letters, digits or underscores."
-    : !Schema.is(McpServerUrl)(draft.url.trim())
-      ? "URL: use an absolute https URL."
-      : null
+/** Hands the MCP servers panel the page's own message too, after the page's step. */
+const withMcpServers = (step: Return, message: McpServers.Message): Return => {
+  const panel = foldMcpServers(step.model, message)
+  return { ...panel, commands: [...(step.commands ?? []), ...(panel.commands ?? [])] }
+}
 
 export const update = (model: Model, message: Message): Return =>
   Message.match(message, {
@@ -356,11 +183,14 @@ export const update = (model: Model, message: Message): Return =>
       if (model.active === active) return { model }
       // Fence responses when leaving and refresh on return.
       const fenced = { ...model, active, loading: false, generation: model.generation + 1 }
-      if (!active) return { model: fenced }
-      return withMcpRead(withKillSwitchRead(fetch(fenced)))
+      return withMcpServers(
+        active ? withKillSwitchRead(fetch(fenced)) : { model: fenced },
+        McpServers.Message.Activated({ active }),
+      )
     },
     Polled: () => fetch(model),
-    ClickedRefresh: () => withMcpRead(withKillSwitchRead(fetch(model))),
+    ClickedRefresh: () =>
+      withMcpServers(withKillSwitchRead(fetch(model)), McpServers.Message.ClickedRefresh()),
     Loaded: ({ generation, list }) =>
       generation !== model.generation || !model.active
         ? { model }
@@ -403,94 +233,7 @@ export const update = (model: Model, message: Message): Return =>
             },
             commands: [SetKillSwitch({ change: { switch: key, on } })],
           },
-    LoadedMcpServers: ({ list }) =>
-      model.mcpStale || model.mcpBusy !== null
-        ? { model: { ...model, mcpLoading: false } }
-        : { model: { ...model, mcpLoading: false, mcpServers: list.servers, mcpError: null } },
-    FailedMcpServers: ({ reason }) =>
-      model.mcpStale || model.mcpBusy !== null
-        ? { model: { ...model, mcpLoading: false } }
-        : { model: { ...model, mcpLoading: false, mcpError: reason } },
-    ToggledMcpServer: ({ id, change }) =>
-      beginMcpChange(model, id, UpdateMcpServer({ id, change })),
-    ClickedDeleteMcpServer: ({ id }) => beginMcpChange(model, id, RemoveMcpServer({ id })),
-    RemovedMcpServer: ({ id }) => ({
-      model: {
-        ...model,
-        mcpBusy: null,
-        mcpServers: (model.mcpServers ?? []).filter((server) => server.id !== id),
-        mcpTokens: withoutToken(model.mcpTokens, id),
-      },
-    }),
-    ChangedMcpToken: ({ id, token }) => ({
-      model: { ...model, mcpTokens: { ...model.mcpTokens, [id]: token } },
-    }),
-    ClickedSetMcpToken: ({ id }) => {
-      const token = (model.mcpTokens[id] ?? "").trim()
-      if (token === "" || model.mcpBusy !== null) return { model }
-      const step = beginMcpChange(model, id, SetMcpBearer({ id, token: Redacted.make(token) }))
-      return { ...step, model: { ...step.model, mcpTokens: withoutToken(model.mcpTokens, id) } }
-    },
-    ClickedConnectMcpServer: ({ id }) => beginMcpChange(model, id, StartMcpOAuth({ id })),
-    GotMcpAuthorization: ({ authorizationUrl }): Return => ({
-      model: { ...model, mcpBusy: null },
-      outMessage: OutMessage.OpenAuthorization({ url: authorizationUrl }),
-    }),
-    SavedMcpServer: ({ server }) => ({
-      model: {
-        ...model,
-        mcpBusy: null,
-        mcpError: null,
-        mcpServers: (model.mcpServers ?? []).map((each) => (each.id === server.id ? server : each)),
-      },
-    }),
-    FailedMcpChange: ({ reason }) => ({ model: { ...model, mcpBusy: null, mcpError: reason } }),
-    ClickedAddMcpServer: () => ({
-      model: {
-        ...model,
-        mcpDraft: emptyDraft,
-        mcpDraftError: null,
-      },
-    }),
-    ChangedMcpDraftName: ({ name }) => editDraft(model, { name }),
-    ChangedMcpDraftUrl: ({ url }) => editDraft(model, { url }),
-    ChangedMcpDraftAuth: ({ auth }) => editDraft(model, { auth }),
-    ToggledMcpDraftPrivate: (change) => editDraft(model, { private: change.private }),
-    ClickedCancelMcpDraft: () =>
-      model.mcpBusy === "new"
-        ? { model }
-        : { model: { ...model, mcpDraft: null, mcpDraftError: null } },
-    ClickedSaveMcpDraft: () => {
-      const draft = model.mcpDraft
-      if (draft === null || model.mcpBusy !== null) return { model }
-      const error = draftError(draft)
-      if (error !== null) return { model: { ...model, mcpDraftError: error } }
-      const step = beginMcpChange(
-        model,
-        "new",
-        CreateMcpServer({
-          server: {
-            name: draft.name,
-            url: draft.url.trim(),
-            auth: draft.auth,
-            private: draft.private,
-          },
-        }),
-      )
-      return { ...step, model: { ...step.model, mcpDraftError: null } }
-    },
-    CreatedMcpServer: ({ server }) => ({
-      model: {
-        ...model,
-        mcpBusy: null,
-        mcpServers: [...(model.mcpServers ?? []), server],
-        mcpDraft: null,
-        mcpDraftError: null,
-      },
-    }),
-    FailedCreateMcpServer: ({ reason }) => ({
-      model: { ...model, mcpBusy: null, mcpDraftError: reason },
-    }),
+    GotMcpServersMessage: ({ message }) => foldMcpServers(model, message),
   })
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
@@ -667,234 +410,6 @@ const killSwitch = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> 
   ]
 }
 
-const mcpStatusChips: Record<McpServer["status"], { label: string; variant: ChipVariant }> = {
-  connected: { label: "Connected", variant: "success" },
-  "needs-consent": { label: "Needs consent", variant: "neutral" },
-  unavailable: { label: "Unavailable", variant: "danger" },
-  "no-credential": { label: "No credential", variant: "neutral" },
-}
-
-const mcpAuthLabels: Record<McpServerAuth, string> = {
-  none: "No authentication",
-  bearer: "Bearer token",
-  oauth: "OAuth",
-}
-
-const alert = (h: HtmlBuilder<Message>, error: string | null) =>
-  error === null
-    ? h.empty
-    : h.p([h.Role("alert"), h.Class("text-body-sm text-destructive")], [error])
-
-/** A switch on one server, named after it too: every row has a Private and an Enabled. */
-const mcpSwitch = (
-  h: HtmlBuilder<Message>,
-  model: Model,
-  server: McpServer,
-  key: "private" | "enabled",
-) => {
-  const id = `mcp-server-${server.id}-${key}`
-  return Switch.view(h, {
-    id,
-    label: key === "private" ? "Private" : "Enabled",
-    isChecked: server[key],
-    isBusy: model.mcpBusy === server.id,
-    isDisabled: model.mcpBusy !== null,
-    labelClass: "text-body-sm",
-    attributes: [h.AriaLabelledBy(`${id}-label mcp-server-${server.id}-name`)],
-    onToggle: (on) => Message.ToggledMcpServer({ id: server.id, change: { [key]: on } }),
-  })
-}
-
-const mcpCredential = (h: HtmlBuilder<Message>, model: Model, server: McpServer) => {
-  const isDisabled = model.mcpBusy !== null
-  if (server.auth === "bearer") {
-    const token = model.mcpTokens[server.id] ?? ""
-    return h.div(
-      [h.Class("flex items-end gap-2")],
-      [
-        Input.input(h, {
-          id: `mcp-server-${server.id}-token`,
-          label: "Bearer token",
-          type: "password",
-          value: token,
-          isDisabled,
-          labelClass: "text-body-sm",
-          attributes: [h.Autocomplete("off")],
-          onInput: (value) => Message.ChangedMcpToken({ id: server.id, token: value }),
-        }),
-        Button.view(h, {
-          variant: "secondary",
-          size: "sm",
-          label: "Set token",
-          isDisabled: isDisabled || token.trim() === "",
-          attributes: [h.AriaLabel(`Set token for ${server.name}`)],
-          onClick: Message.ClickedSetMcpToken({ id: server.id }),
-        }),
-      ],
-    )
-  }
-  if (server.auth === "oauth")
-    return Button.view(h, {
-      variant: "secondary",
-      size: "sm",
-      label: "Connect",
-      isDisabled,
-      attributes: [h.AriaLabel(`Connect ${server.name}`)],
-      onClick: Message.ClickedConnectMcpServer({ id: server.id }),
-    })
-  return h.empty
-}
-
-const mcpServerItem = (h: HtmlBuilder<Message>, model: Model, server: McpServer) => {
-  const { label, variant } = mcpStatusChips[server.status]
-  return h.li(
-    [
-      h.Class("flex flex-col gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0"),
-      h.DataAttribute("mcp-server", server.id),
-    ],
-    [
-      h.div(
-        [h.Class("flex items-center justify-between gap-2")],
-        [
-          h.code(
-            [h.Id(`mcp-server-${server.id}-name`), h.Class("font-mono text-mono-sm")],
-            [server.name],
-          ),
-          chip(h, { variant, children: [label] }),
-        ],
-      ),
-      h.p([h.Class("text-body-sm break-all text-ink-muted")], [server.url]),
-      h.p([h.Class("text-body-sm text-ink-muted")], [mcpAuthLabels[server.auth]]),
-      h.div(
-        [h.Class("flex flex-wrap gap-x-4 gap-y-2")],
-        [mcpSwitch(h, model, server, "private"), mcpSwitch(h, model, server, "enabled")],
-      ),
-      mcpCredential(h, model, server),
-      h.div(
-        [h.Class("flex justify-end")],
-        [
-          Button.view(h, {
-            variant: "destructive",
-            size: "sm",
-            label: "Delete",
-            isDisabled: model.mcpBusy !== null,
-            attributes: [h.AriaLabel(`Delete ${server.name}`)],
-            onClick: Message.ClickedDeleteMcpServer({ id: server.id }),
-          }),
-        ],
-      ),
-    ],
-  )
-}
-
-const mcpForm = (h: HtmlBuilder<Message>, model: Model, draft: McpServerDraft) => {
-  const isDisabled = model.mcpBusy !== null
-  return h.div(
-    [
-      h.Role("group"),
-      h.AriaLabel("New server"),
-      h.Class("flex flex-col gap-2 rounded-md border border-border p-2"),
-    ],
-    [
-      Input.input(h, {
-        id: "mcp-server-new-name",
-        label: "Name",
-        value: draft.name,
-        placeholder: "crm",
-        description: "Lowercase letters, digits and underscores. Can't be changed later.",
-        isDisabled,
-        onInput: (name) => Message.ChangedMcpDraftName({ name }),
-      }),
-      Input.input(h, {
-        id: "mcp-server-new-url",
-        label: "URL",
-        type: "url",
-        value: draft.url,
-        placeholder: "https://",
-        isDisabled,
-        onInput: (url) => Message.ChangedMcpDraftUrl({ url }),
-      }),
-      Select.view(h, {
-        id: "mcp-server-new-auth",
-        label: "Authentication",
-        value: draft.auth,
-        options: McpServerAuth.literals.map((auth) => [auth, mcpAuthLabels[auth]] as const),
-        isDisabled,
-        onChange: (value) =>
-          Message.ChangedMcpDraftAuth({
-            auth: value === "bearer" ? "bearer" : value === "oauth" ? "oauth" : "none",
-          }),
-      }),
-      Switch.view(h, {
-        id: "mcp-server-new-private",
-        label: "Private",
-        isChecked: draft.private,
-        isDisabled,
-        className: "justify-between",
-        onToggle: (on) => Message.ToggledMcpDraftPrivate({ private: on }),
-      }),
-      alert(h, model.mcpDraftError),
-      h.div(
-        [h.Class("flex justify-end gap-2")],
-        [
-          Button.view(h, {
-            variant: "secondary",
-            size: "sm",
-            label: "Cancel",
-            isDisabled: model.mcpBusy === "new",
-            onClick: Message.ClickedCancelMcpDraft(),
-          }),
-          Button.view(h, {
-            size: "sm",
-            label: "Save",
-            isDisabled,
-            onClick: Message.ClickedSaveMcpDraft(),
-          }),
-        ],
-      ),
-    ],
-  )
-}
-
-const mcpServers = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html> => {
-  const servers = model.mcpServers
-  if (servers === null)
-    return [
-      model.mcpError === null
-        ? h.p([h.Class("text-body-md text-ink-muted")], ["Loading"])
-        : alert(h, model.mcpError),
-    ]
-  return [
-    h.p(
-      [h.Class("text-body-sm text-ink-muted")],
-      [
-        "Tools chat turns can use. A private server is offered only in internal Slack channels; any other in every thread, Discord included.",
-      ],
-    ),
-    servers.length === 0
-      ? h.p([h.Role("status"), h.Class("mt-2 text-body-sm text-ink-muted")], ["No servers yet."])
-      : h.ul(
-          [h.Class("mt-3 flex flex-col gap-3"), h.AriaLabel("MCP servers")],
-          servers.map((server) => mcpServerItem(h, model, server)),
-        ),
-    h.div(
-      [h.Class("mt-3 flex flex-col gap-2")],
-      [
-        alert(h, model.mcpError),
-        model.mcpDraft === null
-          ? Button.view(h, {
-              variant: "secondary",
-              size: "sm",
-              label: "Add server",
-              isDisabled: model.mcpBusy !== null,
-              onClick: Message.ClickedAddMcpServer(),
-            })
-          : mcpForm(h, model, model.mcpDraft),
-      ],
-    ),
-  ]
-}
-
 export const view = Submodel.defineView<Model, Message>((model, h) =>
   Page.layout(h, {
     attributes: [h.AriaLabel("Chat sessions")],
@@ -951,7 +466,12 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
     ],
     inspector: [
       Page.inspectorCard(h, { heading: "Kill switch", children: killSwitch(h, model) }),
-      Page.inspectorCard(h, { heading: "MCP servers", children: mcpServers(h, model) }),
+      h.submodel({
+        slotId: "chat-mcp-servers",
+        model: model.mcpServers,
+        view: McpServers.view,
+        toParentMessage: (message) => Message.GotMcpServersMessage({ message }),
+      }),
     ],
   }),
 )
