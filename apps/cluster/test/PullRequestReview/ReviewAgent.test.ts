@@ -624,10 +624,13 @@ await taskComplete(JSON.stringify([
     Effect.gen(function* () {
       // A large opening message and a context over the threshold: the compaction
       // summarizes the opening message alone, so [opening, script, result]
-      // becomes [summary, script, result].
+      // becomes [summary, script, result]. clanka summarizes in the background
+      // while the loop takes its next step, and applies the summary before the
+      // step after that, keeping the messages appended since.
       const model = new ScriptedModel([
         execute(`console.log("read")`, { contextTokens: 230_000 }),
         say("Summary of the review so far."),
+        execute(`console.log("more")`),
         execute(`await taskComplete("Done.")`),
       ])
       // The run entity's commit of the replacement never finishes.
@@ -643,9 +646,9 @@ await taskComplete(JSON.stringify([
       )
       yield* TestClock.withLive(Effect.sleep("500 millis"))
 
-      assert.deepStrictEqual(commits, ["Appended", "Appended", "Replaced"])
-      // The script's call and the summarizer's; the next step waits for the replacement.
-      assert.strictEqual(model.prompts.length, 2)
+      assert.deepStrictEqual(commits, ["Appended", "Appended", "Appended", "Replaced"])
+      // The two scripts' calls and the summarizer's; the next step waits for the replacement.
+      assert.strictEqual(model.prompts.length, 3)
       yield* session.interrupt
     }).pipe(Effect.scoped),
   )
