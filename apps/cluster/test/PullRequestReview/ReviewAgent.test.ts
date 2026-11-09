@@ -338,7 +338,7 @@ const outcomeOf = `const outcome = (call) => call.then(() => "stored", (error) =
 
 layer(Services, { timeout: "2 minutes" })("PR review agent", (it) => {
   it.effect(
-    "offers the model the loop-side tools, without gh, webSearch, fetchMarkdown or delegate",
+    "offers the model the loop-side tools, without gh, webSearch, fetchMarkdown or subagent",
     () => {
       const model = new ScriptedModel([execute(`await taskComplete("Nothing to report.")`)])
       return run(model, (harness) =>
@@ -349,7 +349,7 @@ layer(Services, { timeout: "2 minutes" })("PR review agent", (it) => {
           const system = systemText(model.prompts[0]!)
           assert.include(system, "declare function reportFinding(")
           assert.include(system, "declare function updateThread(")
-          assert.notMatch(system, /\b(gh|webSearch|fetchMarkdown|delegate)\b/)
+          assert.notMatch(system, /\b(gh|webSearch|fetchMarkdown|subagent)\b/)
         }),
       )
     },

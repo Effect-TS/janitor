@@ -6,7 +6,7 @@ const EXCLUDED_TOOLS: ReadonlyArray<ExcludableTool> = [
   "gh",
   "webSearch",
   "fetchMarkdown",
-  "delegate",
+  "subagent",
 ]
 
 /** The most characters of one command's output the sandbox keeps. */
