@@ -84,7 +84,7 @@ export default ChatSandbox.make(
     yield* Layer.build(
       AgentExecutor.layerRpcServer({
         directory: WORKSPACE_DIRECTORY,
-        // Every built-in tool, `gh`, `delegate`, `fetchMarkdown` and `webSearch` included.
+        // Every built-in tool, `gh`, `subagent`, `fetchMarkdown` and `webSearch` included.
         limits: {
           commandTimeout,
           scriptTimeout: commandTimeout,
