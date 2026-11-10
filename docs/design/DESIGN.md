@@ -598,7 +598,7 @@ Separation is achieved with 1px hairlines and background-colour shifts, not
 with shadow.
 
 - **Structural regions**: cards, sidebar, top bar, inspector. `1px solid
-border`, `rounded.md`, no shadow.
+  border`, `rounded.md`, no shadow.
 - **Rows within a region**: `1px solid border-subtle` on the bottom edge, none
   on the last child.
 - **Overlays**: dialogs, popovers, dropdowns, tooltips. The only shadowed

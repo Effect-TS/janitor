@@ -102,7 +102,7 @@ no `<meta name="theme-color">` in `index.html`.
   (`ui/sign.ts:6`); `font-mono` 10 times.
 - Hardcoded stack outside the theme: `policy-source/editor.ts:54` sets
   `.cm-scroller` to `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-monospace`, so the YAML editor does not use the app mono face.
+  monospace`, so the YAML editor does not use the app mono face.
 - Type scale (`styles.css:218-241`): body-sm 13px, body-md 15px, label 14.5px,
   button 14px, h3 16px, h2 20px, sign 25px, numeral 27px, stamp 34px, display
   44px, mono-sm 11px, mono-md 14.5px. Base body is 15px; target is 13px.

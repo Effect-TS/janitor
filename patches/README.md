@@ -4,7 +4,7 @@ Patches are applied by the root `pnpm-workspace.yaml` and pinned by `pnpm-lock.y
 
 ## Alchemy release
 
-Alchemy and its `@alchemy.run/*` packages are on npm `2.0.0-beta.85`, the release Effect-TS/website pins. It speaks protocol v8 of the shared Cloudflare State Store `alchemy-state-store`, which earlier npm releases didn't, so they had to come from preview tarballs. The new Effect Cloudflare snapshot also needs `@alchemy.run/cloudflare` `>=2.0.0-beta.85`.
+Alchemy and its `@alchemy.run/*` packages are on npm `2.0.0-beta.85`, the release Effect-TS/website pins. It speaks protocol v8 of the shared Cloudflare State Store `alchemy-state-store`, which earlier npm releases didn't, so they had to come from preview tarballs. Effect Cloudflare 4.1.3 also needs `@alchemy.run/cloudflare` `>=2.0.0-beta.85`.
 
 The patches below apply to `2.0.0-beta.85`; none of their fixes is upstream yet. `@alchemy.run/test` is now published at the same version, so `apps/cluster/test/support/ScratchStack.ts` can be replaced with its `scratchStack`.
 
@@ -30,8 +30,8 @@ An Effect-native container (one with `main`) keeps its program as an Effect in `
 
 Remove this part of the patch when upstream strips Effects in the container `diff`.
 
-## Effect snapshot
+## Effect release
 
-`@effect/platform-cloudflare` is not published yet, so every Effect package comes from a pkg.pr.new snapshot of Effect PR 7322 (`eff-698-cloudflare-cluster`). The pinned commit `6e155f1c771c5329feccdbd631144b2484dd44dd` is that branch's head on 2026-11-05, rebased onto a newer Effect `main`. It carries the Cloudflare queue, workflow, entity and initializer fixes made since the earlier `eff-698-cloudflare-cluster-4.1.2` pin (`111d7cfdd`), and raises its Alchemy peer to `2.0.0-beta.85`. The snapshot packages report version `4.1.2`, which satisfies Alchemy's, Foldkit's and clanka's peer ranges. Sharing one snapshot keeps janitor and clanka on the same Effect build. To move forward, let the Effect `Snapshot` workflow publish the branch's new head and update every catalog URL. Switch to registry packages once the PR is released. The root catalog and overrides keep every Effect package on one version, including `@effect/sql-d1` and `@effect/sql-sqlite-do`, which Alchemy depends on.
+Effect and its companion packages, including `@effect/platform-cloudflare`, are published on npm and pinned to `4.1.3`. These registry releases replace the earlier pkg.pr.new snapshot. The root catalog and overrides keep janitor, clanka, and their dependencies on one Effect version, including `@effect/sql-d1` and `@effect/sql-sqlite-do`, which Alchemy depends on. For future updates, verify the published versions and peer requirements, update the Effect catalog pins together, and regenerate the lockfile. Keep any release-age exceptions scoped to the selected versions.
 
 Alchemy and its `@alchemy.run/*` packages list `@effect/platform-node`, `@effect/sql-pg`, and `@effect/vitest` as optional peers. pnpm resolves a missing optional peer from the registry rather than from the catalog, so every workspace package that depends on `alchemy` also declares all three as `catalog:` dependencies.

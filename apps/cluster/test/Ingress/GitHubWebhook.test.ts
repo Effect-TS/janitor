@@ -536,9 +536,13 @@ describe("GitHubWebhookRoutes", () => {
       let calls = 0
       const handler = yield* makeHandler(() => Effect.sync(() => void calls++))
 
-      const response = yield* post(handler, { headers: headers() })
-
-      assert.strictEqual(response.status, 400)
+      for (const body of [undefined, ""]) {
+        const response = yield* post(handler, {
+          headers: headers(),
+          ...(body === undefined ? {} : { body }),
+        })
+        assert.strictEqual(response.status, 400)
+      }
       assert.strictEqual(calls, 0)
     }),
   )

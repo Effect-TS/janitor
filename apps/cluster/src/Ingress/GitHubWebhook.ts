@@ -133,6 +133,13 @@ export const GitHubWebhookRoutesLayerNoDeps = Layer.unwrap(
           return yield* drop("Body exceeds the size limit")
         }
 
+        if (body.byteLength === 0) {
+          return yield* new HttpServerError.RequestParseError({
+            request,
+            description: "Missing webhook body",
+          })
+        }
+
         const hasValidSignature = yield* verifier.verify(headers["x-hub-signature-256"], body)
 
         if (!hasValidSignature) {
