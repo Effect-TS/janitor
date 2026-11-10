@@ -118,7 +118,7 @@ const execute = (url: string, statement: string) =>
     Effect.flatMap(SqlClient.SqlClient, (sql) => sql.unsafe(statement).unprepared),
   )
 
-declare module "vitest" {
+declare module "vite-plus/test" {
   export interface ProvidedContext {
     /** Connection URL for the shared server's maintenance database. */
     readonly postgresUrl: string
