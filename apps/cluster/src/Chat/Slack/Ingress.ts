@@ -295,25 +295,6 @@ const Routes = Layer.unwrap(
         if (envelope.value.type !== "event_callback") return accepted
         if (!forWorkspace(envelope.value) || envelope.value.api_app_id !== config.appId)
           return HttpServerResponse.text("Wrong app or workspace", { status: 403 })
-        const rawEvent = envelope.value.event
-        if (
-          typeof rawEvent === "object" &&
-          rawEvent !== null &&
-          "type" in rawEvent &&
-          rawEvent.type === "agent_session_stopped"
-        ) {
-          // Temporary payload capture for EFF-3676; remove after that live test closes.
-          // Re-read the validated JSON to keep fields the envelope schema strips.
-          const { token: _token, ...rawEnvelope } = JSON.parse(new TextDecoder().decode(body))
-          yield* Effect.logInfo("Slack agent_session_stopped").pipe(
-            Effect.annotateLogs({
-              envelope: rawEnvelope,
-              "x-slack-retry-num": request.headers["x-slack-retry-num"] ?? null,
-              "x-slack-retry-reason": request.headers["x-slack-retry-reason"] ?? null,
-            }),
-          )
-          return accepted
-        }
         const thumbsUp = decodeThumbsUp(envelope.value.event)
         if (thumbsUp._tag === "Some")
           return yield* handleReaction(thumbsUp.value).pipe(Effect.as(accepted))
