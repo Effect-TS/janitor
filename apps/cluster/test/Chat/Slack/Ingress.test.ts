@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
-import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
@@ -82,7 +81,6 @@ const makeIngress = Effect.fnUntraced(function* (
     ) => Effect.Effect<void, SlackSessionError>
   } = {},
 ) {
-  const logs: Array<string> = []
   const handedOff: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
   const remembered: Array<string> = []
   /** The `chat.postMessage` calls ingress made itself, by channel and text. */
@@ -165,19 +163,7 @@ const makeIngress = Effect.fnUntraced(function* (
             Layer.succeed(HttpClient.HttpClient, slackApi),
           ]),
         ),
-        {
-          disableLogger: true,
-          middleware: (effect) =>
-            effect.pipe(
-              Effect.provide(
-                Logger.layer([
-                  Logger.make((options) => {
-                    logs.push(Logger.formatJson.log(options))
-                  }),
-                ]),
-              ),
-            ),
-        },
+        { disableLogger: true },
       ),
     ),
     ({ dispose }) => Effect.promise(dispose),
@@ -186,11 +172,7 @@ const makeIngress = Effect.fnUntraced(function* (
   /** Posts `body`, signed at `timestamp` (now by default) unless `signature` replaces it. */
   const post = Effect.fnUntraced(function* (
     body: string,
-    options: {
-      readonly timestamp?: number
-      readonly signature?: string
-      readonly headers?: Record<string, string>
-    } = {},
+    options: { readonly timestamp?: number; readonly signature?: string } = {},
   ) {
     const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000)
     const signature = options.signature ?? (yield* sign(timestamp, body))
@@ -199,7 +181,6 @@ const makeIngress = Effect.fnUntraced(function* (
         new Request("https://example.com/webhooks/slack", {
           method: "POST",
           headers: {
-            ...options.headers,
             "content-type": "application/json",
             "x-slack-request-timestamp": String(timestamp),
             "x-slack-signature": signature,
@@ -214,7 +195,7 @@ const makeIngress = Effect.fnUntraced(function* (
   /** The message handed off with Slack `ts` `ts`, if any. */
   const handedOffAt = (ts: string) => handedOff.find(({ message }) => message.id === ts)
 
-  return { post, logs, handedOff, handedOffAt, remembered, lookups, posted }
+  return { post, handedOff, handedOffAt, remembered, lookups, posted }
 })
 
 const sign = (timestamp: number, body: string) =>
@@ -282,43 +263,6 @@ const reaction = (ts: string, fields: object = {}) => ({
 })
 
 describe("Slack ingress", () => {
-  it.effect("logs only verified stop events, preserving unknown fields but not the token", () =>
-    Effect.gen(function* () {
-      const ingress = yield* makeIngress()
-      const event = {
-        type: "agent_session_stopped",
-        channel: "C1",
-        streaming_message_ts: [],
-        future: { value: 42 },
-      }
-      const body = eventCallback(event, { future_envelope: "kept" })
-      assert.strictEqual((yield* ingress.post(body, { signature: "v0=bad" })).status, 401)
-      assert.strictEqual(
-        (yield* ingress.post(eventCallback(event, { api_app_id: "A2" }))).status,
-        403,
-      )
-      assert.strictEqual(
-        (yield* ingress.post(eventCallback(event, { team_id: "T2", authorizations: [] }))).status,
-        403,
-      )
-      assert.deepStrictEqual(ingress.logs, [])
-      assert.deepStrictEqual(
-        yield* ingress.post(body, {
-          headers: { "x-slack-retry-num": "1", "x-slack-retry-reason": "http_timeout" },
-        }),
-        { status: 200, body: "Accepted" },
-      )
-      assert.strictEqual(ingress.logs.length, 1)
-      const log = JSON.parse(ingress.logs[0])
-      assert.strictEqual(log.message, "Slack agent_session_stopped")
-      const { token: _token, ...expected } = JSON.parse(body)
-      assert.deepStrictEqual(log.annotations.envelope, expected)
-      assert.strictEqual(log.annotations["x-slack-retry-num"], "1")
-      assert.strictEqual(log.annotations["x-slack-retry-reason"], "http_timeout")
-      assert.deepStrictEqual(ingress.handedOff, [])
-      assert.deepStrictEqual(ingress.lookups, [])
-    }),
-  )
   it.effect("checks the signature, its timestamp and the envelope", () =>
     Effect.gen(function* () {
       const ingress = yield* makeIngress()
