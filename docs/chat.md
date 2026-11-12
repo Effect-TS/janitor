@@ -43,7 +43,7 @@ Chat turns and their sub-agents request OpenAI priority processing with `service
 
 | Setting                    | Default              | Meaning                                                                                |
 | -------------------------- | -------------------- | -------------------------------------------------------------------------------------- |
-| `CHAT_AI_MODEL`            | `openai/gpt-6.1-sol` | The model turns run on, as the endpoint names it                                       |
+| `CHAT_AI_MODEL`            | `openai/gpt-6-astra` | The model turns run on, as the endpoint names it                                       |
 | `CHAT_AI_SUBAGENT_MODEL`   | the turn's model     | The model sub-agents run on                                                            |
 | `CHAT_AI_REASONING_EFFORT` | `medium`             | Sent as `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
 | `CHAT_AI_VIA_TAILNET`      | `false`              | Send model calls through the tailnet egress, as `PR_REVIEW_AI_VIA_TAILNET` does        |
