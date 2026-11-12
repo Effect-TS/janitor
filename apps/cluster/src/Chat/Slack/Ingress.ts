@@ -133,59 +133,6 @@ const SlackHeaders = Schema.Struct({
   "x-slack-request-timestamp": Schema.String,
 })
 
-// Temporary EFF-3709 fixture capture: includes private test-channel message text.
-// Remove once EFF-3694 has recorded its Events API fixtures.
-const captureChannel = "C0CH1LGJ4F3"
-const captureEvent = (event: unknown): boolean => {
-  if (typeof event !== "object" || event === null) return false
-  const value = event as Record<string, unknown>
-  switch (value.type) {
-    case "message":
-    case "app_mention":
-    case "agent_session_stopped":
-      return value.channel === captureChannel
-    case "reaction_added":
-    case "reaction_removed":
-      return (
-        typeof value.item === "object" &&
-        value.item !== null &&
-        "channel" in value.item &&
-        value.item.channel === captureChannel
-      )
-    default:
-      return false
-  }
-}
-
-/** Split validated JSON at envelope commas, preserving every retained member verbatim. */
-const withoutEnvelopeToken = (body: string): string => {
-  const open = body.indexOf("{")
-  const members: Array<string> = []
-  let start = open + 1
-  let depth = 1
-  let quoted = false
-  for (let i = start; i < body.length; i++) {
-    const char = body[i]
-    if (quoted) {
-      if (char === "\\") i++
-      else if (char === '"') quoted = false
-      continue
-    }
-    if (char === '"') quoted = true
-    else if (char === "{" || char === "[") depth++
-    else if (char === "}" || char === "]") depth--
-    if ((char === "," && depth === 1) || depth === 0) {
-      const member = body.slice(start, i)
-      const key = /^\s*("(?:[^"\\]|\\.)*")\s*:/.exec(member)?.[1]
-      if (key === undefined || JSON.parse(key) !== "token") members.push(member)
-      start = i + 1
-      if (depth === 0) return body.slice(0, open + 1) + members.join(",") + body.slice(i)
-    }
-  }
-  // The envelope decoder validated this object before capture. Fail closed otherwise.
-  throw new Error("Invalid capture envelope")
-}
-
 const Routes = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* SlackConfig
@@ -340,8 +287,7 @@ const Routes = Layer.unwrap(
         }).pipe(Effect.catchTag("InvalidSignatureError", () => Effect.succeed(false)))
         if (!valid) return invalidSignature
 
-        const rawBody = new TextDecoder().decode(body)
-        const envelope = decodeEnvelope(rawBody)
+        const envelope = decodeEnvelope(new TextDecoder().decode(body))
         if (envelope._tag === "None")
           return HttpServerResponse.text("Invalid envelope", { status: 400 })
         if (envelope.value.type === "url_verification")
@@ -349,18 +295,6 @@ const Routes = Layer.unwrap(
         if (envelope.value.type !== "event_callback") return accepted
         if (!forWorkspace(envelope.value) || envelope.value.api_app_id !== config.appId)
           return HttpServerResponse.text("Wrong app or workspace", { status: 403 })
-        if (captureEvent(envelope.value.event))
-          yield* Effect.logInfo("Slack fixture capture").pipe(
-            Effect.annotateLogs({
-              body: withoutEnvelopeToken(rawBody),
-              headers: JSON.stringify({
-                "x-slack-request-timestamp": request.headers["x-slack-request-timestamp"],
-                "x-slack-retry-num": request.headers["x-slack-retry-num"],
-                "x-slack-retry-reason": request.headers["x-slack-retry-reason"],
-                "content-type": request.headers["content-type"],
-              }),
-            }),
-          )
         const thumbsUp = decodeThumbsUp(envelope.value.event)
         if (thumbsUp._tag === "Some")
           return yield* handleReaction(thumbsUp.value).pipe(Effect.as(accepted))
