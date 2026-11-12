@@ -4,8 +4,10 @@ import * as Effect from "effect/Effect"
 import * as Hex from "effect/encoding/Hex"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
+import { CurrentLogAnnotations } from "effect/References"
 import * as HttpClient from "effect/http/HttpClient"
 import type * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
@@ -86,6 +88,7 @@ const makeIngress = Effect.fnUntraced(function* (
   /** The `chat.postMessage` calls ingress made itself, by channel and text. */
   const posted: Array<{ readonly channel: string | null; readonly text: string | null }> = []
   const lookups: Array<string> = []
+  const captures: Array<{ readonly body: string; readonly headers: string }> = []
 
   const slackApi = HttpClient.make((request) =>
     Effect.sync(() => {
@@ -162,6 +165,22 @@ const makeIngress = Effect.fnUntraced(function* (
             Layer.succeed(SlackSessions, sessions),
             Layer.succeed(HttpClient.HttpClient, slackApi),
           ]),
+          Layer.provideMerge(
+            Logger.layer([
+              Logger.make((options) => {
+                if (
+                  Array.isArray(options.message) &&
+                  options.message.includes("Slack fixture capture")
+                ) {
+                  const annotations = options.fiber.getRef(CurrentLogAnnotations)
+                  captures.push({
+                    body: annotations.body as string,
+                    headers: annotations.headers as string,
+                  })
+                }
+              }),
+            ]),
+          ),
         ),
         { disableLogger: true },
       ),
@@ -172,7 +191,11 @@ const makeIngress = Effect.fnUntraced(function* (
   /** Posts `body`, signed at `timestamp` (now by default) unless `signature` replaces it. */
   const post = Effect.fnUntraced(function* (
     body: string,
-    options: { readonly timestamp?: number; readonly signature?: string } = {},
+    options: {
+      readonly timestamp?: number
+      readonly signature?: string
+      readonly headers?: Record<string, string>
+    } = {},
   ) {
     const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000)
     const signature = options.signature ?? (yield* sign(timestamp, body))
@@ -184,6 +207,7 @@ const makeIngress = Effect.fnUntraced(function* (
             "content-type": "application/json",
             "x-slack-request-timestamp": String(timestamp),
             "x-slack-signature": signature,
+            ...options.headers,
           },
           body,
         }),
@@ -195,7 +219,7 @@ const makeIngress = Effect.fnUntraced(function* (
   /** The message handed off with Slack `ts` `ts`, if any. */
   const handedOffAt = (ts: string) => handedOff.find(({ message }) => message.id === ts)
 
-  return { post, handedOff, handedOffAt, remembered, lookups, posted }
+  return { post, handedOff, handedOffAt, remembered, lookups, posted, captures }
 })
 
 const sign = (timestamp: number, body: string) =>
@@ -263,6 +287,128 @@ const reaction = (ts: string, fields: object = {}) => ({
 })
 
 describe("Slack ingress", () => {
+  it.effect("captures raw fixtures without top-level tokens or private headers", () =>
+    Effect.gen(function* () {
+      const ingress = yield* makeIngress()
+      const timestamp = Math.floor(Date.now() / 1000)
+      const fields = [
+        '"type": "event_callback"',
+        '"team_id":"T1","api_app_id":"A1"',
+        '"event": { "type":"message", "channel":"C0CH1LGJ4F3", "subtype":"message_changed", "token":"nested", "text":"escaped\\ntext", "extra":1e+02 }',
+        '"extra":[true, null, {"token":"also nested"}],"duplicate":1,"duplicate":2',
+      ]
+      const raw = "{\n" + fields.join(",\n") + "\n}"
+      const bodies = [raw]
+      for (const index of [0, 1, fields.length]) {
+        const withToken = [...fields]
+        withToken.splice(index, 0, '"token":"secret"', '"to\\u006ben":"escaped secret"')
+        bodies.push("{\n" + withToken.join(",\n") + "\n}")
+      }
+      for (const body of bodies) {
+        assert.strictEqual(
+          (yield* ingress.post(body, {
+            timestamp,
+            headers: {
+              "x-slack-retry-num": "2",
+              "x-slack-retry-reason": "http_timeout",
+              authorization: "Bearer private",
+              cookie: "private=cookie",
+              "x-private": "private header",
+            },
+          })).status,
+          200,
+        )
+        const captured = ingress.captures.at(-1)!
+        assert.isString(captured.body)
+        assert.deepStrictEqual(JSON.parse(captured.body), JSON.parse(raw))
+        for (const field of fields) assert.include(captured.body, field)
+        assert.notInclude(captured.body, "secret")
+        assert.deepStrictEqual(JSON.parse(captured.headers), {
+          "content-type": "application/json",
+          "x-slack-request-timestamp": String(timestamp),
+          "x-slack-retry-num": "2",
+          "x-slack-retry-reason": "http_timeout",
+        })
+      }
+      assert.strictEqual(ingress.captures[0]!.body, raw)
+      assert.lengthOf(ingress.captures, bodies.length)
+      assert.deepStrictEqual(ingress.handedOff, [])
+    }),
+  )
+
+  it.effect("captures supported channel events before filtering message subtypes", () =>
+    Effect.gen(function* () {
+      const ingress = yield* makeIngress()
+      const channel = "C0CH1LGJ4F3"
+      const timestamp = Math.floor(Date.now() / 1000)
+      const events = [
+        mention("1700000001.000100", { channel }),
+        message("1700000002.000100", { channel, thread_ts: SESSION_THREAD }),
+        ...[
+          "message_changed",
+          "message_deleted",
+          "bot_message",
+          "channel_join",
+          "future_subtype",
+        ].map((subtype) => message("1700000003.000100", { channel, subtype })),
+        reaction("1700000050.000100", {
+          item: { type: "message", channel, ts: "1700000050.000100" },
+        }),
+        reaction("1700000050.000100", {
+          type: "reaction_removed",
+          item: { type: "message", channel, ts: "1700000050.000100" },
+        }),
+        { type: "agent_session_stopped", channel, unknown: { field: "preserved" } },
+      ]
+      for (const event of events) {
+        assert.strictEqual((yield* ingress.post(eventCallback(event), { timestamp })).status, 200)
+        assert.deepStrictEqual(JSON.parse(ingress.captures.at(-1)!.body).event, event)
+      }
+      assert.lengthOf(ingress.captures, events.length)
+      assert.deepStrictEqual(JSON.parse(ingress.captures[0]!.headers), {
+        "content-type": "application/json",
+        "x-slack-request-timestamp": String(timestamp),
+      })
+      assert.lengthOf(ingress.handedOff, 3)
+      assert.isDefined(ingress.handedOffAt("1700000001.000100"))
+      assert.isDefined(ingress.handedOffAt("1700000002.000100"))
+      assert.isUndefined(ingress.handedOffAt("1700000003.000100"))
+    }),
+  )
+
+  it.effect("does not capture unverified, unrelated or unsupported deliveries", () =>
+    Effect.gen(function* () {
+      const ingress = yield* makeIngress()
+      const event = message("1700000001.000100", { channel: "C0CH1LGJ4F3" })
+      assert.strictEqual(
+        (yield* ingress.post(eventCallback(event), { signature: "v0=invalid" })).status,
+        401,
+      )
+      assert.strictEqual(
+        (yield* ingress.post(eventCallback(event), {
+          timestamp: Math.floor(Date.now() / 1000) - 301,
+        })).status,
+        401,
+      )
+      assert.strictEqual(
+        (yield* ingress.post(eventCallback(event, { team_id: "T2", authorizations: [] }))).status,
+        403,
+      )
+      assert.strictEqual(
+        (yield* ingress.post(eventCallback(event, { api_app_id: "A2" }))).status,
+        403,
+      )
+      for (const body of [
+        eventCallback(message("1700000001.000100")),
+        eventCallback({ type: "unsupported", channel: "C0CH1LGJ4F3" }),
+        eventCallback(reaction("1700000050.000100", { channel: "C0CH1LGJ4F3" })),
+        eventCallback(event, { type: "url_verification", challenge: "challenge" }),
+      ])
+        assert.strictEqual((yield* ingress.post(body)).status, 200)
+      assert.deepStrictEqual(ingress.captures, [])
+    }),
+  )
+
   it.effect("checks the signature, its timestamp and the envelope", () =>
     Effect.gen(function* () {
       const ingress = yield* makeIngress()
