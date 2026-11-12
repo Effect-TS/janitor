@@ -193,7 +193,7 @@ export const chatBotGate: Config.Config<boolean> = Config.all({
   apiKey: chatAiApiKey,
 }).pipe(Config.map(({ apiUrl, apiKey }) => Option.isSome(apiUrl) && Option.isSome(apiKey)))
 
-export const DEFAULT_CHAT_MODEL = "openai/gpt-6.1-sol"
+export const DEFAULT_CHAT_MODEL = "openai/gpt-6-astra"
 
 /** The default reply gate model: Jev, as labeling uses (ADR 0013). */
 export const DEFAULT_CHAT_GATE_MODEL = "typesafe/jev-1.13"
