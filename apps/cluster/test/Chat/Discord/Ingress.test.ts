@@ -1,5 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
+import { DispatchHook } from "dfx/DiscordGateway/Shard/DispatchHook"
 import type * as Discord from "dfx/types"
+import { GatewayDispatchEvents } from "dfx/types"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
@@ -103,19 +105,21 @@ const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
    * over the same sessions and storage.
    */
   const ingress = Effect.gen(function* () {
-    return (yield* DiscordIngress.DiscordIngress).dispatch
+    const hook = yield* DispatchHook
+    return (payload: Discord.GatewayDispatchPayload) =>
+      hook(payload, { shard: [0, 1], sessionId: "session" })
   }).pipe(Effect.provide(DiscordIngress.layer.pipe(Layer.provide(services))))
   /** Feeds a `MESSAGE_CREATE` to the instance, as the gateway's shard does. */
   const instance = Effect.map(
     ingress,
     (dispatch) => (d: Discord.GatewayMessageCreateDispatchData) =>
-      dispatch({ t: "MESSAGE_CREATE", d }),
+      dispatch({ op: 0, s: 1, t: GatewayDispatchEvents.MessageCreate, d }),
   )
   /** Feeds a `MESSAGE_REACTION_ADD` to the instance. */
   const reactions = Effect.map(
     ingress,
     (dispatch) => (d: Discord.GatewayMessageReactionAddDispatchData) =>
-      dispatch({ t: "MESSAGE_REACTION_ADD", d }),
+      dispatch({ op: 0, s: 1, t: GatewayDispatchEvents.MessageReactionAdd, d }),
   )
 
   /** The message handed off with id `id`, if any. */
