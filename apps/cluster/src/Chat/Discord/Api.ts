@@ -127,7 +127,6 @@ export const connect = Effect.fnUntraced(function* (config: DiscordBotConfig["Se
 
   return ((thread: ChatThreads.ChatThread, limit: number) =>
     Effect.gen(function* () {
-      const bot = yield* discord.botUserId
       const latest = yield* chat.history(thread, { direction: "backward" }).pipe(
         Stream.take(limit),
         Stream.runCollect,
@@ -140,7 +139,9 @@ export const connect = Effect.fnUntraced(function* (config: DiscordBotConfig["Se
         Option.isSome(opener) && !latest.some(({ id }) => id === opener.value.id)
           ? [opener.value, ...latest]
           : latest
-      const managedRole = messages.some(mentionsRole) ? yield* botRoleId(bot) : undefined
+      const managedRole = messages.some(mentionsRole)
+        ? yield* botRoleId(yield* discord.botUserId)
+        : undefined
       const people = new Set(
         messages.filter((message) => !message.author.isBot).map(({ author }) => author.id),
       )
@@ -155,7 +156,7 @@ export const connect = Effect.fnUntraced(function* (config: DiscordBotConfig["Se
         sessionMessage(
           message,
           toAuthor(message.author, members.get(message.author.id), config.roleId),
-          { isBot: isBotMention(managedRole), botUserId: bot },
+          { isBot: isBotMention(managedRole) },
         ),
       )
     })) satisfies Backfill

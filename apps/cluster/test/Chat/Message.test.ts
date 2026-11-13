@@ -39,9 +39,11 @@ describe("sessionMessage", () => {
 
   it("a reply to the bot mentions it without a ping", () => {
     const message = sessionMessage(
-      discordMessage("500", { text: "thanks", replyTo: { messageId: "999", authorId: "300" } }),
+      discordMessage("500", {
+        text: "thanks",
+        replyTo: { messageId: "999", authorId: "300", isSelf: true },
+      }),
       author,
-      { botUserId: "300" },
     )
     assert.isTrue(message.mentionsBot)
     assert.strictEqual(message.answers, "300")

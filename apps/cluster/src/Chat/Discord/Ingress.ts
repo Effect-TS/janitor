@@ -123,13 +123,13 @@ const handler = Effect.gen(function* () {
     // Webhooks and system messages have no member.
     const member = DiscordChat.member(event)
     if (Option.isNone(member)) return yield* drop("no member")
-    const bot = yield* discord.botUserId
     const chatMessage = sessionMessage(
       message,
       toAuthor(message.author, member.value, config.roleId),
       {
-        isBot: isBotMention(mentionsRole(message) ? yield* botRoleId(bot) : undefined),
-        botUserId: bot,
+        isBot: isBotMention(
+          mentionsRole(message) ? yield* botRoleId(yield* discord.botUserId) : undefined,
+        ),
       },
     )
     // Only an admitted user's mention starts a session.

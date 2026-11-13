@@ -1,6 +1,6 @@
 import * as DiscordChat from "@effect/chat-discord/DiscordChat"
 import * as SlackChat from "@effect/chat-slack/SlackChat"
-import type * as ChatMessages from "effect/chat/ChatMessage"
+import * as ChatMessages from "effect/chat/ChatMessage"
 import type * as ChatThreads from "effect/chat/ChatThread"
 import type { ChatAttachment, ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 
@@ -46,7 +46,7 @@ export const approvalMessageId = (messageId: string, userId: string): string =>
  * An `effect/chat` message as its session keeps it: `author` as admission
  * classified them, and the text without the mentions `isBot` picks, cut by
  * their offsets so only mentions the platform resolved outside code go. It
- * mentions the bot when it has such a mention, or answers `botUserId`: a
+ * mentions the bot when it has such a mention, or replies to the bot: a
  * reply to one of the bot's messages is addressed to the bot whether or not
  * it pings (EFF-3137).
  *
@@ -56,10 +56,7 @@ export const approvalMessageId = (messageId: string, userId: string): string =>
 export const sessionMessage = (
   message: ChatMessages.ChatMessage,
   author: ChatMessage["author"],
-  options: {
-    readonly isBot?: ((mention: ChatMessages.Mention) => boolean) | undefined
-    readonly botUserId?: string | undefined
-  } = {},
+  options: { readonly isBot?: ((mention: ChatMessages.Mention) => boolean) | undefined } = {},
 ): ChatMessage => {
   const isBot = options.isBot ?? ((mention: ChatMessages.Mention) => mention.isSelf)
   const answers = message.replyTo?.authorId
@@ -70,7 +67,7 @@ export const sessionMessage = (
     id: message.id,
     author,
     text: text.trim(),
-    mentionsBot: cut.length > 0 || (answers !== undefined && answers === options.botUserId),
+    mentionsBot: cut.length > 0 || ChatMessages.repliesToSelf(message),
     sentAt: message.timestamp,
     attachments: message.attachments.map((attachment) => ({
       id:
