@@ -7,7 +7,7 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
 import * as DiscordIngress from "../../../src/Chat/Discord/Ingress.ts"
-import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
+import type { ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 
 /**
  * The gateway's ingress, from a `MESSAGE_CREATE` to what it hands the chat

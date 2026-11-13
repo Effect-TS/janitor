@@ -32,20 +32,21 @@ import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as TestClock from "effect/testing/TestClock"
 import type { SessionSummary } from "@janitor/domain/Chat/Session"
+import * as Chat from "effect/chat/Chat"
+import * as ChatAdapter from "effect/chat/ChatAdapter"
+import { ChatError, Forbidden, NotFound, RateLimited, TooLarge } from "effect/chat/ChatError"
+import * as ChatThreads from "effect/chat/ChatThread"
 import { ChatKillSwitch, type KillSwitchState } from "../../src/Chat/KillSwitch.ts"
-import {
-  type AuthorClass,
-  type ChatAttachment,
-  type ChatFile,
-  type ChatMessage,
-  ChatPlatform,
-  ChatPlatformError,
-  type ChatThread,
-  sessionKey,
-} from "../../src/Chat/Platform.ts"
+import type {
+  AuthorClass,
+  ChatAttachment,
+  ChatMessage,
+  ChatThread,
+} from "@janitor/domain/Chat/Session"
+import { address, sessionKey } from "../../src/Chat/Message.ts"
 import { ChatSandboxes, SandboxReadFailed } from "../../src/Chat/Sandbox/Sandboxes.ts"
 import { SandboxBusy } from "../../src/Chat/Sandbox/Pool.ts"
-import { ChatSession, ChatSessionLayer } from "../../src/Chat/Session.ts"
+import { ChatBackfill, ChatSession, ChatSessionLayer } from "../../src/Chat/Session.ts"
 import { ChatSessionIndex } from "../../src/Chat/SessionIndex.ts"
 
 /**
@@ -409,7 +410,11 @@ export interface FakeStatus {
   deleted: boolean
 }
 
-/** Slack and Discord. Status messages, replies and downloads are recorded. */
+/**
+ * Slack and Discord behind `Chat`: one fake adapter registered for both,
+ * and the backfill. Status messages (every post of "Starting" and its
+ * edits), replies and downloads are recorded by the session's thread.
+ */
 export class FakePlatform {
   readonly statuses: Array<FakeStatus> = []
   readonly statusDeletes: Array<{ readonly thread: ChatThread; readonly messageId: string }> = []
@@ -417,8 +422,10 @@ export class FakePlatform {
   failStatusDeletes = false
   readonly replies: Array<{ readonly thread: ChatThread; readonly text: string }> = []
   /** The files posted with each reply that carried any, with that reply's text. */
-  readonly replyFiles: Array<{ readonly text: string; readonly files: ReadonlyArray<ChatFile> }> =
-    []
+  readonly replyFiles: Array<{
+    readonly text: string
+    readonly files: ReadonlyArray<ChatAdapter.File>
+  }> = []
   /** Replies still being posted. */
   posting = 0
   /** While set, posting a reply waits for it. */
@@ -442,6 +449,9 @@ export class FakePlatform {
   /** Attachments whose download waits for `releaseDownloads`. */
   private readonly held = new Set<string>()
   private released = Deferred.makeUnsafe<void>()
+  /** The session threads the harness used, by their `effect/chat` address. */
+  private readonly threads = new Map<string, ChatThread>()
+  private posts = 0
 
   /** Holds the download of attachment `id` until `releaseDownloads`, as a slow transfer would. */
   holdDownload(id: string) {
@@ -455,6 +465,15 @@ export class FakePlatform {
     Deferred.doneUnsafe(released, Effect.void)
   }
 
+  /** Remembers a session's thread, so what reaches its address is recorded by it. */
+  remember(thread: ChatThread) {
+    this.threads.set(ChatThreads.toString(address(thread)), thread)
+  }
+
+  private sessionThread(to: ChatThreads.ChatThread): ChatThread {
+    return this.threads.get(ChatThreads.toString(to))!
+  }
+
   /** The latest text of each status message in `thread`, in order. */
   statusTexts(thread: ChatThread) {
     return this.statuses
@@ -463,61 +482,96 @@ export class FakePlatform {
       .map((status) => status.texts.at(-1)!)
   }
 
-  readonly deleteStatus = (thread: ChatThread, messageId: string) =>
-    Effect.suspend(() => {
-      this.statusDeletes.push({ thread, messageId })
-      if (this.failStatusDeletes)
-        return Effect.fail(new ChatPlatformError({ message: "missing_permissions" }))
-      this.statuses[Number(messageId)]!.deleted = true
-      return Effect.void
-    })
-
-  get layer() {
-    return Layer.succeed(ChatPlatform, {
-      deleteStatus: this.deleteStatus,
-      postStatus: (thread, text) =>
-        Effect.sync(() =>
-          String(this.statuses.push({ thread, texts: [text], deleted: false }) - 1),
-        ),
-      editStatus: (_thread, messageId, text) =>
-        Effect.sync(() => {
-          this.statuses[Number(messageId)]!.texts.push(text)
-        }),
-      postReply: (thread, text, options) =>
+  private adapter(platform: string): ChatAdapter.ChatAdapter {
+    const fail = (op: string, reason: ChatError["reason"]) =>
+      Effect.fail(new ChatError({ platform, op, reason }))
+    const unsupported = (op: string) => fail(op, new NotFound({ detail: "not_faked" }))
+    return {
+      descriptor: {
+        platform,
+        capabilities: new Set(["edit", "delete", "files", "replyTo"]),
+        measure: (markdown) => markdown.length,
+        limits: {
+          messageLength: 1_000_000,
+          filesPerMessage: 10,
+          uploadBytes: 100 * 1024 * 1024,
+          minWriteInterval: Duration.zero,
+        },
+      },
+      post: (to, content) =>
         Effect.gen({ self: this }, function* () {
+          const thread = this.sessionThread(to)
+          const timestamp = yield* DateTime.now
+          if (content.markdown === "Starting") {
+            const id = String(
+              this.statuses.push({ thread, texts: [content.markdown], deleted: false }) - 1,
+            )
+            return { id, thread: to, timestamp }
+          }
           this.posting += 1
           if (this.holdReplies !== undefined) yield* Deferred.await(this.holdReplies)
           this.posting -= 1
           if (this.failReplies)
-            return yield* new ChatPlatformError({ message: "channel_not_found" })
-          const files = options?.files ?? []
-          this.replies.push({ thread, text })
-          if (files.length > 0) this.replyFiles.push({ text, files })
-          return { postedAt: yield* DateTime.now, text }
+            return yield* fail("post", new NotFound({ detail: "channel_not_found" }))
+          const files = content.files ?? []
+          this.replies.push({ thread, text: content.markdown })
+          if (files.length > 0) this.replyFiles.push({ text: content.markdown, files })
+          return { id: `reply-${++this.posts}`, thread: to, timestamp }
         }),
-      download: (_thread, attachment, maxBytes) =>
+      edit: (_to, messageId, content) =>
+        Effect.sync(() => {
+          this.statuses[Number(messageId)]?.texts.push(content.markdown)
+        }),
+      delete: (to, messageId) =>
         Effect.suspend(() => {
-          this.downloads.push(attachment.id)
-          if (this.holdDownloads) return Effect.never
-          return Effect.andThen(
-            this.held.has(attachment.id) ? Deferred.await(this.released) : Effect.void,
-            Effect.suspend(() => {
-              const content = this.files.get(attachment.id) ?? new Uint8Array()
-              return content.length > maxBytes
-                ? Effect.fail(new ChatPlatformError({ message: "file_too_large" }))
-                : Effect.succeed(content)
-            }),
+          this.statusDeletes.push({ thread: this.sessionThread(to), messageId })
+          if (this.failStatusDeletes)
+            return fail("delete", new Forbidden({ detail: "missing_permissions" }))
+          this.statuses[Number(messageId)]!.deleted = true
+          return Effect.void
+        }),
+      download: (_to, attachment, { maxBytes }) =>
+        Stream.fromEffect(
+          Effect.suspend(() => {
+            this.downloads.push(attachment.id)
+            if (this.holdDownloads) return Effect.never
+            return Effect.andThen(
+              this.held.has(attachment.id) ? Deferred.await(this.released) : Effect.void,
+              Effect.suspend(() => {
+                const content = this.files.get(attachment.id) ?? new Uint8Array()
+                return content.length > maxBytes
+                  ? fail("download", new TooLarge({ subject: "files", detail: "max_bytes" }))
+                  : Effect.succeed(content)
+              }),
+            )
+          }),
+        ),
+      fetchMessage: () => unsupported("fetchMessage"),
+      history: () => Stream.fromEffect(unsupported("history")),
+      startThread: () => unsupported("startThread"),
+      getThread: () => unsupported("getThread"),
+      opener: () => unsupported("opener"),
+      getUser: () => unsupported("getUser"),
+    }
+  }
+
+  private readonly backfill = () =>
+    Effect.suspend(() => {
+      this.historyReads += 1
+      if (this.holdHistory) return Effect.never
+      return this.failHistory
+        ? Effect.fail(
+            new ChatError({ platform: "slack", op: "history", reason: new RateLimited({}) }),
           )
-        }),
-      history: () =>
-        Effect.suspend(() => {
-          this.historyReads += 1
-          if (this.holdHistory) return Effect.never
-          return this.failHistory
-            ? Effect.fail(new ChatPlatformError({ message: "ratelimited" }))
-            : Effect.succeed(this.threadHistory)
-        }),
+        : Effect.succeed(this.threadHistory)
     })
+
+  get layer() {
+    return Layer.mergeAll(
+      Layer.succeed(ChatBackfill, { slack: this.backfill, discord: this.backfill }),
+      ChatAdapter.layer(Effect.succeed(this.adapter("slack"))),
+      ChatAdapter.layer(Effect.succeed(this.adapter("discord"))),
+    ).pipe(Layer.provideMerge(Chat.layer))
   }
 }
 
@@ -537,7 +591,8 @@ const makeRunner = <Extra>(options: {
   readonly filename: string
   readonly storage: Context.Context<MessageStorage.MemoryDriver>
   readonly services: Layer.Layer<
-    | ChatPlatform
+    | Chat.Chat
+    | ChatBackfill
     | ChatSandboxes
     | ChatKillSwitch
     | ChatSessionIndex
@@ -621,7 +676,10 @@ export const makeSessionHarnessWith = Effect.fnUntraced(function* <Extra>(
     Effect.suspend(() => Effect.provideContext(effect, runner))
 
   const client = (thread: ChatThread) =>
-    use(Effect.map(ChatSession.client, (make) => make(sessionKey(thread))))
+    Effect.andThen(
+      Effect.sync(() => platform.remember(thread)),
+      use(Effect.map(ChatSession.client, (make) => make(sessionKey(thread)))),
+    )
 
   /** Runs `effect` to completion while moving the clock in small steps. */
   const stepping = <A, E>(effect: Effect.Effect<A, E>, what: string) =>
@@ -661,7 +719,8 @@ export const makeSessionHarnessWith = Effect.fnUntraced(function* <Extra>(
       Effect.map(Clock.currentTimeMillis, (now): ChatMessage => {
         const name = options.author ?? "Ada"
         return {
-          id: `${1_700_000_100 + ++messages}.000100`,
+          // Digits only, so a Discord reply can point at it as at a snowflake.
+          id: `${1_700_000_100 + ++messages}000100`,
           author: { id: `U-${name}`, name, class: options.class ?? "admitted" },
           text,
           mentionsBot: options.mention ?? false,

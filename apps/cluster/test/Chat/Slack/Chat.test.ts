@@ -7,11 +7,16 @@ import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as TestClock from "effect/testing/TestClock"
-import { ChatPlatform, type ChatThread } from "../../../src/Chat/Platform.ts"
-import * as SlackPlatform from "../../../src/Chat/Slack/Platform.ts"
+import type { ChatThread } from "@janitor/domain/Chat/Session"
+import * as Chat from "effect/chat/Chat"
+import { address } from "../../../src/Chat/Message.ts"
+import { postReply } from "../../../src/Chat/Reply.ts"
+import { ChatBackfill } from "../../../src/Chat/Session.ts"
+import * as SlackApi from "../../../src/Chat/Slack/Api.ts"
 
 /**
- * Slack's `ChatPlatform` over a fake Slack Web API.
+ * Janitor's replies and backfill in Slack, through `Chat` and Slack's
+ * adapter over a fake Slack Web API.
  */
 
 const thread: ChatThread = {
@@ -114,12 +119,19 @@ const answer = (method: string, params: URLSearchParams): Response => {
   }
 }
 
-const services = SlackPlatform.layerFrom({
-  signingSecret: Redacted.make("secret"),
-  botToken: Redacted.make("xoxb-test"),
-  workspaceId: "T1",
-  appId: "A1",
-}).pipe(
+const services = Layer.effect(
+  ChatBackfill,
+  Effect.map(
+    SlackApi.connect({
+      signingSecret: Redacted.make("secret"),
+      botToken: Redacted.make("xoxb-test"),
+      workspaceId: "T1",
+      appId: "A1",
+    }),
+    (slack) => ({ slack }),
+  ),
+).pipe(
+  Layer.provideMerge(Chat.layer),
   Layer.provide(
     Layer.succeed(
       HttpClient.HttpClient,
@@ -167,19 +179,17 @@ const settle = <A, E, R>(reply: Effect.Effect<A, E, R>) =>
     return yield* Fiber.join(fiber)
   })
 
-describe("Slack platform", () => {
+describe("Slack replies and backfill", () => {
   it.effect(
     "retries a rate-limited post after Retry-After, and never an uncertain or refused one",
     () =>
       Effect.gen(function* () {
-        const platform = yield* ChatPlatform
-
         posts = 0
         respond = (post) =>
           post === 1
             ? new Response("", { status: 429, headers: { "retry-after": "47" } })
             : Response.json({ ok: true, ts: "1700000001.000100" })
-        const throttled = yield* platform.postReply(thread, "hello").pipe(Effect.forkChild)
+        const throttled = yield* postReply(address(thread), "hello").pipe(Effect.forkChild)
         yield* TestClock.adjust("46 seconds")
         assert.strictEqual(posts, 1)
         yield* TestClock.adjust("1 second")
@@ -192,7 +202,7 @@ describe("Slack platform", () => {
         ]) {
           posts = 0
           respond = response
-          const failing = yield* platform.postReply(thread, "hello").pipe(Effect.forkChild)
+          const failing = yield* postReply(address(thread), "hello").pipe(Effect.forkChild)
           yield* TestClock.adjust("10 minutes")
           assert.isTrue(Exit.isFailure(yield* Fiber.await(failing)))
           assert.strictEqual(posts, 1)
@@ -204,8 +214,8 @@ describe("Slack platform", () => {
     "the backfill reads the thread to its last page and keeps the latest new messages",
     () =>
       Effect.gen(function* () {
-        const platform = yield* ChatPlatform
-        const messages = yield* platform.history(thread, 3)
+        const backfill = (yield* ChatBackfill)["slack"]!
+        const messages = yield* backfill(address(thread), 3)
         assert.deepStrictEqual(
           messages.map((message) => message.text),
           ["reply 57", "reply 58", "reply 60"],
@@ -225,11 +235,10 @@ describe("Slack platform", () => {
 
   it.effect("posts a reply with its files as one message in the thread, without unfurls", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       yield* reset
       const text = "Here's the **plot**, from [run 7](https://ci.test/runs(7))."
 
-      const reply = yield* settle(platform.postReply(thread, text, { files: [plot] }))
+      const reply = yield* settle(postReply(address(thread), text, { files: [plot] }))
 
       assert.strictEqual(reply.text, text)
       assert.deepStrictEqual(uploads, [{ type: "image/png", content: plot.content }])
@@ -249,12 +258,11 @@ describe("Slack platform", () => {
   for (const refused of ["staging", "completing", "attaching"] as const) {
     it.effect(`a reply whose files are refused ${refused} goes out as text, naming them`, () =>
       Effect.gen(function* () {
-        const platform = yield* ChatPlatform
         yield* reset
         refuseFiles = refused
         const text = `${"a".repeat(11_990)}\n\n${"b".repeat(100)}`
 
-        const reply = yield* settle(platform.postReply(thread, text, { files: [plot] }))
+        const reply = yield* settle(postReply(address(thread), text, { files: [plot] }))
 
         const note = "(Couldn't attach plot.png.)"
         assert.strictEqual(reply.text, `${text}\n\n${note}`)
@@ -276,12 +284,11 @@ describe("Slack platform", () => {
     "posts the first three parts of a long reply and the rest as reply.md, with its files",
     () =>
       Effect.gen(function* () {
-        const platform = yield* ChatPlatform
         yield* reset
         const paragraph = `${"a".repeat(11_000)}\n\n`
         const text = paragraph.repeat(4)
 
-        const reply = yield* settle(platform.postReply(thread, text, { files: [plot] }))
+        const reply = yield* settle(postReply(address(thread), text, { files: [plot] }))
 
         assert.strictEqual(reply.text, text)
         assert.deepStrictEqual(sent.slice(0, 3), [paragraph, paragraph, paragraph])
@@ -298,24 +305,22 @@ describe("Slack platform", () => {
 
   it.effect("posts to a channel shared with another organization", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       yield* reset
       const shared: ChatThread = { ...thread, channel: "C-shared" }
-      yield* settle(platform.postReply(shared, "hello"))
-      yield* platform.postStatus(shared, "Starting")
+      yield* settle(postReply(address(shared), "hello"))
+      yield* Chat.Chat.use((chat) => chat.post(address(shared), { markdown: "Starting" }))
       assert.strictEqual(posts, 2)
     }).pipe(Effect.provide(services)),
   )
 
   it.effect("posts the overflow of a long reply whose files are refused as text, naming them", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       yield* reset
       refuseFiles = "staging"
       const paragraph = `${"a".repeat(11_000)}\n\n`
       const text = paragraph.repeat(4)
 
-      const reply = yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+      const reply = yield* settle(postReply(address(thread), text, { files: [plot] })).pipe(
         Effect.ensuring(Effect.sync(() => (refuseFiles = undefined))),
       )
 

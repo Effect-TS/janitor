@@ -11,7 +11,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
-import type { ChatMessage } from "./Platform.ts"
+import type { ChatMessage } from "@janitor/domain/Chat/Session"
 
 /**
  * The reply gate (EFF-2959): whether a thread message that doesn't mention

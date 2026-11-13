@@ -13,7 +13,7 @@ import * as SqlError from "effect/sql/SqlError"
 import { type McpCredential, McpCredentials, McpUnavailable } from "../../src/Chat/McpCredential.ts"
 import { ChatMcpServers } from "../../src/Chat/McpServers.ts"
 import { McpServerStore } from "../../src/Chat/McpServerStore.ts"
-import type { ChatThread } from "../../src/Chat/Platform.ts"
+import type { ChatThread } from "@janitor/domain/Chat/Session"
 import { SlackConfig } from "../../src/Chat/Slack/Config.ts"
 import {
   callTool,

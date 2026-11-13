@@ -7,11 +7,16 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as UrlParams from "effect/http/UrlParams"
 import * as TestClock from "effect/testing/TestClock"
-import * as DiscordPlatform from "../../../src/Chat/Discord/Platform.ts"
-import { approvalMessageId, ChatPlatform, type ChatThread } from "../../../src/Chat/Platform.ts"
+import type { ChatThread } from "@janitor/domain/Chat/Session"
+import * as Chat from "effect/chat/Chat"
+import * as DiscordApi from "../../../src/Chat/Discord/Api.ts"
+import { address, approvalMessageId } from "../../../src/Chat/Message.ts"
+import { postReply } from "../../../src/Chat/Reply.ts"
+import { ChatBackfill } from "../../../src/Chat/Session.ts"
 
 /**
- * Discord's `ChatPlatform` over a fake Discord REST API.
+ * Janitor's replies and backfill in Discord, through `Chat` and Discord's
+ * adapter over a fake Discord REST API.
  */
 
 const thread: ChatThread = { _tag: "Discord", guild: "100", threadId: "500" }
@@ -193,11 +198,18 @@ const respond = (
 }
 
 const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
-  DiscordPlatform.layerFrom({
-    botToken: Redacted.make("bot-token"),
-    guildId: "100",
-    roleId: "200",
-  }).pipe(
+  Layer.effect(
+    ChatBackfill,
+    Effect.map(
+      DiscordApi.connect({
+        botToken: Redacted.make("bot-token"),
+        guildId: "100",
+        roleId: "200",
+      }),
+      (discord) => ({ discord }),
+    ),
+  ).pipe(
+    Layer.provideMerge(Chat.layer),
     Layer.provide([
       Layer.succeed(
         HttpClient.HttpClient,
@@ -272,6 +284,10 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
 const services = makeServices()
 
 /** Runs a reply to the end, moving the clock past the adapter's pacing. */
+/** The backfill of a Discord thread. */
+const backfill = (thread: ChatThread, limit: number) =>
+  ChatBackfill.use((backfills) => backfills["discord"]!(address(thread), limit))
+
 const settle = <A, E, R>(reply: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const fiber = yield* Effect.forkChild(reply)
@@ -285,16 +301,15 @@ const isFence = (line: string) => line.trimStart().startsWith("```")
 const paragraph = `${"a".repeat(1900)}\n\n`
 const overflowing = paragraph.repeat(6)
 
-describe("Discord platform", () => {
+describe("Discord replies and backfill", () => {
   it.effect("posts a long reply in 2,000-character chunks with balanced code fences", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       posted.length = 0
       // A code block that a 2,000-character split has to cut.
       const code = Array.from({ length: 120 }, (_, index) => `const value${index} = ${index}`)
       const text = ["Here is the change:", "", "```ts", ...code, "```", "", "Done."].join("\n")
 
-      yield* settle(platform.postReply(thread, text))
+      yield* settle(postReply(address(thread), text))
 
       for (const { content: chunk = "" } of posted) {
         assert.isAtMost(chunk.length, 2000)
@@ -335,10 +350,9 @@ describe("Discord platform", () => {
   ]) {
     it.effect(`chunked replies to ${name} use only a resolvable reply preview`, () =>
       Effect.gen(function* () {
-        const platform = yield* ChatPlatform
         posted.length = 0
 
-        yield* settle(platform.postReply(thread, "words ".repeat(420), { replyTo }))
+        yield* settle(postReply(address(thread), "words ".repeat(420), { replyTo }))
 
         assert.lengthOf(posted, 2)
         // Only the users the reply names, the author when it mentions them, may be pinged.
@@ -361,10 +375,9 @@ describe("Discord platform", () => {
 
     it.effect(`overflowing replies to ${name} use only a resolvable reply preview`, () =>
       Effect.gen(function* () {
-        const platform = yield* ChatPlatform
         posted.length = 0
 
-        yield* settle(platform.postReply(thread, overflowing, { replyTo }))
+        yield* settle(postReply(address(thread), overflowing, { replyTo }))
 
         assert.lengthOf(posted, 6)
         assert.deepStrictEqual(
@@ -379,11 +392,10 @@ describe("Discord platform", () => {
 
   it.effect("a reply to a message deleted since goes out as a plain message", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       posted.length = 0
 
       const reply = yield* settle(
-        platform.postReply(thread, "Done.", { replyTo: { messageId: "599", authorId: "600" } }),
+        postReply(address(thread), "Done.", { replyTo: { messageId: "599", authorId: "600" } }),
       )
 
       assert.strictEqual(reply.text, "Done.")
@@ -402,10 +414,9 @@ describe("Discord platform", () => {
 
   it.effect("posts a reply's files with its last chunk, with their content type", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       posted.length = 0
 
-      yield* settle(platform.postReply(thread, "a".repeat(2500), { files: [plot] }))
+      yield* settle(postReply(address(thread), "a".repeat(2500), { files: [plot] }))
 
       assert.lengthOf(posted, 2)
       assert.isUndefined(posted[0]!.attachments)
@@ -419,14 +430,13 @@ describe("Discord platform", () => {
 
   it.effect("a reply whose files are refused goes out once as text, naming them", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       posted.length = 0
       refuseFiles = true
 
       yield* settle(
-        platform
-          .postReply(thread, `${"a".repeat(1990)}\n${"b".repeat(500)}`, { files: [plot] })
-          .pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = false)))),
+        postReply(address(thread), `${"a".repeat(1990)}\n${"b".repeat(500)}`, {
+          files: [plot],
+        }).pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = false)))),
       )
 
       assert.deepStrictEqual(
@@ -440,10 +450,9 @@ describe("Discord platform", () => {
     "posts five parts of an overflowing reply and the rest as reply.md, with its files",
     () =>
       Effect.gen(function* () {
-        const platform = yield* ChatPlatform
         posted.length = 0
 
-        const reply = yield* settle(platform.postReply(thread, overflowing, { files: [plot] }))
+        const reply = yield* settle(postReply(address(thread), overflowing, { files: [plot] }))
 
         assert.strictEqual(reply.text, overflowing)
         assert.lengthOf(posted, 6)
@@ -461,8 +470,7 @@ describe("Discord platform", () => {
 
   it.effect("reads a managed bot role mention in the history as a bot mention", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      const history = yield* platform.history(thread, 10)
+      const history = yield* backfill(thread, 10)
 
       assert.deepStrictEqual(
         history.map(({ id, text, mentionsBot }) => ({ id, text, mentionsBot })),
@@ -473,8 +481,7 @@ describe("Discord platform", () => {
 
   it.effect("reads the history when Discord refuses to list the roles", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      const history = yield* platform.history(thread, 10)
+      const history = yield* backfill(thread, 10)
 
       assert.deepStrictEqual(
         history.map(({ id, text, mentionsBot }) => ({ id, text, mentionsBot })),
@@ -485,8 +492,7 @@ describe("Discord platform", () => {
 
   it.effect("reads the opening message of a thread started from a message", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      const history = yield* platform.history(startedThread, 10)
+      const history = yield* backfill(startedThread, 10)
 
       assert.deepStrictEqual(
         history.map(({ id, author, text }) => ({ id, author: author.name, text })),
@@ -504,9 +510,8 @@ describe("Discord platform", () => {
 
   it.effect("reads the opening message of a thread longer than the history", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       // The join on the first page leaves it a message short of the limit.
-      const history = yield* platform.history({ _tag: "Discord", guild: "100", threadId: "800" }, 3)
+      const history = yield* backfill({ _tag: "Discord", guild: "100", threadId: "800" }, 3)
 
       assert.deepStrictEqual(
         history.map(({ id }) => id),
@@ -517,8 +522,7 @@ describe("Discord platform", () => {
 
   it.effect("reads a forum thread's opening post once when the history reaches it", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      const history = yield* platform.history({ _tag: "Discord", guild: "100", threadId: "820" }, 3)
+      const history = yield* backfill({ _tag: "Discord", guild: "100", threadId: "820" }, 3)
 
       assert.deepStrictEqual(
         history.map(({ id }) => id),
@@ -528,11 +532,10 @@ describe("Discord platform", () => {
   )
   it.effect("posts the overflow of a reply whose files are refused as text, naming them", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       posted.length = 0
       refuseFiles = true
 
-      const reply = yield* settle(platform.postReply(thread, overflowing, { files: [plot] })).pipe(
+      const reply = yield* settle(postReply(address(thread), overflowing, { files: [plot] })).pipe(
         Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
       )
 
@@ -547,13 +550,12 @@ describe("Discord platform", () => {
 
   it.effect("posts the overflow of a refused reply in the code fence it was cut in", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       posted.length = 0
       refuseFiles = true
       const code = Array.from({ length: 480 }, (_, i) => `  const value${i} = ${i};`)
       const text = ["```ts", ...code, "```"].join("\n")
 
-      yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+      yield* settle(postReply(address(thread), text, { files: [plot] })).pipe(
         Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
       )
 
@@ -567,13 +569,12 @@ describe("Discord platform", () => {
 
   it.effect("keeps the trailing spaces of a refused reply's unterminated code fence", () =>
     Effect.gen(function* () {
-      const platform = yield* ChatPlatform
       posted.length = 0
       refuseFiles = true
       const code = Array.from({ length: 480 }, (_, i) => `  const value${i} = ${i};`)
       const text = `${["```ts", ...code].join("\n")}  `
 
-      yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+      yield* settle(postReply(address(thread), text, { files: [plot] })).pipe(
         Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
       )
 

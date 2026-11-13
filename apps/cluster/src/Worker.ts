@@ -28,6 +28,7 @@ import * as Stream from "effect/Stream"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Etag from "effect/http/Etag"
+import * as Chat from "effect/chat/Chat"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpPlatform from "effect/http/HttpPlatform"
 import * as HttpRouter from "effect/http/HttpRouter"
@@ -137,20 +138,25 @@ import {
 } from "./Chat/Config.ts"
 import { ReplyGate } from "./Chat/Gate.ts"
 import { ChatKillSwitch, ChatKillSwitchStore } from "./Chat/KillSwitch.ts"
-import { ChatPlatform } from "./Chat/Platform.ts"
 import { mcpCredentialsFrom } from "./Chat/McpCredentialClient.ts"
 import { McpCredentialLive, McpCredentialObject } from "./Chat/McpCredentialObject.ts"
 import { ChatMcpServers } from "./Chat/McpServers.ts"
 import { McpServerStore } from "./Chat/McpServerStore.ts"
-import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
+import {
+  type Backfill,
+  ChatBackfill,
+  ChatSession,
+  ChatSessionControl,
+  ChatSessionLayer,
+} from "./Chat/Session.ts"
 import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
 import { discordSettings } from "./Chat/Discord/Config.ts"
 import { ChatDiscordGateway, ChatDiscordGatewayLive, GATEWAY_NAME } from "./Chat/Discord/Gateway.ts"
 import { DiscordSessions } from "./Chat/Discord/Ingress.ts"
-import * as DiscordPlatform from "./Chat/Discord/Platform.ts"
+import * as DiscordApi from "./Chat/Discord/Api.ts"
 import { SlackConfig, slackSettings } from "./Chat/Slack/Config.ts"
 import { SlackSessions, SlackWebhookRoutesLayer } from "./Chat/Slack/Ingress.ts"
-import * as SlackPlatform from "./Chat/Slack/Platform.ts"
+import * as SlackApi from "./Chat/Slack/Api.ts"
 import { ChatCredentials } from "./Chat/Egress/BotApp.ts"
 import { ChatSandboxPool, ChatSandboxPoolLive } from "./Chat/Sandbox/PoolObject.ts"
 import { ChatSandboxes } from "./Chat/Sandbox/Sandboxes.ts"
@@ -409,19 +415,19 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
               namespace: liveEnvironment.ChatWorkspace as WorkspaceNamespace,
             }),
           ),
+          // `Chat` with each platform that is on; a thread on one that is
+          // off fails `NoAdapter` and backfills nothing.
           Layer.provide(
-            ChatPlatform.route({
-              Slack: Option.match(slack, {
-                onNone: () => ChatPlatform.unavailable,
-                onSome: (config) =>
-                  SlackPlatform.layerFrom(config).pipe(Layer.provide(FetchHttpClient.layer)),
+            Layer.effect(
+              ChatBackfill,
+              Effect.gen(function* () {
+                const backfills: Record<string, Backfill> = {}
+                if (Option.isSome(slack)) backfills.slack = yield* SlackApi.connect(slack.value)
+                if (Option.isSome(discord))
+                  backfills.discord = yield* DiscordApi.connect(discord.value)
+                return backfills
               }),
-              Discord: Option.match(discord, {
-                onNone: () => ChatPlatform.unavailable,
-                onSome: (config) =>
-                  DiscordPlatform.layerFrom(config).pipe(Layer.provide(FetchHttpClient.layer)),
-              }),
-            }),
+            ).pipe(Layer.provideMerge(Chat.layer), Layer.provide(FetchHttpClient.layer)),
           ),
           Layer.provide(ChatKillSwitch.stored),
           // Private servers need Slack, for the channel check; without it

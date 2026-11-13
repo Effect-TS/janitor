@@ -10,7 +10,7 @@ import * as HttpClient from "effect/http/HttpClient"
 import { McpCredentials } from "./McpCredential.ts"
 import { fetchVia } from "./McpFetch.ts"
 import { McpServerStore } from "./McpServerStore.ts"
-import type { ChatThread } from "./Platform.ts"
+import type { ChatThread } from "@janitor/domain/Chat/Session"
 import { SlackConfig } from "./Slack/Config.ts"
 
 /**

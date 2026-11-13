@@ -12,9 +12,10 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
-import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
+import type { ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
+import { APPROVAL_TEXT, approvalMessageId, sessionMessage } from "../Message.ts"
 import { sessionClient } from "../Session.ts"
-import { mentionsRole, rememberBotRoleId, restLayer, toAuthor, toChatMessage } from "./Api.ts"
+import { isBotMention, mentionsRole, rememberBotRoleId, restLayer, toAuthor } from "./Api.ts"
 import { DiscordBotConfig } from "./Config.ts"
 
 export class DiscordSessionError extends Schema.TaggedError<DiscordSessionError>()(
@@ -148,11 +149,13 @@ const handler = Effect.gen(function* () {
     const member = DiscordChat.member(event)
     if (Option.isNone(member)) return yield* drop("no member")
     const bot = yield* discord.botUserId
-    const chatMessage = toChatMessage(
+    const chatMessage = sessionMessage(
       message,
       toAuthor(message.author, member.value, config.roleId),
-      bot,
-      mentionsRole(message) ? yield* botRoleId(bot) : undefined,
+      {
+        isBot: isBotMention(mentionsRole(message) ? yield* botRoleId(bot) : undefined),
+        botUserId: bot,
+      },
     )
     // Only an admitted user's mention starts a session.
     const starts = chatMessage.mentionsBot && chatMessage.author.class === "admitted"

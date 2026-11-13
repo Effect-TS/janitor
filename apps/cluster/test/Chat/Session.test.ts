@@ -8,16 +8,11 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
 import * as Prompt from "effect/ai/Prompt"
 import { resumeMessage, switchedOffMessage, wrapUpMessage } from "@janitor/domain/Chat/Prompt"
 import { ChatKillSwitch } from "../../src/Chat/KillSwitch.ts"
-import {
-  ChatPlatformError,
-  type ChatThread,
-  readLimited,
-  sessionKey,
-} from "../../src/Chat/Platform.ts"
+import type { ChatThread } from "@janitor/domain/Chat/Session"
+import { sessionKey } from "../../src/Chat/Message.ts"
 import { landedInputs, type TranscriptResult, type TranscriptTurn } from "../../src/Chat/Session.ts"
 import {
   callTool,
@@ -1295,37 +1290,4 @@ describe("landedInputs", () => {
   it("lands each appended message on one input, the oldest with its text", () => {
     assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes")]), [older])
   })
-})
-
-describe("readLimited", () => {
-  it.effect("reads a body up to the limit, and stops at the chunk that crosses it", () =>
-    Effect.gen(function* () {
-      const exact = yield* readLimited(
-        Stream.make(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6])),
-        6,
-      )
-      assert.deepStrictEqual([...exact], [1, 2, 3, 4, 5, 6])
-
-      let pulled = 0
-      let finalized = false
-      const body = Stream.range(1, 4).pipe(
-        Stream.rechunk(1),
-        Stream.mapEffect(() =>
-          Effect.sync(() => {
-            pulled += 1
-            return new Uint8Array(3)
-          }),
-        ),
-        Stream.ensuring(
-          Effect.sync(() => {
-            finalized = true
-          }),
-        ),
-      )
-      const error = yield* Effect.flip(readLimited(body, 6))
-      assert.instanceOf(error, ChatPlatformError)
-      assert.strictEqual(pulled, 3)
-      assert.isTrue(finalized)
-    }),
-  )
 })

@@ -13,7 +13,7 @@ import type * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as HttpRouter from "effect/http/HttpRouter"
 import * as UrlParams from "effect/http/UrlParams"
-import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
+import type { ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 import { SlackConfig } from "../../../src/Chat/Slack/Config.ts"
 import {
   SlackSessionError,

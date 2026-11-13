@@ -13,7 +13,8 @@ import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
 import * as HttpRouter from "effect/http/HttpRouter"
 import { failureCategory } from "../../Ingress/Webhooks.ts"
-import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
+import type { ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
+import { APPROVAL_TEXT, approvalMessageId, sessionMessage } from "../Message.ts"
 import { sessionClient } from "../Session.ts"
 import {
   isBotMessage,
@@ -23,7 +24,6 @@ import {
   lookUpAuthor,
   type SlackAuthor,
   threadTs,
-  toChatMessage,
 } from "./Api.ts"
 import { SlackConfig } from "./Config.ts"
 
@@ -180,7 +180,7 @@ const handler = Layer.unwrap(
       const author = yield* admit(thread, user)
       // Only an admitted user's mention starts a session.
       if (author.class !== "admitted" && !(yield* hasSession)) return
-      yield* sessions.receive(thread, toChatMessage(message, { id: user, ...author }, mentioned))
+      yield* sessions.receive(thread, sessionMessage(message, { id: user, ...author }))
     })
 
     return ChatHandler.layer((event) =>
