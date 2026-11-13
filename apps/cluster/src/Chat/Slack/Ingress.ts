@@ -11,7 +11,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
-import type * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpRouter from "effect/http/HttpRouter"
 import { failureCategory } from "../../Ingress/Webhooks.ts"
 import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
 import { sessionClient } from "../Session.ts"
@@ -211,6 +211,19 @@ const handler = Layer.unwrap(
  * the handler refuses the event, it returns 503, so Slack retries; sessions
  * dedupe the retry.
  */
+/**
+ * Logs each 503 the webhook answers, so a request Slack has to retry shows up
+ * in the logs. The status alone doesn't say why: the handler refused the
+ * event (logged before as "Slack webhook failed", with its error), the bot
+ * user couldn't be read, or no answer came within the deadline, the body's
+ * reading included. Nothing from the request is logged.
+ */
+const logUnavailable = HttpRouter.middleware((response) =>
+  Effect.tap(response, (answer) =>
+    answer.status === 503 ? Effect.logError("Slack webhook answered 503") : Effect.void,
+  ),
+).layer
+
 export const SlackWebhookRoutesLayer: Layer.Layer<
   never,
   never,
@@ -223,7 +236,7 @@ export const SlackWebhookRoutesLayer: Layer.Layer<
       signingSecret: config.signingSecret,
       appId: config.appId,
     }).pipe(
-      Layer.provide(handler),
+      Layer.provide([handler, logUnavailable]),
       Layer.provideMerge(
         SlackChat.layer({ botToken: config.botToken, teamId: config.workspaceId }),
       ),

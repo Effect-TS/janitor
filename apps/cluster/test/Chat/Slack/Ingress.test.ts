@@ -419,6 +419,32 @@ describe("Slack ingress", () => {
     }),
   )
 
+  it.effect("logs every 503, naming the handler's error only when it refused", () =>
+    Effect.gen(function* () {
+      const failing = yield* makeIngress({
+        receive: () => Effect.fail(new SlackSessionError({ message: "unavailable" })),
+      })
+      assert.strictEqual(
+        (yield* failing.post(eventCallback(mention("1700000002.000100")))).status,
+        503,
+      )
+      assert.deepStrictEqual(failing.logs, [
+        { message: ["Slack webhook failed"], annotations: { error: "SlackSessionError" } },
+        { message: ["Slack webhook answered 503"], annotations: {} },
+      ])
+
+      const stuck = yield* makeIngress({ receive: () => Effect.never })
+      assert.strictEqual(
+        (yield* stuck.post(eventCallback(mention("1700000003.000100")))).status,
+        503,
+      )
+      // Past the deadline the handler is interrupted, so only the 503 is logged.
+      assert.deepStrictEqual(stuck.logs, [
+        { message: ["Slack webhook answered 503"], annotations: {} },
+      ])
+    }),
+  )
+
   it.effect("passes on only mentions, and replies in a thread with a session", () =>
     Effect.gen(function* () {
       const ingress = yield* makeIngress()
@@ -609,6 +635,9 @@ describe("Slack ingress", () => {
         return observed
       })
       assert.strictEqual(status, 503)
+      assert.deepStrictEqual(ingress.logs, [
+        { message: ["Slack webhook answered 503"], annotations: {} },
+      ])
     }),
   )
 
