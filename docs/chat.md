@@ -126,7 +126,7 @@ in the sandbox or install an unpinned binary while the image builds.
 - Messages from bots, janitor's own included, are context only. Edits, deletions and other message subtypes are ignored, except messages with files and thread replies also sent to the channel.
 - A 👍 (`+1` or `thumbsup`, any skin tone) from an admitted user on one of the bot's messages is an approval. A `reaction_added` event names the message but not its thread, so ingress reads the thread with `conversations.replies`, and ignores the reaction when the message is in no thread or Slack won't show it.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
-- Replies are posted as Markdown, up to 12,000 characters a message and a second apart. A reply that would need more than three messages is uploaded as `reply.md`. The bot's posts never unfurl links, and they carry `janitor_output` message metadata.
+- Replies are posted as Markdown with `effect/chat`'s `ChatMarkdown`, split at block boundaries into messages of up to 12,000 characters, a second apart. After three messages, the rest of a reply is uploaded as `reply.md` with the last one. The bot's posts never unfurl links. They no longer carry `janitor_output` message metadata: `@effect/chat-slack` has no option for it.
 
 ### Creating the Slack app
 
@@ -149,7 +149,7 @@ Slack is on once all four of these are set, and off while any of them is missing
 | `SLACK_WORKSPACE_ID`   | The workspace's team id (`T...`)                               |
 | `SLACK_APP_ID`         | **Basic Information**, **App ID** (`A...`)                     |
 
-The webhook path skips Cloudflare Access, like GitHub's, and relies on the signature: an HMAC-SHA-256 of `v0:{timestamp}:{body}` with the signing secret, within 300 seconds of the request's timestamp. Each event's `api_app_id` must match the settings, and its `team_id` too unless `authorizations` lists our workspace, as it does for a Slack Connect channel another organization hosts. The route answers within 2.5 seconds, or answers 503 so Slack delivers the event again, and sessions ignore a message they already have.
+The webhook path skips Cloudflare Access, like GitHub's, and relies on the signature: an HMAC-SHA-256 of `v0:{timestamp}:{body}` with the signing secret, within 300 seconds of the request's timestamp. `@effect/chat-slack`'s webhook checks both and parses the events. Each event's `api_app_id` must match the settings, and its `team_id` too unless `authorizations` lists our workspace, as it does for a Slack Connect channel another organization hosts. An event for another app or workspace is acknowledged with 200 and dropped, so Slack doesn't deliver it again. The route answers within 2.5 seconds, or answers 503 so Slack delivers the event again, and sessions ignore a message they already have.
 
 ### Inviting the bot
 
@@ -169,12 +169,12 @@ The development stack's `janitor-dev` tunnel forwards `/api/v1/webhooks/slack` t
 - Messages from other bots are context only. janitor's own replies are already in the session, so the gateway skips them, and the backfill reads them as bot messages. Edits, deletions, and system messages such as joins and pins are ignored.
 - A 👍, any skin tone, from an admitted user on one of the bot's messages in a thread with a session is an approval. Admission reads the reaction's `member.roles`, as for a message.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
-- Replies are posted as Markdown, up to 2,000 characters a message, with code fences kept balanced. The first one answers the message that started the turn, or mentions its author when an approval started it. A reply that would need more than five messages is uploaded as `reply.md`. Replies can ping users, never a role, `@everyone` or `@here`. Status messages ping nobody, and no post unfurls links.
+- Replies are posted as Markdown with `effect/chat`'s `ChatMarkdown`, split at block boundaries into messages of up to 2,000 characters, with code fences kept balanced. The first one answers the message that started the turn. It mentions the author instead when an approval or the thread's starter message started the turn, or when that message was deleted since. After five messages, the rest of a reply is uploaded as `reply.md` with the last one. Replies can ping users, never a role, `@everyone` or `@here`. Status messages ping nobody, and no post unfurls links.
 - Attachments from admitted users are fetched from Discord's CDN for the turn, up to 20 MB each.
 
 ### The gateway
 
-Discord has no webhook for messages, so one Durable Object, `ChatDiscordGateway`, holds the bot's gateway socket with dfx's shard. The Worker's one-minute cron starts it, and its own 60-second alarm restarts the shard if it dies or goes quiet for three minutes. The shard's session is kept in the object's storage, so after an eviction or a deploy the object resumes the session, and Discord replays what arrived while the socket was down. The object remembers the message and approval ids it handled for a day and drops the replays.
+Discord has no webhook for messages, so one Durable Object, `ChatDiscordGateway`, holds the bot's gateway socket with dfx's shard. It hands `MESSAGE_CREATE` and `MESSAGE_REACTION_ADD` to `@effect/chat-discord`'s `dispatch`, which parses them into `effect/chat` events; it doesn't use the adapter's own gateway layer, which can't resume from the object's storage. The Worker's one-minute cron starts it, and its own 60-second alarm restarts the shard if it dies or goes quiet for three minutes. The shard's session is kept in the object's storage, so after an eviction or a deploy the object resumes the session, and Discord replays what arrived while the socket was down. The object remembers the message and approval ids it handled for a day and drops the replays.
 
 A message is handled before the shard stores its sequence number. If its session can't be reached, the shard reconnects and the RESUME delivers the message again. A request Discord refuses, such as a thread the bot lacks permission to create, is logged and the message dropped.
 

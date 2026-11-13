@@ -16,7 +16,6 @@ import * as Option from "effect/Option"
 import * as References from "effect/References"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Socket from "effect/socket/Socket"
-import { restLayer } from "./Api.ts"
 import { chatBotGate } from "../Config.ts"
 import { DiscordBotConfig, discordSettings } from "./Config.ts"
 import * as Ingress from "./Ingress.ts"
@@ -31,7 +30,8 @@ import * as Ingress from "./Ingress.ts"
  * quiet.
  *
  * It is ingress only: each `MESSAGE_CREATE` and `MESSAGE_REACTION_ADD` goes
- * through `Ingress` before its sequence is stored, so a message that
+ * through `@effect/chat-discord`'s `DiscordChat.dispatch` to `Ingress`'s
+ * `ChatHandler` before its sequence is stored, so a message that
  * couldn't reach its session comes back with the RESUME, and the message
  * ids already handled are kept here to drop the ones a RESUME replays. A
  * 12-hour spike measured two evictions with a live socket in six hours,
@@ -206,7 +206,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
                 DiscordBotConfig.layerFrom(config),
                 sessions,
                 SeenLive,
-                restLayer(config.botToken).pipe(Layer.provide(FetchHttpClient.layer)),
+                FetchHttpClient.layer,
               ]),
             ),
           ),
@@ -384,11 +384,9 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
           ]),
           // Runs before the sequence is stored: a failure reconnects and resumes from it.
           Effect.provideService(DispatchHook, (payload) =>
-            payload.t === "MESSAGE_CREATE"
-              ? Effect.orDie(ingress.handle(payload.d))
-              : payload.t === "MESSAGE_REACTION_ADD"
-                ? Effect.orDie(ingress.handleReaction(payload.d))
-                : Effect.void,
+            payload.t === "MESSAGE_CREATE" || payload.t === "MESSAGE_REACTION_ADD"
+              ? Effect.orDie(ingress.dispatch({ t: payload.t, d: payload.d }))
+              : Effect.void,
           ),
           Effect.provideService(References.MinimumLogLevel, "Trace"),
           Effect.provideService(References.CurrentLoggers, new Set([watcher])),

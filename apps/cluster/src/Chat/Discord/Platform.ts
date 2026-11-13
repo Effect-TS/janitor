@@ -1,68 +1,55 @@
-import { DiscordREST, type DiscordRESTError } from "dfx/DiscordREST"
-import type * as Discord from "dfx/types"
-import * as DateTime from "effect/DateTime"
+import * as DiscordChat from "@effect/chat-discord/DiscordChat"
+import { DiscordREST } from "dfx/DiscordREST"
+import * as Chat from "effect/chat/Chat"
+import type { ChatError } from "effect/chat/ChatError"
+import type * as ChatMessages from "effect/chat/ChatMessage"
 import * as Effect from "effect/Effect"
-import { identity } from "effect/Function"
 import * as Layer from "effect/Layer"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import * as HttpClientResponse from "effect/http/HttpClientResponse"
+import * as Option from "effect/Option"
+import type * as HttpClient from "effect/http/HttpClient"
 import {
-  type ChatFile,
   ChatPlatform,
   ChatPlatformError,
   type ChatThread,
-  logUnattached,
-  notingUnattached,
-  readLimited,
-  replyMarkdown,
+  downloadAttachment,
+  fromChatError,
+  latestMessages,
+  postMarkdown,
+  refusedBeforePosting,
 } from "../Platform.ts"
-import { chunkMarkdown } from "../Slack/Platform.ts"
 import {
-  type DiscordMessage,
+  address,
+  type DiscordMember,
   errorCode,
-  MESSAGE_TYPES,
+  mentionsRole,
   parseAttachmentId,
   rememberBotRoleId,
-  rememberBotUserId,
-  SUPPRESS_EMBEDS,
+  restLayer,
+  toAuthor,
   toChatMessage,
 } from "./Api.ts"
 import { DiscordBotConfig } from "./Config.ts"
 
-/** Discord's limit on one message. */
-const CHUNK_CHARACTERS = 2000
-
-/** A reply that needs more messages than this is uploaded as a `.md` file instead. */
-const MAX_CHUNKS = 5
-
-/** Discord pages a channel's messages 100 at a time. */
-const PAGE_SIZE = 100
+/** A reply that needs more messages than this goes on in `reply.md`. */
+const MAX_PARTS = 5
 
 /** Discord's code for "Unknown Member". */
 const UNKNOWN_MEMBER = 10007
 
-/** Discord's code for "Unknown Message". */
-const UNKNOWN_MESSAGE = 10008
+/**
+ * Discord's answer to a reply whose message is gone: an invalid form body
+ * (50035) naming `message_reference`, or an unknown message.
+ */
+const isUnknownReference = (error: ChatError): boolean =>
+  error.reason._tag === "NotFound" ||
+  (error.reason._tag === "InvalidRequest" && error.reason.detail === "50035")
 
 /** A Discord id. */
 const SNOWFLAKE = /^\d+$/
 
-/** The message a thread started from a message opens with, pointing at it. */
-const THREAD_STARTER_MESSAGE = 21
-
-/** Status messages and file uploads ping nobody. */
-const noMentions = { parse: [] }
-
-/** A reply may ping the users it names and the author it answers, never a role or `@everyone`. */
-const userMentions = { parse: ["users" as const], replied_user: true }
-
-const platformError = (error: DiscordRESTError | ChatPlatformError) =>
-  error._tag === "ChatPlatformError" ? error : new ChatPlatformError({ message: error.message })
-
-/** Discord answered, refusing the request: nothing was posted. Else its answer was lost. */
-const refused = (error: DiscordRESTError | ChatPlatformError) =>
-  error._tag === "ChatPlatformError" || error._tag === "ErrorResponse"
+/** The users a reply names, `<@id>` or the older `<@!id>`: a reply may ping them. */
+const namedUsers = (text: string): ReadonlyArray<string> =>
+  Array.from(new Set(Array.from(text.matchAll(/<@!?(\d+)>/g), (match) => match[1]!)))
 
 const discordThread = (
   thread: ChatThread,
@@ -72,279 +59,171 @@ const discordThread = (
     : Effect.fail(new ChatPlatformError({ message: "Not a Discord thread" }))
 
 const make = Effect.gen(function* () {
+  const chat = yield* Chat.Chat
+  const discord = yield* DiscordChat.DiscordChat
   const rest = yield* DiscordREST
   const config = yield* DiscordBotConfig
-  const http = yield* HttpClient.HttpClient
-
-  const botUserId = rememberBotUserId(rest)
+  const provide = Effect.provideService(Chat.Chat, chat)
+  const botUserId = Effect.mapError(discord.botUserId, fromChatError)
   const botRoleId = rememberBotRoleId(rest, config.guildId)
 
-  /** Posts a message, with `files` each its own attachment, in one request. */
-  const post = (
-    thread: ChatThread,
-    fields: Omit<Parameters<typeof rest.createMessage>[1], "flags" | "attachments">,
-    files: ReadonlyArray<ChatFile> = [],
-  ) =>
-    discordThread(thread).pipe(
-      Effect.flatMap(({ threadId }) =>
-        rest
-          .createMessage(threadId, {
-            ...fields,
-            flags: SUPPRESS_EMBEDS,
-            ...(files.length === 0
-              ? {}
-              : {
-                  attachments: files.map((file, index) => ({
-                    id: String(index),
-                    filename: file.name,
-                  })),
-                }),
-          })
-          .pipe(
-            files.length === 0
-              ? identity
-              : rest.withFiles(
-                  files.map(
-                    (file) =>
-                      new File([file.content as Uint8Array<ArrayBuffer>], file.name, {
-                        type: file.contentType,
-                      }),
-                  ),
-                ),
-          ),
-      ),
-    )
-
-  /**
-   * The message a thread was started from. It lives in the parent channel,
-   * and the thread holds only Discord's thread starter pointing at it, with
-   * the message itself unless Discord left it out. Gone when it was deleted.
-   */
-  const openingMessage = (starter: Discord.MessageResponse) => {
-    if (starter.referenced_message !== undefined) return Effect.succeed(starter.referenced_message)
-    const reference = starter.message_reference
-    if (reference?.message_id === undefined) return Effect.succeed(null)
-    return rest.getMessage(reference.channel_id, reference.message_id).pipe(
+  /** A guild member's nick and roles; none for one who left. */
+  const member = (guild: string, id: string) =>
+    rest.getGuildMember(guild, id).pipe(
+      Effect.map((member): DiscordMember | undefined => member),
       Effect.catchIf(
-        (error) => errorCode(error) === UNKNOWN_MESSAGE,
-        () => Effect.succeed(null),
+        (error) => errorCode(error) === UNKNOWN_MEMBER,
+        () => Effect.undefined,
       ),
     )
-  }
 
   const history = (thread: ChatThread, limit: number) =>
     Effect.gen(function* () {
       const { guild, threadId } = yield* discordThread(thread)
+      const to = DiscordChat.thread(threadId)
       const bot = yield* botUserId
-      // Newest first, a page at a time, until the limit or the thread's start.
-      const messages: Array<DiscordMessage & { readonly type: number }> = []
-      let starter: Discord.MessageResponse | undefined
-      let reachedStart = false
-      let before: string | undefined
-      while (messages.length < limit) {
-        const requested = Math.min(PAGE_SIZE, limit - messages.length)
-        const page = (yield* rest.listMessages(threadId, { limit: requested, before })) ?? []
-        starter ??= page.find((message) => message.type === THREAD_STARTER_MESSAGE)
-        messages.push(...page.filter((message) => MESSAGE_TYPES.has(message.type)))
-        if (page.length < requested) {
-          reachedStart = true
-          break
-        }
-        before = page.at(-1)!.id
-      }
-      messages.reverse()
-      // The limit can stop short of the thread's start, so its oldest
-      // message is read on its own: a thread starter, or the post that
-      // opens a forum thread.
-      if (starter === undefined && !reachedStart) {
-        const [oldest] = (yield* rest.listMessages(threadId, { after: "0", limit: 1 })) ?? []
-        if (oldest?.type === THREAD_STARTER_MESSAGE) starter = oldest
-        else if (
-          oldest !== undefined &&
-          MESSAGE_TYPES.has(oldest.type) &&
-          !messages.some(({ id }) => id === oldest.id)
-        )
-          messages.unshift(oldest)
-      }
-      const opening = starter === undefined ? null : yield* openingMessage(starter)
-      if (opening !== null && MESSAGE_TYPES.has(opening.type)) messages.unshift(opening)
-      const managedRole = messages.some((message) => message.mention_roles.length > 0)
-        ? yield* botRoleId(bot)
-        : undefined
+      const latest = yield* latestMessages(to, limit)
+      // The limit can stop short of the thread's start, so the message that
+      // opened it, in the parent channel or a forum post's own, is read on its own.
+      const opener = yield* chat.opener(to).pipe(Effect.mapError(fromChatError))
+      const messages =
+        Option.isSome(opener) && !latest.some(({ id }) => id === opener.value.id)
+          ? [opener.value, ...latest]
+          : latest
+      const managedRole = messages.some(mentionsRole) ? yield* botRoleId(bot) : undefined
       // REST messages carry no member, so each person's roles are read once.
       const people = new Set(
-        messages.filter((message) => message.author.bot !== true).map(({ author }) => author.id),
+        messages.filter((message) => !message.author.isBot).map(({ author }) => author.id),
       )
       const members = new Map(
         yield* Effect.forEach(
           people,
-          (id) =>
-            rest.getGuildMember(guild, id).pipe(
-              Effect.map((member) => [id, member] as const),
-              Effect.catchIf(
-                (error) => errorCode(error) === UNKNOWN_MEMBER,
-                () => Effect.succeed([id, undefined] as const),
-              ),
-            ),
+          (id) => Effect.map(member(guild, id), (found) => [id, found] as const),
           { concurrency: 5 },
         ),
       )
       return messages.map((message) =>
-        toChatMessage(message, members.get(message.author.id), config.roleId, bot, managedRole),
+        toChatMessage(
+          message,
+          toAuthor(message.author, members.get(message.author.id), config.roleId),
+          bot,
+          managedRole,
+        ),
       )
-    }).pipe(Effect.mapError(platformError))
+    }).pipe(
+      Effect.mapError((error) =>
+        error._tag === "ChatPlatformError"
+          ? error
+          : new ChatPlatformError({ message: error.message }),
+      ),
+      provide,
+    )
 
   return ChatPlatform.of({
     postStatus: (thread, text) =>
-      post(thread, { content: text, allowed_mentions: noMentions }).pipe(
+      discordThread(thread).pipe(
+        Effect.flatMap((thread) =>
+          Effect.mapError(chat.post(address(thread), { markdown: text }), fromChatError),
+        ),
         Effect.map(({ id }) => id),
-        Effect.mapError(platformError),
       ),
     editStatus: (thread, messageId, text) =>
       discordThread(thread).pipe(
-        Effect.flatMap(({ threadId }) =>
-          rest.updateMessage(threadId, messageId, {
-            content: text,
-            allowed_mentions: noMentions,
-          }),
+        Effect.flatMap((thread) =>
+          Effect.mapError(chat.edit(address(thread), messageId, { markdown: text }), fromChatError),
         ),
-        Effect.asVoid,
-        Effect.mapError(platformError),
       ),
     deleteStatus: (thread, messageId) =>
       discordThread(thread).pipe(
-        Effect.flatMap(({ threadId }) => rest.deleteMessage(threadId, messageId)),
-        Effect.mapError(platformError),
+        Effect.flatMap((thread) =>
+          Effect.mapError(chat.delete(address(thread), messageId), fromChatError),
+        ),
       ),
-    postReply: (thread, text, options) => {
-      const replyTo = options?.replyTo
-      // A thread started from a message shares its id, and that message
-      // lives in the parent channel, where a reply from inside the thread
-      // can't point: it would show "Message could not be loaded". An
-      // approval's id (EFF-3163) is no message's, and Discord refuses it.
-      // The author is mentioned instead, so they are still pinged.
-      const starter =
-        thread._tag === "Discord" &&
-        replyTo !== undefined &&
-        (replyTo.messageId === thread.threadId || !SNOWFLAKE.test(replyTo.messageId))
-          ? replyTo
-          : undefined
-      const reference =
-        replyTo === undefined || starter !== undefined
-          ? undefined
-          : { message_id: replyTo.messageId, fail_if_not_exists: false }
-      const mention = starter === undefined ? undefined : `<@${starter.authorId}>`
-      // A fence opening the reply must stay at the start of its line.
-      const chunksOf = (body: string) =>
-        chunkMarkdown(
-          mention === undefined ? body : `${mention}${/^\s*```/.test(body) ? "\n" : " "}${body}`,
-          CHUNK_CHARACTERS,
-        )
-      const files = options?.files ?? []
-      const chunks = chunksOf(text)
-      const overflow = chunks.length > MAX_CHUNKS
-      type Message = Pick<
-        Parameters<typeof rest.createMessage>[1],
-        "content" | "allowed_mentions"
-      > & {
-        readonly files: ReadonlyArray<ChatFile>
-      }
-      const textOnly = (content: string): Message => ({
-        content,
-        allowed_mentions: userMentions,
-        files: [],
-      })
-      // The reply's messages: its chunks, the last carrying the files, or the
-      // mention with `reply.md` and the files when it is too long for messages.
-      const parts = chunks.length === 0 && files.length > 0 ? [mention ?? ""] : chunks
-      const messages: ReadonlyArray<Message> = overflow
-        ? [
-            {
-              content: mention,
-              allowed_mentions:
-                starter === undefined ? noMentions : { parse: [], users: [starter.authorId] },
-              files: [replyMarkdown(text), ...files],
-            },
-          ]
-        : parts.map((content, index) =>
-            index === parts.length - 1 ? { ...textOnly(content), files } : textOnly(content),
-          )
-      /** Posts messages in order, the first answering `replyTo` when it opens the reply. */
-      const postAll = (messages: ReadonlyArray<Message>, opening: boolean) =>
-        Effect.forEach(messages, ({ files, ...fields }, index) =>
-          post(
-            thread,
-            { ...fields, message_reference: opening && index === 0 ? reference : undefined },
+    postReply: (thread, text, options) =>
+      Effect.gen(function* () {
+        const to = address(yield* discordThread(thread))
+        const replyTo = options?.replyTo
+        const files = options?.files ?? []
+        // A reply may ping the users it names and the author it answers,
+        // never a role or `@everyone`.
+        const post = (
+          answer:
+            | { readonly lead: string }
+            | { readonly replyTo: ChatMessages.ReplyTo }
+            | undefined,
+        ) => {
+          const lead = answer !== undefined && "lead" in answer ? answer.lead : undefined
+          return postMarkdown(to, text, {
+            maxParts: MAX_PARTS,
             files,
+            lead,
+            ...(answer !== undefined && "replyTo" in answer ? { replyTo: answer.replyTo } : {}),
+          }).pipe(
+            DiscordChat.withPostOptions({
+              notify: { users: namedUsers(`${lead ?? ""} ${text}`), repliedUser: true },
+            }),
+          )
+        }
+        if (replyTo === undefined) return yield* post(undefined)
+        const mention = { lead: `<@${replyTo.authorId}>` }
+        // A thread started from a message shares its id, and that message
+        // lives in the parent channel, where a reply from inside the thread
+        // can't point: it would show "Message could not be loaded". An
+        // approval's id (EFF-3163) is no message's, and Discord refuses it.
+        // The author is mentioned instead, so they are still pinged.
+        if (replyTo.messageId === to.id || !SNOWFLAKE.test(replyTo.messageId))
+          return yield* post(mention)
+        // Discord refuses a reply to a message deleted since: the author is
+        // mentioned instead, as long as nothing went out yet.
+        return yield* post({ replyTo }).pipe(
+          Effect.catchIf(
+            (error) => refusedBeforePosting(error, isUnknownReference),
+            () => post(mention),
           ),
         )
-      const lastPosted = (posted: ReadonlyArray<{ readonly timestamp: string }>) => {
-        const last = posted.at(-1)
-        return last === undefined
-          ? DateTime.now
-          : Effect.succeed(DateTime.makeUnsafe(last.timestamp))
-      }
-      return Effect.gen(function* () {
-        const earlier = messages.slice(0, -1)
-        const last = messages.at(-1)
-        yield* postAll(earlier, true).pipe(Effect.mapError(platformError))
-        if (last === undefined) return { postedAt: yield* DateTime.now, text }
-        const posted = yield* postAll([last], earlier.length === 0).pipe(Effect.result)
-        if (posted._tag === "Success") return { postedAt: yield* lastPosted(posted.success), text }
-        if (files.length === 0 || !refused(posted.failure))
-          return yield* platformError(posted.failure)
-        // Discord refused the files, so what their message carried goes out as
-        // text, naming them: the whole reply when it was `reply.md`, however
-        // many messages that takes. Nothing already out is posted again.
-        yield* logUnattached(platformError(posted.failure))
-        const noted = notingUnattached(text, files)
-        const asText = overflow
-          ? chunksOf(noted)
-          : chunkMarkdown(notingUnattached(last.content ?? "", files), CHUNK_CHARACTERS)
-        const fallback = yield* postAll(asText.map(textOnly), earlier.length === 0).pipe(
-          Effect.mapError(platformError),
-        )
-        return { postedAt: yield* lastPosted(fallback), text: noted }
-      })
-    },
-    uploadFile: (thread, file) =>
-      post(thread, { allowed_mentions: noMentions }, [file]).pipe(
-        Effect.asVoid,
-        Effect.mapError(platformError),
-      ),
+      }).pipe(Effect.mapError(fromChatError), provide),
     download: (_thread, attachment, maxBytes) =>
       Effect.gen(function* () {
         const ids = parseAttachmentId(attachment.id)
         if (ids === undefined)
           return yield* new ChatPlatformError({ message: "Not a Discord attachment" })
-        // CDN links expire, so the message is read again for a fresh one.
-        const message = yield* rest.getMessage(ids.channelId, ids.messageId)
-        const file = message.attachments.find(({ id }) => id === ids.attachmentId)
-        if (file === undefined)
-          return yield* new ChatPlatformError({ message: "The attachment is gone" })
-        const response = yield* http.execute(HttpClientRequest.get(file.url)).pipe(
-          Effect.flatMap(HttpClientResponse.filterStatusOk),
-          Effect.mapError(() => new ChatPlatformError({ message: "The download failed" })),
+        // The message is read in its own channel: the opener of a thread
+        // started from a message is in the parent channel.
+        return yield* downloadAttachment(
+          DiscordChat.thread(ids.channelId),
+          { id: ids.id, size: attachment.size },
+          maxBytes,
         )
-        return yield* readLimited(response.stream, maxBytes)
-      }).pipe(Effect.mapError(platformError)),
+      }).pipe(provide),
     history,
   })
 })
 
 /**
- * Discord's `ChatPlatform`, over dfx's REST client, which waits out rate
- * limits itself. Replies go out in messages of at most 2,000 characters with
- * code fences kept balanced, the first answering the message that started
- * the turn, or mentioning its author when that message started the thread;
- * one that needs more than five messages is uploaded as `reply.md`. A
- * reply's files go with its last message, or with its `reply.md`. Replies
- * may ping users only, and no post unfurls links. The backfill reads each
- * author's roles, since REST messages carry no member, and always includes
- * the message that opened the thread, even one in the parent channel.
+ * Discord's `ChatPlatform`, over `effect/chat` with `@effect/chat-discord`'s
+ * adapter on dfx's REST client, which waits out rate limits itself. Replies
+ * go out through `ChatMarkdown.post`, split at block boundaries into up to
+ * five messages of at most 2,000 characters, the rest uploaded as
+ * `reply.md`; the first answers the message that started the turn, or
+ * mentions its author when that message started the thread. A reply's files
+ * go with its last message. Replies may ping the users they name only, and
+ * no post shows link embeds. The backfill reads each author's roles, since
+ * REST messages carry no member, and always includes the message that opened
+ * the thread, even one in the parent channel.
  */
 export const layer: Layer.Layer<
   ChatPlatform,
   never,
-  DiscordREST | DiscordBotConfig | HttpClient.HttpClient
+  Chat.Chat | DiscordChat.DiscordChat | DiscordREST | DiscordBotConfig
 > = Layer.effect(ChatPlatform, make)
+
+/** Discord's `ChatPlatform` from its settings, with its own `Chat` and the Discord adapter. */
+export const layerFrom = (
+  config: DiscordBotConfig["Service"],
+): Layer.Layer<ChatPlatform, never, HttpClient.HttpClient> =>
+  layer.pipe(
+    Layer.provide(DiscordChat.layer),
+    Layer.provideMerge(Chat.layer),
+    Layer.provideMerge(restLayer(config.botToken)),
+    Layer.provide(DiscordBotConfig.layerFrom(config)),
+  )

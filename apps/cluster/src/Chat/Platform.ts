@@ -1,5 +1,11 @@
+import * as Chat from "effect/chat/Chat"
+import type * as ChatAdapter from "effect/chat/ChatAdapter"
+import type { ChatError } from "effect/chat/ChatError"
+import * as ChatMarkdown from "effect/chat/ChatMarkdown"
+import type * as ChatMessages from "effect/chat/ChatMessage"
+import type * as ChatThreads from "effect/chat/ChatThread"
 import * as Context from "effect/Context"
-import type * as DateTime from "effect/DateTime"
+import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
@@ -9,8 +15,9 @@ import type { ChatAttachment, ChatMessage, ChatThread } from "@janitor/domain/Ch
 /**
  * The platform-neutral side of a chat thread (EFF-3018). The session entity
  * and its status presenter talk to Slack and Discord only through
- * `ChatPlatform`; "Slack ingress for the chat bot" (EFF-3019) and "Discord
- * ingress for the chat bot" (EFF-3020) implement it.
+ * `ChatPlatform`. Slack's and Discord's implement it over `effect/chat`'s
+ * `Chat` router and `ChatMarkdown`, with the `@effect/chat-slack` and
+ * `@effect/chat-discord` adapters registered in it.
  */
 
 export { AuthorClass, ChatAttachment, ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
@@ -37,6 +44,26 @@ export class ChatPlatformError extends Schema.TaggedError<ChatPlatformError>()(
   { message: Schema.String },
 ) {}
 
+/** A failed `effect/chat` call, by its reason only: a reason never quotes a message. */
+export const fromChatError = (
+  error: ChatError | ChatMarkdown.ChatMarkdownError | ChatPlatformError,
+): ChatPlatformError =>
+  error._tag === "ChatPlatformError" ? error : new ChatPlatformError({ message: error.message })
+
+/**
+ * The message's text without the mentions `isBot` picks, by their offsets,
+ * so only mentions the platform resolved outside code are cut.
+ */
+export const withoutMentions = (
+  message: ChatMessages.ChatMessage,
+  isBot: (mention: ChatMessages.Mention) => boolean,
+): string => {
+  let text = message.text
+  const cut = message.mentions.filter(isBot).sort((a, b) => b.start - a.start)
+  for (const mention of cut) text = text.slice(0, mention.start) + text.slice(mention.end)
+  return text
+}
+
 /**
  * Reads a download's body for a transport's `download`, failing as soon
  * as more than `maxBytes` arrive, without reading or buffering the rest.
@@ -49,7 +76,12 @@ export const readLimited = <E>(
   Effect.suspend(() => {
     let size = 0
     return body.pipe(
-      Stream.mapError((error) => new ChatPlatformError({ message: String(error) })),
+      Stream.mapError(
+        (error) =>
+          new ChatPlatformError({
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      ),
       Stream.mapEffect((chunk) => {
         size += chunk.length
         return size > maxBytes
@@ -76,23 +108,94 @@ export interface ChatFile {
   readonly content: Uint8Array
 }
 
-/** A reply too long for messages, as the file it is uploaded as instead. */
-export const replyMarkdown = (text: string): ChatFile => ({
-  name: "reply.md",
-  contentType: "text/markdown",
-  content: new TextEncoder().encode(text),
-})
+/** The file the rest of a reply too long for its messages is uploaded as. */
+export const REPLY_FILE = "reply.md"
 
-/** `text` ending in a note naming the files that couldn't be posted with it. */
+/** The note naming the files that couldn't be posted with a reply. */
+const unattachedNote = (files: ReadonlyArray<{ readonly name: string }>): string =>
+  `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
+
+/** `text` ending in the note naming the files that couldn't be posted with it. */
 export const notingUnattached = (text: string, files: ReadonlyArray<ChatFile>): string => {
-  const note = `(Couldn't attach ${files.map((file) => file.name).join(", ")}.)`
+  const note = unattachedNote(files)
   return text === "" ? note : `${text}\n\n${note}`
 }
 
-/** Logs that a platform refused a reply's files, so the reply goes out without them. */
-export const logUnattached = (error: ChatPlatformError) =>
-  Effect.logWarning("Couldn't post a chat reply's files").pipe(
-    Effect.annotateLogs({ reason: error.message }),
+/**
+ * Whether a post failed before any part went out, with a reason `refused`
+ * picks, so it can be posted again differently.
+ */
+export const refusedBeforePosting = (
+  error: ChatMarkdown.ChatMarkdownError,
+  refused: (error: ChatError) => boolean,
+): boolean => error.posted.length === 0 && error.cause._tag === "Chat" && refused(error.cause.error)
+
+/**
+ * Posts a reply with `ChatMarkdown.post`: split at block boundaries into at
+ * most `maxParts` messages, paced by the adapter, with the rest uploaded as
+ * `reply.md`. The files go with the last message, or with `reply.md`.
+ * When the platform refuses them, the last message goes without them, ending
+ * in `notingUnattached`'s note, and the text returned ends with it too.
+ * `lead`, a mention, opens the first message and is not part of the text.
+ */
+export const postMarkdown = Effect.fnUntraced(function* (
+  thread: ChatThreads.ChatThread,
+  text: string,
+  options: {
+    readonly maxParts: number
+    readonly files: ReadonlyArray<ChatFile>
+    readonly replyTo?: ChatMessages.ReplyTo | undefined
+    readonly lead?: string | undefined
+  },
+) {
+  let unattached = false
+  // A fence opening the reply must stay at the start of its line.
+  const markdown =
+    options.lead === undefined ? text : `${options.lead}${/^\s*```/.test(text) ? "\n" : " "}${text}`
+  const result = yield* ChatMarkdown.post(thread, markdown, {
+    maxParts: options.maxParts,
+    overflow: { file: { name: REPLY_FILE } },
+    ...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
+    ...(options.files.length === 0
+      ? {}
+      : {
+          files: options.files,
+          unattachedNote: (files: ReadonlyArray<ChatAdapter.File>) => {
+            unattached = true
+            return `\n\n${unattachedNote(files)}`
+          },
+        }),
+  })
+  if (unattached) yield* Effect.logWarning("Couldn't post a chat reply's files")
+  const last = result.parts.at(-1)
+  return {
+    postedAt: last === undefined ? yield* DateTime.now : last.timestamp,
+    text: unattached ? notingUnattached(text, options.files) : text,
+  } satisfies PostedReply
+})
+
+/** An attachment's bytes through `Chat.download`, failing past `maxBytes`. */
+export const downloadAttachment = (
+  thread: ChatThreads.ChatThread,
+  attachment: ChatMessages.Attachment,
+  maxBytes: number,
+): Effect.Effect<Uint8Array, ChatPlatformError, Chat.Chat> =>
+  Effect.flatMap(Chat.Chat, (chat) =>
+    readLimited(chat.download(thread, attachment, { maxBytes }), maxBytes),
+  )
+
+/** A thread's latest `limit` messages through `Chat.history`, oldest first. */
+export const latestMessages = (
+  thread: ChatThreads.ChatThread,
+  limit: number,
+): Effect.Effect<ReadonlyArray<ChatMessages.ChatMessage>, ChatPlatformError, Chat.Chat> =>
+  Effect.flatMap(Chat.Chat, (chat) =>
+    chat.history(thread, { direction: "backward" }).pipe(
+      Stream.take(limit),
+      Stream.runCollect,
+      Effect.map((messages) => Array.from(messages).reverse()),
+      Effect.mapError(fromChatError),
+    ),
   )
 
 /** A posted reply: when its final part was published, and its text as posted, notes included. */
@@ -126,10 +229,10 @@ export class ChatPlatform extends Context.Service<
      * text that went out. On Discord it answers `replyTo`, the message that
      * started the turn, or mentions its author when that message started the
      * thread. `files` go in the same message as the reply's last part, or
-     * with its `reply.md`. When the platform refuses them, whatever of the
-     * reply isn't out yet goes as text instead, `notingUnattached`, and the
-     * text returned ends with the note. Nothing already posted is posted
-     * again, so a failure after a lost answer fails the reply.
+     * with its `reply.md`. When the platform refuses them, the last part
+     * goes without them, ending in `notingUnattached`'s note, and the text
+     * returned ends with the note. Nothing already posted is posted again,
+     * so a failure after a lost answer fails the reply.
      */
     readonly postReply: (
       thread: ChatThread,
@@ -139,11 +242,6 @@ export class ChatPlatform extends Context.Service<
         readonly files?: ReadonlyArray<ChatFile> | undefined
       },
     ) => Effect.Effect<PostedReply, ChatPlatformError>
-    /** Posts `file` to the thread on its own. */
-    readonly uploadFile: (
-      thread: ChatThread,
-      file: ChatFile,
-    ) => Effect.Effect<void, ChatPlatformError>
     /**
      * An attachment's bytes. Reading stops past `maxBytes`, and a longer
      * file fails, whatever size the platform reported.
@@ -162,14 +260,12 @@ export class ChatPlatform extends Context.Service<
 >()("@janitor/cluster/Chat/Platform/ChatPlatform") {
   /**
    * No platform connected: every post fails and threads have no history.
-   * The Worker binds it until Slack ingress (EFF-3019) supplies a platform.
    */
   static readonly unavailable = Layer.succeed(this, {
     postStatus: () => noPlatform,
     editStatus: () => noPlatform,
     deleteStatus: () => noPlatform,
     postReply: () => noPlatform,
-    uploadFile: () => noPlatform,
     download: () => noPlatform,
     history: () => Effect.succeed([]),
   })
@@ -193,7 +289,6 @@ export class ChatPlatform extends Context.Service<
           editStatus: (thread, messageId, text) => of(thread).editStatus(thread, messageId, text),
           deleteStatus: (thread, messageId) => of(thread).deleteStatus(thread, messageId),
           postReply: (thread, text, options) => of(thread).postReply(thread, text, options),
-          uploadFile: (thread, file) => of(thread).uploadFile(thread, file),
           download: (thread, attachment, maxBytes) =>
             of(thread).download(thread, attachment, maxBytes),
           history: (thread, limit) => of(thread).history(thread, limit),

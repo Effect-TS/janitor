@@ -114,13 +114,30 @@ const makeIngress = Effect.fnUntraced(function* (
             return user === undefined ? { ok: false, error: "user_not_found" } : { ok: true, user }
           }
           case "conversations.replies": {
-            // Given a reply's ts, Slack answers with its thread, the root first.
-            const thread = replies[params.get("ts") ?? ""]
+            // Given a reply's ts, Slack answers with its thread's root, then the reply.
+            const ts = params.get("ts") ?? ""
+            const thread = replies[ts]
             return thread === undefined
               ? { ok: false, error: "thread_not_found" }
               : {
                   ok: true,
-                  messages: [{ type: "message", user: "U-member", ts: thread, thread_ts: thread }],
+                  messages: [
+                    {
+                      type: "message",
+                      user: "U-member",
+                      ts: thread,
+                      thread_ts: thread,
+                      text: "hi",
+                    },
+                    {
+                      type: "message",
+                      user: BOT_USER,
+                      bot_id: "B1",
+                      ts,
+                      thread_ts: thread,
+                      text: "ok",
+                    },
+                  ],
                 }
           }
           case "chat.postMessage":
@@ -336,6 +353,7 @@ describe("Slack ingress", () => {
         401,
       )
       assert.strictEqual((yield* ingress.post(event, { timestamp: now - 301 })).status, 401)
+      // Another workspace's or app's envelope is acknowledged and dropped, so Slack won't retry it.
       assert.strictEqual(
         (yield* ingress.post(
           eventCallback(mention("1700000001.000100"), {
@@ -343,12 +361,12 @@ describe("Slack ingress", () => {
             authorizations: [{ team_id: "T2", user_id: "UBOT2", is_bot: true }],
           }),
         )).status,
-        403,
+        200,
       )
       assert.strictEqual(
         (yield* ingress.post(eventCallback(mention("1700000001.000100"), { api_app_id: "A2" })))
           .status,
-        403,
+        200,
       )
       assert.deepStrictEqual(ingress.handedOff, [])
     }),

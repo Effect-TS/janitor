@@ -495,7 +495,6 @@ export class FakePlatform {
           if (files.length > 0) this.replyFiles.push({ text, files })
           return { postedAt: yield* DateTime.now, text }
         }),
-      uploadFile: () => Effect.die("unexpected file upload"),
       download: (_thread, attachment, maxBytes) =>
         Effect.suspend(() => {
           this.downloads.push(attachment.id)
