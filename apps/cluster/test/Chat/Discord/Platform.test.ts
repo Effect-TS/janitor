@@ -543,4 +543,24 @@ describe("Discord platform", () => {
       assert.strictEqual(posted[5]!.content, `${"a".repeat(1900)}\n\n${note}`)
     }).pipe(Effect.provide(services)),
   )
+
+  it.effect("posts the overflow of a refused reply in the code fence it was cut in", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+      refuseFiles = true
+      const code = Array.from({ length: 480 }, (_, i) => `  const value${i} = ${i};`)
+      const text = ["```ts", ...code, "```"].join("\n")
+
+      yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+        Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
+      )
+
+      assert.lengthOf(posted, 6)
+      for (const { content = "" } of posted)
+        assert.isTrue(content.startsWith("```ts\n  const value"))
+      // The note follows the closed fence, outside the code.
+      assert.isTrue(posted[5]!.content!.endsWith(";\n```\n\n(Couldn't attach plot.png.)"))
+    }).pipe(Effect.provide(services)),
+  )
 })
