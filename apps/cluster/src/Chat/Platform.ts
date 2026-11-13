@@ -165,7 +165,8 @@ const openFence = (
  * The unsent end of `markdown` as a Markdown document of its own, ending in
  * `note`. `remaining` is a raw slice: when it starts inside a code fence,
  * the fence is opened again, and a fence still open at its end is closed
- * before the note. Its whitespace is kept, but for blank lines around it.
+ * before the note. Its whitespace is kept, code's trailing spaces included,
+ * but for blank lines around it.
  */
 export const recoverRemaining = (markdown: string, remaining: string, note: string): string => {
   const reopen = openFence(markdown.slice(0, markdown.length - remaining.length))
@@ -173,7 +174,7 @@ export const recoverRemaining = (markdown: string, remaining: string, note: stri
     reopen === undefined
       ? remaining.replace(/^(?:[ \t]*\r?\n)+/, "")
       : `${reopen.line}\n${remaining}`
-  ).trimEnd()
+  ).replace(/(?:\r?\n[ \t]*)+$/, "")
   const open = openFence(`${body}\n`)
   const closed = open === undefined ? body : `${body}\n${open.marker}`
   return closed === "" ? note : `${closed}\n\n${note}`

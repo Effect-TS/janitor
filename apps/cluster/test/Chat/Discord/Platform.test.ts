@@ -563,4 +563,24 @@ describe("Discord platform", () => {
       assert.isTrue(posted[5]!.content!.endsWith(";\n```\n\n(Couldn't attach plot.png.)"))
     }).pipe(Effect.provide(services)),
   )
+
+  it.effect("keeps the trailing spaces of a refused reply's unterminated code fence", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+      refuseFiles = true
+      const code = Array.from({ length: 480 }, (_, i) => `  const value${i} = ${i};`)
+      const text = `${["```ts", ...code].join("\n")}  `
+
+      yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+        Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
+      )
+
+      assert.isTrue(
+        posted
+          .at(-1)!
+          .content!.endsWith("const value479 = 479;  \n```\n\n(Couldn't attach plot.png.)"),
+      )
+    }).pipe(Effect.provide(services)),
+  )
 })
