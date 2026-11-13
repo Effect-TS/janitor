@@ -1,5 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
+import { DispatchHook } from "dfx/DiscordGateway/Shard/DispatchHook"
 import type * as Discord from "dfx/types"
+import { GatewayDispatchEvents } from "dfx/types"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
@@ -7,7 +9,7 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
 import * as DiscordIngress from "../../../src/Chat/Discord/Ingress.ts"
-import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
+import type { ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 
 /**
  * The gateway's ingress, from a `MESSAGE_CREATE` to what it hands the chat
@@ -31,7 +33,12 @@ const channels: Record<string, object> = {
   [OTHER_THREAD]: { id: OTHER_THREAD, type: 11, guild_id: GUILD, parent_id: CHANNEL },
 }
 
-const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
+const makeIngress = (
+  options: {
+    readonly rolesRefused?: boolean
+    readonly messages?: Readonly<Record<string, Discord.GatewayMessageCreateDispatchData>>
+  } = {},
+) => {
   const handedOff: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
   /** The threads ingress started, by the channel and message they started from. */
   const threadsStarted: Array<{
@@ -65,6 +72,8 @@ const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
           return Response.json({ id: thread[2], type: 11, guild_id: GUILD, parent_id: thread[1] })
         }
         const channel = /^\/channels\/(\d+)$/.exec(path)
+        const fetched = options.messages?.[path]
+        if (fetched !== undefined && request.method === "GET") return Response.json(fetched)
         if (channel !== null && channels[channel[1]!] !== undefined)
           return Response.json(channels[channel[1]!])
         return Response.json({ message: "Unknown", code: 10003 }, { status: 404 })
@@ -103,19 +112,21 @@ const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
    * over the same sessions and storage.
    */
   const ingress = Effect.gen(function* () {
-    return (yield* DiscordIngress.DiscordIngress).dispatch
+    const hook = yield* DispatchHook
+    return (payload: Discord.GatewayDispatchPayload) =>
+      hook(payload, { shard: [0, 1], sessionId: "session" })
   }).pipe(Effect.provide(DiscordIngress.layer.pipe(Layer.provide(services))))
   /** Feeds a `MESSAGE_CREATE` to the instance, as the gateway's shard does. */
   const instance = Effect.map(
     ingress,
     (dispatch) => (d: Discord.GatewayMessageCreateDispatchData) =>
-      dispatch({ t: "MESSAGE_CREATE", d }),
+      dispatch({ op: 0, s: 1, t: GatewayDispatchEvents.MessageCreate, d }),
   )
   /** Feeds a `MESSAGE_REACTION_ADD` to the instance. */
   const reactions = Effect.map(
     ingress,
     (dispatch) => (d: Discord.GatewayMessageReactionAddDispatchData) =>
-      dispatch({ t: "MESSAGE_REACTION_ADD", d }),
+      dispatch({ op: 0, s: 1, t: GatewayDispatchEvents.MessageReactionAdd, d }),
   )
 
   /** The message handed off with id `id`, if any. */
@@ -413,6 +424,29 @@ describe("Discord ingress", () => {
         assert.notInclude(ids, "1302")
         assert.lengthOf(new Set(ids), 2)
       }),
+  )
+
+  it.effect("resolves a reaction without a message author before approving, once", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress({
+        messages: {
+          [`/channels/${SESSION_THREAD}/messages/1321`]: message("1321", {
+            author: user(BOT_USER, "janitor", { bot: true }),
+          }),
+          [`/channels/${SESSION_THREAD}/messages/1322`]: message("1322"),
+        },
+      })
+      const handleReaction = yield* ingress.reactions
+      for (const id of ["1321", "1321", "1322"]) {
+        const payload = reaction(id)
+        delete payload.message_author_id
+        yield* handleReaction(payload)
+      }
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.author.id, message.mentionsBot]),
+        [["600", true]],
+      )
+    }),
   )
 
   it.effect("hands on a 👍 that follows another reaction to the same message", () =>

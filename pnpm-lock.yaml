@@ -245,13 +245,13 @@ catalogs:
       specifier: 6.43.8
       version: 6.43.8
     '@effect/chat-discord':
-      specifier: https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      specifier: https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@0b51fb176db86e796a914921b11c544eac2670af
       version: 4.1.4
     '@effect/chat-slack':
-      specifier: https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      specifier: https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@0b51fb176db86e796a914921b11c544eac2670af
       version: 4.1.4
     '@effect/graphql-generator':
-      specifier: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      specifier: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@0b51fb176db86e796a914921b11c544eac2670af
       version: 4.1.4
     '@effect/tsgo':
       specifier: ^0.67.5
@@ -333,21 +333,21 @@ catalogs:
       version: 2.9.0
 
 overrides:
-  '@effect/opentelemetry': https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  '@effect/opentelemetry': https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@0b51fb176db86e796a914921b11c544eac2670af
   vitest: 5.1.0
-  effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/vitest': https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/platform-cloudflare': https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/platform-node-shared': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/platform-browser': https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/sql-pg': https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/sql-d1': https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/sql-sqlite-do': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/ai-openrouter': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/ai-openai': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/ai-openai-compat': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-  '@effect/sql-sqlite-node': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/vitest': https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/platform-cloudflare': https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/platform-node-shared': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/platform-browser': https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/sql-pg': https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/sql-d1': https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/sql-sqlite-do': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/ai-openrouter': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/ai-openai': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/ai-openai-compat': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af
+  '@effect/sql-sqlite-node': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af
   vite: npm:@voidzero-dev/vite-plus-core@1.5.1
 
 packageExtensionsChecksum: sha256-rjEpzNY6Uc1dF2O41Db06eYirZn7bOs1iwmBJmhWscE=
@@ -362,31 +362,31 @@ importers:
     devDependencies:
       '@alchemy.run/cloudflare':
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(a8970b5623124466b16733c0f36333b4)
+        version: 2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(4ff23792adcabf9b46ee817307f4b180)
       '@alchemy.run/docker':
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@alchemy.run/github':
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@alchemy.run/infisical':
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/platform-node':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/sql-pg':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/tsgo':
         specifier: 'catalog:'
         version: 0.67.5
       '@effect/vitest':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(vitest@5.1.0)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(vitest@5.1.0)
       '@foldkit/oxlint-plugin':
         specifier: 'catalog:'
-        version: 0.15.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: 0.15.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@janitor/cluster':
         specifier: workspace:^
         version: link:apps/cluster
@@ -395,10 +395,10 @@ importers:
         version: 24.13.3
       alchemy:
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
+        version: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
       effect:
-        specifier: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+        specifier: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -416,34 +416,34 @@ importers:
     dependencies:
       '@alchemy.run/cloudflare':
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(a8970b5623124466b16733c0f36333b4)
+        version: 2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(4ff23792adcabf9b46ee817307f4b180)
       '@alchemy.run/docker':
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@alchemy.run/sql':
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(pg@8.23.0)
+        version: 2.0.0-beta.85(@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(pg@8.23.0)
       '@effect/ai-openai-compat':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/ai-openrouter':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/chat-discord':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(dfx@1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@0b51fb176db86e796a914921b11c544eac2670af(dfx@1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/chat-slack':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/platform-cloudflare':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(@alchemy.run/cloudflare@2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(a8970b5623124466b16733c0f36333b4))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@0b51fb176db86e796a914921b11c544eac2670af(@alchemy.run/cloudflare@2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(4ff23792adcabf9b46ee817307f4b180))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/platform-node':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/sql-pg':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@janitor/domain':
         specifier: workspace:^
         version: link:../../packages/domain
@@ -452,29 +452,29 @@ importers:
         version: 1.32.2(supports-color@10.2.2)(zod@4.6.7)
       alchemy:
         specifier: 'catalog:'
-        version: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
+        version: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
       clanka:
         specifier: 'catalog:'
-        version: 0.24.5(2133b3fb93ff6199bfb13953a40ae6fa)
+        version: 0.24.5(7c63e07191ef196c16ebfb2a4d3c19ec)
       dfx:
         specifier: 'catalog:'
-        version: 1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: 1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       effect:
-        specifier: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+        specifier: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       graphql:
         specifier: 'catalog:'
         version: 17.0.2
     devDependencies:
       '@effect/graphql-generator':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@0b51fb176db86e796a914921b11c544eac2670af(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/sql-sqlite-node':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@effect/vitest':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(vitest@5.1.0)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(vitest@5.1.0)
       '@testcontainers/postgresql':
         specifier: 'catalog:'
         version: 12.1.0(supports-color@10.2.2)
@@ -509,11 +509,11 @@ importers:
         specifier: 'catalog:'
         version: 6.43.8
       '@effect/platform-browser':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@foldkit/ui':
         specifier: 'catalog:'
-        version: 0.170.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))
+        version: 0.170.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))
       '@fontsource-variable/inter':
         specifier: 'catalog:'
         version: 5.3.0
@@ -533,11 +533,11 @@ importers:
         specifier: 'catalog:'
         version: 2.1.1
       effect:
-        specifier: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+        specifier: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       foldkit:
         specifier: 'catalog:'
-        version: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+        version: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       lucide:
         specifier: 'catalog:'
         version: 1.33.0
@@ -550,10 +550,10 @@ importers:
     devDependencies:
       '@foldkit/devtools':
         specifier: 'catalog:'
-        version: 0.170.0(89409b3ea66aad51e53ddc7477ab9cf9)
+        version: 0.170.0(def1f9be2e5f8e115f373e5d9d6234cd)
       '@foldkit/vite-plugin':
         specifier: 'catalog:'
-        version: 0.29.0(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(redis@6.2.1(@opentelemetry/api@1.9.1))
+        version: 0.29.0(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))
@@ -573,8 +573,8 @@ importers:
   packages/domain:
     devDependencies:
       '@effect/vitest':
-        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-        version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(vitest@5.1.0)
+        specifier: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af
+        version: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(vitest@5.1.0)
 
 packages:
 
@@ -883,53 +883,53 @@ packages:
     peerDependencies:
       effect: ^4.0.5
 
-  '@effect/ai-openai-compat@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-bWuocA2Cl2d91Aga8g4N5wmplgYwB50KTvOLCV6o2cPRkK4/jZmtKln3OmGq+07iMAgUKZRaU+fW+A/JQJ4Vjw==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/ai-openai-compat@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-9W4jAH8oirUbAMehYaxXqD8r0Db90a2rTye7HLEiKW+dyq1+wAqTilZ+bO84s/Fcoaabgb1rBXnWeSMpSkbqrg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/ai-openai@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-E5rzUq1NIslMLMnvWpSDqRXQfL/QbJjW+z+Aii7mnRSAJHuYn0Ra+wAKxqJOUQsKPeTTCx1i7C60DgJNuUPmVw==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/ai-openai@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-agxEH+LPb2zxyjn3FcTvwSYXWwSV2GDeHECkETzqhd0UNz46Ejq286l74H3DsV+P3Ld7f0FELEN559pGCe94uQ==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/ai-openrouter@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-EV60/DsDZSOQNSqBcFjPnEAjy3FI5Zop/o8IJX+2OrcpDtupK2F+R7/iHNc2Kz/61CMr0HpTVPfLUWX3bqokdg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/ai-openrouter@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-2hMO7vJh5eRuRr/xF2/APkVGgdhvTVFv7eXB+CAvljNkA0OqBXRS74YkVwEPeAIsIU1jQqoAjZ5Iqgi/J+TXhA==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/chat-discord@https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-BQS/T/ZtOgkbHumlx4SpeoM+VNZmlTAmgPkV2qYHYqBi5QFapxchrdWmHQ+phVOgNo1AlWaBtYQIJcjm9mvwug==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/chat-discord@https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-rTh5I+Cbl8cJXZP/BYJAHBG7YWDg69XMepGXmSsFSduSOoxy/aNh2nyZSgPhrogfMh8NYf+J56Rv+fEYeU7UoQ==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       dfx: ^1.1.1
       effect: ^4.1.4
 
-  '@effect/chat-slack@https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-VtCFb685mG8vPoN7Wz6Ck32Wzr+lvTocnVgU4EAaV24ErrmtD7mm5dJU096T0qI9CxIMDKHouOnpUV4L/AJYBg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/chat-slack@https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-MOCZLhKePtdOXSTjGSdXe/92isIIApfo8Jb/1ksiAHd5Z7w6ApeR3r0WPFu6gb7I9Ye73ltWN7A7U0F7xzvyNA==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/graphql-generator@https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-mhWIrj8x6O5Kui25TeGbSl8iJur7WGW7wyorgSK76GRKF16iMvZcYH1m03SzSSYcoRwjAGzG76X/5eg7b0Sixg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/graphql-generator@https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-ja/q9GU0S2Pp3Q4DzLnIp8fu1uhKvOq6uDSHL4kBL9SbzcKoPKeL2xKVbZgwMAkaQzrNiYPhLdMtktfVj3g34Q==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     hasBin: true
     peerDependencies:
       '@effect/platform-node': ^4.1.4
       effect: ^4.1.4
 
-  '@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-viZkk/x19+Ow6Zj/psvf7Qlg4APqiDiy1K0Zv/uS5uu5CbMrLc8ddMAH4KUFk835NqnZ7jij91KBkufAhn1LPg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-liIPl8cZmgSQhNI5LwUtvRZhKDBM0OdRHfIccSTIBtsIrEsVGm1jnTT46X/JqQNv8LJJR2nadjDhLUeoUaY1cg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/platform-cloudflare@https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-8nTkkEs7uD0bfOnY/taEm4jxCUrguumI8xSXEDQ4ccJ62O7BLnNZ6iaMJWosH57VEQfX+Od/NGiEicgm6PYXgg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/platform-cloudflare@https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-0Vk6QRQBuY+0VIpYWFVkhUqJnfO6opZGOuYil/QSUKktn44c7Sg560dGyCT9Heq/876622Jf8EcKR3L/jKkCiw==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       '@alchemy.run/cloudflare': '>=2.0.0-beta.85 <3'
@@ -938,41 +938,41 @@ packages:
       '@alchemy.run/cloudflare':
         optional: true
 
-  '@effect/platform-node-shared@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-Kj9ovDx6tSMWgi/+PupdyPc3xDgaDRqHo1uSYK2V5Rf0D+9xUVEnrhcO4t4sKCFTMzbperlOTdbRvOEN5L+F1Q==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/platform-node-shared@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-0lAhHYwQG4nmMeUO+rlHoaeOpwxnk3cF7JEyWox2YjeGM/Qet/iXovw2mZGZA7UsGuR/VrKu3aLBKJKDRgzqng==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     engines: {node: '>=22.19.0'}
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-uufzYeVNEs2XAcATm+lJ4ofHErt9+I7ekZNnxlK8C3uEp6hdcYPiDsNb3II3FeDyb3ebbn6kmpGHrdKhbAH61Q==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-PkAQQTRu9AH4uJKXVDr1IxyctFB1FJQHDcoAHws1UltNWOFZQdbtEBSlUF3fBHdLmMAUMBvHF8cu50NW4n6Jdg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     engines: {node: '>=22.19.0'}
     peerDependencies:
       effect: ^4.1.4
       redis: '>=5.1.0 <7.0.0'
 
-  '@effect/sql-d1@https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-Np2XCaTprKnGWihpvJ+t6LZ66gaSV3HwAuDA61vuaFSSZ6zJTCPRF35bP3V+Xrxz/XKQOqUG0E2nKVvGgPIMhw==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/sql-d1@https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-B1tI2+8UxrYdpDFWLsYGLq5B1DRWMVzwcYR1ouEJE/pMJQ/UxkKXKHOhTmQ1a6+y1hYGP+Rda6hyFkj6lvlrYg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-eW2GvZElrKRVjChSgXTzmiZmuDAtFTlOk3PkXoJX7ZTozCIZm7t+sEOHW+q8A0KKH9bNKqoe3CNHXdBRvTsoEA==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-W48X18N2UqlUFgZtOAVTh2WWbriX+dTg/zU4ab4v+RIatgpLLkyDgc9WKg6yMYx7lO1YXcC7cTVeczUOWKcdWQ==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/sql-sqlite-do@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-yVEaBPaRfjQV9OdgDsVtUIAidbY5d/hZzWlknHK+jkpTNtcGM4LAZijb1hFFlmaA5NLeaWqwfuRZvtzziBtD7w==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/sql-sqlite-do@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-qeMqPcrxB8Bkvczxck7bZpQcu9AZiYxzHZtHDgGfn3/xJZARRUy/cMHYGCjERAuZLgIi3XsNwQEE7pFpo/1UAQ==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
 
-  '@effect/sql-sqlite-node@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-gSSXwfCnzgfpSe8hHa4I8bIouT61L9R/j0OXpbWTeJPxUxDqt4Cha3Jl24PumZ0/xmLtUfAct9/oPYEDxJVMIw==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/sql-sqlite-node@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-dAWhCJ89JtZE7fL61VFqLxtiWSxTSltN79TQ0RJcPzQ6s4YR2YUQoUdHaEsjDshywgAtycxe2Ex6uR5suuEFPg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
@@ -1016,8 +1016,8 @@ packages:
     resolution: {integrity: sha512-uL3mf3Q6F3aFOZK/qLb3eHUcztmgTIbabk0enTiA3t8nZm5EygE3eYT4+XQCp+aWCEzYcc2C3b6sljlsFGzTHg==}
     hasBin: true
 
-  '@effect/vitest@https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f':
-    resolution: {integrity: sha512-PTz3rtOQbysbwiUFFVHH6+F45tqEUTFWc3EY4JQclJxp1IebP4ktD/Ue7qYOuvkvN+tv++VEjezRZPEsbUudIg==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  '@effect/vitest@https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af':
+    resolution: {integrity: sha512-7n8Uy6eD69fFYAnhlM/iQL1aO8fYNLpO9WVXPCLWUJmFCYOt7Oq8izVnc+OwZTJx0Bud2sQZtTpLX1IeY+Q6HQ==, tarball: https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
     peerDependencies:
       effect: ^4.1.4
@@ -3078,8 +3078,8 @@ packages:
     peerDependencies:
       effect: ^4.0.0-rc.112
 
-  effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f:
-    resolution: {integrity: sha512-HI38aiVFBOD/N6WqPsWpZiLZKv3HBEewzJEqcYxMSWhiWtmdu6IoDX/fr33FDcqgH0LwsBfqz6FYV3CbSYlkqA==, tarball: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f}
+  effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af:
+    resolution: {integrity: sha512-yJXiDqvYjptsmVoEvmHlZHc4rcvzbtPQAG/usYJDSPtg0hdZv1wl7oTquasnX1LyQSDVv4E4ZBEWl8nAUqpfew==, tarball: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af}
     version: 4.1.4
 
   emoji-regex@10.6.0:
@@ -4363,20 +4363,20 @@ packages:
 
 snapshots:
 
-  '@alchemy.run/acme@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@alchemy.run/acme@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/acme': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/acme': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@alchemy.run/cloudflare-runtime@2.0.0-beta.85(@distilled.cloud/cloudflare@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(rolldown@1.2.13)(typescript@7.0.2)':
+  '@alchemy.run/cloudflare-runtime@2.0.0-beta.85(@distilled.cloud/cloudflare@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(rolldown@1.2.13)(typescript@7.0.2)':
     dependencies:
       '@alchemy.run/node-utils': 2.0.0-beta.85
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261026.1)
-      '@distilled.cloud/cloudflare': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+      '@distilled.cloud/cloudflare': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@puppeteer/browsers': 3.2.6(yauzl@3.4.0)
       capnp-es: 0.0.16(typescript@7.0.2)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       magic-string: 0.30.21
       mime: 4.1.1
       sharp: 0.35.5(@types/node@24.13.3)
@@ -4384,7 +4384,7 @@ snapshots:
       workerd: 1.20261026.1
       yauzl: 3.4.0
     optionalDependencies:
-      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
       rolldown: 1.2.13
       vite: '@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1)'
     transitivePeerDependencies:
@@ -4392,26 +4392,26 @@ snapshots:
       - proxy-agent
       - typescript
 
-  '@alchemy.run/cloudflare@2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(a8970b5623124466b16733c0f36333b4)':
+  '@alchemy.run/cloudflare@2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(4ff23792adcabf9b46ee817307f4b180)':
     dependencies:
-      '@alchemy.run/acme': 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.85(@distilled.cloud/cloudflare@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(rolldown@1.2.13)(typescript@7.0.2)
-      '@alchemy.run/docker': 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@alchemy.run/sql': 2.0.0-beta.85(@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(pg@8.23.0)
-      '@distilled.cloud/aws': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@distilled.cloud/aws4signer': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@distilled.cloud/cloudflare': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@distilled.cloud/iceberg': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@effect/sql-d1': https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@alchemy.run/acme': 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@alchemy.run/cloudflare-runtime': 2.0.0-beta.85(@distilled.cloud/cloudflare@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@types/node@24.13.3)(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(rolldown@1.2.13)(typescript@7.0.2)
+      '@alchemy.run/docker': 2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@alchemy.run/sql': 2.0.0-beta.85(@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(pg@8.23.0)
+      '@distilled.cloud/aws': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@distilled.cloud/aws4signer': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@distilled.cloud/cloudflare': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@distilled.cloud/iceberg': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@effect/sql-d1': https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       pathe: 2.0.3
       picomatch: 4.0.7
       rolldown: 1.2.13
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
       vite: '@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1)'
     transitivePeerDependencies:
       - '@effect/sql-libsql'
@@ -4423,25 +4423,25 @@ snapshots:
       - proxy-agent
       - typescript
 
-  '@alchemy.run/docker@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@alchemy.run/docker@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       rolldown: 1.2.13
 
-  '@alchemy.run/github@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@alchemy.run/github@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@distilled.cloud/github': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@distilled.cloud/github': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       libsodium-wrappers: 0.8.4
 
-  '@alchemy.run/infisical@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@alchemy.run/infisical@2.0.0-beta.85(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/infisical': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/infisical': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
   '@alchemy.run/node-utils@2.0.0-beta.85':
     dependencies:
@@ -4450,12 +4450,12 @@ snapshots:
 
   '@alchemy.run/sigil@0.1.0-alpha.1': {}
 
-  '@alchemy.run/sql@2.0.0-beta.85(@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(pg@8.23.0)':
+  '@alchemy.run/sql@2.0.0-beta.85(@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(pg@8.23.0)':
     dependencies:
-      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      alchemy: 2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
     optionalDependencies:
-      '@effect/sql-pg': https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+      '@effect/sql-pg': https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       pg: 8.23.0
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.322':
@@ -4598,119 +4598,119 @@ snapshots:
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
 
-  '@distilled.cloud/acme@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/acme@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@distilled.cloud/aws4signer@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/aws4signer@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@distilled.cloud/aws@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/aws@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/aws4signer': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/aws4signer': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@distilled.cloud/cloudflare@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/cloudflare@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@distilled.cloud/core@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/core@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@distilled.cloud/github@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/github@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@distilled.cloud/iceberg@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/iceberg@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@distilled.cloud/infisical@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@distilled.cloud/infisical@1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/ai-openai-compat@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/ai-openai-compat@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/ai-openai@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/ai-openai@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/ai-openrouter@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/ai-openrouter@https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/chat-discord@https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(dfx@1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/chat-discord@https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@0b51fb176db86e796a914921b11c544eac2670af(dfx@1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      dfx: 1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      dfx: 1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/chat-slack@https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/chat-slack@https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/graphql-generator@https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/graphql-generator@https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@0b51fb176db86e796a914921b11c544eac2670af(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/platform-cloudflare@https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(@alchemy.run/cloudflare@2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(a8970b5623124466b16733c0f36333b4))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/platform-cloudflare@https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@0b51fb176db86e796a914921b11c544eac2670af(@alchemy.run/cloudflare@2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(4ff23792adcabf9b46ee817307f4b180))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
       '@cloudflare/workers-types': 5.20261109.1
-      '@effect/sql-sqlite-do': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@effect/sql-sqlite-do': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
     optionalDependencies:
-      '@alchemy.run/cloudflare': 2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(a8970b5623124466b16733c0f36333b4)
+      '@alchemy.run/cloudflare': 2.0.0-beta.85(patch_hash=d21192dcd4d82c3be9b22a1691fc0fb96b175677f51653409976a1b7e82bb0a5)(4ff23792adcabf9b46ee817307f4b180)
 
-  '@effect/platform-node-shared@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/platform-node-shared@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
       '@types/ws': 8.18.2
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       ws: 8.22.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))':
+  '@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))':
     dependencies:
-      '@effect/platform-node-shared': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@effect/platform-node-shared': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       redis: 6.2.1(@opentelemetry/api@1.9.1)
       undici: 8.12.4
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/sql-d1@https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/sql-d1@https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
       '@cloudflare/workers-types': 5.20261109.1
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/sql-pg@https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/sql-sqlite-do@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/sql-sqlite-do@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  '@effect/sql-sqlite-node@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@effect/sql-sqlite-node@https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
   '@effect/tsgo-darwin-arm64@0.67.5':
     optional: true
@@ -4743,9 +4743,9 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.67.5
       '@effect/tsgo-win32-x64': 0.67.5
 
-  '@effect/vitest@https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(vitest@5.1.0)':
+  '@effect/vitest@https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(vitest@5.1.0)':
     dependencies:
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       vitest: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0(vitest@5.1.0))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(happy-dom@20.13.1)
 
   '@emnapi/runtime@1.11.3':
@@ -4920,32 +4920,32 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@foldkit/devtools@0.170.0(89409b3ea66aad51e53ddc7477ab9cf9)':
+  '@foldkit/devtools@0.170.0(def1f9be2e5f8e115f373e5d9d6234cd)':
     dependencies:
-      '@effect/platform-browser': https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@foldkit/ui': 0.170.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))
+      '@effect/platform-browser': https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@foldkit/ui': 0.170.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))
       clsx: 2.1.1
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-      foldkit: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+      foldkit: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
 
-  '@foldkit/oxlint-plugin@0.15.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)':
+  '@foldkit/oxlint-plugin@0.15.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)':
     dependencies:
-      effect-oxlint: 0.3.4(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+      effect-oxlint: 0.3.4(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
     transitivePeerDependencies:
       - effect
 
-  '@foldkit/ui@0.170.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))':
+  '@foldkit/ui@0.170.0(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))':
     dependencies:
       '@floating-ui/dom': 1.8.0
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-      foldkit: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+      foldkit: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
 
-  '@foldkit/vite-plugin@0.29.0(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(redis@6.2.1(@opentelemetry/api@1.9.1))':
+  '@foldkit/vite-plugin@0.29.0(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(redis@6.2.1(@opentelemetry/api@1.9.1))':
     dependencies:
-      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
-      '@effect/platform-node-shared': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
-      foldkit: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node-shared': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+      foldkit: 0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       magic-string: 1.4.2
       vite: '@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0)'
       vitefu: 1.1.3(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.0))
@@ -5979,12 +5979,12 @@ snapshots:
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
-  alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(ws@8.22.1):
+  alchemy@2.0.0-beta.85(patch_hash=d94cae298159be2e4cbfa2551424d9b88675db972327b96be3a8683d495079c0)(@effect/platform-node@https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(ws@8.22.1):
     dependencies:
       '@alchemy.run/node-utils': 2.0.0-beta.85
       '@alchemy.run/sigil': 0.1.0-alpha.1
       capnweb: 0.12.0
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       fflate: 0.8.3
       pathe: 2.0.3
       picomatch: 4.0.7
@@ -5992,7 +5992,7 @@ snapshots:
       tinyglobby: 0.2.17
       yaml: 2.9.1
     optionalDependencies:
-      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
       vite: '@voidzero-dev/vite-plus-core@1.5.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(typescript@7.0.2)(yaml@2.9.1)'
       ws: 8.22.1
     transitivePeerDependencies:
@@ -6167,18 +6167,18 @@ snapshots:
 
   chownr@1.1.4: {}
 
-  clanka@0.24.5(2133b3fb93ff6199bfb13953a40ae6fa):
+  clanka@0.24.5(7c63e07191ef196c16ebfb2a4d3c19ec):
     dependencies:
       '@anthropic-ai/claude-agent-sdk': 0.3.322(@anthropic-ai/sdk@1.3.0(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(zod@4.6.7)
-      '@effect/ai-openai': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@effect/ai-openai-compat': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)(redis@6.2.1(@opentelemetry/api@1.9.1))
-      '@effect/sql-sqlite-node': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
+      '@effect/ai-openai': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@effect/ai-openai-compat': https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      '@effect/platform-node': https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/sql-sqlite-node': https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
       '@modelcontextprotocol/sdk': 1.32.2(supports-color@10.2.2)(zod@4.6.7)
       '@silvia-odwyer/photon-node': 0.3.4
       '@vscode/ripgrep': 1.18.0
       chalk: 6.0.1
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       glob: 14.0.4
       sqlite-vec: 0.1.9
       tree-sitter: 0.21.1
@@ -6273,10 +6273,10 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dfx@1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f):
+  dfx@1.1.1(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af):
     dependencies:
       discord-api-types: 0.38.57
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
     optionalDependencies:
       discord-verify: 1.2.0
 
@@ -6323,12 +6323,12 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect-oxlint@0.3.4(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f):
+  effect-oxlint@0.3.4(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af):
     dependencies:
       '@oxlint/plugins': 1.81.0
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
 
-  effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f: {}
+  effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af: {}
 
   emoji-regex@10.6.0: {}
 
@@ -6517,10 +6517,10 @@ snapshots:
 
   flatted@3.4.4: {}
 
-  foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f))(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f):
+  foldkit@0.170.0(@effect/platform-browser@https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af))(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af):
     dependencies:
-      '@effect/platform-browser': https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f(effect@https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f)
-      effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+      '@effect/platform-browser': https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af(effect@https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af)
+      effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
       parse5: 8.0.1
 
   foreground-child@3.3.1:

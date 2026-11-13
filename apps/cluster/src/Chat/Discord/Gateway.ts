@@ -2,7 +2,6 @@ import * as Cloudflare from "@alchemy.run/cloudflare"
 import * as DiscordConfig from "dfx/DiscordConfig"
 import { JsonDiscordWSCodecLive } from "dfx/DiscordGateway/DiscordWS"
 import { Shard, ShardLive } from "dfx/DiscordGateway/Shard"
-import { DispatchHook } from "dfx/DiscordGateway/Shard/DispatchHook"
 import { type ShardState, ShardStateStore } from "dfx/DiscordGateway/Shard/StateStore"
 import { MemoryRateLimitStoreLive } from "dfx/RateLimit"
 import { GatewayIntentBits, GatewayOpcodes } from "dfx/types"
@@ -30,7 +29,7 @@ import * as Ingress from "./Ingress.ts"
  * quiet.
  *
  * It is ingress only: each `MESSAGE_CREATE` and `MESSAGE_REACTION_ADD` goes
- * through `@effect/chat-discord`'s `DiscordChat.dispatch` to `Ingress`'s
+ * through `@effect/chat-discord`'s `DiscordChat.layerDispatchHook` to `Ingress`'s
  * `ChatHandler` before its sequence is stored, so a message that
  * couldn't reach its session comes back with the RESUME, and the message
  * ids already handled are kept here to drop the ones a RESUME replays. A
@@ -199,17 +198,15 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
             }),
           }),
         )
-        const ingress = yield* Ingress.DiscordIngress.pipe(
-          Effect.provide(
-            Ingress.layer.pipe(
-              Layer.provide([
-                DiscordBotConfig.layerFrom(config),
-                sessions,
-                SeenLive,
-                FetchHttpClient.layer,
-              ]),
-            ),
-          ),
+        // Built per shard run, so each run's dispatches go through ingress
+        // with the shard's loggers.
+        const IngressLive = Ingress.layer.pipe(
+          Layer.provide([
+            DiscordBotConfig.layerFrom(config),
+            sessions,
+            SeenLive,
+            FetchHttpClient.layer,
+          ]),
         )
 
         const instanceStartedAt = Date.now()
@@ -379,15 +376,11 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
               Layer.provide(JsonDiscordWSCodecLive),
               Layer.provide(MemoryRateLimitStoreLive),
               Layer.provide(ShardStateLive),
+              // Runs before the sequence is stored: a failure reconnects and resumes from it.
+              Layer.provide(IngressLive),
             ),
             Socket.layerWebSocketConstructorGlobal,
           ]),
-          // Runs before the sequence is stored: a failure reconnects and resumes from it.
-          Effect.provideService(DispatchHook, (payload) =>
-            payload.t === "MESSAGE_CREATE" || payload.t === "MESSAGE_REACTION_ADD"
-              ? Effect.orDie(ingress.dispatch({ t: payload.t, d: payload.d }))
-              : Effect.void,
-          ),
           Effect.provideService(References.MinimumLogLevel, "Trace"),
           Effect.provideService(References.CurrentLoggers, new Set([watcher])),
           Effect.catchCause((cause) =>

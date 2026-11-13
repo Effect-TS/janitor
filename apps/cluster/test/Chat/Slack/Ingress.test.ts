@@ -13,7 +13,7 @@ import type * as HttpClientRequest from "effect/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as HttpRouter from "effect/http/HttpRouter"
 import * as UrlParams from "effect/http/UrlParams"
-import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
+import type { ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 import { SlackConfig } from "../../../src/Chat/Slack/Config.ts"
 import {
   SlackSessionError,
@@ -419,7 +419,7 @@ describe("Slack ingress", () => {
     }),
   )
 
-  it.effect("logs every 503, naming the handler's error only when it refused", () =>
+  it.effect("every 503 is logged with its cause, the handler's error when it refused", () =>
     Effect.gen(function* () {
       const failing = yield* makeIngress({
         receive: () => Effect.fail(new SlackSessionError({ message: "unavailable" })),
@@ -430,7 +430,10 @@ describe("Slack ingress", () => {
       )
       assert.deepStrictEqual(failing.logs, [
         { message: ["Slack webhook failed"], annotations: { error: "SlackSessionError" } },
-        { message: ["Slack webhook answered 503"], annotations: {} },
+        {
+          message: ["slack webhook: the handler refused the event, answered 503"],
+          annotations: {},
+        },
       ])
 
       const stuck = yield* makeIngress({ receive: () => Effect.never })
@@ -440,7 +443,10 @@ describe("Slack ingress", () => {
       )
       // Past the deadline the handler is interrupted, so only the 503 is logged.
       assert.deepStrictEqual(stuck.logs, [
-        { message: ["Slack webhook answered 503"], annotations: {} },
+        {
+          message: ["slack webhook: the request passed its deadline, answered 503"],
+          annotations: {},
+        },
       ])
     }),
   )
@@ -636,7 +642,10 @@ describe("Slack ingress", () => {
       })
       assert.strictEqual(status, 503)
       assert.deepStrictEqual(ingress.logs, [
-        { message: ["Slack webhook answered 503"], annotations: {} },
+        {
+          message: ["slack webhook: the request passed its deadline, answered 503"],
+          annotations: {},
+        },
       ])
     }),
   )

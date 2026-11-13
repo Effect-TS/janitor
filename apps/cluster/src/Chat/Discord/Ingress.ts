@@ -12,9 +12,10 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
-import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
+import type { ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
+import { APPROVAL_TEXT, approvalMessageId, sessionMessage } from "../Message.ts"
 import { sessionClient } from "../Session.ts"
-import { mentionsRole, rememberBotRoleId, restLayer, toAuthor, toChatMessage } from "./Api.ts"
+import { isBotMention, mentionsRole, rememberBotRoleId, restLayer, toAuthor } from "./Api.ts"
 import { DiscordBotConfig } from "./Config.ts"
 
 export class DiscordSessionError extends Schema.TaggedError<DiscordSessionError>()(
@@ -65,31 +66,6 @@ export class SeenMessages extends Context.Service<
     readonly add: (messageId: string) => Effect.Effect<void>
   }
 >()("@janitor/cluster/Chat/Discord/Ingress/SeenMessages") {}
-
-/** A dispatch ingress couldn't hand on for now; the gateway resumes and gets it again. */
-export class DiscordIngressError extends Schema.TaggedError<DiscordIngressError>()(
-  "DiscordIngressError",
-  { message: Schema.String },
-) {}
-
-/**
- * The gateway Durable Object's ingress: it feeds each dispatch to
- * `@effect/chat-discord`'s `DiscordChat.dispatch`, which normalises
- * `MESSAGE_CREATE` and `MESSAGE_REACTION_ADD` into `effect/chat` events for
- * janitor's `ChatHandler`. The handler filters a message, admits its author
- * by `member.roles` and hands the message to its thread's session, creating
- * the thread for a channel mention. A 👍 on the bot's message becomes an
- * approval (EFF-3163).
- */
-export class DiscordIngress extends Context.Service<
-  DiscordIngress,
-  {
-    readonly dispatch: (payload: {
-      readonly t: string
-      readonly d: unknown
-    }) => Effect.Effect<void, DiscordIngressError>
-  }
->()("@janitor/cluster/Chat/Discord/Ingress/DiscordIngress") {}
 
 /** The message ingress logs at Debug for each message it drops, with the reason. */
 export const DROPPED = "Discord ingress dropped a message"
@@ -147,12 +123,14 @@ const handler = Effect.gen(function* () {
     // Webhooks and system messages have no member.
     const member = DiscordChat.member(event)
     if (Option.isNone(member)) return yield* drop("no member")
-    const bot = yield* discord.botUserId
-    const chatMessage = toChatMessage(
+    const chatMessage = sessionMessage(
       message,
       toAuthor(message.author, member.value, config.roleId),
-      bot,
-      mentionsRole(message) ? yield* botRoleId(bot) : undefined,
+      {
+        isBot: isBotMention(
+          mentionsRole(message) ? yield* botRoleId(yield* discord.botUserId) : undefined,
+        ),
+      },
     )
     // Only an admitted user's mention starts a session.
     const starts = chatMessage.mentionsBot && chatMessage.author.class === "admitted"
@@ -185,7 +163,6 @@ const handler = Effect.gen(function* () {
    */
   const routeReaction = Effect.fnUntraced(function* (event: ChatEvent.ReactionAdded, id: string) {
     const bot = yield* discord.botUserId
-    if (event.messageAuthorId !== bot) return yield* drop("a reaction to another's message")
     if (Option.getOrUndefined(DiscordChat.guildId(event)) !== config.guildId)
       return yield* drop("a reaction outside the guild")
     const member = DiscordChat.member(event)
@@ -205,6 +182,11 @@ const handler = Effect.gen(function* () {
     const thread: ChatThread = { _tag: "Discord", guild: config.guildId, threadId: event.thread.id }
     if (!(yield* sessions.exists(thread)))
       return yield* drop("a reaction in a thread with no session")
+    // Discord may omit message_author_id. Resolve it only after admission;
+    // absence is not evidence that this is someone else's message.
+    const messageAuthorId =
+      event.messageAuthorId ?? (yield* chat.fetchMessage(event.thread, event.messageId)).author.id
+    if (messageAuthorId !== bot) return yield* drop("a reaction to another's message")
     yield* sessions.receive(thread, {
       id,
       author,
@@ -258,23 +240,20 @@ const handler = Effect.gen(function* () {
   })
 })
 
-const make = Effect.gen(function* () {
-  const discord = yield* DiscordChat.DiscordChat
-  const context = yield* Effect.context<ChatHandler.ChatHandler>()
-  return DiscordIngress.of({
-    dispatch: (payload) =>
-      discord.dispatch(payload).pipe(
-        Effect.provideContext(context),
-        Effect.mapError(
-          () => new DiscordIngressError({ message: `Discord ingress refused ${payload.t}` }),
-        ),
-      ),
-  })
-})
-
 /**
- * Discord ingress for the gateway: a message from another guild, without a
- * member or of another type is dropped. In a channel, an admitted user's
+ * The gateway Durable Object's ingress, as dfx's `DispatchHook` for its
+ * shard: `DiscordChat.layerDispatchHook` normalises `MESSAGE_CREATE` and
+ * `MESSAGE_REACTION_ADD` into `effect/chat` events for janitor's
+ * `ChatHandler`. It runs before the shard stores the dispatch's sequence, so
+ * an event the handler doesn't accept fails the shard, which resumes and
+ * gets it again.
+ *
+ * The handler filters a message, admits its author by `member.roles` and
+ * hands the message to its thread's session, creating the thread for a
+ * channel mention. A 👍 on the bot's message becomes an approval (EFF-3163).
+ *
+ * A message from another guild, without a member or of another type is
+ * dropped. In a channel, an admitted user's
  * mention starts a thread from the message and hands it to that thread's
  * session; in a thread, a message reaches the session when it has one or
  * when an admitted user mentions the bot. A direct message gets a pointer.
@@ -283,13 +262,13 @@ const make = Effect.gen(function* () {
  * messages never reach the handler.
  */
 export const layer: Layer.Layer<
-  DiscordIngress,
+  never,
   never,
   DiscordBotConfig | DiscordSessions | SeenMessages | HttpClient.HttpClient
 > = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* DiscordBotConfig
-    return Layer.effect(DiscordIngress, make).pipe(
+    return DiscordChat.layerDispatchHook.pipe(
       Layer.provide(Layer.unwrap(handler)),
       Layer.provide(DiscordChat.layer),
       Layer.provide(Chat.layer),

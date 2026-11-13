@@ -1,19 +1,21 @@
+import * as Chat from "effect/chat/Chat"
 import type * as ChatMessages from "effect/chat/ChatMessage"
+import type * as ChatThreads from "effect/chat/ChatThread"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Stream from "effect/Stream"
 import * as SlackChat from "@effect/chat-slack/SlackChat"
-import type { AuthorClass, ChatMessage, ChatThread } from "../Platform.ts"
-import { withoutMentions } from "../Platform.ts"
+import type { AuthorClass } from "@janitor/domain/Chat/Session"
+import { sessionMessage } from "../Message.ts"
+import type { Backfill } from "../Session.ts"
+import type { SlackConfig } from "./Config.ts"
 
 /**
- * What Slack ingress and Slack's `ChatPlatform` share (EFF-3019): the
- * address of a session's thread, the admission rule and how an
- * `effect/chat` message becomes a session's `ChatMessage`.
+ * What Slack ingress and the sessions share (EFF-3019): the admission rule,
+ * which messages janitor reads, and the backfill of a thread.
  */
-
-/** A session's Slack thread as an `effect/chat` address. */
-export const address = (thread: Extract<ChatThread, { readonly _tag: "Slack" }>) =>
-  SlackChat.thread({ team: thread.team, channel: thread.channel, threadTs: thread.threadTs })
 
 export interface SlackAuthor {
   readonly class: AuthorClass
@@ -107,21 +109,45 @@ export const threadTs = (
     threadTs: parts.threadTs ?? message.id,
   }))
 
-/** An `effect/chat` Slack message as a session's, with mentions of the bot removed. */
-export const toChatMessage = (
-  message: ChatMessages.ChatMessage,
-  author: { readonly id: string } & SlackAuthor,
-  mentioned: boolean,
-): ChatMessage => ({
-  id: message.id,
-  author: { id: author.id, name: author.name, class: author.class },
-  text: withoutMentions(message, (mention) => mention.isSelf).replace(/^\s+/, ""),
-  mentionsBot: mentioned,
-  sentAt: message.timestamp,
-  attachments: message.attachments.map((file) => ({
-    id: file.id,
-    name: file.name ?? file.id,
-    mediaType: file.contentType ?? "application/octet-stream",
-    size: Math.max(0, Math.floor(file.size ?? 0)),
-  })),
+/**
+ * Connects Slack to `Chat`, registering its adapter, and returns the sessions' backfill
+ * for Slack threads: the latest new messages, bots' included, each author
+ * admitted with `users.info`.
+ */
+export const connect = Effect.fnUntraced(function* (config: SlackConfig["Service"]) {
+  const slack = Context.get(
+    yield* Layer.build(SlackChat.layer({ botToken: config.botToken, teamId: config.workspaceId })),
+    SlackChat.SlackChat,
+  )
+  const chat = yield* Chat.Chat
+  return ((thread: ChatThreads.ChatThread, limit: number) =>
+    Effect.gen(function* () {
+      const messages = yield* chat.history(thread, { direction: "backward" }).pipe(
+        Stream.filter((message) => isNewMessage(message, { botMessages: true })),
+        Stream.take(limit),
+        Stream.runCollect,
+        Effect.map((messages) => Array.from(messages).reverse()),
+      )
+      const people = new Set(
+        messages.filter((message) => !isBotMessage(message)).map(({ author }) => author.id),
+      )
+      const authors = new Map(
+        yield* Effect.forEach(
+          people,
+          (id) =>
+            Effect.map(
+              lookUpAuthor(slack, config.workspaceId, id),
+              (author) => [id, author] as const,
+            ),
+          { concurrency: 5 },
+        ),
+      )
+      return messages.map((message) => {
+        const id = message.author.id
+        const author: SlackAuthor = isBotMessage(message)
+          ? { class: "bot", name: message.author.name ?? "bot" }
+          : authors.get(id)!
+        return sessionMessage(message, { id, ...author })
+      })
+    })) satisfies Backfill
 })

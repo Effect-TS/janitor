@@ -1,18 +1,26 @@
 import * as DiscordChat from "@effect/chat-discord/DiscordChat"
 import * as DiscordConfig from "dfx/DiscordConfig"
-import { type DiscordREST, type DiscordRESTError, DiscordRESTLive } from "dfx/DiscordREST"
+import { DiscordREST, type DiscordRESTError, DiscordRESTLive } from "dfx/DiscordREST"
 import { MemoryRateLimitStoreLive } from "dfx/RateLimit"
+import * as Chat from "effect/chat/Chat"
 import type * as ChatMessages from "effect/chat/ChatMessage"
+import type * as ChatThreads from "effect/chat/ChatThread"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import type * as Redacted from "effect/Redacted"
+import * as Stream from "effect/Stream"
 import type * as HttpClient from "effect/http/HttpClient"
-import { type ChatMessage, type ChatThread, withoutMentions } from "../Platform.ts"
+import type { ChatMessage } from "@janitor/domain/Chat/Session"
+import { sessionMessage } from "../Message.ts"
+import type { Backfill } from "../Session.ts"
+import type { DiscordBotConfig } from "./Config.ts"
 
 /**
- * What Discord ingress and Discord's `ChatPlatform` share (EFF-3020): dfx's
- * REST client, the bot's managed role and how an `effect/chat` message
- * becomes a session's `ChatMessage`.
+ * What Discord ingress and the sessions share (EFF-3020): dfx's REST
+ * client, the admission rule, the bot's managed role and the backfill of a
+ * thread.
  */
 
 /** dfx's REST client with the bot token, rate limited in memory. */
@@ -20,10 +28,6 @@ export const restLayer = (
   token: Redacted.Redacted<string>,
 ): Layer.Layer<DiscordREST, never, HttpClient.HttpClient> =>
   DiscordRESTLive.pipe(Layer.provide([DiscordConfig.layer({ token }), MemoryRateLimitStoreLive]))
-
-/** A session's Discord thread as an `effect/chat` address: its channel id. */
-export const address = (thread: Extract<ChatThread, { readonly _tag: "Discord" }>) =>
-  DiscordChat.thread(thread.threadId)
 
 /**
  * The bot's managed role, identified by Discord's tag rather than its display
@@ -60,22 +64,6 @@ export const rememberBotRoleId = (rest: DiscordREST["Service"], guildId: string)
 export const errorCode = (error: DiscordRESTError): number | undefined =>
   error._tag === "ErrorResponse" ? error.data.code : undefined
 
-/**
- * A Discord attachment's id in a `ChatAttachment`: its channel, then
- * `effect/chat`'s id, the message and attachment ids. A download reads the
- * message again, in its own channel, for a fresh CDN link.
- */
-export const attachmentId = (channelId: string, id: string): string => `${channelId}/${id}`
-
-export const parseAttachmentId = (
-  id: string,
-): { readonly channelId: string; readonly id: string } | undefined => {
-  const [channelId, messageId, attachment, ...rest] = id.split("/")
-  return channelId && messageId && attachment && rest.length === 0
-    ? { channelId, id: `${messageId}/${attachment}` }
-    : undefined
-}
-
 /** The author's membership: on a gateway message or reaction, a guild member read over REST, or none. */
 export interface DiscordMember {
   readonly nick?: string | null | undefined
@@ -97,36 +85,79 @@ export const toAuthor = (
 })
 
 /**
- * An `effect/chat` Discord message as a session's, with mentions of the bot
- * and of its managed role removed. A reply to one of the bot's messages
- * counts as a mention: it is addressed to the bot whether or not the reply
- * pings (EFF-3137).
+ * Mentions of the bot: of its user, or of its managed role `botRoleId`.
+ * A session's message is read without them.
  */
-export const toChatMessage = (
-  message: ChatMessages.ChatMessage,
-  author: ChatMessage["author"],
-  botUserId: string,
-  botRoleId?: string,
-): ChatMessage => {
-  const isBot = (mention: ChatMessages.Mention) =>
+export const isBotMention =
+  (botRoleId: string | undefined) =>
+  (mention: ChatMessages.Mention): boolean =>
     mention.isSelf || (mention.kind === "role" && mention.id === botRoleId)
-  const answers = message.replyTo?.authorId
-  return {
-    id: message.id,
-    author,
-    text: withoutMentions(message, isBot).trim(),
-    mentionsBot: message.mentions.some(isBot) || answers === botUserId,
-    sentAt: message.timestamp,
-    attachments: message.attachments.map((attachment) => ({
-      id: attachmentId(message.thread.id, attachment.id),
-      name: attachment.name ?? attachment.id,
-      mediaType: attachment.contentType ?? "application/octet-stream",
-      size: Math.max(0, Math.floor(attachment.size ?? 0)),
-    })),
-    ...(answers === undefined ? {} : { answers }),
-  }
-}
 
 /** Whether the message mentions a role: only then is the bot's managed role read. */
 export const mentionsRole = (message: ChatMessages.ChatMessage): boolean =>
   message.mentions.some((mention) => mention.kind === "role")
+
+/** Discord's code for "Unknown Member". */
+const UNKNOWN_MEMBER = 10007
+
+/**
+ * Connects Discord to `Chat`, registering its adapter,, on dfx's REST client, and returns
+ * the sessions' backfill for Discord threads: the latest messages, and
+ * always the message that opened the thread, even one in the parent
+ * channel. REST messages carry no member, so each author's roles are read.
+ */
+export const connect = Effect.fnUntraced(function* (config: DiscordBotConfig["Service"]) {
+  const services = yield* Layer.build(
+    DiscordChat.layer.pipe(Layer.provideMerge(restLayer(config.botToken))),
+  )
+  const discord = Context.get(services, DiscordChat.DiscordChat)
+  const rest = Context.get(services, DiscordREST)
+  const chat = yield* Chat.Chat
+  const botRoleId = rememberBotRoleId(rest, config.guildId)
+
+  /** A guild member's nick and roles; none for one who left. */
+  const member = (id: string) =>
+    rest.getGuildMember(config.guildId, id).pipe(
+      Effect.map((member): DiscordMember | undefined => member),
+      Effect.catchIf(
+        (error) => errorCode(error) === UNKNOWN_MEMBER,
+        () => Effect.undefined,
+      ),
+    )
+
+  return ((thread: ChatThreads.ChatThread, limit: number) =>
+    Effect.gen(function* () {
+      const latest = yield* chat.history(thread, { direction: "backward" }).pipe(
+        Stream.take(limit),
+        Stream.runCollect,
+        Effect.map((messages) => Array.from(messages).reverse()),
+      )
+      // The limit can stop short of the thread's start, so the message that
+      // opened it, in the parent channel or a forum post's own, is read on its own.
+      const opener = yield* chat.opener(thread)
+      const messages =
+        Option.isSome(opener) && !latest.some(({ id }) => id === opener.value.id)
+          ? [opener.value, ...latest]
+          : latest
+      const managedRole = messages.some(mentionsRole)
+        ? yield* botRoleId(yield* discord.botUserId)
+        : undefined
+      const people = new Set(
+        messages.filter((message) => !message.author.isBot).map(({ author }) => author.id),
+      )
+      const members = new Map(
+        yield* Effect.forEach(
+          people,
+          (id) => Effect.map(member(id), (found) => [id, found] as const),
+          { concurrency: 5 },
+        ),
+      )
+      return messages.map((message) =>
+        sessionMessage(
+          message,
+          toAuthor(message.author, members.get(message.author.id), config.roleId),
+          { isBot: isBotMention(managedRole) },
+        ),
+      )
+    })) satisfies Backfill
+})

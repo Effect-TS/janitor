@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as DateTime from "effect/DateTime"
 import { BOT_AUTHOR_ID, gateSignals } from "../../src/Chat/Gate.ts"
-import type { AuthorClass, ChatMessage } from "../../src/Chat/Platform.ts"
+import type { AuthorClass, ChatMessage } from "@janitor/domain/Chat/Session"
 
 /** The structural signals the reply gate reads off its window of thread messages. */
 

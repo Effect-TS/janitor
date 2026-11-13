@@ -4,6 +4,8 @@ import type * as DecisionModel from "effect/ai/DecisionModel"
 import type * as LanguageModel from "effect/ai/LanguageModel"
 import type * as Model from "effect/ai/Model"
 import * as Prompt from "effect/ai/Prompt"
+import * as Chat from "effect/chat/Chat"
+import type * as ChatThreads from "effect/chat/ChatThread"
 import * as Clock from "effect/Clock"
 import * as ClusterSchema from "effect/cluster/ClusterSchema"
 import * as DeliverAt from "effect/cluster/DeliverAt"
@@ -24,6 +26,7 @@ import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
+import * as Stream from "effect/Stream"
 import {
   resumeMessage,
   switchedOffMessage,
@@ -32,6 +35,8 @@ import {
   wrapUpMessage,
 } from "@janitor/domain/Chat/Prompt"
 import {
+  ChatMessage,
+  ChatThread,
   ChatUnavailable,
   SessionTranscriptTurn,
   TranscriptMessage,
@@ -42,7 +47,8 @@ import { ChatMcpServers } from "./McpServers.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
 import { ChatKillSwitch, type KillSwitchState } from "./KillSwitch.ts"
-import { ChatMessage, ChatPlatform, ChatPlatformError, ChatThread, sessionKey } from "./Platform.ts"
+import { address, attachmentSource, sessionKey } from "./Message.ts"
+import { postReply } from "./Reply.ts"
 import { type ChatSandbox, ChatSandboxes } from "./Sandbox/Sandboxes.ts"
 import { makeReplyFiles } from "./ReplyFiles.ts"
 import { ChatSessionIndex } from "./SessionIndex.ts"
@@ -225,8 +231,8 @@ const ADMISSION_TTL = Duration.hours(1)
 
 const isStop = (text: string) => /^\s*stop[\s.!]*$/i.test(text)
 
-const switchedOff = (state: KillSwitchState, thread: ChatThread) =>
-  state.global || (thread._tag === "Slack" ? state.slack : state.discord)
+const switchedOff = (state: KillSwitchState, thread: ChatThreads.ChatThread) =>
+  state.global || (thread.platform === "slack" ? state.slack : state.discord)
 
 const addUsage = (a: TurnUsage | null, b: TurnUsage | null): TurnUsage | null =>
   a === null
@@ -285,10 +291,29 @@ export const landedInputs = (
   return landed
 }
 
+/**
+ * A session's backfill on one platform: the thread's latest `limit`
+ * messages, oldest first, each author admitted by that platform's rule.
+ */
+export type Backfill = (
+  thread: ChatThreads.ChatThread,
+  limit: number,
+) => Effect.Effect<ReadonlyArray<ChatMessage>, { readonly message: string }>
+
+/**
+ * The backfill of each platform connected to `Chat`, by its name. Admission
+ * is janitor's rule and differs by platform; everything else a session does
+ * in its thread goes through `Chat`.
+ */
+export class ChatBackfill extends Context.Service<
+  ChatBackfill,
+  Readonly<Record<string, Backfill>>
+>()("@janitor/cluster/Chat/Session/ChatBackfill") {}
+
 /** The turn this entity is running. */
 interface Running {
   readonly turnId: string
-  readonly thread: ChatThread
+  readonly thread: ChatThreads.ChatThread
   fiber: Fiber.Fiber<void> | undefined
   /**
    * Steers waiting for their attachments, in arrival order, once the loop
@@ -324,7 +349,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     const { entityId } = yield* Entity.CurrentAddress
     const sql = yield* CloudflareCluster.DurableObjectSqlClient.orDie
     const storage = makeSessionStorage(sql, entityId)
-    const platform = yield* ChatPlatform
+    const chat = yield* Chat.Chat
+    const backfills = yield* ChatBackfill
     const sandboxes = yield* ChatSandboxes
     const killSwitch = yield* ChatKillSwitch
     const index = yield* ChatSessionIndex
@@ -476,11 +502,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       }
     }
 
-    const editStatus = (thread: ChatThread, messageId: string | null, text: string) =>
+    const editStatus = (thread: ChatThreads.ChatThread, messageId: string | null, text: string) =>
       messageId === null
         ? Effect.void
-        : platform
-            .editStatus(thread, messageId, text)
+        : chat
+            .edit(thread, messageId, { markdown: text })
             .pipe(
               Effect.catch((error) =>
                 Effect.logWarning("Couldn't edit a chat status message").pipe(
@@ -519,8 +545,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           // A reply speaks for itself, so its status goes; any other end
           // keeps it, as the turn's only output.
           if (turn.status === "replied" && turn.statusMessageId !== null)
-            yield* platform
-              .deleteStatus(running.thread, turn.statusMessageId)
+            yield* chat
+              .delete(running.thread, turn.statusMessageId)
               .pipe(
                 Effect.catch((error) =>
                   Effect.logWarning("Couldn't delete a chat status message").pipe(
@@ -624,26 +650,19 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 name = `${copy}-${safeName(attachment.name)}`
               used.add(name)
               const path = `${folder}/${name}`
-              const transfer = platform
-                .download(running.thread, attachment, MAX_ATTACHMENT_BYTES)
+              const source = attachmentSource(running.thread, attachment)
+              // Whatever size the platform reported.
+              const transfer = chat
+                .download(source.thread, source.attachment, { maxBytes: MAX_ATTACHMENT_BYTES })
                 .pipe(
-                  // Whatever size the platform reported.
-                  Effect.filterOrFail(
-                    (content) => content.length <= MAX_ATTACHMENT_BYTES,
-                    () => new ChatPlatformError({ message: "over the attachment limit" }),
-                  ),
+                  // `Chat.download` fails past `maxBytes`.
+                  Stream.mkUint8Array,
                   Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
                 )
               // A steer's transfer is capped, so one stalled file doesn't hold
               // every later steer until the deadline.
               const saved = yield* (
-                options.steered
-                  ? Effect.timeoutOrElse(transfer, {
-                      duration: STEERED_TRANSFER_TIMEOUT,
-                      orElse: () =>
-                        Effect.fail(new ChatPlatformError({ message: "the transfer timed out" })),
-                    })
-                  : transfer
+                options.steered ? Effect.timeout(transfer, STEERED_TRANSFER_TIMEOUT) : transfer
               ).pipe(Effect.result)
               if (saved._tag === "Failure") {
                 yield* Effect.logWarning("Couldn't save a chat attachment in the sandbox").pipe(
@@ -670,7 +689,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       })
 
     /** Starts a turn for the messages waiting. Run with `transitions` held. */
-    const startTurn = (thread: ChatThread) =>
+    const startTurn = (thread: ChatThreads.ChatThread) =>
       Effect.gen(function* () {
         const turnId = crypto.randomUUID()
         const claimed = (yield* storage.undelivered)
@@ -696,7 +715,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       })
 
     /** Runs a saved turn in its own fiber: a new one, or a running one after a restart. */
-    const resumeTurn = (turnId: string, thread: ChatThread, claimed: ReadonlyArray<string>) =>
+    const resumeTurn = (
+      turnId: string,
+      thread: ChatThreads.ChatThread,
+      claimed: ReadonlyArray<string>,
+    ) =>
       Effect.gen(function* () {
         yield* keepAlive(true)
         const running: Running = {
@@ -862,7 +885,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             )
         const loop = yield* agent.start({
           instructions: systemPrompt({
-            audience: running.thread._tag === "Slack" ? "slack" : "discord",
+            audience: running.thread.platform === "slack" ? "slack" : "discord",
             multicaWorkspaceId,
             multicaWorkspaceSlug: config.multicaWorkspaceSlug,
           }),
@@ -932,9 +955,10 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                   : undefined
                 // Never retried here: the transport retries what is safe to retry,
                 // and the platform delivers a reply whose files it refuses as text.
-                const posted = yield* platform
-                  .postReply(running.thread, result.text, { replyTo, files: replyFiles.files() })
-                  .pipe(Effect.result)
+                const posted = yield* postReply(running.thread, result.text, {
+                  replyTo,
+                  files: replyFiles.files(),
+                }).pipe(Effect.provideService(Chat.Chat, chat), Effect.result)
                 if (posted._tag === "Failure") {
                   yield* Effect.logError("Couldn't post a chat reply").pipe(
                     Effect.annotateLogs({ reason: posted.failure.message }),
@@ -1006,7 +1030,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         let loaded = yield* storage.loadTurn(running.turnId)
         if (Option.isNone(loaded) || loaded.value.status !== "running") return
         if (loaded.value.statusMessageId === null) {
-          const posted = yield* platform.postStatus(running.thread, "Starting").pipe(
+          const posted = yield* chat.post(running.thread, { markdown: "Starting" }).pipe(
+            Effect.map(({ id }) => id),
             Effect.tapError((error) =>
               Effect.logWarning("Couldn't post a chat status message").pipe(
                 Effect.annotateLogs({ reason: error.message }),
@@ -1047,24 +1072,23 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       }).pipe(Effect.orDie)
 
     /** Tells the thread once that the bot is switched off. Run with `inbox` held. */
-    const announceSwitchedOff = (thread: ChatThread) =>
+    const announceSwitchedOff = (thread: ChatThreads.ChatThread) =>
       Effect.gen(function* () {
         const session = yield* storage.loadSession
         if (Option.isNone(session) || session.value.switchedOffNotified) return
         yield* storage.saveSession({ ...session.value, switchedOffNotified: true })
-        yield* platform
-          .postReply(thread, switchedOffMessage)
-          .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Couldn't say the chat bot is switched off").pipe(
-                Effect.annotateLogs({ reason: error.message }),
-              ),
+        yield* postReply(thread, switchedOffMessage).pipe(
+          Effect.provideService(Chat.Chat, chat),
+          Effect.catch((error) =>
+            Effect.logWarning("Couldn't say the chat bot is switched off").pipe(
+              Effect.annotateLogs({ reason: error.message }),
             ),
-          )
+          ),
+        )
       }).pipe(Effect.orDie)
 
     /** Gates one stored message, then steers it, starts a turn with it or keeps it as context. */
-    const handle = (thread: ChatThread, message: ChatMessage) =>
+    const handle = (thread: ChatThreads.ChatThread, message: ChatMessage) =>
       Effect.gen(function* () {
         if (message.author.class !== "admitted")
           return yield* storage.setGate(message.id, { _tag: "Context" })
@@ -1121,8 +1145,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
      * Backfills a thread the bot just joined: its earlier messages, as
      * context. Succeeds with whether the thread's history was read.
      */
-    const backfill = (thread: ChatThread, joinedWith: string) =>
-      platform.history(thread, BACKFILL).pipe(
+    const backfill = (thread: ChatThreads.ChatThread, joinedWith: string) =>
+      Effect.suspend(
+        () =>
+          // A platform that is off has no backfill: tried again with the next message.
+          backfills[thread.platform]?.(thread, BACKFILL) ??
+          Effect.fail({ message: `${thread.platform} is not connected` }),
+      ).pipe(
         Effect.flatMap((messages) =>
           Effect.forEach(
             messages.filter((message) => message.id !== joinedWith),
@@ -1131,7 +1160,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           ),
         ),
         Effect.as(true),
-        Effect.catchTag("ChatPlatformError", (error) =>
+        Effect.catch((error) =>
           Effect.logWarning("Couldn't backfill a chat thread").pipe(
             Effect.annotateLogs({ reason: error.message }),
             Effect.as(false),
@@ -1169,7 +1198,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       const session = yield* storage.loadSession.pipe(Effect.orDie)
       const running = turns.find((turn) => turn.status === "running")
       if (Option.isSome(session)) {
-        const thread = session.value.thread
+        const thread = address(session.value.thread)
         if (running !== undefined)
           yield* Semaphore.withPermits(
             transitions,
@@ -1203,7 +1232,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     }
 
     return ChatSession.of({
-      Receive: ({ payload: { thread, message } }) =>
+      Receive: ({ payload }) =>
         Semaphore.withPermits(
           inbox,
           1,
@@ -1211,11 +1240,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           Effect.gen(function* () {
             yield* storage.ensureTables
             dropped = false
+            const { message } = payload
+            const thread = address(payload.thread)
             const now = yield* Clock.currentTimeMillis
             const session = yield* storage.loadSession
             let state: SessionState = Option.isSome(session)
               ? { ...session.value, lastMessageAt: now }
-              : { thread, lastMessageAt: now, switchedOffNotified: false }
+              : { thread: payload.thread, lastMessageAt: now, switchedOffNotified: false }
             // The session row is saved only once the backfill is done: a
             // restart during it replays this message, which backfills again.
             // A failed backfill is retried with the next message.
@@ -1345,7 +1376,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
 export const ChatSessionLayer: Layer.Layer<
   never,
   never,
-  | ChatPlatform
+  | Chat.Chat
+  | ChatBackfill
   | ChatSandboxes
   | ChatKillSwitch
   | ChatSessionIndex

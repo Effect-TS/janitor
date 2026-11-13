@@ -8,16 +8,11 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
 import * as Prompt from "effect/ai/Prompt"
 import { resumeMessage, switchedOffMessage, wrapUpMessage } from "@janitor/domain/Chat/Prompt"
 import { ChatKillSwitch } from "../../src/Chat/KillSwitch.ts"
-import {
-  ChatPlatformError,
-  type ChatThread,
-  readLimited,
-  sessionKey,
-} from "../../src/Chat/Platform.ts"
+import type { ChatThread } from "@janitor/domain/Chat/Session"
+import { sessionKey } from "../../src/Chat/Message.ts"
 import { landedInputs, type TranscriptResult, type TranscriptTurn } from "../../src/Chat/Session.ts"
 import {
   callTool,
@@ -540,6 +535,29 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           assert.deepStrictEqual(harness.platform.replies, [])
         }),
       ),
+  )
+
+  it.effect("a restarted Discord turn replies in the thread its stored session names", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* send(harness, discordThread, "Open a PR on janitor-sandbox.", { mention: true })
+        yield* modelCalls(harness, 1)
+
+        // The rebuilt entity reads its thread back from the session row.
+        yield* harness.restart
+        yield* modelCalls(harness, 2)
+        assert.include(seen(harness.model.last), resumeMessage)
+        harness.model.answer(say("Opened."))
+        yield* turnEnded(harness, discordThread)
+
+        assert.deepStrictEqual(harness.platform.replies, [
+          { thread: discordThread, text: "Opened." },
+        ])
+        assert.deepStrictEqual(harness.platform.statusDeletes, [
+          { thread: discordThread, messageId: "0" },
+        ])
+      }),
+    ),
   )
 
   it.effect("a turn is told to wrap up at minute 35 and stopped at minute 40", () =>
@@ -1295,37 +1313,4 @@ describe("landedInputs", () => {
   it("lands each appended message on one input, the oldest with its text", () => {
     assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes")]), [older])
   })
-})
-
-describe("readLimited", () => {
-  it.effect("reads a body up to the limit, and stops at the chunk that crosses it", () =>
-    Effect.gen(function* () {
-      const exact = yield* readLimited(
-        Stream.make(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6])),
-        6,
-      )
-      assert.deepStrictEqual([...exact], [1, 2, 3, 4, 5, 6])
-
-      let pulled = 0
-      let finalized = false
-      const body = Stream.range(1, 4).pipe(
-        Stream.rechunk(1),
-        Stream.mapEffect(() =>
-          Effect.sync(() => {
-            pulled += 1
-            return new Uint8Array(3)
-          }),
-        ),
-        Stream.ensuring(
-          Effect.sync(() => {
-            finalized = true
-          }),
-        ),
-      )
-      const error = yield* Effect.flip(readLimited(body, 6))
-      assert.instanceOf(error, ChatPlatformError)
-      assert.strictEqual(pulled, 3)
-      assert.isTrue(finalized)
-    }),
-  )
 })

@@ -2,7 +2,7 @@ import * as Tool from "effect/ai/Tool"
 import * as Toolkit from "effect/ai/Toolkit"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import type { ChatFile } from "./Platform.ts"
+import type { File as ChatFile } from "effect/chat/ChatAdapter"
 import type { SandboxReadFailed } from "./Sandbox/Sandboxes.ts"
 
 /**
