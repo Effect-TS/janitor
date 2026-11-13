@@ -16,6 +16,8 @@
     "@alchemy.run/sql": "catalog:",
     "@effect/ai-openai-compat": "catalog:",
     "@effect/ai-openrouter": "catalog:",
+    "@effect/chat-discord": "catalog:",
+    "@effect/chat-slack": "catalog:",
     "@effect/platform-cloudflare": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",

@@ -144,8 +144,7 @@ import { ChatMcpServers } from "./Chat/McpServers.ts"
 import { McpServerStore } from "./Chat/McpServerStore.ts"
 import { ChatSession, ChatSessionControl, ChatSessionLayer } from "./Chat/Session.ts"
 import { ChatSessionIndex } from "./Chat/SessionIndex.ts"
-import { restLayer as discordRestLayer } from "./Chat/Discord/Api.ts"
-import { DiscordBotConfig, discordSettings } from "./Chat/Discord/Config.ts"
+import { discordSettings } from "./Chat/Discord/Config.ts"
 import { ChatDiscordGateway, ChatDiscordGatewayLive, GATEWAY_NAME } from "./Chat/Discord/Gateway.ts"
 import { DiscordSessions } from "./Chat/Discord/Ingress.ts"
 import * as DiscordPlatform from "./Chat/Discord/Platform.ts"
@@ -415,19 +414,12 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
               Slack: Option.match(slack, {
                 onNone: () => ChatPlatform.unavailable,
                 onSome: (config) =>
-                  SlackPlatform.layer.pipe(
-                    Layer.provide(SlackConfig.layerFrom(config)),
-                    Layer.provide(FetchHttpClient.layer),
-                  ),
+                  SlackPlatform.layerFrom(config).pipe(Layer.provide(FetchHttpClient.layer)),
               }),
               Discord: Option.match(discord, {
                 onNone: () => ChatPlatform.unavailable,
                 onSome: (config) =>
-                  DiscordPlatform.layer.pipe(
-                    Layer.provide(DiscordBotConfig.layerFrom(config)),
-                    Layer.provide(discordRestLayer(config.botToken)),
-                    Layer.provide(FetchHttpClient.layer),
-                  ),
+                  DiscordPlatform.layerFrom(config).pipe(Layer.provide(FetchHttpClient.layer)),
               }),
             }),
           ),

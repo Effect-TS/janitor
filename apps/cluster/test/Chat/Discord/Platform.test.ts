@@ -1,12 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as UrlParams from "effect/http/UrlParams"
-import { restLayer } from "../../../src/Chat/Discord/Api.ts"
-import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
+import * as TestClock from "effect/testing/TestClock"
 import * as DiscordPlatform from "../../../src/Chat/Discord/Platform.ts"
 import { approvalMessageId, ChatPlatform, type ChatThread } from "../../../src/Chat/Platform.ts"
 
@@ -19,10 +19,11 @@ const thread: ChatThread = { _tag: "Discord", guild: "100", threadId: "500" }
 /** Every message sent to Discord, including multipart upload metadata. */
 const posted: Array<{
   readonly content?: string
-  readonly message_reference?: { readonly message_id: string; readonly fail_if_not_exists: boolean }
+  readonly message_reference?: { readonly message_id: string }
   readonly allowed_mentions: {
     readonly parse: ReadonlyArray<string>
     readonly users?: ReadonlyArray<string>
+    readonly roles?: ReadonlyArray<string>
     readonly replied_user?: boolean
   }
   readonly attachments?: ReadonlyArray<{ readonly id: string; readonly filename: string }>
@@ -74,7 +75,7 @@ const openingMessage = {
 /** Newest first, as `GET /channels/700/messages` returns it. */
 const startedThreadMessages = [
   {
-    id: "701",
+    id: "702",
     type: 0,
     channel_id: startedThread.threadId,
     author: { id: "620", username: "tim", global_name: null },
@@ -85,7 +86,7 @@ const startedThreadMessages = [
     attachments: [],
   },
   {
-    id: "702",
+    id: "701",
     type: 21,
     channel_id: startedThread.threadId,
     author: { id: "610", username: "gcanti", global_name: null },
@@ -148,6 +149,16 @@ const page = (messages: ReadonlyArray<{ readonly id: string }>, params: URLSearc
   return [...selected].reverse()
 }
 
+/** `GET /channels/{id}`: text channel 400, its threads, and a forum post under forum 900. */
+const channels: Record<string, object> = {
+  "400": { id: "400", type: 0, guild_id: "100" },
+  "900": { id: "900", type: 15, guild_id: "100" },
+  ...Object.fromEntries(
+    ["500", "700", "800"].map((id) => [id, { id, type: 11, guild_id: "100", parent_id: "400" }]),
+  ),
+  "820": { id: "820", type: 11, guild_id: "100", parent_id: "900" },
+}
+
 /** Discord's answers to the reads the platform makes, by path. */
 const respond = (
   path: string,
@@ -158,6 +169,9 @@ const respond = (
   if (paged !== undefined && paged in pagedThreads)
     return Response.json(page(pagedThreads[paged]!, params))
   if (path === "/users/@me") return Response.json({ id: "300", username: "janitor", bot: true })
+  const channel = /^\/channels\/(\d+)$/.exec(path)?.[1]
+  if (channel !== undefined && channels[channel] !== undefined)
+    return Response.json(channels[channel])
   if (path === "/guilds/100/roles" && options.rolesRefused === true)
     return Response.json({ message: "Missing Access", code: 50001 }, { status: 403 })
   if (path === "/guilds/100/roles")
@@ -170,20 +184,21 @@ const respond = (
   if (path === `/channels/${startedThread.threadId}/messages`)
     return Response.json(startedThreadMessages)
   if (path === "/channels/400/messages/700") return Response.json(openingMessage)
+  if (path === "/channels/400/messages/800") return Response.json(threadMessage("400", "800"))
+  if (/^\/channels\/\d+\/messages\/\d+$/.test(path))
+    return Response.json({ message: "Unknown Message", code: 10008 }, { status: 404 })
   if (path === "/guilds/100/members/610") return Response.json({ nick: null, roles: [] })
   if (path === "/guilds/100/members/620") return Response.json({ nick: null, roles: ["200"] })
   return Response.json({ id: "1" })
 }
 
 const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
-  DiscordPlatform.layer.pipe(
-    Layer.provide(restLayer(Redacted.make("bot-token"))),
+  DiscordPlatform.layerFrom({
+    botToken: Redacted.make("bot-token"),
+    guildId: "100",
+    roleId: "200",
+  }).pipe(
     Layer.provide([
-      DiscordBotConfig.layerFrom({
-        botToken: Redacted.make("bot-token"),
-        guildId: "100",
-        roleId: "200",
-      }),
       Layer.succeed(
         HttpClient.HttpClient,
         HttpClient.make((request) =>
@@ -206,6 +221,23 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
                 throw new Error(`Unexpected Discord request body: ${body._tag}`)
               }
               const message = JSON.parse(json)
+              // Message 599 was deleted since it started the turn.
+              if (message.message_reference?.message_id === "599")
+                return HttpClientResponse.fromWeb(
+                  request,
+                  Response.json(
+                    {
+                      message: "Invalid Form Body",
+                      code: 50035,
+                      errors: {
+                        message_reference: {
+                          _errors: [{ code: "MESSAGE_REFERENCE_UNKNOWN_MESSAGE" }],
+                        },
+                      },
+                    },
+                    { status: 400 },
+                  ),
+                )
               if (body._tag === "FormData" && refuseFiles)
                 return HttpClientResponse.fromWeb(
                   request,
@@ -239,7 +271,19 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
 
 const services = makeServices()
 
+/** Runs a reply to the end, moving the clock past the adapter's pacing. */
+const settle = <A, E, R>(reply: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(reply)
+    yield* TestClock.adjust("1 minute")
+    return yield* Fiber.join(fiber)
+  })
+
 const isFence = (line: string) => line.trimStart().startsWith("```")
+
+/** A reply of six paragraphs: one more than five messages hold. */
+const paragraph = `${"a".repeat(1900)}\n\n`
+const overflowing = paragraph.repeat(6)
 
 describe("Discord platform", () => {
   it.effect("posts a long reply in 2,000-character chunks with balanced code fences", () =>
@@ -250,7 +294,7 @@ describe("Discord platform", () => {
       const code = Array.from({ length: 120 }, (_, index) => `const value${index} = ${index}`)
       const text = ["Here is the change:", "", "```ts", ...code, "```", "", "Done."].join("\n")
 
-      yield* platform.postReply(thread, text)
+      yield* settle(platform.postReply(thread, text))
 
       for (const { content: chunk = "" } of posted) {
         assert.isAtMost(chunk.length, 2000)
@@ -278,7 +322,7 @@ describe("Discord platform", () => {
     {
       name: "a later message",
       replyTo: { messageId: "501", authorId: "600" },
-      reference: { message_id: "501", fail_if_not_exists: false },
+      reference: { message_id: "501" },
       mentioned: false,
     },
     // An approval's id is no Discord message's, and Discord refuses a reference to it.
@@ -294,11 +338,17 @@ describe("Discord platform", () => {
         const platform = yield* ChatPlatform
         posted.length = 0
 
-        yield* platform.postReply(thread, "a".repeat(2500), { replyTo })
+        yield* settle(platform.postReply(thread, "words ".repeat(420), { replyTo }))
 
         assert.lengthOf(posted, 2)
+        // Only the users the reply names, the author when it mentions them, may be pinged.
         for (const message of posted) {
-          assert.deepStrictEqual(message.allowed_mentions, { parse: ["users"], replied_user: true })
+          assert.deepStrictEqual(message.allowed_mentions, {
+            parse: [],
+            users: mentioned ? ["600"] : [],
+            roles: [],
+            replied_user: true,
+          })
         }
         assert.deepStrictEqual(
           posted.map((message) => message.message_reference),
@@ -309,25 +359,40 @@ describe("Discord platform", () => {
       }).pipe(Effect.provide(services)),
     )
 
-    it.effect(`reply.md uploads answering ${name} use only a resolvable reply preview`, () =>
+    it.effect(`overflowing replies to ${name} use only a resolvable reply preview`, () =>
       Effect.gen(function* () {
         const platform = yield* ChatPlatform
         posted.length = 0
 
-        yield* platform.postReply(thread, "a".repeat(11000), { replyTo })
+        yield* settle(platform.postReply(thread, overflowing, { replyTo }))
 
-        assert.lengthOf(posted, 1)
-        assert.deepStrictEqual(posted[0]!.attachments, [{ id: "0", filename: "reply.md" }])
-        assert.deepStrictEqual(posted[0]!.message_reference, reference)
-        if (mentioned) {
-          assert.strictEqual(posted[0]!.content, "<@600>")
-          assert.deepStrictEqual(posted[0]!.allowed_mentions, { parse: [], users: ["600"] })
-        } else {
-          assert.isUndefined(posted[0]!.content)
-        }
+        assert.lengthOf(posted, 6)
+        assert.deepStrictEqual(
+          posted.map((message) => message.message_reference),
+          [reference, undefined, undefined, undefined, undefined, undefined],
+        )
+        assert.strictEqual(posted[0]!.content!.startsWith("<@600>"), mentioned)
+        assert.deepStrictEqual(posted[5]!.attachments, [{ id: "0", filename: "reply.md" }])
       }).pipe(Effect.provide(services)),
     )
   }
+
+  it.effect("a reply to a message deleted since goes out as a plain message", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+
+      const reply = yield* settle(
+        platform.postReply(thread, "Done.", { replyTo: { messageId: "599", authorId: "600" } }),
+      )
+
+      assert.strictEqual(reply.text, "Done.")
+      assert.deepStrictEqual(
+        posted.map(({ content, message_reference }) => ({ content, message_reference })),
+        [{ content: "Done.", message_reference: undefined }],
+      )
+    }).pipe(Effect.provide(services)),
+  )
 
   const plot = {
     name: "plot.png",
@@ -340,7 +405,7 @@ describe("Discord platform", () => {
       const platform = yield* ChatPlatform
       posted.length = 0
 
-      yield* platform.postReply(thread, "a".repeat(2500), { files: [plot] })
+      yield* settle(platform.postReply(thread, "a".repeat(2500), { files: [plot] }))
 
       assert.lengthOf(posted, 2)
       assert.isUndefined(posted[0]!.attachments)
@@ -358,35 +423,40 @@ describe("Discord platform", () => {
       posted.length = 0
       refuseFiles = true
 
-      yield* platform
-        .postReply(thread, `${"a".repeat(1990)}\n${"b".repeat(500)}`, { files: [plot] })
-        .pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = false))))
+      yield* settle(
+        platform
+          .postReply(thread, `${"a".repeat(1990)}\n${"b".repeat(500)}`, { files: [plot] })
+          .pipe(Effect.ensuring(Effect.sync(() => (refuseFiles = false)))),
+      )
 
       assert.deepStrictEqual(
         posted.map((message) => message.content),
-        ["a".repeat(1990), `${"b".repeat(500)}\n\n(Couldn't attach plot.png.)`],
+        [`${"a".repeat(1990)}\n`, `${"b".repeat(500)}\n\n(Couldn't attach plot.png.)`],
       )
     }).pipe(Effect.provide(services)),
   )
 
-  it.effect("uploads an overflowing reply as reply.md in one message with its files", () =>
-    Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      posted.length = 0
-      const text = "a".repeat(11000)
+  it.effect(
+    "posts five parts of an overflowing reply and the rest as reply.md, with its files",
+    () =>
+      Effect.gen(function* () {
+        const platform = yield* ChatPlatform
+        posted.length = 0
 
-      yield* platform.postReply(thread, text, { files: [plot] })
+        const reply = yield* settle(platform.postReply(thread, overflowing, { files: [plot] }))
 
-      assert.lengthOf(posted, 1)
-      assert.deepStrictEqual(posted[0]!.attachments, [
-        { id: "0", filename: "reply.md" },
-        { id: "1", filename: "plot.png" },
-      ])
-      assert.deepStrictEqual(posted[0]!.files, [
-        { name: "reply.md", type: "text/markdown", content: new TextEncoder().encode(text) },
-        { name: "plot.png", type: "image/png", content: plot.content },
-      ])
-    }).pipe(Effect.provide(services)),
+        assert.strictEqual(reply.text, overflowing)
+        assert.lengthOf(posted, 6)
+        for (const message of posted.slice(0, 5)) assert.isUndefined(message.files)
+        assert.deepStrictEqual(posted[5]!.attachments, [
+          { id: "0", filename: "reply.md" },
+          { id: "1", filename: "plot.png" },
+        ])
+        assert.deepStrictEqual(posted[5]!.files, [
+          { name: "reply.md", type: "text/markdown", content: new TextEncoder().encode(paragraph) },
+          { name: "plot.png", type: "image/png", content: plot.content },
+        ])
+      }).pipe(Effect.provide(services)),
   )
 
   it.effect("reads a managed bot role mention in the history as a bot mention", () =>
@@ -426,7 +496,7 @@ describe("Discord platform", () => {
             author: "gcanti",
             text: "<@620> is there a reason why StreamSse doesn't call toCodecJson on data?",
           },
-          { id: "701", author: "tim", text: "can you confirm" },
+          { id: "702", author: "tim", text: "can you confirm" },
         ],
       )
     }).pipe(Effect.provide(services)),
@@ -453,6 +523,64 @@ describe("Discord platform", () => {
       assert.deepStrictEqual(
         history.map(({ id }) => id),
         ["820", "821", "822"],
+      )
+    }).pipe(Effect.provide(services)),
+  )
+  it.effect("posts the overflow of a reply whose files are refused as text, naming them", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+      refuseFiles = true
+
+      const reply = yield* settle(platform.postReply(thread, overflowing, { files: [plot] })).pipe(
+        Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
+      )
+
+      const note = "(Couldn't attach plot.png.)"
+      assert.strictEqual(reply.text, `${overflowing}\n\n${note}`)
+      assert.lengthOf(posted, 6)
+      for (const message of posted) assert.isUndefined(message.files)
+      // The note follows the rest as `notingUnattached` adds it to the reply's text.
+      assert.strictEqual(posted[5]!.content, `${paragraph}\n\n${note}`)
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("posts the overflow of a refused reply in the code fence it was cut in", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+      refuseFiles = true
+      const code = Array.from({ length: 480 }, (_, i) => `  const value${i} = ${i};`)
+      const text = ["```ts", ...code, "```"].join("\n")
+
+      yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+        Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
+      )
+
+      assert.lengthOf(posted, 6)
+      for (const { content = "" } of posted)
+        assert.isTrue(content.startsWith("```ts\n  const value"))
+      // The note follows the closed fence, outside the code.
+      assert.isTrue(posted[5]!.content!.endsWith(";\n```\n\n(Couldn't attach plot.png.)"))
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("keeps the trailing spaces of a refused reply's unterminated code fence", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+      refuseFiles = true
+      const code = Array.from({ length: 480 }, (_, i) => `  const value${i} = ${i};`)
+      const text = `${["```ts", ...code].join("\n")}  `
+
+      yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+        Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
+      )
+
+      assert.isTrue(
+        posted
+          .at(-1)!
+          .content!.endsWith("const value479 = 479;  \n```\n\n(Couldn't attach plot.png.)"),
       )
     }).pipe(Effect.provide(services)),
   )

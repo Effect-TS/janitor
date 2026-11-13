@@ -1,6 +1,7 @@
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { McpServerConfig } from "@janitor/domain/Chat/McpServer"
 import * as McpServersLayer from "clanka/McpServers"
+import * as SlackWebApi from "@effect/chat-slack/SlackWebApi"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -10,7 +11,6 @@ import { McpCredentials } from "./McpCredential.ts"
 import { fetchVia } from "./McpFetch.ts"
 import { McpServerStore } from "./McpServerStore.ts"
 import type { ChatThread } from "./Platform.ts"
-import { decode, SlackApi } from "./Slack/Api.ts"
 import { SlackConfig } from "./Slack/Config.ts"
 
 /**
@@ -78,12 +78,12 @@ export class ChatMcpServers extends Context.Service<
     this,
     Effect.gen(function* () {
       const slack = yield* SlackConfig
-      const api = yield* SlackApi
+      const api = yield* SlackWebApi.SlackWebApi
       return yield* make((thread) =>
         thread._tag !== "Slack" || thread.team !== slack.workspaceId
           ? Effect.succeed(false)
           : api.call("conversations.info", { channel: thread.channel }, { retry: false }).pipe(
-              Effect.flatMap(decode("conversations.info", ChannelInfo)),
+              Effect.flatMap(Schema.decodeUnknownEffect(ChannelInfo)),
               Effect.map(
                 ({ channel }) =>
                   !channel.is_shared &&
@@ -92,7 +92,7 @@ export class ChatMcpServers extends Context.Service<
                   !channel.is_pending_ext_shared &&
                   !channel.name.startsWith(EXTERNAL_PREFIX),
               ),
-              Effect.catchTag("SlackApiError", (error) =>
+              Effect.catch((error) =>
                 Effect.logWarning("Couldn't classify a Slack channel for private MCP servers").pipe(
                   Effect.annotateLogs({ reason: error.message }),
                   Effect.as(false),
@@ -101,7 +101,16 @@ export class ChatMcpServers extends Context.Service<
             ),
       )
     }),
-  ).pipe(Layer.provide(SlackApi.layer))
+  ).pipe(
+    Layer.provide(
+      Layer.unwrap(
+        Effect.gen(function* () {
+          const slack = yield* SlackConfig
+          return SlackWebApi.layer({ botToken: slack.botToken })
+        }),
+      ),
+    ),
+  )
 }
 
 function make(internal: (thread: ChatThread) => Effect.Effect<boolean>) {

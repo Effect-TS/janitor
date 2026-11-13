@@ -5,7 +5,6 @@ import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientResponse from "effect/http/HttpClientResponse"
-import { restLayer } from "../../../src/Chat/Discord/Api.ts"
 import { DiscordBotConfig } from "../../../src/Chat/Discord/Config.ts"
 import * as DiscordIngress from "../../../src/Chat/Discord/Ingress.ts"
 import type { ChatMessage, ChatThread } from "../../../src/Chat/Platform.ts"
@@ -96,9 +95,7 @@ const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
           seen.add(messageId)
         }),
     }),
-    restLayer(Redacted.make("bot-token")).pipe(
-      Layer.provide(Layer.succeed(HttpClient.HttpClient, discordApi)),
-    ),
+    Layer.succeed(HttpClient.HttpClient, discordApi),
   )
 
   /**
@@ -106,11 +103,20 @@ const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
    * over the same sessions and storage.
    */
   const ingress = Effect.gen(function* () {
-    const { handle, handleReaction } = yield* DiscordIngress.DiscordIngress
-    return { handle, handleReaction }
+    return (yield* DiscordIngress.DiscordIngress).dispatch
   }).pipe(Effect.provide(DiscordIngress.layer.pipe(Layer.provide(services))))
-  const instance = Effect.map(ingress, ({ handle }) => handle)
-  const reactions = Effect.map(ingress, ({ handleReaction }) => handleReaction)
+  /** Feeds a `MESSAGE_CREATE` to the instance, as the gateway's shard does. */
+  const instance = Effect.map(
+    ingress,
+    (dispatch) => (d: Discord.GatewayMessageCreateDispatchData) =>
+      dispatch({ t: "MESSAGE_CREATE", d }),
+  )
+  /** Feeds a `MESSAGE_REACTION_ADD` to the instance. */
+  const reactions = Effect.map(
+    ingress,
+    (dispatch) => (d: Discord.GatewayMessageReactionAddDispatchData) =>
+      dispatch({ t: "MESSAGE_REACTION_ADD", d }),
+  )
 
   /** The message handed off with id `id`, if any. */
   const handedOffAt = (id: string) => handedOff.find(({ message }) => message.id === id)
@@ -311,10 +317,17 @@ describe("Discord ingress", () => {
       yield* handle(
         message("1281", {
           type: 19,
+          message_reference: { type: 0, message_id: "1280", channel_id: SESSION_THREAD },
           referenced_message: message("1280", { author: user(BOT_USER, "janitor", { bot: true }) }),
         }),
       )
-      yield* handle(message("1283", { type: 19, referenced_message: message("1282") }))
+      yield* handle(
+        message("1283", {
+          type: 19,
+          message_reference: { type: 0, message_id: "1282", channel_id: SESSION_THREAD },
+          referenced_message: message("1282"),
+        }),
+      )
 
       assert.deepStrictEqual(
         ingress.handedOff.map(({ message }) => [message.id, message.mentionsBot]),

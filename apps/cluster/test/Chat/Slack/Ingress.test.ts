@@ -114,13 +114,30 @@ const makeIngress = Effect.fnUntraced(function* (
             return user === undefined ? { ok: false, error: "user_not_found" } : { ok: true, user }
           }
           case "conversations.replies": {
-            // Given a reply's ts, Slack answers with its thread, the root first.
-            const thread = replies[params.get("ts") ?? ""]
+            // Given a reply's ts, Slack answers with its thread's root, then the reply.
+            const ts = params.get("ts") ?? ""
+            const thread = replies[ts]
             return thread === undefined
               ? { ok: false, error: "thread_not_found" }
               : {
                   ok: true,
-                  messages: [{ type: "message", user: "U-member", ts: thread, thread_ts: thread }],
+                  messages: [
+                    {
+                      type: "message",
+                      user: "U-member",
+                      ts: thread,
+                      thread_ts: thread,
+                      text: "hi",
+                    },
+                    {
+                      type: "message",
+                      user: BOT_USER,
+                      bot_id: "B1",
+                      ts,
+                      thread_ts: thread,
+                      text: "ok",
+                    },
+                  ],
                 }
           }
           case "chat.postMessage":
@@ -213,7 +230,7 @@ const makeIngress = Effect.fnUntraced(function* (
   /** The message handed off with Slack `ts` `ts`, if any. */
   const handedOffAt = (ts: string) => handedOff.find(({ message }) => message.id === ts)
 
-  return { post, handedOff, handedOffAt, remembered, lookups, posted, logs }
+  return { handler, post, handedOff, handedOffAt, remembered, lookups, posted, logs }
 })
 
 const sign = (timestamp: number, body: string) =>
@@ -336,6 +353,7 @@ describe("Slack ingress", () => {
         401,
       )
       assert.strictEqual((yield* ingress.post(event, { timestamp: now - 301 })).status, 401)
+      // Another workspace's or app's envelope is acknowledged and dropped, so Slack won't retry it.
       assert.strictEqual(
         (yield* ingress.post(
           eventCallback(mention("1700000001.000100"), {
@@ -343,12 +361,12 @@ describe("Slack ingress", () => {
             authorizations: [{ team_id: "T2", user_id: "UBOT2", is_bot: true }],
           }),
         )).status,
-        403,
+        200,
       )
       assert.strictEqual(
         (yield* ingress.post(eventCallback(mention("1700000001.000100"), { api_app_id: "A2" })))
           .status,
-        403,
+        200,
       )
       assert.deepStrictEqual(ingress.handedOff, [])
     }),
@@ -398,6 +416,32 @@ describe("Slack ingress", () => {
         (yield* stuck.post(eventCallback(mention("1700000003.000100")))).status,
         503,
       )
+    }),
+  )
+
+  it.effect("logs every 503, naming the handler's error only when it refused", () =>
+    Effect.gen(function* () {
+      const failing = yield* makeIngress({
+        receive: () => Effect.fail(new SlackSessionError({ message: "unavailable" })),
+      })
+      assert.strictEqual(
+        (yield* failing.post(eventCallback(mention("1700000002.000100")))).status,
+        503,
+      )
+      assert.deepStrictEqual(failing.logs, [
+        { message: ["Slack webhook failed"], annotations: { error: "SlackSessionError" } },
+        { message: ["Slack webhook answered 503"], annotations: {} },
+      ])
+
+      const stuck = yield* makeIngress({ receive: () => Effect.never })
+      assert.strictEqual(
+        (yield* stuck.post(eventCallback(mention("1700000003.000100")))).status,
+        503,
+      )
+      // Past the deadline the handler is interrupted, so only the 503 is logged.
+      assert.deepStrictEqual(stuck.logs, [
+        { message: ["Slack webhook answered 503"], annotations: {} },
+      ])
     }),
   )
 
@@ -556,5 +600,57 @@ describe("Slack ingress", () => {
         assert.notInclude(ids, "1700000051.000100")
         assert.lengthOf(new Set(ids), 2)
       }),
+  )
+  it.effect("answers 503 to a body still streaming after 2.5 seconds", () =>
+    Effect.gen(function* () {
+      const ingress = yield* makeIngress()
+      const timestamp = Math.floor(Date.now() / 1000)
+      const signature = yield* sign(timestamp, "")
+      const status = yield* Effect.promise(async () => {
+        let controller!: ReadableStreamDefaultController<Uint8Array>
+        const body = new ReadableStream<Uint8Array>({
+          start(value) {
+            controller = value
+          },
+        })
+        const request = new Request("https://example.com/webhooks/slack", {
+          method: "POST",
+          headers: {
+            "x-slack-request-timestamp": String(timestamp),
+            "x-slack-signature": signature,
+          },
+          body,
+          duplex: "half",
+        } as RequestInit)
+        const response = ingress.handler(request)
+        const timeout = new Promise<string>((resolve) =>
+          setTimeout(() => resolve("no response after 3s"), 3000),
+        )
+        const observed = await Promise.race([response.then((reply) => reply.status), timeout])
+        // An answer cancels the body; without one, the body ends so the request can.
+        if (typeof observed === "string") {
+          controller.close()
+          await response
+        }
+        return observed
+      })
+      assert.strictEqual(status, 503)
+      assert.deepStrictEqual(ingress.logs, [
+        { message: ["Slack webhook answered 503"], annotations: {} },
+      ])
+    }),
+  )
+
+  it.effect("ignores a /me action, even one that mentions the bot", () =>
+    Effect.gen(function* () {
+      const ingress = yield* makeIngress()
+      const response = yield* ingress.post(
+        eventCallback(
+          message("1700000100.000100", { subtype: "me_message", text: `<@${BOT_USER}> do this` }),
+        ),
+      )
+      assert.strictEqual(response.status, 200)
+      assert.deepStrictEqual(ingress.handedOff, [])
+    }),
   )
 })

@@ -1,186 +1,19 @@
-import * as Context from "effect/Context"
-import * as DateTime from "effect/DateTime"
-import * as Duration from "effect/Duration"
+import type * as ChatMessages from "effect/chat/ChatMessage"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import * as Redacted from "effect/Redacted"
-import * as Schema from "effect/Schema"
-import * as HttpClient from "effect/http/HttpClient"
-import * as HttpClientRequest from "effect/http/HttpClientRequest"
-import type { AuthorClass, ChatMessage } from "../Platform.ts"
-import { SlackConfig } from "./Config.ts"
+import * as Option from "effect/Option"
+import * as SlackChat from "@effect/chat-slack/SlackChat"
+import type { AuthorClass, ChatMessage, ChatThread } from "../Platform.ts"
+import { withoutMentions } from "../Platform.ts"
 
 /**
- * The Slack Web API with the bot token (EFF-3019), and what ingress and the
- * platform share: the admission rule and the shape of a thread message.
+ * What Slack ingress and Slack's `ChatPlatform` share (EFF-3019): the
+ * address of a session's thread, the admission rule and how an
+ * `effect/chat` message becomes a session's `ChatMessage`.
  */
 
-/**
- * How a failed call may go on: `retry` once `retryAfter` seconds pass;
- * `uncertain` for a write that may have landed, so it is never repeated;
- * `denied` when Slack refused it.
- */
-export const Disposition = Schema.Literals(["retry", "uncertain", "denied"])
-export type Disposition = typeof Disposition.Type
-
-export class SlackApiError extends Schema.TaggedError<SlackApiError>()("SlackApiError", {
-  method: Schema.String,
-  message: Schema.String,
-  disposition: Disposition,
-  /** In seconds. */
-  retryAfter: Schema.Finite,
-}) {}
-
-/** Errors Slack answers when it may have done the work anyway. */
-const SERVER_ERRORS = new Set([
-  "internal_error",
-  "fatal_error",
-  "request_timeout",
-  "service_unavailable",
-])
-
-/** Retries of a `retry` failure before the call gives up. */
-const MAX_RETRIES = 3
-
-const Envelope = Schema.Struct({ ok: Schema.Boolean, error: Schema.optionalKey(Schema.String) })
-
-const failure = (method: string, message: string, disposition: Disposition, retryAfter = 30) =>
-  new SlackApiError({ method, message, disposition, retryAfter })
-
-/** Slack posts never unfurl links. */
-export const noUnfurls = { unfurl_links: false, unfurl_media: false }
-
-export interface CallOptions {
-  /** A write: an outcome Slack didn't confirm is `uncertain`, never retried. */
-  readonly write?: boolean
-  /** Retry rate limits and failed reads. On by default. */
-  readonly retry?: boolean
-}
-
-export class SlackApi extends Context.Service<
-  SlackApi,
-  {
-    /**
-     * Calls a Web API method with form parameters; objects are sent as JSON.
-     * Succeeds with the response body once Slack answers `ok`.
-     */
-    readonly call: (
-      method: string,
-      params: Record<string, unknown>,
-      options?: CallOptions,
-    ) => Effect.Effect<unknown, SlackApiError>
-    /** The bot's own user id, from `auth.test`. */
-    readonly botUserId: Effect.Effect<string, SlackApiError>
-    /** The HTTP client with the bot token, for file transfers. */
-    readonly http: HttpClient.HttpClient
-  }
->()("@janitor/cluster/Chat/Slack/Api/SlackApi") {
-  static readonly layer = Layer.effect(
-    this,
-    Effect.gen(function* () {
-      const config = yield* SlackConfig
-      const http = (yield* HttpClient.HttpClient).pipe(
-        HttpClient.mapRequest(HttpClientRequest.bearerToken(Redacted.value(config.botToken))),
-      )
-
-      const once = (method: string, params: Record<string, unknown>, write: boolean) =>
-        Effect.gen(function* () {
-          const unconfirmed = write ? "uncertain" : "retry"
-          const invalid = failure(method, "Invalid Slack response", unconfirmed)
-          const body: Record<string, string> = {}
-          for (const [key, value] of Object.entries(params))
-            if (value !== undefined)
-              body[key] =
-                typeof value === "object"
-                  ? JSON.stringify(value)
-                  : String(value as string | number | boolean)
-          const response = yield* http
-            .execute(
-              HttpClientRequest.post(`https://slack.com/api/${method}`).pipe(
-                HttpClientRequest.bodyUrlParams(body),
-              ),
-            )
-            .pipe(
-              Effect.timeout(Duration.seconds(10)),
-              Effect.mapError(() => failure(method, "Slack request did not complete", unconfirmed)),
-            )
-          if (response.status === 429) {
-            const delay = Number(response.headers["retry-after"] ?? 1)
-            return yield* failure(
-              method,
-              "Slack rate limited the request",
-              "retry",
-              Number.isFinite(delay) && delay > 0 ? delay : 1,
-            )
-          }
-          if (response.status < 200 || response.status >= 300)
-            return yield* failure(method, `Slack HTTP ${response.status}`, unconfirmed)
-          const json = yield* response.json.pipe(Effect.mapError(() => invalid))
-          const result = yield* Schema.decodeUnknownEffect(Envelope)(json).pipe(
-            Effect.mapError(() => invalid),
-          )
-          if (!result.ok) {
-            const error = result.error ?? "Slack refused the request"
-            return yield* error === "ratelimited"
-              ? failure(method, error, "retry", 1)
-              : failure(method, error, SERVER_ERRORS.has(error) ? unconfirmed : "denied")
-          }
-          return json
-        })
-
-      const call = (method: string, params: Record<string, unknown>, options: CallOptions = {}) => {
-        const attempt = (retries: number): Effect.Effect<unknown, SlackApiError> =>
-          once(method, params, options.write ?? false).pipe(
-            Effect.catchTag("SlackApiError", (error) =>
-              error.disposition === "retry" && options.retry !== false && retries < MAX_RETRIES
-                ? Effect.sleep(Duration.seconds(error.retryAfter)).pipe(
-                    Effect.andThen(attempt(retries + 1)),
-                  )
-                : Effect.fail(error),
-            ),
-          )
-        return attempt(0)
-      }
-
-      let botUser: string | undefined
-      const botUserId = Effect.suspend(() =>
-        botUser !== undefined
-          ? Effect.succeed(botUser)
-          : call("auth.test", {}).pipe(
-              Effect.flatMap(decode("auth.test", Schema.Struct({ user_id: Schema.String }))),
-              Effect.map(({ user_id }) => (botUser = user_id)),
-            ),
-      )
-
-      return { call, botUserId, http }
-    }),
-  )
-}
-
-/** Decodes a method's response; a body that doesn't fit is a `retry` failure. */
-export const decode =
-  <S extends Schema.Top & { readonly DecodingServices: never }>(method: string, schema: S) =>
-  (body: unknown): Effect.Effect<S["Type"], SlackApiError> =>
-    Schema.decodeUnknownEffect(schema)(body).pipe(
-      Effect.mapError(() => failure(method, "Invalid Slack response", "retry")),
-    )
-
-const SlackUser = Schema.Struct({
-  team_id: Schema.optionalKey(Schema.String),
-  name: Schema.optionalKey(Schema.String),
-  real_name: Schema.optionalKey(Schema.String),
-  profile: Schema.optionalKey(
-    Schema.Struct({
-      display_name: Schema.optionalKey(Schema.String),
-      real_name: Schema.optionalKey(Schema.String),
-    }),
-  ),
-  is_restricted: Schema.optionalKey(Schema.Boolean),
-  is_ultra_restricted: Schema.optionalKey(Schema.Boolean),
-  is_stranger: Schema.optionalKey(Schema.Boolean),
-  deleted: Schema.optionalKey(Schema.Boolean),
-  is_bot: Schema.optionalKey(Schema.Boolean),
-})
+/** A session's Slack thread as an `effect/chat` address. */
+export const address = (thread: Extract<ChatThread, { readonly _tag: "Slack" }>) =>
+  SlackChat.thread({ team: thread.team, channel: thread.channel, threadTs: thread.threadTs })
 
 export interface SlackAuthor {
   readonly class: AuthorClass
@@ -189,93 +22,106 @@ export interface SlackAuthor {
 
 /**
  * Admits a Slack user with `users.info`: a full member of our workspace (its
- * `team_id`), not a guest, a stranger or deleted. A missing flag counts as
- * false, but a missing `team_id` doesn't admit. Any bot account is a bot. A
- * failed lookup denies: the author is an outsider.
+ * `team_id`), not a guest, a stranger or deleted. Any bot account is a bot.
+ * A failed lookup denies: the author is an outsider.
  */
 export const lookUpAuthor = (
-  api: SlackApi["Service"],
+  slack: SlackChat.SlackChat["Service"],
   workspaceId: string,
   userId: string,
 ): Effect.Effect<SlackAuthor> =>
-  api.call("users.info", { user: userId }, { retry: false }).pipe(
-    Effect.flatMap(decode("users.info", Schema.Struct({ user: SlackUser }))),
-    Effect.map(({ user }): SlackAuthor => {
-      const name = user.profile?.display_name || user.real_name || user.name || userId
-      if (user.is_bot === true) return { class: "bot", name }
+  slack.user(userId).pipe(
+    Effect.map((user): SlackAuthor => {
+      if (user.isBot) return { class: "bot", name: user.name }
       const admitted =
-        user.team_id === workspaceId &&
-        user.is_restricted !== true &&
-        user.is_ultra_restricted !== true &&
-        user.is_stranger !== true &&
-        user.deleted !== true
-      return { class: admitted ? "admitted" : "outsider", name }
+        user.teamId === workspaceId &&
+        !user.isRestricted &&
+        !user.isUltraRestricted &&
+        !user.isStranger &&
+        !user.deleted
+      return { class: admitted ? "admitted" : "outsider", name: user.name }
     }),
-    Effect.catchTag("SlackApiError", (error) =>
+    Effect.catch((error) =>
       Effect.logWarning("Couldn't look up a Slack user").pipe(
-        Effect.annotateLogs({ method: error.method, reason: error.message }),
+        Effect.annotateLogs({ reason: error.message }),
         Effect.as<SlackAuthor>({ class: "outsider", name: userId }),
       ),
     ),
   )
 
-export const SlackFile = Schema.Struct({
-  id: Schema.String,
-  name: Schema.optionalKey(Schema.String),
-  mimetype: Schema.optionalKey(Schema.String),
-  size: Schema.optionalKey(Schema.Finite),
-})
+const isObject = (u: unknown): u is Record<string, unknown> =>
+  typeof u === "object" && u !== null && !Array.isArray(u)
 
-/** A Slack `ts`: a message's id and the time it was sent. */
-export const Timestamp = Schema.String.check(Schema.isPattern(/^\d+\.\d+$/))
+/** The Slack message's own fields, which janitor reads beyond `effect/chat`'s. */
+const slackFields = (message: ChatMessages.ChatMessage): Record<string, unknown> =>
+  isObject(message.raw) ? message.raw : {}
 
-/** When a Slack `ts` was sent. */
-export const sentAt = (ts: string): DateTime.Utc =>
-  DateTime.makeUnsafe(Math.floor(Number(ts) * 1000))
-
-/** The fields of a Slack message that janitor reads, in an event or a thread's history. */
-export const SlackMessage = Schema.Struct({
-  ts: Timestamp,
-  thread_ts: Schema.optionalKey(Timestamp),
-  user: Schema.optionalKey(Schema.String),
-  text: Schema.optionalKey(Schema.String),
-  subtype: Schema.optionalKey(Schema.String),
-  bot_id: Schema.optionalKey(Schema.String),
-  app_id: Schema.optionalKey(Schema.String),
-  username: Schema.optionalKey(Schema.String),
-  edited: Schema.optionalKey(Schema.Unknown),
-  files: Schema.optionalKey(Schema.Array(SlackFile)),
-})
-export type SlackMessage = typeof SlackMessage.Type
+/**
+ * Whether janitor counts the message as a bot's: `effect/chat` flags a bot
+ * user, a `bot_id` and the bot's own messages, and a message an app posted
+ * as a user carries an `app_id` too.
+ */
+export const isBotMessage = (message: ChatMessages.ChatMessage): boolean =>
+  message.author.isBot || slackFields(message)["app_id"] !== undefined
 
 /**
  * Subtypes that are still a person's new message: one with files, and a
- * thread reply also sent to the channel. Every other subtype (edits,
- * deletions, joins, bot posts) is dropped.
+ * thread reply also sent to the channel. `effect/chat` passes on others,
+ * such as `me_message`, that janitor drops.
  */
-export const MESSAGE_SUBTYPES: ReadonlySet<string> = new Set(["file_share", "thread_broadcast"])
+const MESSAGE_SUBTYPES: ReadonlySet<unknown> = new Set(["file_share", "thread_broadcast"])
 
-/** `<@U123>` or `<@U123|name>`. */
-const mentionPattern = (botUserId: string) => new RegExp(`<@${botUserId}(\\|[^>]*)?>`, "g")
+/**
+ * Whether janitor reads the message at all: one without a subtype, or with
+ * one of `MESSAGE_SUBTYPES`. A history reads bots' `bot_message`s too.
+ */
+export const isNewMessage = (
+  message: ChatMessages.ChatMessage,
+  options?: { readonly botMessages?: boolean },
+): boolean => {
+  const subtype = slackFields(message)["subtype"]
+  return (
+    subtype === undefined ||
+    MESSAGE_SUBTYPES.has(subtype) ||
+    (options?.botMessages === true && subtype === "bot_message")
+  )
+}
 
-export const mentionsBot = (text: string, botUserId: string) => mentionPattern(botUserId).test(text)
+/** Whether the message was edited: an edit is not a new message. */
+export const isEdited = (message: ChatMessages.ChatMessage): boolean =>
+  slackFields(message)["edited"] !== undefined
 
-/** A Slack message as a thread message, with mentions of the bot removed. */
+/** Whether the message is in a one-to-one conversation with the bot. */
+export const isDirectMessage = (message: ChatMessages.ChatMessage): boolean =>
+  slackFields(message)["channel_type"] === "im"
+
+/** The thread's root `ts`: the message's own when it starts a thread. */
+export const threadTs = (
+  message: ChatMessages.ChatMessage,
+): Option.Option<{
+  readonly channel: string
+  readonly threadTs: string
+}> =>
+  Option.map(SlackChat.parts(message.thread), (parts) => ({
+    channel: parts.channel,
+    threadTs: parts.threadTs ?? message.id,
+  }))
+
+/** An `effect/chat` Slack message as a session's, with mentions of the bot removed. */
 export const toChatMessage = (
-  message: SlackMessage,
+  message: ChatMessages.ChatMessage,
   author: { readonly id: string } & SlackAuthor,
-  botUserId: string,
   mentioned: boolean,
 ): ChatMessage => ({
-  id: message.ts,
+  id: message.id,
   author: { id: author.id, name: author.name, class: author.class },
-  text: (message.text ?? "").replace(mentionPattern(botUserId), "").replace(/^\s+/, ""),
+  text: withoutMentions(message, (mention) => mention.isSelf).replace(/^\s+/, ""),
   mentionsBot: mentioned,
-  sentAt: sentAt(message.ts),
-  attachments: (message.files ?? []).map((file) => ({
+  sentAt: message.timestamp,
+  attachments: message.attachments.map((file) => ({
     id: file.id,
     name: file.name ?? file.id,
-    mediaType: file.mimetype ?? "application/octet-stream",
+    mediaType: file.contentType ?? "application/octet-stream",
     size: Math.max(0, Math.floor(file.size ?? 0)),
   })),
 })
