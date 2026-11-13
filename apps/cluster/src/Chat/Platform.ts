@@ -1,6 +1,6 @@
 import * as Chat from "effect/chat/Chat"
 import type * as ChatAdapter from "effect/chat/ChatAdapter"
-import { type ChatError, fileRefused } from "effect/chat/ChatError"
+import type { ChatError } from "effect/chat/ChatError"
 import * as ChatMarkdown from "effect/chat/ChatMarkdown"
 import type * as ChatMessages from "effect/chat/ChatMessage"
 import type * as ChatThreads from "effect/chat/ChatThread"
@@ -122,65 +122,6 @@ export const notingUnattached = (text: string, files: ReadonlyArray<ChatFile>): 
 }
 
 /**
- * Whether a post failed only because the platform refused the overflow file,
- * so nothing of the rest of the reply went out.
- */
-const overflowRefused = (error: ChatMarkdown.ChatMarkdownError): boolean =>
-  (error.uncertain ?? "") === "" &&
-  error.remaining.trim() !== "" &&
-  error.cause._tag === "Chat" &&
-  error.cause.error.reason.retry === "denied" &&
-  error.cause.error.reason.detail === fileRefused
-
-const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
-
-/**
- * The code fence still open after `markdown`'s complete lines, read as
- * `ChatMarkdown` reads fences: its marker and its opening line.
- */
-const openFence = (
-  markdown: string,
-): { readonly marker: string; readonly line: string } | undefined => {
-  let fence: { readonly marker: string; readonly line: string } | undefined
-  for (const raw of markdown.slice(0, markdown.lastIndexOf("\n") + 1).split("\n")) {
-    const line = raw.replace(/\r$/, "")
-    const match = FENCE.exec(line)
-    if (match === null) continue
-    const marker = match[1]!
-    const rest = match[2]!
-    if (fence === undefined) {
-      if (!(marker[0] === "`" && rest.includes("`"))) fence = { marker, line: line.trimStart() }
-    } else if (
-      marker[0] === fence.marker[0] &&
-      marker.length >= fence.marker.length &&
-      rest.trim() === ""
-    ) {
-      fence = undefined
-    }
-  }
-  return fence
-}
-
-/**
- * The unsent end of `markdown` as a Markdown document of its own, ending in
- * `note`. `remaining` is a raw slice: when it starts inside a code fence,
- * the fence is opened again, and a fence still open at its end is closed
- * before the note. Its whitespace is kept, code's trailing spaces included,
- * but for blank lines around it.
- */
-export const recoverRemaining = (markdown: string, remaining: string, note: string): string => {
-  const reopen = openFence(markdown.slice(0, markdown.length - remaining.length))
-  const body = (
-    reopen === undefined
-      ? remaining.replace(/^(?:[ \t]*\r?\n)+/, "")
-      : `${reopen.line}\n${remaining}`
-  ).replace(/(?:\r?\n[ \t]*)+$/, "")
-  const open = openFence(`${body}\n`)
-  const closed = open === undefined ? body : `${body}\n${open.marker}`
-  return closed === "" ? note : `${closed}\n\n${note}`
-}
-
-/**
  * Whether a post failed before any part went out, with a reason `refused`
  * picks, so it can be posted again differently.
  */
@@ -224,24 +165,7 @@ export const postMarkdown = Effect.fnUntraced(function* (
             return `\n\n${unattachedNote(files)}`
           },
         }),
-  }).pipe(
-    // ChatMarkdown's fallback for refused files keeps the overflow file, so
-    // the platform refuses it again and the overflow is lost (reported on
-    // EFF-3691). The text that never went out is posted as messages instead,
-    // in the code fence it was cut in: `remaining` doesn't carry it.
-    Effect.catchIf(
-      (error) =>
-        options.files.length > 0 && overflowRefused(error) && markdown.endsWith(error.remaining),
-      (error) => {
-        unattached = true
-        return ChatMarkdown.post(
-          thread,
-          recoverRemaining(markdown, error.remaining, unattachedNote(options.files)),
-          { maxParts: Number.MAX_SAFE_INTEGER },
-        ).pipe(Effect.map((rest) => ({ ...rest, parts: [...error.posted, ...rest.parts] })))
-      },
-    ),
-  )
+  })
   if (unattached) yield* Effect.logWarning("Couldn't post a chat reply's files")
   const last = result.parts.at(-1)
   return {

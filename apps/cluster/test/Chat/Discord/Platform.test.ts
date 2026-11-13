@@ -540,7 +540,8 @@ describe("Discord platform", () => {
       assert.strictEqual(reply.text, `${overflowing}\n\n${note}`)
       assert.lengthOf(posted, 6)
       for (const message of posted) assert.isUndefined(message.files)
-      assert.strictEqual(posted[5]!.content, `${"a".repeat(1900)}\n\n${note}`)
+      // The note follows the rest as `notingUnattached` adds it to the reply's text.
+      assert.strictEqual(posted[5]!.content, `${paragraph}\n\n${note}`)
     }).pipe(Effect.provide(services)),
   )
 

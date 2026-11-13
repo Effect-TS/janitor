@@ -13,8 +13,8 @@ blockExoticSubdeps: false
 
 catalog:
   vitest: 5.1.0
-  "@effect/platform-node-shared": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/platform-cloudflare": https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@42cf7c020f081f7ccbd64d20cb6c1252b8477365
+  "@effect/platform-node-shared": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/platform-cloudflare": https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
   "@codemirror/autocomplete": 6.20.3
   "@codemirror/commands": 6.10.4
   "@codemirror/lang-yaml": 6.1.3
@@ -25,21 +25,21 @@ catalog:
   "@codemirror/view": 6.43.8
   "@lezer/common": 1.5.2
   "@uiw/codemirror-theme-github": 4.25.11
-  "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/ai-openai": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/sql-sqlite-node": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/graphql-generator": https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/sql-pg": https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/sql-d1": https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/sql-sqlite-do": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@42cf7c020f081f7ccbd64d20cb6c1252b8477365
+  "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/ai-openai": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/sql-sqlite-node": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/graphql-generator": https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/sql-pg": https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/sql-d1": https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/sql-sqlite-do": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
   "@effect/tsgo": ^0.67.5
-  "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/chat-slack": https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@42cf7c020f081f7ccbd64d20cb6c1252b8477365
-  "@effect/chat-discord": https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@42cf7c020f081f7ccbd64d20cb6c1252b8477365
+  "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/chat-slack": https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
+  "@effect/chat-discord": https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
   "@foldkit/devtools": ^0.170.0
   "@foldkit/devtools-mcp": ^0.26.0
   "@foldkit/oxlint-plugin": ^0.15.1
@@ -61,7 +61,7 @@ catalog:
   "@modelcontextprotocol/sdk": 1.32.2
   dfx: 1.1.1
   clsx: ^2.1.1
-  effect: https://pkg.pr.new/Effect-TS/effect/effect@42cf7c020f081f7ccbd64d20cb6c1252b8477365
+  effect: https://pkg.pr.new/Effect-TS/effect/effect@eeccfc1bc8a8cb1d338c2dd85fd41a138047517f
   happy-dom: ^20.0.0
   foldkit: ^0.170.0
   graphql: 17.0.2

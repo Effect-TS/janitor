@@ -321,12 +321,8 @@ describe("Slack platform", () => {
 
       const note = "(Couldn't attach plot.png.)"
       assert.strictEqual(reply.text, `${text}\n\n${note}`)
-      assert.deepStrictEqual(sent, [
-        paragraph,
-        paragraph,
-        paragraph,
-        `${"a".repeat(11_000)}\n\n${note}`,
-      ])
+      // The note follows the rest as `notingUnattached` adds it to the reply's text.
+      assert.deepStrictEqual(sent, [paragraph, paragraph, paragraph, `${paragraph}\n\n${note}`])
     }).pipe(Effect.provide(services)),
   )
 })

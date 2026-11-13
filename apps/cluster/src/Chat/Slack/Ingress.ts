@@ -6,14 +6,12 @@ import { mentionsSelf } from "effect/chat/ChatMessage"
 import type * as Sharding from "effect/cluster/Sharding"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
-import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
-import * as HttpRouter from "effect/http/HttpRouter"
-import * as HttpServerResponse from "effect/http/HttpServerResponse"
+import type * as HttpRouter from "effect/http/HttpRouter"
 import { failureCategory } from "../../Ingress/Webhooks.ts"
 import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
 import { sessionClient } from "../Session.ts"
@@ -213,24 +211,6 @@ const handler = Layer.unwrap(
  * the handler refuses the event, it returns 503, so Slack retries; sessions
  * dedupe the retry.
  */
-/**
- * Bounds the whole request, a slowly streamed body included, by Slack's
- * 2.5 seconds: `@effect/chat-slack` starts its `deadline` only once it has
- * read, verified and parsed the body (reported on EFF-3691).
- */
-const answerWithin = HttpRouter.middleware((response) =>
-  response.pipe(
-    Effect.timeoutOrElse({
-      duration: Duration.millis(2500),
-      orElse: () =>
-        Effect.logError("Slack webhook failed").pipe(
-          Effect.annotateLogs({ error: "Timeout" }),
-          Effect.as(HttpServerResponse.text("Service Unavailable", { status: 503 })),
-        ),
-    }),
-  ),
-).layer
-
 export const SlackWebhookRoutesLayer: Layer.Layer<
   never,
   never,
@@ -243,7 +223,7 @@ export const SlackWebhookRoutesLayer: Layer.Layer<
       signingSecret: config.signingSecret,
       appId: config.appId,
     }).pipe(
-      Layer.provide([handler, answerWithin]),
+      Layer.provide(handler),
       Layer.provideMerge(
         SlackChat.layer({ botToken: config.botToken, teamId: config.workspaceId }),
       ),
