@@ -24,7 +24,10 @@ const thread: ChatThread = { _tag: "Discord", guild: "100", threadId: "500" }
 /** Every message sent to Discord, including multipart upload metadata. */
 const posted: Array<{
   readonly content?: string
-  readonly message_reference?: { readonly message_id: string }
+  readonly message_reference?: {
+    readonly message_id: string
+    readonly fail_if_not_exists?: boolean
+  }
   readonly allowed_mentions: {
     readonly parse: ReadonlyArray<string>
     readonly users?: ReadonlyArray<string>
@@ -233,23 +236,28 @@ const makeServices = (options: { readonly rolesRefused?: boolean } = {}) =>
                 throw new Error(`Unexpected Discord request body: ${body._tag}`)
               }
               const message = JSON.parse(json)
-              // Message 599 was deleted since it started the turn.
-              if (message.message_reference?.message_id === "599")
-                return HttpClientResponse.fromWeb(
-                  request,
-                  Response.json(
-                    {
-                      message: "Invalid Form Body",
-                      code: 50035,
-                      errors: {
-                        message_reference: {
-                          _errors: [{ code: "MESSAGE_REFERENCE_UNKNOWN_MESSAGE" }],
+              // Message 599 was deleted since it started the turn: Discord
+              // refuses the reply, or drops the reference when told not to fail.
+              if (message.message_reference?.message_id === "599") {
+                if (message.message_reference.fail_if_not_exists === false)
+                  delete message.message_reference
+                else
+                  return HttpClientResponse.fromWeb(
+                    request,
+                    Response.json(
+                      {
+                        message: "Invalid Form Body",
+                        code: 50035,
+                        errors: {
+                          message_reference: {
+                            _errors: [{ code: "MESSAGE_REFERENCE_UNKNOWN_MESSAGE" }],
+                          },
                         },
                       },
-                    },
-                    { status: 400 },
-                  ),
-                )
+                      { status: 400 },
+                    ),
+                  )
+              }
               if (body._tag === "FormData" && refuseFiles)
                 return HttpClientResponse.fromWeb(
                   request,
@@ -337,7 +345,8 @@ describe("Discord replies and backfill", () => {
     {
       name: "a later message",
       replyTo: { messageId: "501", authorId: "600" },
-      reference: { message_id: "501" },
+      // A reply to a message deleted since goes out as a plain message.
+      reference: { message_id: "501", fail_if_not_exists: false },
       mentioned: false,
     },
     // An approval's id is no Discord message's, and Discord refuses a reference to it.
@@ -411,32 +420,6 @@ describe("Discord replies and backfill", () => {
     contentType: "image/png",
     content: new Uint8Array([137, 80, 78, 71, 0, 255]),
   }
-
-  it.effect(
-    "a reply with files to a message deleted since goes out with them, without a note",
-    () =>
-      Effect.gen(function* () {
-        posted.length = 0
-
-        const reply = yield* settle(
-          postReply(address(thread), "Done.", {
-            replyTo: { messageId: "599", authorId: "600" },
-            files: [plot],
-          }),
-        )
-
-        // The refused attempt's note doesn't outlive it.
-        assert.strictEqual(reply.text, "Done.")
-        assert.deepStrictEqual(
-          posted.map(({ content, message_reference, files }) => ({
-            content,
-            message_reference,
-            files: files?.map(({ name }) => name),
-          })),
-          [{ content: "Done.", message_reference: undefined, files: ["plot.png"] }],
-        )
-      }).pipe(Effect.provide(services)),
-  )
 
   it.effect("posts a reply's files with its last chunk, with their content type", () =>
     Effect.gen(function* () {

@@ -1,6 +1,5 @@
 import * as DiscordChat from "@effect/chat-discord/DiscordChat"
 import type * as ChatAdapter from "effect/chat/ChatAdapter"
-import type { ChatError } from "effect/chat/ChatError"
 import * as ChatMarkdown from "effect/chat/ChatMarkdown"
 import type * as ChatMessages from "effect/chat/ChatMessage"
 import type * as ChatThreads from "effect/chat/ChatThread"
@@ -29,14 +28,6 @@ export interface PostedReply {
   readonly text: string
 }
 
-/**
- * Discord's answer to a reply whose message is gone: an invalid form body
- * (50035) naming `message_reference`, or an unknown message.
- */
-const isUnknownReference = (error: ChatError): boolean =>
-  error.reason._tag === "NotFound" ||
-  (error.reason._tag === "InvalidRequest" && error.reason.detail === "50035")
-
 /** A Discord id. */
 const SNOWFLAKE = /^\d+$/
 
@@ -55,8 +46,10 @@ const namedUsers = (text: string): ReadonlyArray<string> =>
  * On Discord the first message answers `replyTo`, the message that started
  * the turn. When that message started the thread, or is an approval, the
  * reply mentions its author instead, since a reply from inside the thread
- * can't point at it. A reply may ping the users it names and the author it
- * answers, never a role or `@everyone`. Slack has no reply to a message.
+ * can't point at it. When that message was deleted since, the reply goes
+ * out as a plain message. A reply may ping the users it names and the
+ * author it answers, never a role or `@everyone`. Slack has no reply to a
+ * message.
  */
 export const postReply = Effect.fnUntraced(function* (
   thread: ChatThreads.ChatThread,
@@ -67,11 +60,10 @@ export const postReply = Effect.fnUntraced(function* (
   } = {},
 ) {
   const files = options.files ?? []
-  /** One attempt, and whether its files were refused: a retry starts afresh. */
+  let unattached = false
   const post = (
     answer?: { readonly lead: string } | { readonly replyTo: ChatMessages.ReplyTo },
   ) => {
-    let unattached = false
     const lead = answer !== undefined && "lead" in answer ? answer.lead : undefined
     // A fence opening the reply must stay at the start of its line.
     const markdown =
@@ -92,30 +84,18 @@ export const postReply = Effect.fnUntraced(function* (
     }).pipe(
       DiscordChat.withPostOptions({
         notify: { users: namedUsers(markdown), repliedUser: true },
+        failIfNotExists: false,
       }),
-      Effect.map((result) => ({ result, unattached })),
     )
   }
   const replyTo = options.replyTo
-  const { result, unattached } = yield* thread.platform !== "discord" || replyTo === undefined
+  const result = yield* thread.platform !== "discord" || replyTo === undefined
     ? post()
     : // A thread started from a message shares its id. An approval's id
       // (EFF-3163) is no message's, and Discord refuses it.
       replyTo.messageId === thread.id || !SNOWFLAKE.test(replyTo.messageId)
       ? post({ lead: `<@${replyTo.authorId}>` })
-      : // Discord refuses a reply to a message deleted since. Janitor used to
-        // send `fail_if_not_exists: false`, which the adapter can't, so the
-        // reply goes out again as a plain message, as long as nothing went
-        // out yet (reported on EFF-3790).
-        post({ replyTo }).pipe(
-          Effect.catchIf(
-            (error) =>
-              error.posted.length === 0 &&
-              error.cause._tag === "Chat" &&
-              isUnknownReference(error.cause.error),
-            () => post(),
-          ),
-        )
+      : post({ replyTo })
   if (unattached) yield* Effect.logWarning("Couldn't post a chat reply's files")
   const last = result.parts.at(-1)
   return {
