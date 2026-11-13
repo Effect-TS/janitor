@@ -6,12 +6,14 @@ import { mentionsSelf } from "effect/chat/ChatMessage"
 import type * as Sharding from "effect/cluster/Sharding"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as HttpClient from "effect/http/HttpClient"
-import type * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpRouter from "effect/http/HttpRouter"
+import * as HttpServerResponse from "effect/http/HttpServerResponse"
 import { failureCategory } from "../../Ingress/Webhooks.ts"
 import { APPROVAL_TEXT, approvalMessageId, type ChatMessage, type ChatThread } from "../Platform.ts"
 import { sessionClient } from "../Session.ts"
@@ -19,6 +21,7 @@ import {
   isBotMessage,
   isDirectMessage,
   isEdited,
+  isNewMessage,
   lookUpAuthor,
   type SlackAuthor,
   threadTs,
@@ -159,7 +162,7 @@ const handler = Layer.unwrap(
     const handleMessage = Effect.fnUntraced(function* (event: ChatEvent.MessageCreated) {
       const message = event.message
       // `ChatHandler` drops the bot's own messages before they get here.
-      if (isBotMessage(message) || isEdited(message)) return
+      if (isBotMessage(message) || isEdited(message) || !isNewMessage(message)) return
       if (event.kind === "direct") {
         if (isDirectMessage(message)) {
           const channel = Option.map(threadTs(message), ({ channel }) => channel)
@@ -206,9 +209,28 @@ const handler = Layer.unwrap(
  * hands the events to janitor's handler, which filters them, admits each
  * author with `users.info` and hands the message to its session. A
  * `reaction_added` of 👍 on the bot's message is handed on as an approval.
- * Without an answer inside 2.5 seconds, or when the handler refuses the
- * event, it returns 503, so Slack retries; sessions dedupe the retry.
+ * Without an answer inside 2.5 seconds, the body's reading included, or when
+ * the handler refuses the event, it returns 503, so Slack retries; sessions
+ * dedupe the retry.
  */
+/**
+ * Bounds the whole request, a slowly streamed body included, by Slack's
+ * 2.5 seconds: `@effect/chat-slack` starts its `deadline` only once it has
+ * read, verified and parsed the body (reported on EFF-3691).
+ */
+const answerWithin = HttpRouter.middleware((response) =>
+  response.pipe(
+    Effect.timeoutOrElse({
+      duration: Duration.millis(2500),
+      orElse: () =>
+        Effect.logError("Slack webhook failed").pipe(
+          Effect.annotateLogs({ error: "Timeout" }),
+          Effect.as(HttpServerResponse.text("Service Unavailable", { status: 503 })),
+        ),
+    }),
+  ),
+).layer
+
 export const SlackWebhookRoutesLayer: Layer.Layer<
   never,
   never,
@@ -221,7 +243,7 @@ export const SlackWebhookRoutesLayer: Layer.Layer<
       signingSecret: config.signingSecret,
       appId: config.appId,
     }).pipe(
-      Layer.provide(handler),
+      Layer.provide([handler, answerWithin]),
       Layer.provideMerge(
         SlackChat.layer({ botToken: config.botToken, teamId: config.workspaceId }),
       ),

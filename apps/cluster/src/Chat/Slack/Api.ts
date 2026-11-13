@@ -64,6 +64,29 @@ const slackFields = (message: ChatMessages.ChatMessage): Record<string, unknown>
 export const isBotMessage = (message: ChatMessages.ChatMessage): boolean =>
   message.author.isBot || slackFields(message)["app_id"] !== undefined
 
+/**
+ * Subtypes that are still a person's new message: one with files, and a
+ * thread reply also sent to the channel. `effect/chat` passes on others,
+ * such as `me_message`, that janitor drops.
+ */
+const MESSAGE_SUBTYPES: ReadonlySet<unknown> = new Set(["file_share", "thread_broadcast"])
+
+/**
+ * Whether janitor reads the message at all: one without a subtype, or with
+ * one of `MESSAGE_SUBTYPES`. A history reads bots' `bot_message`s too.
+ */
+export const isNewMessage = (
+  message: ChatMessages.ChatMessage,
+  options?: { readonly botMessages?: boolean },
+): boolean => {
+  const subtype = slackFields(message)["subtype"]
+  return (
+    subtype === undefined ||
+    MESSAGE_SUBTYPES.has(subtype) ||
+    (options?.botMessages === true && subtype === "bot_message")
+  )
+}
+
 /** Whether the message was edited: an edit is not a new message. */
 export const isEdited = (message: ChatMessages.ChatMessage): boolean =>
   slackFields(message)["edited"] !== undefined

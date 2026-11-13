@@ -173,12 +173,14 @@ const make = Effect.gen(function* () {
         // The author is mentioned instead, so they are still pinged.
         if (replyTo.messageId === to.id || !SNOWFLAKE.test(replyTo.messageId))
           return yield* post(mention)
-        // Discord refuses a reply to a message deleted since: the author is
-        // mentioned instead, as long as nothing went out yet.
+        // Discord refuses a reply to a message deleted since. Janitor used to
+        // send `fail_if_not_exists: false`, which the adapter can't, so the
+        // reply goes out again as a plain message, as long as nothing went
+        // out yet (reported on EFF-3691).
         return yield* post({ replyTo }).pipe(
           Effect.catchIf(
             (error) => refusedBeforePosting(error, isUnknownReference),
-            () => post(mention),
+            () => post(undefined),
           ),
         )
       }).pipe(Effect.mapError(fromChatError), provide),

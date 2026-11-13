@@ -25,11 +25,15 @@ const thread: ChatThread = {
 let respond = (_post: number): Response => Response.json({ ok: true, ts: "1700000001.000100" })
 let posts = 0
 
-/** The thread's replies, which `conversations.replies` pages two at a time: 31 pages. */
+/**
+ * The thread's replies, which `conversations.replies` pages two at a time: 31
+ * pages. Reply 59 is a `/me` action, which janitor doesn't read.
+ */
 const replies = Array.from({ length: 61 }, (_, index) => ({
   ts: `17000${String(index).padStart(5, "0")}.000100`,
   user: "U1",
   text: `reply ${index}`,
+  ...(index === 59 ? { subtype: "me_message" } : {}),
 }))
 
 /**
@@ -196,15 +200,17 @@ describe("Slack platform", () => {
       }).pipe(Effect.provide(services)),
   )
 
-  it.effect("the backfill reads the thread to its last page and keeps the latest messages", () =>
-    Effect.gen(function* () {
-      const platform = yield* ChatPlatform
-      const messages = yield* platform.history(thread, 3)
-      assert.deepStrictEqual(
-        messages.map((message) => message.text),
-        ["reply 58", "reply 59", "reply 60"],
-      )
-    }).pipe(Effect.provide(services)),
+  it.effect(
+    "the backfill reads the thread to its last page and keeps the latest new messages",
+    () =>
+      Effect.gen(function* () {
+        const platform = yield* ChatPlatform
+        const messages = yield* platform.history(thread, 3)
+        assert.deepStrictEqual(
+          messages.map((message) => message.text),
+          ["reply 57", "reply 58", "reply 60"],
+        )
+      }).pipe(Effect.provide(services)),
   )
 
   const plot = {
@@ -298,6 +304,29 @@ describe("Slack platform", () => {
       yield* settle(platform.postReply(shared, "hello"))
       yield* platform.postStatus(shared, "Starting")
       assert.strictEqual(posts, 2)
+    }).pipe(Effect.provide(services)),
+  )
+
+  it.effect("posts the overflow of a long reply whose files are refused as text, naming them", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      yield* reset
+      refuseFiles = "staging"
+      const paragraph = `${"a".repeat(11_000)}\n\n`
+      const text = paragraph.repeat(4)
+
+      const reply = yield* settle(platform.postReply(thread, text, { files: [plot] })).pipe(
+        Effect.ensuring(Effect.sync(() => (refuseFiles = undefined))),
+      )
+
+      const note = "(Couldn't attach plot.png.)"
+      assert.strictEqual(reply.text, `${text}\n\n${note}`)
+      assert.deepStrictEqual(sent, [
+        paragraph,
+        paragraph,
+        paragraph,
+        `${"a".repeat(11_000)}\n\n${note}`,
+      ])
     }).pipe(Effect.provide(services)),
   )
 })

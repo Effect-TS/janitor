@@ -1,6 +1,6 @@
 import * as Chat from "effect/chat/Chat"
 import type * as ChatAdapter from "effect/chat/ChatAdapter"
-import type { ChatError } from "effect/chat/ChatError"
+import { type ChatError, fileRefused } from "effect/chat/ChatError"
 import * as ChatMarkdown from "effect/chat/ChatMarkdown"
 import type * as ChatMessages from "effect/chat/ChatMessage"
 import type * as ChatThreads from "effect/chat/ChatThread"
@@ -122,6 +122,17 @@ export const notingUnattached = (text: string, files: ReadonlyArray<ChatFile>): 
 }
 
 /**
+ * Whether a post failed only because the platform refused the overflow file,
+ * so nothing of the rest of the reply went out.
+ */
+const overflowRefused = (error: ChatMarkdown.ChatMarkdownError): boolean =>
+  (error.uncertain ?? "") === "" &&
+  error.remaining.trim() !== "" &&
+  error.cause._tag === "Chat" &&
+  error.cause.error.reason.retry === "denied" &&
+  error.cause.error.reason.detail === fileRefused
+
+/**
  * Whether a post failed before any part went out, with a reason `refused`
  * picks, so it can be posted again differently.
  */
@@ -165,7 +176,24 @@ export const postMarkdown = Effect.fnUntraced(function* (
             return `\n\n${unattachedNote(files)}`
           },
         }),
-  })
+  }).pipe(
+    // ChatMarkdown's fallback for refused files keeps the overflow file, so
+    // the platform refuses it again and the overflow is lost (reported on
+    // EFF-3691). The text that never went out is posted as messages instead.
+    Effect.catchIf(
+      (error) => options.files.length > 0 && overflowRefused(error),
+      (error) => {
+        unattached = true
+        return ChatMarkdown.post(
+          thread,
+          `${error.remaining.trim()}\n\n${unattachedNote(options.files)}`,
+          {
+            maxParts: Number.MAX_SAFE_INTEGER,
+          },
+        ).pipe(Effect.map((rest) => ({ ...rest, parts: [...error.posted, ...rest.parts] })))
+      },
+    ),
+  )
   if (unattached) yield* Effect.logWarning("Couldn't post a chat reply's files")
   const last = result.parts.at(-1)
   return {
@@ -184,13 +212,15 @@ export const downloadAttachment = (
     readLimited(chat.download(thread, attachment, { maxBytes }), maxBytes),
   )
 
-/** A thread's latest `limit` messages through `Chat.history`, oldest first. */
+/** A thread's latest `limit` messages that `keep` passes, through `Chat.history`, oldest first. */
 export const latestMessages = (
   thread: ChatThreads.ChatThread,
   limit: number,
+  keep: (message: ChatMessages.ChatMessage) => boolean = () => true,
 ): Effect.Effect<ReadonlyArray<ChatMessages.ChatMessage>, ChatPlatformError, Chat.Chat> =>
   Effect.flatMap(Chat.Chat, (chat) =>
     chat.history(thread, { direction: "backward" }).pipe(
+      Stream.filter(keep),
       Stream.take(limit),
       Stream.runCollect,
       Effect.map((messages) => Array.from(messages).reverse()),

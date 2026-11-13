@@ -14,7 +14,14 @@ import {
   latestMessages,
   postMarkdown,
 } from "../Platform.ts"
-import { address, isBotMessage, lookUpAuthor, type SlackAuthor, toChatMessage } from "./Api.ts"
+import {
+  address,
+  isBotMessage,
+  isNewMessage,
+  lookUpAuthor,
+  type SlackAuthor,
+  toChatMessage,
+} from "./Api.ts"
 import { SlackConfig } from "./Config.ts"
 
 /** A reply that needs more messages than this goes on in `reply.md`. */
@@ -35,7 +42,9 @@ const make = Effect.gen(function* () {
 
   const history = (thread: ChatThread, limit: number) =>
     Effect.gen(function* () {
-      const messages = yield* latestMessages(yield* slackAddress(thread), limit)
+      const messages = yield* latestMessages(yield* slackAddress(thread), limit, (message) =>
+        isNewMessage(message, { botMessages: true }),
+      )
       const people = new Set(
         messages.filter((message) => !isBotMessage(message)).map(({ author }) => author.id),
       )

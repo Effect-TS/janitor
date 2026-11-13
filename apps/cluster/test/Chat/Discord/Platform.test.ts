@@ -377,7 +377,7 @@ describe("Discord platform", () => {
     )
   }
 
-  it.effect("a reply to a message deleted since mentions its author instead", () =>
+  it.effect("a reply to a message deleted since goes out as a plain message", () =>
     Effect.gen(function* () {
       const platform = yield* ChatPlatform
       posted.length = 0
@@ -389,7 +389,7 @@ describe("Discord platform", () => {
       assert.strictEqual(reply.text, "Done.")
       assert.deepStrictEqual(
         posted.map(({ content, message_reference }) => ({ content, message_reference })),
-        [{ content: "<@600> Done.", message_reference: undefined }],
+        [{ content: "Done.", message_reference: undefined }],
       )
     }).pipe(Effect.provide(services)),
   )
@@ -524,6 +524,23 @@ describe("Discord platform", () => {
         history.map(({ id }) => id),
         ["820", "821", "822"],
       )
+    }).pipe(Effect.provide(services)),
+  )
+  it.effect("posts the overflow of a reply whose files are refused as text, naming them", () =>
+    Effect.gen(function* () {
+      const platform = yield* ChatPlatform
+      posted.length = 0
+      refuseFiles = true
+
+      const reply = yield* settle(platform.postReply(thread, overflowing, { files: [plot] })).pipe(
+        Effect.ensuring(Effect.sync(() => (refuseFiles = false))),
+      )
+
+      const note = "(Couldn't attach plot.png.)"
+      assert.strictEqual(reply.text, `${overflowing}\n\n${note}`)
+      assert.lengthOf(posted, 6)
+      for (const message of posted) assert.isUndefined(message.files)
+      assert.strictEqual(posted[5]!.content, `${"a".repeat(1900)}\n\n${note}`)
     }).pipe(Effect.provide(services)),
   )
 })
