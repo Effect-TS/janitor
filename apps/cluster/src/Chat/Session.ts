@@ -310,18 +310,6 @@ export class ChatBackfill extends Context.Service<
   Readonly<Record<string, Backfill>>
 >()("@janitor/cluster/Chat/Session/ChatBackfill") {}
 
-/** An attachment's bytes, as they arrive: `Chat.download` fails past `maxBytes`. */
-const concat = (chunks: Iterable<Uint8Array>): Uint8Array => {
-  const parts = Array.from(chunks)
-  const content = new Uint8Array(parts.reduce((size, part) => size + part.length, 0))
-  let offset = 0
-  for (const part of parts) {
-    content.set(part, offset)
-    offset += part.length
-  }
-  return content
-}
-
 /** The turn this entity is running. */
 interface Running {
   readonly turnId: string
@@ -667,8 +655,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               const transfer = chat
                 .download(source.thread, source.attachment, { maxBytes: MAX_ATTACHMENT_BYTES })
                 .pipe(
-                  Stream.runCollect,
-                  Effect.map(concat),
+                  // `Chat.download` fails past `maxBytes`.
+                  Stream.mkUint8Array,
                   Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
                 )
               // A steer's transfer is capped, so one stalled file doesn't hold
