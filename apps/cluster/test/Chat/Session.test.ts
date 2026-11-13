@@ -537,6 +537,29 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
+  it.effect("a restarted Discord turn replies in the thread its stored session names", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* send(harness, discordThread, "Open a PR on janitor-sandbox.", { mention: true })
+        yield* modelCalls(harness, 1)
+
+        // The rebuilt entity reads its thread back from the session row.
+        yield* harness.restart
+        yield* modelCalls(harness, 2)
+        assert.include(seen(harness.model.last), resumeMessage)
+        harness.model.answer(say("Opened."))
+        yield* turnEnded(harness, discordThread)
+
+        assert.deepStrictEqual(harness.platform.replies, [
+          { thread: discordThread, text: "Opened." },
+        ])
+        assert.deepStrictEqual(harness.platform.statusDeletes, [
+          { thread: discordThread, messageId: "0" },
+        ])
+      }),
+    ),
+  )
+
   it.effect("a turn is told to wrap up at minute 35 and stopped at minute 40", () =>
     test((harness) =>
       Effect.gen(function* () {

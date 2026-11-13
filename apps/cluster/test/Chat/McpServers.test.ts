@@ -13,6 +13,7 @@ import * as SqlError from "effect/sql/SqlError"
 import { type McpCredential, McpCredentials, McpUnavailable } from "../../src/Chat/McpCredential.ts"
 import { ChatMcpServers } from "../../src/Chat/McpServers.ts"
 import { McpServerStore } from "../../src/Chat/McpServerStore.ts"
+import { address } from "../../src/Chat/Message.ts"
 import type { ChatThread } from "@janitor/domain/Chat/Session"
 import { SlackConfig } from "../../src/Chat/Slack/Config.ts"
 import {
@@ -361,7 +362,7 @@ describe("ChatMcpServers.internal", () => {
         const http = new FakeHttp(credentialsFor())
         const allowed = yield* Effect.gen(function* () {
           const service = yield* ChatMcpServers
-          return yield* service.internal(thread)
+          return yield* service.internal(address(thread))
         }).pipe(Effect.provide(mcpServers(http)))
         assert.strictEqual(allowed, expected)
         assert.deepStrictEqual(http.mcp, [], "deciding never reaches an MCP server")

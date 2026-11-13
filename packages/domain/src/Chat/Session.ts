@@ -7,7 +7,12 @@ import * as Schema from "effect/Schema"
  * kill switch.
  */
 
-/** One Slack thread or one Discord thread: what a chat session is for. */
+/**
+ * One Slack thread or one Discord thread: what a chat session is for, as
+ * sessions store it, `Receive` carries it and the sessions page reads it.
+ * It names the Discord guild, which an `effect/chat` address doesn't. A
+ * running session uses the `effect/chat` address instead (EFF-3791).
+ */
 export const ChatThread = Schema.TaggedUnion({
   Slack: { team: Schema.String, channel: Schema.String, threadTs: Schema.String },
   Discord: { guild: Schema.String, threadId: Schema.String },
@@ -36,7 +41,11 @@ export const ChatAttachment = Schema.Struct({
 })
 export type ChatAttachment = typeof ChatAttachment.Type
 
-/** A thread message, as ingress hands it to the session. */
+/**
+ * A thread message as a session's transcript keeps it: what admission and
+ * the bot-mention rules made of an `effect/chat` message, for the gate, the
+ * model and the sessions page. Ingress and the backfill make it once.
+ */
 export const ChatMessage = Schema.Struct({
   /** The platform's message id: the Slack `ts` or the Discord snowflake. Sessions dedupe on it. */
   id: Schema.String,

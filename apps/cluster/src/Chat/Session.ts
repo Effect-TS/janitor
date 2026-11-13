@@ -231,8 +231,8 @@ const ADMISSION_TTL = Duration.hours(1)
 
 const isStop = (text: string) => /^\s*stop[\s.!]*$/i.test(text)
 
-const switchedOff = (state: KillSwitchState, thread: ChatThread) =>
-  state.global || (thread._tag === "Slack" ? state.slack : state.discord)
+const switchedOff = (state: KillSwitchState, thread: ChatThreads.ChatThread) =>
+  state.global || (thread.platform === "slack" ? state.slack : state.discord)
 
 const addUsage = (a: TurnUsage | null, b: TurnUsage | null): TurnUsage | null =>
   a === null
@@ -325,7 +325,7 @@ const concat = (chunks: Iterable<Uint8Array>): Uint8Array => {
 /** The turn this entity is running. */
 interface Running {
   readonly turnId: string
-  readonly thread: ChatThread
+  readonly thread: ChatThreads.ChatThread
   fiber: Fiber.Fiber<void> | undefined
   /**
    * Steers waiting for their attachments, in arrival order, once the loop
@@ -514,11 +514,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       }
     }
 
-    const editStatus = (thread: ChatThread, messageId: string | null, text: string) =>
+    const editStatus = (thread: ChatThreads.ChatThread, messageId: string | null, text: string) =>
       messageId === null
         ? Effect.void
         : chat
-            .edit(address(thread), messageId, { markdown: text })
+            .edit(thread, messageId, { markdown: text })
             .pipe(
               Effect.catch((error) =>
                 Effect.logWarning("Couldn't edit a chat status message").pipe(
@@ -558,7 +558,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           // keeps it, as the turn's only output.
           if (turn.status === "replied" && turn.statusMessageId !== null)
             yield* chat
-              .delete(address(running.thread), turn.statusMessageId)
+              .delete(running.thread, turn.statusMessageId)
               .pipe(
                 Effect.catch((error) =>
                   Effect.logWarning("Couldn't delete a chat status message").pipe(
@@ -701,7 +701,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       })
 
     /** Starts a turn for the messages waiting. Run with `transitions` held. */
-    const startTurn = (thread: ChatThread) =>
+    const startTurn = (thread: ChatThreads.ChatThread) =>
       Effect.gen(function* () {
         const turnId = crypto.randomUUID()
         const claimed = (yield* storage.undelivered)
@@ -727,7 +727,11 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       })
 
     /** Runs a saved turn in its own fiber: a new one, or a running one after a restart. */
-    const resumeTurn = (turnId: string, thread: ChatThread, claimed: ReadonlyArray<string>) =>
+    const resumeTurn = (
+      turnId: string,
+      thread: ChatThreads.ChatThread,
+      claimed: ReadonlyArray<string>,
+    ) =>
       Effect.gen(function* () {
         yield* keepAlive(true)
         const running: Running = {
@@ -893,7 +897,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
             )
         const loop = yield* agent.start({
           instructions: systemPrompt({
-            audience: running.thread._tag === "Slack" ? "slack" : "discord",
+            audience: running.thread.platform === "slack" ? "slack" : "discord",
             multicaWorkspaceId,
             multicaWorkspaceSlug: config.multicaWorkspaceSlug,
           }),
@@ -963,7 +967,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                   : undefined
                 // Never retried here: the transport retries what is safe to retry,
                 // and the platform delivers a reply whose files it refuses as text.
-                const posted = yield* postReply(address(running.thread), result.text, {
+                const posted = yield* postReply(running.thread, result.text, {
                   replyTo,
                   files: replyFiles.files(),
                 }).pipe(Effect.provideService(Chat.Chat, chat), Effect.result)
@@ -1038,7 +1042,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         let loaded = yield* storage.loadTurn(running.turnId)
         if (Option.isNone(loaded) || loaded.value.status !== "running") return
         if (loaded.value.statusMessageId === null) {
-          const posted = yield* chat.post(address(running.thread), { markdown: "Starting" }).pipe(
+          const posted = yield* chat.post(running.thread, { markdown: "Starting" }).pipe(
             Effect.map(({ id }) => id),
             Effect.tapError((error) =>
               Effect.logWarning("Couldn't post a chat status message").pipe(
@@ -1080,12 +1084,12 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       }).pipe(Effect.orDie)
 
     /** Tells the thread once that the bot is switched off. Run with `inbox` held. */
-    const announceSwitchedOff = (thread: ChatThread) =>
+    const announceSwitchedOff = (thread: ChatThreads.ChatThread) =>
       Effect.gen(function* () {
         const session = yield* storage.loadSession
         if (Option.isNone(session) || session.value.switchedOffNotified) return
         yield* storage.saveSession({ ...session.value, switchedOffNotified: true })
-        yield* postReply(address(thread), switchedOffMessage).pipe(
+        yield* postReply(thread, switchedOffMessage).pipe(
           Effect.provideService(Chat.Chat, chat),
           Effect.catch((error) =>
             Effect.logWarning("Couldn't say the chat bot is switched off").pipe(
@@ -1096,7 +1100,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       }).pipe(Effect.orDie)
 
     /** Gates one stored message, then steers it, starts a turn with it or keeps it as context. */
-    const handle = (thread: ChatThread, message: ChatMessage) =>
+    const handle = (thread: ChatThreads.ChatThread, message: ChatMessage) =>
       Effect.gen(function* () {
         if (message.author.class !== "admitted")
           return yield* storage.setGate(message.id, { _tag: "Context" })
@@ -1153,15 +1157,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
      * Backfills a thread the bot just joined: its earlier messages, as
      * context. Succeeds with whether the thread's history was read.
      */
-    const backfill = (thread: ChatThread, joinedWith: string) =>
-      Effect.suspend(() => {
-        const to = address(thread)
-        // A platform that is off has no backfill: tried again with the next message.
-        return (
-          backfills[to.platform]?.(to, BACKFILL) ??
-          Effect.fail({ message: `${to.platform} is not connected` })
-        )
-      }).pipe(
+    const backfill = (thread: ChatThreads.ChatThread, joinedWith: string) =>
+      Effect.suspend(
+        () =>
+          // A platform that is off has no backfill: tried again with the next message.
+          backfills[thread.platform]?.(thread, BACKFILL) ??
+          Effect.fail({ message: `${thread.platform} is not connected` }),
+      ).pipe(
         Effect.flatMap((messages) =>
           Effect.forEach(
             messages.filter((message) => message.id !== joinedWith),
@@ -1208,7 +1210,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
       const session = yield* storage.loadSession.pipe(Effect.orDie)
       const running = turns.find((turn) => turn.status === "running")
       if (Option.isSome(session)) {
-        const thread = session.value.thread
+        const thread = address(session.value.thread)
         if (running !== undefined)
           yield* Semaphore.withPermits(
             transitions,
@@ -1242,7 +1244,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
     }
 
     return ChatSession.of({
-      Receive: ({ payload: { thread, message } }) =>
+      Receive: ({ payload }) =>
         Semaphore.withPermits(
           inbox,
           1,
@@ -1250,11 +1252,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           Effect.gen(function* () {
             yield* storage.ensureTables
             dropped = false
+            const { message } = payload
+            const thread = address(payload.thread)
             const now = yield* Clock.currentTimeMillis
             const session = yield* storage.loadSession
             let state: SessionState = Option.isSome(session)
               ? { ...session.value, lastMessageAt: now }
-              : { thread, lastMessageAt: now, switchedOffNotified: false }
+              : { thread: payload.thread, lastMessageAt: now, switchedOffNotified: false }
             // The session row is saved only once the backfill is done: a
             // restart during it replays this message, which backfills again.
             // A failed backfill is retried with the next message.

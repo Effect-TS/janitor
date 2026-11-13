@@ -3,7 +3,7 @@ import * as DiscordChat from "@effect/chat-discord/DiscordChat"
 import type { ChatMessage } from "effect/chat/ChatMessage"
 import * as DateTime from "effect/DateTime"
 import type { ChatThread } from "@janitor/domain/Chat/Session"
-import { attachmentSource, sessionMessage } from "../../src/Chat/Message.ts"
+import { address, attachmentSource, sessionMessage } from "../../src/Chat/Message.ts"
 
 const author = { id: "600", name: "ada", class: "admitted" } as const
 
@@ -61,7 +61,7 @@ describe("sessionMessage", () => {
       mediaType: "image/png",
       size: 6,
     })
-    assert.deepStrictEqual(attachmentSource(thread, attachment!), {
+    assert.deepStrictEqual(attachmentSource(address(thread), attachment!), {
       thread: DiscordChat.thread("400"),
       attachment: { id: "1001/77", size: 6 },
     })

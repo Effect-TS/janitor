@@ -5,9 +5,18 @@ import type * as ChatThreads from "effect/chat/ChatThread"
 import type { ChatAttachment, ChatMessage, ChatThread } from "@janitor/domain/Chat/Session"
 
 /**
- * How a session keeps an `effect/chat` thread and message (EFF-3018): its
- * thread names the Slack team or Discord guild, and its message carries
- * what admission made of the author.
+ * Where `effect/chat` meets what sessions store (EFF-3018, EFF-3791).
+ *
+ * A session runs on `effect/chat`'s `ChatThread`. The domain `ChatThread`
+ * is only its stored form: the `Receive` payload, the session row, the
+ * sessions page and the session key, all of which predate `effect/chat` and
+ * name the Discord guild, which an `effect/chat` address doesn't. `address`
+ * is the one way from the stored form, at `Receive` and on a restart.
+ *
+ * The domain `ChatMessage` is a transcript entry, not a platform message:
+ * what admission and the bot-mention rules made of one, as the gate, the
+ * model and the sessions page read it. `sessionMessage` makes one from an
+ * `effect/chat` message, once, where the message is read.
  */
 
 /** The session key, and the session entity's id: `slack/{team}/{channel}/{thread_ts}` or `discord/{guild}/{thread_id}`. */
@@ -16,7 +25,7 @@ export const sessionKey = (thread: ChatThread): string =>
     ? `slack/${thread.team}/${thread.channel}/${thread.threadTs}`
     : `discord/${thread.guild}/${thread.threadId}`
 
-/** A session's thread as an `effect/chat` address. */
+/** A stored thread as the `effect/chat` address the session runs on. */
 export const address = (thread: ChatThread): ChatThreads.ChatThread =>
   thread._tag === "Slack"
     ? SlackChat.thread({ team: thread.team, channel: thread.channel, threadTs: thread.threadTs })
@@ -76,18 +85,19 @@ export const sessionMessage = (
   }
 }
 
-/** Where a session's attachment is downloaded from, as `effect/chat` names it. */
+/**
+ * Where a session's attachment is downloaded from, as `effect/chat` names
+ * it: a Discord attachment from its message's channel, `{channel}/{message}/{attachment}`.
+ */
 export const attachmentSource = (
-  thread: ChatThread,
+  thread: ChatThreads.ChatThread,
   attachment: ChatAttachment,
 ): { readonly thread: ChatThreads.ChatThread; readonly attachment: ChatMessages.Attachment } => {
-  if (thread._tag === "Discord") {
-    const [channel, ...rest] = attachment.id.split("/")
-    if (channel !== undefined && rest.length === 2)
-      return {
+  const [channel, ...id] = attachment.id.split("/")
+  return thread.platform === "discord" && channel !== undefined && id.length === 2
+    ? {
         thread: DiscordChat.thread(channel),
-        attachment: { id: rest.join("/"), size: attachment.size },
+        attachment: { id: id.join("/"), size: attachment.size },
       }
-  }
-  return { thread: address(thread), attachment: { id: attachment.id, size: attachment.size } }
+    : { thread, attachment: { id: attachment.id, size: attachment.size } }
 }

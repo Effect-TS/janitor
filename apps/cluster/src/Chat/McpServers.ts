@@ -1,16 +1,18 @@
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { McpServerConfig } from "@janitor/domain/Chat/McpServer"
 import * as McpServersLayer from "clanka/McpServers"
+import * as SlackChat from "@effect/chat-slack/SlackChat"
 import * as SlackWebApi from "@effect/chat-slack/SlackWebApi"
+import type * as ChatThread from "effect/chat/ChatThread"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as HttpClient from "effect/http/HttpClient"
 import { McpCredentials } from "./McpCredential.ts"
 import { fetchVia } from "./McpFetch.ts"
 import { McpServerStore } from "./McpServerStore.ts"
-import type { ChatThread } from "@janitor/domain/Chat/Session"
 import { SlackConfig } from "./Slack/Config.ts"
 
 /**
@@ -47,7 +49,7 @@ export class ChatMcpServers extends Context.Service<
      * failed lookup included, is no. A rate limit is no at once, never
      * waited out.
      */
-    readonly internal: (thread: ChatThread) => Effect.Effect<boolean>
+    readonly internal: (thread: ChatThread.ChatThread) => Effect.Effect<boolean>
     /**
      * A turn's servers, read from the dashboard's configuration: every
      * enabled server, the private ones only when `internal` says yes, which
@@ -79,10 +81,11 @@ export class ChatMcpServers extends Context.Service<
     Effect.gen(function* () {
       const slack = yield* SlackConfig
       const api = yield* SlackWebApi.SlackWebApi
-      return yield* make((thread) =>
-        thread._tag !== "Slack" || thread.team !== slack.workspaceId
+      return yield* make((thread) => {
+        const parts = SlackChat.parts(thread)
+        return Option.isNone(parts) || parts.value.team !== slack.workspaceId
           ? Effect.succeed(false)
-          : api.call("conversations.info", { channel: thread.channel }, { retry: false }).pipe(
+          : api.call("conversations.info", { channel: parts.value.channel }, { retry: false }).pipe(
               Effect.flatMap(Schema.decodeUnknownEffect(ChannelInfo)),
               Effect.map(
                 ({ channel }) =>
@@ -98,8 +101,8 @@ export class ChatMcpServers extends Context.Service<
                   Effect.as(false),
                 ),
               ),
-            ),
-      )
+            )
+      })
     }),
   ).pipe(
     Layer.provide(
@@ -113,7 +116,7 @@ export class ChatMcpServers extends Context.Service<
   )
 }
 
-function make(internal: (thread: ChatThread) => Effect.Effect<boolean>) {
+function make(internal: (thread: ChatThread.ChatThread) => Effect.Effect<boolean>) {
   return Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient
     const store = yield* McpServerStore

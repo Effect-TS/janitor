@@ -412,28 +412,30 @@ describe("Discord replies and backfill", () => {
     content: new Uint8Array([137, 80, 78, 71, 0, 255]),
   }
 
-  it.effect("a reply with files to a message deleted since goes out with them, without a note", () =>
-    Effect.gen(function* () {
-      posted.length = 0
+  it.effect(
+    "a reply with files to a message deleted since goes out with them, without a note",
+    () =>
+      Effect.gen(function* () {
+        posted.length = 0
 
-      const reply = yield* settle(
-        postReply(address(thread), "Done.", {
-          replyTo: { messageId: "599", authorId: "600" },
-          files: [plot],
-        }),
-      )
+        const reply = yield* settle(
+          postReply(address(thread), "Done.", {
+            replyTo: { messageId: "599", authorId: "600" },
+            files: [plot],
+          }),
+        )
 
-      // The refused attempt's note doesn't outlive it.
-      assert.strictEqual(reply.text, "Done.")
-      assert.deepStrictEqual(
-        posted.map(({ content, message_reference, files }) => ({
-          content,
-          message_reference,
-          files: files?.map(({ name }) => name),
-        })),
-        [{ content: "Done.", message_reference: undefined, files: ["plot.png"] }],
-      )
-    }).pipe(Effect.provide(services)),
+        // The refused attempt's note doesn't outlive it.
+        assert.strictEqual(reply.text, "Done.")
+        assert.deepStrictEqual(
+          posted.map(({ content, message_reference, files }) => ({
+            content,
+            message_reference,
+            files: files?.map(({ name }) => name),
+          })),
+          [{ content: "Done.", message_reference: undefined, files: ["plot.png"] }],
+        )
+      }).pipe(Effect.provide(services)),
   )
 
   it.effect("posts a reply's files with its last chunk, with their content type", () =>
