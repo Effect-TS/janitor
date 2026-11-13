@@ -185,7 +185,6 @@ const handler = Effect.gen(function* () {
    */
   const routeReaction = Effect.fnUntraced(function* (event: ChatEvent.ReactionAdded, id: string) {
     const bot = yield* discord.botUserId
-    if (event.messageAuthorId !== bot) return yield* drop("a reaction to another's message")
     if (Option.getOrUndefined(DiscordChat.guildId(event)) !== config.guildId)
       return yield* drop("a reaction outside the guild")
     const member = DiscordChat.member(event)
@@ -205,6 +204,11 @@ const handler = Effect.gen(function* () {
     const thread: ChatThread = { _tag: "Discord", guild: config.guildId, threadId: event.thread.id }
     if (!(yield* sessions.exists(thread)))
       return yield* drop("a reaction in a thread with no session")
+    // Discord may omit message_author_id. Resolve it only after admission;
+    // absence is not evidence that this is someone else's message.
+    const messageAuthorId =
+      event.messageAuthorId ?? (yield* chat.fetchMessage(event.thread, event.messageId)).author.id
+    if (messageAuthorId !== bot) return yield* drop("a reaction to another's message")
     yield* sessions.receive(thread, {
       id,
       author,
