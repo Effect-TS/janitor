@@ -33,7 +33,12 @@ const channels: Record<string, object> = {
   [OTHER_THREAD]: { id: OTHER_THREAD, type: 11, guild_id: GUILD, parent_id: CHANNEL },
 }
 
-const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
+const makeIngress = (
+  options: {
+    readonly rolesRefused?: boolean
+    readonly messages?: Readonly<Record<string, Discord.GatewayMessageCreateDispatchData>>
+  } = {},
+) => {
   const handedOff: Array<{ readonly thread: ChatThread; readonly message: ChatMessage }> = []
   /** The threads ingress started, by the channel and message they started from. */
   const threadsStarted: Array<{
@@ -67,6 +72,8 @@ const makeIngress = (options: { readonly rolesRefused?: boolean } = {}) => {
           return Response.json({ id: thread[2], type: 11, guild_id: GUILD, parent_id: thread[1] })
         }
         const channel = /^\/channels\/(\d+)$/.exec(path)
+        const fetched = options.messages?.[path]
+        if (fetched !== undefined && request.method === "GET") return Response.json(fetched)
         if (channel !== null && channels[channel[1]!] !== undefined)
           return Response.json(channels[channel[1]!])
         return Response.json({ message: "Unknown", code: 10003 }, { status: 404 })
@@ -417,6 +424,29 @@ describe("Discord ingress", () => {
         assert.notInclude(ids, "1302")
         assert.lengthOf(new Set(ids), 2)
       }),
+  )
+
+  it.effect("resolves a reaction without a message author before approving, once", () =>
+    Effect.gen(function* () {
+      const ingress = makeIngress({
+        messages: {
+          [`/channels/${SESSION_THREAD}/messages/1321`]: message("1321", {
+            author: user(BOT_USER, "janitor", { bot: true }),
+          }),
+          [`/channels/${SESSION_THREAD}/messages/1322`]: message("1322"),
+        },
+      })
+      const handleReaction = yield* ingress.reactions
+      for (const id of ["1321", "1321", "1322"]) {
+        const payload = reaction(id)
+        delete payload.message_author_id
+        yield* handleReaction(payload)
+      }
+      assert.deepStrictEqual(
+        ingress.handedOff.map(({ message }) => [message.author.id, message.mentionsBot]),
+        [["600", true]],
+      )
+    }),
   )
 
   it.effect("hands on a 👍 that follows another reaction to the same message", () =>
