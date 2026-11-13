@@ -67,10 +67,11 @@ export const postReply = Effect.fnUntraced(function* (
   } = {},
 ) {
   const files = options.files ?? []
-  let unattached = false
+  /** One attempt, and whether its files were refused: a retry starts afresh. */
   const post = (
     answer?: { readonly lead: string } | { readonly replyTo: ChatMessages.ReplyTo },
   ) => {
+    let unattached = false
     const lead = answer !== undefined && "lead" in answer ? answer.lead : undefined
     // A fence opening the reply must stay at the start of its line.
     const markdown =
@@ -92,10 +93,11 @@ export const postReply = Effect.fnUntraced(function* (
       DiscordChat.withPostOptions({
         notify: { users: namedUsers(markdown), repliedUser: true },
       }),
+      Effect.map((result) => ({ result, unattached })),
     )
   }
   const replyTo = options.replyTo
-  const result = yield* thread.platform !== "discord" || replyTo === undefined
+  const { result, unattached } = yield* thread.platform !== "discord" || replyTo === undefined
     ? post()
     : // A thread started from a message shares its id. An approval's id
       // (EFF-3163) is no message's, and Discord refuses it.
