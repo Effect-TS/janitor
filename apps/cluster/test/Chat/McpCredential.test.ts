@@ -78,6 +78,30 @@ const connected = (auth: FakeAuthorizationServer, storage = new MemoryStorage())
     return credential
   })
 
+/**
+ * A credential whose authorisation server registers no clients, with one
+ * registered by hand set.
+ */
+const preregistered = (storage = new MemoryStorage()) =>
+  Effect.gen(function* () {
+    const auth = new FakeAuthorizationServer(MCP_URL)
+    auth.registers = false
+    const credential = yield* make(auth, storage)
+    const clientId = auth.preregister(REDIRECT_URI)
+    yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+    return { auth, credential, clientId }
+  })
+
+/** An authorisation server the MCP server's metadata can come to name instead. */
+const ELSEWHERE = "https://elsewhere.test"
+
+/** The requests `ELSEWHERE` got other than discovery's. */
+const beyondDiscovery = (auth: FakeAuthorizationServer) =>
+  auth.seen.filter(
+    (request) =>
+      request.includes(` ${ELSEWHERE}/`) && !request.includes(` ${ELSEWHERE}/.well-known/`),
+  )
+
 /** Lets forked calls reach their next wait before the test goes on. */
 const settle = Effect.forEach(Array.from({ length: 10 }), () => Effect.yieldNow, {
   discard: true,
@@ -220,14 +244,10 @@ describe("an MCP server's credential", () => {
     "Connect with a client registered by hand registers none, and exchanges and refreshes as that client",
     () =>
       Effect.gen(function* () {
-        const auth = new FakeAuthorizationServer(MCP_URL)
-        auth.registers = false
         const storage = new MemoryStorage()
-        const credential = yield* make(auth, storage)
-        const clientId = auth.preregister(REDIRECT_URI)
+        const { auth, credential, clientId } = yield* preregistered(storage)
         const client = { client_id: clientId, client_secret: CLIENT_SECRET }
 
-        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
         assert.strictEqual(yield* credential.status, "no-credential")
         yield* connect(auth, credential)
         assert.deepStrictEqual(auth.registrations, [])
@@ -255,21 +275,13 @@ describe("an MCP server's credential", () => {
     "a client registered by hand goes only to the authorisation server it was first used with",
     () =>
       Effect.gen(function* () {
-        const auth = new FakeAuthorizationServer(MCP_URL)
-        auth.registers = false
-        const credential = yield* make(auth, new MemoryStorage())
-        const clientId = auth.preregister(REDIRECT_URI)
-        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+        const { auth, credential, clientId } = yield* preregistered()
         yield* connect(auth, credential)
 
-        auth.issuer = "https://elsewhere.test"
+        auth.issuer = ELSEWHERE
         const refused = yield* Effect.flip(credential.startOAuth({ redirectUri: REDIRECT_URI }))
         assert.deepStrictEqual(refused, new McpOAuthClientRequired({ redirectUri: REDIRECT_URI }))
-        assert.deepStrictEqual(
-          auth.seen.filter((request) => request.includes(" https://elsewhere.test/")),
-          auth.seen.filter((request) => request.includes(" https://elsewhere.test/.well-known/")),
-          "only discovery reached the other authorisation server",
-        )
+        assert.deepStrictEqual(beyondDiscovery(auth), [])
         assert.strictEqual(yield* credential.status, "connected")
 
         // Setting the client again binds it to wherever the next Connect goes.
@@ -284,15 +296,11 @@ describe("an MCP server's credential", () => {
     "of two overlapping Connects with a client registered by hand, the one at another authorisation server binds nothing",
     () =>
       Effect.gen(function* () {
-        const auth = new FakeAuthorizationServer(MCP_URL)
-        auth.registers = false
-        const credential = yield* make(auth, new MemoryStorage())
-        const clientId = auth.preregister(REDIRECT_URI)
-        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+        const { auth, credential } = yield* preregistered()
 
         // One Connect is held in discovery, told of another authorisation server…
         const held = yield* Deferred.make<void>()
-        auth.issuer = "https://elsewhere.test"
+        auth.issuer = ELSEWHERE
         auth.beforeResourceMetadata = Deferred.await(held)
         const elsewhere = yield* Effect.forkChild(
           Effect.flip(credential.startOAuth({ redirectUri: REDIRECT_URI })),
@@ -310,14 +318,7 @@ describe("an MCP server's credential", () => {
         )
         // The Connect here finishes, and nothing but discovery went elsewhere.
         yield* credential.finishOAuth(auth.approve(here))
-        assert.deepStrictEqual(
-          auth.seen.filter(
-            (request) =>
-              request.includes(" https://elsewhere.test/") &&
-              !request.includes(" https://elsewhere.test/.well-known/"),
-          ),
-          [],
-        )
+        assert.deepStrictEqual(beyondDiscovery(auth), [])
         assert.strictEqual(yield* credential.status, "connected")
       }),
   )

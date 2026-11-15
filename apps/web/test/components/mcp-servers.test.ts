@@ -38,6 +38,10 @@ const loaded = McpServers.update(
 
 const panel = { update: McpServers.update, view: McpServers.view }
 
+/** A server Connect asks for a client for, and the callback to register it with. */
+const wiki = statuses[3]![0]
+const redirectUri = `https://janitor.test/api/v1/chat/mcp-servers/${wiki.id}/oauth/callback`
+
 describe("MCP servers panel", () => {
   it("shows each server with its status", () => {
     Scene.scene(
@@ -61,7 +65,6 @@ describe("MCP servers panel", () => {
   })
 
   it("asks for a registered client, with the callback to register, when Connect needs one", async () => {
-    const redirectUri = "https://janitor.test/api/v1/chat/mcp-servers/srv-wiki/oauth/callback"
     const refusal = HttpClient.make((request) =>
       Effect.succeed(
         HttpClientResponse.fromWeb(
@@ -71,7 +74,7 @@ describe("MCP servers panel", () => {
       ),
     )
     const message = await Effect.runPromise(
-      McpServers.StartOAuth({ id: "srv-wiki" }).effect.pipe(
+      McpServers.StartOAuth({ id: wiki.id }).effect.pipe(
         Effect.provide(
           ApiClient.layer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, refusal))),
         ),
@@ -87,8 +90,6 @@ describe("MCP servers panel", () => {
   })
 
   it("drops the client secret once sent, and offers Connect again once saved", () => {
-    const redirectUri = "https://janitor.test/api/v1/chat/mcp-servers/srv-wiki/oauth/callback"
-    const wiki = statuses[3]![0]
     Scene.scene(
       panel,
       Scene.given(

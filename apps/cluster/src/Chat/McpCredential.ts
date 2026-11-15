@@ -1,5 +1,6 @@
 import {
   type McpServerConfig,
+  type McpOAuthClient,
   McpOAuthClientRequired,
   McpOAuthRefused,
   McpOAuthUnavailable,
@@ -72,10 +73,7 @@ export interface McpCredential {
    * for every Connect from now on: tokens issued to another client are of no
    * use with it.
    */
-  readonly setOAuthClient: (client: {
-    readonly clientId: string
-    readonly clientSecret?: Redacted.Redacted<string> | undefined
-  }) => Effect.Effect<void>
+  readonly setOAuthClient: (client: McpOAuthClient) => Effect.Effect<void>
   /**
    * **Connect**'s start: discovers the authorisation server, registers a
    * client for `redirectUri` unless one was set, and answers the URL to send
@@ -424,10 +422,7 @@ export const makeMcpCredential = (
         yield* save({ bearer: Redacted.value(bearer) }).pipe(Effect.orDie)
       })
 
-    const setOAuthClient = (client: {
-      readonly clientId: string
-      readonly clientSecret?: Redacted.Redacted<string> | undefined
-    }) =>
+    const setOAuthClient = (client: McpOAuthClient) =>
       Effect.gen(function* () {
         replaced()
         const information = {
@@ -446,41 +441,41 @@ export const makeMcpCredential = (
         const begun = generation
         const { manual } = yield* load
         const info = yield* sdk((fetchFn) => discoverOAuthServerInfo(options.url, { fetchFn }))
+        const server = info.authorizationServerUrl
         const metadata = info.authorizationServerMetadata
         // Every endpoint the code, verifier and secrets go to is https,
         // checked before anything is sent to them: the registration, the
         // browser's authorisation URL and the token requests.
         const endpoints =
           metadata === undefined
-            ? [info.authorizationServerUrl]
+            ? [server]
             : [
-                info.authorizationServerUrl,
+                server,
                 metadata.authorization_endpoint,
                 metadata.token_endpoint,
-                metadata.registration_endpoint ?? info.authorizationServerUrl,
+                metadata.registration_endpoint ?? server,
               ]
         if (!endpoints.every(isHttps)) return yield* Effect.fail("insecure endpoint" as const)
-        const server = info.authorizationServerUrl
-        if (manual === undefined && metadata !== undefined && !metadata.registration_endpoint)
-          return yield* new McpOAuthClientRequired({ redirectUri })
         const scope = info.resourceMetadata?.scopes_supported?.join(" ")
         const information =
-          manual === undefined
-            ? yield* sdk((fetchFn) =>
-                registerClient(server, {
-                  ...(metadata === undefined ? {} : { metadata }),
-                  clientMetadata: {
-                    client_name: "janitor",
-                    redirect_uris: [redirectUri],
-                    grant_types: ["authorization_code", "refresh_token"],
-                    response_types: ["code"],
-                    token_endpoint_auth_method: "none",
-                  },
-                  ...(scope === undefined ? {} : { scope }),
-                  fetchFn,
-                }),
-              )
-            : manual.information
+          manual !== undefined
+            ? manual.information
+            : metadata !== undefined && !metadata.registration_endpoint
+              ? yield* new McpOAuthClientRequired({ redirectUri })
+              : yield* sdk((fetchFn) =>
+                  registerClient(server, {
+                    ...(metadata === undefined ? {} : { metadata }),
+                    clientMetadata: {
+                      client_name: "janitor",
+                      redirect_uris: [redirectUri],
+                      grant_types: ["authorization_code", "refresh_token"],
+                      response_types: ["code"],
+                      token_endpoint_auth_method: "none",
+                    },
+                    ...(scope === undefined ? {} : { scope }),
+                    fetchFn,
+                  }),
+                )
         const client: OAuthClient = {
           server,
           ...(metadata === undefined ? {} : { metadata: { ...metadata } }),

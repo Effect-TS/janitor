@@ -341,13 +341,7 @@ export const update = (model: Model, message: Message): Return =>
           ...(secret === "" ? {} : { clientSecret: Redacted.make(secret) }),
         }),
       )
-      return {
-        ...step,
-        model: {
-          ...step.model,
-          clients: { ...model.clients, [id]: { ...form, clientSecret: "" } },
-        },
-      }
+      return { ...step, model: editClient(step.model, id, { clientSecret: "" }).model }
     },
     SavedServer: ({ server }) => ({
       model: {
@@ -466,7 +460,9 @@ const credential = (h: HtmlBuilder<Message>, model: Model, server: McpServer) =>
     )
   }
   if (server.auth === "oauth") {
-    const connect = Button.view(h, {
+    const form = model.clients[server.id]
+    if (form !== undefined) return clientForm(h, server, form, isDisabled)
+    return Button.view(h, {
       variant: "secondary",
       size: "sm",
       label: "Connect",
@@ -474,16 +470,18 @@ const credential = (h: HtmlBuilder<Message>, model: Model, server: McpServer) =>
       attributes: [h.AriaLabel(`Connect ${server.name}`)],
       onClick: Message.ClickedConnectServer({ id: server.id }),
     })
-    const form = model.clients[server.id]
-    return form === undefined ? connect : clientForm(h, model, server, form)
   }
   return h.empty
 }
 
 /** The client to register by hand, with the callback to register it with. */
-const clientForm = (h: HtmlBuilder<Message>, model: Model, server: McpServer, form: ClientForm) => {
-  const isDisabled = model.busy !== null
-  return h.div(
+const clientForm = (
+  h: HtmlBuilder<Message>,
+  server: McpServer,
+  form: ClientForm,
+  isDisabled: boolean,
+) =>
+  h.div(
     [h.Class("flex flex-col gap-2")],
     [
       h.p(
@@ -529,7 +527,6 @@ const clientForm = (h: HtmlBuilder<Message>, model: Model, server: McpServer, fo
       ),
     ],
   )
-}
 
 const serverItem = (h: HtmlBuilder<Message>, model: Model, server: McpServer) => {
   const { label, variant } = statusChips[server.status]
