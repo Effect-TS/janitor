@@ -73,6 +73,11 @@ export class FakeAuthorizationServer {
   /** The authorisation server the MCP server's metadata names, which can change. */
   issuer = ISSUER
   /**
+   * Awaited before the MCP server's metadata is answered, with the issuer
+   * already read, so a test can hold one Connect in discovery.
+   */
+  beforeResourceMetadata: Effect.Effect<void> = Effect.void
+  /**
    * Endpoints the metadata names instead of its own, as a hostile or
    * misconfigured server's can. The server still answers on its host over
    * `http:`, so a request sent to one shows in `seen`.
@@ -199,10 +204,13 @@ export class FakeAuthorizationServer {
       if (
         url.origin === resource.origin &&
         url.pathname.startsWith("/.well-known/oauth-protected-resource")
-      )
+      ) {
+        const issuer = this.issuer
+        yield* this.beforeResourceMetadata
         return yield* respond(
-          Response.json({ resource: this.resource, authorization_servers: [this.issuer] }),
+          Response.json({ resource: this.resource, authorization_servers: [issuer] }),
         )
+      }
       if (url.host !== new URL(ISSUER).host)
         return yield* respond(new Response(null, { status: 404 }))
       if (

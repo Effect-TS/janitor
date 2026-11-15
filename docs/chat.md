@@ -253,6 +253,18 @@ The client is bound to the authorisation server the first Connect after saving i
 
 Janitor asks for every scope the server's resource metadata lists, so the app needs all of them.
 
+The panel shows the client form only when Connect asks for a client. To rotate the secret, or to recover after the authorisation server answers `invalid_client` (the server shows **Needs consent**, and Connect fails with the old secret), save the new client through the same endpoint from a signed-in dashboard tab's browser console, then click **Connect**:
+
+```js
+await fetch("/api/v1/chat/mcp-servers/<id>/oauth/client", {
+  method: "PUT",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ clientId: "<client id>", clientSecret: "<client secret>" }),
+})
+```
+
+A 200 answers the server without the client. Run it from the dashboard's own origin: writes from anywhere else are refused. Don't delete and re-add the server to rotate the secret. Its id would change, and with it the callback URL registered with the provider.
+
 ### Zoom
 
 Zoom's MCP server, `https://mcp.zoom.us/mcp/zoom/streamable`, uses OAuth 2.1 with PKCE and supports only clients registered by hand ([Zoom's instructions](https://github.com/zoom/zoom-mcp-plugin-for-claude#connect-your-zoom-account)). Creating the app needs a Zoom account with the admin or developer role.

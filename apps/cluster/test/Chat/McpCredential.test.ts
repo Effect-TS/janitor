@@ -242,6 +242,12 @@ describe("an MCP server's credential", () => {
           resource: MCP_URL,
           ...client,
         })
+
+        // Connect again keeps using it, without it being set again.
+        yield* connect(auth, restarted)
+        assert.deepStrictEqual(auth.registrations, [])
+        assert.strictEqual(auth.exchanges.length, 2)
+        assert.deepInclude(auth.exchanges[1]?.params, client)
       }),
   )
 
@@ -270,6 +276,48 @@ describe("an MCP server's credential", () => {
         auth.issuer = ISSUER
         yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
         yield* connect(auth, credential)
+        assert.strictEqual(yield* credential.status, "connected")
+      }),
+  )
+
+  it.effect(
+    "of two overlapping Connects with a client registered by hand, the one at another authorisation server binds nothing",
+    () =>
+      Effect.gen(function* () {
+        const auth = new FakeAuthorizationServer(MCP_URL)
+        auth.registers = false
+        const credential = yield* make(auth, new MemoryStorage())
+        const clientId = auth.preregister(REDIRECT_URI)
+        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+
+        // One Connect is held in discovery, told of another authorisation server…
+        const held = yield* Deferred.make<void>()
+        auth.issuer = "https://elsewhere.test"
+        auth.beforeResourceMetadata = Deferred.await(held)
+        const elsewhere = yield* Effect.forkChild(
+          Effect.flip(credential.startOAuth({ redirectUri: REDIRECT_URI })),
+        )
+        yield* settle
+        // …while another starts at this one, binding the client to it.
+        auth.issuer = ISSUER
+        auth.beforeResourceMetadata = Effect.void
+        const here = yield* credential.startOAuth({ redirectUri: REDIRECT_URI })
+
+        yield* Deferred.succeed(held, undefined)
+        assert.deepStrictEqual(
+          yield* Fiber.join(elsewhere),
+          new McpOAuthClientRequired({ redirectUri: REDIRECT_URI }),
+        )
+        // The Connect here finishes, and nothing but discovery went elsewhere.
+        yield* credential.finishOAuth(auth.approve(here))
+        assert.deepStrictEqual(
+          auth.seen.filter(
+            (request) =>
+              request.includes(" https://elsewhere.test/") &&
+              !request.includes(" https://elsewhere.test/.well-known/"),
+          ),
+          [],
+        )
         assert.strictEqual(yield* credential.status, "connected")
       }),
   )

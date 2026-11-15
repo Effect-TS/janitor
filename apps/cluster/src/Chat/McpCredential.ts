@@ -461,11 +461,7 @@ export const makeMcpCredential = (
               ]
         if (!endpoints.every(isHttps)) return yield* Effect.fail("insecure endpoint" as const)
         const server = info.authorizationServerUrl
-        if (
-          manual === undefined
-            ? metadata !== undefined && metadata.registration_endpoint === undefined
-            : manual.server !== undefined && manual.server !== server
-        )
+        if (manual === undefined && metadata !== undefined && !metadata.registration_endpoint)
           return yield* new McpOAuthClientRequired({ redirectUri })
         const scope = info.resourceMetadata?.scopes_supported?.join(" ")
         const information =
@@ -504,9 +500,13 @@ export const makeMcpCredential = (
         if (begun !== generation) return yield* Effect.fail("superseded" as const)
         const startedAt = yield* Clock.currentTimeMillis
         const current = yield* load
+        // Bound to this authorisation server before its secret is ever sent,
+        // as stored now: another Connect may have bound it while this one ran.
+        const bound = current.manual?.server
+        if (bound !== undefined && bound !== server)
+          return yield* new McpOAuthClientRequired({ redirectUri })
         yield* save({
           ...current,
-          // Bound to this authorisation server before its secret is ever sent.
           ...(current.manual === undefined ? {} : { manual: { ...current.manual, server } }),
           pending: { state, verifier: codeVerifier, redirectUri, startedAt, client },
         })
