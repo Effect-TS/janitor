@@ -8,7 +8,6 @@ import * as Logger from "effect/Logger"
 import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
 import type * as HttpClient from "effect/http/HttpClient"
-import { McpOAuthClientRequired } from "@janitor/domain/Chat/McpServer"
 import {
   type McpCredential,
   type McpCredentialOptions,
@@ -113,6 +112,13 @@ const value = <E, R>(self: Effect.Effect<Redacted.Redacted<string>, E, R>) =>
 /** What `self` gave, or the tag of its failure. */
 const outcome = <A, R>(self: Effect.Effect<A, { readonly _tag: string }, R>) =>
   Effect.catch(self, (error) => Effect.succeed(error._tag))
+
+/**
+ * The callback a refusal asking for a client registered by hand names, or
+ * the tag of another failure. Errors compare equal by tag alone.
+ */
+const clientRequired = (error: { readonly _tag: string; readonly redirectUri?: string }) =>
+  error._tag === "McpOAuthClientRequired" ? error.redirectUri : error._tag
 
 const unavailable = <A, R>(self: Effect.Effect<A, { readonly _tag: string }, R>) =>
   Effect.map(Effect.flip(self), (error) => error._tag)
@@ -280,7 +286,7 @@ describe("an MCP server's credential", () => {
 
         auth.issuer = ELSEWHERE
         const refused = yield* Effect.flip(credential.startOAuth({ redirectUri: REDIRECT_URI }))
-        assert.deepStrictEqual(refused, new McpOAuthClientRequired({ redirectUri: REDIRECT_URI }))
+        assert.deepStrictEqual(clientRequired(refused), REDIRECT_URI)
         assert.deepStrictEqual(beyondDiscovery(auth), [])
         assert.strictEqual(yield* credential.status, "connected")
 
@@ -312,10 +318,7 @@ describe("an MCP server's credential", () => {
         const here = yield* credential.startOAuth({ redirectUri: REDIRECT_URI })
 
         yield* Deferred.succeed(held, undefined)
-        assert.deepStrictEqual(
-          yield* Fiber.join(elsewhere),
-          new McpOAuthClientRequired({ redirectUri: REDIRECT_URI }),
-        )
+        assert.deepStrictEqual(clientRequired(yield* Fiber.join(elsewhere)), REDIRECT_URI)
         // The Connect here finishes, and nothing but discovery went elsewhere.
         yield* credential.finishOAuth(auth.approve(here))
         assert.deepStrictEqual(beyondDiscovery(auth), [])

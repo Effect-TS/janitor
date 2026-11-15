@@ -102,10 +102,28 @@ describe("MCP servers panel", () => {
       Scene.expect(Scene.label("Client secret")).toHaveValue(""),
       Scene.Command.resolve(
         McpServers.SetOAuthClient,
-        McpServers.Message.SavedServer({ server: wiki }),
+        McpServers.Message.SavedOAuthClient({ server: wiki }),
       ),
       Scene.expect(Scene.label("Client ID")).toBeAbsent(),
       Scene.expect(Scene.role("button", { name: "Connect wiki" })).toExist(),
+    )
+  })
+
+  it("keeps the client form open across another change to the server", () => {
+    Scene.scene(
+      panel,
+      Scene.given(
+        McpServers.update(loaded, McpServers.Message.NeedsOAuthClient({ id: wiki.id, redirectUri }))
+          .model,
+      ),
+      Scene.type(Scene.label("Client ID"), "zoom-client"),
+      Scene.click(Scene.role("switch", { name: "Private wiki" })),
+      Scene.Command.resolve(
+        McpServers.UpdateServer,
+        McpServers.Message.SavedServer({ server: { ...wiki, private: false } }),
+      ),
+      Scene.expect(Scene.label("Client ID")).toHaveValue("zoom-client"),
+      Scene.expect(Scene.role("alert")).toContainText(redirectUri),
     )
   })
 })

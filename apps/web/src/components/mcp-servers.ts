@@ -89,6 +89,8 @@ export const Message = defineMessageUnion({
   ClickedSetClient: { id: Schema.String },
   /** A change answered with the server as it is now. */
   SavedServer: { server: McpServer },
+  /** The OAuth client was saved: its form closes. */
+  SavedOAuthClient: { server: McpServer },
   FailedChange: { reason: Schema.String },
   ClickedAddServer: {},
   ChangedDraftName: { name: Schema.String },
@@ -178,11 +180,11 @@ export const SetOAuthClient = Command.define("SetChatMcpOAuthClient", {
     clientId: Schema.String,
     clientSecret: Schema.optional(Schema.Redacted(Schema.String)),
   },
-  messages: [Message.SavedServer, Message.FailedChange],
+  messages: [Message.SavedOAuthClient, Message.FailedChange],
   execute: ({ id, ...payload }) =>
     ApiClient.use((api) => api.mcpServers.setOAuthClient({ params: { id }, payload })).pipe(
       Effect.timeout("15 seconds"),
-      Effect.map((server) => Message.SavedServer({ server })),
+      Effect.map((server) => Message.SavedOAuthClient({ server })),
       Effect.orElseSucceed(() =>
         Message.FailedChange({ reason: "The client wasn't saved. Please enter its secret again." }),
       ),
@@ -252,6 +254,14 @@ const beginChange = (
 
 const without = <A>(byId: Readonly<Record<string, A>>, id: string) =>
   Object.fromEntries(Object.entries(byId).filter(([key]) => key !== id))
+
+/** A change answered with `server` as it is now. */
+const saved = (model: Model, server: McpServer): Model => ({
+  ...model,
+  busy: null,
+  error: null,
+  servers: (model.servers ?? []).map((each) => (each.id === server.id ? server : each)),
+})
 
 const editClient = (model: Model, id: string, edit: Partial<ClientForm>): Return => {
   const form = model.clients[id]
@@ -343,14 +353,9 @@ export const update = (model: Model, message: Message): Return =>
       )
       return { ...step, model: editClient(step.model, id, { clientSecret: "" }).model }
     },
-    SavedServer: ({ server }) => ({
-      model: {
-        ...model,
-        busy: null,
-        error: null,
-        servers: (model.servers ?? []).map((each) => (each.id === server.id ? server : each)),
-        clients: without(model.clients, server.id),
-      },
+    SavedServer: ({ server }) => ({ model: saved(model, server) }),
+    SavedOAuthClient: ({ server }) => ({
+      model: { ...saved(model, server), clients: without(model.clients, server.id) },
     }),
     FailedChange: ({ reason }) => ({ model: { ...model, busy: null, error: reason } }),
     ClickedAddServer: () => ({ model: { ...model, draft: emptyDraft, draftError: null } }),
