@@ -253,17 +253,29 @@ The client is bound to the authorisation server the first Connect after saving i
 
 Janitor asks for every scope the server's resource metadata lists, so the app needs all of them.
 
-The panel shows the client form only when Connect asks for a client. To rotate the secret, or to recover after the authorisation server answers `invalid_client` (the server shows **Needs consent**, and Connect fails with the old secret), save the new client through the same endpoint from a signed-in dashboard tab's browser console, then click **Connect**:
+The panel shows the client form only when Connect asks for a client. To rotate the secret, or to recover after the authorisation server answers `invalid_client` (the server shows **Needs consent**, and Connect fails with the old secret), save the new client through the same endpoint from the browser console of a signed-in dashboard tab. Fill in the server's id and the client ID, neither of which is secret, and run:
 
 ```js
-await fetch("/api/v1/chat/mcp-servers/<id>/oauth/client", {
-  method: "PUT",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ clientId: "<client id>", clientSecret: "<client secret>" }),
-})
+{
+  const id = "<server id>"
+  const clientId = "<client id>"
+  const clientSecret = prompt(`New client secret for ${clientId}`)?.trim()
+  if (!clientSecret) console.log("Cancelled: nothing was saved.")
+  else {
+    const response = await fetch(
+      `/api/v1/chat/mcp-servers/${encodeURIComponent(id)}/oauth/client`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientId, clientSecret }),
+      },
+    )
+    console.log(response.ok ? "Saved. Click Connect." : `Not saved: HTTP ${response.status}.`)
+  }
+}
 ```
 
-A 200 answers the server without the client. Run it from the dashboard's own origin: writes from anywhere else are refused. Don't delete and re-add the server to rotate the secret. Its id would change, and with it the callback URL registered with the provider.
+The secret is asked for when the snippet runs, so it's never in the command text or the console's history, and the snippet prints only whether the save worked. The prompt shows the secret as plain text while it's open, so don't run it while sharing your screen. Cancelling, or leaving it empty, saves nothing and leaves the current client in place. Click **Connect** only after `Saved.`; anything else means the old client is still stored. Run it from the dashboard's own origin: writes from anywhere else are refused. Don't delete and re-add the server to rotate the secret. Its id would change, and with it the callback URL registered with the provider.
 
 ### Zoom
 
