@@ -1,4 +1,5 @@
 import {
+  McpOAuthClientRequired,
   McpOAuthRefused,
   McpOAuthUnavailable,
   type McpServerStatus,
@@ -29,9 +30,13 @@ export interface McpCredentialShape {
   ) => Effect.Effect<string, McpUnavailable>
   readonly status: (input: Server) => Effect.Effect<McpServerStatus>
   readonly setBearer: (input: Server & { readonly token: string }) => Effect.Effect<void>
+  /** A secret-less client is a public one. */
+  readonly setOAuthClient: (
+    input: Server & { readonly clientId: string; readonly clientSecret: string | null },
+  ) => Effect.Effect<void>
   readonly startOAuth: (
     input: Server & { readonly redirectUri: string },
-  ) => Effect.Effect<string, McpOAuthUnavailable>
+  ) => Effect.Effect<string, McpOAuthUnavailable | McpOAuthClientRequired>
   readonly finishOAuth: (
     input: Server & { readonly code: string; readonly state: string },
   ) => Effect.Effect<void, McpOAuthRefused>
@@ -56,7 +61,7 @@ const expecting =
     })
 
 const isUnavailable = Schema.is(McpUnavailable)
-const isOAuthUnavailable = Schema.is(McpOAuthUnavailable)
+const isStartFailure = Schema.is(Schema.Union([McpOAuthUnavailable, McpOAuthClientRequired]))
 const isRefused = Schema.is(McpOAuthRefused)
 
 /** The Worker's side: each server's credential over its object's RPC. */
@@ -91,9 +96,17 @@ export const mcpCredentialsFrom = (objects: {
               Effect.suspend(() => object().setBearer({ url, token: Redacted.value(token) })).pipe(
                 Effect.orDie,
               ),
+            setOAuthClient: ({ clientId, clientSecret }) =>
+              Effect.suspend(() =>
+                object().setOAuthClient({
+                  url,
+                  clientId,
+                  clientSecret: clientSecret === undefined ? null : Redacted.value(clientSecret),
+                }),
+              ).pipe(Effect.orDie),
             startOAuth: ({ redirectUri }) =>
               Effect.suspend(() => object().startOAuth({ url, redirectUri })).pipe(
-                expecting(isOAuthUnavailable, Effect.fail(new McpOAuthUnavailable())),
+                expecting(isStartFailure, Effect.fail(new McpOAuthUnavailable())),
               ),
             finishOAuth: ({ code, state }) =>
               Effect.suspend(() => object().finishOAuth({ url, code, state })).pipe(

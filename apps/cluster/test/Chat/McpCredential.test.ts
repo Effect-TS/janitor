@@ -8,6 +8,7 @@ import * as Logger from "effect/Logger"
 import * as Redacted from "effect/Redacted"
 import * as TestClock from "effect/testing/TestClock"
 import type * as HttpClient from "effect/http/HttpClient"
+import { McpOAuthClientRequired } from "@janitor/domain/Chat/McpServer"
 import {
   type McpCredential,
   type McpCredentialOptions,
@@ -18,6 +19,7 @@ import {
   CLIENT_SECRET,
   type Endpoints,
   FakeAuthorizationServer,
+  ISSUER,
   TOKEN_URL,
 } from "../support/OAuthServer.ts"
 import { fetchClient } from "../support/Fetch.ts"
@@ -225,12 +227,7 @@ describe("an MCP server's credential", () => {
         const clientId = auth.preregister(REDIRECT_URI)
         const client = { client_id: clientId, client_secret: CLIENT_SECRET }
 
-        // @ts-expect-error EFF-3826: the credential takes no registered client yet
-        const set: Effect.Effect<void> = credential.setOAuthClient({
-          clientId,
-          clientSecret: Redacted.make(CLIENT_SECRET),
-        })
-        yield* set
+        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
         assert.strictEqual(yield* credential.status, "no-credential")
         yield* connect(auth, credential)
         assert.deepStrictEqual(auth.registrations, [])
@@ -245,6 +242,35 @@ describe("an MCP server's credential", () => {
           resource: MCP_URL,
           ...client,
         })
+      }),
+  )
+
+  it.effect(
+    "a client registered by hand goes only to the authorisation server it was first used with",
+    () =>
+      Effect.gen(function* () {
+        const auth = new FakeAuthorizationServer(MCP_URL)
+        auth.registers = false
+        const credential = yield* make(auth, new MemoryStorage())
+        const clientId = auth.preregister(REDIRECT_URI)
+        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+        yield* connect(auth, credential)
+
+        auth.issuer = "https://elsewhere.test"
+        const refused = yield* Effect.flip(credential.startOAuth({ redirectUri: REDIRECT_URI }))
+        assert.deepStrictEqual(refused, new McpOAuthClientRequired({ redirectUri: REDIRECT_URI }))
+        assert.deepStrictEqual(
+          auth.seen.filter((request) => request.includes(" https://elsewhere.test/")),
+          auth.seen.filter((request) => request.includes(" https://elsewhere.test/.well-known/")),
+          "only discovery reached the other authorisation server",
+        )
+        assert.strictEqual(yield* credential.status, "connected")
+
+        // Setting the client again binds it to wherever the next Connect goes.
+        auth.issuer = ISSUER
+        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+        yield* connect(auth, credential)
+        assert.strictEqual(yield* credential.status, "connected")
       }),
   )
 

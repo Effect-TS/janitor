@@ -85,4 +85,26 @@ describe("MCP servers panel", () => {
       Scene.expect(Scene.label("Client secret")).toExist(),
     )
   })
+
+  it("drops the client secret once sent, and offers Connect again once saved", () => {
+    const redirectUri = "https://janitor.test/api/v1/chat/mcp-servers/srv-wiki/oauth/callback"
+    const wiki = statuses[3]![0]
+    Scene.scene(
+      panel,
+      Scene.given(
+        McpServers.update(loaded, McpServers.Message.NeedsOAuthClient({ id: wiki.id, redirectUri }))
+          .model,
+      ),
+      Scene.type(Scene.label("Client ID"), "zoom-client"),
+      Scene.type(Scene.label("Client secret"), "zoom-secret"),
+      Scene.click(Scene.role("button", { name: "Save the OAuth client for wiki" })),
+      Scene.expect(Scene.label("Client secret")).toHaveValue(""),
+      Scene.Command.resolve(
+        McpServers.SetOAuthClient,
+        McpServers.Message.SavedServer({ server: wiki }),
+      ),
+      Scene.expect(Scene.label("Client ID")).toBeAbsent(),
+      Scene.expect(Scene.role("button", { name: "Connect wiki" })).toExist(),
+    )
+  })
 })

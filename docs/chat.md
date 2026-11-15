@@ -230,13 +230,40 @@ Each server has one of three kinds of authentication, fixed when it's added:
 
 - `none`: requests carry no credential.
 - `bearer`: a token entered on the dashboard, sent as `Authorization: Bearer`. It can be replaced but never read back.
-- `oauth`: **Connect** on the dashboard discovers the server's authorisation server from its OAuth metadata, registers a client for janitor, and sends the browser to consent with PKCE (S256). The authorisation server sends the browser back to `/api/v1/chat/mcp-servers/<id>/oauth/callback`, which exchanges the code within 10 minutes of the start, once. Connect needs `PUBLIC_ORIGIN`, which every deployment sets.
+- `oauth`: **Connect** on the dashboard discovers the server's authorisation server from its OAuth metadata, registers a client for janitor, and sends the browser to consent with PKCE (S256). The authorisation server sends the browser back to `/api/v1/chat/mcp-servers/<id>/oauth/callback`, which exchanges the code within 10 minutes of the start, once. Connect needs `PUBLIC_ORIGIN`, which every deployment sets. A provider that doesn't register clients itself needs one registered by hand; see [OAuth clients registered by hand](#oauth-clients-registered-by-hand).
 
-Bearer tokens and OAuth state live only in the server's own Durable Object (`McpCredential`, one per server, named by its id), never in Postgres, Infisical, API responses or logs. The object refreshes OAuth access tokens one at a time, across every session, and stores a rotated refresh token before it hands out the new access token. After a failed refresh it waits 30 seconds before trying again. If the authorisation server answers `invalid_grant` or `invalid_client`, the server shows **Needs consent** until someone runs Connect again.
+Bearer tokens, OAuth clients and OAuth state live only in the server's own Durable Object (`McpCredential`, one per server, named by its id), never in Postgres, Infisical, API responses or logs. The object refreshes OAuth access tokens one at a time, across every session, and stores a rotated refresh token before it hands out the new access token. After a failed refresh it waits 30 seconds before trying again. If the authorisation server answers `invalid_grant` or `invalid_client`, the server shows **Needs consent** until someone runs Connect again.
 
 An access token is reused while more than five minutes of it are left. With hour-long tokens that's one refresh every 55 minutes. A token that lives five minutes or less, or an answer without `expires_in`, which is taken to mean five minutes, is refreshed for every MCP request: one token request, and one refresh token rotation, per request. If a provider issues tokens that short, the window should scale with the token's lifetime instead.
 
 If the authorisation server rotates the refresh token and its answer is lost (a timeout, or the object restarting before the write), the next refresh gets `invalid_grant` and the server needs Connect again.
+
+### OAuth clients registered by hand
+
+Some authorisation servers, Zoom's among them, don't support dynamic client registration: their metadata names no `registration_endpoint`. For those, **Connect** stops before sending the browser anywhere and the panel asks for a client instead, showing the callback URL to register it with. That URL is `<PUBLIC_ORIGIN>/api/v1/chat/mcp-servers/<id>/oauth/callback`, one per server.
+
+1. Click **Connect** once to get the callback URL.
+2. Register an OAuth app with the provider using that URL as its redirect URL, and copy its client ID and secret.
+3. Enter them under **Client ID** and **Client secret**, then **Save client**. Leave the secret empty for a public client.
+4. Click **Connect** again.
+
+The client is written, never read back, like a bearer token. Saving one replaces whatever the server's credential held, tokens included, so the server needs Connect again. Every later Connect uses it, PKCE (S256) included. The MCP SDK picks how to send the secret from the authorisation server's metadata: HTTP Basic when it supports it, otherwise the form.
+
+The client is bound to the authorisation server the first Connect after saving it uses. If the MCP server later names a different one, Connect asks for the client again rather than sending its secret there; saving it again binds it to the new one. Refreshes always go to the authorisation server that issued the refresh token.
+
+Janitor asks for every scope the server's resource metadata lists, so the app needs all of them.
+
+### Zoom
+
+Zoom's MCP server, `https://mcp.zoom.us/mcp/zoom/streamable`, uses OAuth 2.1 with PKCE and supports only clients registered by hand ([Zoom's instructions](https://github.com/zoom/zoom-mcp-plugin-for-claude#connect-your-zoom-account)). Creating the app needs a Zoom account with the admin or developer role.
+
+1. Add a server named `zoom` with that URL and authentication `oauth`, and click **Connect** to get its callback URL.
+2. In the [Zoom App Marketplace](https://marketplace.zoom.us/), choose **Develop**, **Build App**, and create a **General app** that uses user-level OAuth.
+3. Register the callback URL as the app's redirect URL.
+4. Under **Scopes**, add the scopes the server's resource metadata lists, since janitor asks for all of them: `curl -s https://mcp.zoom.us/.well-known/oauth-protected-resource/mcp/zoom/streamable | jq .scopes_supported`. They include writes and deletes, such as `meeting:delete:meeting`.
+5. Enter the app's **Client ID** and **Client Secret** in the panel, save, and click **Connect** while signed in to Zoom as the member the bot should act as.
+
+Whether Zoom accepts a request for scopes the app lacks hasn't been tried. If it refuses, the app needs every listed scope, and a read-only setup needs a scope setting janitor doesn't have yet.
 
 ### Attio
 

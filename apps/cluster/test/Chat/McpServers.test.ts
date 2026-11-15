@@ -96,6 +96,7 @@ class FakeCredential implements McpCredential {
   /** Configuring a server is the dashboard's, never a turn's. */
   readonly status = Effect.die("A turn read a credential's status")
   readonly setBearer = () => Effect.die("A turn set a bearer token")
+  readonly setOAuthClient = () => Effect.die("A turn set an OAuth client")
   readonly startOAuth = () => Effect.die("A turn started OAuth")
   readonly finishOAuth = () => Effect.die("A turn finished OAuth")
   readonly wipe = Effect.die("A turn wiped a credential")

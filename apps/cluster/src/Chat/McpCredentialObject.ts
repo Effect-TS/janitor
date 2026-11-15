@@ -1,5 +1,9 @@
 import * as Cloudflare from "@alchemy.run/cloudflare"
-import { McpOAuthRefused, McpOAuthUnavailable } from "@janitor/domain/Chat/McpServer"
+import {
+  McpOAuthClientRequired,
+  McpOAuthRefused,
+  McpOAuthUnavailable,
+} from "@janitor/domain/Chat/McpServer"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
 import * as HttpClient from "effect/http/HttpClient"
@@ -14,16 +18,18 @@ import type { McpCredentialShape, Server } from "./McpCredentialClient.ts"
  * declared, like the chat pool's, so it never takes a migration that deletes
  * its storage.
  *
- * Tokens cross the RPC boundary as plain strings: `Redacted` keeps its value
- * out of the object, so it wouldn't survive serialisation. Both sides wrap
- * them again at once. Each call names the server's URL, which is fixed once
- * the server is created.
+ * Tokens and client secrets cross the RPC boundary as plain strings:
+ * `Redacted` keeps its value out of the object, so it wouldn't survive
+ * serialisation. Both sides wrap them again at once. Each call names the
+ * server's URL, which is fixed once the server is created.
  */
 
 export class McpCredentialObject extends Cloudflare.DurableObject<
   McpCredentialObject,
   McpCredentialShape
->()("McpCredential", { errors: [McpUnavailable, McpOAuthUnavailable, McpOAuthRefused] }) {}
+>()("McpCredential", {
+  errors: [McpUnavailable, McpOAuthUnavailable, McpOAuthClientRequired, McpOAuthRefused],
+}) {}
 
 /** The part of the Durable Object's storage the credential uses. */
 interface CredentialStorage {
@@ -73,6 +79,16 @@ export const McpCredentialLive = McpCredentialObject.make(
         setBearer: (input: Server & { readonly token: string }) =>
           Effect.flatMap(credentialFor(input), (credential) =>
             credential.setBearer(Redacted.make(input.token)),
+          ),
+        setOAuthClient: (
+          input: Server & { readonly clientId: string; readonly clientSecret: string | null },
+        ) =>
+          Effect.flatMap(credentialFor(input), (credential) =>
+            credential.setOAuthClient({
+              clientId: input.clientId,
+              clientSecret:
+                input.clientSecret === null ? undefined : Redacted.make(input.clientSecret),
+            }),
           ),
         startOAuth: (input: Server & { readonly redirectUri: string }) =>
           Effect.flatMap(credentialFor(input), (credential) =>

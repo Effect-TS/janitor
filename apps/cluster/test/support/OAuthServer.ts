@@ -70,6 +70,8 @@ export class FakeAuthorizationServer {
    * registered by hand.
    */
   registers = true
+  /** The authorisation server the MCP server's metadata names, which can change. */
+  issuer = ISSUER
   /**
    * Endpoints the metadata names instead of its own, as a hostile or
    * misconfigured server's can. The server still answers on its host over
@@ -199,7 +201,7 @@ export class FakeAuthorizationServer {
         url.pathname.startsWith("/.well-known/oauth-protected-resource")
       )
         return yield* respond(
-          Response.json({ resource: this.resource, authorization_servers: [ISSUER] }),
+          Response.json({ resource: this.resource, authorization_servers: [this.issuer] }),
         )
       if (url.host !== new URL(ISSUER).host)
         return yield* respond(new Response(null, { status: 404 }))

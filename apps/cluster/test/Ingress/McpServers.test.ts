@@ -258,12 +258,11 @@ layer(Services, { timeout: "2 minutes" })("McpServersGroup", (it) => {
             )
 
             const clientId = auth.preregister(callback(created.id))
-            // @ts-expect-error EFF-3826: the API takes no registered client yet
-            const set: Effect.Effect<McpServer> = api.mcpServers.setOAuthClient({
+            const set = yield* api.mcpServers.setOAuthClient({
               params: { id: created.id },
               payload: { clientId, clientSecret: Redacted.make(CLIENT_SECRET) },
             })
-            assert.deepStrictEqual(yield* set, created)
+            assert.deepStrictEqual(set, created)
 
             const { authorizationUrl } = yield* api.mcpServers.startOAuth({
               params: { id: created.id },
