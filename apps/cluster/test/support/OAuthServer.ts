@@ -65,6 +65,12 @@ export class FakeAuthorizationServer {
   /** Registers clients with `CLIENT_SECRET` while set; otherwise as public clients. */
   confidential = false
   /**
+   * While unset, the server registers no clients itself and its metadata
+   * names no registration endpoint, like a provider whose clients are
+   * registered by hand.
+   */
+  registers = true
+  /**
    * Endpoints the metadata names instead of its own, as a hostile or
    * misconfigured server's can. The server still answers on its host over
    * `http:`, so a request sent to one shows in `seen`.
@@ -100,6 +106,16 @@ export class FakeAuthorizationServer {
     return this.tokenRequests.filter(
       (request) => request.params.grant_type === "authorization_code",
     )
+  }
+
+  /**
+   * A client registered by hand for `redirectUri`, as in a provider's
+   * console: its id, which goes with `CLIENT_SECRET`.
+   */
+  preregister(redirectUri: string): string {
+    const clientId = `registered-${this.clients.size + 1}`
+    this.clients.set(clientId, [redirectUri])
+    return clientId
   }
 
   /**
@@ -196,7 +212,7 @@ export class FakeAuthorizationServer {
             issuer: ISSUER,
             authorization_endpoint: AUTHORIZE_URL,
             token_endpoint: TOKEN_URL,
-            registration_endpoint: `${ISSUER}/register`,
+            ...(this.registers ? { registration_endpoint: `${ISSUER}/register` } : {}),
             ...this.endpoints,
             response_types_supported: ["code"],
             grant_types_supported: ["authorization_code", "refresh_token"],
@@ -208,7 +224,7 @@ export class FakeAuthorizationServer {
             ],
           }),
         )
-      if (url.pathname === "/register" && web.method === "POST")
+      if (this.registers && url.pathname === "/register" && web.method === "POST")
         return yield* respond(this.register(decodeRegistration(body)))
       if (url.pathname !== new URL(TOKEN_URL).pathname)
         return yield* respond(new Response(null, { status: 404 }))

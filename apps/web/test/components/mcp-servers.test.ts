@@ -1,7 +1,12 @@
 import type { McpServer } from "@janitor/domain/Chat/McpServer"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientResponse from "effect/http/HttpClientResponse"
 import { Scene } from "foldkit/test"
 import { describe, it } from "vite-plus/test"
 import * as McpServers from "@/components/mcp-servers"
+import { ApiClient } from "@/lib/api-client"
 
 /**
  * The MCP servers panel (EFF-3443), its own component on the chat sessions
@@ -52,6 +57,32 @@ describe("MCP servers panel", () => {
       Scene.given(loaded),
       Scene.click(Scene.role("button", { name: "Add server" })),
       Scene.expect(Scene.role("switch", { name: "Private" })).toBeChecked(),
+    )
+  })
+
+  it("asks for a registered client, with the callback to register, when Connect needs one", async () => {
+    const redirectUri = "https://janitor.test/api/v1/chat/mcp-servers/srv-wiki/oauth/callback"
+    const refusal = HttpClient.make((request) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          Response.json({ _tag: "McpOAuthClientRequired", redirectUri }, { status: 409 }),
+        ),
+      ),
+    )
+    const message = await Effect.runPromise(
+      McpServers.StartOAuth({ id: "srv-wiki" }).effect.pipe(
+        Effect.provide(
+          ApiClient.layer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, refusal))),
+        ),
+      ),
+    )
+    Scene.scene(
+      panel,
+      Scene.given(McpServers.update(loaded, message).model),
+      Scene.expect(Scene.role("alert")).toContainText(redirectUri),
+      Scene.expect(Scene.label("Client ID")).toExist(),
+      Scene.expect(Scene.label("Client secret")).toExist(),
     )
   })
 })

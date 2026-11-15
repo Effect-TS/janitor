@@ -214,6 +214,40 @@ describe("an MCP server's credential", () => {
       }),
     )
 
+  it.effect(
+    "Connect with a client registered by hand registers none, and exchanges and refreshes as that client",
+    () =>
+      Effect.gen(function* () {
+        const auth = new FakeAuthorizationServer(MCP_URL)
+        auth.registers = false
+        const storage = new MemoryStorage()
+        const credential = yield* make(auth, storage)
+        const clientId = auth.preregister(REDIRECT_URI)
+        const client = { client_id: clientId, client_secret: CLIENT_SECRET }
+
+        // @ts-expect-error EFF-3826: the credential takes no registered client yet
+        const set: Effect.Effect<void> = credential.setOAuthClient({
+          clientId,
+          clientSecret: Redacted.make(CLIENT_SECRET),
+        })
+        yield* set
+        assert.strictEqual(yield* credential.status, "no-credential")
+        yield* connect(auth, credential)
+        assert.deepStrictEqual(auth.registrations, [])
+        assert.deepInclude(auth.exchanges[0]?.params, client)
+
+        // A restart has no access token in memory, so the first call refreshes.
+        const restarted = yield* make(auth, storage)
+        assert.strictEqual(yield* value(restarted.token()), "access-2")
+        assert.deepStrictEqual(auth.refreshes[0]?.params, {
+          grant_type: "refresh_token",
+          refresh_token: CONSENTED,
+          resource: MCP_URL,
+          ...client,
+        })
+      }),
+  )
+
   /**
    * A token is reused while more than five minutes of it are left. One that
    * lives five minutes or less, which an answer without `expires_in` is

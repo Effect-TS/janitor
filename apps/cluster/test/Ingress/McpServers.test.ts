@@ -237,6 +237,60 @@ layer(Services, { timeout: "2 minutes" })("McpServersGroup", (it) => {
       }),
   )
 
+  it.effect(
+    "a server that registers no clients asks for one, naming the callback to register, and Connect uses the one set, its secret never read back or logged",
+    () =>
+      Effect.gen(function* () {
+        auth.registers = false
+        const registrations = auth.registrations.length
+        const { value: server, logs } = yield* logged(
+          Effect.gen(function* () {
+            const api = yield* client
+            const created = yield* api.mcpServers.create({
+              payload: { name: "meetings_manual", url: MCP_URL, auth: "oauth" },
+            })
+            const required = yield* Effect.flip(
+              api.mcpServers.startOAuth({ params: { id: created.id } }),
+            )
+            assert.deepStrictEqual(
+              [required._tag, "redirectUri" in required && required.redirectUri],
+              ["McpOAuthClientRequired", callback(created.id)],
+            )
+
+            const clientId = auth.preregister(callback(created.id))
+            // @ts-expect-error EFF-3826: the API takes no registered client yet
+            const set: Effect.Effect<McpServer> = api.mcpServers.setOAuthClient({
+              params: { id: created.id },
+              payload: { clientId, clientSecret: Redacted.make(CLIENT_SECRET) },
+            })
+            assert.deepStrictEqual(yield* set, created)
+
+            const { authorizationUrl } = yield* api.mcpServers.startOAuth({
+              params: { id: created.id },
+            })
+            yield* api.mcpServers.finishOAuth({
+              params: { id: created.id },
+              query: auth.approve(authorizationUrl),
+            })
+            assert.deepInclude(auth.exchanges.at(-1)?.params, {
+              client_id: clientId,
+              client_secret: CLIENT_SECRET,
+            })
+            return created
+          }),
+        ).pipe(Effect.ensuring(Effect.sync(() => (auth.registers = true))))
+
+        assert.strictEqual(auth.registrations.length, registrations)
+        const { servers } = yield* (yield* client).mcpServers.list()
+        assert.deepStrictEqual(
+          servers.find((listed) => listed.id === server.id),
+          { ...server, status: "connected" },
+        )
+        assert.isNotEmpty(logs)
+        for (const line of logs) assert.notInclude(line, CLIENT_SECRET)
+      }),
+  )
+
   type Api = Effect.Success<typeof client>
   type Consent = ReturnType<FakeAuthorizationServer["approve"]>
 
