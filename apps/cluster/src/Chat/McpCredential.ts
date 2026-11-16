@@ -1,5 +1,7 @@
 import {
   type McpServerConfig,
+  type McpOAuthClient,
+  McpOAuthClientRequired,
   McpOAuthRefused,
   McpOAuthUnavailable,
   type McpServerStatus,
@@ -42,6 +44,11 @@ import { fetchVia } from "./McpFetch.ts"
  * protocol itself (discovery, registration, PKCE, client authentication and
  * token requests) is the MCP SDK's; this keeps only what is janitor's.
  *
+ * For an authorisation server that registers no clients itself, a client
+ * registered by hand is set on the dashboard and used for every Connect
+ * instead. It's used only with the authorisation server it was first used
+ * with, so its secret never goes to one the MCP server names later.
+ *
  * No token, client secret, PKCE verifier or code is ever logged or put in an
  * error.
  */
@@ -62,12 +69,20 @@ export interface McpCredential {
   /** Replaces whatever the credential held with a bearer token. */
   readonly setBearer: (token: Redacted.Redacted<string>) => Effect.Effect<void>
   /**
+   * Replaces whatever the credential held with a client registered by hand,
+   * for every Connect from now on: tokens issued to another client are of no
+   * use with it.
+   */
+  readonly setOAuthClient: (client: McpOAuthClient) => Effect.Effect<void>
+  /**
    * **Connect**'s start: discovers the authorisation server, registers a
-   * client for `redirectUri` and answers the URL to send the browser to.
+   * client for `redirectUri` unless one was set, and answers the URL to send
+   * the browser to. Asks for a client registered by hand when the
+   * authorisation server registers none.
    */
   readonly startOAuth: (input: {
     readonly redirectUri: string
-  }) => Effect.Effect<string, McpOAuthUnavailable>
+  }) => Effect.Effect<string, McpOAuthUnavailable | McpOAuthClientRequired>
   /** **Connect**'s callback: exchanges the code for tokens, once, within 10 minutes of the start. */
   readonly finishOAuth: (input: {
     readonly code: string
@@ -123,9 +138,22 @@ const OAuthClient = Schema.Struct({
 })
 type OAuthClient = typeof OAuthClient.Type
 
-/** What storage holds: one of a bearer token or OAuth, and a **Connect** under way. */
+/**
+ * A client registered by hand: its registration as the SDK takes it, and
+ * the authorisation server it's bound to once a Connect has used it.
+ */
+const ManualClient = Schema.Struct({
+  information: Json,
+  server: Schema.optional(Schema.String),
+})
+
+/**
+ * What storage holds: one of a bearer token or OAuth, a **Connect** under
+ * way, and the client registered by hand that every Connect uses, if any.
+ */
 const Stored = Schema.Struct({
   bearer: Schema.optional(Schema.String),
+  manual: Schema.optional(ManualClient),
   oauth: Schema.optional(
     Schema.Struct({
       client: OAuthClient,
@@ -394,43 +422,62 @@ export const makeMcpCredential = (
         yield* save({ bearer: Redacted.value(bearer) }).pipe(Effect.orDie)
       })
 
+    const setOAuthClient = (client: McpOAuthClient) =>
+      Effect.gen(function* () {
+        replaced()
+        const information = {
+          client_id: client.clientId,
+          ...(client.clientSecret === undefined
+            ? {}
+            : { client_secret: Redacted.value(client.clientSecret) }),
+        }
+        yield* save({ manual: { information } }).pipe(Effect.orDie)
+      })
+
     const startOAuth = ({ redirectUri }: { readonly redirectUri: string }) =>
       Effect.gen(function* () {
         // The MCP server names its authorisation server (RFC 9728); without
         // that metadata, its own origin is taken to be one.
         const begun = generation
+        const { manual } = yield* load
         const info = yield* sdk((fetchFn) => discoverOAuthServerInfo(options.url, { fetchFn }))
+        const server = info.authorizationServerUrl
         const metadata = info.authorizationServerMetadata
         // Every endpoint the code, verifier and secrets go to is https,
         // checked before anything is sent to them: the registration, the
         // browser's authorisation URL and the token requests.
         const endpoints =
           metadata === undefined
-            ? [info.authorizationServerUrl]
+            ? [server]
             : [
-                info.authorizationServerUrl,
+                server,
                 metadata.authorization_endpoint,
                 metadata.token_endpoint,
-                metadata.registration_endpoint ?? info.authorizationServerUrl,
+                metadata.registration_endpoint ?? server,
               ]
         if (!endpoints.every(isHttps)) return yield* Effect.fail("insecure endpoint" as const)
         const scope = info.resourceMetadata?.scopes_supported?.join(" ")
-        const information = yield* sdk((fetchFn) =>
-          registerClient(info.authorizationServerUrl, {
-            ...(metadata === undefined ? {} : { metadata }),
-            clientMetadata: {
-              client_name: "janitor",
-              redirect_uris: [redirectUri],
-              grant_types: ["authorization_code", "refresh_token"],
-              response_types: ["code"],
-              token_endpoint_auth_method: "none",
-            },
-            ...(scope === undefined ? {} : { scope }),
-            fetchFn,
-          }),
-        )
+        const information =
+          manual !== undefined
+            ? manual.information
+            : metadata !== undefined && !metadata.registration_endpoint
+              ? yield* new McpOAuthClientRequired({ redirectUri })
+              : yield* sdk((fetchFn) =>
+                  registerClient(server, {
+                    ...(metadata === undefined ? {} : { metadata }),
+                    clientMetadata: {
+                      client_name: "janitor",
+                      redirect_uris: [redirectUri],
+                      grant_types: ["authorization_code", "refresh_token"],
+                      response_types: ["code"],
+                      token_endpoint_auth_method: "none",
+                    },
+                    ...(scope === undefined ? {} : { scope }),
+                    fetchFn,
+                  }),
+                )
         const client: OAuthClient = {
-          server: info.authorizationServerUrl,
+          server,
           ...(metadata === undefined ? {} : { metadata: { ...metadata } }),
           information: { ...information },
         }
@@ -448,8 +495,14 @@ export const makeMcpCredential = (
         if (begun !== generation) return yield* Effect.fail("superseded" as const)
         const startedAt = yield* Clock.currentTimeMillis
         const current = yield* load
+        // Bound to this authorisation server before its secret is ever sent,
+        // as stored now: another Connect may have bound it while this one ran.
+        const bound = current.manual?.server
+        if (bound !== undefined && bound !== server)
+          return yield* new McpOAuthClientRequired({ redirectUri })
         yield* save({
           ...current,
+          ...(current.manual === undefined ? {} : { manual: { ...current.manual, server } }),
           pending: { state, verifier: codeVerifier, redirectUri, startedAt, client },
         })
         return authorizationUrl.href
@@ -457,7 +510,11 @@ export const makeMcpCredential = (
         Effect.catch((reason) =>
           Effect.logWarning("Couldn't start an MCP server's Connect").pipe(
             Effect.annotateLogs({ reason: describe(reason) }),
-            Effect.andThen(Effect.fail(new McpOAuthUnavailable())),
+            Effect.andThen(
+              Effect.fail(
+                reason instanceof McpOAuthClientRequired ? reason : new McpOAuthUnavailable(),
+              ),
+            ),
           ),
         ),
       )
@@ -497,7 +554,9 @@ export const makeMcpCredential = (
         )
         if (started !== generation) return yield* Effect.fail("superseded" as const)
         replaced()
+        const { manual } = yield* load
         yield* save({
+          ...(manual === undefined ? {} : { manual }),
           oauth: {
             client: pending.client,
             refreshToken: granted.refresh_token ?? null,
@@ -520,5 +579,5 @@ export const makeMcpCredential = (
       yield* options.storage.clear.pipe(Effect.orDie)
     })
 
-    return { token, status, setBearer, startOAuth, finishOAuth, wipe }
+    return { token, status, setBearer, setOAuthClient, startOAuth, finishOAuth, wipe }
   })

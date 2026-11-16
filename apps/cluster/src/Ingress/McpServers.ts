@@ -17,8 +17,8 @@ import { McpServerStore } from "../Chat/McpServerStore.ts"
  * The dashboard's MCP servers (EFF-3443), behind Access like the kill
  * switch: anyone signed in may configure them. Configuration is in
  * Postgres, each server's credential in its own Durable Object. A bearer
- * token is written, never read back, and nothing logs more than a server's
- * id and name. Infrastructure failures die.
+ * token or an OAuth client is written, never read back, and nothing logs
+ * more than a server's id and name. Infrastructure failures die.
  */
 
 /** The page the authorisation server's redirect ends on: it returns to the chat sessions page. */
@@ -116,6 +116,17 @@ export const McpServersGroupLayer = HttpApiBuilder.group(JanitorApi, "mcpServers
             credential.setBearer(payload.token),
           )
           yield* logged("MCP server bearer token set", server)
+          return yield* withStatus(server)
+        }),
+      )
+      .handle("setOAuthClient", ({ params, payload }) =>
+        Effect.gen(function* () {
+          const server = yield* find(params.id)
+          if (server.auth !== "oauth") return yield* new McpServerWrongAuth({ auth: server.auth })
+          yield* Effect.flatMap(credentialOf(server), (credential) =>
+            credential.setOAuthClient(payload),
+          )
+          yield* logged("MCP server OAuth client set", server)
           return yield* withStatus(server)
         }),
       )

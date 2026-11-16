@@ -18,6 +18,7 @@ import {
   CLIENT_SECRET,
   type Endpoints,
   FakeAuthorizationServer,
+  ISSUER,
   TOKEN_URL,
 } from "../support/OAuthServer.ts"
 import { fetchClient } from "../support/Fetch.ts"
@@ -76,6 +77,30 @@ const connected = (auth: FakeAuthorizationServer, storage = new MemoryStorage())
     return credential
   })
 
+/**
+ * A credential whose authorisation server registers no clients, with one
+ * registered by hand set.
+ */
+const preregistered = (storage = new MemoryStorage()) =>
+  Effect.gen(function* () {
+    const auth = new FakeAuthorizationServer(MCP_URL)
+    auth.registers = false
+    const credential = yield* make(auth, storage)
+    const clientId = auth.preregister(REDIRECT_URI)
+    yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+    return { auth, credential, clientId }
+  })
+
+/** An authorisation server the MCP server's metadata can come to name instead. */
+const ELSEWHERE = "https://elsewhere.test"
+
+/** The requests `ELSEWHERE` got other than discovery's. */
+const beyondDiscovery = (auth: FakeAuthorizationServer) =>
+  auth.seen.filter(
+    (request) =>
+      request.includes(` ${ELSEWHERE}/`) && !request.includes(` ${ELSEWHERE}/.well-known/`),
+  )
+
 /** Lets forked calls reach their next wait before the test goes on. */
 const settle = Effect.forEach(Array.from({ length: 10 }), () => Effect.yieldNow, {
   discard: true,
@@ -87,6 +112,13 @@ const value = <E, R>(self: Effect.Effect<Redacted.Redacted<string>, E, R>) =>
 /** What `self` gave, or the tag of its failure. */
 const outcome = <A, R>(self: Effect.Effect<A, { readonly _tag: string }, R>) =>
   Effect.catch(self, (error) => Effect.succeed(error._tag))
+
+/**
+ * The callback a refusal asking for a client registered by hand names, or
+ * the tag of another failure. Errors compare equal by tag alone.
+ */
+const clientRequired = (error: { readonly _tag: string; readonly redirectUri?: string }) =>
+  error._tag === "McpOAuthClientRequired" ? error.redirectUri : error._tag
 
 const unavailable = <A, R>(self: Effect.Effect<A, { readonly _tag: string }, R>) =>
   Effect.map(Effect.flip(self), (error) => error._tag)
@@ -213,6 +245,86 @@ describe("an MCP server's credential", () => {
         })
       }),
     )
+
+  it.effect(
+    "Connect with a client registered by hand registers none, and exchanges and refreshes as that client",
+    () =>
+      Effect.gen(function* () {
+        const storage = new MemoryStorage()
+        const { auth, credential, clientId } = yield* preregistered(storage)
+        const client = { client_id: clientId, client_secret: CLIENT_SECRET }
+
+        assert.strictEqual(yield* credential.status, "no-credential")
+        yield* connect(auth, credential)
+        assert.deepStrictEqual(auth.registrations, [])
+        assert.deepInclude(auth.exchanges[0]?.params, client)
+
+        // A restart has no access token in memory, so the first call refreshes.
+        const restarted = yield* make(auth, storage)
+        assert.strictEqual(yield* value(restarted.token()), "access-2")
+        assert.deepStrictEqual(auth.refreshes[0]?.params, {
+          grant_type: "refresh_token",
+          refresh_token: CONSENTED,
+          resource: MCP_URL,
+          ...client,
+        })
+
+        // Connect again keeps using it, without it being set again.
+        yield* connect(auth, restarted)
+        assert.deepStrictEqual(auth.registrations, [])
+        assert.strictEqual(auth.exchanges.length, 2)
+        assert.deepInclude(auth.exchanges[1]?.params, client)
+      }),
+  )
+
+  it.effect(
+    "a client registered by hand goes only to the authorisation server it was first used with",
+    () =>
+      Effect.gen(function* () {
+        const { auth, credential, clientId } = yield* preregistered()
+        yield* connect(auth, credential)
+
+        auth.issuer = ELSEWHERE
+        const refused = yield* Effect.flip(credential.startOAuth({ redirectUri: REDIRECT_URI }))
+        assert.deepStrictEqual(clientRequired(refused), REDIRECT_URI)
+        assert.deepStrictEqual(beyondDiscovery(auth), [])
+        assert.strictEqual(yield* credential.status, "connected")
+
+        // Setting the client again binds it to wherever the next Connect goes.
+        auth.issuer = ISSUER
+        yield* credential.setOAuthClient({ clientId, clientSecret: Redacted.make(CLIENT_SECRET) })
+        yield* connect(auth, credential)
+        assert.strictEqual(yield* credential.status, "connected")
+      }),
+  )
+
+  it.effect(
+    "of two overlapping Connects with a client registered by hand, the one at another authorisation server binds nothing",
+    () =>
+      Effect.gen(function* () {
+        const { auth, credential } = yield* preregistered()
+
+        // One Connect is held in discovery, told of another authorisation server…
+        const held = yield* Deferred.make<void>()
+        auth.issuer = ELSEWHERE
+        auth.beforeResourceMetadata = Deferred.await(held)
+        const elsewhere = yield* Effect.forkChild(
+          Effect.flip(credential.startOAuth({ redirectUri: REDIRECT_URI })),
+        )
+        yield* settle
+        // …while another starts at this one, binding the client to it.
+        auth.issuer = ISSUER
+        auth.beforeResourceMetadata = Effect.void
+        const here = yield* credential.startOAuth({ redirectUri: REDIRECT_URI })
+
+        yield* Deferred.succeed(held, undefined)
+        assert.deepStrictEqual(clientRequired(yield* Fiber.join(elsewhere)), REDIRECT_URI)
+        // The Connect here finishes, and nothing but discovery went elsewhere.
+        yield* credential.finishOAuth(auth.approve(here))
+        assert.deepStrictEqual(beyondDiscovery(auth), [])
+        assert.strictEqual(yield* credential.status, "connected")
+      }),
+  )
 
   /**
    * A token is reused while more than five minutes of it are left. One that

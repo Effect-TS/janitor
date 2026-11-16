@@ -29,6 +29,18 @@ import { ApiClient } from "@/lib/api-client"
  * and the add form.
  */
 
+/**
+ * A client to register by hand, asked for when Connect needs one: the
+ * callback to register it with, and its fields as typed. The secret is
+ * dropped once sent.
+ */
+export const ClientForm = Schema.Struct({
+  redirectUri: Schema.String,
+  clientId: Schema.String,
+  clientSecret: Schema.String,
+})
+export type ClientForm = typeof ClientForm.Type
+
 /** The add form. */
 export const Draft = Schema.Struct({
   name: Schema.String,
@@ -49,6 +61,8 @@ export const Model = Schema.Struct({
   error: Schema.NullOr(Schema.String),
   /** Bearer tokens being typed, by server id; each is dropped once sent. */
   tokens: Schema.Record(Schema.String, Schema.String),
+  /** OAuth clients being typed, by server id; each is dropped once saved. */
+  clients: Schema.Record(Schema.String, ClientForm),
   draft: Schema.NullOr(Draft),
   draftError: Schema.NullOr(Schema.String),
 })
@@ -68,8 +82,15 @@ export const Message = defineMessageUnion({
   ClickedSetToken: { id: Schema.String },
   ClickedConnectServer: { id: Schema.String },
   GotAuthorization: { authorizationUrl: Schema.String },
+  /** Connect needs a client registered by hand, with `redirectUri` as its callback. */
+  NeedsOAuthClient: { id: Schema.String, redirectUri: Schema.String },
+  ChangedClientId: { id: Schema.String, clientId: Schema.String },
+  ChangedClientSecret: { id: Schema.String, clientSecret: Schema.String },
+  ClickedSetClient: { id: Schema.String },
   /** A change answered with the server as it is now. */
   SavedServer: { server: McpServer },
+  /** The OAuth client was saved: its form closes. */
+  SavedOAuthClient: { server: McpServer },
   FailedChange: { reason: Schema.String },
   ClickedAddServer: {},
   ChangedDraftName: { name: Schema.String },
@@ -97,6 +118,7 @@ export const init = (): Model => ({
   busy: null,
   error: null,
   tokens: {},
+  clients: {},
   draft: null,
   draftError: null,
 })
@@ -151,20 +173,41 @@ export const SetBearer = Command.define("SetChatMcpBearer", {
     ),
 })
 
+/** The secret stays redacted from here on: the model no longer holds it. */
+export const SetOAuthClient = Command.define("SetChatMcpOAuthClient", {
+  args: {
+    id: Schema.String,
+    clientId: Schema.String,
+    clientSecret: Schema.optional(Schema.Redacted(Schema.String)),
+  },
+  messages: [Message.SavedOAuthClient, Message.FailedChange],
+  execute: ({ id, ...payload }) =>
+    ApiClient.use((api) => api.mcpServers.setOAuthClient({ params: { id }, payload })).pipe(
+      Effect.timeout("15 seconds"),
+      Effect.map((server) => Message.SavedOAuthClient({ server })),
+      Effect.orElseSucceed(() =>
+        Message.FailedChange({ reason: "The client wasn't saved. Please enter its secret again." }),
+      ),
+    ),
+})
+
 export const StartOAuth = Command.define("StartChatMcpOAuth", {
   args: { id: Schema.String },
-  messages: [Message.GotAuthorization, Message.FailedChange],
+  messages: [Message.GotAuthorization, Message.NeedsOAuthClient, Message.FailedChange],
   execute: ({ id }) =>
     ApiClient.use((api) => api.mcpServers.startOAuth({ params: { id } })).pipe(
       Effect.timeout("15 seconds"),
       Effect.map(({ authorizationUrl }) => Message.GotAuthorization({ authorizationUrl })),
-      Effect.catchTag("McpOAuthUnavailable", () =>
-        Effect.succeed(
-          Message.FailedChange({
-            reason: "Connect couldn't start: the server's sign-in couldn't be reached.",
-          }),
-        ),
-      ),
+      Effect.catchTags({
+        McpOAuthClientRequired: ({ redirectUri }) =>
+          Effect.succeed(Message.NeedsOAuthClient({ id, redirectUri })),
+        McpOAuthUnavailable: () =>
+          Effect.succeed(
+            Message.FailedChange({
+              reason: "Connect couldn't start: the server's sign-in couldn't be reached.",
+            }),
+          ),
+      }),
       Effect.orElseSucceed(() =>
         Message.FailedChange({ reason: "Connect couldn't start. Please retry." }),
       ),
@@ -209,8 +252,23 @@ const beginChange = (
     ? { model }
     : { model: { ...model, busy, stale: true, error: null }, commands: [command] }
 
-const withoutToken = (tokens: Model["tokens"], id: string) =>
-  Object.fromEntries(Object.entries(tokens).filter(([key]) => key !== id))
+const without = <A>(byId: Readonly<Record<string, A>>, id: string) =>
+  Object.fromEntries(Object.entries(byId).filter(([key]) => key !== id))
+
+/** A change answered with `server` as it is now. */
+const saved = (model: Model, server: McpServer): Model => ({
+  ...model,
+  busy: null,
+  error: null,
+  servers: (model.servers ?? []).map((each) => (each.id === server.id ? server : each)),
+})
+
+const editClient = (model: Model, id: string, edit: Partial<ClientForm>): Return => {
+  const form = model.clients[id]
+  return form === undefined
+    ? { model }
+    : { model: { ...model, clients: { ...model.clients, [id]: { ...form, ...edit } } } }
+}
 
 /** The add form as it opens: private unless unchecked. */
 const emptyDraft: Draft = { name: "", url: "", auth: "none", private: true }
@@ -249,7 +307,8 @@ export const update = (model: Model, message: Message): Return =>
         ...model,
         busy: null,
         servers: (model.servers ?? []).filter((server) => server.id !== id),
-        tokens: withoutToken(model.tokens, id),
+        tokens: without(model.tokens, id),
+        clients: without(model.clients, id),
       },
     }),
     ChangedToken: ({ id, token }) => ({
@@ -259,20 +318,44 @@ export const update = (model: Model, message: Message): Return =>
       const token = (model.tokens[id] ?? "").trim()
       if (token === "" || model.busy !== null) return { model }
       const step = beginChange(model, id, SetBearer({ id, token: Redacted.make(token) }))
-      return { ...step, model: { ...step.model, tokens: withoutToken(model.tokens, id) } }
+      return { ...step, model: { ...step.model, tokens: without(model.tokens, id) } }
     },
     ClickedConnectServer: ({ id }) => beginChange(model, id, StartOAuth({ id })),
     GotAuthorization: ({ authorizationUrl }): Return => ({
       model: { ...model, busy: null },
       outMessage: OutMessage.OpenAuthorization({ url: authorizationUrl }),
     }),
-    SavedServer: ({ server }) => ({
+    NeedsOAuthClient: ({ id, redirectUri }) => ({
       model: {
         ...model,
         busy: null,
-        error: null,
-        servers: (model.servers ?? []).map((each) => (each.id === server.id ? server : each)),
+        clients: {
+          ...model.clients,
+          [id]: { redirectUri, clientId: "", clientSecret: "" },
+        },
       },
+    }),
+    ChangedClientId: ({ id, clientId }) => editClient(model, id, { clientId }),
+    ChangedClientSecret: ({ id, clientSecret }) => editClient(model, id, { clientSecret }),
+    ClickedSetClient: ({ id }) => {
+      const form = model.clients[id]
+      const clientId = form?.clientId.trim() ?? ""
+      if (form === undefined || clientId === "" || model.busy !== null) return { model }
+      const secret = form.clientSecret.trim()
+      const step = beginChange(
+        model,
+        id,
+        SetOAuthClient({
+          id,
+          clientId,
+          ...(secret === "" ? {} : { clientSecret: Redacted.make(secret) }),
+        }),
+      )
+      return { ...step, model: editClient(step.model, id, { clientSecret: "" }).model }
+    },
+    SavedServer: ({ server }) => ({ model: saved(model, server) }),
+    SavedOAuthClient: ({ server }) => ({
+      model: { ...saved(model, server), clients: without(model.clients, server.id) },
     }),
     FailedChange: ({ reason }) => ({ model: { ...model, busy: null, error: reason } }),
     ClickedAddServer: () => ({ model: { ...model, draft: emptyDraft, draftError: null } }),
@@ -381,7 +464,9 @@ const credential = (h: HtmlBuilder<Message>, model: Model, server: McpServer) =>
       ],
     )
   }
-  if (server.auth === "oauth")
+  if (server.auth === "oauth") {
+    const form = model.clients[server.id]
+    if (form !== undefined) return clientForm(h, server, form, isDisabled)
     return Button.view(h, {
       variant: "secondary",
       size: "sm",
@@ -390,8 +475,63 @@ const credential = (h: HtmlBuilder<Message>, model: Model, server: McpServer) =>
       attributes: [h.AriaLabel(`Connect ${server.name}`)],
       onClick: Message.ClickedConnectServer({ id: server.id }),
     })
+  }
   return h.empty
 }
+
+/** The client to register by hand, with the callback to register it with. */
+const clientForm = (
+  h: HtmlBuilder<Message>,
+  server: McpServer,
+  form: ClientForm,
+  isDisabled: boolean,
+) =>
+  h.div(
+    [h.Class("flex flex-col gap-2")],
+    [
+      h.p(
+        [h.Role("alert"), h.Class("text-body-sm")],
+        [
+          "This server's sign-in doesn't register clients itself. Register an OAuth app with its provider, with the callback URL ",
+          h.code([h.Class("font-mono text-mono-sm break-all")], [form.redirectUri]),
+          ", then enter the app's client ID and secret.",
+        ],
+      ),
+      Input.input(h, {
+        id: `mcp-server-${server.id}-client-id`,
+        label: "Client ID",
+        value: form.clientId,
+        isDisabled,
+        labelClass: "text-body-sm",
+        attributes: [h.Autocomplete("off")],
+        onInput: (clientId) => Message.ChangedClientId({ id: server.id, clientId }),
+      }),
+      Input.input(h, {
+        id: `mcp-server-${server.id}-client-secret`,
+        label: "Client secret",
+        type: "password",
+        value: form.clientSecret,
+        description: "Leave empty for a public client.",
+        isDisabled,
+        labelClass: "text-body-sm",
+        attributes: [h.Autocomplete("off")],
+        onInput: (clientSecret) => Message.ChangedClientSecret({ id: server.id, clientSecret }),
+      }),
+      h.div(
+        [h.Class("flex justify-end")],
+        [
+          Button.view(h, {
+            variant: "secondary",
+            size: "sm",
+            label: "Save client",
+            isDisabled: isDisabled || form.clientId.trim() === "",
+            attributes: [h.AriaLabel(`Save the OAuth client for ${server.name}`)],
+            onClick: Message.ClickedSetClient({ id: server.id }),
+          }),
+        ],
+      ),
+    ],
+  )
 
 const serverItem = (h: HtmlBuilder<Message>, model: Model, server: McpServer) => {
   const { label, variant } = statusChips[server.status]

@@ -78,6 +78,17 @@ export type McpServerChange = typeof McpServerChange.Type
 
 export const McpBearerToken = Schema.Struct({ token: Schema.Redacted(Schema.NonEmptyString) })
 
+/**
+ * A client registered by hand with the server's authorisation server, for
+ * providers that don't register clients themselves, such as Zoom. Without a
+ * secret it's a public client. Written, never read back.
+ */
+export const McpOAuthClient = Schema.Struct({
+  clientId: Schema.NonEmptyString,
+  clientSecret: Schema.optional(Schema.Redacted(Schema.NonEmptyString)),
+})
+export type McpOAuthClient = typeof McpOAuthClient.Type
+
 export const McpOAuthStart = Schema.Struct({ authorizationUrl: Schema.String })
 
 /** The query the authorisation server sends the browser back with. */
@@ -110,6 +121,17 @@ export class McpOAuthUnavailable extends Schema.TaggedError<McpOAuthUnavailable>
   "McpOAuthUnavailable",
   {},
   { httpApiStatus: 502 },
+) {}
+
+/**
+ * **Connect** needs a client registered by hand: the authorisation server
+ * registers none itself, or isn't the one the client set was first used
+ * with. `redirectUri` is the callback to register it with.
+ */
+export class McpOAuthClientRequired extends Schema.TaggedError<McpOAuthClientRequired>()(
+  "McpOAuthClientRequired",
+  { redirectUri: Schema.String },
+  { httpApiStatus: 409 },
 ) {}
 
 /**

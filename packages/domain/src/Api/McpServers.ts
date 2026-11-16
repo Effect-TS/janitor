@@ -5,6 +5,8 @@ import * as HttpApiSchema from "effect/http-api/HttpApiSchema"
 import {
   McpBearerToken,
   McpOAuthCallback,
+  McpOAuthClient,
+  McpOAuthClientRequired,
   McpOAuthRefused,
   McpOAuthStart,
   McpOAuthUnavailable,
@@ -21,8 +23,8 @@ const params = { id: Schema.String }
 
 /**
  * The MCP servers chat turns can use (EFF-3443), behind Access like the kill
- * switch. No response carries a secret: a bearer token is written, never
- * read back.
+ * switch. No response carries a secret: a bearer token or an OAuth client
+ * is written, never read back.
  */
 export class McpServersGroup extends HttpApiGroup.make("mcpServers")
   .add(HttpApiEndpoint.get("list", "/chat/mcp-servers", { success: McpServerList }))
@@ -56,10 +58,18 @@ export class McpServersGroup extends HttpApiGroup.make("mcpServers")
     }),
   )
   .add(
+    HttpApiEndpoint.put("setOAuthClient", "/chat/mcp-servers/:id/oauth/client", {
+      params,
+      payload: McpOAuthClient,
+      success: McpServer,
+      error: [McpServerNotFound, McpServerWrongAuth],
+    }),
+  )
+  .add(
     HttpApiEndpoint.post("startOAuth", "/chat/mcp-servers/:id/oauth/start", {
       params,
       success: McpOAuthStart,
-      error: [McpServerNotFound, McpServerWrongAuth, McpOAuthUnavailable],
+      error: [McpServerNotFound, McpServerWrongAuth, McpOAuthUnavailable, McpOAuthClientRequired],
     }),
   )
   .add(
