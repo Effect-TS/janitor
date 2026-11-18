@@ -324,7 +324,6 @@ export class FakeSandboxes {
         new AgentExecutor.Capabilities({
           toolsDts: "",
           instructions: Option.none(),
-          supportsSearch: false,
           environment: new AgentExecutor.ExecutionEnvironment({
             cwd: "/workspace",
             baseline: [],
