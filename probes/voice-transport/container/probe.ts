@@ -1,9 +1,10 @@
 /**
  * The voice transport probe. It joins one test voice channel, receives
  * audio, and reports whether each step of Discord voice works from where it
- * runs. It keeps no audio: received Opus frames are decoded to measure their
- * level and the samples are dropped at once. There is no speech-to-text.
- * Events and the status hold only ids, counts, timings and library messages.
+ * runs. It keeps no audio: Opus frames that DAVE authenticated are decoded to
+ * measure their level and the samples are dropped at once. There is no
+ * speech-to-text. Events and the status hold ids, counts, timings, and error
+ * and DAVE library messages that pass through `scrub`.
  *
  * HTTP on PORT, for the Durable Object that owns the container:
  *   GET  /healthz
@@ -26,7 +27,7 @@ import {
   type VoiceConnectionState,
   version as voiceVersion,
 } from "@discordjs/voice"
-import { VERSION as daveyVersion } from "@snazzah/davey"
+import { type DecryptionStats, VERSION as daveyVersion } from "@snazzah/davey"
 import {
   Client,
   Events,
@@ -35,6 +36,7 @@ import {
   version as discordjsVersion,
 } from "discord.js"
 import OpusScript from "opusscript"
+import { isRtpOpus, scrub as scrubText } from "./filters.ts"
 import { probeStun, STUN_SERVERS } from "./stun.ts"
 
 const required = (name: string): string => {
@@ -50,6 +52,12 @@ const token = required("DISCORD_BOT_TOKEN")
 const guildId = required("DISCORD_GUILD_ID")
 const channelId = required("DISCORD_CHANNEL_ID")
 const port = Number(process.env.PORT ?? 8080)
+/**
+ * When this process leaves the call and exits, whatever the Durable Object
+ * does: the object passes its own time limit plus a margin, so a probe whose
+ * object stopped polling still ends.
+ */
+const stopAt = Number(required("STOP_AT"))
 /**
  * Works around discordjs/discord.js#11653: after an MLS welcome at
  * transition 0, which is what a bot joining a channel with someone already in
@@ -77,19 +85,27 @@ const emit = (kind: string, detail: Record<string, unknown> = {}) => {
   console.log(JSON.stringify(event))
 }
 
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const scrub = (text: string) => scrubText(text, token)
+
+const errorMessage = (error: unknown) =>
+  scrub(error instanceof Error ? `${error.name}: ${error.message}` : String(error))
 
 // Counters, reset at the start of each voice epoch (every time the voice
 // connection becomes ready, after a join or a resume)
 
 interface UserCounters {
+  /** Packets davey authenticated and decrypted. */
   e2eeOk: number
+  /** Decrypt attempts that threw or returned nothing. */
   e2eeFail: number
+  /** Packets that went through without end-to-end decryption. */
   passthrough: number
   streamErrors: number
-  opusOk: number
   opusFail: number
+  /** Authenticated packets whose decoded audio is above VOICED_RMS. */
   voicedFrames: number
+  lastVoicedAt: number | null
+  /** The latest end-to-end attempt; passthrough doesn't change it. */
   lastResult: "ok" | "fail" | null
 }
 
@@ -98,19 +114,21 @@ const newCounters = (): UserCounters => ({
   e2eeFail: 0,
   passthrough: 0,
   streamErrors: 0,
-  opusOk: 0,
   opusFail: 0,
   voicedFrames: 0,
+  lastVoicedAt: null,
   lastResult: null,
 })
 
 let epoch = 0
 let epochStartedAt: number | null = null
 let users = new Map<string, UserCounters>()
-let udpIn = 0
-let udpInTotal = 0
-let inChannelSince: number | null = null
+/** RTP Opus datagrams only: not the IP discovery reply or anything else. */
+let rtpIn = 0
+let rtpInTotal = 0
 let daveProtocolVersion: number | null = null
+/** Who was in the channel when the current connection asked to join. */
+let rosterAtJoin: Array<string> = []
 
 const countersFor = (userId: string) => {
   let counters = users.get(userId)
@@ -125,47 +143,76 @@ const startEpoch = (via: "join" | "resume") => {
   epoch++
   epochStartedAt = Date.now()
   users = new Map()
-  udpIn = 0
-  emit("ready", { epoch, via, presentUserIds: presentUserIds(), daveProtocolVersion })
+  rtpIn = 0
+  // A join's roster is who was there before the bot asked to join, so
+  // someone who arrives during the handshake doesn't count as already present.
+  const roster = via === "join" ? rosterAtJoin : presentUserIds()
+  emit("ready", { epoch, via, roster, daveProtocolVersion })
 }
 
 // Instrumentation of @discordjs/voice. These wrap internals that are stable
 // in 0.19.x; package.json pins the version.
 
 interface DaveInternals {
-  session?: { ready: boolean }
+  session?: {
+    ready: boolean
+    getDecryptionStats(userId: string): DecryptionStats | null
+  }
   protocolVersion: number
   lastTransitionId?: number | undefined
   recoverFromInvalidTransition(transitionId: number): void
 }
 
 const SILENCE_FRAME = Buffer.from([0xf8, 0xff, 0xfe])
+const decoders = new Map<string, OpusScript>()
+
+/** Decodes one authenticated Opus frame, keeps only whether it was voiced, and drops the samples. */
+const measure = (userId: string, counters: UserCounters, frame: Buffer) => {
+  let decoder = decoders.get(userId)
+  if (!decoder) {
+    decoder = new OpusScript(48_000, 2, OpusScript.Application.VOIP)
+    decoders.set(userId, decoder)
+  }
+  try {
+    const pcm = Buffer.from(decoder.decode(frame))
+    const samples = pcm.length >> 1
+    let sum = 0
+    for (let offset = 0; offset < samples * 2; offset += 2) {
+      const sample = pcm.readInt16LE(offset)
+      sum += sample * sample
+    }
+    if (samples > 0 && Math.sqrt(sum / samples) > VOICED_RMS) {
+      counters.voicedFrames++
+      counters.lastVoicedAt = Date.now()
+    }
+  } catch {
+    counters.opusFail++
+  }
+}
+
+/**
+ * Classifies every packet by what davey itself counted during the call:
+ * `successes` went up means it authenticated and decrypted the frame, and
+ * `passthroughs` means it let plaintext through (a transition, or a sender
+ * without DAVE). A non-null result alone proves nothing.
+ */
 const decrypt = DAVESession.prototype.decrypt
 DAVESession.prototype.decrypt = function (this: DAVESession, packet: Buffer, userId: string) {
   const dave = this as unknown as DaveInternals
   daveProtocolVersion = dave.protocolVersion
-  const e2ee =
-    dave.session?.ready === true && dave.protocolVersion !== 0 && !packet.equals(SILENCE_FRAME)
+  if (packet.equals(SILENCE_FRAME)) return decrypt.call(this, packet, userId)
   const counters = countersFor(userId)
-  const record = (ok: boolean) => {
-    if (!e2ee) {
-      counters.passthrough++
-      return
-    }
-    if (ok) {
-      if (counters.e2eeOk === 0) {
-        emit("first-decrypt", { epoch, userId, msSinceReady: Date.now() - (epochStartedAt ?? 0) })
-      }
-      counters.e2eeOk++
-    } else counters.e2eeFail++
-    counters.lastResult = ok ? "ok" : "fail"
+  const stats = () => dave.session?.getDecryptionStats(userId) ?? null
+  const before = stats()
+  const fail = () => {
+    counters.e2eeFail++
+    counters.lastResult = "fail"
   }
+  let result: Buffer | null
   try {
-    const result = decrypt.call(this, packet, userId)
-    record(result !== null)
-    return result
+    result = decrypt.call(this, packet, userId)
   } catch (error) {
-    record(false)
+    fail()
     if (transitionZeroFix && dave.lastTransitionId === 0) {
       emit("fix-applied", { epoch, userId })
       dave.recoverFromInvalidTransition(0)
@@ -173,6 +220,17 @@ DAVESession.prototype.decrypt = function (this: DAVESession, packet: Buffer, use
     }
     throw error
   }
+  const after = stats()
+  if (result !== null && after && after.successes > (before?.successes ?? 0)) {
+    if (counters.e2eeOk === 0) {
+      emit("first-decrypt", { epoch, userId, msSinceReady: Date.now() - (epochStartedAt ?? 0) })
+    }
+    counters.e2eeOk++
+    counters.lastResult = "ok"
+    measure(userId, counters, result)
+  } else if (result !== null) counters.passthrough++
+  else fail()
+  return result
 }
 
 interface UdpInternals {
@@ -182,8 +240,10 @@ interface UdpInternals {
 const udpPrototype = VoiceUDPSocket.prototype as unknown as UdpInternals
 const onUdpMessage = udpPrototype.onMessage
 udpPrototype.onMessage = function (this: UdpInternals, buffer: Buffer) {
-  udpIn++
-  udpInTotal++
+  if (isRtpOpus(buffer)) {
+    rtpIn++
+    rtpInTotal++
+  }
   return onUdpMessage.call(this, buffer)
 }
 
@@ -242,7 +302,8 @@ const networkingOf = (state: VoiceConnectionState) =>
 const join = (reason: string) => {
   clearTimeout(rejoinTimer)
   if (shuttingDown || !guild) return
-  emit("join", { reason, presentUserIds: presentUserIds() })
+  rosterAtJoin = presentUserIds()
+  emit("join", { reason, roster: rosterAtJoin })
   const current = joinVoiceChannel({
     guildId,
     channelId,
@@ -259,7 +320,7 @@ const join = (reason: string) => {
     // Only the DAVE session's own messages: WebSocket debug lines carry
     // payloads, including the voice token. Decrypt failures are counted instead.
     if (message.startsWith("[NW] [DAVE] ") && !message.includes("Failed to decrypt")) {
-      emit("dave", { epoch, message: message.slice(12) })
+      emit("dave", { epoch, message: scrub(message.slice(12)) })
     }
   })
   current.on("error", (error) => emit("error", { source: "voice", message: errorMessage(error) }))
@@ -280,7 +341,6 @@ const join = (reason: string) => {
         if (newNetworking.code === NetworkingStatusCode.Ready) {
           daveProtocolVersion = newNetworking.dave?.protocolVersion ?? 0
           startEpoch(oldNetworking.code === NetworkingStatusCode.Resuming ? "resume" : "join")
-          inChannelSince ??= Date.now()
         }
       })
     }
@@ -296,7 +356,6 @@ const join = (reason: string) => {
     }
     if (newState.status === VoiceConnectionStatus.Destroyed && connection === current) {
       connection = undefined
-      inChannelSince = null
       emit("left", { reason: "destroyed" })
       rejoinTimer = setTimeout(() => join("recover"), 2_000)
     }
@@ -305,32 +364,20 @@ const join = (reason: string) => {
   current.receiver.speaking.on("start", (userId) => subscribe(current, userId))
 }
 
-/** Receives one speaker until the stream breaks; the next packet subscribes again. */
+/**
+ * Subscribes to a speaker so the receiver decrypts their packets (it skips
+ * anyone without a subscription). The frames themselves are discarded; the
+ * decrypt wrapper has already measured them. A broken stream is counted and
+ * the next packet subscribes again.
+ */
 const subscribe = (current: VoiceConnection, userId: string) => {
   if (current.receiver.subscriptions.has(userId)) return
   const stream = current.receiver.subscribe(userId, { end: { behavior: EndBehaviorType.Manual } })
-  const decoder = new OpusScript(48_000, 2, OpusScript.Application.VOIP)
-  stream.on("data", (packet: Buffer) => {
-    const counters = countersFor(userId)
-    try {
-      const pcm = Buffer.from(decoder.decode(packet))
-      counters.opusOk++
-      let sum = 0
-      const samples = pcm.length >> 1
-      for (let offset = 0; offset < samples * 2; offset += 2) {
-        const sample = pcm.readInt16LE(offset)
-        sum += sample * sample
-      }
-      if (samples > 0 && Math.sqrt(sum / samples) > VOICED_RMS) counters.voicedFrames++
-    } catch {
-      counters.opusFail++
-    }
-  })
+  stream.resume()
   stream.on("error", (error) => {
     countersFor(userId).streamErrors++
     emit("stream-error", { epoch, userId, message: errorMessage(error) })
   })
-  stream.on("close", () => decoder.delete())
 }
 
 client.on(Events.ClientReady, async () => {
@@ -372,9 +419,8 @@ const snapshot = () => {
     daveProtocolVersion,
     epoch,
     epochStartedAt,
-    inChannelSince,
-    udpIn,
-    udpInTotal,
+    rtpIn,
+    rtpInTotal,
     presentUserIds: presentUserIds(),
     users: Object.fromEntries(users),
   }
@@ -414,7 +460,6 @@ const server = createServer((request, response) => {
       emit("disruption", { type: "rejoin" })
       const previous = connection
       connection = undefined
-      inChannelSince = null
       previous?.destroy()
       rejoinTimer = setTimeout(() => join("rejoin"), 1_000)
       return reply(200, { ok: true })
@@ -442,9 +487,11 @@ const shutdown = (signal: string) => {
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"))
 process.on("SIGINT", () => shutdown("SIGINT"))
+setTimeout(() => shutdown("deadline"), Math.max(0, stopAt - Date.now()))
 
 emit("boot", {
   transitionZeroFix,
+  stopAt,
   node: process.version,
   versions: { voice: voiceVersion, davey: daveyVersion, discordjs: discordjsVersion },
 })
