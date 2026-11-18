@@ -3,8 +3,9 @@
  * audio, and reports whether each step of Discord voice works from where it
  * runs. It keeps no audio: Opus frames that DAVE authenticated are decoded to
  * measure their level and the samples are dropped at once. There is no
- * speech-to-text. Events and the status hold ids, counts, timings, and error
- * and DAVE library messages that pass through `scrub`.
+ * speech-to-text. Events, stdout and the status hold counts, timings, fixed
+ * codes, per-run aliases instead of Discord ids, and addresses without their
+ * last octet; no free-form library text.
  *
  * HTTP on PORT, for the Durable Object that owns the container:
  *   GET  /healthz
@@ -36,7 +37,7 @@ import {
   version as discordjsVersion,
 } from "discord.js"
 import OpusScript from "opusscript"
-import { isRtpOpus, scrub as scrubText } from "./filters.ts"
+import { aliaser, classifyDecrypt, errorCode, isRtpOpus, maskAddress, phrase } from "./filters.ts"
 import { probeStun, STUN_SERVERS } from "./stun.ts"
 
 const required = (name: string): string => {
@@ -58,6 +59,10 @@ const port = Number(process.env.PORT ?? 8080)
  * object stopped polling still ends.
  */
 const stopAt = Number(required("STOP_AT"))
+/** Per-run salt for user aliases, from the Durable Object, so aliases survive restarts within a run. */
+const alias = aliaser(required("ALIAS_SALT"))
+/** How long leaving the call may take before the process exits regardless. */
+const SHUTDOWN_GRACE_MS = 5_000
 /**
  * Works around discordjs/discord.js#11653: after an MLS welcome at
  * transition 0, which is what a bot joining a channel with someone already in
@@ -85,10 +90,7 @@ const emit = (kind: string, detail: Record<string, unknown> = {}) => {
   console.log(JSON.stringify(event))
 }
 
-const scrub = (text: string) => scrubText(text, token)
-
-const errorMessage = (error: unknown) =>
-  scrub(error instanceof Error ? `${error.name}: ${error.message}` : String(error))
+const errorMessage = errorCode
 
 // Counters, reset at the start of each voice epoch (every time the voice
 // connection becomes ready, after a join or a resume)
@@ -201,34 +203,40 @@ DAVESession.prototype.decrypt = function (this: DAVESession, packet: Buffer, use
   const dave = this as unknown as DaveInternals
   daveProtocolVersion = dave.protocolVersion
   if (packet.equals(SILENCE_FRAME)) return decrypt.call(this, packet, userId)
-  const counters = countersFor(userId)
-  const stats = () => dave.session?.getDecryptionStats(userId) ?? null
-  const before = stats()
+  const speaker = alias(userId)
+  const counters = countersFor(speaker)
   const fail = () => {
     counters.e2eeFail++
     counters.lastResult = "fail"
   }
-  let result: Buffer | null
+  let classified: ReturnType<typeof classifyDecrypt<Buffer>>
   try {
-    result = decrypt.call(this, packet, userId)
+    classified = classifyDecrypt(
+      () => decrypt.call(this, packet, userId),
+      () => dave.session?.getDecryptionStats(userId)?.successes,
+    )
   } catch (error) {
     fail()
     if (transitionZeroFix && dave.lastTransitionId === 0) {
-      emit("fix-applied", { epoch, userId })
+      emit("fix-applied", { epoch, userId: speaker })
       dave.recoverFromInvalidTransition(0)
       return null
     }
     throw error
   }
-  const after = stats()
-  if (result !== null && after && after.successes > (before?.successes ?? 0)) {
+  const { result, outcome } = classified
+  if (outcome === "authenticated") {
     if (counters.e2eeOk === 0) {
-      emit("first-decrypt", { epoch, userId, msSinceReady: Date.now() - (epochStartedAt ?? 0) })
+      emit("first-decrypt", {
+        epoch,
+        userId: speaker,
+        msSinceReady: Date.now() - (epochStartedAt ?? 0),
+      })
     }
     counters.e2eeOk++
     counters.lastResult = "ok"
-    measure(userId, counters, result)
-  } else if (result !== null) counters.passthrough++
+    measure(userId, counters, result!)
+  } else if (outcome === "passthrough") counters.passthrough++
   else fail()
   return result
 }
@@ -251,8 +259,7 @@ const performIPDiscovery = VoiceUDPSocket.prototype.performIPDiscovery
 VoiceUDPSocket.prototype.performIPDiscovery = function (this: VoiceUDPSocket, ssrc: number) {
   const started = Date.now()
   const timer = setTimeout(
-    () =>
-      emit("ip-discovery", { ok: false, error: `no reply after ${IP_DISCOVERY_TIMEOUT_MS} ms` }),
+    () => emit("ip-discovery", { ok: false, error: "no reply", afterMs: IP_DISCOVERY_TIMEOUT_MS }),
     IP_DISCOVERY_TIMEOUT_MS,
   )
   return performIPDiscovery.call(this, ssrc).then(
@@ -261,7 +268,7 @@ VoiceUDPSocket.prototype.performIPDiscovery = function (this: VoiceUDPSocket, ss
       emit("ip-discovery", {
         ok: true,
         ms: Date.now() - started,
-        address: `${config.ip}:${config.port}`,
+        address: maskAddress(config.ip),
       })
       return config
     },
@@ -293,7 +300,7 @@ const presentUserIds = (): Array<string> =>
             state.id !== client.user?.id &&
             state.member?.user.bot !== true,
         )
-        .map((state) => state.id)
+        .map((state) => alias(state.id))
     : []
 
 const networkingOf = (state: VoiceConnectionState) =>
@@ -320,7 +327,7 @@ const join = (reason: string) => {
     // Only the DAVE session's own messages: WebSocket debug lines carry
     // payloads, including the voice token. Decrypt failures are counted instead.
     if (message.startsWith("[NW] [DAVE] ") && !message.includes("Failed to decrypt")) {
-      emit("dave", { epoch, message: scrub(message.slice(12)) })
+      emit("dave", { epoch, message: phrase(message.slice(12)) })
     }
   })
   current.on("error", (error) => emit("error", { source: "voice", message: errorMessage(error) }))
@@ -375,8 +382,8 @@ const subscribe = (current: VoiceConnection, userId: string) => {
   const stream = current.receiver.subscribe(userId, { end: { behavior: EndBehaviorType.Manual } })
   stream.resume()
   stream.on("error", (error) => {
-    countersFor(userId).streamErrors++
-    emit("stream-error", { epoch, userId, message: errorMessage(error) })
+    countersFor(alias(userId)).streamErrors++
+    emit("stream-error", { epoch, userId: alias(userId), message: errorMessage(error) })
   })
 }
 
@@ -402,8 +409,15 @@ client.on(Events.Error, (error) =>
 )
 
 const runStun = async () => {
-  for (const server of STUN_SERVERS)
-    emit("stun", { ...(await probeStun(server.host, server.port)) })
+  for (const server of STUN_SERVERS) {
+    const result = await probeStun(server.host, server.port)
+    emit(
+      "stun",
+      result.ok
+        ? { server: result.server, ok: true, mapped: maskAddress(result.mapped), ms: result.ms }
+        : { server: result.server, ok: false, error: phrase(result.error) },
+    )
+  }
 }
 
 // HTTP for the Durable Object
@@ -452,12 +466,12 @@ const server = createServer((request, response) => {
           ? (networking.state.ws as unknown as { ws: { terminate(): void } }).ws
           : undefined
       if (!socket) return reply(409, { error: "no voice WebSocket to drop" })
-      emit("disruption", { type: "ws-drop" })
+      emit("disruption", { type: "ws-drop", present: presentUserIds() })
       socket.terminate()
       return reply(200, { ok: true })
     }
     case "POST /rejoin": {
-      emit("disruption", { type: "rejoin" })
+      emit("disruption", { type: "rejoin", present: presentUserIds() })
       const previous = connection
       connection = undefined
       previous?.destroy()
@@ -480,6 +494,8 @@ const shutdown = (signal: string) => {
   const previous = connection
   connection = undefined
   previous?.destroy()
+  // Exit regardless once the grace period is over, even if Discord cleanup hangs.
+  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS).unref()
   // Leave the gateway a moment to send the voice state update that leaves the channel.
   setTimeout(() => {
     void client.destroy().finally(() => process.exit(0))
