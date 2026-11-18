@@ -74,6 +74,8 @@ export const GateOutcome = Schema.TaggedUnion({
   Mention: {},
   /** Only "stop": it cancelled the running turn before any model saw it. */
   Stop: {},
+  /** Only a command, such as `/model`: the session ran it before any model saw it. */
+  Command: {},
   Passed: { probability: Schema.Finite },
   Rejected: { probability: Schema.Finite },
   /** The gate call failed, so it started nothing. */

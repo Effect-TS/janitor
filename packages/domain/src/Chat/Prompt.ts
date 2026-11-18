@@ -16,6 +16,28 @@ export const resumeMessage =
 export const switchedOffMessage =
   "I'm switched off for now. Messages here are kept as context for when I'm back."
 
+/** How a thread is told to change its model, after what `/model` did or found. */
+const modelHint = "Send `/model <name>` to change it."
+
+/**
+ * The reply to `/model <name>`. A running turn keeps the model it started
+ * on. The name is in a code span, so it can't mention anyone.
+ */
+export const modelSetMessage = (model: string, options: { readonly running: boolean }): string =>
+  options.running
+    ? `This thread runs on \`${model}\` from its next turn. The turn running now keeps its model.`
+    : `This thread now runs on \`${model}\`.`
+
+/** The reply to `/model` alone: the model the thread's next turn runs on. */
+export const modelShownMessage = (model: string, fallback: string): string =>
+  model === fallback
+    ? `This thread runs on \`${model}\`, the default. ${modelHint}`
+    : `This thread runs on \`${model}\`. The default is \`${fallback}\`. ${modelHint}`
+
+/** The reply to a `/model` that names no single model. */
+export const modelInvalidMessage = (fallback: string): string =>
+  `That isn't a model name. Send \`/model <name>\` with one name as the endpoint has it, such as \`${fallback}\`.`
+
 /** Who wrote a thread message, as the model is told. */
 export type AuthorKind = "admitted" | "outsider" | "bot"
 

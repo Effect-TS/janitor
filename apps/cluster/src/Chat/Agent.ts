@@ -4,7 +4,6 @@ import type * as AgentOutput from "clanka/AgentOutput"
 import type * as McpServers from "clanka/McpServers"
 import type * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
-import * as Model from "effect/ai/Model"
 import * as Prompt from "effect/ai/Prompt"
 import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
@@ -23,7 +22,7 @@ import {
   makeCommitBoundary,
   startLoop,
 } from "../AgentLoop.ts"
-import { invalidModel, openAiCompatibleModel } from "../AgentModel.ts"
+import { invalidModel, type ModelLayer, openAiCompatibleModel } from "../AgentModel.ts"
 import type { TailnetEgressNamespace } from "../PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
 import { chatModelConfig } from "./Config.ts"
 import { type AttachFileParameters, ChatTools } from "./ReplyFiles.ts"
@@ -68,6 +67,8 @@ export type ChatLoopEnd =
   | { readonly _tag: "SandboxLost" }
 
 export interface ChatTurnStart {
+  /** The model the turn runs on, as `ChatModels` names it. */
+  readonly model: string
   readonly instructions: string
   readonly executor: Layer.Layer<AgentExecutor.AgentExecutor>
   /** The session's history so far, without the system message. */
@@ -112,10 +113,26 @@ const promptWith = (text: string, images: ReadonlyArray<ChatImage>): Prompt.RawI
 
 export type ChatLoop = LoopHandle<ChatLoopEnd>
 
+/**
+ * The models turns run on (EFF-3920): a thread runs on the deployment's
+ * until `/model` names another for it.
+ */
+export class ChatModels extends Context.Service<
+  ChatModels,
+  {
+    /** The deployment's model. */
+    readonly default: string
+    /** The model sub-agents run on; none for the turn's own. */
+    readonly subagent: Option.Option<string>
+    /** The model `name`. */
+    readonly layer: (name: string) => ModelLayer
+  }
+>()("@janitor/cluster/Chat/Agent/ChatModels") {}
+
 export class ChatAgent extends Context.Service<
   ChatAgent,
   {
-    /** The model's name, as each turn records it. */
+    /** The deployment's model: what a turn runs on in a thread that named no other. */
     readonly model: string
     /** Starts a loop that runs until it ends or `scope` closes. */
     readonly start: (options: ChatTurnStart) => Effect.Effect<ChatLoop, never, Scope.Scope>
@@ -186,10 +203,7 @@ const loopEnd = (
 }
 
 const make = Effect.gen(function* () {
-  const model = yield* Effect.context<
-    LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName
-  >()
-  const subagentModel = yield* Effect.serviceOption(Agent.SubagentModel)
+  const models = yield* ChatModels
 
   const start = Effect.fnUntraced(function* (options: ChatTurnStart) {
     const boundary = makeCommitBoundary({ history: options.history, onStep: options.onStep })
@@ -248,10 +262,15 @@ const make = Effect.gen(function* () {
               options.mcp ?? Layer.empty,
             ),
           ),
-          Effect.provideContext(model),
-          Option.isSome(subagentModel)
-            ? Effect.provideService(Agent.SubagentModel, subagentModel.value)
-            : (effect) => effect,
+          Effect.provide(
+            Layer.merge(
+              models.layer(options.model),
+              // Sub-agents get a model of their own, never the loop's behind its commit boundary.
+              Agent.layerSubagentModel(
+                models.layer(Option.getOrElse(models.subagent, () => options.model)),
+              ),
+            ),
+          ),
           Effect.provideService(Agent.ConversationMode, true),
           Effect.provideService(Agent.MaxRetries, MAX_RETRIES),
           // clanka's compaction warning logs the raw provider error, body included.
@@ -262,43 +281,39 @@ const make = Effect.gen(function* () {
     })
   })
 
-  return ChatAgent.of({ model: yield* Model.ModelName, start })
+  return ChatAgent.of({ model: models.default, start })
 })
 
-/** The chat agent on clanka, over the model it is given. */
-export const ChatAgentLayer: Layer.Layer<
+/** The chat agent on clanka, over the models it is given. */
+export const ChatAgentLayer: Layer.Layer<ChatAgent, never, ChatModels> = Layer.effect(
   ChatAgent,
-  never,
-  LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName
-> = Layer.effect(ChatAgent, make)
+  make,
+)
 
 /**
- * The `CHAT_AI_*` model through an OpenAI-compatible endpoint, as PR review's
- * `ReviewModelLayer`, with sub-agents on `CHAT_AI_SUBAGENT_MODEL` when it is
- * set. Invalid chat settings fail the model's calls.
+ * The `CHAT_AI_*` models through an OpenAI-compatible endpoint, as PR review's
+ * `ReviewModelLayer`: every model on the same endpoint, key and settings,
+ * with `CHAT_AI_MODEL` the default and sub-agents on `CHAT_AI_SUBAGENT_MODEL`
+ * when it is set. Invalid chat settings fail every model's calls.
  */
-export const ChatModelLayer = (
-  egress: TailnetEgressNamespace,
-): Layer.Layer<
-  LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName | Agent.SubagentModel
-> =>
-  Layer.unwrap(
+export const ChatModelsLayer = (egress: TailnetEgressNamespace): Layer.Layer<ChatModels> =>
+  Layer.effect(
+    ChatModels,
     Effect.match(chatModelConfig, {
       onFailure: (error) => {
-        const invalid = invalidModel(error, "invalid chat settings")
-        return Layer.merge(invalid, Agent.layerSubagentModel(invalid))
+        const name = "invalid chat settings"
+        const invalid = invalidModel(error, name)
+        return ChatModels.of({ default: name, subagent: Option.none(), layer: () => invalid })
       },
-      onSuccess: (config) => {
-        const settings = { ...config, serviceTier: "priority" as const }
-        return Layer.merge(
-          openAiCompatibleModel(settings, egress),
-          Agent.layerSubagentModel(
+      onSuccess: (config) =>
+        ChatModels.of({
+          default: config.model,
+          subagent: config.subagentModel,
+          layer: (name) =>
             openAiCompatibleModel(
-              { ...settings, model: Option.getOrElse(config.subagentModel, () => config.model) },
+              { ...config, model: name, serviceTier: "priority" as const },
               egress,
             ),
-          ),
-        )
-      },
+        }),
     }),
   )

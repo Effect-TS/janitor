@@ -36,6 +36,7 @@ import * as Chat from "effect/chat/Chat"
 import * as ChatAdapter from "effect/chat/ChatAdapter"
 import { ChatError, Forbidden, NotFound, RateLimited, TooLarge } from "effect/chat/ChatError"
 import * as ChatThreads from "effect/chat/ChatThread"
+import { ChatModels } from "../../src/Chat/Agent.ts"
 import { ChatKillSwitch, type KillSwitchState } from "../../src/Chat/KillSwitch.ts"
 import type {
   AuthorClass,
@@ -187,6 +188,8 @@ const invalidRequest = AiError.make({
  */
 export class FakeModel {
   readonly prompts: Array<Prompt.Prompt> = []
+  /** The model each call was made on, in call order. */
+  readonly models: Array<string> = []
   /** While set, a call whose prompt it matches fails at once with a 400, as the provider rejects an invalid request. */
   rejects: ((prompt: Prompt.Prompt) => boolean) | undefined
   private readonly answers: Array<Answer> = []
@@ -214,26 +217,33 @@ export class FakeModel {
       : Effect.andThen(Deferred.await(this.answered), this.next)
   })
 
+  /** Every model, by name: the deployment's is `test-model`. */
   get layer() {
-    return Layer.mergeAll(
-      Layer.effect(
-        LanguageModel.LanguageModel,
-        LanguageModel.make({
-          generateText: () => Effect.die("unexpected generateText call"),
-          streamText: ({ prompt }) =>
-            Stream.unwrap(
-              Effect.suspend(() => {
-                this.prompts.push(prompt)
-                if (this.rejects?.(prompt) === true)
-                  return Effect.succeed(Stream.fail(invalidRequest))
-                return Effect.map(this.next, (answer) => answer())
-              }),
-            ),
-        }),
-      ),
-      Layer.succeed(Model.ProviderName, "test-provider"),
-      Layer.succeed(Model.ModelName, "test-model"),
-    )
+    return Layer.succeed(ChatModels, {
+      default: "test-model",
+      subagent: Option.none(),
+      layer: (name) =>
+        Layer.mergeAll(
+          Layer.effect(
+            LanguageModel.LanguageModel,
+            LanguageModel.make({
+              generateText: () => Effect.die("unexpected generateText call"),
+              streamText: ({ prompt }) =>
+                Stream.unwrap(
+                  Effect.suspend(() => {
+                    this.prompts.push(prompt)
+                    this.models.push(name)
+                    if (this.rejects?.(prompt) === true)
+                      return Effect.succeed(Stream.fail(invalidRequest))
+                    return Effect.map(this.next, (answer) => answer())
+                  }),
+                ),
+            }),
+          ),
+          Layer.succeed(Model.ProviderName, "test-provider"),
+          Layer.succeed(Model.ModelName, name),
+        ),
+    })
   }
 }
 
@@ -595,9 +605,7 @@ const makeRunner = <Extra>(options: {
     | ChatSandboxes
     | ChatKillSwitch
     | ChatSessionIndex
-    | LanguageModel.LanguageModel
-    | Model.ProviderName
-    | Model.ModelName
+    | ChatModels
     | DecisionModel.DecisionModel
     | Extra
   >

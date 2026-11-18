@@ -125,7 +125,7 @@ import {
   ReviewWorkspaceLive,
 } from "./PullRequestReview/Sandbox/WorkspaceObject.ts"
 import type { TailnetEgressNamespace } from "./PullRequestReview/TailnetEgress/TailnetEgressClient.ts"
-import { ChatModelLayer } from "./Chat/Agent.ts"
+import { ChatModelsLayer } from "./Chat/Agent.ts"
 import {
   chatBotGate,
   chatBotInit,
@@ -402,7 +402,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     const ChatLayer = chatBot
       ? ChatSessionLayer.pipe(
           Layer.provide(
-            ChatModelLayer(
+            ChatModelsLayer(
               liveEnvironment.PullRequestReviewTailnetEgress as TailnetEgressNamespace,
             ),
           ),

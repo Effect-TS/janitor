@@ -250,6 +250,8 @@ const gateLabel = (gate: GateOutcome): string => {
       return "Mention"
     case "Stop":
       return "Stop"
+    case "Command":
+      return "Command"
     case "Passed":
       return `Gate passed · ${gate.probability.toFixed(2)}`
     case "Rejected":

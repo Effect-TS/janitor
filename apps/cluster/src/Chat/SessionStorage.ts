@@ -48,6 +48,8 @@ export const SessionState = Schema.Struct({
   switchedOffNotified: Schema.Boolean,
   /** Reading the thread's history failed; the next message tries again. */
   backfillPending: Schema.optionalKey(Schema.Boolean),
+  /** The model `/model` named for this thread; the deployment's while unset (EFF-3920). */
+  model: Schema.optionalKey(Schema.String),
 })
 export type SessionState = typeof SessionState.Type
 

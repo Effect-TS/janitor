@@ -411,6 +411,70 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
+  it.effect("/model <name> runs that thread's next turns on the model, and no other thread's", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* firstTurn(harness, slackThread)
+        yield* turnEnded(harness, slackThread)
+        // No mention, and the gate is never asked: a command needs neither.
+        yield* send(harness, slackThread, "/model other/model-2")
+        assert.deepStrictEqual(harness.platform.replies.at(-1), {
+          thread: slackThread,
+          text: "This thread now runs on `other/model-2`.",
+        })
+        assert.strictEqual(harness.gate.inputs.length, 0)
+        assert.strictEqual(harness.model.prompts.length, 1)
+
+        // The session keeps the model, so a restart does too.
+        yield* harness.restart
+        yield* send(harness, slackThread, "And now?", { mention: true })
+        yield* modelCalls(harness, 2)
+        assert.notInclude(seen(harness.model.last), "/model")
+        harness.model.answer(say("Still here."))
+        yield* turnEnded(harness, slackThread)
+        yield* firstTurn(harness, discordThread)
+
+        assert.deepStrictEqual(harness.model.models, ["test-model", "other/model-2", "test-model"])
+        const transcript = yield* harness.transcript(slackThread)
+        assert.deepStrictEqual(gates(transcript), [
+          { _tag: "Mention" },
+          { _tag: "Command" },
+          { _tag: "Mention" },
+        ])
+        assert.deepStrictEqual(
+          turns(transcript).map((turn) => turn.model),
+          ["test-model", "other/model-2"],
+        )
+      }),
+    ),
+  )
+
+  it.effect("a running turn keeps its model through /model, which alone names the thread's", () =>
+    test((harness) =>
+      Effect.gen(function* () {
+        yield* longTurn(harness, slackThread, "Run the whole test suite.")
+        yield* send(harness, slackThread, "/model `other/model-2`", { mention: true })
+        yield* send(harness, slackThread, "/model")
+        yield* send(harness, slackThread, "/model two words")
+        assert.deepStrictEqual(
+          harness.platform.replies.map((reply) => reply.text),
+          [
+            "This thread runs on `other/model-2` from its next turn. The turn running now keeps its model.",
+            "This thread runs on `other/model-2`. The default is `test-model`. Send `/model <name>` to change it.",
+            "That isn't a model name. Send `/model <name>` with one name as the endpoint has it, such as `test-model`.",
+          ],
+        )
+
+        harness.sandboxes.finishScripts()
+        yield* modelCalls(harness, 2)
+        assert.notInclude(seen(harness.model.last), "/model")
+        harness.model.answer(say("All green."))
+        yield* turnEnded(harness, slackThread)
+        assert.deepStrictEqual(harness.model.models, ["test-model", "test-model"])
+      }),
+    ),
+  )
+
   it.effect("a restart during a new session's backfill backfills again", () =>
     test((harness) =>
       Effect.gen(function* () {
