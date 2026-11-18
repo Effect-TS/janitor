@@ -3,6 +3,7 @@
  * probe.ts (which starts the bot on import) so it can be tested.
  */
 import { createHmac } from "node:crypto"
+import { ERROR_MESSAGES, UNCLASSIFIED, allowedCode } from "./codes.ts"
 
 const RTP_OPUS = 120
 
@@ -14,29 +15,55 @@ export const isRtpOpus = (packet: Uint8Array): boolean =>
   packet.length > 12 && packet[0]! >> 6 === 2 && (packet[1]! & 0x7f) === RTP_OPUS
 
 /**
- * The fixed opening words of a library message: letters and spaces up to the
- * first digit or punctuation, at most 60 characters. Library messages put
- * their variable parts (ids, addresses, transition numbers, nested errors)
- * after that point, so what is left is the message's template, not its data.
+ * An error as one allowlisted code: its `code` (discord.js, Discord API or
+ * Node), its name, or its whole message if that is a known fixed one.
+ * Anything else is "unclassified"; no part of the error's text is kept.
  */
-export const phrase = (text: string): string =>
-  text
-    .match(/^[A-Za-z][A-Za-z ]*/)?.[0]
-    .trim()
-    .slice(0, 60) || "unrecognised"
-
-/** An error as a code and the fixed opening of its message, e.g. "TokenInvalid: An invalid token was provided". */
 export const errorCode = (error: unknown): string => {
-  const code = (error as { code?: unknown } | null)?.code
-  const name = error instanceof Error ? error.name : ""
-  const label =
-    typeof code === "string" && /^[A-Za-z_]{1,40}$/.test(code)
-      ? code
-      : /^[A-Za-z]{1,40}$/.test(name)
-        ? name
-        : "Error"
-  return error instanceof Error ? `${label}: ${phrase(error.message)}` : label
+  const { code, name, message } = (typeof error === "object" && error !== null ? error : {}) as {
+    code?: unknown
+    name?: unknown
+    message?: unknown
+  }
+  const candidates = [
+    typeof code === "number" ? String(code) : code,
+    name,
+    typeof message === "string" ? ERROR_MESSAGES.get(message) : undefined,
+  ]
+  return (
+    (candidates.find((candidate) => allowedCode(candidate) !== UNCLASSIFIED) as
+      | string
+      | undefined) ?? UNCLASSIFIED
+  )
 }
+
+/**
+ * The DAVE debug messages of @discordjs/voice 0.19.2, by their fixed
+ * opening. A message is stored as the matching entry, never as its own
+ * text, and as "other" if none matches.
+ */
+const DAVE_MESSAGES = [
+  "Session reinitialized",
+  "Session initialized",
+  "Session reset",
+  "Session downgraded",
+  "Session upgraded",
+  "Set MLS external sender",
+  "Preparing for transition",
+  "Executing transition",
+  "Received execute transition, but we don't have a pending transition",
+  "Transition executed",
+  "Preparing for epoch",
+  "Invalidating transition",
+  "MLS proposals processed",
+  "MLS commit processed",
+  "MLS commit errored",
+  "MLS welcome processed",
+  "MLS welcome errored",
+] as const
+
+export const daveMessage = (text: string): string =>
+  DAVE_MESSAGES.find((known) => text.startsWith(known)) ?? "other"
 
 /** An IPv4 address with its last octet and port dropped: "203.0.113.x". */
 export const maskAddress = (address: string): string =>

@@ -17,7 +17,8 @@ Nothing with a Discord id, a full address or free-form library text leaves the c
 - packet and frame counts, timings and connection states;
 - people as per-run aliases (`u` and 10 hex characters, an HMAC of the user id with a salt the Durable Object makes at `/start`), so the same tester can be followed across restarts without their id;
 - addresses with the last octet and port dropped (`203.0.113.x`);
-- errors as a code and the fixed opening words of the message (`TokenInvalid: An invalid token was provided`), and DAVE library messages as their opening words only (`Preparing for transition`). Ids, numbers and nested errors come after those words in the library's messages and are cut off.
+- errors as one code from the allowlist in `container/codes.ts` (`TokenInvalid`, `50001`, `ECONNRESET`, `NotVoiceChannel`), and `unclassified` for anything else. No part of an error's message is kept, since a Discord API error's message is the response's own text;
+- DAVE library messages as one entry from a fixed list of the library's message openings (`Preparing for transition`), and `other` for anything else.
 
 The library's WebSocket debug lines, which carry the voice token, are never recorded. The report (`/report`) also names speakers "speaker 1", "speaker 2" and filters every text field again. The events stay in the probe's Durable Object and are deleted with the Worker.
 
@@ -33,10 +34,10 @@ curl ──▶ Worker (bearer token) ──▶ VoiceProbe Durable Object ──�
 
 - `container/probe.ts` logs in with the probe bot, joins `DISCORD_CHANNEL_ID` self-muted but not deafened, subscribes to everyone who speaks and counts what happens to each packet. It wraps three library internals: DAVE decryption, where davey's own statistics tell authenticated decryption apart from plaintext let through; IP discovery, to time it; and incoming UDP, to count RTP Opus media apart from handshake traffic.
 - `src/worker.ts` is the Worker and the Durable Object: it copies the container's events into SQLite every 15 seconds. All container I/O has a timeout.
-- `src/lifecycle.ts` starts the container with the secrets as its environment, restarts it if it disappears, and at the time limit or on `/stop` ends it and keeps retrying by alarm until it is confirmed off. Starts, restarts, stops and alarms run one at a time, and `/stop` takes effect before anything already queued, so a restart in flight can't bring the container back. It records whether a signalled container exited by itself or had to be destroyed.
+- `src/lifecycle.ts` starts the container with the secrets as its environment, restarts it if it disappears, and at the time limit or on `/stop` ends it and keeps retrying by alarm until it is confirmed off. Starts, restarts, stops and alarms run one at a time, and `/stop` takes effect before anything already queued, so a restart in flight can't bring the container back. For each container it ends, it records the boot id, the signal, whether sending the signal succeeded, and whether the container then exited by itself or had to be destroyed.
 - `src/report.ts` turns the events into the checklist below.
 
-The container also has an optional workaround for #11653 (`fix=on`): when decryption keeps failing after a transition-0 welcome, it starts the library's own recovery instead of throwing. The runbook tries the stock library first, then the workaround, so the result says whether production needs to carry a patch.
+The container also has an optional workaround for #11653 (`fix=on`): when decryption keeps failing after a transition-0 welcome, it starts the library's own recovery instead of throwing. The runbook tries the stock library first, then the workaround, so the result shows whether the workaround recovered decryption where the stock library didn't.
 
 ## Cost
 
@@ -91,13 +92,13 @@ About 80 minutes, most of it waiting. Each "talk" step means talking (reading an
 The same tester stays in the channel from step 1 to step 6: a recovery passes only on speech from someone who was in the call at the disruption, heard before the next one. Wait for your talk to show in `/status` before the next command.
 
 1. Join the test channel first and start talking. The bot must arrive while you are already there; someone who joins while the bot is connecting doesn't count as already present.
-2. `probe POST "/start"`. Stock library, no workaround. Talk. If `e2eeFail` climbs while `e2eeOk` stays at 0, that is #11653; carry on.
+2. `probe POST "/start"`. Stock library, no workaround. Talk. If `e2eeFail` climbs while `e2eeOk` stays at 0, that is consistent with #11653; carry on.
 3. `probe POST "/restart?signal=term&fix=on"`. Graceful restart, now with the workaround. Talk.
 4. `probe POST "/drop"`. Kills the voice WebSocket; the library should resume. Talk.
 5. `probe POST "/rejoin"`. Destroys the connection and joins again. Talk.
 6. `probe POST "/restart?signal=kill"`. Hard kill, as a host failure would. Talk.
 7. Optional: a second person joins the channel now and talks (checks a speaker who arrives after the bot).
-8. Leave it running for 60 minutes after step 6. Someone can stay in the channel muted, or leave; the probe stays either way. Then talk once more: D1 needs speech decrypted at least an hour after the container's last join, with no rejoin, restart or more than 30 seconds out of Ready in between.
+8. Leave it running for 60 minutes after step 6. Someone can stay in the channel muted, or leave; the probe stays either way. Then talk once more: D1 needs speech decrypted at least an hour after the container's last join, with no rejoin or restart in between, no single resume over 30 seconds, and at most 60 seconds out of Ready in total.
 9. Collect the result and stop:
 
    ```sh
@@ -111,22 +112,22 @@ To repeat a run from scratch: `probe POST /stop`, `probe POST /reset`, then star
 
 ## Result checklist
 
-`/report` fills this in. Each line is `pass`, `fail`, `not proven` or `not run`. A pass needs positive evidence: speech that DAVE authenticated, from the right person, after the right event and before the next one. `not proven` means the events can't tell a pass from a failure, for example a restart where nobody recorded how the old container ended; `not run` usually means nobody talked at that point.
+`/report` fills this in. Each line is `pass`, `fail`, `not proven` or `not run`. A pass needs positive evidence: speech that DAVE authenticated, from the right person, after the right event and before the next one. `not proven` means the events can't tell a pass from a failure, for example a restart where the signal couldn't be sent or nobody recorded how the old container ended; `not run` usually means nobody talked at that point.
 
-| Check                                                          | What it shows                                                                                                                                                                                                                 |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A1 UDP round trip to a STUN server outside Cloudflare          | Outbound UDP from a deployed container gets return traffic, independent of Discord                                                                                                                                            |
-| A2 Discord voice IP discovery completes                        | Discord's voice server answers the container's UDP discovery packet                                                                                                                                                           |
-| A3 Voice media arrives while someone speaks                    | RTP Opus datagrams reach the container; the discovery reply doesn't count                                                                                                                                                     |
-| B1 The call negotiates DAVE                                    | The call is end-to-end encrypted, protocol version 1 or later                                                                                                                                                                 |
-| B2 Speaker present before the join is decrypted, stock library | Authenticated, voiced audio from someone in the channel before the bot asked to join, with @discordjs/voice 0.19.2 unpatched. Plaintext passthrough fails it                                                                  |
-| B3 The same, with the workaround                               | Whether the transition-0 workaround is enough. Passes only if the workaround fired; decryption with it on but unused is `not proven`                                                                                          |
-| B4 Speaker who joins after the bot is decrypted (optional)     | MLS commits for newcomers work                                                                                                                                                                                                |
-| C1 Voice WebSocket dropped                                     | The same process resumes, and speech from the testers present at the drop decrypts before the next disruption                                                                                                                 |
-| C2 Connection destroyed and joined again                       | The same process joins afresh, and the tester's speech decrypts                                                                                                                                                               |
-| C3 SIGTERM restart                                             | The old container exits by itself on the signal (destroyed after ignoring it fails), a new one joins, and the testers' speech decrypts                                                                                        |
-| C4 SIGKILL restart                                             | As C3, for a container that dies without leaving                                                                                                                                                                              |
-| D1 One voice session holds the call for an hour                | Speech decrypted at least an hour after a join, through resumes of at most 30 s each. A rejoin, a restart or a longer gap starts the clock again. Shorter is `not proven`. The evidence also counts unplanned container exits |
+| Check                                                          | What it shows                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1 UDP round trip to a STUN server outside Cloudflare          | Outbound UDP from a deployed container gets return traffic, independent of Discord                                                                                                                                                                                                                               |
+| A2 Discord voice IP discovery completes                        | Discord's voice server answers the container's UDP discovery packet                                                                                                                                                                                                                                              |
+| A3 Voice media arrives while someone speaks                    | RTP Opus datagrams reach the container; the discovery reply doesn't count                                                                                                                                                                                                                                        |
+| B1 The call negotiates DAVE                                    | The call is end-to-end encrypted, protocol version 1 or later                                                                                                                                                                                                                                                    |
+| B2 Speaker present before the join is decrypted, stock library | Authenticated, voiced audio from someone in the channel before the bot asked to join, with @discordjs/voice 0.19.2 unpatched. Plaintext passthrough fails it                                                                                                                                                     |
+| B3 The same, with the workaround                               | Passes only if the workaround fired for a tester who was present before the join, and that tester's speech decrypted after it last fired. Decryption before it fired, from someone else, or with it unused is `not proven`                                                                                       |
+| B4 Speaker who joins after the bot is decrypted (optional)     | MLS commits for newcomers work                                                                                                                                                                                                                                                                                   |
+| C1 Voice WebSocket dropped                                     | The same process resumes, and speech from the testers present at the drop decrypts before the next disruption                                                                                                                                                                                                    |
+| C2 Connection destroyed and joined again                       | The same process joins afresh, and the tester's speech decrypts                                                                                                                                                                                                                                                  |
+| C3 SIGTERM restart                                             | SIGTERM was sent to the container being replaced and it exited by itself; a new one joins, and the testers' speech decrypts. Destroyed after ignoring the signal fails; a signal that couldn't be sent, or an end recorded for another container or signal, is `not proven`                                      |
+| C4 SIGKILL restart                                             | As C3, for a container that dies without leaving                                                                                                                                                                                                                                                                 |
+| D1 One voice session holds the call for an hour                | Speech decrypted at least an hour after a join, through resumes of at most 30 s each and 60 s out of Ready in total. A rejoin, a restart or a gap over either limit starts the clock again. Shorter is `not proven`. The evidence also gives the whole run's time out of Ready and its unplanned container exits |
 
 Below the checklist, the report lists every voice epoch (each time the connection became ready) with each speaker's decrypt counts, and every disruption with how long it took to get back to ready.
 
@@ -135,9 +136,9 @@ How the result decides the next step:
 - A1 and A2 fail: Containers can't carry Discord voice. The voice part moves to a small external VM, as the design's fallback says; everything else stays on Cloudflare.
 - A1 passes, A2 fails: generic UDP works but Discord doesn't answer. Look at the A2 errors before deciding; most likely the VM again.
 - B1 fails: Discord didn't negotiate DAVE with this library. Stop and look at the `dave` events.
-- B2 fails, B3 passes: #11653 confirmed and the workaround fixed it. Production carries it as a pnpm patch until the upstream fix ships.
-- B2 fails, B3 not proven: the workaround was on but never fired, so the failure wasn't #11653's. Look at the `dave` events before deciding.
-- B3 fails: @discordjs/voice can't receive reliably here. The fallback is disgo, which needs its own probe.
+- B2 fails, B3 passes: the stock library didn't decrypt a speaker who was already present, and the workaround recovered decryption for such a speaker. That is consistent with #11653 but doesn't prove the two runs failed for the same reason, since they are separate joins. Read the B2 run's `dave` events and failure counts before deciding to carry the workaround as a pnpm patch.
+- B2 fails, B3 not proven: the workaround didn't demonstrably help; it either never fired or the tester it fired for wasn't heard afterwards. Look at the `dave` events before deciding.
+- B3 fails: the workaround didn't recover decryption here. Whether @discordjs/voice can receive reliably is not proven either way; the fallback is disgo, which needs its own probe.
 - Any C fails: that recovery path needs design work; the disruption table shows where it stopped.
 - D1 shows interruptions or unplanned exits: their frequency and length feed the reconnect and capture-gap design.
 
@@ -163,7 +164,7 @@ Then in Discord, remove the probe bot from the server, delete the `janitor-voice
 
 ## When something goes wrong
 
-- `probe GET /status` shows the last 40 events. `error` events carry the reason, for example a wrong channel id or an invalid token.
+- `probe GET /status` shows the last 40 events. `error` events carry a code, for example `NotVoiceChannel` for a wrong channel id or `TokenInvalid`. `unclassified` is an error outside the allowlist; its text is deliberately not kept, so reproduce it locally or add its code to `container/codes.ts`.
 - Container output is in the Cloudflare dashboard under the Worker's Containers tab; Worker logs stream with `npx wrangler tail`.
 - `/start` while the probe runs is refused, so the time limit can't move. To switch the workaround on or off, use `/restart?fix=on` or `fix=off`.
 - Checks for this directory: `npm ci --prefix container && npm run check` (type checks and tests).

@@ -47,11 +47,13 @@ const speech = (at: number) => ({
 })
 const spoke = (bootId: string, epoch: number, at: number) =>
   snapshot(bootId, epoch, at, { [TESTER]: speech(at - 1_000) })
-const fired = (bootId: string, epoch: number, at: number): ProbeEvent => ({
+const OTHER = "u9f8e7d6c5b"
+const fired = (bootId: string, epoch: number, at: number, userId = TESTER): ProbeEvent => ({
   at,
   kind: "fix-applied",
   bootId,
   epoch,
+  userId,
 })
 
 test("B2 passes only on authenticated speech from someone there before the bot asked to join", () => {
@@ -76,10 +78,25 @@ test("B2 passes only on authenticated speech from someone there before the bot a
   assert.equal(b2([TESTER], speech(10_000)), "pass")
 })
 
-test("B3 isn't a pass for the workaround unless the workaround fired", () => {
-  const withFix = [boot("a", 0, true), ready("a", 1, 1_000, "join", [TESTER])]
-  assert.equal(verdicts([...withFix, spoke("a", 1, 15_000)]).B3, "not proven")
-  assert.equal(verdicts([...withFix, fired("a", 1, 2_000), spoke("a", 1, 15_000)]).B3, "pass")
+test("B3 passes only on speech from the tester the workaround fired for, heard after it fired", () => {
+  const withFix = [boot("a", 0, true), ready("a", 1, 1_000, "join", [TESTER, OTHER])]
+  const b3 = (...rest: ReadonlyArray<ProbeEvent>) => verdicts([...withFix, ...rest]).B3
+  // Never fired.
+  assert.equal(b3(spoke("a", 1, 15_000)), "not proven")
+  // The only authenticated speech came before it fired.
+  assert.equal(
+    b3(fired("a", 1, 20_000), snapshot("a", 1, 30_000, { [TESTER]: speech(15_000) })),
+    "not proven",
+  )
+  // Someone else spoke, not the tester it fired for.
+  assert.equal(
+    b3(fired("a", 1, 2_000), snapshot("a", 1, 30_000, { [OTHER]: speech(25_000) })),
+    "not proven",
+  )
+  assert.equal(
+    b3(fired("a", 1, 2_000), snapshot("a", 1, 30_000, { [TESTER]: speech(25_000) })),
+    "pass",
+  )
 })
 
 test("a recovery counts only the ready its own disruption should cause", () => {
@@ -95,19 +112,37 @@ test("a recovery counts only the ready its own disruption should cause", () => {
   ])
   assert.deepEqual([sameProcess.C1, sameProcess.C4], ["fail", "fail"])
 
-  const restart = (type: "sigterm" | "sigkill", outcome?: string) =>
+  const restart = (type: "sigterm" | "sigkill", end?: Record<string, unknown>) =>
     verdicts([
       ...start,
       { at: 40_000, kind: "disruption", bootId: "a", type, present: [TESTER] },
-      ...(outcome ? [{ at: 41_000, kind: "container-end", bootId: "a", outcome }] : []),
+      ...(end
+        ? [
+            {
+              at: 41_000,
+              kind: "container-end",
+              bootId: "a",
+              signal: type === "sigkill" ? 9 : 15,
+              signalSent: true,
+              outcome: "exited",
+              ...end,
+            },
+          ]
+        : []),
       boot("b", 45_000),
       ready("b", 1, 50_000, "join", [TESTER]),
       spoke("b", 1, 65_000),
     ])
-  assert.equal(restart("sigkill", "exited").C4, "pass")
+  assert.equal(restart("sigkill", {}).C4, "pass")
   // SIGTERM ignored and the container destroyed is not a graceful restart.
-  assert.equal(restart("sigterm", "destroyed").C3, "fail")
+  assert.equal(restart("sigterm", { outcome: "destroyed" }).C3, "fail")
   assert.equal(restart("sigterm").C3, "not proven")
+  // An exit doesn't show the signal worked if the signal wasn't sent, was a
+  // different one, or went to another container.
+  assert.equal(restart("sigterm", { signalSent: false }).C3, "not proven")
+  assert.equal(restart("sigterm", { signal: 9 }).C3, "not proven")
+  assert.equal(restart("sigkill", { bootId: "z" }).C4, "not proven")
+  assert.equal(restart("sigkill", { bootId: undefined }).C4, "not proven")
 })
 
 test("recovery speech must come from the testers present at the disruption, before the next one", () => {
@@ -149,6 +184,18 @@ test("A3 needs voice media, and D1 a voice session that lasted the hour", () => 
       spoke("a", 2, 62 * MIN),
     ]).D1
   assert.equal(resumedAfter(3_000), "pass")
+  // Many short outages add up: 120 resumes of 29 s each is 58 minutes away.
+  const flapping: Array<ProbeEvent> = [...connected]
+  let at = MIN
+  for (let epoch = 2; epoch <= 121; epoch++) {
+    flapping.push({ at, kind: "networking", bootId: "a", from: "Ready", to: "Resuming" })
+    flapping.push(ready("a", epoch, at + 29_000, "resume", [TESTER]))
+    at += 30_000
+  }
+  flapping.push(spoke("a", 121, 62 * MIN))
+  const d1 = summarize(flapping).checks.find((check) => check.id === "D1")
+  assert.equal(d1?.verdict, "not proven")
+  assert.match(d1?.evidence ?? "", /58\.0 min out of Ready in 120 interruptions/)
   // A 58-minute outage is not holding the call.
   assert.equal(resumedAfter(58 * MIN), "not proven")
   // Nor is joining again in the same process.
@@ -183,8 +230,9 @@ test("the report shows no ids, addresses or free-form text from the events", () 
       ms: 9,
     },
     { at: 3, kind: "ip-discovery", bootId: "a", ok: false, error: `${id} at 198.51.100.4` },
+    { at: 3, kind: "ip-discovery", bootId: "a", ok: false, error: "Alice Smith may not join" },
     { at: 4, kind: "ip-discovery", bootId: "a", ok: true, ms: 9, address: "198.51.100.4:50000" },
   ])
   const shown = renderMarkdown(report) + JSON.stringify(report)
-  assert.ok(!shown.includes(id) && !shown.includes("100.4"), shown)
+  assert.ok(!shown.includes(id) && !shown.includes("100.4") && !shown.includes("Alice"), shown)
 })

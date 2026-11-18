@@ -3,9 +3,9 @@
  * audio, and reports whether each step of Discord voice works from where it
  * runs. It keeps no audio: Opus frames that DAVE authenticated are decoded to
  * measure their level and the samples are dropped at once. There is no
- * speech-to-text. Events, stdout and the status hold counts, timings, fixed
- * codes, per-run aliases instead of Discord ids, and addresses without their
- * last octet; no free-form library text.
+ * speech-to-text. Events, stdout and the status hold counts, timings, codes
+ * from the allowlist in codes.ts, per-run aliases instead of Discord ids, and
+ * addresses without their last octet; no text from errors or the library.
  *
  * HTTP on PORT, for the Durable Object that owns the container:
  *   GET  /healthz
@@ -37,7 +37,14 @@ import {
   version as discordjsVersion,
 } from "discord.js"
 import OpusScript from "opusscript"
-import { aliaser, classifyDecrypt, errorCode, isRtpOpus, maskAddress, phrase } from "./filters.ts"
+import {
+  aliaser,
+  classifyDecrypt,
+  daveMessage,
+  errorCode,
+  isRtpOpus,
+  maskAddress,
+} from "./filters.ts"
 import { probeStun, STUN_SERVERS } from "./stun.ts"
 
 const required = (name: string): string => {
@@ -89,8 +96,6 @@ const emit = (kind: string, detail: Record<string, unknown> = {}) => {
   if (events.length > MAX_EVENTS) events.shift()
   console.log(JSON.stringify(event))
 }
-
-const errorMessage = errorCode
 
 // Counters, reset at the start of each voice epoch (every time the voice
 // connection becomes ready, after a join or a resume)
@@ -259,7 +264,7 @@ const performIPDiscovery = VoiceUDPSocket.prototype.performIPDiscovery
 VoiceUDPSocket.prototype.performIPDiscovery = function (this: VoiceUDPSocket, ssrc: number) {
   const started = Date.now()
   const timer = setTimeout(
-    () => emit("ip-discovery", { ok: false, error: "no reply", afterMs: IP_DISCOVERY_TIMEOUT_MS }),
+    () => emit("ip-discovery", { ok: false, error: "NoReply", afterMs: IP_DISCOVERY_TIMEOUT_MS }),
     IP_DISCOVERY_TIMEOUT_MS,
   )
   return performIPDiscovery.call(this, ssrc).then(
@@ -274,7 +279,7 @@ VoiceUDPSocket.prototype.performIPDiscovery = function (this: VoiceUDPSocket, ss
     },
     (error: unknown) => {
       clearTimeout(timer)
-      emit("ip-discovery", { ok: false, error: errorMessage(error) })
+      emit("ip-discovery", { ok: false, error: errorCode(error) })
       throw error
     },
   )
@@ -327,10 +332,10 @@ const join = (reason: string) => {
     // Only the DAVE session's own messages: WebSocket debug lines carry
     // payloads, including the voice token. Decrypt failures are counted instead.
     if (message.startsWith("[NW] [DAVE] ") && !message.includes("Failed to decrypt")) {
-      emit("dave", { epoch, message: phrase(message.slice(12)) })
+      emit("dave", { epoch, message: daveMessage(message.slice(12)) })
     }
   })
-  current.on("error", (error) => emit("error", { source: "voice", message: errorMessage(error) }))
+  current.on("error", (error) => emit("error", { source: "voice", code: errorCode(error) }))
 
   current.on("stateChange", (oldState, newState) => {
     if (oldState.status !== newState.status) {
@@ -383,7 +388,7 @@ const subscribe = (current: VoiceConnection, userId: string) => {
   stream.resume()
   stream.on("error", (error) => {
     countersFor(alias(userId)).streamErrors++
-    emit("stream-error", { epoch, userId: alias(userId), message: errorMessage(error) })
+    emit("stream-error", { epoch, userId: alias(userId), code: errorCode(error) })
   })
 }
 
@@ -393,10 +398,13 @@ client.on(Events.ClientReady, async () => {
     guild = await client.guilds.fetch(guildId)
     const channel = await guild.channels.fetch(channelId)
     if (!channel?.isVoiceBased())
-      throw new Error("DISCORD_CHANNEL_ID is not a voice channel in DISCORD_GUILD_ID")
+      throw Object.assign(
+        new Error("DISCORD_CHANNEL_ID is not a voice channel in DISCORD_GUILD_ID"),
+        { code: "NotVoiceChannel" },
+      )
     join("start")
   } catch (error) {
-    emit("error", { source: "setup", message: errorMessage(error) })
+    emit("error", { source: "setup", code: errorCode(error) })
   }
 })
 client.on(Events.ShardDisconnect, (event) =>
@@ -404,9 +412,7 @@ client.on(Events.ShardDisconnect, (event) =>
 )
 client.on(Events.ShardReconnecting, () => emit("gateway", { state: "reconnecting" }))
 client.on(Events.ShardResume, () => emit("gateway", { state: "resumed" }))
-client.on(Events.Error, (error) =>
-  emit("error", { source: "gateway", message: errorMessage(error) }),
-)
+client.on(Events.Error, (error) => emit("error", { source: "gateway", code: errorCode(error) }))
 
 const runStun = async () => {
   for (const server of STUN_SERVERS) {
@@ -415,7 +421,7 @@ const runStun = async () => {
       "stun",
       result.ok
         ? { server: result.server, ok: true, mapped: maskAddress(result.mapped), ms: result.ms }
-        : { server: result.server, ok: false, error: phrase(result.error) },
+        : { server: result.server, ok: false, error: result.error },
     )
   }
 }
@@ -514,7 +520,7 @@ emit("boot", {
 /** A failed login stays in the events, and the process stays up so the Durable Object can collect them. */
 const login = (): Promise<unknown> =>
   client.login(token).catch((error: unknown) => {
-    emit("error", { source: "login", message: errorMessage(error) })
+    emit("error", { source: "login", code: errorCode(error) })
     if ((error as { code?: unknown }).code !== "TokenInvalid") setTimeout(login, 30_000)
   })
 

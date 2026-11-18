@@ -35,16 +35,29 @@ const fakeContainer = (onSignal: (exit: () => void) => void) => {
   return container
 }
 
-const fakeHost = (container: Host["container"]) => {
+/** `storageMs` makes every storage call take that long, as a real round trip may. */
+const fakeHost = (container: Host["container"], storageMs = 0) => {
   const storage = new Map<string, unknown>()
+  const wait = () =>
+    storageMs > 0 ? new Promise((resolve) => setTimeout(resolve, storageMs)) : undefined
   const recorded: Array<{ kind: string } & Record<string, unknown>> = []
-  const host: Host & { alarmAt: number | null } = {
+  const host: Host & {
+    alarmAt: number | null
+    onPut?: (key: string, value: unknown) => void
+  } = {
     container,
     alarmAt: null,
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    get: async <A>(key: string) => storage.get(key) as A | undefined,
-    put: async (key, value) => void storage.set(key, value),
+    get: async <A>(key: string) => {
+      await wait()
+      return storage.get(key) as A | undefined
+    },
+    put: async (key, value) => {
+      storage.set(key, value)
+      host.onPut?.(key, value)
+      await wait()
+    },
     setAlarm: async (at) => void (host.alarmAt = at),
     deleteAlarm: async () => void (host.alarmAt = null),
     record: (kind, detail) => void recorded.push({ kind, ...detail }),
@@ -69,9 +82,9 @@ test("a stop that can't confirm the container is off keeps retrying until it is"
   const end = () =>
     endContainer(container, { signal: 15, exited: new Promise(() => {}), exitMs: 5, destroyMs: 5 })
 
-  assert.equal(await end(), "running")
+  assert.equal((await end()).outcome, "running")
   assert.equal(alarmAction(off, container.running, NOW), "teardown")
-  assert.equal(await end(), "destroyed")
+  assert.equal((await end()).outcome, "destroyed")
   assert.equal(alarmAction(off, container.running, NOW), "done")
 })
 
@@ -114,4 +127,46 @@ test("a container that ignores SIGTERM is recorded as destroyed, not as having e
   const end = recorded.find((e) => e.kind === "container-end")
   assert.deepEqual([end?.bootId, end?.outcome], ["boot1", "destroyed"])
   assert.equal(container.starts, 2)
+})
+
+test("a signal that couldn't be sent is recorded as such, even if the container exits anyway", async () => {
+  const container = fakeContainer((exit) => {
+    setTimeout(exit, 1)
+    throw new Error("signal failed")
+  })
+  const { host, recorded } = fakeHost(container)
+  const lifecycle = new Lifecycle(host, { start: 1_000, exit: 100, destroy: 100 })
+  await lifecycle.start(1, false, "salt")
+  await lifecycle.restart(15, undefined)
+  const end = recorded.find((e) => e.kind === "container-end")
+  assert.deepEqual(
+    [end?.bootId, end?.signal, end?.signalSent, end?.outcome],
+    ["boot1", 15, false, "exited"],
+  )
+})
+
+test("once /stop has saved running: false, nothing in flight starts a container", async () => {
+  for (let delay = 0; delay < 30; delay++) {
+    const container = fakeContainer((exit) => setTimeout(exit, 2))
+    const start = container.start
+    let stopSaved = false
+    let startsAfterStop = 0
+    container.start = () => {
+      if (stopSaved) startsAfterStop++
+      start()
+    }
+    const { host } = fakeHost(container, 1)
+    host.onPut = (key, value) => {
+      if (key === "desired" && (value as Desired).running === false) stopSaved = true
+    }
+    const lifecycle = new Lifecycle(host, { start: 200, exit: 50, destroy: 50 })
+    await lifecycle.start(1, false, "salt")
+    const restarting = lifecycle.restart(15, undefined)
+    await new Promise((resolve) => setTimeout(resolve, delay))
+    const stopping = lifecycle.stop("operator")
+    await restarting
+    assert.deepEqual(await stopping, { stopped: true }, `stop after ${delay} ms`)
+    assert.equal(startsAfterStop, 0, `stop after ${delay} ms`)
+    assert.equal(container.running, false, `stop after ${delay} ms`)
+  }
 })

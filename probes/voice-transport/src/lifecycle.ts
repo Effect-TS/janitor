@@ -3,10 +3,11 @@
  * restarting and ending the container, and what each alarm does. The Durable
  * Object supplies storage, the container and polling through `Host`.
  *
- * Starts, restarts, stops and alarms run one at a time. A stop marks the
- * probe stopped before it queues, and a start checks that mark at the moment
- * it would start the container, so nothing already in flight can bring the
- * container back after `/stop`.
+ * Starts, restarts, stops and alarms run one at a time. The desired state is
+ * held in memory as well as storage: a stop changes it synchronously before
+ * it queues, and a start checks it synchronously, in the same turn as
+ * `container.start`, so nothing already in flight can start a container
+ * once `/stop` has been called.
  */
 
 /** What the operator asked for; kept in storage so alarms honour it. */
@@ -74,15 +75,16 @@ export const within = <A>(promise: Promise<A>, ms: number): Promise<A | undefine
 }
 
 /**
- * How ending went: "not running" (nothing to end), "exited" (it left after
- * the signal), "destroyed" (it ignored the signal and was destroyed), or
+ * How ending went: "not running" (nothing to end), "exited" (it left by
+ * itself), "destroyed" (it was still running and was destroyed), or
  * "running" (still on; try again).
  */
 export type EndOutcome = "not running" | "exited" | "destroyed" | "running"
 
 /**
  * Signals the container, waits up to `exitMs` for `exited`, then destroys it,
- * waiting up to `destroyMs`. Never throws.
+ * waiting up to `destroyMs`. Never throws. `signalSent` is false when the
+ * signal call threw: an exit after that isn't evidence the signal worked.
  */
 export const endContainer = async (
   container: EndableContainer,
@@ -92,20 +94,22 @@ export const endContainer = async (
     readonly exitMs: number
     readonly destroyMs: number
   },
-): Promise<EndOutcome> => {
-  if (!container.running) return "not running"
+): Promise<{ readonly outcome: EndOutcome; readonly signalSent: boolean }> => {
+  if (!container.running) return { outcome: "not running", signalSent: false }
+  let signalSent = true
   try {
     container.signal(options.signal)
   } catch {
     // Destroying below still ends it.
+    signalSent = false
   }
   await within(options.exited, options.exitMs)
-  if (!container.running) return "exited"
+  if (!container.running) return { outcome: "exited", signalSent }
   await within(
     Promise.resolve().then(() => container.destroy()),
     options.destroyMs,
   )
-  return container.running ? "running" : "destroyed"
+  return { outcome: container.running ? "running" : "destroyed", signalSent }
 }
 
 const POLL_MS = 15_000
@@ -126,6 +130,8 @@ export class Lifecycle {
   /** The boot id of the container this object started, once it answered. */
   private bootId: string | undefined
   private queue: Promise<unknown> = Promise.resolve()
+  /** The desired state, once loaded; changed synchronously, then saved. */
+  private state: Desired | undefined
   private readonly host: Host
   private readonly budgets: {
     readonly start: number
@@ -149,11 +155,22 @@ export class Lifecycle {
   }
 
   async desired(): Promise<Desired> {
-    return (await this.host.get<Desired>("desired")) ?? STOPPED
+    if (!this.state) {
+      const stored = (await this.host.get<Desired>("desired")) ?? STOPPED
+      this.state ??= stored
+    }
+    return this.state
   }
 
-  private async wanted(): Promise<boolean> {
-    return alarmAction(await this.desired(), false, this.host.now()) === "restart"
+  /** Sets the desired state in memory at once, then saves it. */
+  private save(desired: Desired): Promise<void> {
+    this.state = desired
+    return this.host.put("desired", desired)
+  }
+
+  /** Whether the container should run now. Synchronous: no stop can slip in between this and acting on it. */
+  private wanted(): boolean {
+    return this.state !== undefined && alarmAction(this.state, false, this.host.now()) === "restart"
   }
 
   start(hours: number, transitionZeroFix: boolean, aliasSalt: string) {
@@ -167,12 +184,7 @@ export class Lifecycle {
       }
       const until =
         this.host.now() + Math.min(Math.max(hours || DEFAULT_HOURS, 0.25), MAX_HOURS) * 3_600_000
-      await this.host.put("desired", {
-        running: true,
-        until,
-        transitionZeroFix,
-        aliasSalt,
-      } satisfies Desired)
+      await this.save({ running: true, until, transitionZeroFix, aliasSalt })
       await this.host.setAlarm(this.host.now() + POLL_MS)
       const started = await this.ensureRunning("start")
       return { started, stopsAt: new Date(until).toISOString(), transitionZeroFix }
@@ -183,15 +195,14 @@ export class Lifecycle {
   restart(signal: 9 | 15, transitionZeroFix: boolean | undefined) {
     return this.serial(async () => {
       const desired = await this.desired()
-      if (!(await this.wanted())) return { error: "the probe is not running; POST /start first" }
-      if (transitionZeroFix !== undefined) {
-        await this.host.put("desired", { ...desired, transitionZeroFix })
-      }
+      if (!this.wanted()) return { error: "the probe is not running; POST /start first" }
+      if (transitionZeroFix !== undefined) await this.save({ ...desired, transitionZeroFix })
       if (this.host.container.running) {
         const snapshot = await this.host.poll()
+        if (!this.bootId && typeof snapshot?.bootId === "string") this.bootId = snapshot.bootId
         this.host.record("disruption", {
           type: signal === 9 ? "sigkill" : "sigterm",
-          bootId: this.bootId ?? snapshot?.bootId,
+          bootId: this.bootId,
           present: snapshot?.presentUserIds ?? null,
         })
         if ((await this.end(signal)) === "running") return { error: "the container did not stop" }
@@ -206,10 +217,12 @@ export class Lifecycle {
    * trying.
    */
   async stop(reason: string) {
-    const desired = await this.desired()
+    // No await before the change when the state is loaded, so it takes effect at the call.
+    const desired = this.state ?? (await this.desired())
     if (desired.running) {
-      await this.host.put("desired", { ...desired, running: false } satisfies Desired)
+      const saved = this.save({ ...desired, running: false })
       this.host.record("stop-requested", { reason })
+      await saved
     }
     return this.serial(() => this.stopNow(reason))
   }
@@ -234,9 +247,7 @@ export class Lifecycle {
       if (action === "done") return
       try {
         if (action === "teardown") {
-          if (desired.running) {
-            await this.host.put("desired", { ...desired, running: false } satisfies Desired)
-          }
+          if (desired.running) await this.save({ ...desired, running: false })
           await this.stopNow(desired.running ? "time limit" : "retry")
           return
         }
@@ -265,9 +276,10 @@ export class Lifecycle {
   private async ensureRunning(reason: string): Promise<boolean> {
     const container = this.host.container
     if (container.running) return true
-    // Checked at the last moment: a stop may have arrived while this waited.
-    if (!(await this.wanted())) return false
-    const desired = await this.desired()
+    await this.desired()
+    // Checked and started in one turn, so a stop can't land in between.
+    const desired = this.state
+    if (!desired || !this.wanted()) return false
     try {
       container.start(desired)
     } catch (error) {
@@ -290,13 +302,13 @@ export class Lifecycle {
     this.host.record("container-start", { reason, transitionZeroFix: desired.transitionZeroFix })
     const deadline = this.host.now() + this.budgets.start
     while (!gone && this.host.now() < deadline) {
-      if (!(await this.wanted())) {
+      if (!this.wanted()) {
         await this.end(15)
         return false
       }
       const bootId = await container.health()
       if (bootId) {
-        if (!(await this.wanted())) {
+        if (!this.wanted()) {
           await this.end(15)
           return false
         }
@@ -325,14 +337,14 @@ export class Lifecycle {
     this.expectingExit = true
     await this.host.put("live", false)
     const container = this.host.container
-    const outcome = await endContainer(container, {
+    const { outcome, signalSent } = await endContainer(container, {
       signal,
       exited: this.exited ?? container.monitor(),
       exitMs: this.budgets.exit,
       destroyMs: this.budgets.destroy,
     })
     if (outcome !== "not running") {
-      this.host.record("container-end", { signal, bootId: this.bootId, outcome })
+      this.host.record("container-end", { signal, signalSent, bootId: this.bootId, outcome })
     }
     return outcome
   }

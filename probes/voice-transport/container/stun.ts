@@ -1,5 +1,6 @@
 import { createSocket } from "node:dgram"
 import { randomBytes } from "node:crypto"
+import { errorCode } from "./filters.ts"
 
 /**
  * STUN servers outside Cloudflare's network. A reply from one of them shows
@@ -74,9 +75,9 @@ export const probeStun = (host: string, port: number, timeoutMs = 2_000): Promis
       resolve(result)
     }
     const send = () => {
-      if (tries++ === 3) return finish({ server, ok: false, error: "no reply" })
+      if (tries++ === 3) return finish({ server, ok: false, error: "NoReply" })
       socket.send(bindingRequest(), port, host, (error) => {
-        if (error) finish({ server, ok: false, error: error.message })
+        if (error) finish({ server, ok: false, error: errorCode(error) })
       })
       timer = setTimeout(send, timeoutMs)
     }
@@ -84,6 +85,6 @@ export const probeStun = (host: string, port: number, timeoutMs = 2_000): Promis
       const mapped = mappedAddress(message)
       if (mapped) finish({ server, ok: true, mapped, ms: Date.now() - started })
     })
-    socket.on("error", (error) => finish({ server, ok: false, error: error.message }))
+    socket.on("error", (error) => finish({ server, ok: false, error: errorCode(error) }))
     send()
   })

@@ -13,6 +13,8 @@
  * octets, and error text keeps only its leading letters.
  */
 
+import { allowedCode } from "../container/codes.ts"
+
 /** One stored event: the container's (with a bootId) or the Durable Object's. */
 export interface ProbeEvent {
   readonly at: number
@@ -49,6 +51,10 @@ export interface SpeakerOutcome {
   readonly passthrough: number
   readonly voicedFrames: number
   readonly msToFirstDecrypt: number | null
+  /** How often the transition-0 workaround ran for this speaker in the epoch. */
+  readonly fixFired: number
+  /** Whether their latest authenticated, voiced frame came after the workaround last ran for them. */
+  readonly voicedAfterFix: boolean
 }
 
 export interface Epoch {
@@ -106,8 +112,10 @@ const DISRUPTIONS = [
 ] as const
 
 const HOUR = 3_600_000
-/** The longest time out of Ready that a resume may take without starting D1's clock again. */
+/** The longest time out of Ready that one resume may take without starting D1's clock again. */
 const MAX_RESUME_GAP_MS = 30_000
+/** The most time out of Ready, in total, that one D1 hold may contain. */
+const MAX_TOTAL_GAP_MS = 60_000
 
 const num = (value: unknown): number => (typeof value === "number" ? value : 0)
 const ids = (value: unknown): ReadonlyArray<string> =>
@@ -119,12 +127,7 @@ const mask = (address: unknown) =>
   String(address)
     .match(/^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3}|x)(:\d+)?$/)?.[1]
     ?.concat(".x") ?? "hidden"
-/** Event text as the report may show it: its leading letters only, so no ids, addresses or payloads. */
-const text = (value: unknown) =>
-  String(value)
-    .match(/^[A-Za-z][A-Za-z _:]*/)?.[0]
-    .trim()
-    .slice(0, 80) || "unrecognised"
+const END_OUTCOMES = new Set(["exited", "destroyed", "running"])
 const host = (value: unknown) =>
   /^[a-z0-9.-]{1,80}(:\d{1,5})?$/.test(String(value)) ? String(value) : "server"
 
@@ -179,6 +182,9 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
     const speaker = (userId: string): SpeakerOutcome => {
       const c = users[userId]
       const first = firstDecrypts.get(`${k}:${userId}`)
+      const fixes = ofKind("fix-applied").filter(
+        (e) => key(e.bootId, e.epoch) === k && e.at < end && String(e.userId) === userId,
+      )
       const result: SpeakerResult =
         c?.lastResult === "fail"
           ? "failing"
@@ -195,6 +201,11 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
         passthrough: num(c?.passthrough),
         voicedFrames: num(c?.voicedFrames),
         msToFirstDecrypt: first && first.at < end ? num(first.msSinceReady) : null,
+        fixFired: fixes.length,
+        voicedAfterFix:
+          fixes.length > 0 &&
+          result === "decrypted" &&
+          num(c?.lastVoicedAt) > Math.max(...fixes.map((e) => e.at)),
       }
     }
     return {
@@ -221,6 +232,8 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
     passthrough: 0,
     voicedFrames: 0,
     msToFirstDecrypt: null,
+    fixFired: 0,
+    voicedAfterFix: false,
   })
   const outcomeIn = (epoch: Epoch, speaker: string) =>
     [...epoch.present, ...epoch.arrived].find((o) => o.speaker === speaker) ?? silent(speaker)
@@ -245,19 +258,30 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
       epoch = inWindow.find((e) => e.via === "join" && e.bootId !== replaced)
       if (!epoch && inWindow.length > 0) problem = "no ready from a new container"
       if (epoch && type !== "unplanned-exit") {
-        // A signal counts only if the container it was sent to left by itself.
+        // A signal counts only if it was sent, to the container being
+        // replaced, and that container then left by itself.
         const ending = events.find(
-          (e) =>
-            e.kind === "container-end" &&
-            e.at > disruption.at &&
-            e.at < end &&
-            (e.bootId === undefined || e.bootId === replaced),
+          (e) => e.kind === "container-end" && e.at > disruption.at && e.at < end,
         )
-        if (!ending) {
+        const signal = type === "sigkill" ? 9 : 15
+        if (
+          !ending ||
+          replaced === undefined ||
+          ending.bootId !== replaced ||
+          ending.signal !== signal ||
+          ending.signalSent !== true
+        ) {
           result = "not proven"
-          problem = "how the old container ended was not recorded"
+          problem = !ending
+            ? "how the old container ended was not recorded"
+            : ending.signalSent !== true
+              ? "the signal was not sent"
+              : "the recorded end doesn't match this signal and container"
         } else if (ending.outcome !== "exited") {
-          problem = `the container didn't exit on the signal and was ${text(ending.outcome)}`
+          const outcome = END_OUTCOMES.has(String(ending.outcome))
+            ? String(ending.outcome)
+            : "unknown"
+          problem = `the container didn't exit on the signal (${outcome})`
         }
         if (problem) epoch = undefined
       }
@@ -291,7 +315,7 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
         ? stunOk
             .map((e) => `${host(e.server)} mapped ${mask(e.mapped)} in ${num(e.ms)} ms`)
             .join("; ")
-        : stun.map((e) => `${host(e.server)}: ${text(e.error)}`).join("; ") ||
+        : stun.map((e) => `${host(e.server)}: ${allowedCode(e.error)}`).join("; ") ||
           "no STUN attempt recorded",
   })
 
@@ -310,7 +334,7 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
             ? `, slowest ${Math.max(...discovered.map((e) => num(e.ms)))} ms, address ${mask(discovered.at(-1)?.address)}`
             : "") +
           (failedDiscovery.length > 0
-            ? `; failures: ${failedDiscovery.map((e) => text(e.error)).join("; ")}`
+            ? `; failures: ${failedDiscovery.map((e) => allowedCode(e.error)).join("; ")}`
             : ""),
   })
 
@@ -347,8 +371,10 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
     const outcomes = sample.flatMap((e) => e.present)
     const fired = sample.reduce((n, e) => n + e.fixFired, 0)
     let verdict = verdictOf(outcomes)
-    // Decryption with the workaround on but never used says nothing about the workaround.
-    if (fix && verdict === "pass" && fired === 0) verdict = "not proven"
+    // The workaround passes only on a present tester it ran for, heard
+    // decrypting after it last ran. Decryption without that, from before it
+    // ran or from someone else, says nothing about the workaround.
+    if (fix && verdict === "pass" && !outcomes.some((o) => o.voicedAfterFix)) verdict = "not proven"
     checks.push({
       id,
       title: `A speaker already in the channel before the bot joined is decrypted, ${labelText}`,
@@ -358,8 +384,7 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
           ? "no join in this mode"
           : `${sample.length} joins: ${describe(outcomes)}` +
             (fix
-              ? `; the workaround fired ${fired} times` +
-                (fired === 0 ? ", so this doesn't show whether it is needed" : "")
+              ? `; the workaround fired ${fired} times, and ${outcomes.filter((o) => o.voicedAfterFix).length} testers it fired for were decrypted afterwards`
               : ""),
     })
   }
@@ -396,15 +421,19 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
   }
 
   // D1: a hold starts at a join and continues through resumes that each
-  // came back within MAX_RESUME_GAP_MS. A rejoin, a new process or a longer
-  // gap starts the clock again. It lasts until the last authenticated speech
+  // came back within MAX_RESUME_GAP_MS, while their total stays within
+  // MAX_TOTAL_GAP_MS. A rejoin, a new process or a gap over either limit
+  // starts the clock again. It lasts until the last authenticated speech
   // heard within it.
   interface Hold {
     start: number
     lastSpeech: number
     resumes: number
     longestGapMs: number
+    totalGapMs: number
   }
+  let runGaps = 0
+  let runGapMs = 0
   const holds: Array<Hold> = []
   let hold: Hold | undefined
   let previous: ProbeEvent | undefined
@@ -423,11 +452,21 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
             .at(-1)
         : undefined
     const gap = leftReady ? ready.at - leftReady.at : null
-    if (hold && gap !== null && gap <= MAX_RESUME_GAP_MS) {
+    if (gap !== null) {
+      runGaps++
+      runGapMs += gap
+    }
+    if (
+      hold &&
+      gap !== null &&
+      gap <= MAX_RESUME_GAP_MS &&
+      hold.totalGapMs + gap <= MAX_TOTAL_GAP_MS
+    ) {
       hold.resumes++
       hold.longestGapMs = Math.max(hold.longestGapMs, gap)
+      hold.totalGapMs += gap
     } else {
-      hold = { start: ready.at, lastSpeech: 0, resumes: 0, longestGapMs: 0 }
+      hold = { start: ready.at, lastSpeech: 0, resumes: 0, longestGapMs: 0, totalGapMs: 0 }
       holds.push(hold)
     }
     const users = (evidenceOf(ready)?.users ?? {}) as Record<string, Counters>
@@ -450,9 +489,10 @@ export const summarize = (input: ReadonlyArray<ProbeEvent>): Report => {
     verdict: !best ? "not run" : held(best) >= HOUR ? "pass" : "not proven",
     evidence:
       (best
-        ? `longest: speech decrypted ${minutes(held(best))} after a join, through ${best.resumes} resumes (longest ${seconds(best.longestGapMs)} out of Ready)`
+        ? `longest: speech decrypted ${minutes(held(best))} after a join, through ${best.resumes} resumes (${seconds(best.totalGapMs)} out of Ready in total, longest ${seconds(best.longestGapMs)})`
         : "voice never became ready") +
-      `; a rejoin, a restart or more than ${seconds(MAX_RESUME_GAP_MS)} out of Ready starts the clock again` +
+      `; a rejoin, a restart, one resume over ${seconds(MAX_RESUME_GAP_MS)} or more than ${seconds(MAX_TOTAL_GAP_MS)} out of Ready in total starts the clock again` +
+      `; whole run: ${(runGapMs / 60_000).toFixed(1)} min out of Ready in ${runGaps} interruptions that ended in a resume` +
       `; ${unplanned.length} unplanned container exits` +
       (unplanned.length > 0
         ? ` (${unplanned.filter((r) => r.result === "recovered").length} recovered)`
