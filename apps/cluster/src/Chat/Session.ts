@@ -1,8 +1,6 @@
 import * as CloudflareCluster from "@effect/platform-cloudflare/CloudflareCluster"
 import * as Image from "clanka/Image"
 import type * as DecisionModel from "effect/ai/DecisionModel"
-import type * as LanguageModel from "effect/ai/LanguageModel"
-import type * as Model from "effect/ai/Model"
 import * as Prompt from "effect/ai/Prompt"
 import * as Chat from "effect/chat/Chat"
 import type * as ChatThreads from "effect/chat/ChatThread"
@@ -28,6 +26,9 @@ import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import {
+  modelInvalidMessage,
+  modelSetMessage,
+  modelShownMessage,
   resumeMessage,
   switchedOffMessage,
   systemPrompt,
@@ -42,7 +43,13 @@ import {
   TranscriptMessage,
 } from "@janitor/domain/Chat/Session"
 import type { HistoryChange } from "../AgentLoop.ts"
-import { ChatAgent, ChatAgentLayer, type ChatImage, type ChatLoop } from "./Agent.ts"
+import {
+  ChatAgent,
+  ChatAgentLayer,
+  type ChatImage,
+  type ChatLoop,
+  type ChatModels,
+} from "./Agent.ts"
 import { ChatMcpServers } from "./McpServers.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
 import { GATE_CONTEXT, GATE_PASS, ReplyGate } from "./Gate.ts"
@@ -230,6 +237,27 @@ const STEERED_TRANSFER_TIMEOUT = Duration.minutes(2)
 const ADMISSION_TTL = Duration.hours(1)
 
 const isStop = (text: string) => /^\s*stop[\s.!]*$/i.test(text)
+
+/** A model's name as an endpoint takes one: no spaces, and nothing that ends a code span. */
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/
+
+/** What a `/model` message asks for. */
+type ModelCommand =
+  | { readonly _tag: "Set"; readonly model: string }
+  | { readonly _tag: "Show" }
+  | { readonly _tag: "Invalid" }
+
+/**
+ * Reads a message that is only `/model`, with or without a name (EFF-3920);
+ * any other message is no command. The name may be in a code span.
+ */
+const modelCommand = (text: string): ModelCommand | undefined => {
+  const match = /^\/model(?:\s+([\s\S]*))?$/i.exec(text.trim())
+  if (match === null) return undefined
+  const name = (match[1] ?? "").replace(/^`([^`]*)`$/, "$1").trim()
+  if (name === "") return { _tag: "Show" }
+  return MODEL_NAME.test(name) ? { _tag: "Set", model: name } : { _tag: "Invalid" }
+}
 
 const switchedOff = (state: KillSwitchState, thread: ChatThreads.ChatThread) =>
   state.global || (thread.platform === "slack" ? state.slack : state.discord)
@@ -695,13 +723,15 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         const claimed = (yield* storage.undelivered)
           .filter((stored) => stored.wantsTurn)
           .map(({ message }) => message.id)
+        const session = yield* storage.loadSession
         yield* storage.saveTurn({
           turnId,
           status: "running",
           errorCategory: null,
           resumes: 0,
           wrappedUp: false,
-          model: agent.model,
+          // The thread's model as it is now: a later `/model` is for the next turn.
+          model: Option.getOrUndefined(session)?.model ?? agent.model,
           actions: 0,
           usage: null,
           createdAt: yield* Clock.currentTimeMillis,
@@ -884,6 +914,8 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                   ),
             )
         const loop = yield* agent.start({
+          // The model the turn started on, on a resume too.
+          model: turn.model ?? agent.model,
           instructions: systemPrompt({
             audience: running.thread.platform === "slack" ? "slack" : "discord",
             multicaWorkspaceId,
@@ -1087,6 +1119,46 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
         )
       }).pipe(Effect.orDie)
 
+    /**
+     * Runs a `/model` command (EFF-3920) and tells the thread what it did.
+     * The model is the thread's alone, and is kept with the session. Run
+     * with `inbox` held.
+     */
+    const runModelCommand = (
+      thread: ChatThreads.ChatThread,
+      message: ChatMessage,
+      command: ModelCommand,
+    ) =>
+      Effect.gen(function* () {
+        const session = yield* storage.loadSession
+        let text: string
+        if (command._tag === "Set") {
+          if (Option.isSome(session))
+            yield* storage.saveSession({ ...session.value, model: command.model })
+          yield* Effect.logInfo("Chat thread's model changed").pipe(
+            Effect.annotateLogs({ model: command.model }),
+          )
+          text = modelSetMessage(command.model, { running: current !== undefined })
+        } else if (command._tag === "Show")
+          text = modelShownMessage(
+            Option.getOrUndefined(session)?.model ?? agent.model,
+            agent.model,
+          )
+        else text = modelInvalidMessage(agent.model)
+        // Only once the model is saved, so a restart runs an unfinished command again.
+        yield* storage.setGate(message.id, { _tag: "Command" }, { delivered: true })
+        yield* postReply(thread, text, {
+          replyTo: { messageId: message.id, authorId: message.author.id },
+        }).pipe(
+          Effect.provideService(Chat.Chat, chat),
+          Effect.catch((error) =>
+            Effect.logWarning("Couldn't answer a chat command").pipe(
+              Effect.annotateLogs({ reason: error.message }),
+            ),
+          ),
+        )
+      })
+
     /** Gates one stored message, then steers it, starts a turn with it or keeps it as context. */
     const handle = (thread: ChatThreads.ChatThread, message: ChatMessage) =>
       Effect.gen(function* () {
@@ -1106,6 +1178,9 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           yield* Effect.logInfo("Chat turn stop requested")
           return yield* stopTurn
         }
+        // Trusted code too: a command is never a prompt.
+        const command = modelCommand(message.text)
+        if (command !== undefined) return yield* runModelCommand(thread, message, command)
         let outcome: GateOutcome
         if (message.mentionsBot) outcome = { _tag: "Mention" }
         else {
@@ -1370,7 +1445,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
 
 /**
  * The session entity with its agent and reply gate. The turn's agent is
- * clanka on the `CHAT_AI_*` model, and the reply gate is Jev through its own
+ * clanka on the `CHAT_AI_*` models, and the reply gate is Jev through its own
  * `DecisionModel`.
  */
 export const ChatSessionLayer: Layer.Layer<
@@ -1381,9 +1456,7 @@ export const ChatSessionLayer: Layer.Layer<
   | ChatSandboxes
   | ChatKillSwitch
   | ChatSessionIndex
-  | LanguageModel.LanguageModel
-  | Model.ProviderName
-  | Model.ModelName
+  | ChatModels
   | DecisionModel.DecisionModel
   | Sharding.Sharding
 > = ChatSessionEntityLayer.pipe(Layer.provide([ChatAgentLayer, ReplyGate.layer]))
