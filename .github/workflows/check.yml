@@ -32,6 +32,12 @@ jobs:
           run-install: false
           cache: true
       - run: vp install --frozen-lockfile
+      # The standalone probe uses two npm lockfiles outside the pnpm workspace.
+      - name: Install probe dependencies for type-aware checks
+        working-directory: probes/voice-transport
+        run: |
+          npm ci --ignore-scripts
+          npm ci --prefix container --ignore-scripts
       - run: vp check
       # Fails when a `.graphql` document or GitHub's schema changed without regenerating.
       - run: vp run --no-cache @janitor/cluster#graphql:check
