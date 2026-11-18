@@ -1,0 +1,14 @@
+{
+  "name": "janitor-voice-transport-probe-container",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@discordjs/voice": "0.19.2",
+    "@snazzah/davey": "0.1.12",
+    "discord.js": "14.28.1",
+    "opusscript": "0.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2"
+  }
+}

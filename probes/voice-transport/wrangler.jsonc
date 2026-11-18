@@ -1,0 +1,21 @@
+// A throwaway probe, deployed on its own: it shares nothing with the Janitor
+// stack. Delete it with the teardown steps in README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "janitor-voice-probe",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "VoiceProbe",
+      "image": "./container/Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 1,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "PROBE", "class_name": "VoiceProbe" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["VoiceProbe"] }],
+}
