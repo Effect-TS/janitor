@@ -4,7 +4,7 @@
  * is copied from the same tag: bump both together with
  * `vp run chat:multica-skill` after changing the version and checksum here.
  */
-export const MULTICA_CLI_VERSION = "0.11.0"
+export const MULTICA_CLI_VERSION = "0.11.1"
 
 /** SHA-256 of `multica-cli-<version>-linux-amd64.tar.gz`, from the release's `checksums.txt`. */
-export const MULTICA_CLI_SHA256 = "0d5150c8257d814c29b82e091d2da393deb5fc0306d8c391fda66c557e0993ea"
+export const MULTICA_CLI_SHA256 = "e59fd0db93bb184cc5349ff60d0d982f8d2ce46355269bec879eb12dfe61c003"
