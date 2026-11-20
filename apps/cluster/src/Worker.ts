@@ -180,18 +180,18 @@ const ZONE = "effectful.co"
 const LOCAL_DEV_AUDIENCE = "local-dev"
 const LOCAL_DEV_EMAIL = "dev@janitor.local"
 
-// `@effect/platform-cloudflare/CloudflareRuntime` imports `cloudflare:workers`,
-// which does not exist when Alchemy plans the deployment or Vitest imports the
-// Worker module in Node. Load it only inside workerd.
-const CloudflareRuntimeLayer: Layer.Layer<never> = Layer.unwrap(
-  Effect.suspend(() =>
-    globalThis.__ALCHEMY_RUNTIME__
-      ? Effect.promise(() => import("@effect/platform-cloudflare/CloudflareRuntime")).pipe(
-          Effect.map((module) => module.layer),
-        )
-      : Effect.succeed(Layer.empty),
-  ),
-)
+/**
+ * `CloudflareRuntime` imports `cloudflare:workers`, which exists only in the
+ * bundled Worker. Alchemy's plan and Vitest import this module in Node, so
+ * they get an empty layer instead.
+ */
+const CloudflareRuntimeLayer = globalThis.__ALCHEMY_RUNTIME__
+  ? Layer.unwrap(
+      Effect.promise(() =>
+        import("@effect/platform-cloudflare/CloudflareRuntime").then((module) => module.layer),
+      ),
+    )
+  : Layer.empty
 
 export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
   "ClusterWorker",
@@ -560,6 +560,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           Effect.suspend(() => notifyOutbox),
         ),
       ),
+      // Reaches the fetch, queue and cron handlers through `cluster.provide`.
       Layer.provideMerge(CloudflareRuntimeLayer),
     )
 
@@ -694,6 +695,8 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     }
   }).pipe(
     Effect.provide([
+      // Reaches the Durable Objects, which run with this program's context
+      // rather than the cluster's.
       CloudflareRuntimeLayer,
       Cloudflare.Hyperdrive.ConnectBinding,
       Cloudflare.Queues.WriteQueueBinding,
