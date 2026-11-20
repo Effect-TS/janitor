@@ -180,6 +180,19 @@ const ZONE = "effectful.co"
 const LOCAL_DEV_AUDIENCE = "local-dev"
 const LOCAL_DEV_EMAIL = "dev@janitor.local"
 
+// `@effect/platform-cloudflare/CloudflareRuntime` imports `cloudflare:workers`,
+// which does not exist when Alchemy plans the deployment or Vitest imports the
+// Worker module in Node. Load it only inside workerd.
+const CloudflareRuntimeLayer: Layer.Layer<never> = Layer.unwrap(
+  Effect.suspend(() =>
+    globalThis.__ALCHEMY_RUNTIME__
+      ? Effect.promise(() => import("@effect/platform-cloudflare/CloudflareRuntime")).pipe(
+          Effect.map((module) => module.layer),
+        )
+      : Effect.succeed(Layer.empty),
+  ),
+)
+
 export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
   "ClusterWorker",
   Effect.gen(function* () {
@@ -547,6 +560,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
           Effect.suspend(() => notifyOutbox),
         ),
       ),
+      Layer.provideMerge(CloudflareRuntimeLayer),
     )
 
     const cluster = yield* AlchemyCloudflareCluster.make({
@@ -573,9 +587,11 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
         )
       : Effect.void
     yield* Cloudflare.Workers.cron("* * * * *", () =>
-      Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), startDiscordGateway], {
-        discard: true,
-      }),
+      cluster.provide(
+        Effect.all([wakeOutboxDispatch(), wakeSyncRepair(), startDiscordGateway], {
+          discard: true,
+        }),
+      ),
     )
 
     yield* Cloudflare.Queues.consumeQueueMessages(
@@ -678,6 +694,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
     }
   }).pipe(
     Effect.provide([
+      CloudflareRuntimeLayer,
       Cloudflare.Hyperdrive.ConnectBinding,
       Cloudflare.Queues.WriteQueueBinding,
       Cloudflare.Queues.EventSourceLive,

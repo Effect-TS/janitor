@@ -561,6 +561,7 @@ export class FakePlatform {
       getThread: () => unsupported("getThread"),
       opener: () => unsupported("opener"),
       getUser: () => unsupported("getUser"),
+      followUp: () => unsupported("followUp"),
     }
   }
 
