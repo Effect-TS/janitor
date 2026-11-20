@@ -5,6 +5,8 @@ import * as ChatHandler from "effect/chat/ChatHandler"
 import { mentionsSelf } from "effect/chat/ChatMessage"
 import type * as Sharding from "effect/cluster/Sharding"
 import * as Context from "effect/Context"
+import * as Mac from "effect/crypto/Mac"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -230,6 +232,7 @@ export const SlackWebhookRoutesLayer: Layer.Layer<
         SlackChat.layer({ botToken: config.botToken, teamId: config.workspaceId }),
       ),
       Layer.provide(Chat.layer),
+      Layer.provide(Mac.layerWebCrypto.pipe(Layer.provide(SecureRandom.layerWebCrypto))),
     )
   }),
 )

@@ -5,7 +5,7 @@ packages:
 
 catalogMode: prefer
 
-# The Effect packages are pinned to the effect/chat PR snapshot (Effect-TS/effect#10581),
+# The Effect packages are pinned to the CloudflareRuntime PR snapshot (Effect-TS/effect#10742),
 # which pnpm resolves by URL. The overrides below hand that URL to subdependencies such
 # as @foldkit/vite-plugin's @effect/platform-node, which pnpm blocks by default.
 # Restore the default once the catalog is back on registry versions.
@@ -13,8 +13,8 @@ blockExoticSubdeps: false
 
 catalog:
   vitest: 5.1.0
-  "@effect/platform-node-shared": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/platform-cloudflare": https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@0b51fb176db86e796a914921b11c544eac2670af
+  "@effect/platform-node-shared": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node-shared@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/platform-cloudflare": https://pkg.pr.new/Effect-TS/effect/@effect/platform-cloudflare@2c51a5f809567d9a561f0915180869f637e657ec
   "@codemirror/autocomplete": 6.20.3
   "@codemirror/commands": 6.10.4
   "@codemirror/lang-yaml": 6.1.3
@@ -25,21 +25,21 @@ catalog:
   "@codemirror/view": 6.43.8
   "@lezer/common": 1.5.2
   "@uiw/codemirror-theme-github": 4.25.11
-  "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/ai-openai": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/sql-sqlite-node": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/graphql-generator": https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/sql-pg": https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/sql-d1": https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/sql-sqlite-do": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@0b51fb176db86e796a914921b11c544eac2670af
+  "@effect/ai-openrouter": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openrouter@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/ai-openai": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/ai-openai-compat": https://pkg.pr.new/Effect-TS/effect/@effect/ai-openai-compat@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/sql-sqlite-node": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-node@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/platform-browser": https://pkg.pr.new/Effect-TS/effect/@effect/platform-browser@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/platform-node": https://pkg.pr.new/Effect-TS/effect/@effect/platform-node@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/opentelemetry": https://pkg.pr.new/Effect-TS/effect/@effect/opentelemetry@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/graphql-generator": https://pkg.pr.new/Effect-TS/effect/@effect/graphql-generator@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/sql-pg": https://pkg.pr.new/Effect-TS/effect/@effect/sql-pg@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/sql-d1": https://pkg.pr.new/Effect-TS/effect/@effect/sql-d1@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/sql-sqlite-do": https://pkg.pr.new/Effect-TS/effect/@effect/sql-sqlite-do@2c51a5f809567d9a561f0915180869f637e657ec
   "@effect/tsgo": ^0.67.5
-  "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/chat-slack": https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@0b51fb176db86e796a914921b11c544eac2670af
-  "@effect/chat-discord": https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@0b51fb176db86e796a914921b11c544eac2670af
+  "@effect/vitest": https://pkg.pr.new/Effect-TS/effect/@effect/vitest@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/chat-slack": https://pkg.pr.new/Effect-TS/effect/@effect/chat-slack@2c51a5f809567d9a561f0915180869f637e657ec
+  "@effect/chat-discord": https://pkg.pr.new/Effect-TS/effect/@effect/chat-discord@2c51a5f809567d9a561f0915180869f637e657ec
   "@foldkit/devtools": ^0.170.0
   "@foldkit/devtools-mcp": ^0.26.0
   "@foldkit/oxlint-plugin": ^0.15.1
@@ -61,7 +61,7 @@ catalog:
   "@modelcontextprotocol/sdk": 1.32.2
   dfx: 1.1.1
   clsx: ^2.1.1
-  effect: https://pkg.pr.new/Effect-TS/effect/effect@0b51fb176db86e796a914921b11c544eac2670af
+  effect: https://pkg.pr.new/Effect-TS/effect/effect@2c51a5f809567d9a561f0915180869f637e657ec
   happy-dom: ^20.0.0
   foldkit: ^0.170.0
   graphql: 17.0.2
