@@ -230,7 +230,7 @@ export default class ClusterWorker extends Cloudflare.Worker<ClusterWorker>()(
       // hostname, so both are covered without either Worker enrolling.
       routes: dev ? [] : [{ pattern: `${target.domain}/api/v1/*`, zoneName: ZONE }],
       workersDev: false,
-      observability: { enabled: true, headSamplingRate: 1 },
+      observability: { enabled: true, headSamplingRate: 1, traces: { enabled: true } },
       limits: { cpuMs: 300_000 },
       // Read at init from the environment: the plan-phase Config interceptor
       // only binds values it can resolve from the deploy environment.
