@@ -99,6 +99,25 @@ interface GatewayStorage {
   deleteAlarm(): Promise<void>
 }
 
+/**
+ * Forgets a session that was identified under other intents, or before the
+ * intents were recorded. A Discord `RESUME` keeps the intents of the
+ * `IDENTIFY` that opened the session, so a changed `INTENTS` only takes
+ * effect once the shard identifies again.
+ */
+export const forgetShardStateOnIntentsChange = (
+  kv: {
+    readonly get: (key: string) => string | undefined
+    readonly set: (key: string, value: string) => void
+    readonly delete: (key: string) => void
+  },
+  intents: number,
+): void => {
+  if (kv.get("shard-intents") === String(intents)) return
+  kv.delete("shard-state")
+  kv.set("shard-intents", String(intents))
+}
+
 /** The close in dfx's "Got socket error, reconnecting" log: its code if it was a close, and why. */
 const describeClose = (
   cause: Cause.Cause<unknown>,
@@ -178,6 +197,8 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
               sql.exec(`INSERT OR IGNORE INTO seen (id, at) VALUES (?, ?)`, id, Date.now())
             }),
         })
+        // `INTENTS` changes only with a deploy, which rebuilds this object.
+        forgetShardStateOnIntentsChange({ get: kvGet, set: kvSet, delete: kvDelete }, INTENTS)
         const ShardStateLive = Layer.succeed(
           ShardStateStore,
           ShardStateStore.of({
@@ -228,6 +249,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
           | undefined
         // Since the last alarm: the messages Discord sent, and why ingress dropped them.
         let messagesReceived = 0
+        let reactionsReceived = 0
         const drops = new Map<string, number>()
 
         // The shard's socket belongs to the event that started it, and that
@@ -297,6 +319,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
             }
             case GatewayOpcodes.Dispatch: {
               if (payload.t === "MESSAGE_CREATE") messagesReceived++
+              else if (payload.t === "MESSAGE_REACTION_ADD") reactionsReceived++
               else if (payload.t === "READY") {
                 const ready = payload.d as { readonly session_id?: string }
                 report("Info", "Discord gateway READY", { sessionId: ready?.session_id })
@@ -435,10 +458,12 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
               fatalUntil: Date.now() < fatalUntil ? new Date(fatalUntil).toISOString() : "none",
               instanceAgeMs: Date.now() - instanceStartedAt,
               messagesReceived,
+              reactionsReceived,
               drops: JSON.stringify(Object.fromEntries(drops)),
             }),
           )
           messagesReceived = 0
+          reactionsReceived = 0
           drops.clear()
           if (!isRunning) yield* startShard("not running")
           else if (quietFor > STALE_AFTER_MS) yield* startShard("socket quiet")
