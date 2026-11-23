@@ -99,53 +99,23 @@ interface GatewayStorage {
   deleteAlarm(): Promise<void>
 }
 
-interface StoredShardState extends ShardState {
-  readonly intents?: number | undefined
-}
-
 /**
- * Persists the shard's resume state alongside the `intents` bitmask that
- * created it. A Discord `RESUME` keeps the original `IDENTIFY`'s intents, so
- * a stored state from a different (or unrecorded) intent mask is discarded
- * and the shard identifies again with the current intents.
+ * Forgets a session that was identified under other intents, or before the
+ * intents were recorded. A Discord `RESUME` keeps the intents of the
+ * `IDENTIFY` that opened the session, so a changed `INTENTS` only takes
+ * effect once the shard identifies again.
  */
-export const makeShardStateStore = (
+export const forgetShardStateOnIntentsChange = (
   kv: {
     readonly get: (key: string) => string | undefined
     readonly set: (key: string, value: string) => void
     readonly delete: (key: string) => void
   },
-  intents: number = INTENTS,
-) => {
-  const read = (): Option.Option<ShardState> => {
-    const raw = kv.get("shard-state")
-    if (raw === undefined) return Option.none()
-    const parsed = JSON.parse(raw) as StoredShardState
-    if (parsed.intents !== intents) {
-      kv.delete("shard-state")
-      return Option.none()
-    }
-    return Option.some({
-      sessionId: parsed.sessionId,
-      resumeUrl: parsed.resumeUrl,
-      sequence: parsed.sequence,
-    })
-  }
-  return {
-    read,
-    store: ShardStateStore.of({
-      forShard: () => ({
-        get: Effect.sync(read),
-        set: (shardState) =>
-          Effect.sync(() => {
-            kv.set("shard-state", JSON.stringify({ ...shardState, intents }))
-          }),
-        clear: Effect.sync(() => {
-          kv.delete("shard-state")
-        }),
-      }),
-    }),
-  }
+  intents: number,
+): void => {
+  if (kv.get("shard-intents") === String(intents)) return
+  kv.delete("shard-state")
+  kv.set("shard-intents", String(intents))
 }
 
 /** The close in dfx's "Got socket error, reconnecting" log: its code if it was a close, and why. */
@@ -227,9 +197,28 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
               sql.exec(`INSERT OR IGNORE INTO seen (id, at) VALUES (?, ?)`, id, Date.now())
             }),
         })
-        const shardState = makeShardStateStore({ get: kvGet, set: kvSet, delete: kvDelete })
-        shardState.read()
-        const ShardStateLive = Layer.succeed(ShardStateStore, shardState.store)
+        // `INTENTS` changes only with a deploy, which rebuilds this object.
+        forgetShardStateOnIntentsChange({ get: kvGet, set: kvSet, delete: kvDelete }, INTENTS)
+        const ShardStateLive = Layer.succeed(
+          ShardStateStore,
+          ShardStateStore.of({
+            forShard: () => ({
+              get: Effect.sync(() =>
+                Option.map(
+                  Option.fromUndefinedOr(kvGet("shard-state")),
+                  (json) => JSON.parse(json) as ShardState,
+                ),
+              ),
+              set: (shardState) =>
+                Effect.sync(() => {
+                  kvSet("shard-state", JSON.stringify(shardState))
+                }),
+              clear: Effect.sync(() => {
+                kvDelete("shard-state")
+              }),
+            }),
+          }),
+        )
         // Built per shard run, so each run's dispatches go through ingress
         // with the shard's loggers.
         const IngressLive = Ingress.layer.pipe(
@@ -322,7 +311,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
           switch (payload.op) {
             case GatewayOpcodes.Hello: {
               socketsOpened++
-              const resuming = Option.isSome(shardState.read())
+              const resuming = kvGet("shard-state") !== undefined
               report("Info", "Discord gateway socket opened", {
                 handshake: resuming ? "resume" : "identify",
               })
@@ -436,7 +425,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
             if (Date.now() < fatalUntil) return
             report("Info", "Discord gateway shard starting", {
               why,
-              resuming: Option.isSome(shardState.read()),
+              resuming: kvGet("shard-state") !== undefined,
             })
             lastSeenAt = Date.now()
             phase = undefined
@@ -465,7 +454,7 @@ export const ChatDiscordGatewayLive = (sessions: Layer.Layer<Ingress.DiscordSess
                   ? "none"
                   : `${lastClose.code ?? "no code"} (${lastClose.reason}) ${Date.now() - lastClose.at}ms ago`,
               lastExit: lastExit ?? "none",
-              shardState: Option.isSome(shardState.read()),
+              shardState: kvGet("shard-state") !== undefined,
               fatalUntil: Date.now() < fatalUntil ? new Date(fatalUntil).toISOString() : "none",
               instanceAgeMs: Date.now() - instanceStartedAt,
               messagesReceived,

@@ -1,64 +1,33 @@
-import { describe, it, assert } from "@effect/vitest"
-import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
+import { assert, describe, it } from "@effect/vitest"
 import { GatewayIntentBits } from "dfx/types"
-import { makeShardStateStore } from "../../../src/Chat/Discord/Gateway.ts"
+import { forgetShardStateOnIntentsChange } from "../../../src/Chat/Discord/Gateway.ts"
 
-const makeKv = (initial?: Record<string, string>) => {
-  const map = new Map(Object.entries(initial ?? {}))
-  return {
-    get: (key: string) => map.get(key),
-    set: (key: string, value: string) => {
-      map.set(key, value)
-    },
-    delete: (key: string) => {
-      map.delete(key)
-    },
-  }
-}
+const withoutReactions = GatewayIntentBits.GuildMessages
+const withReactions = GatewayIntentBits.GuildMessages | GatewayIntentBits.GuildMessageReactions
 
-const sampleState = {
-  sessionId: "session-1",
-  resumeUrl: "wss://gateway.discord.gg",
-  sequence: 42,
-}
+describe("Discord gateway shard state", () => {
+  it("is kept while the intents are unchanged", () => {
+    const kv = new Map([["shard-state", "session"]])
+    forgetShardStateOnIntentsChange(kv, withReactions)
+    kv.set("shard-state", "session")
 
-describe("Discord gateway shard state store", () => {
-  it.effect("persists and resumes shard state when intents match", () =>
-    Effect.gen(function* () {
-      const kv = makeKv()
-      const shard = makeShardStateStore(
-        kv,
-        GatewayIntentBits.GuildMessages | GatewayIntentBits.GuildMessageReactions,
-      ).store.forShard([0, 1])
+    forgetShardStateOnIntentsChange(kv, withReactions)
+    assert.strictEqual(kv.get("shard-state"), "session")
+  })
 
-      assert.isTrue(Option.isNone(yield* shard.get))
-      yield* shard.set(sampleState)
-      assert.deepStrictEqual(yield* shard.get, Option.some(sampleState))
-      yield* shard.clear
-      assert.isTrue(Option.isNone(yield* shard.get))
-    }),
-  )
+  it("is forgotten when it was stored before the intents were recorded", () => {
+    const kv = new Map([["shard-state", "session"]])
 
-  it.effect("discards stored shard state when intents are unrecorded or changed", () =>
-    Effect.gen(function* () {
-      const legacyKv = makeKv({ "shard-state": JSON.stringify(sampleState) })
-      const legacyShard = makeShardStateStore(
-        legacyKv,
-        GatewayIntentBits.GuildMessages | GatewayIntentBits.GuildMessageReactions,
-      ).store.forShard([0, 1])
+    forgetShardStateOnIntentsChange(kv, withReactions)
+    assert.isFalse(kv.has("shard-state"))
+  })
 
-      assert.isTrue(Option.isNone(yield* legacyShard.get))
-      assert.isUndefined(legacyKv.get("shard-state"))
+  it("is forgotten when the intents change", () => {
+    const kv = new Map<string, string>()
+    forgetShardStateOnIntentsChange(kv, withoutReactions)
+    kv.set("shard-state", "session")
 
-      const oldIntents = GatewayIntentBits.GuildMessages
-      const newIntents = GatewayIntentBits.GuildMessages | GatewayIntentBits.GuildMessageReactions
-      const kv = makeKv()
-      yield* makeShardStateStore(kv, oldIntents).store.forShard([0, 1]).set(sampleState)
-
-      const updatedShard = makeShardStateStore(kv, newIntents).store.forShard([0, 1])
-      assert.isTrue(Option.isNone(yield* updatedShard.get))
-      assert.isUndefined(kv.get("shard-state"))
-    }),
-  )
+    forgetShardStateOnIntentsChange(kv, withReactions)
+    assert.isFalse(kv.has("shard-state"))
+  })
 })
