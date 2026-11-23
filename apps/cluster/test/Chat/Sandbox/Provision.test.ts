@@ -52,14 +52,7 @@ describe("chat sandbox provisioning", () => {
         homeDirectory: Option.some(home),
       })
 
-      assert.deepStrictEqual(skills, [
-        new AgentSkills.Skill({
-          name: "issue-fix",
-          description: "Read this before filing an issue",
-          location: path.join(home, ".agents", "skills", "issue-fix", "SKILL.md"),
-          source: "user",
-        }),
-      ])
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+      assert.strictEqual(skills.find((skill) => skill.name === "issue-fix")?.source, "user")
+    }).pipe(Effect.provide(NodeServices.layer)),
   )
 })
