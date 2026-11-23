@@ -57,7 +57,7 @@ catalog:
   "@alchemy.run/infisical": 2.0.0-beta.85
   "@alchemy.run/sql": 2.0.0-beta.85
   "@distilled.cloud/cloudflare": 1.0.0-rc.17
-  clanka: 0.29.0
+  clanka: 0.29.1
   "@modelcontextprotocol/sdk": 1.32.2
   dfx: 1.1.1
   clsx: ^2.1.1
@@ -148,7 +148,7 @@ minimumReleaseAgeExclude:
   - "@foldkit/*"
   - alchemy
   - foldkit
-  - clanka@0.29.0
+  - clanka@0.29.1
   - "@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.322"
   - "@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.322"
   - "@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.322"
