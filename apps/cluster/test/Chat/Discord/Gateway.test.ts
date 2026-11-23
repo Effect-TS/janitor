@@ -6,26 +6,15 @@ const withoutReactions = GatewayIntentBits.GuildMessages
 const withReactions = GatewayIntentBits.GuildMessages | GatewayIntentBits.GuildMessageReactions
 
 describe("Discord gateway shard state", () => {
-  it("is kept while the intents are unchanged", () => {
-    const kv = new Map([["shard-state", "session"]])
-    forgetShardStateOnIntentsChange(kv, withReactions)
-    kv.set("shard-state", "session")
-
-    forgetShardStateOnIntentsChange(kv, withReactions)
-    assert.strictEqual(kv.get("shard-state"), "session")
-  })
-
-  it("is forgotten when it was stored before the intents were recorded", () => {
+  it("resumes while intents match and re-identifies when unrecorded or changed", () => {
     const kv = new Map([["shard-state", "session"]])
 
-    forgetShardStateOnIntentsChange(kv, withReactions)
-    assert.isFalse(kv.has("shard-state"))
-  })
-
-  it("is forgotten when the intents change", () => {
-    const kv = new Map<string, string>()
     forgetShardStateOnIntentsChange(kv, withoutReactions)
+    assert.isFalse(kv.has("shard-state"))
+
     kv.set("shard-state", "session")
+    forgetShardStateOnIntentsChange(kv, withoutReactions)
+    assert.strictEqual(kv.get("shard-state"), "session")
 
     forgetShardStateOnIntentsChange(kv, withReactions)
     assert.isFalse(kv.has("shard-state"))
