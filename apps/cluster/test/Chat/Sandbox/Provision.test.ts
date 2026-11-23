@@ -28,8 +28,6 @@ describe("chat sandbox provisioning", () => {
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "janitor-chat-provision-" })
       const home = path.join(root, "home")
       const workspace = path.join(root, "workspace")
-      yield* fs.makeDirectory(home, { recursive: true })
-      yield* fs.makeDirectory(workspace, { recursive: true })
 
       yield* applyProvision({
         request: provisionRequest("workspace", [
@@ -54,22 +52,14 @@ describe("chat sandbox provisioning", () => {
         homeDirectory: Option.some(home),
       })
 
-      assert.deepStrictEqual(
-        skills.map((skill) => ({
-          name: skill.name,
-          description: skill.description,
-          location: skill.location,
-          source: skill.source,
-        })),
-        [
-          {
-            name: "issue-fix",
-            description: "Read this before filing an issue",
-            location: path.join(home, ".agents", "skills", "issue-fix", "SKILL.md"),
-            source: "user",
-          },
-        ],
-      )
+      assert.deepStrictEqual(skills, [
+        new AgentSkills.Skill({
+          name: "issue-fix",
+          description: "Read this before filing an issue",
+          location: path.join(home, ".agents", "skills", "issue-fix", "SKILL.md"),
+          source: "user",
+        }),
+      ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   )
 })
