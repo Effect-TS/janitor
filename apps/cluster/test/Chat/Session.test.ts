@@ -1089,6 +1089,60 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
       ),
   )
 
+  it.effect(
+    "an outsider's image-only Discord opener is fetched as context when an admitted user mentions the bot",
+    () =>
+      test((harness) =>
+        Effect.gen(function* () {
+          const png = new Uint8Array([137, 80, 78, 71])
+          const screenshot = {
+            id: "400/700/9001",
+            name: "screenshot.png",
+            mediaType: "image/png",
+            size: png.length,
+          }
+          harness.platform.files.set("700/9001", png)
+          const opener = yield* harness.message("", {
+            author: "Julius",
+            class: "outsider",
+            attachments: [screenshot],
+          })
+          const botNote = yield* harness.message("", {
+            author: "Effect Bot",
+            class: "bot",
+          })
+          harness.platform.threadHistory = [opener, botNote]
+
+          yield* send(harness, discordThread, "Please file an issue for the screenshot above.", {
+            author: "Michael",
+            mention: true,
+          })
+          yield* modelCalls(harness, 1)
+
+          assert.deepStrictEqual(harness.platform.downloads, ["700/9001"])
+          assert.strictEqual(harness.sandboxes.written.length, 1)
+          const [saved] = harness.sandboxes.written
+          assert.isTrue(saved!.path.endsWith("/screenshot.png"))
+          assert.deepStrictEqual([...saved!.content], [...png])
+          assert.deepStrictEqual(filesSent(harness.model.last), ["image/png"])
+
+          const prompt = seen(harness.model.last)
+          assert.include(
+            prompt,
+            `Julius (outside the trusted group, context only): [attached: ${saved!.path}]`,
+          )
+          assert.include(prompt, "Effect Bot (a bot, context only):")
+          assert.include(prompt, "Michael: Please file an issue for the screenshot above.")
+
+          assert.deepStrictEqual(gates(yield* harness.transcript(discordThread)), [
+            { _tag: "Context" },
+            { _tag: "Context" },
+            { _tag: "Mention" },
+          ])
+        }),
+      ),
+  )
+
   it.effect("an SVG attachment is saved in the sandbox and the turn still gets a reply", () =>
     test((harness) =>
       Effect.gen(function* () {
