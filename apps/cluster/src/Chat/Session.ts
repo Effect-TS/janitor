@@ -26,7 +26,6 @@ import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import {
-  authorLabel,
   modelInvalidMessage,
   modelSetMessage,
   modelShownMessage,
@@ -50,6 +49,7 @@ import {
   type ChatImage,
   type ChatLoop,
   type ChatModels,
+  promptText,
 } from "./Agent.ts"
 import { ChatMcpServers } from "./McpServers.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
@@ -282,13 +282,6 @@ const elapsed = (millis: number) => {
 
 const actionCount = (actions: number) => `${actions} action${actions === 1 ? "" : "s"}`
 
-/**
- * The transcript text of a user message, as clanka stores a steer or a prompt.
- * A prompt with images carries per-image source labels in later text parts.
- */
-const userText = (message: Prompt.Message) =>
-  message.role !== "user" ? undefined : message.content.find((part) => part.type === "text")?.text
-
 /** What a turn ended with. */
 interface TurnEnd {
   readonly status: Exclude<TurnStatus, "running">
@@ -312,7 +305,7 @@ export const landedInputs = (
 ): ReadonlyArray<InFlight> => {
   const landed: Array<InFlight> = []
   for (const message of appended) {
-    const text = userText(message)
+    const text = promptText(message)
     const sent = inFlight.find(
       (candidate) => candidate.text === text && !landed.includes(candidate),
     )
@@ -700,14 +693,17 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
               continue
             }
             const image = Image.isImageMediaType(attachment.mediaType)
+            const attached = `[attached: ${path}]`
             notes.push(
               image && options.steered
                 ? `[attached: ${path}, an image: open it with readFile to see it]`
-                : `[attached: ${path}]`,
+                : attached,
             )
             if (image)
               images.push({
-                label: `${authorLabel(message.author.name, message.author.class)}: [attached: ${path}]`,
+                label: threadMessages([
+                  { author: message.author.name, kind: message.author.class, text: attached },
+                ]),
                 name,
                 mediaType: attachment.mediaType,
                 data: saved.success,
@@ -716,7 +712,7 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           messages.push({
             author: message.author.name,
             kind: message.author.class,
-            text: [message.text, ...notes].filter((part) => part.length > 0).join("\n"),
+            text: [message.text, ...notes].join("\n"),
           })
         }
         return { text: threadMessages(messages), images }

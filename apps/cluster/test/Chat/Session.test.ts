@@ -1166,7 +1166,7 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           const prompt = seen(harness.model.last)
           assert.include(
             prompt,
-            `Julius (outside the trusted group, context only): [attached: ${juliusSaved!.path}]`,
+            `Julius (outside the trusted group, context only): \n[attached: ${juliusSaved!.path}]`,
           )
           assert.include(prompt, "Effect Bot (a bot, context only):")
           assert.include(

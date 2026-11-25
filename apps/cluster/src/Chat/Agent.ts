@@ -93,6 +93,13 @@ export interface ChatImage {
   readonly data: Uint8Array
 }
 
+/**
+ * The text of a user message: the whole of a steer, and of a prompt its first
+ * part, before the image labels `promptWith` adds.
+ */
+export const promptText = (message: Prompt.Message) =>
+  message.role !== "user" ? undefined : message.content.find((part) => part.type === "text")?.text
+
 /** The prompt as one user message: its text, then each image preceded by its source label. */
 const promptWith = (text: string, images: ReadonlyArray<ChatImage>): Prompt.RawInput =>
   images.length === 0
