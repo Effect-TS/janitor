@@ -47,20 +47,20 @@ export interface ThreadMessage {
   readonly text: string
 }
 
+/** How `author` is prefixed in thread messages and inline image labels. */
+export const authorLabel = (author: string, kind: AuthorKind): string =>
+  kind === "admitted"
+    ? author
+    : kind === "bot"
+      ? `${author} (a bot, context only)`
+      : `${author} (outside the trusted group, context only)`
+
 /**
  * Thread messages as one block of text, each prefixed with its author.
  * Outsiders and bots are marked as context only.
  */
 export const threadMessages = (messages: ReadonlyArray<ThreadMessage>): string =>
-  messages
-    .map(({ author, kind, text }) =>
-      kind === "admitted"
-        ? `${author}: ${text}`
-        : kind === "bot"
-          ? `${author} (a bot, context only): ${text}`
-          : `${author} (outside the trusted group, context only): ${text}`,
-    )
-    .join("\n\n")
+  messages.map(({ author, kind, text }) => `${authorLabel(author, kind)}: ${text}`).join("\n\n")
 
 /** Where the turn's thread is, for the audience rules. */
 export type ChatAudience = "slack" | "discord"

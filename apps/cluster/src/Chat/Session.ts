@@ -26,6 +26,7 @@ import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import {
+  authorLabel,
   modelInvalidMessage,
   modelSetMessage,
   modelShownMessage,
@@ -281,11 +282,12 @@ const elapsed = (millis: number) => {
 
 const actionCount = (actions: number) => `${actions} action${actions === 1 ? "" : "s"}`
 
-/** The text of a user message, as clanka stores a steer or a prompt. */
+/**
+ * The transcript text of a user message, as clanka stores a steer or a prompt.
+ * A prompt with images carries per-image source labels in later text parts.
+ */
 const userText = (message: Prompt.Message) =>
-  message.role !== "user"
-    ? undefined
-    : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
+  message.role !== "user" ? undefined : message.content.find((part) => part.type === "text")?.text
 
 /** What a turn ended with. */
 interface TurnEnd {
@@ -703,7 +705,13 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
                 ? `[attached: ${path}, an image: open it with readFile to see it]`
                 : `[attached: ${path}]`,
             )
-            if (image) images.push({ name, mediaType: attachment.mediaType, data: saved.success })
+            if (image)
+              images.push({
+                label: `${authorLabel(message.author.name, message.author.class)}: [attached: ${path}]`,
+                name,
+                mediaType: attachment.mediaType,
+                data: saved.success,
+              })
           }
           messages.push({
             author: message.author.name,

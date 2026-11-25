@@ -1090,22 +1090,30 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
   )
 
   it.effect(
-    "an outsider's image-only Discord opener is fetched as context when an admitted user mentions the bot",
+    "an outsider's image-only Discord opener is fetched as context and attributed beside same-named images",
     () =>
       test((harness) =>
         Effect.gen(function* () {
-          const png = new Uint8Array([137, 80, 78, 71])
-          const screenshot = {
+          const juliusPng = new Uint8Array([137, 80, 78, 71, 1])
+          const michaelPng = new Uint8Array([137, 80, 78, 71, 2])
+          const juliusScreenshot = {
             id: "400/700/9001",
             name: "screenshot.png",
             mediaType: "image/png",
-            size: png.length,
+            size: juliusPng.length,
           }
-          harness.platform.files.set("700/9001", png)
+          const michaelScreenshot = {
+            id: "900/800/9002",
+            name: "screenshot.png",
+            mediaType: "image/png",
+            size: michaelPng.length,
+          }
+          harness.platform.files.set("700/9001", juliusPng)
+          harness.platform.files.set("800/9002", michaelPng)
           const opener = yield* harness.message("", {
             author: "Julius",
             class: "outsider",
-            attachments: [screenshot],
+            attachments: [juliusScreenshot],
           })
           const botNote = yield* harness.message("", {
             author: "Effect Bot",
@@ -1113,26 +1121,58 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
           })
           harness.platform.threadHistory = [opener, botNote]
 
-          yield* send(harness, discordThread, "Please file an issue for the screenshot above.", {
+          yield* send(harness, discordThread, "Please compare my screenshot with Julius's above.", {
             author: "Michael",
             mention: true,
+            attachments: [michaelScreenshot],
           })
           yield* modelCalls(harness, 1)
 
-          assert.deepStrictEqual(harness.platform.downloads, ["700/9001"])
-          assert.strictEqual(harness.sandboxes.written.length, 1)
-          const [saved] = harness.sandboxes.written
-          assert.isTrue(saved!.path.endsWith("/screenshot.png"))
-          assert.deepStrictEqual([...saved!.content], [...png])
-          assert.deepStrictEqual(filesSent(harness.model.last), ["image/png"])
+          assert.deepStrictEqual(harness.platform.downloads, ["700/9001", "800/9002"])
+          assert.strictEqual(harness.sandboxes.written.length, 2)
+          const [juliusSaved, michaelSaved] = harness.sandboxes.written
+          assert.isTrue(juliusSaved!.path.endsWith("/screenshot.png"))
+          assert.isTrue(michaelSaved!.path.endsWith("/screenshot.png"))
+          assert.notStrictEqual(juliusSaved!.path, michaelSaved!.path)
+          assert.deepStrictEqual([...juliusSaved!.content], [...juliusPng])
+          assert.deepStrictEqual([...michaelSaved!.content], [...michaelPng])
+
+          const userMessage = harness.model.last.content.find((message) => message.role === "user")
+          assert.isDefined(userMessage)
+          const labeledImages = userMessage!.content.flatMap((part, index) => {
+            if (part.type !== "file") return []
+            const previous = userMessage!.content[index - 1]
+            return [
+              {
+                label: previous?.type === "text" ? previous.text : undefined,
+                mediaType: part.mediaType,
+                bytes: part.data instanceof Uint8Array ? [...part.data] : undefined,
+              },
+            ]
+          })
+          assert.deepStrictEqual(labeledImages, [
+            {
+              label: `Julius (outside the trusted group, context only): [attached: ${juliusSaved!.path}]`,
+              mediaType: "image/png",
+              bytes: [...juliusPng],
+            },
+            {
+              label: `Michael: [attached: ${michaelSaved!.path}]`,
+              mediaType: "image/png",
+              bytes: [...michaelPng],
+            },
+          ])
 
           const prompt = seen(harness.model.last)
           assert.include(
             prompt,
-            `Julius (outside the trusted group, context only): [attached: ${saved!.path}]`,
+            `Julius (outside the trusted group, context only): [attached: ${juliusSaved!.path}]`,
           )
           assert.include(prompt, "Effect Bot (a bot, context only):")
-          assert.include(prompt, "Michael: Please file an issue for the screenshot above.")
+          assert.include(
+            prompt,
+            `Michael: Please compare my screenshot with Julius's above.\n[attached: ${michaelSaved!.path}]`,
+          )
 
           assert.deepStrictEqual(gates(yield* harness.transcript(discordThread)), [
             { _tag: "Context" },
@@ -1423,12 +1463,19 @@ layer(Services, { timeout: "2 minutes" })("chat session entity", (it) => {
 })
 
 describe("landedInputs", () => {
-  const user = (text: string) =>
-    Prompt.makeMessage("user", { content: [Prompt.makePart("text", { text })] })
+  const user = (text: string, ...extra: ReadonlyArray<Prompt.UserMessagePart>) =>
+    Prompt.makeMessage("user", { content: [Prompt.makePart("text", { text }), ...extra] })
   const older = { text: "Ada: yes", ids: ["1"] }
   const newer = { text: "Ada: yes", ids: ["2"] }
 
   it("lands each appended message on one input, the oldest with its text", () => {
     assert.deepStrictEqual(landedInputs([older, newer], [user("Ada: yes")]), [older])
+    assert.deepStrictEqual(
+      landedInputs(
+        [older],
+        [user("Ada: yes", Prompt.makePart("text", { text: "Ada: [attached: /a.png]" }))],
+      ),
+      [older],
+    )
   })
 })

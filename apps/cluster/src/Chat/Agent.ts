@@ -85,14 +85,15 @@ export interface ChatTurnStart {
   readonly mcp?: Layer.Layer<McpServers.McpServers> | undefined
 }
 
-/** An attached image the model sees with the prompt. */
+/** An attached image the model sees with the prompt, preceded by its source label. */
 export interface ChatImage {
+  readonly label: string
   readonly name: string
   readonly mediaType: string
   readonly data: Uint8Array
 }
 
-/** The prompt as one user message: its text, then its images. */
+/** The prompt as one user message: its text, then each image preceded by its source label. */
 const promptWith = (text: string, images: ReadonlyArray<ChatImage>): Prompt.RawInput =>
   images.length === 0
     ? text
@@ -100,13 +101,14 @@ const promptWith = (text: string, images: ReadonlyArray<ChatImage>): Prompt.RawI
         Prompt.makeMessage("user", {
           content: [
             Prompt.makePart("text", { text }),
-            ...images.map((image) =>
+            ...images.flatMap((image) => [
+              Prompt.makePart("text", { text: image.label }),
               Prompt.makePart("file", {
                 mediaType: image.mediaType,
                 fileName: image.name,
                 data: image.data,
               }),
-            ),
+            ]),
           ],
         }),
       ])
