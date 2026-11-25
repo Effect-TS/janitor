@@ -49,6 +49,7 @@ import {
   type ChatImage,
   type ChatLoop,
   type ChatModels,
+  promptText,
 } from "./Agent.ts"
 import { ChatMcpServers } from "./McpServers.ts"
 import { chatMulticaWorkspaceId, chatSessionConfig } from "./Config.ts"
@@ -281,12 +282,6 @@ const elapsed = (millis: number) => {
 
 const actionCount = (actions: number) => `${actions} action${actions === 1 ? "" : "s"}`
 
-/** The text of a user message, as clanka stores a steer or a prompt. */
-const userText = (message: Prompt.Message) =>
-  message.role !== "user"
-    ? undefined
-    : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
-
 /** What a turn ended with. */
 interface TurnEnd {
   readonly status: Exclude<TurnStatus, "running">
@@ -310,7 +305,7 @@ export const landedInputs = (
 ): ReadonlyArray<InFlight> => {
   const landed: Array<InFlight> = []
   for (const message of appended) {
-    const text = userText(message)
+    const text = promptText(message)
     const sent = inFlight.find(
       (candidate) => candidate.text === text && !landed.includes(candidate),
     )
@@ -646,10 +641,10 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
 
     /**
      * Thread messages as the model sees them, each prefixed with its author.
-     * Admitted users' attachments are written into the turn's folder first,
-     * one folder per message, up to 20 MB each, and each message says where
-     * its files are. Images the model takes as input (PNG, JPEG, WebP and
-     * GIF) come back for image input; any other image, SVG among them, is
+     * Attachments are written into the turn's folder first, whoever posted
+     * them, one folder per message, up to 20 MB each, and each message says
+     * where its files are. Images the model takes as input (PNG, JPEG, WebP
+     * and GIF) come back for image input; any other image, SVG among them, is
      * only a file, since the provider rejects the whole request over it. A
      * steer is text only, so a steered image's note says to open it with
      * `readFile`, which shows it to the model.
@@ -667,46 +662,53 @@ const ChatSessionEntityLayer = ChatSession.toLayer(
           const folder = `${ATTACHMENTS_DIRECTORY}/${running.turnId}/${safeName(message.id)}`
           const used = new Set<string>()
           const notes: Array<string> = []
-          if (message.author.class === "admitted")
-            for (const attachment of message.attachments) {
-              if (attachment.size > MAX_ATTACHMENT_BYTES) {
-                notes.push(`[${attachment.name}: not fetched, it is over 20 MB]`)
-                continue
-              }
-              let name = safeName(attachment.name)
-              for (let copy = 2; used.has(name); copy++)
-                name = `${copy}-${safeName(attachment.name)}`
-              used.add(name)
-              const path = `${folder}/${name}`
-              const source = attachmentSource(running.thread, attachment)
-              // Whatever size the platform reported.
-              const transfer = chat
-                .download(source.thread, source.attachment, { maxBytes: MAX_ATTACHMENT_BYTES })
-                .pipe(
-                  // `Chat.download` fails past `maxBytes`.
-                  Stream.mkUint8Array,
-                  Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
-                )
-              // A steer's transfer is capped, so one stalled file doesn't hold
-              // every later steer until the deadline.
-              const saved = yield* (
-                options.steered ? Effect.timeout(transfer, STEERED_TRANSFER_TIMEOUT) : transfer
-              ).pipe(Effect.result)
-              if (saved._tag === "Failure") {
-                yield* Effect.logWarning("Couldn't save a chat attachment in the sandbox").pipe(
-                  Effect.annotateLogs({ reason: saved.failure._tag }),
-                )
-                notes.push(`[${attachment.name}: couldn't be fetched]`)
-                continue
-              }
-              const image = Image.isImageMediaType(attachment.mediaType)
-              notes.push(
-                image && options.steered
-                  ? `[attached: ${path}, an image: open it with readFile to see it]`
-                  : `[attached: ${path}]`,
-              )
-              if (image) images.push({ name, mediaType: attachment.mediaType, data: saved.success })
+          for (const attachment of message.attachments) {
+            if (attachment.size > MAX_ATTACHMENT_BYTES) {
+              notes.push(`[${attachment.name}: not fetched, it is over 20 MB]`)
+              continue
             }
+            let name = safeName(attachment.name)
+            for (let copy = 2; used.has(name); copy++) name = `${copy}-${safeName(attachment.name)}`
+            used.add(name)
+            const path = `${folder}/${name}`
+            const source = attachmentSource(running.thread, attachment)
+            // Whatever size the platform reported.
+            const transfer = chat
+              .download(source.thread, source.attachment, { maxBytes: MAX_ATTACHMENT_BYTES })
+              .pipe(
+                // `Chat.download` fails past `maxBytes`.
+                Stream.mkUint8Array,
+                Effect.flatMap((content) => Effect.as(sandbox.writeFile(path, content), content)),
+              )
+            // A steer's transfer is capped, so one stalled file doesn't hold
+            // every later steer until the deadline.
+            const saved = yield* (
+              options.steered ? Effect.timeout(transfer, STEERED_TRANSFER_TIMEOUT) : transfer
+            ).pipe(Effect.result)
+            if (saved._tag === "Failure") {
+              yield* Effect.logWarning("Couldn't save a chat attachment in the sandbox").pipe(
+                Effect.annotateLogs({ reason: saved.failure._tag }),
+              )
+              notes.push(`[${attachment.name}: couldn't be fetched]`)
+              continue
+            }
+            const image = Image.isImageMediaType(attachment.mediaType)
+            const attached = `[attached: ${path}]`
+            notes.push(
+              image && options.steered
+                ? `[attached: ${path}, an image: open it with readFile to see it]`
+                : attached,
+            )
+            if (image)
+              images.push({
+                label: threadMessages([
+                  { author: message.author.name, kind: message.author.class, text: attached },
+                ]),
+                name,
+                mediaType: attachment.mediaType,
+                data: saved.success,
+              })
+          }
           messages.push({
             author: message.author.name,
             kind: message.author.class,

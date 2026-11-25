@@ -130,6 +130,7 @@ in the sandbox or install an unpinned binary while the image builds.
 - A 👍 (`+1` or `thumbsup`, any skin tone) from an admitted user on one of the bot's messages is an approval. A `reaction_added` event names the message but not its thread, so ingress reads the thread with `conversations.replies`, and ignores the reaction when the message is in no thread or Slack won't show it.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
 - Replies are posted as Markdown with `effect/chat`'s `ChatMarkdown`, split at block boundaries into messages of up to 12,000 characters, a second apart. After three messages, the rest of a reply is uploaded as `reply.md` with the last one. When Slack refuses a reply's files, whatever of it hasn't gone out is posted as text, ending in a note naming the files. The bot's posts never unfurl links. They no longer carry `janitor_output` message metadata: `@effect/chat-slack` has no option for it.
+- Attachments in the thread are fetched for the turn, up to 20 MB each, whoever posted them.
 
 ### Creating the Slack app
 
@@ -173,7 +174,7 @@ The development stack's `janitor-dev` tunnel forwards `/api/v1/webhooks/slack` t
 - A 👍, any skin tone, from an admitted user on one of the bot's messages in a thread with a session is an approval. Admission reads the reaction's `member.roles`, as for a message.
 - A direct message gets a one-line pointer to a channel, and starts nothing.
 - Replies are posted as Markdown with `effect/chat`'s `ChatMarkdown`, split at block boundaries into messages of up to 2,000 characters, with code fences kept balanced. The first one answers the message that started the turn. It mentions the author instead when an approval or the thread's starter message started the turn, and goes out as a plain message when that message was deleted since. After five messages, the rest of a reply is uploaded as `reply.md` with the last one. When Discord refuses a reply's files, whatever of it hasn't gone out is posted as text, ending in a note naming the files. Replies can ping users, never a role, `@everyone` or `@here`. Status messages ping nobody, and no post unfurls links.
-- Attachments from admitted users are fetched from Discord's CDN for the turn, up to 20 MB each.
+- Attachments in the thread are fetched from Discord's CDN for the turn, up to 20 MB each, whoever posted them.
 
 ### The gateway
 
